@@ -48,9 +48,15 @@
   function fingerprint(t) {
     return JSON.stringify(['id','batch_id','txn_date','description','amount','status','clean_merchant','card_name','origin','provider_status','provider_updated_at','currency','qbo_account_id','accounting_treatment','coding_source'].map(k=>t[k]??null));
   }
+  /* A bank-feed row is one that posts against a bank or card account SILO
+     keeps the books for, and that is the origin approval and the daily ledger
+     judge -- a hand-entered day ('manual', 20261103070000) is one of those as
+     much as a delivered one, so every treatment rule here covers both. A csv
+     line is not: it carries no account identity and no direction promise. */
+  const isBankFeedRow=(t)=>t?.origin==='plaid' || t?.origin==='manual';
   // Derive routine treatment from an explicit category choice, never from a merchant guess.
   function inferTreatment(t,type,sourceType) {
-    if(t.origin!=='plaid')return t.accounting_treatment;
+    if(!isBankFeedRow(t))return t.accounting_treatment;
     if(!t.qbo_account_id)return 'unknown';
     if(['Other Current Asset','Other Current Liability'].includes(type))
       return ['transfer','payroll_settlement','shopify_settlement'].includes(t.accounting_treatment)?t.accounting_treatment:'transfer';
@@ -83,7 +89,7 @@
      set. null when the row is not blocking. The reason is what Transactions
      shows, so a person learns it while tagging rather than as an Entry block. */
   function treatmentGap(t,type,sourceType,isSplit) {
-    if(t.origin!=='plaid' || t.status!=='coded' || (t.accounting_treatment && t.accounting_treatment!=='unknown'))return null;
+    if(!isBankFeedRow(t) || t.status!=='coded' || (t.accounting_treatment && t.accounting_treatment!=='unknown'))return null;
     const gap=treatmentGapReason(t,type,sourceType,isSplit);
     return {...gap,choices:isSplit?[]:allowedTreatments(t,type,sourceType)};
   }
@@ -109,5 +115,5 @@
       card_payment:['Credit Card','Accounts Payable']};
     return (types[treatment] || []).includes(matches[0].type)?matches[0]:null;
   }
-  window.SiloTransactionDates={suggestionAccount,inferTreatment,allowedTreatments,treatmentGap,preset,valid,read,summary,preferences,fingerprint};
+  window.SiloTransactionDates={suggestionAccount,isBankFeedRow,inferTreatment,allowedTreatments,treatmentGap,preset,valid,read,summary,preferences,fingerprint};
 })();

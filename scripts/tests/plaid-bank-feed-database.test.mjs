@@ -1196,6 +1196,89 @@ try {
       'only the first raised a review; the second simply landed');
   });
 
+  // Resolving the exception does not dissolve the association. The placeholder
+  // is still 'manual' with no external id, so the rest of its life depends on
+  // claimed_external_transaction_id having been recorded when the exception was
+  // first raised. Resolution here is done in SQL -- the real
+  // resolve_plaid_exception on a POSTED batch demands a posted correction
+  // journal, and what matters downstream is only that the exception is no
+  // longer open.
+  const frozenPlaceholder = async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    return { account, placeholder };
+  };
+  const resolveAll = (account) => db.query(
+    `update plaid_sync_exceptions set status='resolved',resolved_at=now() where account_id=$1 and status='open'`, [account.id]);
+  const openCount = (account) => scalar(
+    `select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+
+  await test('once the change is reviewed, the same transaction redelivered is a no-op, not a second review', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    assert.equal(await scalar('select claimed_external_transaction_id from card_transactions where id=$1', [placeholder.id]),
+      provider.transaction_id, 'the row records which provider transaction it stands for');
+    await resolveAll(account);
+    assert.equal(await openCount(account), 0);
+
+    // Plaid redelivers the same transaction, unchanged, on the next sync.
+    await apply(account, { modified: [provider] });
+    assert.equal(await openCount(account), 0, 'nothing is raised again');
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'manual'); assert.equal(row.description, 'Typed and posted');
+    assert.equal((await rowsFor(account)).length, 1, 'and no second copy of it lands');
+    // And the feed keeps flowing, which is the thing an aborted sync loses.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-22', amount: 11, name: 'Later' })] });
+    assert.equal((await rowsFor(account)).length, 2);
+  });
+
+  await test('after review, a genuine change to the same transaction is reviewed against what was last reviewed', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    await resolveAll(account);
+    await apply(account, { modified: [{ ...provider, name: 'RENAMED AFTER REVIEW' }] });
+    assert.equal(await openCount(account), 1, 'a real change still reaches the queue');
+    const exception = await first(`select * from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+    assert.equal(exception.transaction_id, placeholder.id);
+    assert.equal(exception.provider_payload.name, 'RENAMED AFTER REVIEW');
+    assert.equal(exception.previous_payload.name, 'THE REAL ONE',
+      'and it is read against the facts the person last saw, not against the typed-in row');
+  });
+
+  await test('after review, a different provider transaction of the same amount never reuses the placeholder', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'First' })] });
+    await resolveAll(account);
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'Second' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 2, 'the second transaction gets its own row');
+    assert.equal(rows.filter((row) => row.id === placeholder.id && row.origin === 'manual').length, 1,
+      'the posted row is still untouched');
+    assert.equal(rows.filter((row) => row.origin === 'plaid' && row.description === 'Second').length, 1);
+    assert.equal(await openCount(account), 0, 'and it raises nothing: it is simply a new transaction');
+  });
+
+  await test('if the batch is reopened, the association is spent by the claim it was holding', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    await resolveAll(account);
+    await db.query("update card_import_batches set status='draft' where id=$1", [placeholder.batch_id]);
+    await apply(account, { modified: [provider] });
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'plaid', 'the claim finally happens');
+    assert.equal(row.external_transaction_id, provider.transaction_id);
+    assert.equal(row.claimed_external_transaction_id, null, 'and the provisional record of it is spent');
+    assert.equal(row.qbo_account_id, placeholder.qbo_account_id ?? row.qbo_account_id, 'the coding is still there');
+    assert.equal((await rowsFor(account)).length, 1, 'with no second copy beside it');
+  });
+
   // The treatment is part of the review, not of the provider's facts, and for
   // a depository account the provider never supplies one. Overwriting it on
   // claim leaves a row that reads 'coded' but that approval and the ledger

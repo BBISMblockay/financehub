@@ -728,7 +728,7 @@
 <script src="plaid-bank-feed.js?v=d57e9ce46414"></script>
 <script src="finance-dialog.js"></script>
 <script src="bank-workspace.js?v=a4cb679d3778"></script>
-<script src="transaction-dates.js?v=539c17689a07"></script>
+<script src="transaction-dates.js?v=72614f733dd3"></script>
 <script src="coding-suggestions.js?v=08bc45603fb5"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
 <script src="card-splits.js?v=36d70b144fb9"></script>
@@ -1450,6 +1450,7 @@
   const rowNeedsVendor = (t) => entityIssuesOnRow(t).has('vendor');
   const rowNeedsCustomer = (t) => entityIssuesOnRow(t).has('customer');
   // Why a categorized bank row has no type yet, and what SILO would set.
+  const isBankFeedRow = (t) => window.SiloTransactionDates.isBankFeedRow(t);
   const treatmentGapFor = (t) => window.SiloTransactionDates.treatmentGap(t, acctType(t.qbo_account_id),
     batchSource()?.source_type, isSplit(t));
   // Label for the Type column: stored value, chart-aware infer, then money in/out.
@@ -1461,7 +1462,7 @@
       batchSource()?.source_type,
     );
     if (inferred !== 'unknown') return inferred;
-    if (t.origin !== 'plaid' || isSplit(t)) return 'unknown';
+    if (!isBankFeedRow(t) || isSplit(t)) return 'unknown';
     const n = Number(t.amount);
     if (n > 0) return 'purchase';
     if (n < 0) return 'deposit';
@@ -2048,7 +2049,7 @@
       t.entity_type = rule.entity_type || null;
       t.vendor_name = rule.vendor_name || t.vendor_name;
       // A rule saved without a type no longer blanks one the category implies.
-      if (t.origin === 'plaid') t.accounting_treatment = (rule.accounting_treatment && rule.accounting_treatment !== 'unknown')
+      if (isBankFeedRow(t)) t.accounting_treatment = (rule.accounting_treatment && rule.accounting_treatment !== 'unknown')
         ? rule.accounting_treatment
         : window.SiloTransactionDates.inferTreatment({ ...t, accounting_treatment: 'unknown' }, acctType(t.qbo_account_id), batchSource()?.source_type);
       t.coding_source = 'rule';
@@ -2334,7 +2335,7 @@
     const importCount = dateBrowse ? reviewDateRows().length : (state.txns?.length || 0);
     const journalLabel = dateBrowse ? 'Review import journal' : `Review full import journal (${importCount} rows)`;
     return `<section class="txn-explanation"><h3>${suggestedCategory ? 'Suggested category' : 'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p class="txn-detail-description">${t.origin === 'plaid' && !bank.isAvailable(t) ? esc(providerNote(t)) + ' · ' : ''}${esc(t.description)}</p><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-raw>Source details</button><button class="bcn-btn" type="button" data-journal title="Opens the Journal entry preview for this entire import — every row in the batch, not just this transaction">${esc(journalLabel)}</button><button class="bcn-btn" type="button" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></div></section>
-        <section><h3>Accounting details</h3>${(line => line ? `<p class="txn-qbo-state"><b>QuickBooks</b> ${esc(line)}</p>` : '')(quickbooksStateLine(t))}${t.origin === 'plaid' ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
+        <section><h3>Accounting details</h3>${(line => line ? `<p class="txn-qbo-state"><b>QuickBooks</b> ${esc(line)}</p>` : '')(quickbooksStateLine(t))}${isBankFeedRow(t) ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
   }
 
   function renderTxnDetailDrawer() {
@@ -2679,7 +2680,7 @@
   }
 
   function treatmentCell(t) {
-    if (t.origin !== 'plaid') return '<span class="txn-col-empty">—</span>';
+    if (!isBankFeedRow(t)) return '<span class="txn-col-empty">—</span>';
     const gap = treatmentGapFor(t);
     if (rowEditable(t) && gap) {
       const hint = gap.suggested
@@ -3751,7 +3752,7 @@
 
     const confirmed = workingRows().filter((t) =>
       t.status === 'coded' && t.qbo_account_id && bank.isAvailable(t)
-      && (t.origin !== 'plaid' || t.accounting_treatment !== 'unknown')
+      && (!isBankFeedRow(t) || t.accounting_treatment !== 'unknown')
       && (t.coding_source === 'manual' || t.coding_source === 'ai'));
 
     // Merchant rules. Conflicting codings for one merchant teach nothing

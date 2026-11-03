@@ -7084,6 +7084,12 @@ select case
   then 'STALE: the feed does not claim hand-entered rows, so a delivered day would duplicate; apply 20261103070000'
  when pg_get_functiondef(to_regprocedure('public.plaid_guard_transaction()')) not like '%Hand-entered feed days are server-owned%'
   then 'STALE: the row guard still lets a browser invent a hand-entered day; apply 20261103070000'
+ when not exists (select 1 from information_schema.columns
+   where table_schema='public' and table_name='card_transactions' and column_name='claimed_external_transaction_id')
+   or not exists (select 1 from pg_class where relname='uq_plaid_claimed_identity' and relkind='i')
+  then 'STALE: a hand-entered row posted into the books cannot record which provider transaction it stands for, so every redelivery of it would raise a new exception; apply 20261103070000'
+ when pg_get_functiondef(to_regprocedure('public.silo_ledger_blocker(uuid)')) not like '%''plaid'', ''manual''%'
+  then 'STALE: the daily ledger still judges only delivered rows, so a hand-entered row could reach QuickBooks with no accounting treatment; apply 20261103070000'
  else 'ok' end as status;
 
 -- ── End of Plaid fixture checks ─────────────────────────────────────────────

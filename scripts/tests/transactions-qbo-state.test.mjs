@@ -30,7 +30,7 @@ const EXPOSE = [
   'quickbooksStateLine', 'quickbooksStepDetail', 'periodLabel', 'isInQuickBooks',
   'periodClosed', 'savedCodingMessage', 'renderWorkflow', 'accountingStateLine',
   'transactionDetailInner', 'postingUnsettled', 'claimStateFor', 'loadPostingClaims',
-  'handledOutsideSilo', 'preCutoverRows',
+  'handledOutsideSilo', 'preCutoverRows', 'treatmentCell',
 ].join(', ');
 
 /* Enough DOM and enough of the page's siblings for the presentation functions.
@@ -233,6 +233,28 @@ test('the transaction panel renders the QuickBooks state, labelled apart from SI
   assert.match(html, /QuickBooks<\/b>/);
   assert.match(html, /Not sent to QuickBooks/);
   assert.match(html, /July 2026/);
+});
+
+/* Approval and the daily ledger judge a hand-entered feed day ('manual',
+   20261103070000) by the same rules as a delivered one, treatment included.
+   If the panel offers no type control for it, there is no route by which it
+   can ever be approved -- it reads 'coded' for ever. The helpers passing is
+   not enough: this runs the shipped template. */
+test('a hand-entered feed day is offered the same transaction type control as a delivered one', () => {
+  const h = harness({ batch: batch(), sources: [SOURCE] });
+  const hand = row({ origin: 'manual', accounting_treatment: 'unknown', manual_entered_at: '2026-10-29T12:00:00Z' });
+  const html = h.api.transactionDetailInner(hand);
+  assert.match(html, /data-field="treatment"/, 'the type picker renders');
+  assert.match(html, /txn-treatment-detail/);
+  assert.match(html, /cc-note/, 'and the gap says why it is still blocking');
+  // The delivered row is the reference: the same control, same markup.
+  assert.match(h.api.transactionDetailInner(row({ origin: 'plaid', accounting_treatment: 'unknown' })), /data-field="treatment"/);
+  // A csv line is not a bank row and still gets none: it carries no account
+  // identity and approval asks no treatment of it.
+  assert.doesNotMatch(h.api.transactionDetailInner(row({ origin: 'csv' })), /data-field="treatment"/);
+  // And the table column, which is where it is tagged in bulk.
+  assert.match(h.api.treatmentCell(hand), /data-field="treatment"|txn-type-select/);
+  assert.match(h.api.treatmentCell(row({ origin: 'csv' })), /txn-col-empty/);
 });
 
 test('the panel keeps SILO\'s state and QuickBooks\' state as two separate statements', () => {

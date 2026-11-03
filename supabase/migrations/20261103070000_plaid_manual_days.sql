@@ -24,7 +24,23 @@
 
 alter table public.card_transactions
   add column if not exists manual_entered_at timestamptz,
-  add column if not exists manual_entered_by uuid references auth.users(id);
+  add column if not exists manual_entered_by uuid references auth.users(id),
+  add column if not exists claimed_external_transaction_id text;
+
+-- One placeholder, one provider transaction, for ever -- independently of
+-- whether anybody has reviewed the change yet. A placeholder frozen in a
+-- posted batch can never become a 'plaid' row (nothing may rewrite a posted
+-- row), so without a record of WHICH provider transaction it stands for, the
+-- association would live only in an open plaid_sync_exceptions row and would
+-- disappear the moment that exception was resolved: the next redelivery of the
+-- same transaction would raise another exception, and a different provider
+-- transaction of the same amount could claim the same placeholder.
+create unique index if not exists uq_plaid_claimed_identity
+  on public.card_transactions (plaid_account_id, claimed_external_transaction_id)
+  where claimed_external_transaction_id is not null;
+
+comment on column public.card_transactions.claimed_external_transaction_id is
+  'The provider transaction a hand-entered row stands for, recorded when the feed delivered it against a row already frozen in the books. Outlives the review of that change, so a redelivery is a no-op instead of a second exception. Null on everything else, including a placeholder the feed claimed outright -- that row carries external_transaction_id.';
 
 comment on column public.card_transactions.manual_entered_at is
   'When a human typed this row in because the bank feed had not delivered its day. Survives the provider claiming the row, so a transaction that entered the books by hand stays identifiable after the feed confirms it. Null for everything else.';
@@ -220,21 +236,60 @@ begin
       return jsonb_build_object('exception',true,
         'batch_id',(select batch_id from public.card_transactions where id=v_exception.transaction_id));
     end if;
-    -- A placeholder an open exception already speaks for is spoken for: a
-    -- second provider transaction of the same amount is a different
-    -- transaction and must land on its own row, not contest a claimed one.
+    -- Resolving that exception does not dissolve the association. The posted
+    -- placeholder stays 'manual' with no external id, so without a durable
+    -- record of which provider transaction it stands for, the next redelivery
+    -- would raise the exception all over again -- the same wedge, one review
+    -- later. claimed_external_transaction_id is that record, and this lookup
+    -- is what makes a redelivery after review a no-op.
+    select * into v_manual from public.card_transactions t
+      where t.plaid_account_id=p_account_id
+        and t.claimed_external_transaction_id=v_payload->>'transaction_id' for update;
+    if v_manual.id is not null then
+      select * into v_batch from public.card_import_batches where id=v_manual.batch_id for update;
+      if v_batch.status not in ('draft','categorized') then
+        -- Compare against the facts last put in front of a person for THIS
+        -- transaction, whatever became of that review. Unchanged is silence;
+        -- a genuine change is a new review against what was last reviewed.
+        select * into v_exception from public.plaid_sync_exceptions
+          where account_id=p_account_id and external_transaction_id=v_payload->>'transaction_id'
+          order by created_at desc,id desc limit 1;
+        if v_exception.id is not null and v_exception.provider_payload is not distinct from v_payload then
+          return jsonb_build_object('transaction_id',v_manual.id,'batch_id',v_manual.batch_id,
+            'claimed_manual_entry',true,'changed',false);
+        end if;
+        insert into public.plaid_sync_exceptions(company_entity_id,account_id,transaction_id,external_transaction_id,
+          previous_payload,provider_payload,status)
+          values(v_account.company_entity_id,p_account_id,v_manual.id,v_payload->>'transaction_id',
+            coalesce(v_exception.provider_payload,jsonb_build_object('_silo_manual_entry',true,'date',v_manual.txn_date,
+              'amount',v_manual.amount,'name',v_manual.description)),v_payload,'open');
+        return jsonb_build_object('exception',true,'batch_id',v_manual.batch_id);
+      end if;
+      -- The batch was reopened since, so the claim can finally happen: fall
+      -- through to it with this row, and the association is spent.
+    else
+    -- A placeholder an open exception already speaks for, or one already
+    -- recorded against another provider transaction, is spoken for: a second
+    -- provider transaction of the same amount is a different transaction and
+    -- must land on its own row, not contest a claimed one.
     select * into v_manual from public.card_transactions t
       where t.plaid_account_id=p_account_id and t.origin='manual' and t.amount=v_amount
         and t.txn_date between v_date-3 and v_date+3
+        and t.claimed_external_transaction_id is null
         and not exists(select 1 from public.plaid_sync_exceptions e
           where e.account_id=p_account_id and e.transaction_id=t.id and e.status='open')
       order by abs(t.txn_date-v_date),t.row_no limit 1 for update;
+    end if;
     if v_manual.id is not null then
       select * into v_batch from public.card_import_batches where id=v_manual.batch_id for update;
       -- A placeholder already in the books cannot be rewritten from under an
       -- approved entry. Raise the same exception a provider change on a posted
       -- row raises, so it reaches the review queue instead of the ledger.
       if v_batch.status not in ('draft','categorized') then
+        -- Record which provider transaction this row stands for BEFORE the
+        -- exception, so the association survives the review of it.
+        update public.card_transactions set claimed_external_transaction_id=v_payload->>'transaction_id'
+          where id=v_manual.id;
         insert into public.plaid_sync_exceptions(company_entity_id,account_id,transaction_id,external_transaction_id,
           previous_payload,provider_payload,status)
           values(v_account.company_entity_id,p_account_id,v_manual.id,v_payload->>'transaction_id',
@@ -266,6 +321,10 @@ begin
         last4=v_account.mask,
         status=case when v_status='uncoded' and v_manual.status in ('coded','excluded') then v_manual.status else v_status end,
         exclude_reason=case when v_status='uncoded' and v_manual.status='excluded' then v_manual.exclude_reason else v_reason end,
+        -- external_transaction_id now holds the identity, so the provisional
+        -- record of it is spent. Leaving it set would keep a second unique key
+        -- on the same pair for no reason.
+        claimed_external_transaction_id=null,
         updated_at=now()
         where id=v_manual.id;
       v_id:=v_manual.id;
@@ -403,6 +462,19 @@ declare v_batch public.card_import_batches%rowtype; v_source public.card_sources
       and b.source_id=v_batch.source_id and b.company_entity_id=v_batch.company_entity_id for update;
     if not found then raise exception 'Provider date changes can move only between mutable batches of the same source'; end if;
   end if;
+  -- One narrow exception to immutability, server-only and once per row: a
+  -- placeholder frozen in a posted batch may record WHICH provider transaction
+  -- the feed delivered against it. Nothing about the row's money, dates, text
+  -- or coding may move with it -- the whole rest of the row must be identical
+  -- -- and it may only go from unset to set. Without this the association
+  -- could not be stored at all, and a redelivery after review would raise the
+  -- same exception for ever.
+  if tg_op='UPDATE' and current_user not in ('anon','authenticated')
+    and old.origin='manual' and old.claimed_external_transaction_id is null
+    and new.claimed_external_transaction_id is not null
+    and (to_jsonb(new)-'claimed_external_transaction_id'-'updated_at'-'updated_by')
+      = (to_jsonb(old)-'claimed_external_transaction_id'-'updated_at'-'updated_by')
+  then return new; end if;
   if v_batch.status not in ('draft','categorized') then raise exception 'Approved or posted transactions are immutable; reopen or correct the entry'; end if;
   -- Serialize CSV imports with source rebinding before consulting authority.
   select * into v_source from public.card_sources where id=v_batch.source_id for share;
@@ -416,9 +488,9 @@ declare v_batch public.card_import_batches%rowtype; v_source public.card_sources
     if tg_op='INSERT' and new.origin='manual' then raise exception 'Hand-entered feed days are server-owned'; end if;
     if tg_op='UPDATE' and (old.origin='manual' or new.origin='manual') and
       (new.origin,new.plaid_account_id,new.txn_date,new.amount,new.currency,new.description,new.company_entity_id,
-       new.manual_entered_at,new.manual_entered_by)
+       new.manual_entered_at,new.manual_entered_by,new.claimed_external_transaction_id)
       is distinct from (old.origin,old.plaid_account_id,old.txn_date,old.amount,old.currency,old.description,old.company_entity_id,
-       old.manual_entered_at,old.manual_entered_by) then
+       old.manual_entered_at,old.manual_entered_by,old.claimed_external_transaction_id) then
       raise exception 'Hand-entered feed day data is server-owned';
     end if;
     if tg_op='UPDATE' and (old.origin='plaid' or new.origin='plaid') and
