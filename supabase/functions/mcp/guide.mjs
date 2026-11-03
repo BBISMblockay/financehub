@@ -69,7 +69,7 @@ const RULES = [
   'connector). list_connections shows them; describe_connection lists every field the source offers;',
   'query_connection reads it live for up to 800 days; for trends or year over year pass rollup month or total',
   '(never sum a rate). Use them for what is connected, fields SILO does not store, or the newest days. Stored',
-  'copies (klaviyo_performance_daily, windsor_metrics_daily, marketing_kpis_daily where source is windsor) are',
+  'copies (klaviyo_performance_daily, connected_source_metrics_daily_v, and marketing_kpis_daily for ad platforms) are',
   'only as fresh as the last nightly sync and join with SILO\'s own tables. Say which one a number came from.',
   'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
   'that has not landed. Never fill a blank with 0, average over it, or call it a decline.',

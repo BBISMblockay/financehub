@@ -336,7 +336,7 @@ export function chooseMeasures(dsId, catalog, overrides = {}) {
 }
 
 
-export const IDENTITY_ERROR = 'Windsor returned rows whose account identity could not be verified. No data from this response was used. Verify the selector-to-resource relationship before retrying.';
+export const IDENTITY_ERROR = 'The source returned rows whose account identity could not be verified. No data from this response was used. Verify the selector-to-resource relationship before retrying.';
 
 /** Validate EVERY response, including metric batches, before merging or writing.
  * A selector is not evidence of ownership of a differently identified resource.

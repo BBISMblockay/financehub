@@ -19459,4 +19459,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261103190000. No deploy; the reconciler runs from the Integration reconcile
 -- workflow. Before the catalog cleanup.
 \i migrations/20261103220000_integration_feed_health.sql
+-- 20261103233717: neutral view connected_source_metrics_daily_v, vendor-named
+-- tables hidden from the chat catalog / MCP allowlist, descriptions rewritten
+-- without the vendor's name. Needs 20261103080000. No deploy.
+\i migrations/20261103233717_connected_sources_neutral_names.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

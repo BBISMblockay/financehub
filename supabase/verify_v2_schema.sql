@@ -8443,6 +8443,17 @@ select 'Windsor live MCP activity' as check_name,
           < strpos(p.prosrc,'perform public.silo_api_touch_grant();'))
   then 'ok' else 'MISSING: run 20261103230000_windsor_live_mcp_activity.sql (live MCP use does not record activity)' end as status;
 
+-- 20261103233717: bots see connected sources under neutral names only.
+select 'connected sources neutral names' as check_name,
+  case when to_regclass('public.connected_source_metrics_daily_v') is not null
+    and exists (select 1 from pg_class where oid='public.connected_source_metrics_daily_v'::regclass
+                and 'security_invoker=true' = any(reloptions))
+    and exists (select 1 from public.silo_chat_schema_catalog where relname='connected_source_metrics_daily_v' and not is_hidden)
+    and not exists (select 1 from public.silo_chat_schema_catalog
+                     where not is_hidden and (relname ilike '%windsor%' or description ilike '%windsor%'
+                       or keywords::text ilike '%windsor%'))
+  then 'ok' else 'MISSING: run 20261103233717_connected_sources_neutral_names.sql (a connected AI sees the vendor name)' end as status;
+
 -- ── Feed health, the surface that makes a stalled sync visible (20261103220000) ──
 -- A missing table or a widened policy here is worse than no surface at all: a
 -- freshness card that cannot be trusted is read as reassurance. The report's
