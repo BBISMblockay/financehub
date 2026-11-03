@@ -353,7 +353,9 @@
         // nothing SILO is missing. Saying so points at the next step instead
         // of leaving someone pressing the same button.
         status(Number(result.imported) === 0
-          ? `Nothing to import. The bank offered ${Number(result.examined)} transaction(s) for ${result.start_date} to ${result.end_date} and SILO already had every one. If days are still missing, ask the bank to re-fetch.`
+          ? `Nothing to import. The bank offered ${Number(result.examined)} transaction(s) for ${result.start_date} to ${result.end_date} and SILO already had every one. ${refreshUnsupported.has(accountId)
+            ? 'If days are still missing, only the bank can close that gap: this Plaid plan cannot ask it to re-fetch.'
+            : 'If days are still missing, ask the bank to re-fetch.'}`
           : `Imported ${Number(result.imported)} transaction(s) SILO was missing, ${result.start_date} to ${result.end_date}. Nothing already imported was changed.`, 'pos');
         if (Number(result.imported) > 0 && result.batch_ids.length === 1) await openBatch(result.batch_ids[0]);
       });

@@ -334,6 +334,22 @@ await test('a Plaid plan without Transactions Refresh stops offering the re-fetc
   assert.match(html, /handed over nothing for 7 days/);
   assert.doesNotMatch(html, /wait about a minute/);
 });
+await test('after the add-on is known missing, an empty import stops recommending re-fetch', async () => {
+  const h = harness({ refreshResult: { error: 'Transactions is not enabled for this Plaid configuration.', code: 'INVALID_PRODUCT' },
+    backfillResult: { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 146, imported: 0, batch_ids: [], exceptions: 0 } });
+  await h.controller.load();
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-backfill]') });
+  const message = h.statuses.at(-1).message;
+  assert.match(message, /already had every one/);
+  assert.doesNotMatch(message, /ask the bank to re-fetch/i, 'the recovery must not point back at the withdrawn action');
+  assert.match(message, /only the bank can close that gap/);
+  // The same result on a plan that does have the add-on still points there.
+  const able = harness({ backfillResult: { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 146, imported: 0, batch_ids: [], exceptions: 0 } });
+  await able.controller.load();
+  await able.el('bankAccounts').fire('click', { target: target(able.row, '[data-bank-backfill]') });
+  assert.match(able.statuses.at(-1).message, /ask the bank to re-fetch/i);
+});
 await test('a re-fetch failure that is not the missing add-on keeps the button', async () => {
   const h = harness({ refreshResult: { error: 'The bank is temporarily unavailable. Try again later.', code: 'INSTITUTION_DOWN' } });
   await h.controller.load();
