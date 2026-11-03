@@ -106,7 +106,7 @@ async function readJson(fetchImpl, url, timeoutMs = LIVE_TIMEOUT_MS) {
     } finally { reader.releaseLock(); }
   } catch (_) {
     // Never echo vendor text, URLs, keys, headers or raw transport errors.
-    throw new Error('Windsor could not return a bounded response. Try fewer fields or a shorter range.');
+    throw new Error('The source could not return a bounded response in time. Try fewer fields or a shorter range.');
   }
 }
 
@@ -123,7 +123,7 @@ export async function liveFields({ connection, fetchImpl }) {
   const source = sourceOf(connection);
   const body = await readJson(fetchImpl, `${WINDSOR_CONNECTORS}/${source}/fields`);
   const rows = Array.isArray(body) ? body : rowsOf(body);
-  if (!rows) throw new Error('Windsor did not return a field catalog.');
+  if (!rows) throw new Error('The source did not return a field catalog.');
   const fields = normalizeFields(rows).map(f => ({...f,type:f.type.slice(0,64)}));
   if (!fields.some(f => f.id === 'account_id')) {
     throw new Error('This source has no verifiable account identity field. Live access is unavailable.');
@@ -132,7 +132,7 @@ export async function liveFields({ connection, fetchImpl }) {
 }
 
 export async function liveQuery({ connection, fields, datePreset, dateFrom, dateTo, rollup = 'none', fetchImpl, key, now }) {
-  if (!key) throw new Error('Live Windsor access is not configured.');
+  if (!key) throw new Error('Live access to connected sources is not configured.');
   const source = sourceOf(connection);
   const parsed = parseFields(fields.join(','));
   const range = parseLiveRange({ datePreset, dateFrom, dateTo, now });
@@ -158,7 +158,7 @@ export async function liveQuery({ connection, fields, datePreset, dateFrom, date
   const options = previewOptions(source); if (options) url.searchParams.set('options',options);
   const body = await readJson(fetchImpl, url.toString(), rolled ? LIVE_ROLLUP_TIMEOUT_MS : LIVE_TIMEOUT_MS);
   const rows = rowsOf(body);
-  if (!rows || (!Array.isArray(body) && body.error)) throw new Error('Windsor did not return data rows.');
+  if (!rows || (!Array.isArray(body) && body.error)) throw new Error('The source did not return data rows.');
   // Validate ALL rows, including ones outside the display limit, before release.
   const { kept, foreign, unattributed } = filterRowsToAccount(rows, connection.account_id, connection.source);
   if (foreign || unattributed) throw new Error(IDENTITY_ERROR);
