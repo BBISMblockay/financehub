@@ -181,12 +181,12 @@ test('a forged or expired token, which only PostgREST can detect, is also a 401'
 
 // ── 4. tools ───────────────────────────────────────────────────────────────
 
-test('four tools, all read-only, and listing them reads no data', async () => {
+test('stored and live tools are read-only; listing tools reads no data', async () => {
   const { handle, calls } = harness();
   const body = await (await handle(post(rpc('tools/list')))).json();
   // how_to_use_silo is the training layer's own tool and reads no data
   // (supabase/functions/mcp/guide.mjs, scripts/tests/mcp-guide.test.mjs).
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_reports', 'run_report', 'describe_tables', 'query', 'how_to_use_silo']);
+  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'how_to_use_silo']);
   for (const t of body.result.tools) assert.equal(t.annotations.readOnlyHint, true, t.name);
   for (const t of TOOLS) assert.equal(t.annotations.readOnlyHint, true, t.name);
   assert.equal(calls.length, 0);
@@ -325,7 +325,7 @@ test('decodeRefusal reads both the gate\'s JSON shape and a plain prefixed excep
 
 // ── 6. the server holds no authority of its own ────────────────────────────
 
-test('the function never reaches for the service role, and talks to nothing but the four RPCs', () => {
+test('the function never reaches for the database service role; live access adds only a scoped resolver RPC', () => {
   for (const f of ['handler.mjs', 'index.ts']) {
     const src = read(`supabase/functions/mcp/${f}`);
     assert.ok(!/SERVICE_ROLE|service_role|serviceRole/.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
@@ -335,7 +335,7 @@ test('the function never reaches for the service role, and talks to nothing but 
   const src = read('supabase/functions/mcp/handler.mjs');
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
-    ['silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query', 'silo_api_run_report']);
+    ['silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query', 'silo_api_run_report', 'silo_api_windsor_connections']);
 });
 
 test('the claims reader is the shared gate, byte for byte', () => {

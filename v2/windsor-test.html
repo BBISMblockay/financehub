@@ -79,11 +79,12 @@
 
       <section class="bcn-card">
         <div class="bcn-card-header">
-          <span>2. Accounts connected for this company</span>
+          <span>2. Company connections · sync and LLM access</span>
           <button class="bcn-btn bcn-btn--ghost" id="reconcileBtn">Refresh from Windsor</button>
         </div>
         <div class="bcn-card-body">
           <p class="wt-muted">New accounts start paused. Sync requires a supported dataset; other sources can be previewed while their schema and row identity are reviewed. Pause applies to subsequent runs; a run already in progress may finish.</p>
+          <p class="wt-muted">LLM access is separate from sync. Allowing it lets this company’s approved SILO AI connections with data access query this account live, read-only. Source rows are not saved. Use one SILO MCP connection in a compatible AI client; no Windsor key is shared.</p>
           <div class="wt-summary" id="reconcileSummary" hidden></div>
           <div class="wt-scroll">
             <table class="bcn-table">
@@ -258,9 +259,16 @@
   // ── 2. Accounts, read through RLS ───────────────────────────────────────
   let selected = null;
   async function loadAccounts() {
-    const { data, error } = await db.from('windsor_linked_accounts')
-      .select('id, ds_id, account_id, account_name, last_seen_at, last_sync_status, last_synced_at, history_from, refused_fields, last_sync_error, sync_enabled')
+    const columns = 'id, ds_id, account_id, account_name, last_seen_at, last_sync_status, last_synced_at, history_from, refused_fields, last_sync_error, sync_enabled';
+    const readAccounts = (withMcp) => db.from('windsor_linked_accounts')
+      .select(columns + (withMcp ? ', mcp_enabled' : ''))
       .eq('company_entity_id', co.id).order('ds_id').order('account_id');
+    let {data,error} = await readAccounts(true);
+    // During rollout retain existing connect/preview/sync actions; no fallback
+    // can enable LLM access without the publication column.
+    if (error?.code === '42703' && String(error.message).includes('mcp_enabled')) {
+      ({data,error} = await readAccounts(false));
+    }
     const tbody = $('accounts');
     tbody.replaceChildren();
     const msgRow = (text) => {
@@ -288,6 +296,25 @@
       } else syncTd.textContent = 'not synced yet';
       tr.appendChild(syncTd);
       const td = document.createElement('td');
+      const llm = document.createElement('button'); llm.className = 'bcn-btn bcn-btn--ghost';
+      const canPublish = typeof a.mcp_enabled === 'boolean';
+      llm.textContent = !canPublish ? 'LLM update required' : a.mcp_enabled ? 'Disable LLM access' : 'Allow LLM access';
+      llm.disabled = !canPublish;
+      let llmArmed = false;
+      llm.addEventListener('click', () => {
+        if (!a.mcp_enabled && !llmArmed) {
+          llmArmed = true; llm.textContent = 'Confirm LLM access';
+          setTimeout(() => { llmArmed=false; llm.textContent='Allow LLM access'; },4000);
+          return;
+        }
+        busy(llm, async () => {
+          const out = await broker({action:'set_mcp',linked_account_id:a.id,enabled:!a.mcp_enabled});
+          if (typeof out.mcp_enabled !== 'boolean') throw new Error('Could not confirm LLM access. Reload connections.');
+          setStatus(out.mcp_enabled ? 'LLM access enabled for this account. Live queries still verify account identity.' : 'LLM access disabled for this account.', 'pos');
+          await loadAccounts();
+        });
+      });
+      td.append(llm,document.createTextNode(' '));
       const sync = document.createElement('button'); sync.className = 'bcn-btn bcn-btn--ghost';
       const supported = ['tiktok', 'klaviyo'].includes(a.ds_id);
       const hasConsent = typeof a.sync_enabled === 'boolean';

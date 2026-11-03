@@ -3065,3 +3065,5 @@ it). Verified by the "Freight bookings above the shipment" check in
 `scripts/tests/shipment-booking-arrival-database.test.mjs`.
 
 - `20261103201000_windsor_sync_consent.sql`: new Windsor accounts start paused; one-time enablement of existing successful TikTok/Klaviyo accounts. Apply before scheduler rollout; does not alter schedules.
+
+- `20261103210000_windsor_live_mcp.sql`: default-off live LLM publication, grant-company RLS resolver, no stored source rows. Deploy `mcp` and `windsor-broker` separately with approval.

@@ -1,193 +1,115 @@
-# Windsor → LLM / MCP connectors
+# Windsor LLM / MCP connectors
 
 ## Product boundary
 
-Blake's goal is connect → save company data → ask through SILO's LLM/MCP →
-repeat across sources. Non-pillar sources belong in an **LLM / MCP connectors**
-management surface, not automatically in SILO's main reporting areas. Existing
-Klaviyo, TikTok, saved reports and dashboards remain intact. The safety PR does
-not rename navigation or imply a working arbitrary-source importer.
+Pillar integrations continue feeding SILO reporting. Non-pillar connectors can
+be queried live through one SILO MCP connection in a compatible AI client. No
+separate Windsor key or per-source MCP installation is given to the customer.
+Existing stored data, sync contracts and reports remain intact. This does not
+make arbitrary sources reportable or implement a universal importer.
 
-Connection, sync consent, and LLM publication are three separate decisions.
-An integration in Windsor's picker proves availability of a connection flow,
-not that SILO has verified identity, schema, pagination or lossless row grain.
-A read-only preview proves only the rows in that response passed account checks.
+The existing URL-only `/v2/windsor-test.html` management page supplies searchable
+integration/field pickers and explicit **Allow LLM access** / **Disable LLM
+access** controls. It remains a rollout/testing surface, not a new navigation
+section. Connecting an account, enabling stored sync and publishing LLM access
+are separate decisions. Every existing/new account starts unpublished.
+Publishing authorizes that company's approved `data:read` SILO AI connections;
+`reports:read` alone is insufficient. Admin confirmation is required in the UI.
 
-## Verified current path (2026-11-03)
+## Implemented live path (draft; not activated by this PR)
 
-- Windsor broker attributes a linked account through the company's issued link
-  token; the source/account pair is globally unique. Preview uses an authenticated
-  admin's active company, an own-account lookup and exact returned account checks.
-- Current persisted data is daily typed/numeric facts: TikTok campaign metrics,
-  Klaviyo account/campaign/flow reports, and historical `windsor_metrics_daily`
-  account/campaign facts. It is not generic spreadsheet storage. Klaviyo's known
-  descriptive attributes are retained; arbitrary unknown text is not.
-- Live `klaviyo_performance_daily` has 28 catalog columns and
-  `windsor_metrics_daily` has 25. Both are visible to the AI schema catalog but
-  `reportable=false`. The guided builder (`v3/js/report-builder-ui.js`) selects
-  only reportable relations with nonempty columns. Original migrations seed empty
-  columns; a catalog refresh has populated them live. This PR intentionally does
-  not flip reportable, create global reports, or change existing reports.
-- The app's report engine is `chat_run_readonly_query`, SECURITY INVOKER under
-  the caller's RLS. MCP forwards the caller's token, not a service-role key.
-  `reports:read` gates list/run-report; `data:read` separately gates schema/query.
-  MCP SQL executes as `silo_api_exec` (no BYPASSRLS; inherits authenticated), with
-  active company bound to the live OAuth grant, read-only execution, pagination,
-  catalog/name/function restrictions. An older reports-only grant cannot query
-  raw data. Revoked grants and scope checks remain the existing API's responsibility.
-- Live Windsor fact SELECT policies filter active_company_id. Linked-account
-  SELECT is also admin-gated; link-token tables have no client SELECT grant.
-  Their current catalog visibility is not permission to read tokens. This PR
-  adds no table grants, MCP scope, API endpoint or automatic publication.
+`list_connections`, `describe_connection` and `query_connection` run through the
+existing MCP handler. The caller's token invokes `silo_api_windsor_connections`:
+existing signature verification, live grant, session, membership, assurance and
+scope checks precede any source request. The company is the live grant company,
+not a browser selection or client-supplied company. The non-owner/non-BYPASSRLS
+`silo_api_exec` resolver uses company RLS and explicit publication predicates.
+Integration clients gain no direct table access or publication write permission.
 
-The new synthetic test in `developer-api-query-tool-database.test.mjs` runs the
-real sync transformations into tables built from the real Windsor migrations,
-then the existing real MCP query RPC. It verifies two tenants, distinct same-day
-campaigns, text subjects, explicit cross-company predicates returning nothing,
-reports-only scope denial, write denial and link-token denial. Windsor HTTP,
-user/grant lookup and active-company setup are fixture collaborators; this is
-not a production OAuth or live-source certification. Existing report-runner and
-MCP transport suites are run separately.
+The server chooses the stored connector and account, discovers offered fields,
+and performs only fixed-host Windsor GET requests. Unknown arguments, arbitrary
+URLs, source/account overrides and write tools are rejected. Every returned row
+must carry a matching `account_id`, including rows beyond the display limit.
+Missing/mixed/foreign identities fail the entire response. Authorization and
+binding are checked again before release. A revocation after that final check
+cannot retroactively erase an already released response.
 
-## This draft: containment and explicit consent
+Selected raw rows preserve multiplicity and text; no account/day aggregation,
+deduplication, source-row storage, cache, sync cursor or history advancement is
+involved. Connection and authorization metadata still live in SILO. Limits:
+29 requested fields (plus identity), 200 returned rows, 24,000 row characters,
+2 MiB per upstream response, 20 seconds per upstream request, date presets of
+7/14/30 days. A query makes metadata and data requests; latency can approach
+40 seconds plus authorization calls. Metadata lists page at 100 items.
+Responses identify source, fields, period, fetch time and truncation. They are
+bounded exploratory answers, **not certified complete datasets or totals**.
+There is no upstream pagination or completeness contract in this implementation.
+A row too large to return intact fails rather than silently losing text.
 
-New accounts start paused. Existing successful explicit datasets are enabled
-once on migration apply; a replay does not undo pauses. Only sources with an
-explicit dataset definition can sync. Unknown sources do not fetch or store any
-rows even if their boolean consent is forced true. Account identity, required
-object identity, exact real calendar dates and unique report grain are checked
-before core/hunted merging. Invalid windows do not advance history. Earlier
-successful windows/datasets can remain committed. Pause applies to subsequent
-runs, not cancellation of a run already admitted.
+A source in the picker is not proof that its returned identity equals the stored
+selector. The YouTube `71274` mismatch remains unresolved and blocked. Sources
+without verifiable `account_id` remain unavailable. No names, first-row guesses
+or unverified one-to-many bindings establish ownership. Actual source schemas,
+latency, quotas and pagination require authorized live validation.
 
-This is deliberately a guard, not an implementation of generic storage or the
-LLM publication control. It prevents the proven loss while leaving known
-working flows and existing stored data intact.
+Windsor's [MCP overview](https://windsor.ai/introducing-windsor-mcp/) describes
+account-wide access and write actions. SILO therefore does not proxy or expose
+that shared MCP or its credentials. Tool read-only annotations are advisory;
+fixed server URLs/methods and strict inputs enforce read-only behavior. Source
+text is untrusted data. No vendor errors, credentials or raw transport URLs are
+returned. No durable SILO storage does not imply Windsor has no vendor cache.
 
-## Next draft: lossless storage and explicit publication
+## Client compatibility and reporting
 
-A source adapter must produce a reviewed, versioned dataset contract from actual
-source metadata. The user chooses recognizable dataset/field names in a picker;
-no vendor IDs or arbitrary column-name text boxes. Do not infer keys from names,
-from the first row, or from `date`/`account_id` merely existing in a public catalog.
-Each contract needs:
+This reuses SILO's existing remote MCP transport, OAuth discovery and grant
+lifecycle; there is no Claude-specific branch or new OAuth scope. Clients must
+support that remote MCP/OAuth flow and request `data:read`. Older reports-only
+connections need renewed consent. Synthetic transport tests are not proof that
+every AI client supports registration/discovery; real client sign-in remains a
+post-deploy acceptance step. Do not advertise universal client compatibility.
 
-1. Ownership: exact Windsor selector equality or an independently verified set
-   of resource IDs, scoped to the linked account and company. One-to-many bindings
-   must be stored and verified explicitly; no cross-tenant name matching.
-2. Schema: field IDs, readable labels, types, nullable fields, retained text and
-   dimensions, schema version/fingerprint and an explicit policy for drift.
-3. Grain: dataset/report identity plus a stable composite source row key, or
-   complete snapshot semantics for sources without a key. Dates are optional for
-   snapshots; never fabricate a day or aggregate arbitrary rows into daily facts.
-4. Completeness: pagination, continuation, truncation and error semantics. Stage
-   every page of a snapshot and atomically publish only a fully validated version.
-   Never advertise an incomplete page as a full dataset or advance its cursor.
-5. Retry: idempotency by tenant/connection/dataset/version/source key; preserve
-   repeated rows where the source has meaningful multiplicity. No hashing only
-   metrics, no last-write-wins collapse of ambiguous dimensions.
+Existing MCP `query`, report tools and fact-table permissions remain unchanged.
+Connection plumbing (`windsor_links`, `windsor_linked_accounts`) is hidden from
+the general AI schema catalog; only the scoped resolver advertises published
+accounts. This deliberately prevents generic SQL discovery of private connection
+metadata. Windsor daily facts were already catalog-visible but not reportable;
+this PR does not flip reportable flags or create reports. Stored/hybrid snapshots
+may be a later explicit product choice for repeatable history, joins or totals.
+Live reads instead depend on source availability, freshness, quotas and latency.
 
-Use separate private staging and approved published data. Staging preserves full
-selected row values (including text) and provenance, is service-only, and is not
-in the AI catalog. Published records carry company, connection, dataset, version,
-row identity and source values; projection metadata carries readable fields.
-An admin must separately approve publication for that connection/dataset.
-Existing `data:read` is necessary but not sufficient: reads must also satisfy
-publication and grant-company predicates. Revocation must hide already-published
-records at read time, without deleting source data or widening an OAuth grant.
-Only the approved projection is discoverable to MCP, never staging, tokens or
-connection secrets. Do not enable guided reporting globally; later deliberate
-saved reports can use an approved projection through existing report permissions.
+## Verification and activation
 
-Tests for that draft must cover two tenants with identical source row IDs,
-multiple objects per date, keyless snapshot duplicates, text/null/type fidelity,
-late pages, pagination loops, schema drift, failed atomic publication, retries,
-publication revocation, stale OAuth scopes and reports-only vs data:read access.
-The complete synthetic journey must include connect attribution, staging,
-publication, MCP discovery/query and denial paths. Do not claim those tests from
-this PR's narrower fixed-report test.
+`windsor-live-mcp-database.test.mjs` drives the real MCP handler through real
+PostgreSQL grant/RLS/resolver functions into synthetic Windsor responses. JWT
+signature verification is mocked at the PostgREST boundary; production uses
+PostgREST. It covers two companies, spoofed company claims, scope/session/MFA/
+membership denial, unpublished accounts, identity failures, revocation during
+fetch, limits, text and row grain, plus mutation checks. Broker and browser
+fixtures cover publication confirmation, failure/retry and disabling. No live
+customer source data was read to validate this feature.
 
-## Evidence required before enabling another source
+After review/merge, activation requires separate authorization:
 
-No spreadsheet contents were accessed. Sheets is disconnected and must not be
-reconnected as part of this draft. No current verified source-specific schema,
-pagination contract or selector/resource binding exists for Sheets or YouTube.
-Public connector metadata alone does not establish these facts. The YouTube
-selector mismatch remains unresolved. Actual source-owner authorization and a
-separately approved scoped validation are required to collect that evidence.
-The next adapter is blocked on those facts, not on a need to weaken isolation.
+1. Apply `20261103210000_windsor_live_mcp.sql` and verify its effects/ACLs. It
+   defaults all publication off and never backfills it on replay.
+2. Deploy `mcp` and `windsor-broker` from the reviewed commit, including their
+   bundled modules. The MCP function now needs the server-side Windsor key.
+   No migration or function deployment was performed by this draft work.
+3. Verify one compatible client with a company-scoped `data:read` grant, then
+   explicitly publish a verified source and exercise authorized read-only
+   metadata/query/revocation checks. Do not publish YouTube until its identity
+   mismatch has a separately verified resolution.
 
-Blake owns deployment/migration approval and the choice to authorize a real
-source validation. Retention and which datasets/fields to publish need explicit
-product choices before exposing generic rows to LLM clients. Until then no new
-source or projection is enabled. This draft makes no production changes.
+Apply the migration before the UI/function rollout. If the new column is absent,
+the UI retains existing connection/preview behavior and disables publication;
+the new RPC tools fail closed. Rollback can unpublish accounts and restore prior
+functions without deleting stored facts. Disabling publication affects future
+and in-flight reads at the reauthorization check, not data already delivered.
 
-## Open product choice: live MCP queries instead of storing source data
-
-Blake subsequently asked whether MCP requires persistence. It does not. The
-lossless-storage design above is an option, not an approved requirement for all
-non-pillar connectors. Do not build it until the live/stored/hybrid choice is made.
-The current safety draft is useful under any of these choices.
-
-A live path would add a separately authorized MCP read operation that calls the
-Windsor broker's source-read logic on demand. It cannot reuse the existing
-admin-only browser preview endpoint by impersonating a user or bypassing its
-integration-token rejection. Existing MCP has no service role and only database
-RPC calls; a controlled external-query path needs an explicit design/review.
-
-Authorization must resolve the live OAuth grant, scopes, person and bound company
-on each call, then require that company's explicitly published connection/dataset.
-Never let a request choose an owner key, source URL, company ID or arbitrary
-unowned account. Source selection and requested fields come from that approved
-connection and discovered schema. Fetch only the selected account, verify every
-returned identity against an established selector/resource binding, and fail the
-whole response if identity cannot be proven. A user-supplied filter is not proof.
-A reports-only grant must not gain live-source access. Whether `data:read` plus
-explicit per-connection publication is adequate or a separate consented scope is
-needed is a product/security decision; existing frozen grants must not silently
-expand. Revocation must apply on every request, not only when connecting.
-
-Keep text and source dimensions intact in the live response. Require bounded
-field sets, read-only operations, timeout, row/page/call limits, continuation and
-honest truncation markers. Do not run arbitrary connector URLs or SQL against a
-source. Return provenance (source, account label, requested period, fetched-at,
-completeness); no credentials, access tokens or unrelated rows in responses/logs.
-The YouTube identity mismatch blocks a live path just as it blocks stored sync.
-Source responses are data, not instructions for the LLM.
-
-| Mode | Benefits | Costs and limits |
-| --- | --- | --- |
-| Live only | Fresh source response; no durable copy of operational rows in SILO | Windsor/source latency, availability and quota affect each answer; historical responses may restate; repeated questions repeat calls; joins across systems are harder |
-| Stored | Repeatable queries, historical snapshots, joins, predictable report/MCP response times | Sync/storage costs, lag, retention decisions, full schema/grain/completeness contracts |
-| Hybrid | Live for exploration, explicitly retained snapshots for recurring needs | More policy/state to explain; caches must be tenant/connection/dataset/field/filter scoped, expire, and honor revocation |
-
-Even live-only needs connection/grant metadata, source capabilities and safe
-operational audit metadata; it need not persist result rows. Transient buffers
-are still needed to validate a whole bounded response before releasing any row.
-Do not silently add a result cache or retain prompts/raw payloads. Actual source
-pagination, rate limits, latency and available fields have not been measured here.
-No live MCP tool, new scope, source-data read, storage pipeline or publication
-control is implemented/enabled in this draft. Await Blake's mode/consent decision
-before choosing that follow-up implementation.
-
-Windsor's [official MCP overview](https://windsor.ai/introducing-windsor-mcp/)
-confirms that one connection reaches all sources/accounts in its Windsor account,
-and that supported platforms expose write actions. It also describes on-demand
-fetches with a short-term vendor cache. Consequently, SILO must never hand its
-shared Windsor MCP connection or owner credentials to tenant clients. Naming a
-client in a prompt is not authorization. A live SILO connector must expose only a
-server-owned allowlist of read operations; neither tool annotations nor a prompt
-asking the model to avoid writes is an enforcement boundary. Live-only here means
-no durable SILO result store, not a claim that Windsor itself never caches data.
-
-Confirmed boundary requirement: the live read path must resolve the MCP grant's
-company (not the user's currently selected browser company), use that identity
-for an RLS-backed connection lookup, enforce the stored account selector, then
-validate the entire external response. RLS on the connection row alone cannot
-filter Windsor's HTTP response. Adversarial acceptance tests must supply another
-company's connection/account IDs, malicious company/source parameters, mixed and
-missing response identities, revoked grants, and write-tool requests. Each must
-return no source rows; a preauthorization failure must make zero Windsor calls.
-Only the returned-identity checks and existing broker/MCP boundaries have tests
-in this safety draft; a future combined live-MCP path still needs its own real
-wiring tests before enablement.
+Safety PR #1110 merged as `8d00e31520e8a6bd5421ad94f59964444d8afe7d`.
+Read-only inspection after Blake ran SQL found the sync-consent column/default
+and expected backfill present, despite no migration-history record. Baseballism
+Klaviyo/TikTok remained enabled; BlockayOps YouTube disabled and Sheets absent.
+At that inspection broker version 5 still lacked `set_sync`; a separate broker
+deploy was needed. The live MCP migration/publication column was not applied.
+These are time-specific observations, not deployment completion claims.

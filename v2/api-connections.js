@@ -62,7 +62,7 @@
      page does not recognise is exactly the one not to approve silently. */
   const SCOPE_COPY = {
     'reports:read': 'Read your reports',
-    'data:read': 'Look up and read your company\'s data, read-only: what you can see in SILO, never logins or connection secrets',
+    'data:read': 'Read your company\'s SILO data and live sources explicitly enabled by a company admin, read-only; never logins or connection secrets',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
