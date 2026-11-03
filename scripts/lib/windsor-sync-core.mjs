@@ -31,7 +31,7 @@
 
 import {
   WINDSOR_CONNECTORS, connectorForSource, windsorUrl, redact, parseBody, rowsOf,
-  describeShape, filterRowsToAccount,
+  describeShape, filterRowsToAccount, previewOptions,
 } from '../../supabase/functions/windsor-broker/windsor-lib.mjs';
 import { hashRow, upsertInChunks } from './shopify-sync-core.mjs';
 
@@ -210,6 +210,7 @@ export const DATASETS = Object.freeze({
         'revenue_per_recipient', 'sent_sms', 'received_sms', 'clicked_sms', 'checkout_started',
         'checkout_started_value', 'added_to_cart', 'ordered_product', 'ordered_product_value',
         'fulfilled_order', 'fulfilled_order_value', 'cancelled_order', 'refunded_order', 'refunded_order_value'])],
+      columnFields: KLAVIYO_ACCOUNT_COLUMNS.map((c) => c[1]),
       toRow: klaviyoRow('account', { columns: KLAVIYO_ACCOUNT_COLUMNS, objectId: () => '' }),
     },
     {
@@ -217,6 +218,7 @@ export const DATASETS = Object.freeze({
       fields: ['date', 'account_id', 'campaign_id', 'campaign', 'campaign_channel', 'subject', 'status',
         'sent_at', ...fieldsOf(prefixed('campaign_report_'), ['campaign_report_failed',
           'campaign_report_conversion_uniques', 'campaign_report_average_order_value'])],
+      columnFields: ['campaign_id', ...prefixed('campaign_report_').map((c) => c[1])],
       toRow: klaviyoRow('campaign', {
         columns: prefixed('campaign_report_'),
         objectId: (r) => r.campaign_id, objectName: (r) => r.campaign, channel: (r) => r.campaign_channel,
@@ -229,6 +231,7 @@ export const DATASETS = Object.freeze({
       fields: ['date', 'account_id', 'flow_id', 'flow_name', 'flow_message_id', 'flow_message_name',
         'flow_status', 'flow_trigger_type', ...fieldsOf(prefixed('flow_'), ['flow_failed',
           'flow_conversion_uniques', 'flow_average_order_value'])],
+      columnFields: ['flow_id', 'flow_message_id', ...prefixed('flow_').map((c) => c[1])],
       toRow: klaviyoRow('flow', {
         columns: prefixed('flow_'),
         objectId: (r) => r.flow_message_id ?? r.flow_id, objectName: (r) => r.flow_message_name,
@@ -268,6 +271,9 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
     }
     const url = windsorUrl(WINDSOR_CONNECTORS, `/${connector}`, {
       api_key: key, fields: fields.join(','), date_from: from, date_to: to, select_accounts: accountId,
+      // Same server-owned per-connector options as the preview: TikTok sends
+      // no rows for inactive campaigns without include_inactive.
+      options: previewOptions(connector),
     });
     let res;
     try {
@@ -293,6 +299,16 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
   }
   throw new Error(`${dataset.key}: too many refused fields`);
 }
+
+/** Fields whose value lands in a typed column. If Windsor refuses one of
+ *  these, writing the window would overwrite a value stored by an earlier run
+ *  with 0 or NULL, so that dataset's window is not written at all. */
+export function columnFields(dataset) {
+  if (dataset.columnFields) return dataset.columnFields;
+  return dataset.toRow === tiktokRow ? TIKTOK_COLUMN_FIELDS : [];
+}
+const TIKTOK_COLUMN_FIELDS = ['impressions', 'clicks', 'spend', 'complete_payment', 'total_complete_payment_rate',
+  'initiate_checkout', 'web_event_add_to_cart', 'form', 'campaign_id', 'campaign'];
 
 /** Rows that may be written for this account and window: this account's
  *  rows only, with a real date inside the window, one per identity. */
@@ -345,6 +361,7 @@ export async function syncAccount({
   const plan = planWindows({ today: pacificToday(now), historyFrom: account.history_from, historyMonths, maxHistoryWindows });
   let historyFrom = account.history_from && account.history_from < plan.recentStart ? account.history_from : plan.recentStart;
   try {
+    let incomplete = false;
     for (const w of plan.windows) {
       const wSum = { ...w, datasets: {} };
       summary.windows.push(wSum);
@@ -354,6 +371,14 @@ export async function syncAccount({
         });
         for (const d of dropped) if (!summary.dropped_fields.includes(`${dataset.key}.${d}`)) summary.dropped_fields.push(`${dataset.key}.${d}`);
         const prep = prepareRows(raw, { accountId: ctx.accountId, from: w.from, to: w.to, dataset, ctx });
+        const blocking = dropped.filter((d) => columnFields(dataset).includes(d));
+        if (blocking.length) {
+          // Writing would replace stored values of a refused field with 0 or
+          // NULL. Skip this dataset's window and do not count it as covered.
+          incomplete = true;
+          wSum.datasets[dataset.key] = { returned: raw.length, skipped: `Windsor refused ${blocking.join(', ')}` };
+          continue;
+        }
         const written = dryRun ? 0 : await upsertInChunks(supabase, dataset.table, prep.rows, 'row_hash');
         summary.rows_written += written;
         wSum.datasets[dataset.key] = {
@@ -365,6 +390,9 @@ export async function syncAccount({
       }
       // Resume point: history is saved only after every dataset of the
       // window landed, so a failure re-pulls the whole window next time.
+      // A window with a skipped dataset is not covered: progress stops here
+      // so the next run asks again rather than moving past missing data.
+      if (incomplete) break;
       if (w.kind === 'history') historyFrom = w.from;
       if (w.kind === 'recent') await record({ synced_through: plan.end, history_from: historyFrom });
       else await record({ history_from: historyFrom });

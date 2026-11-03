@@ -560,7 +560,7 @@ jobs:
       - name: The Windsor sync's guards, removed, must break it
         run: |
           set -u
-          for m in accountfilter payloadcompany selectaccounts resume window; do
+          for m in accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions; do
             if WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

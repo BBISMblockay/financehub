@@ -10,6 +10,8 @@
 //   WINDSOR_SYNC_MUTATION=selectaccounts  the request is not limited to the one account
 //   WINDSOR_SYNC_MUTATION=resume          history progress is never saved
 //   WINDSOR_SYNC_MUTATION=window          rows outside the requested window are written
+//   WINDSOR_SYNC_MUTATION=refusedcolumn   a refused column field still writes (overwriting with 0)
+//   WINDSOR_SYNC_MUTATION=syncoptions     the sync omits TikTok's include_inactive option
 //
 // Run: node --test scripts/tests/windsor-sync.test.mjs
 import assert from 'node:assert/strict';
@@ -31,6 +33,8 @@ async function loadCore() {
   if (MUT === 'selectaccounts') sub('date_from: from, date_to: to, select_accounts: accountId,', 'date_from: from, date_to: to,');
   if (MUT === 'resume') sub("if (w.kind === 'history') historyFrom = w.from;", '');
   if (MUT === 'window') sub("if (!DATE_RE.test(day) || day < from || day > to) { outOfWindow += 1; continue; }", "if (!DATE_RE.test(day)) { outOfWindow += 1; continue; }");
+  if (MUT === 'refusedcolumn') sub('if (blocking.length) {', 'if (false) {');
+  if (MUT === 'syncoptions') sub('options: previewOptions(connector),', '');
   // Absolute imports so the temp copy resolves the repo's modules.
   src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
     .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
@@ -222,4 +226,32 @@ test('fieldsNamedIn matches whole field ids and never the required ones', () => 
   const fields = DATASETS.klaviyo[2].fields;
   assert.deepEqual(fieldsNamedIn('Invalid field(s): flow_opens_unique', fields), ['flow_opens_unique']);
   assert.deepEqual(fieldsNamedIn('bad date and account_id', fields), []);
+});
+
+test('a refused column field never overwrites a stored value, and that window is not counted as covered', async () => {
+  const fake = world([tiktokAcct]);
+  const good = fakeWindsor(() => [{ date: '2026-11-01', account_id: '7000000000000000001', campaign_id: 'c1', spend: 100, impressions: 5 }]);
+  await run(fake, good, tiktokAcct);
+  assert.equal(fake.rows('marketing_kpis_daily')[0].spend, 100);
+  const before = fake.rows('windsor_linked_accounts')[0].synced_through;
+  fake.tables.get('windsor_linked_accounts')[0].synced_through = '2026-10-01';
+  const refusing = fakeWindsor((c, u) => (u.searchParams.get('fields').split(',').includes('spend')
+    ? { status: 400, text: '{"error":"field spend is not available"}' }
+    : [{ date: '2026-11-01', account_id: '7000000000000000001', campaign_id: 'c1', impressions: 5 }]));
+  const r = await run(fake, refusing, tiktokAcct);
+  assert.equal(r.status, 'partial');
+  assert.equal(fake.rows('marketing_kpis_daily')[0].spend, 100, 'the stored spend survives');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-10-01', 'the window is not marked covered');
+  assert.match(r.windows[0].datasets.campaign.skipped, /spend/);
+  assert.ok(before);
+});
+
+test('the sync asks TikTok for inactive campaigns too; Klaviyo gets no options', async () => {
+  const fake = world([tiktokAcct, klaviyoAcct]);
+  const fw = fakeWindsor(() => []);
+  await run(fake, fw, tiktokAcct);
+  assert.deepEqual(JSON.parse(fw.log[0].searchParams.get('options')), { tiktok: { include_inactive: 'true' } });
+  const fk = fakeWindsor(() => []);
+  await run(fake, fk, klaviyoAcct);
+  assert.ok(fk.log.every((u) => u.searchParams.get('options') === null));
 });
