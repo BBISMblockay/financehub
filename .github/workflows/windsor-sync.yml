@@ -1,0 +1,63 @@
+name: Windsor Sync
+
+# Pulls every Windsor account the windsor-broker has attributed to a company
+# into SILO's tables under that company (scripts/windsor-sync.mjs):
+#   TikTok Ads -> marketing_kpis_daily (source 'windsor')
+#   Klaviyo    -> klaviyo_performance_daily
+# Each run re-pulls the last 35 days, then walks older history back a few
+# months per account, resuming where the previous run stopped.
+#
+# Needs the WINDSOR_API_KEY repository secret (the same key as the Supabase
+# edge secret of that name).
+#
+# Concurrency group: a dropped queued run costs nothing (the next run re-pulls
+# the same trailing window and continues the same history), while two
+# overlapping runs would each spend Windsor's 10,000-calls-a-day allowance on
+# the same windows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: Optional company UUID (limit to one company)
+        required: false
+      history_months:
+        description: How far back history goes (default 24)
+        required: false
+      max_history_windows:
+        description: History months walked per account this run (default 6)
+        required: false
+      dry_run:
+        description: Read and report what Windsor returns, write nothing
+        type: boolean
+        default: false
+  schedule:
+    - cron: "15 11 * * *"
+
+concurrency:
+  group: windsor-sync
+  cancel-in-progress: false
+
+jobs:
+  windsor-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      WINDSOR_API_KEY: ${{ secrets.WINDSOR_API_KEY }}
+      WINDSOR_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+      WINDSOR_HISTORY_MONTHS: ${{ github.event.inputs.history_months || '' }}
+      WINDSOR_MAX_HISTORY_WINDOWS: ${{ github.event.inputs.max_history_windows || '' }}
+      WINDSOR_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Run Windsor sync
+        run: node scripts/windsor-sync.mjs
