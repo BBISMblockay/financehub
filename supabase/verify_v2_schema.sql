@@ -8378,3 +8378,12 @@ select 'chat catalog coverage' as check_name,
       then 'MISSING — a relation seeded by 20261103190000 has lost its description or keywords'
     else 'ok'
   end as status;
+
+select 'Windsor sync consent' as check_name,
+  case when exists (select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'windsor_linked_accounts'
+      and column_name = 'sync_enabled' and data_type = 'boolean'
+      and is_nullable = 'NO' and column_default = 'false')
+    and not has_table_privilege('authenticated', 'public.windsor_linked_accounts', 'UPDATE')
+    and not has_table_privilege('anon', 'public.windsor_linked_accounts', 'UPDATE')
+  then 'ok' else 'BROKEN: Windsor sync consent default/grants' end as status;

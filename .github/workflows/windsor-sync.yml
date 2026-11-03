@@ -4,8 +4,8 @@ name: Windsor Sync
 # into SILO's tables under that company (scripts/windsor-sync.mjs):
 #   TikTok Ads -> marketing_kpis_daily (source 'windsor')
 #   Klaviyo    -> klaviyo_performance_daily
-#   any other connector, mapped from Windsor's field list: ad-like ones ->
-#   marketing_kpis_daily ('<connector>_ads'), the rest -> windsor_metrics_daily
+#   other connectors -> blocked pending a reviewed row-grain contract.
+# Only accounts with sync_enabled=true are admitted; new accounts start paused.
 # Every numeric field Windsor lists for a connector is pulled, in batches.
 # Each run re-pulls the last 35 days, then walks older history back a few
 # months per account, resuming where the previous run stopped.

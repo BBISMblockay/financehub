@@ -19,10 +19,7 @@
 //              place rather than counted twice.
 //   klaviyo -> klaviyo_performance_daily, three reports (account, campaign,
 //              flow message).
-//   any other connector -> mapped from Windsor's own field list (autoDataset):
-//              ad-like ones into marketing_kpis_daily as '<connector>_ads',
-//              the rest into windsor_metrics_daily. A company can choose which
-//              field fills each SILO measure (windsor_field_mappings).
+//   other sources -> blocked until a reviewed lossless dataset contract exists.
 // For every dataset, every numeric field Windsor lists is also asked for, in
 // batches (fetchDatasetHunted), and stored by name; a field Windsor will not
 // return is listed on the mapping row (refused_fields), not silently dropped.
@@ -37,8 +34,8 @@
 
 import {
   WINDSOR_CONNECTORS, connectorForSource, windsorUrl, redact, parseBody, rowsOf,
-  describeShape, filterRowsToAccount, previewOptions, FIXED_SOURCES, DIRECT_SYNC_SOURCES,
-  STANDARD_FIELDS, NUMERIC_TYPES, adPlatformName, chooseMeasures, assertAccountRows,
+  describeShape, filterRowsToAccount, previewOptions, DIRECT_SYNC_SOURCES,
+  STANDARD_FIELDS, NUMERIC_TYPES, assertAccountRows,
 } from '../../supabase/functions/windsor-broker/windsor-lib.mjs';
 
 export { DIRECT_SYNC_SOURCES, STANDARD_FIELDS };
@@ -100,7 +97,7 @@ export function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 const intOrNull = (v) => { const n = numOrNull(v); return n == null ? null : Math.round(n); };
-const strOrNull = (v) => (isBlank(v) ? null : String(v).slice(0, 500));
+const strOrNull = (v) => (isBlank(v) ? null : String(v));
 
 /** Every numeric field in `row` not already mapped to a column. */
 function leftoverNumbers(row, mapped) {
@@ -182,7 +179,7 @@ function klaviyoRow(report, map) {
     }
     for (const f of map.attributes || []) {
       used.add(f);
-      if (!isBlank(r[f])) out.attributes[f] = String(r[f]).slice(0, 500);
+      if (!isBlank(r[f])) out.attributes[f] = String(r[f]);
     }
     out.metrics = leftoverNumbers(r, used);
     return out;
@@ -260,14 +257,7 @@ export const DATASETS = Object.freeze({
   ],
 });
 
-// ── Any other connector: decided from Windsor's own field list ──────────────
-// Windsor publishes every connector's fields with a type
-// (https://connectors.windsor.ai/<connector>/fields, public, no key). A
-// connector without a hand-made dataset above is mapped from that list:
-//   ad-like (spend + impressions + clicks + a campaign) -> marketing_kpis_daily
-//   anything else                                        -> windsor_metrics_daily
-// and every numeric field the list names is asked for (hunted), so nothing
-// the connector reports is left behind.
+// Field discovery enriches explicit datasets only; a catalog is not a row-grain contract.
 
 const FIELD_ID_RE = /^[a-z0-9_.]{1,64}$/i;
 const NUMERIC = new Set(NUMERIC_TYPES);
@@ -298,88 +288,6 @@ export function huntFields(catalog, { tables = null } = {}) {
     .map((f) => f.id);
 }
 
-/** The dataset for a connector with no hand-made one, or null when Windsor's
- *  field list cannot place a row (no date or no account_id). */
-export function autoDataset(dsId, catalog, overrides = {}) {
-  const ids = new Set((catalog || []).map((f) => f.id));
-  if (!ids.has('date') || !ids.has('account_id')) return null;
-  const campaignId = ids.has('campaign_id') ? 'campaign_id' : null;
-  const campaignName = ids.has('campaign') ? 'campaign' : null;
-  const dims = ['date', 'account_id', ...(ids.has('account_name') ? ['account_name'] : []),
-    ...(campaignId ? [campaignId] : []), ...(campaignName ? [campaignName] : [])];
-  // The company's own choices (windsor_field_mappings) win over the
-  // automatic pick; the same function decides what the mapping page shows.
-  const choice = chooseMeasures(dsId, catalog, overrides);
-  const chosen = choice.chosen;
-  const mergeKey = (r) => (campaignId ? r[campaignId] : null) ?? (campaignName ? r[campaignName] : null) ?? '';
-
-  if (choice.kind === 'ad') {
-    const platform = adPlatformName(dsId);
-    if (!platform) return null;
-    const core = ['impressions', 'clicks', 'spend', 'conversions', 'revenue'].map((c) => chosen[c]).filter(Boolean);
-    const mapped = new Set([...dims, ...core]);
-    return {
-      key: 'auto', table: 'marketing_kpis_daily', auto: 'ad', platform, ignoredOverrides: choice.ignored,
-      fields: [...new Set([...dims, ...core])],
-      columnFields: [...core, ...dims.filter((d) => d !== 'date' && d !== 'account_id' && d !== 'account_name')],
-      mergeKey, hunt: { tables: null },
-      toRow: (r, ctx) => {
-        const cid = campaignId ? strOrNull(r[campaignId]) : null;
-        const cname = campaignName ? strOrNull(r[campaignName]) : null;
-        return {
-          company_entity_id: ctx.companyId, connection_id: null, platform, ds_id: platform,
-          account_id: ctx.accountId, account_name: strOrNull(r.account_name) ?? ctx.accountName,
-          day_date: r.date, campaign_id: cid, campaign_name: cname,
-          impressions: intOrNull(r[chosen.impressions]) ?? 0,
-          clicks: intOrNull(r[chosen.clicks]) ?? 0,
-          spend: numOrNull(r[chosen.spend]) ?? 0,
-          // NOT NULL columns. A platform with no conversion field writes 0
-          // here and says so in extra._unmapped, so it is not read as zero.
-          conversions: chosen.conversions ? (numOrNull(r[chosen.conversions]) ?? 0) : 0,
-          conversion_value: chosen.revenue ? (numOrNull(r[chosen.revenue]) ?? 0) : 0,
-          extra: {
-            ...leftoverNumbers(r, mapped),
-            ...(chosen.conversions && chosen.revenue ? {} : {
-              _unmapped: ['conversions', 'revenue'].filter((c) => !chosen[c]),
-            }),
-          },
-          // Same identity convention as the direct syncs (platform, platform,
-          // account, campaign, day).
-          row_hash: hashRow([ctx.companyId, platform, platform, ctx.accountId, cid ?? cname, r.date]),
-          source: WINDSOR_SOURCE, synced_at: ctx.syncedAt, sync_batch_id: ctx.batchId,
-        };
-      },
-    };
-  }
-
-  const core = Object.values(chosen).filter(Boolean);
-  return {
-    key: 'auto', table: 'windsor_metrics_daily', auto: 'metrics', ignoredOverrides: choice.ignored,
-    fields: [...new Set([...dims, ...core])],
-    columnFields: [...core, ...dims.filter((d) => d !== 'date' && d !== 'account_id' && d !== 'account_name')],
-    mergeKey, hunt: { tables: null },
-    toRow: (r, ctx) => {
-      const oid = mergeKey(r);
-      const objectId = isBlank(oid) ? '' : String(oid).slice(0, 500);
-      const out = {
-        company_entity_id: ctx.companyId, ds_id: dsId,
-        account_id: ctx.accountId, account_name: strOrNull(r.account_name) ?? ctx.accountName,
-        day_date: r.date,
-        object_type: campaignId || campaignName ? 'campaign' : 'account',
-        object_id: objectId,
-        object_name: campaignName ? strOrNull(r[campaignName]) : null,
-        metrics: leftoverNumbers(r, new Set(['date', 'account_id', 'account_name'])),
-        source: WINDSOR_SOURCE,
-        row_hash: hashRow([ctx.companyId, 'windsor', dsId, ctx.accountId, objectId, r.date]),
-        synced_at: ctx.syncedAt, sync_batch_id: ctx.batchId,
-      };
-      for (const col of Object.keys(STANDARD_FIELDS)) out[col] = chosen[col] ? numOrNull(r[chosen[col]]) : null;
-      return out;
-    },
-  };
-}
-
-// Never dropped by field negotiation: without them a row cannot be placed.
 const REQUIRED_FIELDS = new Set(['date', 'account_id']);
 
 /** Field ids from `fields` that an error text names, longest first so
@@ -577,6 +485,9 @@ export function mergeHunted(dataset, coreRows, huntedRowSets) {
  *  batches. Fields refused earlier this run (`skip`) are not asked again. */
 export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId, dataset, from, to, counter, catalog, skip = new Set() }) {
   const core = await fetchDataset({ key, fetchImpl, connector, accountId, dataset, from, to, counter });
+  const validate = (rows) => prepareRows(rows, { accountId, from, to, dataset,
+    ctx: { companyId: 'validation-only', accountId, dsId: connector } });
+  validate(core.rows);
   if (!dataset.hunt || !catalog || !core.rows.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
   const have = new Set(dataset.fields);
   const extra = huntFields(catalog, dataset.hunt).filter((f) => !have.has(f) && !skip.has(f));
@@ -593,6 +504,7 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
   for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
     const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
       fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf, state });
+    for (const rows of b.rows) validate(rows);
     sets.push(...b.rows);
     refused.push(...b.refused);
     unanswered.push(...b.unanswered);
@@ -607,6 +519,7 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
     else refused.push(...unanswered);
   }
   const merged = mergeHunted(dataset, core.rows, sets);
+  if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');
   return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
 }
 
@@ -630,9 +543,14 @@ export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
   const byHash = new Map();
   for (const r of kept) {
     const day = String(r.date ?? '').slice(0, 10);
-    if (!DATE_RE.test(day) || day < from || day > to) { outOfWindow += 1; continue; }
+    if (typeof r.date !== 'string' || r.date !== day || !DATE_RE.test(day)
+      || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day
+      || day < from || day > to) throw new Error('Invalid or out-of-window date; window not saved');
+    if (dataset.key !== 'account' && isBlank(dataset.mergeKey?.(r))) {
+      throw new Error('Missing object identity for row grain; window not saved');
+    }
     const row = dataset.toRow({ ...r, date: day }, ctx);
-    if (byHash.has(row.row_hash)) duplicates += 1;
+    if (byHash.has(row.row_hash)) throw new Error('Ambiguous duplicate row grain; window not saved');
     byHash.set(row.row_hash, row);
   }
   return { rows: [...byHash.values()], foreign, unattributed, outOfWindow, duplicates };
@@ -690,34 +608,20 @@ export async function syncAccount({
     await record({ last_sync_status: 'unsupported', last_sync_error: `not a Windsor data source SILO can read: ${account.ds_id}` });
     return summary;
   }
-  // Windsor's field list for this connector: what to hunt, and for a
-  // connector with no hand-made dataset, how to map it at all. Read once per
-  // connector per run.
-  if (!catalogCache.has(conn.value)) catalogCache.set(conn.value, await fetchFieldCatalog({ fetchImpl, connector: conn.value }));
-  const catalog = catalogCache.get(conn.value);
-  let datasets = DATASETS[account.ds_id];
-  if (!datasets && !anyConnector) {
+  // A catalog cannot establish a lossless row grain. Never auto-map unknown sources.
+  const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;
+  if (!datasets) {
     summary.status = 'unsupported';
-    await record({ last_sync_status: 'unsupported', last_sync_error: `${account.ds_id} needs migration 20261103080000 (any connector)` });
+    summary.error = 'Sync blocked: this source needs a reviewed identity, date and row-grain contract. Preview remains available.';
+    await record({ last_sync_status: 'unsupported', last_sync_error: summary.error });
     return summary;
   }
-  if (!datasets) {
-    if (!catalog) {
-      summary.status = 'error';
-      summary.error = `could not read Windsor's field list for ${conn.value}`;
-      await record({ last_sync_status: 'error', last_sync_error: summary.error });
-      return summary;
-    }
-    const auto = autoDataset(account.ds_id, catalog, overrides);
-    if (!auto) {
-      summary.status = 'unsupported';
-      await record({ last_sync_status: 'unsupported', last_sync_error: `Windsor lists no date or account_id field for ${account.ds_id}` });
-      return summary;
-    }
-    datasets = [auto];
-    summary.mapped_to = auto.table;
-    if (auto.ignoredOverrides.length) summary.ignored_mappings = auto.ignoredOverrides;
+  if (account.sync_enabled !== true) {
+    summary.status = 'paused';
+    return summary; // Do not touch history, last sync result, or Windsor while paused.
   }
+  if (!catalogCache.has(conn.value)) catalogCache.set(conn.value, await fetchFieldCatalog({ fetchImpl, connector: conn.value }));
+  const catalog = catalogCache.get(conn.value);
   const refusedThisRun = new Set();
 
   const plan = planWindows({ today: pacificToday(now), historyFrom: account.history_from, historyMonths, maxHistoryWindows });

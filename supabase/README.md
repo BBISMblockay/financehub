@@ -3063,3 +3063,5 @@ them. Re-run `refresh_chat_schema_catalog()` after applying (the migration does
 it). Verified by the "Freight bookings above the shipment" check in
 `verify_v2_schema.sql` and by
 `scripts/tests/shipment-booking-arrival-database.test.mjs`.
+
+- `20261103201000_windsor_sync_consent.sql`: new Windsor accounts start paused; one-time enablement of existing successful TikTok/Klaviyo accounts. Apply before scheduler rollout; does not alter schedules.

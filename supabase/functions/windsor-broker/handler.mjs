@@ -20,6 +20,7 @@
 //   preview    -- { linked_account_id, fields, date_preset } ->
 //                 rows for ONE of this company's accounts. Read-only, stores
 //                 nothing.
+//   set_sync   -- { linked_account_id, enabled } -> consent for subsequent runs.
 //   unlink     -- { linked_account_id } -> removes it from SILO's Windsor team
 //                 and from SILO.
 //   field_catalog -- { linked_account_id } -> the numeric fields Windsor lists
@@ -32,10 +33,11 @@
 // never from the request body (supabase/functions/CLAUDE.md).
 import { mayConnect } from './google-oauth-lib.mjs';
 import {
+  FIXED_SOURCES,
   WINDSOR_ONBOARD, WINDSOR_CONNECTORS, PREVIEW_MAX_ROWS, MAX_LINKS_PER_RECONCILE,
   parseSource, connectorForSource, previewOptions, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
-  filterRowsToAccount, chooseMeasures, adPlatformName, NUMERIC_TYPES, IDENTITY_ERROR,
+  filterRowsToAccount, chooseMeasures, NUMERIC_TYPES, IDENTITY_ERROR,
   normalizeFields, previewDefaults, normalizeConnectors,
 } from './windsor-lib.mjs';
 
@@ -107,7 +109,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
     }
 
     if (action === 'status') return json({ configured: Boolean(key) });
-    if (!key) return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
+    if (!key && action !== 'set_sync') return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
 
     if (action === 'connector_catalog') {
       const r = await windsor(`${WINDSOR_CONNECTORS}/list_connectors`);
@@ -212,6 +214,22 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       return { row: data };
     }
 
+    // Sync consent is a local setting, scoped by the authenticated active company.
+    // It does not cancel an already admitted run. Unsupported sources cannot enable.
+    if (action === 'set_sync') {
+      const own = await ownAccount();
+      if (own.error) return own.error;
+      if (typeof body.enabled !== 'boolean') return json({ error: 'enabled must be a boolean' }, 400);
+      if (body.enabled && !FIXED_SOURCES.includes(own.row.ds_id)) {
+        return json({ error: 'Sync blocked: this source needs a reviewed identity, date and row-grain contract.' }, 409);
+      }
+      const { data, error } = await admin.from(ACCOUNTS).update({ sync_enabled: body.enabled })
+        .eq('id', own.row.id).eq('company_entity_id', companyId).select('id, sync_enabled');
+      if (error) return json({ error: 'Could not save sync setting. The sync consent migration may be required.' }, 503);
+      if (!data?.length) return json({ error: 'Account no longer exists. Reload connections.' }, 409);
+      return json({ sync_enabled: data[0].sync_enabled });
+    }
+
     // ── preview ──────────────────────────────────────────────────────────
     if (action === 'preview') {
       const own = await ownAccount();
@@ -272,8 +290,8 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const choice = chooseMeasures(own.row.ds_id, catalog, overrides);
       return json({
         ds_id: own.row.ds_id, connector: conn.value, kind: choice.kind,
-        destination: choice.kind === 'ad' ? `marketing_kpis_daily (${adPlatformName(own.row.ds_id)})`
-          : choice.kind === 'fixed' ? 'its own SILO table (fields fixed by SILO)' : 'windsor_metrics_daily',
+        sync_supported: FIXED_SOURCES.includes(own.row.ds_id),
+        destination: choice.kind === 'fixed' ? 'its own SILO table (fields fixed by SILO)' : 'Sync blocked pending a reviewed row-grain contract',
         measures: choice.measures.map((m) => ({ measure: m, auto: choice.auto[m], chosen: choice.chosen[m],
           override: Object.prototype.hasOwnProperty.call(overrides, m) ? overrides[m] : undefined,
           ignored: choice.ignored.includes(m) })),
