@@ -68,5 +68,22 @@
       label(id) { return fields.find((f) => f.id === id)?.name || id; },
     };
   }
-  root.WindsorPicker = { integrationPicker, fieldPicker };
+  const SERVICE_UPDATE = 'Windsor needs a service update before connection setup and previews can be used. Ask a SILO administrator to finish the update, then try again. Existing connections do not need to be removed.';
+
+  // Older brokers return numeric_fields only. That is a contract mismatch,
+  // not evidence that the source lacks account identity. Never reconstruct
+  // a preview from that response: the older preview also lacks the safety fix.
+  function previewCatalogProblem(out) {
+    if (!Array.isArray(out?.fields) || !Array.isArray(out?.default_fields)) return SERVICE_UPDATE;
+    if (!out.fields.every((f) => f && typeof f.id === 'string')) return 'Windsor returned an unreadable field list. Preview is unavailable; try again.';
+    const ids = new Set(out.fields.map((f) => f.id));
+    if (!ids.has('account_id')) return 'Windsor did not list an account identity field for this source. Preview remains disabled.';
+    if (!out.default_fields.includes('account_id') || out.default_fields.length > 30
+        || !out.default_fields.every((id) => ids.has(id))) return 'Windsor could not prepare a valid field selection. Preview remains disabled; try again.';
+    return null;
+  }
+  function discoveryError(action, status, out) {
+    return action === 'connector_catalog' && status === 400 && out?.error === 'Unknown action' ? SERVICE_UPDATE : null;
+  }
+  root.WindsorPicker = { integrationPicker, fieldPicker, previewCatalogProblem, discoveryError, SERVICE_UPDATE };
 })(window);

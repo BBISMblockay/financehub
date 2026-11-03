@@ -6,6 +6,8 @@ const { startSuite } = require('../lib/harness');
   const suite = await startSuite({ secureContext: true });
   const calls = [];
   let failPreview = false;
+  let legacyConnector = false;
+  let catalogMode = 'current';
   let releaseCatalog;
   let delayed = false;
   const fields = [{ id: 'account_id', name: 'Account ID', type: 'TEXT' },
@@ -16,11 +18,15 @@ const { startSuite } = require('../lib/harness');
     let status = 200; let data;
     if (body.action === 'status') data = { configured: true };
     if (body.action === 'connector_catalog') data = { connectors: [{ id: 'youtube', name: 'YouTube' }, { id: 'new_source', name: 'New Source' }] };
+    if (body.action === 'connector_catalog' && legacyConnector) { status = 400; data = { error: 'Unknown action' }; }
     if (body.action === 'mint_link') data = { source: body.source, url: 'https://onboard.windsor.ai/?token=fixture' };
     if (body.action === 'field_catalog') {
       if (delayed && body.linked_account_id === 'a') await new Promise((resolve) => { releaseCatalog = resolve; });
       data = { fields: body.linked_account_id === 'a' ? fields : fields.slice(0, 2),
         default_fields: body.linked_account_id === 'a' ? fields.map((f) => f.id) : ['account_id', 'date'] };
+      if (catalogMode === 'legacy') data = { numeric_fields: [fields[2]], total_fields: 100, kind: 'fixed' };
+      if (catalogMode === 'missing_identity') data = { fields: [fields[2]], default_fields: [] };
+      if (catalogMode === 'bad_defaults') data = { fields, default_fields: [] };
     }
     if (body.action === 'preview') {
       if (failPreview) { status = 409; data = { error: 'Account identity could not be verified.' }; }
@@ -65,6 +71,29 @@ const { startSuite } = require('../lib/harness');
     releaseCatalog();
     await page.waitForTimeout(50);
     assert.equal(await page.locator('#fieldList input[value="watch_minutes"]').count(), 0, 'late catalog cannot replace the active account');
-    console.log('windsor-picker: real page journey and stale/error recovery passed');
+    delayed = false;
+    legacyConnector = true;
+    await page.locator('#sourceReload').click();
+    await page.waitForFunction(() => document.getElementById('sourceStatus').textContent.includes('service update'));
+    assert.equal(await page.locator('#mintBtn').isDisabled(), true);
+    assert.doesNotMatch(await page.locator('#sourceStatus').innerText(), /Unknown action/);
+    const readsBefore = calls.filter((c) => c.action === 'preview').length;
+    for (const [mode, message] of [['legacy', 'service update'], ['missing_identity', 'did not list an account identity field'], ['bad_defaults', 'valid field selection']]) {
+      catalogMode = mode;
+      await previews.nth(0).click();
+      await page.waitForFunction((text) => document.getElementById('fieldStatus').textContent.includes(text), message);
+      assert.equal(await page.locator('#pvRun').isDisabled(), true);
+      assert.equal(await page.locator('#fieldList input').count(), 0);
+    }
+    assert.equal(calls.filter((c) => c.action === 'preview').length, readsBefore, 'incompatible catalog never falls back to old preview');
+    // Recovery after the administrator updates the service: same page, same account.
+    legacyConnector = false; catalogMode = 'current'; failPreview = false;
+    await page.locator('#sourceReload').click();
+    await page.waitForFunction(() => document.querySelectorAll('#sourceList button').length === 1);
+    await previews.nth(0).click();
+    await page.waitForFunction(() => !document.getElementById('pvRun').disabled);
+    await page.locator('#pvRun').click();
+    await page.waitForFunction(() => !document.getElementById('pvTable').hidden);
+    console.log('windsor-picker: real page journey, compatibility failures and recovery passed');
   } finally { await suite.close(); }
 })().catch((e) => { console.error(e); process.exitCode = 1; });

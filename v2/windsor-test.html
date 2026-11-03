@@ -183,6 +183,8 @@
     let out = null;
     try { out = await res.json(); } catch (_) {}
     if (!res.ok) {
+      const compatibility = WindsorPicker.discoveryError(body.action, res.status, out);
+      if (compatibility) throw new Error(compatibility);
       const parts = [out?.error || `Request failed (${res.status})`];
       if (out?.detail) parts.push(out.detail);
       if (out?.shape) parts.push(`Windsor response shape: ${out.shape}`);
@@ -236,8 +238,9 @@
     try {
       const out = await broker({ action: 'field_catalog', linked_account_id: a.id });
       if (version !== previewVersion) return;
-      fieldsPicker.setFields(out.fields || [], out.default_fields || []);
-      if (!out.default_fields?.length) $('fieldStatus').textContent = 'This source has no verifiable account identity field. Preview is unavailable.';
+      const problem = WindsorPicker.previewCatalogProblem(out);
+      if (problem) { $('fieldStatus').textContent = problem; return; }
+      fieldsPicker.setFields(out.fields, out.default_fields);
     } catch (e) { if (version === previewVersion) $('fieldStatus').textContent = e.message + ' Click Preview to retry.'; }
   }
 
