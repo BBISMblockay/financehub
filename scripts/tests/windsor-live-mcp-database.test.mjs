@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const mutation=process.env.WINDSOR_LIVE_MUTATION || '';
-const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity'];
+const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity','rollup-cap','rollup-percent','rollup-blank','range-limit'];
 assert.ok(!mutation || mutations.includes(mutation),'known mutation');
 function replaceOnce(text,from,to){assert.ok(text.includes(from),'mutation target exists');return text.replace(from,to);}
 const temp=mkdtempSync(`${tmpdir()}/windsor-live-`);
@@ -17,6 +17,10 @@ cpSync('supabase/functions/windsor-broker',`${temp}/windsor-broker`,{recursive:t
 let provider=readFileSync(`${temp}/mcp/windsor-live.mjs`,'utf8');
 if(mutation==='identity') provider=replaceOnce(provider,'if (foreign || unattributed)','if (false)');
 if(mutation==='tail') provider=replaceOnce(provider,'filterRowsToAccount(rows,','filterRowsToAccount(rows.slice(0, 200),');
+if(mutation==='rollup-cap') provider=replaceOnce(provider,'if (rolled && rows.length >= sourceCap)','if (false)');
+if(mutation==='rollup-percent') provider=replaceOnce(provider,"filter(f => typeOf.get(f) === 'PERCENT')","filter(() => false)");
+if(mutation==='rollup-blank') provider=replaceOnce(provider,'measures.map(m => [m, null])','measures.map(m => [m, 0])');
+if(mutation==='range-limit') provider=replaceOnce(provider,'> LIVE_RANGE_MAX_DAYS)','> 100000)');
 writeFileSync(`${temp}/mcp/windsor-live.mjs`,provider);
 let handlerSource=readFileSync(`${temp}/mcp/handler.mjs`,'utf8');
 if(mutation==='reauthorize') handlerSource=replaceOnce(handlerSource,"const again = await callRpc(authorization, 'silo_api_windsor_connections', {p_connection_id:args.connection_id,p_offset:0});","const again = scoped;");
@@ -86,7 +90,7 @@ insert into windsor_linked_accounts(id,company_entity_id,link_id,ds_id,account_i
  ('${OFF}','${A}','${CA}','youtube','unpublished','Not published',false);
 `);
 let calls=[], mode='valid', expectedAccount='account-a';
-const fields=[{id:'account_id',type:'TEXT'},{id:'date',type:'DATE'},{id:'subject',name:'Subject',type:'TEXT'},{id:'value',type:'NUMERIC'}];
+const fields=[{id:'account_id',type:'TEXT'},{id:'date',type:'DATE'},{id:'subject',name:'Subject',type:'TEXT'},{id:'value',type:'NUMERIC'},{id:'rate',type:'PERCENT'}];
 async function rpcFetch(url,init) {
   assert.equal(init.headers.Authorization,token,'fixture signature/issuer verification');
   assert.equal(init.headers.apikey,'anon-key');
@@ -127,6 +131,12 @@ async function fetchImpl(url,init) {
   if(mode==='foreign-tail') rows=[...Array.from({length:200},()=>rows[0]),{...rows[0],account_id:'account-b'}];
   if(mode==='long-text') rows=[{...rows[0],subject:'x'.repeat(700)}];
   if(mode==='huge-row') rows=[{...rows[0],subject:'x'.repeat(25000)}];
+  if(mode==='series'||mode==='series-cap'){
+    lastRange={from:u.searchParams.get('date_from'),to:u.searchParams.get('date_to'),preset:u.searchParams.get('date_preset'),max:u.searchParams.get('_max_rows')};
+    const r=(date,subject,value)=>({account_id:expectedAccount,date,subject,value,rate:0.5});
+    rows=[r('2025-10-01','A',1),r('2025-10-15','B',2),r('2025-11-03','A',4),r('2026-09-30','A',null),r('2026-10-02','A',null),r('2026-10-03','B','5')];
+    if(mode==='series-cap') rows=Array.from({length:Number(lastRange.max)},()=>r('2025-10-01','A',1));
+  }
   return new Response(JSON.stringify({data:rows}));
 }
 const handler=createMcpHandler({env:{SUPABASE_URL:BASE,SUPABASE_ANON_KEY:'anon-key',WINDSOR_API_KEY:KEY},fetchImpl});
@@ -137,6 +147,7 @@ async function tool(name,args={}) {
   return {status:response.status,body,raw,data:body.result?.isError?null:body.result?.content?.[0]?.text ? JSON.parse(body.result.content[0].text):null};
 }
 const queryArgs={connection_id:CA,fields:['date','subject','value']};
+let lastRange=null;
 let passed=0;
 async function check(name,fn){await fn();console.log(`ok ${++passed} - ${name}`);}
 await check('one MCP lists only published connections for the grant company, ignoring forged company claims/browser company',async()=>{
@@ -165,6 +176,37 @@ await check('output caps do not truncate text or claim complete totals',async()=
  mode='limit';let r=await tool('query_connection',queryArgs);assert.equal(r.data.rows.length,200);assert.equal(r.data.maybe_truncated,true);
  mode='long-text';r=await tool('query_connection',queryArgs);assert.equal(r.data.rows[0].subject.length,700);mode='valid';
 });
+const yoy={connection_id:CA,date_from:'2025-10-01',date_to:'2026-10-31'};
+await check('a two-year range rolls up by month over every source row, and a blank month stays blank',async()=>{
+ mode='series';calls=[];const r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'month'});
+ assert.deepEqual(lastRange,{from:'2025-10-01',to:'2026-10-31',preset:null,max:'20000'});
+ assert.deepEqual(r.data.rows.map(g=>[g.period,g.value,g.days_with_rows]),[['2025-10',3,2],['2025-11',4,1],['2026-09',null,1],['2026-10',5,2]]);
+ assert.equal(r.data.source_rows,6);assert.equal(r.data.persisted,false);assert.equal(r.data.rollup,'month');mode='valid';
+});
+await check('text fields split the totals; week periods start on Monday; total ignores dates',async()=>{
+ mode='series';let r=await tool('query_connection',{...yoy,fields:['date','subject','value'],rollup:'total'});
+ assert.deepEqual(r.data.rows.map(g=>[g.subject,g.value]),[['A',5],['B',7]]);
+ r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'week'});
+ assert.equal(r.data.rows[0].period,'2025-09-29');assert.equal(r.data.rows[0].value,1);mode='valid';
+});
+await check('percent fields cannot be summed: refused before any data request',async()=>{
+ mode='series';calls=[];const r=await tool('query_connection',{...yoy,fields:['date','value','rate'],rollup:'month'});
+ assert.equal(r.body.result.isError,true);assert.match(r.raw,/rate/);assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')));mode='valid';
+});
+await check('a capped source response is refused, never returned as a partial total',async()=>{
+ mode='series-cap';const r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'total'});
+ assert.equal(r.body.result.isError,true);assert.match(r.raw,/too many source rows/);mode='valid';
+});
+for(const [label,extra] of [['preset and range together',{date_preset:'last_7d'}],['date_from after date_to',{date_from:'2026-11-01',date_to:'2026-10-01'}],
+  ['future end',{date_to:'2099-01-01'}],['over 800 days',{date_from:'2020-01-01'}],['malformed date',{date_from:'2025-13-40'}],
+  ['only one end',{date_to:undefined}],['unknown rollup',{rollup:'year'}],['day rollup without date',{fields:['value'],rollup:'day'}]]){
+ await check(`invalid window refused with no data request: ${label}`,async()=>{
+  mode='series';calls=[];const args={...yoy,fields:['date','value'],rollup:'month',...extra};
+  for(const k of Object.keys(args)) if(args[k]===undefined) delete args[k];
+  const r=await tool('query_connection',args);assert.equal(r.body.result.isError,true);
+  assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')),'no data call');mode='valid';
+ });
+}
 for(const scenario of ['revoke','unpublish']) await check(`${scenario} during fetch is rechecked before result release`,async()=>{
  mode=scenario;const r=await tool('query_connection',queryArgs);assert.ok(r.body.result?.isError||r.body.error);assert.ok(!r.raw.includes('First text'));
  await db.exec(`update silo_api_grants set revoked_at=null;update windsor_linked_accounts set mcp_enabled=true where id='${CA}'`);mode='valid';

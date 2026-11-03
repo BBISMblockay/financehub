@@ -52,7 +52,7 @@
  * This file adds no authority and reads nothing. It is text.
  */
 
-export const GUIDE_VERSION = '2026-11-03';
+export const GUIDE_VERSION = '2026-11-03b';
 
 /* ── The rules, for the system prompt ───────────────────────────────────────
  *
@@ -67,10 +67,10 @@ const RULES = [
   'so prefer one report over combining several. For anything else, query the tables (describe_tables first).',
   'Live connections are sources the company published to AI (for example Klaviyo or TikTok through a data',
   'connector). list_connections shows them; describe_connection lists every field the source offers;',
-  'query_connection reads the source live, for the last 7 to 30 days. Use them when the person asks what is',
-  'connected, for a field SILO does not store, or for the newest days. SILO\'s stored copies of these sources',
-  '(klaviyo_performance_daily, windsor_metrics_daily, marketing_kpis_daily where source is windsor) hold',
-  'longer history but are only as fresh as the last nightly sync. Say which one a number came from.',
+  'query_connection reads it live for up to 800 days; for trends or year over year pass rollup month or total',
+  '(never sum a rate). Use them for what is connected, fields SILO does not store, or the newest days. Stored',
+  'copies (klaviyo_performance_daily, windsor_metrics_daily, marketing_kpis_daily where source is windsor) are',
+  'only as fresh as the last nightly sync and join with SILO\'s own tables. Say which one a number came from.',
   'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
   'that has not landed. Never fill a blank with 0, average over it, or call it a decline.',
   'Credited is not earned. "Claimed", "credited" and "attributed" revenue is what an ad platform or Redo',
