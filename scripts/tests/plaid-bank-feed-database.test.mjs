@@ -193,7 +193,7 @@ try {
     // "End of Plaid fixture checks" marker, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql', '20261103190000_plaid_discard_stale_pending.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql', '20261103200000_plaid_discard_stale_pending.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -1316,7 +1316,7 @@ try {
     assert.equal((await load('card_import_batches', placeholder.batch_id)).status, 'approved');
   });
 
-  /* Clearing pending rows an abandoned feed will never retire (20261103190000).
+  /* Clearing pending rows an abandoned feed will never retire (20261103200000).
 
      A pending row is a promise the bank makes and later keeps, by posting the
      transaction or listing its id in removed[]. When the institution stops

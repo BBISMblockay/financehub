@@ -7092,18 +7092,18 @@ select case
   then 'STALE: the daily ledger still judges only delivered rows, so a hand-entered row could reach QuickBooks with no accounting treatment; apply 20261103070000'
  else 'ok' end as status;
 
--- Clearing pending rows an abandoned feed will never retire (20261103190000).
+-- Clearing pending rows an abandoned feed will never retire (20261103200000).
 -- Without it the only way to remove one is a hand-written DELETE, and a
 -- company that cannot reach the database cannot clear them at all -- which
 -- also makes typing the missing days in unsafe, since the bank's eventual
 -- post would land on the orphaned row instead of the hand-entered one.
 select case
   when to_regprocedure('public.plaid_discard_stale_pending(uuid,text[])') is null
-   then 'MISSING: clear-stale-pending migration (20261103190000)'
+   then 'MISSING: clear-stale-pending migration (20261103200000)'
  when has_function_privilege('anon', to_regprocedure('public.plaid_discard_stale_pending(uuid,text[])'), 'EXECUTE')
   then 'CRITICAL: bank rows can be deleted without signing in'
  when pg_get_functiondef(to_regprocedure('public.plaid_discard_stale_pending(uuid,text[])')) not like '%still delivering%'
-  then 'STALE: clearing no longer refuses while the feed is delivering; apply 20261103190000'
+  then 'STALE: clearing no longer refuses while the feed is delivering; apply 20261103200000'
  else 'ok' end as status;
 
 -- ── End of Plaid fixture checks ─────────────────────────────────────────────

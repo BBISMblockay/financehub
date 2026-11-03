@@ -19435,11 +19435,6 @@ $c$select (select count(*) from v_po_header_summary
 -- when it finally delivers that day. Closes the gap PR #1100 could not: the
 -- provider itself having nothing for days the bank does have. No deploy.
 \i migrations/20261103070000_plaid_manual_days.sql
--- Clearing pending rows an abandoned feed will never retire: a gated,
--- audited function that removes only excluded, unapproved rows on an account
--- the provider has said nothing about for days. Makes hand-entered days safe
--- on an account with orphaned pending rows. No deploy.
-\i migrations/20261103190000_plaid_discard_stale_pending.sql
 -- Windsor any connector: windsor_metrics_daily for connectors with no table of
 -- their own; marketing_kpis_daily.platform becomes a name-shape check.
 \i migrations/20261103080000_windsor_any_connector.sql
@@ -19448,4 +19443,9 @@ $c$select (select count(*) from v_po_header_summary
 -- install/claim/staging tables plus one credentials table. Catalog text only;
 -- no business row changes, no deploy. Before the catalog cleanup.
 \i migrations/20261103190000_chat_catalog_coverage.sql
+-- Clearing pending rows an abandoned feed will never retire: a gated,
+-- audited function that removes only excluded, unapproved rows on an account
+-- the provider has said nothing about for days. Makes hand-entered days safe
+-- on an account with orphaned pending rows. No deploy.
+\i migrations/20261103200000_plaid_discard_stale_pending.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
