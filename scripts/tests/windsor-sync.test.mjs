@@ -17,6 +17,8 @@
 //   WINDSOR_SYNC_MUTATION=override        a company's field mapping is ignored
 //   WINDSOR_SYNC_MUTATION=transient       a timeout / 5xx on a hunted batch counts as a refusal
 //   WINDSOR_SYNC_MUTATION=generation      a run under an old mapping saves its cursor over a rewind
+//   WINDSOR_SYNC_MUTATION=split           a batch Windsor will not answer whole is not asked in halves
+//   WINDSOR_SYNC_MUTATION=outage          fields are dropped as refused even when Windsor answered nothing
 //   WINDSOR_SYNC_MUTATION=skiprefused     a refused hunted field is asked again in every window
 //   WINDSOR_SYNC_MUTATION=nullnotzero     a measure the connector lacks is stored as 0
 //
@@ -43,10 +45,12 @@ async function loadCore() {
   if (MUT === 'refusedcolumn') sub('if (blocking.length) {', 'if (false) {');
   if (MUT === 'syncoptions') sub('options: previewOptions(connector),', '');
   if (MUT === 'directsync') sub("if (choice.kind === 'ad') {", "if (choice.kind !== 'fixed') {");
-  if (MUT === 'huntmerge') sub("const mergeId = (dataset, r) => `${r?.account_id ?? ''}\u0000", "const mergeId = (dataset, r) => `\u0000");
+  if (MUT === 'huntmerge') sub("const mergeId = (dataset, r) => `${r?.account_id ?? ''}\\u0000", "const mergeId = (dataset, r) => `\\u0000");
   if (MUT === 'override') sub('const auto = autoDataset(account.ds_id, catalog, overrides);', 'const auto = autoDataset(account.ds_id, catalog);');
   if (MUT === 'transient') sub('return r.transient ? readOnce(io) : r;', 'return r.transient ? { ...r, transient: false } : r;');
   if (MUT === 'generation') sub(".eq('mapping_generation', account.mapping_generation)\n", '\n');
+  if (MUT === 'split') sub('      await readSplitting({ ...io, fields: batch, state, out });\n      return out;', '      out.incomplete = true;\n      return out;');
+  if (MUT === 'outage') sub('    if (state.answered === 0) incomplete = true;\n    else refused.push(...unanswered);', '    refused.push(...unanswered);');
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
   if (MUT === 'nullnotzero') sub("out[col] = chosen[col] ? numOrNull(r[chosen[col]]) : null;", "out[col] = chosen[col] ? (numOrNull(r[chosen[col]]) ?? 0) : 0;");
   // Absolute imports so the temp copy resolves the repo's modules.
@@ -58,7 +62,7 @@ async function loadCore() {
   return import(file);
 }
 const core = await loadCore();
-const { syncAccount, planWindows, fieldsNamedIn, DATASETS } = core;
+const { syncAccount, planWindows, fieldsNamedIn, DATASETS, MAX_UNANSWERED_PER_WINDOW } = core;
 
 const KEY = 'owner-key-SECRET-77aa';
 const A = 'company-A';
@@ -394,6 +398,51 @@ test('a hunted batch Windsor does not answer (timeout / 5xx / 429) is not a refu
   const m = fake.rows('windsor_linked_accounts')[0];
   assert.equal(m.history_from, '2026-08-01', 'coverage does not advance past a window that was not fully read');
   assert.match(m.last_sync_error, /did not answer/);
+});
+
+test('a hunted batch that is too slow as a whole is asked again in halves, and one field that never answers is dropped', async () => {
+  const acct = { ...pinAcct, history_from: '2026-08-01' };
+  const fake = world([acct]);
+  const asks = [];
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    asks.push(f);
+    // Windsor times out on any ask that includes video_p100.
+    if (f.includes('video_p100')) return { status: 504, text: 'gateway timeout' };
+    const row = { date: '2026-11-01', account_id: PIN, campaign_id: 'pc1' };
+    if (f.includes('saves')) row.saves = 7;
+    if (f.includes('ctr')) row.ctr = 1.5;
+    return [row];
+  }, { pinterest: pinCatalog });
+  const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 1 });
+  const stored = fake.rows('marketing_kpis_daily').find((x) => x.day_date === '2026-11-01');
+  assert.ok(stored, 'the window is written');
+  assert.equal(stored.extra.saves, 7, 'fields that answer in a smaller ask are kept');
+  assert.equal(stored.extra.ctr, 1.5);
+  assert.ok(r.refused_fields.includes('video_p100'), 'the one field Windsor never answers for is listed');
+  assert.ok(!r.refused_fields.includes('saves'));
+  const m = fake.rows('windsor_linked_accounts')[0];
+  assert.ok(m.history_from < '2026-08-01', 'coverage moves on');
+  assert.notEqual(r.status, 'error');
+  assert.equal(r.unanswered, undefined, 'not left as unanswered');
+});
+
+test('when Windsor answers no hunted ask at all, splitting stops early and the window is kept unwritten', async () => {
+  const acct = { ...pinAcct, history_from: '2026-08-01' };
+  const fake = world([acct]);
+  let hunted = 0;
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) return [{ date: '2026-11-01', account_id: PIN, campaign_id: 'pc1', spend: 1, impressions: 1, clicks: 1 }];
+    hunted += 1;
+    return { status: 503, text: 'down' };
+  }, { pinterest: pinCatalog });
+  const r = await run(fake, fw, acct, { historyMonths: 6, maxHistoryWindows: 1 });
+  assert.equal(r.status, 'partial');
+  assert.deepEqual(r.refused_fields, []);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0);
+  assert.ok(hunted <= 2 * (MAX_UNANSWERED_PER_WINDOW + 2), `an outage costs a bounded number of asks (${hunted})`);
 });
 
 test('a mapping saved while a run is in flight is not undone by that run', async () => {
