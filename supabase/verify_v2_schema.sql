@@ -8325,3 +8325,56 @@ select 'Windsor any connector' as check_name,
       then 'CRITICAL — windsor_field_mappings is not confined to admins of the active company'
     else 'ok'
   end as status;
+
+-- ── Catalog coverage for bots (20261103190000) ─────────────────────────────
+-- The catalog's curated description/keywords are what Ask SILO's schema map and
+-- the MCP describe_tables tool serve, and refresh_chat_schema_catalog()
+-- preserves them -- so a relation that has lost them means the migration was
+-- never applied or somebody edited the rows away, and a bot goes back to
+-- guessing column names on the ledger, payroll, AR, AP and PO surface.
+select 'chat catalog coverage' as check_name,
+  case
+    when to_regclass('public.silo_chat_schema_catalog') is null
+      then 'MISSING — silo_chat_schema_catalog'
+    when exists (
+      select 1 from public.silo_chat_schema_catalog
+       where not is_hidden
+         and relname in (
+           'shopify_client_credentials', 'shopify_install_states',
+           'shopify_pending_installs', 'billing_checkout_claims',
+           'stripe_connect_setup_claims', 'sample_notification_claims',
+           'card_coding_preparation_claims', 'po_sequences',
+           'onboarding_interest_rate_buckets', 'qbo_history_staging_sections',
+           'qbo_history_staging_lines'
+         ))
+      then 'CRITICAL — an install/claim/credentials table is visible to the model and to the query tool'
+    when exists (
+      select 1 from public.silo_chat_schema_catalog
+       where (keywords is null or description is null or btrim(description) = '')
+         and relname in (
+           'ledger_entries', 'ledger_lines', 'silo_ledger_lines_v',
+           'accounting_accounts', 'accounting_coa_map', 'accounting_journal_register',
+           'journal_adjustments_v', 'journal_adjustment_lines', 'schedule_items',
+           'schedule_item_balances_v', 'fixed_asset_balances_v',
+           'card_transactions_v', 'card_coding_effective_lines',
+           'card_coding_suggestions_v', 'card_coding_rules', 'payroll_register_lines',
+           'payroll_register_monthly_v', 'payroll_employee_cost_v',
+           'payroll_department_cost_v', 'ar_invoices', 'ar_invoice_workbench_v',
+           'ar_customer_rollup_v', 'ar_contact_log', 'payment_requests_v',
+           'payment_request_activity_v', 'mail_items_v', 'v_po_header_summary',
+           'v_po_arrival', 'v_po_shipment_lines', 'incoming_shipment_lines',
+           'v_shipment_booking_summary', 'v_po_costing_summary',
+           'product_lead_time_v', 'reorder_plan_v', 'demand_coverage_base_v',
+           'shopify_draft_orders', 'shopify_payouts', 'shopify_attribution_days',
+           'silo_attribution_campaigns_v', 'search_console_query_rollup_v',
+           'facebook_page_insights_daily', 'instagram_account_insights_daily',
+           'wow_sales_daily_type_v', 'sales_exception_summary_v',
+           'shopify_channel_map', 'shopify_location_mappings', 'product_tags',
+           'inventory_workboard_mv', 'tasks_v', 'launch_tasks', 'profiles',
+           'entity_memberships', 'entities', 'comp_adjustment_requests_v',
+           'product_samples_v', 'customer_accounts_v', 'revenue_projection_history',
+           'silo_report_tieouts', 'silo_chat_saved_reports_v', 'sync_jobs'
+         ))
+      then 'MISSING — a relation seeded by 20261103190000 has lost its description or keywords'
+    else 'ok'
+  end as status;
