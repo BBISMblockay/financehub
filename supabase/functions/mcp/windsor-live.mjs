@@ -11,6 +11,10 @@ export const LIVE_OUTPUT_CHARS = 24000;
 export const LIVE_SOURCE_MAX_ROWS = 20000;
 // About two years plus a margin, so "this year vs last year" fits in one call.
 export const LIVE_RANGE_MAX_DAYS = 800;
+// Sources such as TikTok answer a year-long read slowly; a rollup waits longer.
+// Both stay well inside the edge function's wall-clock limit.
+export const LIVE_TIMEOUT_MS = 20000;
+export const LIVE_ROLLUP_TIMEOUT_MS = 90000;
 export const ROLLUPS = ['none', 'day', 'week', 'month', 'total'];
 const SUMMABLE_TYPES = ['NUMERIC', 'INTEGER', 'NUMBER', 'FLOAT', 'CURRENCY'];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -79,9 +83,9 @@ export function rollupRows(rows, { fields, catalog, rollup }) {
     .map(g => ({ period: g.period, ...g.dims, ...g.sums, days_with_rows: g.days.size, source_rows: g.source_rows }));
 }
 
-async function readJson(fetchImpl, url) {
+async function readJson(fetchImpl, url, timeoutMs = LIVE_TIMEOUT_MS) {
   try {
-    const res = await fetchImpl(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(20000) });
+    const res = await fetchImpl(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok || Number(res.headers.get('content-length')) > LIVE_BYTE_LIMIT) {
       await res.body?.cancel();
       throw new Error('Source response unavailable or too large');
@@ -152,7 +156,7 @@ export async function liveQuery({ connection, fields, datePreset, dateFrom, date
   for (const [k,v] of Object.entries({ api_key:key, select_accounts:connection.account_id,
     fields:parsed.value.join(','), ...window, _max_rows:String(sourceCap) })) url.searchParams.set(k,v);
   const options = previewOptions(source); if (options) url.searchParams.set('options',options);
-  const body = await readJson(fetchImpl, url.toString());
+  const body = await readJson(fetchImpl, url.toString(), rolled ? LIVE_ROLLUP_TIMEOUT_MS : LIVE_TIMEOUT_MS);
   const rows = rowsOf(body);
   if (!rows || (!Array.isArray(body) && body.error)) throw new Error('Windsor did not return data rows.');
   // Validate ALL rows, including ones outside the display limit, before release.
