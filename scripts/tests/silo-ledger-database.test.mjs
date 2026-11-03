@@ -163,6 +163,10 @@ try {
   const preCoded = await newTxn(batch, 25, { status: 'coded', account: 'supplies' });
   await db.exec(sql);
   await db.exec(sql); // idempotent
+  // Hand-entered feed days (20261103070000) re-create silo_ledger_blocker to cover
+  // them, so the ledger's own fixture is where that widening gets exercised: the
+  // Plaid fixture has no ledger schema at all.
+  await db.exec(await readFile(new URL('supabase/migrations/20261103070000_plaid_manual_days.sql', root), 'utf8'));
 
   await test('the backfill recorded an already-categorized transaction, once, and re-running changes nothing', async () => {
     const es = await entries(preCoded);
@@ -561,6 +565,38 @@ try {
     const exclusive = (await q(advisory)).filter((r) => r.mode === 'ExclusiveLock');
     await db.exec('rollback');
     assert.ok(exclusive.some((r) => r.classid === shared[0].classid && r.objid === shared[0].objid), 'the period lock takes the same key exclusively');
+  });
+
+  await test('a hand-entered feed day is judged like a provider row: no treatment, no ledger; a reviewed one records', async () => {
+    const pconn = randomUUID(), pacct = randomUUID(), bankSource = randomUUID();
+    await q("insert into plaid_connections(id,company_entity_id,item_id,environment,status) values($1,$2,'item-ledger','production','active')", [pconn, co]);
+    await q(`insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,ingest_mode,authoritative_from,credit_qbo_account_id,credit_qbo_account_name,is_active)
+             values($1,$2,$3,'op','Operating','bank','plaid','2026-08-01','bank','bank',true)`, [bankSource, co, conn]);
+    await q(`insert into plaid_accounts(id,company_entity_id,connection_id,provider_account_id,name,type,source_id,mask)
+             values($1,$2,$3,'acct-1','Operating','depository',$4,'2588')`, [pacct, co, pconn, bankSource]);
+    const pBatch = randomUUID();
+    await q(`insert into card_import_batches(id,company_entity_id,source_id,label,entry_date,period_start,period_end,status,origin,qbo_connection_id)
+             values($1,$2,$3,'Oct','2026-10-31','2026-10-01','2026-10-31','draft','plaid',$4)`, [pBatch, co, bankSource, conn]);
+    const hand = randomUUID();
+    await q(`insert into card_transactions(id,company_entity_id,batch_id,row_no,txn_date,description,merchant,clean_merchant,card_name,amount,currency,status,origin,plaid_account_id,accounting_treatment,qbo_account_id,qbo_account_name,coding_source)
+             values($1,$2,$3,$4,'2026-10-29','ACH VENDOR','ACH VENDOR','Vendor','2588',50,'USD','coded','manual',$5,'unknown','supplies','supplies','manual')`,
+      [hand, co, pBatch, ++rowNo, pacct]);
+    assert.match((await one('select silo_ledger_blocker($1) r', [hand])).r, /need USD data and an accounting treatment/,
+      'coded but untreated, a hand-entered day is held exactly as a provider row is');
+    assert.equal((await entries(hand)).length, 0, 'and nothing reached the ledger');
+
+    await q("update card_transactions set accounting_treatment='purchase' where id=$1", [hand]);
+    assert.equal((await one('select silo_ledger_blocker($1) r', [hand])).r, null, 'reviewing the treatment clears it');
+    await q('select silo_ledger_sync_card_transaction($1)', [hand]);
+    const es = await entries(hand);
+    assert.equal(es.length, 1, 'and it records once');
+    assert.deepEqual(await lines(es[0].id), [{ posting_type: 'Debit', amount: '50.00', qbo_account_id: 'supplies' },
+      { posting_type: 'Credit', amount: '50.00', qbo_account_id: 'bank' }]);
+
+    await q("update card_transactions set accounting_treatment='refund' where id=$1", [hand]);
+    assert.match((await one('select silo_ledger_blocker($1) r', [hand])).r, /Review the direction and treatment/,
+      'and the direction check applies to it too');
+    await q("update card_transactions set accounting_treatment='purchase' where id=$1", [hand]);
   });
 
   await test('re-running the migration over a populated ledger writes nothing', async () => {

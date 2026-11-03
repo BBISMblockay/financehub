@@ -77,6 +77,20 @@ test('a categorized bank row with no type says why, and suggests only what appro
  assert.ok(![...cardGap.choices].includes('card_payment'));
  assert.match(api.treatmentGap(row(10),null,'bank').reason,/not in the current QuickBooks chart/);
  assert.match(api.treatmentGap(row(10,{qbo_account_id:null}),null,'bank',true).reason,/Split/);
+ /* A hand-entered feed day ('manual') is a bank row: approval and the daily
+    ledger demand a treatment from it exactly as from a delivered one, so it
+    must be offered the same inference, the same gap reason and the same
+    choices. Without this the page shows no type control for it at all and the
+    row cannot be approved by any route. */
+ assert.equal(api.isBankFeedRow({origin:'manual'}),true);
+ assert.equal(api.isBankFeedRow({origin:'plaid'}),true);
+ assert.equal(api.isBankFeedRow({origin:'csv'}),false);
+ assert.equal(api.inferTreatment({origin:'manual',qbo_account_id:'a',amount:10},'Expense','bank'),'purchase');
+ assert.equal(api.inferTreatment({origin:'manual',qbo_account_id:'a',amount:-10},'Income','bank'),'deposit');
+ const hand=api.treatmentGap(row(10,{origin:'manual'}),'Other Current Liability','bank');
+ assert.equal(hand.suggested,'transfer'); assert.match(hand.reason,/without a type/);
+ assert.deepEqual(api.treatmentGap(row(10,{origin:'manual'}),'Expense','bank').choices,
+   api.treatmentGap(row(10),'Expense','bank').choices);
  // Every suggestion is one approval accepts.
  for(const [type,amount,src] of [['Expense',10,'bank'],['Expense',-10,'bank'],['Income',-10,'bank'],['Other Current Asset',10,'bank'],['Credit Card',10,'bank'],['Bank',10,'bank'],['Bank',-10,'bank'],['Long Term Liability',10,'bank'],['Equity',-10,'bank']]) {
   const g=api.treatmentGap(row(amount),type,src);

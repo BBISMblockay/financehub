@@ -7067,6 +7067,31 @@ select 'Coding evidence and saved rules' as check_name,
   then 'STALE: background preparation does not skip rows a saved rule answers; apply 20260923140000'
  else 'ok' end as status;
 
+-- Hand-entered days for a Plaid-fed account (20261103070000). A missing apply
+-- here is silent in the worst way: the import button is simply refused, and
+-- the account that needs it is by definition one nobody is watching.
+select case
+ when to_regprocedure('public.plaid_import_manual_days(uuid,jsonb)') is null
+   or not exists (select 1 from information_schema.columns
+     where table_schema='public' and table_name='card_transactions' and column_name='manual_entered_at')
+  then 'MISSING: hand-entered feed days migration (20261103070000)'
+ when has_function_privilege('anon', to_regprocedure('public.plaid_import_manual_days(uuid,jsonb)'), 'EXECUTE')
+  then 'CRITICAL: hand-entered feed days can be created without signing in'
+ when not exists (select 1 from pg_constraint where conname='card_transactions_origin_check'
+   and pg_get_constraintdef(oid) like '%manual%')
+  then 'STALE: card_transactions still refuses the manual origin; apply 20261103070000'
+ when pg_get_functiondef(to_regprocedure('public.plaid_project_transaction(uuid,jsonb,boolean)')) not like '%claimed_manual_entry%'
+  then 'STALE: the feed does not claim hand-entered rows, so a delivered day would duplicate; apply 20261103070000'
+ when pg_get_functiondef(to_regprocedure('public.plaid_guard_transaction()')) not like '%Hand-entered feed days are server-owned%'
+  then 'STALE: the row guard still lets a browser invent a hand-entered day; apply 20261103070000'
+ when not exists (select 1 from information_schema.columns
+   where table_schema='public' and table_name='card_transactions' and column_name='claimed_external_transaction_id')
+   or not exists (select 1 from pg_class where relname='uq_plaid_claimed_identity' and relkind='i')
+  then 'STALE: a hand-entered row posted into the books cannot record which provider transaction it stands for, so every redelivery of it would raise a new exception; apply 20261103070000'
+ when pg_get_functiondef(to_regprocedure('public.silo_ledger_blocker(uuid)')) not like '%''plaid'', ''manual''%'
+  then 'STALE: the daily ledger still judges only delivered rows, so a hand-entered row could reach QuickBooks with no accounting treatment; apply 20261103070000'
+ else 'ok' end as status;
+
 -- ── End of Plaid fixture checks ─────────────────────────────────────────────
 -- scripts/tests/plaid-bank-feed-database.test.mjs executes every check from
 -- the "Plaid ingestion" marker up to this line, and nothing below it. Checks

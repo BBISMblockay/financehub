@@ -193,7 +193,7 @@ try {
     // "End of Plaid fixture checks" marker, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -978,6 +978,342 @@ try {
     assert.equal(await scalar('select auto_prepare_coding from card_sources where id=$1', [account.source]), true);
     await assert.rejects(asFinance(() => q("update card_sources set auto_prepare_coding=false, authoritative_from='2030-01-01' where id=$1", [account.source])),
       /rebound|cutover|configure/i, 'the switch cannot smuggle a cutover change past the guard');
+  });
+
+
+  // ── Hand-entered days for a stalled feed (20261103070000_plaid_manual_days)
+  //
+  // The case these cover: the provider itself has nothing for days the bank
+  // does have, so there is no sync, refresh or date-range import that can
+  // produce them. Someone types them in, codes them, and the feed later
+  // delivers the same transactions. Nothing may end up in the books twice,
+  // and nobody's coding may be thrown away when it does.
+  const manual = (account, rows) => asRole('authenticated', account.actor,
+    () => rpc('plaid_import_manual_days', [account.id, rows]));
+  const day = (offset) => {
+    const d = new Date(Date.now() + offset * 86400_000);
+    return d.toISOString().slice(0, 10);
+  };
+  const rowsFor = (account) => q(`select * from card_transactions where plaid_account_id=$1 order by txn_date,row_no`, [account.id]);
+
+  await test('hand-entered days land as codeable rows that name themselves as typed in', async () => {
+    const account = await bankAccount();
+    const result = await manual(account, [{ date: day(-3), amount: 120.55, name: 'ACH DEBIT VENDOR' },
+      { date: day(-2), amount: -80.10, name: 'ACH CREDIT SHOPIFY' }]);
+    assert.equal(result.imported, 2);
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 2);
+    for (const row of rows) {
+      assert.equal(row.origin, 'manual');
+      assert.equal(row.plaid_account_id, account.id);
+      assert.equal(row.external_transaction_id, null, 'a typed row carries no provider identity');
+      assert.equal(row.provider_status, null);
+      assert.ok(row.manual_entered_at, 'the row says it was typed in');
+      assert.equal(row.manual_entered_by, account.actor);
+      // Postable: the whole point is closing a month the feed stranded.
+      assert.equal(row.status, 'uncoded');
+    }
+  });
+
+  await test('a hand-entered day can never reach a day the feed already delivered', async () => {
+    const account = await bankAccount();
+    const provider = providerTransaction(account, { date: '2026-09-20' });
+    await apply(account, { added: [provider] });
+    // On the newest held day, and before it: both are the feed's to own.
+    await assert.rejects(manual(account, [{ date: '2026-09-20', amount: 10, name: 'Same day' }]),
+      /newest day this account already holds/i);
+    await assert.rejects(manual(account, [{ date: '2026-09-19', amount: 10, name: 'Earlier day' }]),
+      /newest day this account already holds/i);
+    // One good row does not carry a bad one in: the whole call is refused.
+    await assert.rejects(manual(account, [{ date: day(-1), amount: 10, name: 'Fine' },
+      { date: '2026-09-19', amount: 10, name: 'Not fine' }]), /newest day/i);
+    assert.equal((await rowsFor(account)).length, 1, 'nothing was written by a refused call');
+  });
+
+  await test('hand-entered days respect the feed cutover, today, and the shape of a row', async () => {
+    const account = await bankAccount();
+    await assert.rejects(manual(account, [{ date: '2026-08-31', amount: 10, name: 'Before cutover' }]),
+      /before this account's feed start date/i);
+    await assert.rejects(manual(account, [{ date: day(2), amount: 10, name: 'Future' }]), /in the future/i);
+    for (const bad of [{ date: '20261020', amount: 10, name: 'Bad date' }, { date: day(-1), amount: 10.005, name: 'Sub-cent' },
+      { date: day(-1), amount: 0, name: 'Zero' }, { date: day(-1), amount: '10', name: 'String amount' },
+      { date: day(-1), amount: 10, name: '   ' }]) {
+      await assert.rejects(manual(account, [bad]), /YYYY-MM-DD date, a non-zero exact-cent amount and a description/i);
+    }
+    await assert.rejects(manual(account, []), /No rows to import/i);
+    assert.equal((await rowsFor(account)).length, 0);
+  });
+
+  // Pressing the button twice is the obvious way to double a day, and these
+  // rows carry no provider id to dedupe on afterwards. The forward-only window
+  // is what prevents it: a hand-entered row counts as a day the account holds.
+  await test('importing the same days twice is refused rather than doubled', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: day(-3), amount: 42, name: 'Once' }]);
+    await assert.rejects(manual(account, [{ date: day(-3), amount: 42, name: 'Once' }]),
+      /newest day this account already holds/i);
+    // And a later day still imports, so the guard blocks repeats, not progress.
+    await manual(account, [{ date: day(-2), amount: 43, name: 'Next day' }]);
+    assert.equal((await rowsFor(account)).length, 2);
+  });
+
+  await test('hand-entered days need finance access, this company, and a settled sync', async () => {
+    const account = await bankAccount();
+    const rows = [{ date: day(-3), amount: 42, name: 'Typed' }];
+    await assert.rejects(asRole('authenticated', outsider, () => rpc('plaid_import_manual_days', [account.id, rows])),
+      /Finance access required|Plaid account not found/i);
+    await assert.rejects(asRole('authenticated', otherFinance, () => rpc('plaid_import_manual_days', [account.id, rows])),
+      /Finance access required|Plaid account not found/i);
+    await claim(account);
+    await assert.rejects(manual(account, rows), /Wait for account sync to finish/i);
+    assert.equal((await rowsFor(account)).length, 0);
+  });
+
+  await test('the feed claims the row someone typed for it, and keeps their coding', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 120.55, name: 'ACH DEBIT ACME 0921' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder, { qbo_account_id: 'expense', vendor_name: 'Acme', memo: 'Typed from the portal' });
+    // The feed's own copy: same amount, a day later, the bank's own wording.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-21', amount: 120.55,
+      name: 'PREAUTHORIZED ACH DEBIT ACME CORP', merchant_name: 'Acme Corp' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 1, 'the feed claimed the placeholder instead of landing beside it');
+    const [row] = rows;
+    assert.equal(row.id, placeholder.id, 'it is the same row, so coding and history survive');
+    assert.equal(row.origin, 'plaid');
+    assert.ok(row.external_transaction_id, 'it now carries the provider identity');
+    assert.equal(row.provider_status, 'posted');
+    assert.equal(new Date(row.txn_date).toISOString().slice(0, 10), '2026-09-21', "the feed's facts win");
+    assert.equal(row.description, 'PREAUTHORIZED ACH DEBIT ACME CORP');
+    assert.equal(row.qbo_account_id, 'expense', 'the coding does not');
+    assert.equal(row.vendor_name, 'Acme');
+    assert.equal(row.memo, 'Typed from the portal');
+    assert.equal(row.status, 'coded');
+    assert.ok(row.manual_entered_at, 'it stays identifiable as a row that entered the books by hand');
+  });
+
+  await test('two identical amounts on one day claim one placeholder each, never the same one twice', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 12500, name: '8FIG' },
+      { date: '2026-09-20', amount: 12500, name: '8FIG' }]);
+    await apply(account, { added: [
+      providerTransaction(account, { date: '2026-09-20', amount: 12500, name: '8FIG PAYMENT ONE' }),
+      providerTransaction(account, { date: '2026-09-20', amount: 12500, name: '8FIG PAYMENT TWO' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 2, 'two placeholders, two provider rows, two rows in the books');
+    assert.equal(rows.filter((row) => row.origin === 'plaid').length, 2);
+    assert.equal(new Set(rows.map((row) => row.external_transaction_id)).size, 2, 'each claimed a different provider id');
+  });
+
+  await test('a third provider row with no placeholder lands normally beside the claimed ones', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 12500, name: '8FIG' }]);
+    await apply(account, { added: [
+      providerTransaction(account, { date: '2026-09-20', amount: 12500, name: '8FIG ONE' }),
+      providerTransaction(account, { date: '2026-09-20', amount: 12500, name: '8FIG TWO' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 2, 'one claim, one ordinary insert');
+    assert.equal(rows.filter((row) => row.origin === 'plaid').length, 2);
+  });
+
+  await test('a placeholder is claimed only on an exact amount within three days', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 100, name: 'Typed' }]);
+    // A cent out, and four days out: both are different transactions.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 100.01, name: 'A cent out' })] });
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-24', amount: 100, name: 'Four days out' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 3, 'neither claimed the placeholder');
+    assert.equal(rows.filter((row) => row.origin === 'manual').length, 1);
+    // Three days out does claim it.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-23', amount: 100, name: 'Three days out' })] });
+    const after = await rowsFor(account);
+    assert.equal(after.length, 3, 'the placeholder became the provider row');
+    assert.equal(after.filter((row) => row.origin === 'manual').length, 0);
+  });
+
+  await test('a hand-entered row already in the books is never rewritten: the feed raises an exception', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' })] });
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'manual', 'the posted row is untouched');
+    assert.equal(row.description, 'Typed and posted');
+    assert.equal(await scalar(`select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]), 1,
+      'it reaches the review queue instead of the ledger');
+  });
+
+
+  // A frozen placeholder keeps origin='manual' for ever, so the provider
+  // transaction that matched it is never findable by external id afterwards.
+  // Every later delivery of that same transaction comes back down the insert
+  // branch, which is where this could go very wrong very quietly.
+  await test('a provider transaction redelivered against a frozen placeholder never wedges the feed', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    const openNow = () => scalar(`select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+    assert.equal(await openNow(), 1);
+    // The same id again, revised. uq_plaid_open_exception is unique on
+    // (account, external id) where status='open', so a second insert would
+    // abort the whole sync and strand the cursor permanently.
+    await apply(account, { modified: [{ ...provider, name: 'THE REAL ONE, RENAMED' }] });
+    assert.equal(await openNow(), 1, 'the existing exception is reused, not duplicated');
+    assert.equal((await first(`select provider_payload->>'name' as name from plaid_sync_exceptions
+      where account_id=$1 and status='open'`, [account.id])).name, 'THE REAL ONE, RENAMED',
+    'and it carries what the provider now says');
+    // The cursor advanced, which is the thing a failed sync would have lost.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-22', amount: 11, name: 'Later' })] });
+    assert.equal((await rowsFor(account)).length, 2, 'the feed keeps flowing');
+  });
+
+  await test('a second provider row of the same amount never contests a placeholder already spoken for', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'First' })] });
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'Second' })] });
+    const rows = await rowsFor(account);
+    // The frozen placeholder, plus one ordinary row for the second provider
+    // transaction, which is a different transaction and needs its own home.
+    assert.equal(rows.length, 2);
+    assert.equal(rows.filter((row) => row.origin === 'manual').length, 1);
+    assert.equal(rows.filter((row) => row.origin === 'plaid' && row.description === 'Second').length, 1);
+    assert.equal(await scalar(`select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]), 1,
+      'only the first raised a review; the second simply landed');
+  });
+
+  // Resolving the exception does not dissolve the association. The placeholder
+  // is still 'manual' with no external id, so the rest of its life depends on
+  // claimed_external_transaction_id having been recorded when the exception was
+  // first raised. Resolution here is done in SQL -- the real
+  // resolve_plaid_exception on a POSTED batch demands a posted correction
+  // journal, and what matters downstream is only that the exception is no
+  // longer open.
+  const frozenPlaceholder = async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 250, name: 'Typed and posted' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder);
+    await approve(placeholder.batch_id);
+    await markPosted('card_import_batches', placeholder.batch_id);
+    return { account, placeholder };
+  };
+  const resolveAll = (account) => db.query(
+    `update plaid_sync_exceptions set status='resolved',resolved_at=now() where account_id=$1 and status='open'`, [account.id]);
+  const openCount = (account) => scalar(
+    `select count(*)::integer from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+
+  await test('once the change is reviewed, the same transaction redelivered is a no-op, not a second review', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    assert.equal(await scalar('select claimed_external_transaction_id from card_transactions where id=$1', [placeholder.id]),
+      provider.transaction_id, 'the row records which provider transaction it stands for');
+    await resolveAll(account);
+    assert.equal(await openCount(account), 0);
+
+    // Plaid redelivers the same transaction, unchanged, on the next sync.
+    await apply(account, { modified: [provider] });
+    assert.equal(await openCount(account), 0, 'nothing is raised again');
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'manual'); assert.equal(row.description, 'Typed and posted');
+    assert.equal((await rowsFor(account)).length, 1, 'and no second copy of it lands');
+    // And the feed keeps flowing, which is the thing an aborted sync loses.
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-22', amount: 11, name: 'Later' })] });
+    assert.equal((await rowsFor(account)).length, 2);
+  });
+
+  await test('after review, a genuine change to the same transaction is reviewed against what was last reviewed', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    await resolveAll(account);
+    await apply(account, { modified: [{ ...provider, name: 'RENAMED AFTER REVIEW' }] });
+    assert.equal(await openCount(account), 1, 'a real change still reaches the queue');
+    const exception = await first(`select * from plaid_sync_exceptions where account_id=$1 and status='open'`, [account.id]);
+    assert.equal(exception.transaction_id, placeholder.id);
+    assert.equal(exception.provider_payload.name, 'RENAMED AFTER REVIEW');
+    assert.equal(exception.previous_payload.name, 'THE REAL ONE',
+      'and it is read against the facts the person last saw, not against the typed-in row');
+  });
+
+  await test('after review, a different provider transaction of the same amount never reuses the placeholder', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'First' })] });
+    await resolveAll(account);
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-20', amount: 250, name: 'Second' })] });
+    const rows = await rowsFor(account);
+    assert.equal(rows.length, 2, 'the second transaction gets its own row');
+    assert.equal(rows.filter((row) => row.id === placeholder.id && row.origin === 'manual').length, 1,
+      'the posted row is still untouched');
+    assert.equal(rows.filter((row) => row.origin === 'plaid' && row.description === 'Second').length, 1);
+    assert.equal(await openCount(account), 0, 'and it raises nothing: it is simply a new transaction');
+  });
+
+  await test('if the batch is reopened, the association is spent by the claim it was holding', async () => {
+    const { account, placeholder } = await frozenPlaceholder();
+    const provider = providerTransaction(account, { date: '2026-09-21', amount: 250, name: 'THE REAL ONE' });
+    await apply(account, { added: [provider] });
+    await resolveAll(account);
+    await db.query("update card_import_batches set status='draft' where id=$1", [placeholder.batch_id]);
+    await apply(account, { modified: [provider] });
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'plaid', 'the claim finally happens');
+    assert.equal(row.external_transaction_id, provider.transaction_id);
+    assert.equal(row.claimed_external_transaction_id, null, 'and the provisional record of it is spent');
+    assert.equal(row.qbo_account_id, placeholder.qbo_account_id ?? row.qbo_account_id, 'the coding is still there');
+    assert.equal((await rowsFor(account)).length, 1, 'with no second copy beside it');
+  });
+
+  // The treatment is part of the review, not of the provider's facts, and for
+  // a depository account the provider never supplies one. Overwriting it on
+  // claim leaves a row that reads 'coded' but that approval and the ledger
+  // both refuse -- the worst possible state to hand someone.
+  await test('claiming keeps the reviewed accounting treatment, and the batch still approves', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 120.55, name: 'ACH DEBIT ACME' }]);
+    const placeholder = (await rowsFor(account))[0];
+    await code(placeholder, { accounting_treatment: 'purchase' });
+    await apply(account, { added: [providerTransaction(account, { date: '2026-09-21', amount: 120.55,
+      name: 'PREAUTHORIZED ACH DEBIT ACME CORP' })] });
+    const row = await first('select * from card_transactions where id=$1', [placeholder.id]);
+    assert.equal(row.origin, 'plaid');
+    assert.equal(row.accounting_treatment, 'purchase', 'the review survived the claim');
+    assert.equal(row.status, 'coded');
+    await approve(row.batch_id);
+    assert.equal((await load('card_import_batches', row.batch_id)).status, 'approved',
+      'a claimed row is approvable, which it would not be with the treatment wiped');
+  });
+
+  await test('a hand-entered row clears the same approval bar as a provider row', async () => {
+    const account = await bankAccount();
+    await manual(account, [{ date: '2026-09-20', amount: 120.55, name: 'ACH DEBIT ACME' }]);
+    const placeholder = (await rowsFor(account))[0];
+    // Coded, but with no treatment chosen: it posts to the same accounts as a
+    // provider row, so the direction rules must not be skippable by origin.
+    await code(placeholder, { accounting_treatment: 'unknown' });
+    await assert.rejects(approve(placeholder.batch_id), /require posted USD data and an accounting treatment/i);
+    // And a treatment pointing the wrong way is caught, exactly as it is for
+    // a provider row: a purchase cannot be money arriving.
+    await asFinance(() => q(`update card_transactions set accounting_treatment='refund' where id=$1`, [placeholder.id]));
+    await assert.rejects(approve(placeholder.batch_id), /direction/i);
+    await asFinance(() => q(`update card_transactions set accounting_treatment='purchase' where id=$1`, [placeholder.id]));
+    await approve(placeholder.batch_id);
+    assert.equal((await load('card_import_batches', placeholder.batch_id)).status, 'approved');
   });
 
   console.log(`${passed} Plaid database tests passed (local PostgreSQL only).`);

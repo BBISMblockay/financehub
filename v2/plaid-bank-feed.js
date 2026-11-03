@@ -34,6 +34,147 @@
      so its silence says nothing, and calling that stale would teach people to
      ignore the warning. Four days, because a long weekend plus a holiday can
      legitimately pass with no business-day activity. */
+
+  // Tab-separated exports are as common as comma-separated ones and a bank
+  // portal rarely says which it gave you, so the delimiter is detected from
+  // the header line rather than assumed.
+  function parseDelimited(text) {
+    const head = text.slice(0, text.search(/\r?\n/) + 1 || text.length);
+    const delimiter = (head.match(/\t/g) || []).length > (head.match(/,/g) || []).length ? '\t' : ',';
+    const rows = [];
+    let row = [], field = '', quoted = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const character = text[i];
+      if (quoted) {
+        if (character !== '"') { field += character; continue; }
+        if (text[i + 1] === '"') { field += '"'; i += 1; continue; }
+        quoted = false;
+      } else if (character === '"') quoted = true;
+      else if (character === delimiter) { row.push(field); field = ''; }
+      else if (character === '\n' || character === '\r') {
+        if (character === '\r' && text[i + 1] === '\n') i += 1;
+        row.push(field); field = '';
+        if (row.some((value) => String(value).trim() !== '')) rows.push(row);
+        row = [];
+      } else field += character;
+    }
+    row.push(field);
+    if (row.some((value) => String(value).trim() !== '')) rows.push(row);
+    return rows;
+  }
+
+  // Read the days a stalled feed never delivered out of a file exported from
+  // the bank. Deliberately strict and deliberately loud: these rows reach the
+  // books with no provider record behind them, so anything this cannot read
+  // with certainty is refused rather than guessed at.
+  //
+  // Sign is the trap. Plaid states a depository amount as positive when money
+  // LEAVES the account, which is the opposite of how most portals export a
+  // signed column, and getting it backwards books every row the wrong way with
+  // nothing to catch it. Separate debit and credit columns say the direction
+  // outright, so those are preferred and need no decision; a single signed
+  // column is read as given and the caller is expected to show the person what
+  // that produced, which is what `invert` is for.
+  const MANUAL_HEADERS = [
+    ['date', /^(transaction|posting|posted|effective|value)?\s*date$|^date\b/i],
+    ['debit', /^(debit|withdrawal|withdrawals|money\s*out|payments?)\b/i],
+    ['credit', /^(credit|deposit|deposits|money\s*in)\b/i],
+    ['amount', /^amount\b|^transaction\s*amount/i],
+    ['name', /^(description|memo|details?|narrative|payee|merchant|name|transaction)\b/i],
+  ];
+  const MANUAL_DATE = [
+    [/^(\d{4})-(\d{2})-(\d{2})$/, (m) => [m[1], m[2], m[3]]],
+    [/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, (m) => [m[3], m[1].padStart(2, '0'), m[2].padStart(2, '0')]],
+    [/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/, (m) => [m[1], m[2].padStart(2, '0'), m[3].padStart(2, '0')]],
+  ];
+  function manualDate(value) {
+    for (const [pattern, parts] of MANUAL_DATE) {
+      const match = pattern.exec(String(value || '').trim());
+      // A two-digit year is ambiguous and a wrong century is silent, so the
+      // four-digit forms above are the only ones accepted.
+      if (match) {
+        const [year, month, day] = parts(match);
+        const iso = `${year}-${month}-${day}`;
+        const parsed = new Date(`${iso}T00:00:00Z`);
+        return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso ? null : iso;
+      }
+    }
+    return null;
+  }
+  function manualAmount(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    // Portals write outflows as (1,234.56) as often as -1,234.56.
+    const bracketed = /^\((.*)\)$/.exec(raw);
+    const cleaned = (bracketed ? bracketed[1] : raw).replace(/[$\s,]/g, '');
+    if (!/^-?\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+    const amount = Number(cleaned) * (bracketed ? -1 : 1);
+    return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : null;
+  }
+  function parseManualDays(text, { invert = false } = {}) {
+    const table = parseDelimited(String(text || ''));
+    if (!table.length) throw new Error('That file has no rows.');
+    const header = table[0].map((cell) => String(cell || '').trim());
+    const column = {};
+    for (const [field, pattern] of MANUAL_HEADERS) {
+      const index = header.findIndex((cell, i) => !Object.values(column).includes(i) && pattern.test(cell));
+      if (index >= 0) column[field] = index;
+    }
+    if (column.date === undefined) throw new Error('No date column. The file needs a header row with a date column.');
+    if (column.name === undefined) throw new Error('No description column. The file needs a header row with a description, memo or details column.');
+    const paired = column.debit !== undefined || column.credit !== undefined;
+    if (!paired && column.amount === undefined) throw new Error('No amount column. The file needs an amount column, or separate debit and credit columns.');
+    // A dropped line is not recoverable later: the import window is
+    // forward-only, so once the days around it are in, there is no second pass
+    // that could add it. So a line is only ever dropped quietly when there is
+    // demonstrably nothing in it to book -- an empty line, or a real zero.
+    // Anything else that carries content but cannot be read is a PROBLEM, and
+    // the caller is expected to refuse the import until the person has either
+    // fixed the file or said in as many words to leave those lines out.
+    const rows = [], skipped = [], problems = [];
+    table.slice(1).forEach((cells, index) => {
+      const line = index + 2;
+      const blank = cells.every((cell) => !String(cell ?? '').trim());
+      const rawDate = String(cells[column.date] ?? '').trim();
+      const date = manualDate(rawDate);
+      const name = String(cells[column.name] ?? '').trim().slice(0, 500);
+      let amount, rawAmount;
+      if (paired) {
+        const debitText = String(cells[column.debit] ?? '').trim();
+        const creditText = String(cells[column.credit] ?? '').trim();
+        const debit = manualAmount(debitText), credit = manualAmount(creditText);
+        rawAmount = [debitText, creditText].filter(Boolean).join(' / ');
+        // Money out is positive, matching how the feed states this account.
+        if (!debitText && !creditText) amount = null;
+        else if ((debitText && debit === null) || (creditText && credit === null)) amount = null;
+        else amount = Math.round((Math.abs(debit || 0) - Math.abs(credit || 0)) * 100) / 100;
+      } else {
+        rawAmount = String(cells[column.amount] ?? '').trim();
+        amount = manualAmount(rawAmount);
+      }
+      if (blank) return skipped.push({ line, why: 'the line is empty' });
+      const reasons = [];
+      if (!date) reasons.push(rawDate ? `no date in "${rawDate}"` : 'no date');
+      if (amount === null) reasons.push(rawAmount ? `no amount in "${rawAmount}"` : 'no amount');
+      if (!name) reasons.push('no description');
+      if (reasons.length) return problems.push({ line, why: reasons.join(', ') });
+      if (amount === 0) return skipped.push({ line, why: 'the amount is zero, so there is nothing to book' });
+      rows.push({ date, amount: invert && !paired ? -amount : amount, name });
+    });
+    if (!rows.length) {
+      throw new Error(problems.length
+        ? `No usable rows: ${problems.length} line(s) could not be read (line ${problems.slice(0, 5).map((p) => `${p.line} (${p.why})`).join(', line ')}). Fix the file and choose it again.`
+        : 'No usable rows. Every line was empty, zero, or missing a date, an amount or a description.');
+    }
+    const dates = rows.map((row) => row.date).sort();
+    const outflow = rows.filter((row) => row.amount > 0), inflow = rows.filter((row) => row.amount < 0);
+    return { rows, skipped, problems, paired,
+      startDate: dates[0], endDate: dates[dates.length - 1],
+      outflow: outflow.length, inflow: inflow.length,
+      largestOutflow: outflow.reduce((most, row) => Math.max(most, row.amount), 0),
+      largestInflow: inflow.reduce((most, row) => Math.min(most, row.amount), 0) };
+  }
+
   const feedStaleness = ({ lastReceivedAt, lastSyncedAt, now = Date.now(), staleAfterDays = 4 }) => {
     const received = Date.parse(lastReceivedAt ?? '');
     const synced = Date.parse(lastSyncedAt ?? '');
@@ -150,6 +291,9 @@
     // page session. A reload re-offers the button, which is correct once the
     // add-on is enabled.
     const refreshUnsupported = new Set();
+    // A parsed file waiting for the person to confirm it, per account. Held
+    // only until they send or cancel it: nothing is written on choosing a file.
+    const pendingManual = new Map();
     const money = (value, currency) => value == null ? 'Not supplied' : `${currency || 'Unknown currency'} ${Number(value).toFixed(2)}`;
     function render() {
       const { sources, allAccounts } = references();
@@ -175,6 +319,7 @@
         const disabled = !supported || source || connection?.status === 'disconnected';
         const staleness = feedStaleness({ lastReceivedAt: received.get(account.id) || null, lastSyncedAt: account.last_synced_at || null });
         const canRefetch = !refreshUnsupported.has(account.id);
+        const manual = pendingManual.get(account.id) || null;
         return `<div class="cc-card" data-bank-account="${esc(account.id)}"><div class="cc-card-head"><div>
           <div class="cc-title">${esc(account.name)}${account.mask ? ` · ${esc(account.mask)}` : ''}</div>
           <div class="cc-sub">${esc(account.type)} / ${esc(account.subtype || '')} · ${esc(connection?.institution_name || '')}</div></div>
@@ -196,10 +341,33 @@
           <button class="bcn-btn bcn-btn--primary" data-bank-sync ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Sync transactions</button>
           <button class="bcn-btn" data-bank-backfill ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Import missing days</button>
           ${canRefetch ? `<button class="bcn-btn" data-bank-refresh-txns ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Ask bank to re-fetch</button>` : ''}
+          <button class="bcn-btn" data-bank-manual ${!source || connection?.status === 'disconnected' ? 'disabled' : ''}>Enter days from a bank file</button>
+          <input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" data-bank-manual-file hidden />
           <span class="cc-note">${source ? `Uses ${esc(source.display_name)}. Review activity in Transactions.` : 'Mapping does not enable QBO posting.'}</span>
           ${!canRefetch ? '<div class="cc-hint cc-warn" data-bank-no-refetch>This Plaid plan does not include Transactions Refresh, so SILO cannot ask the bank to re-fetch. Enable that add-on in the Plaid dashboard, or raise the gap with Plaid support.</div>' : ''}
           ${staleness.stale ? `<div class="cc-hint cc-warn" data-bank-stale>Syncs are running, but this bank has handed over nothing for ${esc(staleness.days)} days. That is usually the bank, not SILO.${canRefetch ? ' Press <b>Ask bank to re-fetch</b>, wait about a minute, then sync.' : ''} Check the account at the bank for days you are missing.</div>`
             : source ? `<div class="cc-note" data-bank-received>Bank last handed over data ${received.has(account.id) ? esc(String(received.get(account.id)).slice(0, 10)) : 'never'}</div>` : ''}
+          ${manual ? `<div class="cc-card" data-bank-manual-preview style="margin-top:8px"><div class="cc-pad">
+            <div class="cc-title">${esc(manual.rows.length)} row(s) read, ${esc(manual.startDate)} to ${esc(manual.endDate)}</div>
+            <div class="cc-note">${esc(manual.outflow)} out of the account, ${esc(manual.inflow)} into it.
+              Largest out ${esc(manual.largestOutflow.toFixed(2))}, largest in ${esc(manual.largestInflow.toFixed(2))}.
+              ${manual.skipped.length ? `${esc(manual.skipped.length)} empty or zero line(s) ignored.` : ''}</div>
+            ${manual.problems.length ? `<div class="cc-hint cc-warn" data-bank-manual-problems>
+              <b>${esc(manual.problems.length)} line(s) cannot be read</b> and would be left out:
+              ${esc(manual.problems.slice(0, 8).map((problem) => `line ${problem.line} — ${problem.why}`).join('; '))}${manual.problems.length > 8 ? ` … and ${esc(manual.problems.length - 8)} more` : ''}.
+              These days can only be typed in once, so a line left out now cannot be added later. Fix those lines in the file and choose it
+              again, or say so here to import the ${esc(manual.rows.length)} readable row(s) without them.
+              <label style="display:block;margin-top:6px"><input type="checkbox" data-bank-manual-ack ${manual.ack ? 'checked' : ''} />
+              Import without those ${esc(manual.problems.length)} line(s)</label></div>` : ''}
+            ${manual.paired
+              ? '<div class="cc-note">The file has separate debit and credit columns, so the direction came from the file itself.</div>'
+              : `<div class="cc-hint cc-warn">This file has one signed amount column, so SILO cannot tell which way it means.
+                 <b>Out of the account must be positive.</b> If the two numbers above are the wrong way round, flip them before sending.</div>
+                 <button class="bcn-btn" data-bank-manual-flip>Flip the signs</button>`}
+            <div class="cc-hint">These rows enter the books with no bank-feed record behind them. They are marked as typed in, and when the feed
+              finally delivers these days it takes each one over and keeps your coding.</div>
+            <div class="cc-foot"><button class="bcn-btn bcn-btn--primary" data-bank-manual-send ${manual.problems.length && !manual.ack ? 'disabled' : ''}>Add ${esc(manual.rows.length)} row(s)</button>
+            <button class="bcn-btn" data-bank-manual-cancel>Cancel</button></div></div></div>` : ''}
           ${source ? `<div class="cc-hint">Missing days even though syncs succeed? <b>Import missing days</b> reads the dates straight from the bank and imports only transactions SILO does not already have — it never changes or re-codes a transaction you already hold. If it finds nothing, the bank has not handed the days over yet${canRefetch ? ': <b>Ask bank to re-fetch</b>, wait about a minute, then import again.' : ' and only the bank can close that gap.'}</div>` : ''}</div></div>`;
       }).join('');
       byId('bankExceptions').innerHTML = exceptions.length ? `<div class="cc-card-head"><div class="cc-title">${exceptions.length} bank changes need review</div></div>`
@@ -359,6 +527,43 @@
           : `Imported ${Number(result.imported)} transaction(s) SILO was missing, ${result.start_date} to ${result.end_date}. Nothing already imported was changed.`, 'pos');
         if (Number(result.imported) > 0 && result.batch_ids.length === 1) await openBatch(result.batch_ids[0]);
       });
+      if (event.target.closest('[data-bank-manual]')) {
+        // Choosing a file writes nothing: it parses, then shows what it read.
+        row.querySelector('[data-bank-manual-file]')?.click?.();
+        return;
+      }
+      if (event.target.closest('[data-bank-manual-cancel]')) { pendingManual.delete(accountId); render(); return; }
+      if (event.target.closest('[data-bank-manual-flip]')) {
+        const held = pendingManual.get(accountId);
+        if (!held) return;
+        pendingManual.set(accountId, parseManualDays(held.text, { invert: !held.invert }));
+        pendingManual.get(accountId).text = held.text;
+        pendingManual.get(accountId).invert = !held.invert;
+        pendingManual.get(accountId).ack = held.ack;
+        render();
+        return;
+      }
+      if (event.target.closest('[data-bank-manual-send]')) return run(async () => {
+        const held = pendingManual.get(accountId);
+        if (!held) throw new Error('Choose a file first.');
+        // The button is disabled in this state, but the gate lives here too:
+        // a dropped line cannot be added in a later import.
+        if (held.problems.length && !held.ack) {
+          throw new Error(`${held.problems.length} line(s) cannot be read. Fix them in the file and choose it again, or tick the box to import without them.`);
+        }
+        const current = await context();
+        const { data, error } = await db.rpc('plaid_import_manual_days',
+          { p_account_id: accountId, p_rows: held.rows.map(({ date, amount, name }) => ({ date, amount, name })) });
+        if (error) throw new Error(error.message);
+        if (!data || data.account_id !== accountId || Number(data.imported) !== held.rows.length) {
+          throw new Error('The rows could not be confirmed as added. Reload bank feeds before retrying.');
+        }
+        if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
+        pendingManual.delete(accountId);
+        await changed(); await load();
+        status(`Added ${Number(data.imported)} hand-entered row(s), ${data.start_date} to ${data.end_date}. Code them in Transactions; the feed will take them over when it catches up.`, 'pos');
+        if (Array.isArray(data.batch_ids) && data.batch_ids.length === 1) await openBatch(data.batch_ids[0]);
+      });
       if (event.target.closest('[data-bank-refresh-txns]')) return run(async () => {
         let result;
         try { result = await invoke('refresh_transactions', { account_id: accountId }); }
@@ -376,6 +581,33 @@
         // what was asked for and leave the sync to the person.
         if (result.account_id !== accountId || result.requested !== true) throw new Error('The bank was not asked to re-fetch. Try again.');
         status('Asked the bank to re-fetch this account. Wait about a minute, then press Sync transactions.', 'pos');
+      });
+    });
+    byId('bankAccounts').addEventListener('change', (event) => {
+      const ack = event.target.closest?.('[data-bank-manual-ack]');
+      if (ack) {
+        const held = pendingManual.get(event.target.closest('[data-bank-account]')?.dataset?.bankAccount);
+        if (held) { held.ack = !!ack.checked; render(); }
+        return;
+      }
+      const input = event.target.closest?.('[data-bank-manual-file]');
+      if (!input) return;
+      const row = event.target.closest('[data-bank-account]');
+      const accountId = row?.dataset?.bankAccount;
+      const file = input.files?.[0];
+      if (!accountId || !file) return;
+      return run(async () => {
+        const text = await file.text();
+        // Parsing is the only thing that happens here. The person sees what it
+        // read and presses again, so a misread file costs a glance, not a row.
+        const parsed = parseManualDays(text);
+        parsed.text = text; parsed.invert = false; parsed.ack = false;
+        pendingManual.set(accountId, parsed);
+        if (input.value !== undefined) input.value = '';
+        render();
+        status(parsed.problems.length
+          ? `Read ${parsed.rows.length} row(s) from ${file.name}, but ${parsed.problems.length} line(s) could not be read. Fix them in the file, or say so before adding.`
+          : `Read ${parsed.rows.length} row(s) from ${file.name}. Check them, then add them.`, parsed.problems.length ? 'neg' : 'info');
       });
     });
     byId('bankExceptions').addEventListener('click', (event) => {
@@ -422,5 +654,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps, feedStaleness };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps, feedStaleness, parseManualDays };
 })();
