@@ -484,6 +484,12 @@ export function reconcileExitCode(verdicts) {
  *   - `observed_at` is passed in rather than defaulted in the database, so one
  *     run stamps every row with the same instant and the pruning step below
  *     can tell this run's rows from the last one's.
+ *   - `connection_id` is the connection row this verdict was formed about, for
+ *     EVERY feed including the company-grained ones (Redo, SERP). Collapsing
+ *     those to null would be true to how their data is matched, but two
+ *     connections of one company would then be the same row: the upsert would
+ *     touch it twice in one statement, Postgres would reject the whole
+ *     statement, and the run would publish nothing at all.
  */
 export function feedHealthRow({ feed, connection, verdict, detail = null, label = null, observedAt }) {
   const judged = verdict?.fresh && verdict.fresh.state !== 'n/a';
@@ -491,8 +497,7 @@ export function feedHealthRow({ feed, connection, verdict, detail = null, label 
   return {
     company_entity_id: connection?.company_entity_id || null,
     feed: feed.label,
-    // A company-grained feed has no connection of its own to name.
-    connection_id: feed.match?.connColumn === 'company_entity_id' ? null : (connection?.id || null),
+    connection_id: connection?.id || null,
     connection_label: label || null,
     integration: integrationFor(feed, connection),
     state: verdict.state,

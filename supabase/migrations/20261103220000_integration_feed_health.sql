@@ -73,9 +73,11 @@ create table if not exists public.integration_feed_health (
   constraint integration_feed_health_severity_check
     check (severity in ('ok', 'warn', 'action')),
   -- Current state, not history: one row per connection per feed, replaced each
-  -- run. `nulls not distinct` because a company-grained feed (Redo, SEO SERP,
-  -- QuickBooks expiry) carries no connection_id, and with the default NULL
-  -- semantics every run would insert another copy of it.
+  -- run. The reconciler always names the connection its verdict was formed
+  -- about, so connection_id is in practice never null; `nulls not distinct`
+  -- is the backstop, because under the default NULL semantics a row that did
+  -- arrive without one would be inserted again on every run for ever instead
+  -- of being replaced.
   constraint integration_feed_health_identity
     unique nulls not distinct (company_entity_id, feed, connection_id)
 );

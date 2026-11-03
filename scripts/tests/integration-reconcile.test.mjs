@@ -417,15 +417,26 @@ test('a judged feed publishes the lag it actually measured', () => {
   assert.equal(row.severity, 'action', 'two days against a one-day tolerance is somebody job');
 });
 
-test('a company-grained feed publishes one row, not one per connection', () => {
+test('a company-grained feed still keys on its connection, so two of them cannot collide', () => {
+  // Redo and SERP match their data by company, not by connection id, and the
+  // tempting thing is to publish one row per company. Nothing stops a company
+  // holding two Redo connections, and then both verdicts would be the same
+  // row: one upsert statement touching a row twice is rejected by Postgres
+  // outright, so the whole run would publish nothing rather than one row too
+  // many. Today production has one of each, which is exactly why this would
+  // have gone unnoticed until the day it mattered.
   const redo = feed('redo');
-  const conn = { id: 'redo-1', company_entity_id: 'e1', is_active: true, last_event_at: '2026-10-19T00:00:00Z', meta: {} };
-  const verdict = reconcileConnection({ feed: redo, connection: conn, everProduced: true, today: '2026-10-20' });
-  const row = feedHealthRow({ feed: redo, connection: conn, verdict, observedAt: 'now' });
-  assert.equal(row.connection_id, null,
-    'Redo is one row per company; keying on a connection id would duplicate it every run');
-  assert.equal(row.event_driven, true, 'a webhook feed is never judged on lag and the row must say so');
-  assert.equal(row.lag_days, null);
+  const one = { id: 'redo-1', company_entity_id: 'e1', is_active: true, last_event_at: '2026-10-19T00:00:00Z', meta: {} };
+  const two = { ...one, id: 'redo-2' };
+  const rows = [one, two].map((conn) => feedHealthRow({
+    feed: redo, connection: conn, verdict: reconcileConnection({ feed: redo, connection: conn, everProduced: true, today: '2026-10-20' }),
+    observedAt: 'now',
+  }));
+  const keys = new Set(rows.map((r) => `${r.company_entity_id}|${r.feed}|${r.connection_id}`));
+  assert.equal(keys.size, 2, 'two connections of one company must be two rows, not one upserted twice');
+  assert.equal(rows[0].connection_id, 'redo-1');
+  assert.equal(rows[0].event_driven, true, 'a webhook feed is never judged on lag and the row must say so');
+  assert.equal(rows[0].lag_days, null);
 });
 
 test('an expiring authorisation publishes the days left', () => {

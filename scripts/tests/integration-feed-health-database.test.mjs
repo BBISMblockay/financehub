@@ -165,7 +165,7 @@ const identity = await first(`select pg_get_constraintdef(oid) as def from pg_co
                                  and conname = 'integration_feed_health_identity'`);
 assert.ok(identity, 'no identity constraint: every run would append another copy of each feed');
 assert.match(identity.def, /NULLS NOT DISTINCT/i,
-  'a company-grained feed carries no connection_id, and the default NULL semantics would duplicate it daily');
+  'a row that reached the table without a connection_id would otherwise be inserted again every run rather than replaced');
 
 check('row-level security is on and scoped to the active company');
 const rls = await first(`select relrowsecurity from pg_class where oid = 'public.integration_feed_health'::regclass`);
