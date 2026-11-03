@@ -214,6 +214,33 @@ await check('the shipped operational verification recognizes applied authorizati
  assert.ok(start>=0);const result=await db.query(verify.slice(start,verify.indexOf(';',start)+1));
  assert.equal(result.rows[0].status,'ok');
 });
+await check('legacy verifier admits only the exact live RPC grant and intended Windsor policies',async()=>{
+ const verify=readFileSync('supabase/verify_v2_schema.sql','utf8');
+ const brokerStart=verify.indexOf("select 'Windsor tenant broker'");
+ const broker=verify.slice(brokerStart,verify.indexOf('end as status;',brokerStart)+'end as status;'.length);
+ const aclStart=verify.indexOf('  -- EXPLICIT grants only.');
+ const predicateStart=verify.indexOf('when exists (',aclStart)+5;
+ const predicateEnd=verify.indexOf("\n   then 'CRITICAL: an integration role",predicateStart);
+ const acl=`select ${verify.slice(predicateStart,predicateEnd)} as unexpected`;
+ assert.equal((await db.query(acl)).rows[0].unexpected,false);
+ assert.equal((await db.query(broker)).rows[0].status,'ok');
+ for(const sql of [
+  'grant execute on function silo_api_windsor_connections(uuid,integer) to silo_revoked',
+  'create function silo_api_windsor_connections(text) returns void language sql as $$ select $$; grant execute on function silo_api_windsor_connections(text) to silo_integration',
+  'create function unrelated_rpc() returns void language sql as $$ select $$; grant execute on function unrelated_rpc() to silo_integration'
+ ]){
+  await db.exec('begin');await db.exec(sql);assert.equal((await db.query(acl)).rows[0].unexpected,true);await db.exec('rollback');
+ }
+ for(const sql of [
+  'alter policy windsor_linked_accounts_mcp_select on windsor_linked_accounts to authenticated',
+  'alter policy windsor_linked_accounts_mcp_select on windsor_linked_accounts using (true)',
+  'drop policy windsor_linked_accounts_mcp_select on windsor_linked_accounts; create policy windsor_linked_accounts_mcp_select on windsor_linked_accounts for select to silo_api_exec',
+  'create policy unexpected_read on windsor_linked_accounts for select using (true)',
+  'drop policy windsor_linked_accounts_admin_select on windsor_linked_accounts'
+ ]){
+  await db.exec('begin');await db.exec(sql);assert.notEqual((await db.query(broker)).rows[0].status,'ok');await db.exec('rollback');
+ }
+});
 await check('each live tool refreshes a near-idle grant, with hourly throttling and no expiry extension',async()=>{
  for(const [name,args] of [['list_connections',{}],['describe_connection',{connection_id:CA}],['query_connection',queryArgs]]){
   await db.exec("update silo_api_grants set consented_at=now()-interval '40 days',last_used_at=now()-interval '29 days'");
