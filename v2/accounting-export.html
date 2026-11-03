@@ -830,9 +830,32 @@
     // include tax, so it picks up the +taxes term instead.
     const ar = gross - discounts - refunds + shipping + taxes;
 
+    // A location's month can net NEGATIVE on any of these terms -- a
+    // refund-heavy month leaves negative shipping, negative tax or negative
+    // AR. A negative debit is not a thing in a journal entry: it is a credit.
+    // So the side is chosen from the sign here, in the one place every
+    // surface reads from (the Sales Journal card, the Balanced chip, the
+    // Journal CSV and the composer), rather than each one guessing.
+    //
+    // This is what made the card disagree with the entry: the chip summed the
+    // signed amounts and always read 0.00, while je-composer.js stages
+    // Math.abs(amount) on whichever side the value sat on -- turning a
+    // negative credit into a positive credit instead of a debit. October 2026
+    // staged $34,049.62 out of balance that way. With the sign resolved here,
+    // that abs() is a no-op. The CSV likewise stops emitting "Debit -380.29",
+    // which QuickBooks rejects or mis-posts.
     const line = (key, dr, cr) => {
       const a = coa(key, b);
-      return { account: a.name, qboAccountId: a.id, unmapped: !!a.unmapped, dr, cr };
+      // Both inputs are 2dp from accounting_sales_buckets(), but `ar` is a
+      // chain of float subtractions, so round before choosing a side.
+      // `|| 0` folds the -0 that round2() returns for a tiny negative drift
+      // (an `ar` that is zero in cents) back to 0, so no surface can print it
+      // as "-0.00" and the sign test below is not asked about it.
+      let d = round2(dr) || 0;
+      let c = round2(cr) || 0;
+      if (d < 0) { c = round2(c - d); d = 0; }
+      if (c < 0) { d = round2(d - c); c = 0; }
+      return { account: a.name, qboAccountId: a.id, unmapped: !!a.unmapped, dr: d, cr: c };
     };
 
     return [
@@ -878,8 +901,12 @@
         salesDr += Number(l.dr || 0);
         salesCr += Number(l.cr || 0);
       }
+      // Netted, not debit-only: a refund-heavy month puts the receivable on
+      // the CREDIT side (see salesEntryLines), and the KPI is the period's
+      // net movement on that account, so a credit has to come back off it.
+      // Reading only `.dr` would silently drop those locations from the card.
       const clearing = lines.find(l => l.account === coa('accounts_receivable', b).name);
-      clearingTotal += Number(clearing?.dr || 0);
+      clearingTotal += Number(clearing?.dr || 0) - Number(clearing?.cr || 0);
     }
 
     for (const [, v] of feeRowsByStore()) {
