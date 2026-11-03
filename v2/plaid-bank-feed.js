@@ -22,6 +22,25 @@
      reachable, because "removed and not replaced" is exactly the case someone
      needs to look at. */
   const isRemovedByBank = (transaction) => transaction.origin === 'plaid' && transaction.provider_status === 'removed';
+  /* A feed can stop handing over transactions while the connection stays
+     healthy. Observed 2026-10-26 on Baseballism Operating: the item kept
+     answering /accounts/get so balances moved, the connection stayed active
+     with no error code, every scheduled run reported success, and
+     /transactions/sync returned empty pages for a week while the bank itself
+     had activity. Nothing we store distinguished that from a quiet week.
+
+     Only the COMBINATION is evidence: syncs are running AND nothing is
+     arriving. A paused or unmapped account is not being asked for anything,
+     so its silence says nothing, and calling that stale would teach people to
+     ignore the warning. Four days, because a long weekend plus a holiday can
+     legitimately pass with no business-day activity. */
+  const feedStaleness = ({ lastReceivedAt, lastSyncedAt, now = Date.now(), staleAfterDays = 4 }) => {
+    const received = Date.parse(lastReceivedAt ?? '');
+    const synced = Date.parse(lastSyncedAt ?? '');
+    if (!Number.isFinite(received) || !Number.isFinite(synced)) return { known: false, stale: false, days: null };
+    const days = Math.floor((now - received) / 86400000);
+    return { known: true, days, stale: now - synced < 36 * 3600 * 1000 && days >= staleAfterDays };
+  };
   /* ...and whether it was still PENDING when that happened, which is the line
      between bookkeeping and an event.
 
@@ -65,6 +84,7 @@
     window: win = window, storage = sessionStorage }) {
     let connections = [], accounts = [], exceptions = [], busy = false, syncing = null, linkHandler = null;
     const previews = new Map();
+    const received = new Map();
     const byId = (id) => doc.getElementById(id);
     async function context() {
       const { data, error } = await db.auth.getSession();
@@ -105,6 +125,19 @@
       }
       if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
       [connections, accounts, exceptions] = results.map((result) => result.data || []);
+      // When the feed last handed us anything, which is the only way to tell a
+      // stalled feed from a quiet week: last_synced_at reports that WE asked.
+      // A failed read leaves the account unknown rather than claiming it is
+      // current, because "no warning" must never be a guess.
+      received.clear();
+      const freshness = await Promise.all(accounts.filter((account) => account.source_id).map(async (account) => {
+        const result = await db.from('card_transactions').select('provider_updated_at')
+          .eq('company_entity_id', current.companyId).eq('plaid_account_id', account.id)
+          .order('provider_updated_at', { ascending: false }).limit(1).maybeSingle();
+        return { id: account.id, at: result.error ? null : result.data?.provider_updated_at || null };
+      }));
+      if (company()?.id !== current.companyId) throw new Error('Company changed. Refresh bank feeds.');
+      freshness.forEach(({ id, at }) => { if (at) received.set(id, at); });
       render();
       win.dispatchEvent?.(new win.Event('silo-bank-feeds-updated'));
     }
@@ -131,6 +164,7 @@
         const qboOptions = chart.map((value) => `<option value="${esc(value.connectionId)}:${esc(value.id)}"
           ${value.connectionId === source?.qbo_connection_id && value.id === source?.credit_qbo_account_id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.type)} · ${esc(String(value.connectionId || '').slice(0, 8))}</option>`).join('');
         const disabled = !supported || source || connection?.status === 'disconnected';
+        const staleness = feedStaleness({ lastReceivedAt: received.get(account.id) || null, lastSyncedAt: account.last_synced_at || null });
         return `<div class="cc-card" data-bank-account="${esc(account.id)}"><div class="cc-card-head"><div>
           <div class="cc-title">${esc(account.name)}${account.mask ? ` · ${esc(account.mask)}` : ''}</div>
           <div class="cc-sub">${esc(account.type)} / ${esc(account.subtype || '')} · ${esc(connection?.institution_name || '')}</div></div>
@@ -150,9 +184,12 @@
           </div><div class="cc-foot">
           ${!source ? `<button class="bcn-btn" data-bank-map ${disabled ? 'disabled' : ''}>Review account mapping</button>` : ''}
           <button class="bcn-btn bcn-btn--primary" data-bank-sync ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Sync transactions</button>
+          <button class="bcn-btn" data-bank-backfill ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Import missing days</button>
           <button class="bcn-btn" data-bank-refresh-txns ${!source || connection?.status !== 'active' ? 'disabled' : ''}>Ask bank to re-fetch</button>
           <span class="cc-note">${source ? `Uses ${esc(source.display_name)}. Review activity in Transactions.` : 'Mapping does not enable QBO posting.'}</span>
-          ${source ? '<div class="cc-hint">Sync collects whatever the bank has already given Plaid. If days are missing even though syncs succeed, the bank stopped handing them over: use <b>Ask bank to re-fetch</b>, wait about a minute, then sync. It adds nothing to your books on its own and cannot change or re-code a transaction you already have.</div>' : ''}</div></div>`;
+          ${staleness.stale ? `<div class="cc-hint cc-warn" data-bank-stale>Syncs are running, but this bank has handed over nothing for ${esc(staleness.days)} days. That is usually the bank, not SILO: press <b>Ask bank to re-fetch</b>, wait about a minute, then sync. Check the account at the bank for days you are missing.</div>`
+            : source ? `<div class="cc-note" data-bank-received>Bank last handed over data ${received.has(account.id) ? esc(String(received.get(account.id)).slice(0, 10)) : 'never'}</div>` : ''}
+          ${source ? '<div class="cc-hint">Missing days even though syncs succeed? <b>Import missing days</b> reads the dates straight from the bank and imports only transactions SILO does not already have — it never changes or re-codes a transaction you already hold. If it finds nothing, the bank has not handed the days over yet: <b>Ask bank to re-fetch</b>, wait about a minute, then import again.</div>' : ''}</div></div>`;
       }).join('');
       byId('bankExceptions').innerHTML = exceptions.length ? `<div class="cc-card-head"><div class="cc-title">${exceptions.length} bank changes need review</div></div>`
         + exceptions.map((exception) => `<div class="cc-pad" data-bank-exception="${esc(exception.id)}">
@@ -296,6 +333,19 @@
         await changed(); await load(); status('Account mapped. Sync its transactions when you are ready.', 'pos');
       });
       if (event.target.closest('[data-bank-sync]')) return sync(accountId);
+      if (event.target.closest('[data-bank-backfill]')) return run(async () => {
+        const result = await invoke('backfill_missing', { account_id: accountId });
+        if (result.account_id !== accountId || !Number.isFinite(Number(result.imported)) || !Number.isFinite(Number(result.examined))
+          || !Array.isArray(result.batch_ids)) throw new Error('The import could not be confirmed. Reload bank feeds before retrying.');
+        await changed(); await load();
+        // Zero imported is a real answer, not a failure: it means the bank has
+        // nothing SILO is missing. Saying so points at the next step instead
+        // of leaving someone pressing the same button.
+        status(Number(result.imported) === 0
+          ? `Nothing to import. The bank offered ${Number(result.examined)} transaction(s) for ${result.start_date} to ${result.end_date} and SILO already had every one. If days are still missing, ask the bank to re-fetch.`
+          : `Imported ${Number(result.imported)} transaction(s) SILO was missing, ${result.start_date} to ${result.end_date}. Nothing already imported was changed.`, 'pos');
+        if (Number(result.imported) > 0 && result.batch_ids.length === 1) await openBatch(result.batch_ids[0]);
+      });
       if (event.target.closest('[data-bank-refresh-txns]')) return run(async () => {
         const result = await invoke('refresh_transactions', { account_id: accountId });
         // Plaid answers the request, not the data: the institution fetches
@@ -349,5 +399,5 @@
     return { load, resume, sync, repair: id => run(() => connect(id)),
       snapshot: () => ({ connections, accounts, exceptions, syncing }) };
   }
-  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps };
+  window.SiloBankFeeds = { create, directionOf, isAvailable, isRemovedByBank, wasPendingWhenRemoved, canEditBatch, eligibleForAi, ruleScopeMatches, csvOverlaps, feedStaleness };
 })();

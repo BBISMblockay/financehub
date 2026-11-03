@@ -16,6 +16,12 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   status, headers: { ...cors, 'Content-Type': 'application/json' },
 });
 const fail = (code: string, status = 502) => { throw Object.assign(new Error(code), { code, status }); };
+// How far back a date-range import looks before the newest row it already has,
+// and how long a feed may deliver nothing before a sync tops itself up by date.
+// Four days, because a long weekend plus a holiday can legitimately pass with
+// no business-day activity; the overlap is wider because institutions post late.
+const OVERLAP_DAYS = 7;
+const SILENT_DAYS_BEFORE_TOP_UP = 4;
 const validId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 async function checked(result: any, code: string) {
   const { data, error } = await result;
@@ -252,6 +258,128 @@ export async function handlePlaidFinance(req: Request) {
       return json({ account_id: account.id, requested: true });
     }
 
+    // Import the days a stalled feed skipped, without touching anything we
+    // already hold. /transactions/sync can go quiet while the item stays
+    // healthy -- balances keep refreshing, the connection stays active, every
+    // run reports success -- and then the cursor is the one thing standing
+    // between us and days the bank is perfectly willing to hand over.
+    //
+    // So this does not use the cursor at all. It reads the date range directly
+    // with /transactions/get, subtracts every transaction id we already have,
+    // and submits only the remainder. Each one is new, so every row takes the
+    // INSERT branch of plaid_project_transaction: no existing row is compared,
+    // rewritten or re-coded, and the saved cursor is handed back unchanged.
+    //
+    // The range is computed here, not supplied by the caller: from the newest
+    // transaction we hold (minus an overlap, because institutions post late)
+    // through today, never earlier than the account's permanent cutover. That
+    // keeps it a single button for any company, with no date to get wrong.
+    const day = (value: string, shift = 0) => new Date(Date.parse(`${value}T00:00:00.000Z`) + shift * 86_400_000).toISOString().slice(0, 10);
+    const today = () => new Date().toISOString().slice(0, 10);
+    // No date is written into this file. The window comes from the account's
+    // own data: the newest transaction it holds, backed off by an overlap
+    // because institutions post late, floored at its permanent cutover so the
+    // mapping promise still holds, and ending today.
+    const importWindow = async (target: any) => {
+      const source = await checked(db.from('card_sources').select('authoritative_from')
+        .eq('id', target.source_id).eq('company_entity_id', companyId).maybeSingle(), 'source_not_found');
+      const cutover = String(source.authoritative_from || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cutover)) fail('import_start_missing', 409);
+      const newest = await checked(db.from('card_transactions').select('txn_date')
+        .eq('company_entity_id', companyId).eq('plaid_account_id', target.id)
+        .order('txn_date', { ascending: false }).limit(1).maybeSingle()
+        .then((result: any) => result.error ? result : { data: result.data ?? {}, error: null }), 'newest_transaction_unreadable');
+      const held = /^\d{4}-\d{2}-\d{2}$/.test(String(newest.txn_date || '')) ? String(newest.txn_date) : null;
+      // An overlap only widens what is LOOKED at. Everything already held is
+      // subtracted by id before anything is written, so a wider window cannot
+      // change a row -- it can only find one that is missing.
+      const startDate = held && day(held, -OVERLAP_DAYS) > cutover ? day(held, -OVERLAP_DAYS) : cutover;
+      return { startDate, endDate: today(), held,
+        // Days since the newest transaction this account holds. Never "stale"
+        // for an account that has received nothing yet: that is a new mapping
+        // waiting for its first sync, not a feed that stopped.
+        silentDays: held ? Math.floor((Date.parse(`${today()}T00:00:00.000Z`) - Date.parse(`${held}T00:00:00.000Z`)) / 86_400_000) : null };
+    };
+    // Read the window straight from the bank and import only what is missing.
+    // This does not use the cursor, which is the point: /transactions/sync can
+    // go quiet while the item stays healthy -- balances refresh, the connection
+    // stays active, every run reports success -- and the cursor becomes the one
+    // thing between us and days the bank will hand over on request.
+    //
+    // Every submitted row is one we do not have, so each takes the INSERT
+    // branch of plaid_project_transaction. No existing row is compared,
+    // rewritten or re-coded, and the saved cursor is handed back unchanged.
+    // Resetting the cursor would recover the same days, but a sync from an
+    // empty cursor replays the whole history, and plaid_accounting_facts counts
+    // the merchant name and Plaid's category -- both of which Plaid revises --
+    // so every drifted row is rewritten with its coding cleared. Never do that.
+    const importMissing = async ({ target, connection, token, accounts, startDate, endDate }: any) => {
+      const leaseId = crypto.randomUUID();
+      const claim = await checked(db.rpc('plaid_claim_sync', { p_account_id: target.id, p_lease_id: leaseId }), 'sync_claim_failed');
+      try {
+        if (claim.provider_account_id !== target.provider_account_id || claim.connection_id !== connection.id) fail('sync_claim_mismatch');
+        const fetched = new Map<string, any>();
+        for (let offset = 0; offset < 10_000; offset += 500) {
+          const page = await request('/transactions/get', {
+            access_token: token, start_date: startDate, end_date: endDate,
+            options: { account_ids: [target.provider_account_id], count: 500, offset,
+              include_original_description: true, personal_finance_category_version: 'v2' },
+          });
+          if (!Array.isArray(page.transactions) || !Number.isInteger(page.total_transactions)) fail('invalid_provider_transactions');
+          for (const entry of page.transactions) {
+            if (!entry || entry.account_id !== target.provider_account_id
+              || typeof entry.transaction_id !== 'string' || !entry.transaction_id) fail('invalid_provider_transactions');
+            fetched.set(entry.transaction_id, entry);
+          }
+          if (page.transactions.length === 0 || fetched.size >= page.total_transactions) break;
+        }
+        // Read what we hold AFTER fetching, so a row that landed through a
+        // normal sync in the meantime is subtracted rather than resubmitted.
+        const existing = new Set<string>();
+        for (let from = 0; from < 20_000; from += 1000) {
+          const rows = await checked(db.from('card_transactions').select('external_transaction_id')
+            .eq('company_entity_id', companyId).eq('plaid_account_id', target.id)
+            .order('external_transaction_id', { ascending: true }).range(from, from + 999), 'held_transactions_unreadable');
+          rows.forEach((row: any) => existing.add(row.external_transaction_id));
+          if (rows.length < 1000) break;
+        }
+        const added = [...fetched.values()].filter((entry: any) => !existing.has(entry.transaction_id));
+        if (added.length > 5_000) fail('import_window_too_large');
+        // The saved cursor goes back as both expected and next, so the feed's
+        // own position is exactly where it was when this started.
+        const applied = added.length ? await checked(db.rpc('plaid_apply_sync', {
+          p_account_id: target.id, p_lease_id: leaseId, p_expected_cursor: claim.cursor,
+          p_next_cursor: claim.cursor, p_added: added, p_modified: [], p_removed: [], p_accounts: accounts,
+        }), 'sync_persist_failed') : await checked(db.rpc('plaid_release_sync', {
+          p_account_id: target.id, p_lease_id: leaseId, p_error_code: null,
+        }).then((r: any) => r.error ? r : { data: {}, error: null }), 'sync_release_failed');
+        return { start_date: startDate, end_date: endDate, examined: fetched.size, imported: added.length,
+          batch_ids: applied.batch_ids ?? [], exceptions: Number.isInteger(applied.exceptions) ? applied.exceptions : 0 };
+      } catch (error) {
+        const release = await db.rpc('plaid_release_sync', {
+          p_account_id: target.id, p_lease_id: leaseId, p_error_code: safePlaidError(error).code,
+        });
+        if (release.error) fail('sync_recovery_required', 503);
+        throw error;
+      }
+    };
+
+    if (input.action === 'backfill_missing') {
+      if (!validId(input.account_id)) return json({ error: 'Account required' }, 400);
+      if (!account) account = await checked(db.from('plaid_accounts').select('*')
+        .eq('id', input.account_id).eq('company_entity_id', companyId).maybeSingle(), 'account_not_found');
+      const connection = await loadConnection(account.connection_id);
+      if (!account.source_id || connection.status !== 'active') {
+        return json({ error: 'Map and reconnect the account before importing missing days' }, 409);
+      }
+      const { startDate, endDate } = await importWindow(account);
+      if (startDate > endDate) return json({ error: 'This account has no days to import' }, 409);
+      const token = await loadToken(connection);
+      const accounts = await fetchAccounts(token, connection.item_id);
+      if (!accounts.some((entry: any) => entry.account_id === account.provider_account_id)) fail('ACCESS_NOT_GRANTED');
+      return json({ account_id: account.id, ...await importMissing({ target: account, connection, token, accounts, startDate, endDate }) });
+    }
+
     if (input.action === 'sync' || input.action === 'sync_background') {
       if (!validId(input.account_id)) return json({ error: 'Account required' }, 400);
       if (!account) account = await checked(db.from('plaid_accounts').select('*')
@@ -273,7 +401,27 @@ export async function handlePlaidFinance(req: Request) {
           p_next_cursor: changes.next_cursor, p_added: changes.added, p_modified: changes.modified,
           p_removed: changes.removed, p_accounts: accounts,
         }), 'sync_persist_failed');
-        return json(result);
+        // A cursor that returns nothing, for an account that has received
+        // nothing in days, is the signature of a stalled feed -- and it is
+        // indistinguishable from a quiet week unless we go and look by date.
+        // So look, every time, for every company: read the window from the
+        // bank and import only what is missing. Insert-only, cursor untouched,
+        // so this is safe to do unattended on a schedule.
+        //
+        // Its failure is reported, never thrown: the sync above already
+        // committed, and turning a successful sync into an error would lose
+        // that and make a scheduled run red for a recovery attempt.
+        let topUp = null;
+        if (!result.added && !result.modified && !result.removed) {
+          try {
+            const window = await importWindow(account);
+            if (window.silentDays !== null && window.silentDays >= SILENT_DAYS_BEFORE_TOP_UP && window.startDate <= window.endDate) {
+              topUp = await importMissing({ target: account, connection, token, accounts,
+                startDate: window.startDate, endDate: window.endDate });
+            }
+          } catch (error) { topUp = { failed: safePlaidError(error).code }; }
+        }
+        return json({ ...result, ...(topUp ? { top_up: topUp } : {}) });
       } catch (error) {
         const safe = safePlaidError(error);
         const release = await db.rpc('plaid_release_sync', {

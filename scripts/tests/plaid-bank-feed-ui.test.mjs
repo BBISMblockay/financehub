@@ -50,16 +50,22 @@ function query(data, writes, table) {
   let window = null;
   const q = { select() { return q; }, eq() { return q; }, in() { return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
     upsert(value) { writes.push({ table, value: clone(value) }); return q; },
+    maybeSingle() { const rows = data[table]; return Promise.resolve({ data: Array.isArray(rows) ? rows[0] ?? null : rows ?? null, error: null }); },
     then(resolve, reject) { const rows = data[table] || []; return Promise.resolve({ data: window ? rows.slice(window[0], window[1] + 1) : rows, error: null }).then(resolve, reject); } };
   return q;
 }
 function harness({ dirty = false, invokeError = null, syncResult = { exceptions: 0, batch_ids: ['batch-one'] }, exchangeResult = { connection_id: 'connection-one' },
-  refreshResult = { account_id: 'account-one', requested: true } } = {}) {
+  refreshResult = { account_id: 'account-one', requested: true },
+  backfillResult = { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 9, imported: 4, batch_ids: ['batch-one'], exceptions: 0 },
+  // Both relative to now, so no written-in date decides whether a feed reads
+  // as current: a feed that last delivered an hour ago, synced a minute ago.
+  receivedAt = new Date(Date.now() - 3600_000).toISOString(),
+  lastSyncedAt = new Date(Date.now() - 60_000).toISOString() } = {}) {
   const d = dom(), calls = [], writes = [], statuses = [], opened = [], links = [], storageData = new Map();
   const data = {
     plaid_connections: [{ id: 'connection-one', environment: 'sandbox', status: 'active', institution_name: 'Test Bank' }],
-    plaid_accounts: [{ id: 'account-one', connection_id: 'connection-one', type: 'depository', name: 'Checking', iso_currency_code: 'USD', source_id: source.id }],
-    plaid_sync_exceptions: [], card_transactions: { batch_id: 'batch-one' },
+    plaid_accounts: [{ id: 'account-one', connection_id: 'connection-one', type: 'depository', name: 'Checking', iso_currency_code: 'USD', source_id: source.id, last_synced_at: lastSyncedAt }],
+    plaid_sync_exceptions: [], card_transactions: { batch_id: 'batch-one', provider_updated_at: receivedAt },
   };
   const user = { id: 'user-one' }, company = { id: 'company-one' };
   const db = { auth: { getSession: async () => ({ data: { session: { user } } }) },
@@ -70,7 +76,7 @@ function harness({ dirty = false, invokeError = null, syncResult = { exceptions:
       const result = action === 'link_token' ? { link_token: 'link-token', link_state: 'signed-state', expires_at: '2099-01-01T00:00:00Z', environment: 'sandbox' }
         : action === 'history_preview' ? {account_id:'account-one',earliest_date:'2026-08-01',returned_count:22,history_days_requested:90}
         : action === 'exchange' ? exchangeResult : action === 'sync' ? syncResult : action === 'refresh_accounts' ? { connection_id: 'connection-one' }
-        : action === 'refresh_transactions' ? refreshResult : {};
+        : action === 'refresh_transactions' ? refreshResult : action === 'backfill_missing' ? backfillResult : {};
       return { data: result, error: null };
     } },
     from: (table) => query(data, writes, table), rpc: async (name, args) => { calls.push({ rpc: name, args: clone(args) }); return { data: { source_id: source.id } }; },
@@ -250,6 +256,52 @@ await test('sync opens returned batch in the existing coding flow', async () => 
   const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-sync]') });
   assert.deepEqual(h.calls[0].body, { action: 'sync', account_id: 'account-one' });
   assert.deepEqual(h.opened, ['batch-one']); assert.equal(h.changed, 1);
+});
+await test('importing missing days reports the window and that nothing held was changed', async () => {
+  const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-backfill]') });
+  assert.deepEqual(h.calls[0].body, { action: 'backfill_missing', account_id: 'account-one' });
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+  assert.match(h.statuses.at(-1).message, /Imported 4 transaction\(s\)/);
+  assert.match(h.statuses.at(-1).message, /Nothing already imported was changed/);
+  assert.deepEqual(h.opened, ['batch-one']); assert.equal(h.changed, 1);
+});
+await test('finding nothing to import says so rather than reading as a failure', async () => {
+  const h = harness({ backfillResult: { account_id: 'account-one', start_date: '2026-10-19', end_date: '2026-11-03', examined: 9, imported: 0, batch_ids: [], exceptions: 0 } });
+  await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-backfill]') });
+  assert.equal(h.statuses.at(-1).kind, 'pos');
+  assert.match(h.statuses.at(-1).message, /already had every one/);
+  assert.equal(h.opened.length, 0, 'nothing was imported, so no batch opens');
+});
+await test('an unconfirmed import never claims rows landed', async () => {
+  for (const options of [{ invokeError: 'Provider unavailable' }, { backfillResult: {} },
+    { backfillResult: { account_id: 'account-two', imported: 4, examined: 9, batch_ids: [] } }]) {
+    const h = harness(options); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-backfill]') });
+    assert.equal(h.statuses.at(-1).kind, 'neg'); assert.equal(h.opened.length, 0);
+  }
+});
+await test('the account itself warns when the bank has gone quiet while syncs run', async () => {
+  const h = harness({ receivedAt: new Date(Date.now() - 7 * 86400_000).toISOString() });
+  await h.controller.load();
+  const html = h.el('bankAccounts').innerHTML;
+  assert.match(html, /handed over nothing for 7 days/);
+  assert.match(html, /Ask bank to re-fetch/);
+  const current = harness();
+  await current.controller.load();
+  assert.doesNotMatch(current.el('bankAccounts').innerHTML, /handed over nothing/, 'a current feed carries no warning');
+});
+await test('a feed that has gone silent while syncs run says so on the account', () => {
+  const now = Date.parse('2026-11-03T00:00:00Z');
+  const { bank } = harness();
+  const stale = bank.feedStaleness({ lastReceivedAt: '2026-10-26T22:47:00Z', lastSyncedAt: '2026-11-02T23:33:00Z', now });
+  assert.deepEqual([stale.known, stale.stale, stale.days], [true, true, 7]);
+  // Silence is only evidence alongside syncs that are actually running.
+  const paused = bank.feedStaleness({ lastReceivedAt: '2026-10-26T22:47:00Z', lastSyncedAt: '2026-10-26T22:47:00Z', now });
+  assert.equal(paused.stale, false);
+  const current = bank.feedStaleness({ lastReceivedAt: '2026-11-02T10:00:00Z', lastSyncedAt: '2026-11-02T23:33:00Z', now });
+  assert.equal(current.stale, false);
+  // Never received anything: a new mapping, not a stall.
+  const fresh = bank.feedStaleness({ lastReceivedAt: null, lastSyncedAt: '2026-11-02T23:33:00Z', now });
+  assert.deepEqual([fresh.known, fresh.stale], [false, false]);
 });
 await test('asking the bank to re-fetch imports nothing by itself and points at the next step', async () => {
   const h = harness(); await h.el('bankAccounts').fire('click', { target: target(h.row, '[data-bank-refresh-txns]') });
