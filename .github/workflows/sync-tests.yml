@@ -633,7 +633,7 @@ jobs:
         run: node --test scripts/tests/accounting-mode.test.mjs
 
       - name: Accounting suite navigation and legacy routes
-        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
+        run: node --test scripts/tests/cashflow.test.mjs scripts/tests/accounting-display.test.mjs scripts/tests/accounting-journal-signs.test.mjs scripts/tests/accounting-suite.test.mjs scripts/tests/accounting-foundation-ui.test.mjs scripts/tests/accounting-ledger.test.mjs scripts/tests/qbo-report-connection.test.mjs scripts/tests/transactions-tiles.test.mjs scripts/tests/transaction-dates.test.mjs scripts/tests/qbo-history-ui.test.mjs scripts/tests/card-splits-ui.test.mjs scripts/tests/transaction-reclass-ui.test.mjs scripts/tests/no-unqualified-delete.test.mjs
 
       # Which company's sidebar a session is served. Visibility only -- RLS
       # decides the data -- but resolveNavProfile(null) used to answer
@@ -1398,9 +1398,19 @@ jobs:
       - name: Execute chat catalog coverage regressions
         run: |
           node scripts/tests/chat-catalog-coverage-database.test.mjs
-          for mutation in clobber-curated no-missing-guard no-hide touch-everything; do
+          for mutation in clobber-curated no-missing-guard no-hide bloat-lead touch-everything; do
             if CATALOG_COVERAGE_MUTATION="$mutation" node scripts/tests/chat-catalog-coverage-database.test.mjs; then
               echo "::error::$mutation did not fail the catalog coverage suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+      - name: Execute integration feed health regressions
+        run: |
+          node scripts/tests/integration-feed-health-database.test.mjs
+          for mutation in no-refresh keep-dates ledger-books open-policy one-tieout owner-view; do
+            if FEED_HEALTH_MUTATION="$mutation" node scripts/tests/integration-feed-health-database.test.mjs; then
+              echo "::error::$mutation did not fail the feed health suite"
               exit 1
             fi
             echo "$mutation failed the suite, as it must"

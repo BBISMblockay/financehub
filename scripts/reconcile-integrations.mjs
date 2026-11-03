@@ -29,7 +29,7 @@
 import { appendFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import {
-  INTEGRATION_FEEDS, feedCovers, integrationFor, interpretProbe,
+  INTEGRATION_FEEDS, feedCovers, feedHealthRow, integrationFor, interpretProbe,
   planFirstImport, probeColumn, reconcileConnection, reconcileExitCode,
 } from './lib/integration-reconcile-core.mjs';
 
@@ -187,9 +187,62 @@ async function main() {
   }
 
   report(rows, today);
+  await publishHealth(rows, feeds);
   const code = reconcileExitCode(rows.map((r) => r.verdict));
   if (code && FAIL_ON_ACTION) process.exit(code);
   if (code) console.error('[reconcile] RECONCILE_FAIL_ON_ACTION=false — reporting only.');
+}
+
+/* Put this pass's verdicts where SILO can show them (integration_feed_health,
+ * 20261103220000). Until this existed the whole judgement lived in a workflow
+ * log: nothing in the app showed it, no report returned it, and a connected AI
+ * could not reach the connection tables at all because they are hidden from the
+ * chat catalog. That is how a Plaid feed sat stalled for eight days with every
+ * sync green.
+ *
+ * Deliberate choices:
+ *   - It runs AFTER report(), so a write failure can never cost us the log that
+ *     is still the primary output, and it never throws: a failed write leaves
+ *     yesterday's rows ageing, which the view's `observation_stale` and the
+ *     report's second tie-out both announce. Silence is not an option it has.
+ *   - Dry run writes nothing, matching what this script promises at the top.
+ *   - Pruning deletes only rows for the (company, feed) pairs this run actually
+ *     evaluated, and only those stamped before this run -- so a connection that
+ *     has gone away stops being reported, while a feed skipped by
+ *     RECONCILE_ONLY_FEED, or a company this run never saw, keeps its last
+ *     verdict and lets it age honestly.
+ */
+async function publishHealth(rows, feeds) {
+  if (DRY_RUN) {
+    console.log(`[reconcile] dry run: would have published ${rows.length} feed-health row(s)`);
+    return;
+  }
+  const observedAt = new Date().toISOString();
+  const health = rows.map((r) => feedHealthRow({
+    feed: r.feed, connection: r.conn, verdict: r.verdict, detail: r.detail, label: r.label, observedAt,
+  })).filter((h) => h.company_entity_id);
+  try {
+    for (let i = 0; i < health.length; i += 200) {
+      const chunk = health.slice(i, i + 200);
+      const { error } = await db.from('integration_feed_health')
+        .upsert(chunk, { onConflict: 'company_entity_id,feed,connection_id' });
+      if (error) throw new Error(error.message);
+    }
+    const companies = [...new Set(health.map((h) => h.company_entity_id))];
+    const labels = feeds.map((f) => f.label);
+    if (companies.length && labels.length) {
+      const { error } = await db.from('integration_feed_health')
+        .delete()
+        .in('company_entity_id', companies)
+        .in('feed', labels)
+        .lt('observed_at', observedAt);
+      if (error) throw new Error(error.message);
+    }
+    console.log(`[reconcile] published ${health.length} feed-health row(s) for ${new Set(health.map((h) => h.company_entity_id)).size} company(ies)`);
+  } catch (err) {
+    // Not fatal, and not hidden either: the surface will say it is stale.
+    console.error(`[reconcile] could not publish feed health: ${err.message} — SILO will show yesterday's verdicts and mark them stale`);
+  }
 }
 
 const ORDER = { action: 0, warn: 1, ok: 2 };
