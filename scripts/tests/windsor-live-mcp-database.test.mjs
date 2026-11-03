@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const mutation=process.env.WINDSOR_LIVE_MUTATION || '';
-const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute'];
+const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity'];
 assert.ok(!mutation || mutations.includes(mutation),'known mutation');
 function replaceOnce(text,from,to){assert.ok(text.includes(from),'mutation target exists');return text.replace(from,to);}
 const temp=mkdtempSync(`${tmpdir()}/windsor-live-`);
@@ -32,9 +32,9 @@ const BASE='https://test.supabase.co';
 const claims={sub:USER,session_id:SESSION,client_id:'app',role:'silo_integration',silo_company_id:B,silo_scopes:['data:read']};
 const token=`Bearer ${Buffer.from('{}').toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.fixture-signature`;
 const origin=readFileSync('supabase/migrations/20261020030000_developer_api_integration_access.sql','utf8');
-function definition(name) {
-  const start=origin.indexOf(`create or replace function public.${name}(`); assert.ok(start>=0,name);
-  return origin.slice(start,origin.indexOf('$$;',origin.indexOf('as $$',start))+3);
+function definition(name, source=origin) {
+  const start=source.indexOf(`create or replace function public.${name}(`); assert.ok(start>=0,name);
+  return source.slice(start,source.indexOf('$$;',source.indexOf('as $$',start))+3);
 }
 await db.exec(`
 create role anon; create role authenticated; create role service_role bypassrls;
@@ -50,23 +50,33 @@ create function auth.jwt() returns jsonb language sql as $$ select nullif(curren
 create table entities(id uuid primary key); insert into entities values('${A}'),('${B}');
 create table profiles(id uuid primary key,active_company_id uuid); insert into profiles values('${USER}','${B}');
 create table entity_memberships(user_id uuid,entity_id uuid); insert into entity_memberships values('${USER}','${A}'),('${USER}','${B}');
-create table silo_api_grants(id uuid primary key default gen_random_uuid(),client_id text,user_id uuid,company_entity_id uuid,auth_session_id uuid,scopes text[],revoked_at timestamptz,expires_at timestamptz,consented_aal text);
+create table silo_api_grants(id uuid primary key default gen_random_uuid(),client_id text,user_id uuid,company_entity_id uuid,auth_session_id uuid,scopes text[],revoked_at timestamptz,expires_at timestamptz,consented_aal text,consented_at timestamptz not null default now(),last_used_at timestamptz,updated_at timestamptz not null default now());
 insert into silo_api_grants(client_id,user_id,company_entity_id,auth_session_id,scopes,expires_at,consented_aal)
  values('app','${USER}','${A}','${SESSION}',array['reports:read','data:read'],now()+interval '1 day','aal2');
-create function is_admin_user() returns boolean language sql as $$ select false $$;
+create function is_admin_user() returns boolean language sql as $$ select coalesce(nullif(current_setting('test.is_admin',true),''),'false')::boolean $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
 create table silo_chat_schema_catalog(relname text primary key,is_hidden boolean default false,reportable boolean default false);
 create function refresh_chat_schema_catalog() returns void language sql as $$
  insert into silo_chat_schema_catalog(relname) values('windsor_links'),('windsor_linked_accounts') on conflict do nothing $$;
 `);
 for (const name of ['silo_api_claims','silo_api_is_integration','silo_api_grant','active_company_id','mfa_session_satisfied','silo_api_require_scope','silo_api_path_allowed','silo_check_request']) await db.exec(definition(name));
+// Use the CURRENT idle-aware resolver/touch implementation, not the original
+// pre-idle grant definition. Keep the real touch ACL: only the API executor.
+let idle=readFileSync('supabase/migrations/20261028070000_developer_api_idle_disconnect.sql','utf8');
+if(mutation==='idle-predicate') idle=replaceOnce(idle,'and coalesce(g.last_used_at, g.consented_at) > now() - public.silo_api_idle_window()','');
+for(const name of ['silo_api_idle_window','silo_api_grant','silo_api_touch_grant']) await db.exec(definition(name,idle));
+await db.exec(`revoke all on function silo_api_touch_grant() from public,anon,authenticated,silo_integration,silo_revoked;
+grant execute on function silo_api_touch_grant() to silo_api_exec;`);
 await db.exec(readFileSync('supabase/migrations/20261102220000_windsor_connections.sql','utf8'));
-let migration=readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.sql','utf8');
-if(mutation==='scope') migration=replaceOnce(migration,"perform public.silo_api_require_scope('data:read');",'');
+let migration=readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.sql','utf8')
+ + readFileSync('supabase/migrations/20261103230000_windsor_live_mcp_activity.sql','utf8');
+if(mutation==='idle-touch') migration=replaceOnce(migration,'perform public.silo_api_touch_grant();','');
+if(mutation==='scope') migration=migration.replaceAll("perform public.silo_api_require_scope('data:read');",'');
 if(mutation==='rls') migration=replaceOnce(migration,'using (company_entity_id = (select public.active_company_id()) and mcp_enabled)','using (true)');
+if(mutation==='resolver-publication') migration=migration.replaceAll(' and a.mcp_enabled','').replaceAll('where company_entity_id=v_company and mcp_enabled','where company_entity_id=v_company');
 if(mutation==='published') migration=migration.replaceAll(' and a.mcp_enabled','').replaceAll(' and mcp_enabled','');
 if(mutation==='default') migration=replaceOnce(migration,'not null default false','not null default true');
-if(mutation==='client-execute') migration=replaceOnce(migration,'to silo_integration;','to silo_integration,authenticated;');
+if(mutation==='client-execute') migration=migration.replaceAll('to silo_integration;','to silo_integration,authenticated;');
 await db.exec(migration); await db.exec(migration);
 await db.exec(`
 insert into windsor_links(id,company_entity_id,access_token) values('${CA}','${A}','token-a'),('${CB}','${B}','token-b');
@@ -180,6 +190,17 @@ await check('RLS itself hides other-company and unpublished rows; no direct inte
  await assert.rejects(db.query('select id from windsor_linked_accounts'),/permission denied/);await db.exec('rollback');
  const acl=(await db.query("select has_function_privilege('anon','silo_api_windsor_connections(uuid,integer)','execute') a,has_function_privilege('authenticated','silo_api_windsor_connections(uuid,integer)','execute') b")).rows[0];assert.deepEqual(acl,{a:false,b:false});
 });
+await check('legacy admin RLS can read own unpublished mapping, but live resolver still refuses it',async()=>{
+ await db.query("select set_config('test.is_admin','true',false)");
+ try {
+  await db.exec('begin');await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify(claims)]);await db.exec('set local role silo_api_exec');
+  assert.deepEqual((await db.query('select id from windsor_linked_accounts order by id')).rows.map(r=>r.id),[CA,OFF]);await db.exec('rollback');
+  assert.deepEqual((await tool('list_connections')).data.connections.map(c=>c.id),[CA]);
+  for(const id of [OFF,CB]){
+   calls=[];const r=await tool('query_connection',{...queryArgs,connection_id:id});assert.ok(r.body.error||r.body.result?.isError);assert.equal(calls.length,0);
+  }
+ } finally { await db.query("select set_config('test.is_admin','false',false)"); }
+});
 await check('a second grant company reads only its own connector and account',async()=>{
  await db.exec(`update silo_api_grants set company_entity_id='${B}'`);expectedAccount='account-b';
  assert.deepEqual((await tool('list_connections')).data.connections.map(c=>c.id),[CB]);
@@ -192,6 +213,71 @@ await check('the shipped operational verification recognizes applied authorizati
  const start=verify.indexOf("select 'Windsor live MCP authorization'");
  assert.ok(start>=0);const result=await db.query(verify.slice(start,verify.indexOf(';',start)+1));
  assert.equal(result.rows[0].status,'ok');
+});
+await check('the verifier fails until the activity correction is applied, and passes after',async()=>{
+ let verify=readFileSync('supabase/verify_v2_schema.sql','utf8');
+ if(mutation==='verify-activity') verify=replaceOnce(verify,"      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')\n          < strpos(p.prosrc,'perform public.silo_api_touch_grant();'))","      )").replace("      and strpos(p.prosrc,'perform public.silo_api_touch_grant();')>0\n",'');
+ const start=verify.indexOf("select 'Windsor live MCP activity'");
+ assert.ok(start>=0);const sql=verify.slice(start,verify.indexOf('end as status;',start)+'end as status;'.length);
+ assert.equal((await db.query(sql)).rows[0].status,'ok','applied correction passes');
+ const original=definition('silo_api_windsor_connections',readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.sql','utf8'));
+ assert.ok(!original.includes('silo_api_touch_grant'),'fixture: the original resolver records no activity');
+ await db.exec('begin');
+ try { await db.exec(original); assert.notEqual((await db.query(sql)).rows[0].status,'ok','original resolver alone is reported missing'); }
+ finally { await db.exec('rollback'); }
+ assert.equal((await db.query(sql)).rows[0].status,'ok');
+});
+await check('legacy verifier admits only the exact live RPC grant and intended Windsor policies',async()=>{
+ const verify=readFileSync('supabase/verify_v2_schema.sql','utf8');
+ const brokerStart=verify.indexOf("select 'Windsor tenant broker'");
+ const broker=verify.slice(brokerStart,verify.indexOf('end as status;',brokerStart)+'end as status;'.length);
+ const aclStart=verify.indexOf('  -- EXPLICIT grants only.');
+ const predicateStart=verify.indexOf('when exists (',aclStart)+5;
+ const predicateEnd=verify.indexOf("\n   then 'CRITICAL: an integration role",predicateStart);
+ const acl=`select ${verify.slice(predicateStart,predicateEnd)} as unexpected`;
+ assert.equal((await db.query(acl)).rows[0].unexpected,false);
+ assert.equal((await db.query(broker)).rows[0].status,'ok');
+ for(const sql of [
+  'grant execute on function silo_api_windsor_connections(uuid,integer) to silo_revoked',
+  'create function silo_api_windsor_connections(text) returns void language sql as $$ select $$; grant execute on function silo_api_windsor_connections(text) to silo_integration',
+  'create function unrelated_rpc() returns void language sql as $$ select $$; grant execute on function unrelated_rpc() to silo_integration'
+ ]){
+  await db.exec('begin');await db.exec(sql);assert.equal((await db.query(acl)).rows[0].unexpected,true);await db.exec('rollback');
+ }
+ for(const sql of [
+  'alter policy windsor_linked_accounts_mcp_select on windsor_linked_accounts to authenticated',
+  'alter policy windsor_linked_accounts_mcp_select on windsor_linked_accounts using (true)',
+  'drop policy windsor_linked_accounts_mcp_select on windsor_linked_accounts; create policy windsor_linked_accounts_mcp_select on windsor_linked_accounts for select to silo_api_exec',
+  'create policy unexpected_read on windsor_linked_accounts for select using (true)',
+  'drop policy windsor_linked_accounts_admin_select on windsor_linked_accounts'
+ ]){
+  await db.exec('begin');await db.exec(sql);assert.notEqual((await db.query(broker)).rows[0].status,'ok');await db.exec('rollback');
+ }
+});
+await check('each live tool refreshes a near-idle grant, with hourly throttling and no expiry extension',async()=>{
+ for(const [name,args] of [['list_connections',{}],['describe_connection',{connection_id:CA}],['query_connection',queryArgs]]){
+  await db.exec("update silo_api_grants set consented_at=now()-interval '40 days',last_used_at=now()-interval '29 days'");
+  const before=(await db.query('select expires_at from silo_api_grants')).rows[0].expires_at;
+  const r=await tool(name,args);assert.ok(r.data,`${name} succeeds`);
+  const touched=(await db.query("select last_used_at,expires_at,last_used_at > now()-interval '1 minute' as recent from silo_api_grants")).rows[0];
+  assert.equal(touched.recent,true,`${name} records activity`);assert.deepEqual(touched.expires_at,before);
+  await tool(name,args);
+  assert.deepEqual((await db.query('select last_used_at from silo_api_grants')).rows[0].last_used_at,touched.last_used_at,'same-hour use does not rewrite activity');
+ }
+});
+await check('idle grants cannot revive themselves, and failed scope checks do not touch activity',async()=>{
+ for(const setting of ["last_used_at=now()-interval '31 days'",'last_used_at=null']){
+  await db.exec(`update silo_api_grants set consented_at=now()-interval '31 days',${setting}`);
+  const before=(await db.query('select last_used_at,updated_at from silo_api_grants')).rows[0];
+  for(const [name,args] of [['list_connections',{}],['describe_connection',{connection_id:CA}],['query_connection',queryArgs]]){
+   calls=[];const r=await tool(name,args);assert.ok(r.body.error||r.body.result?.isError);assert.equal(calls.length,0);
+   assert.deepEqual((await db.query('select last_used_at,updated_at from silo_api_grants')).rows[0],before);
+  }
+ }
+ await db.exec("update silo_api_grants set consented_at=now(),last_used_at=now()-interval '2 hours',scopes=array['reports:read']");
+ const before=(await db.query('select last_used_at from silo_api_grants')).rows[0];
+ await tool('list_connections');assert.deepEqual((await db.query('select last_used_at from silo_api_grants')).rows[0],before);
+ await db.exec("update silo_api_grants set scopes=array['reports:read','data:read']");
 });
 await check('publication defaults false and migration replay never publishes accounts',async()=>{
  assert.equal((await db.query("select column_default from information_schema.columns where table_name='windsor_linked_accounts' and column_name='mcp_enabled'")).rows[0].column_default,'false');

@@ -7594,7 +7594,10 @@ select 'developer API boundary' as check_name, case
         'silo_api_query', 'silo_api_describe_tables',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
-        'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
+        'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
+      -- Only this signature, only the live integration role (never revoked).
+      and not (p.oid is not distinct from to_regprocedure('public.silo_api_windsor_connections(uuid,integer)')
+        and a.grantee = 'silo_integration'::regrole))
    then 'CRITICAL: an integration role is granted EXECUTE outside the API surface: '
         || (select string_agg(distinct p.proname, ', ')
             from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
@@ -7607,7 +7610,10 @@ select 'developer API boundary' as check_name, case
                 'silo_api_query', 'silo_api_describe_tables',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
-                'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id'))
+                'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
+      -- Only this signature, only the live integration role (never revoked).
+      and not (p.oid is not distinct from to_regprocedure('public.silo_api_windsor_connections(uuid,integer)')
+        and a.grantee = 'silo_integration'::regrole))
 
   -- The dead end has to stay a dead end.
   when exists (
@@ -8235,14 +8241,25 @@ select 'Windsor tenant broker' as check_name,
       then 'CRITICAL — a client role can write Windsor accounts, or anon can read them'
     when exists (select 1 from pg_policy where polrelid = 'public.windsor_links'::regclass)
       then 'CRITICAL — windsor_links has a policy; no client may ever read a link token'
-    when (select count(*) from pg_policy where polrelid = 'public.windsor_linked_accounts'::regclass) <> 1
-      or not exists (select 1 from pg_policy
-                      where polrelid = 'public.windsor_linked_accounts'::regclass
-                        and polname = 'windsor_linked_accounts_admin_select'
-                        and polcmd = 'r'
-                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
-                        and pg_get_expr(polqual, polrelid) like '%is_admin_user()%')
-      then 'CRITICAL — windsor_linked_accounts is not admin-select-only within the active company'
+    -- Keep the original admin surface and admit only the new executor policy.
+    -- The live authorization check below separately requires its installation.
+    when not exists (select 1 from pg_policy
+      where polrelid='public.windsor_linked_accounts'::regclass
+        and polname='windsor_linked_accounts_admin_select')
+      or exists (select 1 from pg_policy p
+        where p.polrelid='public.windsor_linked_accounts'::regclass
+          and not coalesce((
+            (p.polname='windsor_linked_accounts_admin_select' and p.polcmd='r'
+              and p.polpermissive and p.polroles=array['authenticated'::regrole::oid]
+              and p.polwithcheck is null
+              and regexp_replace(pg_get_expr(p.polqual,p.polrelid),'[[:space:]]','','g')
+                = '((company_entity_id=active_company_id())ANDis_admin_user())')
+            or (p.polname='windsor_linked_accounts_mcp_select' and p.polcmd='r'
+              and p.polpermissive and p.polroles=array[to_regrole('silo_api_exec')::oid]
+              and p.polwithcheck is null
+              and regexp_replace(pg_get_expr(p.polqual,p.polrelid),'[[:space:]]','','g')
+                = '((company_entity_id=(SELECTactive_company_id()ASactive_company_id))ANDmcp_enabled)')),false))
+      then 'CRITICAL — Windsor policies differ from company-admin SELECT and published company-executor SELECT'
     when not exists (select 1 from pg_constraint
                       where conrelid = 'public.windsor_linked_accounts'::regclass
                         and conname = 'windsor_linked_accounts_account_uniq' and contype = 'u')
@@ -8414,6 +8431,17 @@ select 'Windsor live MCP authorization' as check_name,
     and exists (select 1 from pg_policies where schemaname='public' and tablename='windsor_linked_accounts'
       and policyname='windsor_linked_accounts_mcp_select' and qual like '%active_company_id%' and qual like '%mcp_enabled%')
   then 'ok' else 'BROKEN: live connector authorization/defaults' end as status;
+
+-- 20261103230000: live MCP use must record grant activity (after the scope
+-- check, never before), or an actively used connection idles out at 30 days.
+select 'Windsor live MCP activity' as check_name,
+  case when exists (select 1 from pg_proc p
+    where p.oid=to_regprocedure('public.silo_api_windsor_connections(uuid,integer)')
+      and strpos(p.prosrc,'perform public.silo_api_touch_grant();')>0
+      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')>0
+      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')
+          < strpos(p.prosrc,'perform public.silo_api_touch_grant();'))
+  then 'ok' else 'MISSING: run 20261103230000_windsor_live_mcp_activity.sql (live MCP use does not record activity)' end as status;
 
 -- ── Feed health, the surface that makes a stalled sync visible (20261103220000) ──
 -- A missing table or a widened policy here is worse than no surface at all: a
