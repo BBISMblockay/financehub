@@ -28,7 +28,7 @@
 import { mayConnect } from './google-oauth-lib.mjs';
 import {
   WINDSOR_ONBOARD, WINDSOR_CONNECTORS, PREVIEW_MAX_ROWS, MAX_LINKS_PER_RECONCILE,
-  parseSource, connectorForSource, parseFields, parseDatePreset, windsorUrl, redact,
+  parseSource, connectorForSource, previewOptions, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
   filterRowsToAccount,
 } from './windsor-lib.mjs';
@@ -219,6 +219,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const r = await windsor(windsorUrl(WINDSOR_CONNECTORS, `/${conn.value}`, {
         api_key: key, date_preset: preset.value, fields: fields.value.join(','),
         select_accounts: own.row.account_id, _max_rows: PREVIEW_MAX_ROWS,
+        options: previewOptions(conn.value),
       }));
       if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
       const rows = rowsOf(r.body);

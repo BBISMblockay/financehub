@@ -35,6 +35,17 @@ export function parseSource(raw) {
 // Empty until the live trial shows a source whose endpoint name differs.
 export const CONNECTOR_FOR_SOURCE = Object.freeze({});
 
+// Extra `options` a connector needs for a preview to match Windsor's own
+// screen. TikTok sends no daily rows for days its ads did not deliver unless
+// inactive campaigns are included (seen live 2026-11-02; Windsor's UI adds it).
+const PREVIEW_OPTIONS = Object.freeze({ tiktok: { include_inactive: 'true' } });
+
+/** The `options` query value for a connector's preview, or null. */
+export function previewOptions(connector) {
+  const o = PREVIEW_OPTIONS[connector];
+  return o ? JSON.stringify({ [connector]: o }) : null;
+}
+
 /** The data endpoint for a stored data source id. `all` multiplexes every
  *  source on the team, so it is refused even if it were ever stored. */
 export function connectorForSource(dsId) {

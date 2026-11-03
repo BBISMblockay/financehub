@@ -8215,3 +8215,34 @@ select 'Windsor tenant broker' as check_name,
       then 'CRITICAL — an account''s company is not tied to the company of its link'
     else 'ok'
   end as status;
+
+-- Windsor sync (20261103060000): Windsor rows land under the company of the
+-- account's mapping row; klaviyo_performance_daily is readable only within
+-- the active company and writable only by the sync (service role).
+select 'Windsor sync' as check_name,
+  case
+    when to_regclass('public.klaviyo_performance_daily') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'windsor_linked_accounts'
+                        and column_name = 'history_from')
+      then 'MISSING — run 20261103060000_windsor_sync.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.klaviyo_performance_daily'::regclass)
+      then 'CRITICAL — RLS is off on klaviyo_performance_daily'
+    when has_table_privilege('anon', 'public.klaviyo_performance_daily', 'select')
+      or has_table_privilege('authenticated', 'public.klaviyo_performance_daily', 'insert')
+      or has_table_privilege('authenticated', 'public.klaviyo_performance_daily', 'update')
+      or has_table_privilege('authenticated', 'public.klaviyo_performance_daily', 'delete')
+      then 'CRITICAL — a client role can write klaviyo_performance_daily, or anon can read it'
+    when (select count(*) from pg_policy where polrelid = 'public.klaviyo_performance_daily'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.klaviyo_performance_daily'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%')
+      then 'CRITICAL — klaviyo_performance_daily is not select-only within the active company'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.sync_jobs'::regclass
+                        and conname = 'sync_jobs_job_type_check'
+                        and pg_get_constraintdef(oid) like '%windsor_sync%')
+      then 'MISSING — sync_jobs does not accept windsor_sync'
+    else 'ok'
+  end as status;

@@ -69,6 +69,10 @@ on:
       # Windsor tenant broker (windsor-broker.test.mjs, windsor-connections-database.test.mjs).
       - 'supabase/functions/windsor-broker/**'
       - 'supabase/migrations/*windsor_connections.sql'
+      # Windsor sync (windsor-sync.test.mjs, windsor-sync-database.test.mjs).
+      - 'scripts/windsor-sync.mjs'
+      - 'scripts/lib/windsor-sync-core.mjs'
+      - 'supabase/migrations/*windsor_sync.sql'
       - 'v2/integration-bootstrap.js'
       - 'v2/integration-enrolment.js'
       - 'scripts/integration-bootstrap.mjs'
@@ -543,6 +547,21 @@ jobs:
           set -u
           for m in trustfilter notoken rowfilter bodycompany conflict redact connector linkwindow grouptoken; do
             if WINDSOR_MUTATION="$m" node --test scripts/tests/windsor-broker.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Windsor sync: a row is written only for the account it was asked
+      # about, under that account's mapping company, and history resumes.
+      - name: Windsor sync
+        run: node --test scripts/tests/windsor-sync.test.mjs
+      - name: The Windsor sync's guards, removed, must break it
+        run: |
+          set -u
+          for m in accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions; do
+            if WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
@@ -2161,6 +2180,22 @@ jobs:
           set -u
           for m in rls company tokens writes uniq linkfk; do
             if WINDSOR_DB_MUTATION="$m" node scripts/tests/windsor-connections-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Windsor sync's database half (20261103060000): Klaviyo rows readable
+      # only within the active company, never client-writable, sync_jobs
+      # accepts windsor_sync.
+      - name: Windsor sync tables (real PostgreSQL)
+        run: node scripts/tests/windsor-sync-database.test.mjs
+      - name: The Windsor sync tables' guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company writes; do
+            if WINDSOR_SYNC_DB_MUTATION="$m" node scripts/tests/windsor-sync-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

@@ -19425,4 +19425,8 @@ $c$select (select count(*) from v_po_header_summary
 -- the windsor-broker edge function (/v2/windsor-test.html). Turns nothing on
 -- by itself. Deploy windsor-broker and set WINDSOR_API_KEY to use it.
 \i migrations/20261102220000_windsor_connections.sql
+-- Windsor sync: klaviyo_performance_daily, sync bookkeeping on
+-- windsor_linked_accounts, sync_jobs job_type windsor_sync. Turns nothing on:
+-- the windsor-sync workflow needs the WINDSOR_API_KEY repo secret.
+\i migrations/20261103060000_windsor_sync.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
