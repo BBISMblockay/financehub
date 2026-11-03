@@ -8431,3 +8431,14 @@ select 'Windsor live MCP authorization' as check_name,
     and exists (select 1 from pg_policies where schemaname='public' and tablename='windsor_linked_accounts'
       and policyname='windsor_linked_accounts_mcp_select' and qual like '%active_company_id%' and qual like '%mcp_enabled%')
   then 'ok' else 'BROKEN: live connector authorization/defaults' end as status;
+
+-- 20261103230000: live MCP use must record grant activity (after the scope
+-- check, never before), or an actively used connection idles out at 30 days.
+select 'Windsor live MCP activity' as check_name,
+  case when exists (select 1 from pg_proc p
+    where p.oid=to_regprocedure('public.silo_api_windsor_connections(uuid,integer)')
+      and strpos(p.prosrc,'perform public.silo_api_touch_grant();')>0
+      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')>0
+      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')
+          < strpos(p.prosrc,'perform public.silo_api_touch_grant();'))
+  then 'ok' else 'MISSING: run 20261103230000_windsor_live_mcp_activity.sql (live MCP use does not record activity)' end as status;

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const mutation=process.env.WINDSOR_LIVE_MUTATION || '';
-const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication'];
+const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity'];
 assert.ok(!mutation || mutations.includes(mutation),'known mutation');
 function replaceOnce(text,from,to){assert.ok(text.includes(from),'mutation target exists');return text.replace(from,to);}
 const temp=mkdtempSync(`${tmpdir()}/windsor-live-`);
@@ -213,6 +213,19 @@ await check('the shipped operational verification recognizes applied authorizati
  const start=verify.indexOf("select 'Windsor live MCP authorization'");
  assert.ok(start>=0);const result=await db.query(verify.slice(start,verify.indexOf(';',start)+1));
  assert.equal(result.rows[0].status,'ok');
+});
+await check('the verifier fails until the activity correction is applied, and passes after',async()=>{
+ let verify=readFileSync('supabase/verify_v2_schema.sql','utf8');
+ if(mutation==='verify-activity') verify=replaceOnce(verify,"      and strpos(p.prosrc,'perform public.silo_api_require_scope(''data:read'');')\n          < strpos(p.prosrc,'perform public.silo_api_touch_grant();'))","      )").replace("      and strpos(p.prosrc,'perform public.silo_api_touch_grant();')>0\n",'');
+ const start=verify.indexOf("select 'Windsor live MCP activity'");
+ assert.ok(start>=0);const sql=verify.slice(start,verify.indexOf('end as status;',start)+'end as status;'.length);
+ assert.equal((await db.query(sql)).rows[0].status,'ok','applied correction passes');
+ const original=definition('silo_api_windsor_connections',readFileSync('supabase/migrations/20261103210000_windsor_live_mcp.sql','utf8'));
+ assert.ok(!original.includes('silo_api_touch_grant'),'fixture: the original resolver records no activity');
+ await db.exec('begin');
+ try { await db.exec(original); assert.notEqual((await db.query(sql)).rows[0].status,'ok','original resolver alone is reported missing'); }
+ finally { await db.exec('rollback'); }
+ assert.equal((await db.query(sql)).rows[0].status,'ok');
 });
 await check('legacy verifier admits only the exact live RPC grant and intended Windsor policies',async()=>{
  const verify=readFileSync('supabase/verify_v2_schema.sql','utf8');
