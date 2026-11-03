@@ -19429,4 +19429,7 @@ $c$select (select count(*) from v_po_header_summary
 -- windsor_linked_accounts, sync_jobs job_type windsor_sync. Turns nothing on:
 -- the windsor-sync workflow needs the WINDSOR_API_KEY repo secret.
 \i migrations/20261103060000_windsor_sync.sql
+-- Windsor any connector: windsor_metrics_daily for connectors with no table of
+-- their own; marketing_kpis_daily.platform becomes a name-shape check.
+\i migrations/20261103080000_windsor_any_connector.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

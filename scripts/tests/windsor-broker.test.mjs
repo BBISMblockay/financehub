@@ -15,6 +15,7 @@
 //   WINDSOR_MUTATION=connector    preview lets the caller choose the endpoint
 //   WINDSOR_MUTATION=linkwindow   reconcile only ever checks one batch of links
 //   WINDSOR_MUTATION=grouptoken   a grouped account takes the request's token, not its group's
+//   WINDSOR_MUTATION=mapcompany   field_catalog reads every company's mapping
 //
 // Run: node scripts/tests/windsor-broker.test.mjs
 import assert from 'node:assert/strict';
@@ -43,6 +44,7 @@ async function loadHandler() {
     .replace("&& connectorForSource(String(body.connector).trim().toLowerCase()).value !== connectorForSource(own.row.ds_id).value", '&& false');
   if (MUT === 'linkwindow') handler = sub(handler, 'const offset = Number.isInteger(body?.offset) && body.offset >= 0 ? body.offset : 0;', 'const offset = 0;');
   if (MUT === 'grouptoken') lib = sub(lib, 'for (const r of flattenLinkedAccounts(rows)) {', 'for (const r of flattenLinkedAccounts(rows).map((x) => ({ ...x, access_token: token }))) {');
+  if (MUT === 'mapcompany') handler = sub(handler, ".select('measure, field_id').eq('company_entity_id', companyId).eq('ds_id', own.row.ds_id);", ".select('measure, field_id').eq('ds_id', own.row.ds_id);");
   if (MUT === 'redact') lib = sub(lib, "if (key) s = s.split(key).join('***');\n  s = s.replace(/(api_key=)[^&\\s\"']+/gi, '$1***');", '');
   fs.writeFileSync(path.join(dir, 'handler.mjs'), handler);
   fs.writeFileSync(path.join(dir, 'windsor-lib.mjs'), lib);
@@ -244,6 +246,35 @@ test('preview cannot reach another company\'s account, or the all connector', as
   w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-a', company_entity_id: A, link_id: 'link-a', ds_id: 'klaviyo', account_id: 'ka-1' });
   assert.equal((await call(handlerFor(w, fw), { action: 'preview', linked_account_id: 'acc-a', connector: 'all', fields: 'date' })).status, 400);
   assert.equal(fw.log.length, 0, 'Windsor was never asked');
+});
+
+test('field_catalog lists one own account\'s numeric fields and the sync\'s pick, with this company\'s mapping only', async () => {
+  const w = world();
+  w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-p', company_entity_id: A, link_id: 'link-a', ds_id: 'pinterest', account_id: 'p-1' });
+  w.fake.tables.set('windsor_field_mappings', [
+    { company_entity_id: A, ds_id: 'pinterest', measure: 'conversions', field_id: 'saves' },
+    { company_entity_id: B, ds_id: 'pinterest', measure: 'spend', field_id: 'saves' },
+  ]);
+  const fw = fakeWindsor({ 'GET connectors.windsor.ai/pinterest/fields': (u) => {
+    assert.equal(u.searchParams.get('api_key'), null, 'the public list is read without the owner key');
+    return { body: [
+      { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'campaign_id', type: 'TEXT' },
+      { id: 'spend', type: 'NUMERIC', name: 'Spend' }, { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' },
+      { id: 'total_conversions', type: 'NUMERIC' }, { id: 'saves', type: 'NUMERIC', table: 'Engagement' },
+    ] };
+  } });
+  const h = handlerFor(w, fw);
+  const r = await call(h, { action: 'field_catalog', linked_account_id: 'acc-p' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.kind, 'ad');
+  assert.match(r.body.destination, /pinterest_ads/);
+  const by = Object.fromEntries(r.body.measures.map((m) => [m.measure, m]));
+  assert.equal(by.conversions.auto, 'total_conversions');
+  assert.equal(by.conversions.chosen, 'saves', 'this company\'s mapping');
+  assert.equal(by.spend.chosen, 'spend', 'another company\'s mapping never applies');
+  assert.deepEqual(r.body.numeric_fields.map((f) => f.id), ['spend', 'impressions', 'clicks', 'total_conversions', 'saves']);
+  assert.equal((await call(h, { action: 'field_catalog', linked_account_id: 'acc-b' })).status, 404, 'not B\'s account');
+  assert.ok(!r.text.includes(KEY));
 });
 
 test('unlink removes only an own account, and keeps SILO\'s row if Windsor refuses', async () => {
