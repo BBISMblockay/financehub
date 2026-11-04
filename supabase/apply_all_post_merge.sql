@@ -19507,8 +19507,6 @@ $c$select (select count(*) from v_po_header_summary
 -- those three VOLATILE; their bodies do not change. A GET of them is answered
 -- 405 from here on; every known caller POSTs. No deploy.
 \i migrations/20261104030000_api_call_log_catalog_tools.sql
-\i migrations/20260922170000_record_report_catalog_cleanup.sql
-
 -- One product, one title. sales_by_product_title_daily_mv resolved the title
 -- from products_master alone, which is UNIQUE (company, sku) while the catalog
 -- sync runs once per STORE -- so a SKU carried by two stores took whichever
@@ -19521,3 +19519,5 @@ $c$select (select count(*) from v_po_header_summary
 -- temporary name and swapped, so the two views that read it are recreated.
 -- No deploy.
 \i migrations/20261104193000_product_title_canonical.sql
+
+\i migrations/20260922170000_record_report_catalog_cleanup.sql
