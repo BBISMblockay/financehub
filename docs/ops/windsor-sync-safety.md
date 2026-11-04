@@ -70,3 +70,76 @@ Migration tooling note: the installed latest Supabase CLI failed before command
 execution because it tried to write its config under the read-only home; a pinned
 CLI installation also failed. The repository-format migration was created locally
 and is exercised with PGlite; neither CLI attempt applied anything.
+
+## Core retry and failure diagnostics (2026-11-04)
+
+Investigation baseline: `b5318432` (main); no Windsor core change since the
+failed run's `098ee535`. Run `41889105953` reported Klaviyo `account: timed out`,
+TikTok duplicate grain, and intentionally unsupported YouTube. The Klaviyo
+message originates in the core request, before hunted-field retry/splitting.
+Its first window is 35 days. TikTok's old duplicate message does not distinguish
+core from hunted validation, so it cannot establish the offending request.
+
+The patch reuses the existing two-attempt transient read helper for core reads.
+Timeouts, network/body read failures, 429 and 5xx retry the identical request
+once, each attempt charged to the existing global budget. A persistent failure
+stops the dataset before writes/progress. A 5xx naming a field cannot negotiate
+that field away. Empty HTTP error bodies remain HTTP failures. Field refusal
+negotiation is still capped at four iterations (at most eight attempts per core
+fetch, 120 seconds each); hunted splitting and its existing cap are unchanged.
+Errors now identify source/dataset, date window, and core/hunted batch/merge
+stage, without adding account values, row payloads or URLs to diagnostics.
+Existing provider-error redaction remains in place.
+
+Preflight scope: workflow -> script -> syncAccount -> fetchDatasetHunted ->
+fetchDataset/readOnceRetrying/readOnce; hunted callers also use readOnce.
+Public core functions are additionally exercised by the sync tests; the
+synthetic developer API database suite imports syncAccount. Company/history/
+window/budget/dry-run inputs, source/consent gates, tenant attribution, writes,
+policy/grant definitions, mapping-generation guard and workflow concurrency do
+not change. No live policy query was needed because no policy/grant is touched.
+Successful earlier datasets/windows remain committed; failed windows retain
+old progress and repeat on the next run. Budget exhaustion remains partial;
+other request/validation failures remain errors. Paused/unsupported behavior
+is unchanged. No new destructive operation or rollout dependency is introduced.
+
+Acceptance tests use the real syncAccount path with deterministic HTTP and
+in-memory database doubles: core retry/recovery, exhausted retry, exhausted
+budget, body interruption, empty 503, persistent 503 naming a field, permanent
+401, secret redaction, duplicate core versus hunted diagnostics, retained rows
+and cursors. Existing identity, consent, grain, options, mapping-generation and
+hunted split tests remain. PGlite exercises database isolation, grants and
+consent without production access. Mutation checks must catch removal of each
+new fix and the existing safety guards.
+
+### Remaining evidence and verification gate
+
+This is a resilience/diagnostic improvement, not proof the live sync is fixed.
+An identical retry may still time out. Date subdivision is deferred: daily row
+identity alone does not prove that all requested metrics (including hunted
+metrics) have identical semantics under a shorter query range. Before adding
+it, verify stable daily values and consistent field availability across ranges;
+then require all subranges to validate before writing a dataset window, no
+cursor advance on any failure, and a bounded request/time cap.
+
+TikTok's `hunt.tables: null` selects numeric fields across catalog tables.
+[Windsor's field reference](https://windsor.ai/data-field/tiktok/) documents
+`cash_spend` as advertiser-level/lifetime and `include_inactive` as adding
+inactive entity rows. That establishes a structural compatibility risk, not
+the cause of this particular duplicate. No field/table allowlist, row key,
+aggregation or source enablement is changed here. A catalog table label does
+not establish compatible grain.
+
+Before changing the TikTok contract, obtain a read-only, privacy-safe capture
+for the failing account/window: exact requested field names/options, core vs
+hunted stage, duplicate counts at account/date/campaign grain, and the differing
+dimension names (with identity values consistently anonymized). Compare core
+alone with the offending hunted field group, and confirm provider semantics for
+the proposed grain. Do not save raw customer payloads or credentials in logs.
+
+Blake/parent owns publication and rollout. After review and authorized merge,
+verify the next authorized run: transient recovery if applicable, diagnostic
+stage for persistent failures, retained cursors on failures, and no newly
+supported YouTube import. Production execution and metric reconciliation remain
+release-verification gates; no live rerun, write, merge, deploy or migration
+apply was performed in this investigation.
