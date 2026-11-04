@@ -8634,5 +8634,11 @@ select 'connection call log' as check_name,
                         and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
                         and pg_get_expr(polqual, polrelid) like '%is_exec_or_owner()%')
       then 'CRITICAL — the call log is not select-only to the approver and the company owner'
+    when exists (select 1 from pg_proc p
+                   join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public'
+                    and p.proname in ('silo_api_describe_tables', 'silo_api_list_reports')
+                    and p.provolatile <> 'v')
+      then 'BROKEN — a catalog tool is STABLE again, so PostgREST runs it read-only and it records nothing (20261104030000)'
     else 'ok'
   end as status;

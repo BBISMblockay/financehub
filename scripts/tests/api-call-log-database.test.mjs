@@ -23,11 +23,18 @@ const one = async (sql) => (await q(sql))[0];
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); };
 
-const MUTATIONS = ['', 'stable-scope', 'open-policy', 'no-touch', 'no-prune', 'log-browser', 'ignore-read-only', 'logging-can-break-a-read'];
+const MUTATIONS = ['', 'stable-scope', 'open-policy', 'no-touch', 'no-prune', 'log-browser', 'ignore-read-only', 'logging-can-break-a-read', 'stable-catalog', 'stable-catalog-unchecked'];
 const mutation = process.env.CALL_LOG_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const original = readFileSync('supabase/migrations/20261103240000_api_call_log.sql', 'utf8');
 let MIGRATION = original;
+// 20261104030000 is the other half: without it the three catalog tools stay
+// STABLE, PostgREST keeps running them in a read-only transaction (on POST as
+// well as on GET -- it picks the access mode from the function's volatility,
+// not from the verb), and three of the six tools record nothing. Measured on
+// production 2026-11-04, not reasoned about.
+const original2 = readFileSync('supabase/migrations/20261104030000_api_call_log_catalog_tools.sql', 'utf8');
+let MIGRATION2 = original2;
 if (mutation === 'stable-scope') {
   // A STABLE gate cannot insert: STABLE is exactly what the shipped gate was,
   // and why nothing has ever been recorded.
@@ -67,7 +74,20 @@ if (mutation === 'logging-can-break-a-read') {
   MIGRATION = MIGRATION.replace('  begin\n    insert into public.silo_api_call_log', '  insert into public.silo_api_call_log')
     .replace(/  exception when others then\n    raise warning[^\n]*\n  end;\n/, '');
 }
-assert.ok(!mutation || MIGRATION !== original, `mutation ${mutation} changed nothing`);
+if (mutation === 'stable-catalog') {
+  // Leave the catalog tools STABLE: the state production was actually in with
+  // 20261103240000 alone, where list_reports recorded nothing.
+  MIGRATION2 = MIGRATION2.replace(/^alter function public\.silo_api_(describe_tables|list_reports)[^\n]*volatile;\n/gm, '');
+}
+if (mutation === 'stable-catalog-unchecked') {
+  // The same defect with the migration's own assertion removed, so the thing
+  // that has to catch it is the test, not the migration.
+  MIGRATION2 = MIGRATION2
+    .replace(/^alter function public\.silo_api_(describe_tables|list_reports)[^\n]*volatile;\n/gm, '')
+    .replace(/-- Volatility is the whole change[\s\S]*?end \$\$;\n/, '');
+}
+assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2,
+  `mutation ${mutation} changed nothing`);
 
 const A = '00000000-0000-4000-a000-00000000000a';   // company A
 const B = '00000000-0000-4000-a000-00000000000b';   // company B
@@ -155,6 +175,20 @@ begin
   end if;
 end $fn$;
 grant execute on function public.silo_api_require_scope(text) to authenticated, silo_integration;
+
+-- The three catalog tools as they shipped: STABLE, which is the whole defect.
+-- The signatures match production exactly, because 20261104030000 alters them
+-- by signature and a near miss would silently alter nothing.
+create function public.silo_api_describe_tables(p_tables text[] default null,
+    p_search text default null, p_notes boolean default false)
+  returns jsonb language plpgsql stable security definer set search_path = '' as $fn$
+  begin perform public.silo_api_require_scope('data:read'); return '{}'::jsonb; end $fn$;
+create function public.silo_api_list_reports()
+  returns jsonb language plpgsql stable security definer set search_path = '' as $fn$
+  begin perform public.silo_api_require_scope('reports:read'); return '{}'::jsonb; end $fn$;
+create function public.silo_api_list_reports(p_search text)
+  returns jsonb language plpgsql stable security definer set search_path = '' as $fn$
+  begin perform public.silo_api_require_scope('reports:read'); return '{}'::jsonb; end $fn$;
 -- Supabase grants these; PGlite does not, and without them the policy's own
 -- auth.uid() call fails before it can decide anything.
 grant usage on schema auth to authenticated, anon, service_role;
@@ -168,6 +202,7 @@ const apply = async (text) => {
   }
 };
 await apply(MIGRATION);
+await apply(MIGRATION2);
 
 /* One tool call, as PostgREST makes it: the request path names the function,
    the connection's token resolves to a grant, and the gate runs first. */
@@ -299,8 +334,44 @@ await test('a stable tool called the normal way IS recorded', async () => {
   await db.query('select public.stable_tool()');
   await db.exec('commit');
   const r = await rows();
-  assert.equal(r.length, 1, 'a POST to a stable function is not read-only, so it is recorded');
+  assert.equal(r.length, 1, 'in a read-write transaction the same tool is recorded');
   assert.equal(r[0].tool, 'silo_api_describe_tables');
+});
+
+await test('the catalog tools are VOLATILE, so PostgREST hands them a read-write transaction', async () => {
+  // This is the whole of 20261104030000. PostgREST decides a request's access
+  // mode from the function's volatility, NOT from the HTTP verb: a STABLE
+  // function runs in a READ ONLY transaction on POST too, and the MCP server
+  // POSTs every tool. While these three were STABLE they recorded nothing by
+  // any route, and a bot living on them still looked idle.
+  for (const sig of ['public.silo_api_describe_tables(text[], text, boolean)',
+                     'public.silo_api_list_reports()',
+                     'public.silo_api_list_reports(text)']) {
+    assert.equal((await one(`select provolatile from pg_proc
+                              where oid = '${sig}'::regprocedure`)).provolatile, 'v',
+      `${sig} must not be STABLE, or PostgREST runs it read-only and it records nothing`);
+  }
+});
+
+await test('each catalog tool records its own call, by the path PostgREST used', async () => {
+  await db.exec('truncate public.silo_api_call_log');
+  // Called as the tool itself, not through a stand-in: the gate is inside
+  // these bodies, and a volatile function may insert.
+  await db.exec('begin');
+  await db.exec(`set local test.grant_id = '${G_MEMBER}'; set local test.integration = 'on';
+                 set local test.company = '${A}';
+                 set local request.path = '/rest/v1/rpc/silo_api_describe_tables'`);
+  await db.query('select public.silo_api_describe_tables()');
+  await db.exec('commit');
+  await db.exec('begin');
+  await db.exec(`set local test.grant_id = '${G_MEMBER}'; set local test.integration = 'on';
+                 set local test.company = '${A}';
+                 set local request.path = '/rest/v1/rpc/silo_api_list_reports'`);
+  await db.query(`select public.silo_api_list_reports('launch')`);
+  await db.exec('commit');
+  assert.deepEqual((await rows()).map((r) => r.tool).sort(),
+    ['silo_api_describe_tables', 'silo_api_list_reports'],
+    'the two tools that recorded nothing in production are the point of this change');
 });
 
 await test('a failure to record never fails the data call', async () => {
@@ -376,7 +447,9 @@ await test('the approver sees their own connection, an owner sees every connecti
 await test('re-applying the migration changes nothing and keeps the rows', async () => {
   const before = await q(`select count(*)::int as n from public.silo_api_call_log`);
   await apply(MIGRATION);
+  await apply(MIGRATION2);
   await apply(MIGRATION);
+  await apply(MIGRATION2);
   assert.deepEqual(await q(`select count(*)::int as n from public.silo_api_call_log`), before);
   assert.equal((await q(`select 1 from pg_policy
                           where polrelid = 'public.silo_api_call_log'::regclass`)).length, 1);

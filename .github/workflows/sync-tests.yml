@@ -1737,7 +1737,7 @@ jobs:
       - name: Execute connection call log regressions
         run: |
           node scripts/tests/api-call-log-database.test.mjs
-          for mutation in stable-scope open-policy no-touch no-prune log-browser ignore-read-only logging-can-break-a-read; do
+          for mutation in stable-scope open-policy no-touch no-prune log-browser ignore-read-only logging-can-break-a-read stable-catalog stable-catalog-unchecked; do
             if CALL_LOG_MUTATION="$mutation" node scripts/tests/api-call-log-database.test.mjs; then
               echo "::error::$mutation did not fail the call log suite"
               exit 1

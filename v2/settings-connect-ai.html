@@ -133,7 +133,8 @@
   let _names = {};   // client_id -> readable name, from Supabase's own grant list
   let _cos = {};     // company_entity_id -> title
   let _who = {};     // grant id -> approver's name or email
-  let _calls = {};   // grant id -> that connection's recent calls, newest first
+  let _calls = {};        // grant id -> its 20 newest calls (its OWN query, not a shared page)
+  let _callCounts = {};   // grant id -> { total, day }, counted in the database
   let _callsKnown = false;   // false until the call log answered; see loadActivity()
 
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
@@ -277,8 +278,11 @@
     box.innerHTML = '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="'
       + esc(g.id) + '">Remove</button>';
     box.querySelector('[data-ask]').addEventListener('click', () => askToRemove(card, g));
+    /* Assigned, not added: wireCard() runs again when someone cancels a
+       removal, and a second listener on the same button would toggle the
+       history twice and leave it where it started. */
     const act = card.querySelector('[data-activity]');
-    if (act) act.addEventListener('click', () => showCalls(card, g));
+    if (act) act.onclick = () => showCalls(card, g);
   }
 
   /* A removed application LEAVES the page, both copies of it: the person said
@@ -486,22 +490,36 @@
   };
   const toolName = (t) => TOOL_NAMES[t] || String(t || '').replace(/^silo_api_/, '').replace(/_/g, ' ');
 
+  /* Activity is recorded per company, and the log's policy only ever returns
+     the ACTIVE company's rows. "Your apps" deliberately lists the person's
+     grants in every company they belong to, so a card for another company
+     would read as "this app has done nothing" when the truth is that this page
+     cannot see it. It says so instead. */
+  const inActiveCompany = (g) => !!(_co && g.company_entity_id === _co.id);
+
   function activityLine(g) {
     if (!_callsKnown) return '';
-    const rows = _calls[g.id] || [];
-    if (!rows.length) {
+    if (!inActiveCompany(g)) {
+      const name = _cos[g.company_entity_id] || '';
+      return '<div class="cn-meta cn-activity">Activity is recorded per company — switch to '
+        + (name ? esc(name) : 'that company') + ' to see what this connection did.</div>';
+    }
+    const counts = _callCounts[g.id];
+    if (!counts) return '';
+    if (!counts.total) {
       return '<div class="cn-meta cn-activity">No calls recorded yet'
         + (g.last_used_at ? ' — it was last used ' + esc(ago(g.last_used_at))
             + ', before SILO started recording what each call was' : '')
         + '.</div>';
     }
+    const rows = _calls[g.id] || [];
     const newest = rows[0];
-    const day = rows.filter((r) => Date.now() - new Date(r.created_at).getTime() < 86400000).length;
     return '<div class="cn-meta cn-activity">'
-      + esc(rows.length) + ' call' + (rows.length === 1 ? '' : 's') + ' recorded'
-      + (day ? ', ' + esc(day) + ' in the last day' : '')
-      + ' · last: ' + esc(toolName(newest.tool))
-      + ' <span title="' + esc(exact(newest.created_at)) + '">' + esc(ago(newest.created_at)) + '</span>'
+      + esc(counts.total) + ' call' + (counts.total === 1 ? '' : 's') + ' recorded'
+      + (counts.day ? ', ' + esc(counts.day) + ' in the last day' : '')
+      + (newest ? ' · last: ' + esc(toolName(newest.tool))
+          + ' <span title="' + esc(exact(newest.created_at)) + '">' + esc(ago(newest.created_at)) + '</span>'
+        : '')
       + ' <button class="cn-link" type="button" data-activity="' + esc(g.id) + '">Show calls</button>'
       + '<div class="cn-calls" data-calls="' + esc(g.id) + '" hidden></div></div>';
   }
@@ -511,36 +529,72 @@
     const btn = card.querySelector('[data-activity="' + CSS.escape(g.id) + '"]');
     if (!box) return;
     if (!box.hidden) { box.hidden = true; if (btn) btn.textContent = 'Show calls'; return; }
-    const rows = (_calls[g.id] || []).slice(0, 20);
+    const rows = _calls[g.id] || [];
+    const total = (_callCounts[g.id] || {}).total || rows.length;
     box.innerHTML = '<table class="bcn-table cn-calls-table"><tbody>'
       + rows.map((r) => '<tr><td class="bcn-mono">' + esc(exact(r.created_at)) + '</td>'
         + '<td>' + esc(toolName(r.tool)) + '</td>'
         + '<td class="bcn-mono">' + esc(r.scope || '') + '</td></tr>').join('')
       + '</tbody></table>'
-      + '<div class="cn-note">Calls this connection was allowed to make. A call SILO refused is not'
+      + '<div class="cn-note">'
+      + (total > rows.length ? 'The ' + esc(rows.length) + ' most recent of ' + esc(total) + ' calls. ' : '')
+      + 'Calls this connection was allowed to make. A call SILO refused is not'
       + ' listed, and neither is what the answer contained.</div>';
     box.hidden = false;
     if (btn) btn.textContent = 'Hide calls';
   }
 
-  /* One query for every grant on the page. Mirrors loadLabels(): before the
+  /* Per connection, not per page. A single query with one row limit across
+     every card let one busy connection fill the whole page and made quiet
+     cards claim they had no history; and a count taken from that slice would
+     understate every card. So each connection gets its own bounded read and
+     its own counts, counted in the database. Mirrors loadLabels(): before the
      migration is applied the table does not exist, and the page then shows no
      activity line at all rather than an empty one that reads as "this app has
-     done nothing". */
+     done nothing".
+
+     Only grants in the ACTIVE company are asked about: the log's policy
+     returns nothing for the others, and a zero that only means "wrong company"
+     is worse than no answer. activityLine() says which it is. */
+  const CALLS_SHOWN = 20;
+
   async function loadActivity(list) {
-    const ids = [...new Set(list.map((g) => g.id))];
-    if (!ids.length) return;
-    try {
-      const { data, error } = await db.from('silo_api_call_log')
-        .select('grant_id, tool, scope, created_at')
-        .in('grant_id', ids)
-        .order('created_at', { ascending: false })
-        .limit(1000);
-      if (error || !Array.isArray(data)) return;
-      _calls = {};
-      for (const r of data) (_calls[r.grant_id] = _calls[r.grant_id] || []).push(r);
-      _callsKnown = true;
-    } catch (_) { /* an absent log is not a reason to fail the page */ }
+    _calls = {};
+    _callCounts = {};
+    const here = [...new Map((list || [])
+      .filter((g) => inActiveCompany(g)).map((g) => [g.id, g])).values()];
+    if (!here.length) {
+      // Nothing to ask about, but the log is still readable: one cheap probe so
+      // that the other-company cards can say so rather than stay silent.
+      try {
+        const { error } = await db.from('silo_api_call_log')
+          .select('id', { count: 'exact', head: true }).limit(1);
+        if (!error) _callsKnown = true;
+      } catch (_) { /* an absent log is not a reason to fail the page */ }
+      return;
+    }
+    const since = new Date(Date.now() - 86400000).toISOString();
+    let answered = false;
+    await Promise.all(here.map(async (g) => {
+      try {
+        const [rows, total, day] = await Promise.all([
+          db.from('silo_api_call_log').select('grant_id, tool, scope, created_at')
+            .eq('grant_id', g.id).order('created_at', { ascending: false }).limit(CALLS_SHOWN),
+          db.from('silo_api_call_log').select('id', { count: 'exact', head: true })
+            .eq('grant_id', g.id),
+          db.from('silo_api_call_log').select('id', { count: 'exact', head: true })
+            .eq('grant_id', g.id).gte('created_at', since),
+        ]);
+        if (rows.error || total.error || day.error) return;
+        answered = true;
+        _calls[g.id] = Array.isArray(rows.data) ? rows.data : [];
+        _callCounts[g.id] = {
+          total: Number(total.count || 0),
+          day: Number(day.count || 0),
+        };
+      } catch (_) { /* one card without activity, not a broken page */ }
+    }));
+    if (answered) _callsKnown = true;
   }
 
   function paint(gridId, subId, list, opts) {
