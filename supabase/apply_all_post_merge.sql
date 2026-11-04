@@ -19498,4 +19498,13 @@ $c$select (select count(*) from v_po_header_summary
 -- added later is covered too. Also makes every tool count as activity for the
 -- 30-day idle policy, which only the query and report tools did. No deploy.
 \i migrations/20261103240000_api_call_log.sql
+
+-- The other half, and it is required: PostgREST picks a request's access mode
+-- from the function's volatility rather than from the HTTP verb, so a STABLE
+-- function runs in a read-only transaction on POST as well -- and
+-- silo_api_describe_tables and both silo_api_list_reports were STABLE, so they
+-- recorded nothing at all (measured on production 2026-11-04). This declares
+-- those three VOLATILE; their bodies do not change. A GET of them is answered
+-- 405 from here on; every known caller POSTs. No deploy.
+\i migrations/20261104030000_api_call_log_catalog_tools.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
