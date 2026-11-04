@@ -235,111 +235,129 @@ begin
   raise notice 'store-products split across titles: % -> %', before_split, after_split;
 end $$;
 
--- 3. Swap. The only window where a read can fail is this transaction. ---------
+-- 3. Swap, carrying every dependent view across. ------------------------------
+--
+-- A view records its source by OID, so renaming the matview underneath one
+-- does not repoint it: every view in the rewrite-dependency closure has to be
+-- dropped and rebuilt around the swap. Production taught this on 2026-11-04 --
+-- the first apply died on `cannot drop view sales_by_product_title_daily_v
+-- because other objects depend on it` and rolled the whole swap back, because
+-- `reorder_plan_v` reads it and **exists in no migration in this repo**, so
+-- its text is only in the database.
+--
+-- So the closure is CAPTURED here rather than transcribed: definition,
+-- reloptions, comment and grants, walked to any depth, dropped deepest-first
+-- and recreated shallowest-first exactly as found. That is also why this is
+-- one DO block -- the captured definitions live in a local variable, so there
+-- is no window in which a definition exists only in this session's memory and
+-- not in the database. Any view a tenant's database carries over this rollup
+-- that this file has never heard of is carried too, which is the point:
+-- hand-applied objects are normal here.
 begin;
 
-drop view if exists public.product_type_forecastable_v;
-drop view if exists public.sales_by_product_title_daily_v;
-drop materialized view if exists public.sales_by_product_title_daily_mv;
+do $$
+declare
+  deps  jsonb;
+  dep   jsonb;
+  g     jsonb;
+  opts  text;
+begin
+  with recursive closure as (
+    select 'public.sales_by_product_title_daily_mv'::regclass as oid, 0 as lvl
+    union all
+    select d2.oid, closure.lvl + 1
+      from closure
+      join pg_depend dd  on dd.refobjid = closure.oid
+      join pg_rewrite r  on r.oid = dd.objid
+      join pg_class d2   on d2.oid = r.ev_class
+     where d2.oid <> closure.oid
+       and closure.lvl < 10
+  ), v as (
+    select c.oid, c.relname, max(closure.lvl) as lvl
+      from closure
+      join pg_class c on c.oid = closure.oid
+     where c.relkind = 'v'
+     group by c.oid, c.relname
+  )
+  select jsonb_agg(
+           jsonb_build_object(
+             'relname', v.relname,
+             'lvl',     v.lvl,
+             'def',     pg_get_viewdef(v.oid, true),
+             'opts',    coalesce((select jsonb_agg(o) from unnest(c.reloptions) o), '[]'::jsonb),
+             'cmt',     obj_description(v.oid),
+             'grants',  coalesce((select jsonb_agg(jsonb_build_object(
+                                     'grantee',   case when a.grantee = 0 then 'public'
+                                                       else pg_get_userbyid(a.grantee) end,
+                                     'priv',      a.privilege_type,
+                                     'grantable', a.is_grantable))
+                                    from aclexplode(c.relacl) a), '[]'::jsonb))
+           order by v.lvl)
+    into deps
+    from v
+    join pg_class c on c.oid = v.oid;
 
-alter materialized view public.sales_by_product_title_daily_mv_new
-  rename to sales_by_product_title_daily_mv;
-alter index public.sales_by_product_title_daily_mv_new_key
-  rename to sales_by_product_title_daily_mv_key;
-alter index public.sales_by_product_title_daily_mv_new_day_idx
-  rename to sales_by_product_title_daily_mv_day_idx;
+  if deps is null then
+    raise exception 'no view reads sales_by_product_title_daily_mv; sales_by_product_title_daily_v should and the rollup is unreadable without it';
+  end if;
+
+  raise notice 'carrying % dependent view(s) across the swap: %',
+    jsonb_array_length(deps),
+    (select string_agg(d->>'relname', ', ' order by (d->>'lvl')::int)
+       from jsonb_array_elements(deps) d);
+
+  -- Deepest first: a view that reads another must go before the one it reads.
+  for dep in select d from jsonb_array_elements(deps) d order by (d->>'lvl')::int desc loop
+    execute format('drop view if exists public.%I', dep->>'relname');
+  end loop;
+
+  execute 'drop materialized view if exists public.sales_by_product_title_daily_mv';
+
+  execute 'alter materialized view public.sales_by_product_title_daily_mv_new '
+       || 'rename to sales_by_product_title_daily_mv';
+  execute 'alter index public.sales_by_product_title_daily_mv_new_key '
+       || 'rename to sales_by_product_title_daily_mv_key';
+  execute 'alter index public.sales_by_product_title_daily_mv_new_day_idx '
+       || 'rename to sales_by_product_title_daily_mv_day_idx';
+
+  -- No RLS on a matview, so nobody reads it except through a wrapper. Done
+  -- before the views are rebuilt, so the window where it is grantable is nil.
+  execute 'revoke all on public.sales_by_product_title_daily_mv from public, anon, authenticated';
+
+  -- Shallowest first, each exactly as it was found.
+  for dep in select d from jsonb_array_elements(deps) d order by (d->>'lvl')::int loop
+    opts := (select string_agg(o #>> '{}', ', ') from jsonb_array_elements(dep->'opts') o);
+
+    execute format('create view public.%I %s as %s',
+                   dep->>'relname',
+                   case when opts is null or opts = '' then '' else 'with (' || opts || ')' end,
+                   dep->>'def');
+
+    if dep->>'cmt' is not null then
+      execute format('comment on view public.%I is %L', dep->>'relname', dep->>'cmt');
+    end if;
+
+    -- `create view` re-applies Supabase's default privileges, so the grants
+    -- are replayed to put the object back exactly as it was rather than as
+    -- the defaults would have it.
+    for g in select x from jsonb_array_elements(dep->'grants') x loop
+      execute format('grant %s on public.%I to %s%s',
+                     g->>'priv',
+                     dep->>'relname',
+                     case when g->>'grantee' = 'public' then 'public'
+                          else quote_ident(g->>'grantee') end,
+                     case when (g->>'grantable')::boolean then ' with grant option' else '' end);
+    end loop;
+  end loop;
+end $$;
 
 comment on materialized view public.sales_by_product_title_daily_mv is
   'Stored form of sales_by_product_title_daily_v -- identical select list and grain, not a further aggregation. Exists because the unbounded reads (max(day_date) inside the Top products report, open-ended date_from on the Logistics tile) had to build the entire 700k-group rollup to answer, measured 6,890ms. The title is resolved per (company, sku) from shopify_product_skus, preferring the published store copy (active, then published-at present, then most recently seen), and falls back to products_master then sales_by_day.product_name -- products_master alone is one row per SKU across every store, so it carried whichever store synced last. Refreshed by refresh_sales_by_product_title_mv() at the end of the Shopify sync. READ THROUGH sales_by_product_title_daily_v, NEVER DIRECTLY: this carries no RLS and no grant, so a direct read raises 42501 and a granted one would leak across companies.';
 
--- No RLS on a matview, so the tenant filter lives in the definer-owned
--- wrapper, with the same predicate the SELECT policies on sales_by_day,
--- products_master and shopify_product_skus all carry.
-revoke all on public.sales_by_product_title_daily_mv from public, anon, authenticated;
-
-create view public.sales_by_product_title_daily_v
-  with (security_invoker = false) as
-select
-  company_entity_id,
-  product_title,
-  title_source,
-  product_type,
-  location_tag,
-  day_date,
-  variant_skus,
-  units_sold,
-  orders,
-  gross_sales,
-  discounts,
-  refunds,
-  net_sales
-from public.sales_by_product_title_daily_mv
-where company_entity_id = public.active_company_id();
-
+-- The wrapper's definition is unchanged and was replayed verbatim above; only
+-- what it promises about the title is new.
 comment on view public.sales_by_product_title_daily_v is
   'Sales rolled up from SKU variants to product title, per location per day. The grain buying decisions are made at, and the one place the title join is defined. The title is ONE canonical title per (company, sku): the published store copy from shopify_product_skus (active, then published-at present, then most recently seen, then shop_domain, then product id), falling back to products_master.product_title and then sales_by_day.product_name. It is deliberately not the selling store''s own title -- 796 SKUs are published in two stores under different names, so a per-store title would split a product in company-wide rollups. title_source = ''sales_fallback'' means no catalog row resolved the SKU at all and the title came from sales_by_day.product_name -- those are still counted, never dropped. Reads sales_by_product_title_daily_mv, so it is as of the last Shopify sync rather than live; security_invoker = false with an explicit company_entity_id = active_company_id() filter, which is the same predicate the RLS policies on the base tables carry. Note ''x-redo'' (Package Protection) is the Redo checkout line item, not merchandise -- filter it when ranking real products.';
-
-revoke all on public.sales_by_product_title_daily_v from anon;
-grant select on public.sales_by_product_title_daily_v to authenticated;
-
--- Recreated unchanged; it only has to be dropped because it reads the matview.
-create view public.product_type_forecastable_v
-  with (security_invoker = false) as
- WITH co AS (
-         SELECT active_company_id() AS cid
-        ), sales AS (
-         SELECT s_1.product_type,
-            sum(s_1.units_sold) AS units_365d,
-            max(s_1.day_date) AS last_sold_date
-           FROM sales_by_product_title_daily_mv s_1,
-            co
-          WHERE s_1.company_entity_id = co.cid AND s_1.product_type IS NOT NULL AND s_1.day_date >= (silo_business_today() - 365)
-          GROUP BY s_1.product_type
-        ), stock AS (
-         SELECT i.product_type,
-            count(*)::integer AS inventory_rows,
-            sum(i.total_available_quantity)::numeric AS on_hand
-           FROM inventory_on_hand_current_mv i,
-            co
-          WHERE i.company_entity_id = co.cid AND i.product_type IS NOT NULL
-          GROUP BY i.product_type
-        ), purchased AS (
-         SELECT l.product_type_snapshot AS product_type,
-            count(*)::integer AS po_lines
-           FROM po_lines l,
-            co
-          WHERE l.company_entity_id = co.cid AND l.product_type_snapshot IS NOT NULL
-          GROUP BY l.product_type_snapshot
-        )
- SELECT s.product_type,
-    round(s.units_365d) AS units_365d,
-    COALESCE(round(st.on_hand), 0::numeric) AS on_hand,
-    COALESCE(st.inventory_rows, 0) AS inventory_rows,
-    COALESCE(p.po_lines, 0) AS po_lines,
-    s.last_sold_date,
-    COALESCE(st.inventory_rows, 0) > 0 OR COALESCE(p.po_lines, 0) > 0 AS evidence_says_forecastable,
-    pr.is_forecastable AS human_override,
-    pr.classification_note,
-    COALESCE(pr.is_forecastable, COALESCE(st.inventory_rows, 0) > 0 OR COALESCE(p.po_lines, 0) > 0) AS is_forecastable,
-        CASE
-            WHEN pr.is_forecastable IS NOT NULL THEN 'set by a person'::text
-            WHEN COALESCE(st.inventory_rows, 0) > 0 THEN 'inventory-tracked'::text
-            WHEN COALESCE(p.po_lines, 0) > 0 THEN 'has purchase history'::text
-            ELSE 'sells but is not inventory-tracked and was never purchased'::text
-        END AS reason,
-    pr.is_forecastable IS NULL AND COALESCE(st.inventory_rows, 0) = 0 AND COALESCE(p.po_lines, 0) = 0 AS needs_review,
-    pr.is_forecastable IS NOT NULL AND pr.is_forecastable <> (COALESCE(st.inventory_rows, 0) > 0 OR COALESCE(p.po_lines, 0) > 0) AS override_contradicts_evidence
-   FROM sales s
-     LEFT JOIN stock st ON st.product_type = s.product_type
-     LEFT JOIN purchased p ON p.product_type = s.product_type
-     LEFT JOIN product_type_profile pr ON lower(pr.product_type) = lower(s.product_type) AND pr.company_entity_id = (( SELECT co.cid
-           FROM co));
-
-comment on view public.product_type_forecastable_v is
-  'Effective per-type forecastability: a human override where one exists, otherwise the evidence. Classification keys on the PRESENCE of an inventory row (inventory-tracked), never on summed quantity -- a sold-out or offsetting-location type is merchandise. security_invoker=false on purpose: po_lines RLS is narrower than company, so an invoker view would hand a non-admin a different classification than an admin.';
-
-revoke all on public.product_type_forecastable_v from anon;
-grant select on public.product_type_forecastable_v to authenticated;
 
 commit;
 
@@ -347,15 +365,13 @@ commit;
 do $$
 declare
   missing text[] := array[]::text[];
+  v record;
 begin
   if to_regclass('public.sales_by_product_title_daily_mv') is null then
     missing := missing || 'sales_by_product_title_daily_mv';
   end if;
   if to_regclass('public.sales_by_product_title_daily_v') is null then
     missing := missing || 'sales_by_product_title_daily_v';
-  end if;
-  if to_regclass('public.product_type_forecastable_v') is null then
-    missing := missing || 'product_type_forecastable_v';
   end if;
   if to_regclass('public.sales_by_product_title_daily_mv_new') is not null then
     missing := missing || 'temporary matview still present';
@@ -371,8 +387,22 @@ begin
   if not has_table_privilege('authenticated', 'public.sales_by_product_title_daily_v', 'select') then
     raise exception 'sales_by_product_title_daily_v is not readable by authenticated; every report would 42501';
   end if;
-  if not has_table_privilege('authenticated', 'public.product_type_forecastable_v', 'select') then
-    raise exception 'product_type_forecastable_v is not readable by authenticated';
+
+  -- Every view that was carried across has to be back, readable, and selectable.
+  for v in select c.relname
+             from pg_class c
+             join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public'
+              and c.relkind = 'v'
+              and c.relname in ('product_type_forecastable_v', 'reorder_plan_v')
+  loop
+    if not has_table_privilege('authenticated', format('public.%I', v.relname), 'select') then
+      raise exception '% is not readable by authenticated after the swap', v.relname;
+    end if;
+  end loop;
+
+  if to_regclass('public.product_type_forecastable_v') is null then
+    raise exception 'product_type_forecastable_v was dropped and not recreated';
   end if;
 
   -- The refresh path the Shopify sync calls must still resolve.
@@ -383,5 +413,5 @@ begin
     raise exception 'refresh_sales_by_product_title_mv() is missing';
   end if;
 
-  raise notice 'product-title rollup swapped: both views and the refresh function present';
+  raise notice 'product-title rollup swapped: the rollup, its wrapper and every dependent view are present';
 end $$;

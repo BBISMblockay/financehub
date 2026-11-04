@@ -140,6 +140,19 @@ async function fresh() {
     revoke all on public.product_type_forecastable_v from anon;
     grant select on public.product_type_forecastable_v to authenticated;
 
+    -- Depth 2. Production's reorder_plan_v reads the WRAPPER, not the matview,
+    -- and exists in no migration in this repo -- which is how the first apply
+    -- died on "cannot drop view sales_by_product_title_daily_v because other
+    -- objects depend on it". Shape, depth and grants are what matter here, not
+    -- its real body.
+    create view public.reorder_plan_v with (security_invoker = true) as
+    select company_entity_id, product_title, sum(units_sold) as units_90d
+      from public.sales_by_product_title_daily_v
+     group by company_entity_id, product_title;
+    comment on view public.reorder_plan_v is 'hand-applied in production; carried across the swap';
+    grant select on public.reorder_plan_v to authenticated;
+    grant select on public.reorder_plan_v to anon;
+
     create function public.refresh_sales_by_product_title_mv() returns void
       language plpgsql security definer set search_path = public as $$
     begin
@@ -373,6 +386,35 @@ await test('the swap leaves both views, the grants and the refresh function inta
   assert.equal(Number(row.idx), 2, 'both indexes should survive the rename');
 });
 
+await test('a hand-applied view two levels down survives the swap, with its grants and comment', async () => {
+  const { db, q } = await fresh();
+  await seedHoodie(db);
+  await db.exec(MIGRATION);
+  const [row] = await q(`
+    select to_regclass('public.reorder_plan_v') is not null as present,
+           has_table_privilege('authenticated','public.reorder_plan_v','select') as auth_select,
+           has_table_privilege('anon','public.reorder_plan_v','select') as anon_select,
+           obj_description('public.reorder_plan_v'::regclass) as cmt,
+           coalesce((select option_value from pg_options_to_table(
+                      (select c.reloptions from pg_class c where c.oid='public.reorder_plan_v'::regclass))
+                     where option_name='security_invoker'), 'true') as invoker`);
+  assert.equal(row.present, true, 'reorder_plan_v was dropped and not recreated');
+  assert.equal(row.auth_select, true, 'reorder_plan_v lost its grant to authenticated');
+  assert.equal(row.anon_select, true, 'the replay must put back the grants it found, not the defaults');
+  assert.equal(row.cmt, 'hand-applied in production; carried across the swap');
+  assert.equal(row.invoker, 'true', 'the replay must preserve security_invoker, or an invoker view silently becomes a definer one');
+});
+
+await test('the carried view reads the NEW rollup, not a stale copy', async () => {
+  const { db, q } = await fresh();
+  await seedHoodie(db);
+  await db.exec(MIGRATION);
+  const rows = await q('select product_title, units_90d from reorder_plan_v order by units_90d desc');
+  assert.equal(rows.length, 1, `expected the un-split product, got ${JSON.stringify(rows)}`);
+  assert.equal(rows[0].product_title, RIGHT);
+  assert.equal(Number(rows[0].units_90d), 430);
+});
+
 await test('the recreated product_type_forecastable_v still answers', async () => {
   const { db, q } = await fresh();
   await seedHoodie(db);
@@ -446,6 +488,14 @@ const MUTATIONS = [
   ['the untitled-variant filter dropped',
    "  where ps.sku is not null\n    and ps.product_title is not null",
    '  where ps.sku is not null'],
+  // The failure production actually hit: a closure that stops at depth 1
+  // cannot drop the wrapper, because reorder_plan_v still reads it.
+  ['the dependency closure capped at depth 1 (the production apply failure)',
+   '       and closure.lvl < 10',
+   '       and closure.lvl < 1'],
+  ['the dependent views never recreated',
+   "  -- Shallowest first, each exactly as it was found.\n  for dep in select d from jsonb_array_elements(deps) d order by (d->>'lvl')::int loop",
+   "  -- Shallowest first, each exactly as it was found.\n  for dep in select d from jsonb_array_elements(deps) d where false loop"],
 ];
 
 for (const [name, from, to] of MUTATIONS) {
@@ -538,6 +588,26 @@ for (const [name, from, to] of MUTATIONS) {
         await db.exec(mutated);
         const got = (await titles(q)).map((r) => [r.product_title, r.title_source]);
         failed = JSON.stringify(got) !== JSON.stringify([['Catalog Spelling', 'products_master']]);
+      } catch { failed = true; }
+      checks.push(failed);
+    }
+
+    // Every view in the closure must come back, readable and reading the new rollup.
+    {
+      const { db, q } = await fresh();
+      await seedHoodie(db);
+      let failed = false;
+      try {
+        await db.exec(mutated);
+        const [row] = await q(`
+          select to_regclass('public.reorder_plan_v') is not null as reorder_v,
+                 to_regclass('public.sales_by_product_title_daily_v') is not null as title_v,
+                 to_regclass('public.product_type_forecastable_v') is not null as forecast_v`);
+        failed = !(row.reorder_v && row.title_v && row.forecast_v);
+        if (!failed) {
+          const rows = await q('select product_title from reorder_plan_v');
+          failed = !(rows.length === 1 && rows[0].product_title === RIGHT);
+        }
       } catch { failed = true; }
       checks.push(failed);
     }
