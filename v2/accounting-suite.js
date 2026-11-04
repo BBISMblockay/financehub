@@ -51,6 +51,8 @@
     'finance/qbo-reports': 'Financial reports',
   };
 
+  const SALES_JOURNALS_HINT = 'In your SILO books already — post to QuickBooks by period.';
+
   /* Areas of finance work — not a month-end sequence. Sales and reports are live in the books. */
   const FINANCE_AREAS = [
     { key: 'setup', label: 'Setup', href: '/v2/accounting-books.html',
@@ -58,8 +60,8 @@
     { key: 'activity', label: 'Bank activity', href: '/v2/transactions.html',
       pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines as they arrive.' },
     { key: 'sales', label: 'Sales journals', href: '/v2/accounting-export.html',
-      pages: ['finance/accounting-export'],
-      blurb: 'Shopify sales are already in your books — pick a period when you want to post the journal entry.' },
+      pages: ['finance/accounting-export'], hint: SALES_JOURNALS_HINT,
+      blurb: 'Shopify sales are in your SILO books — use this page to post them to QuickBooks.' },
     { key: 'invoicing', label: 'Invoicing', href: '/v2/invoicing.html',
       pages: ['finance/invoicing'], blurb: 'Send invoices and track what customers owe.' },
     { key: 'reports', label: 'Reports & cash', href: '/v2/qbo-reports.html',
@@ -70,7 +72,7 @@
   const PAGE_HELP = {
     'finance/books': { subtitle: 'Opening balances, chart of accounts, and book settings.' },
     'finance/card-coding': { subtitle: 'Categorize bank and card activity for this period.' },
-    'finance/accounting-export': { subtitle: 'Shopify sales in your books — review and post journal entries by period.' },
+    'finance/accounting-export': { subtitle: SALES_JOURNALS_HINT },
     'finance/invoicing': { subtitle: 'Create invoices and see what customers owe.' },
     'finance/qbo-reports': { subtitle: 'Run financial reports from your connected books.' },
     'finance/schedules': { subtitle: 'Recurring entries and amortization over time.' },
@@ -126,6 +128,7 @@
         const link = document.createElement('a');
         link.href = area.href;
         link.textContent = area.label;
+        if (area.hint) link.title = area.hint;
         item.append(link);
         list.append(item);
         stepEls.push(item);
@@ -213,7 +216,8 @@
       // which mode it is in.
       const display = FRIENDLY_TITLE[id] || title;
       link.dataset.label=display;
-      link.title=display;
+      if (id === 'finance/accounting-export') link.dataset.accountingHint = SALES_JOURNALS_HINT;
+      link.title = link.dataset.accountingHint || display;
       link.innerHTML=svg(id);
       const text=document.createElement('span');
       text.className='accounting-suite-text';

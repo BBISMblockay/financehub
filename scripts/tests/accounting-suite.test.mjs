@@ -55,7 +55,7 @@ test('every destination draws an icon and keeps its label as the accessible name
     const text=link.children.find(child=>child.tag==='span');
     assert.ok(text&&text.textContent,'a destination with no label element');
     assert.equal(text.textContent,link.dataset.label,'the tooltip label and the visible label must agree');
-    assert.equal(link.title,link.dataset.label);
+    assert.equal(link.title,link.dataset.accountingHint||link.dataset.label);
   }
   // Distinct icons, not one mark repeated -- the fallback is allowed once.
   const drawings=new Set(links.map(l=>l.innerHTML.replace(/<span[\s\S]*$/,'')));
