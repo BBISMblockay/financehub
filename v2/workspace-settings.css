@@ -126,8 +126,16 @@
 .connect-ai-page .btn-xs {padding:5px 10px;font-size:11px;border-radius:6px;min-height:0;line-height:1.2;}
 .connect-ai-page .bcn-btn--ghost.bcn-btn--danger {color:var(--bcn-neg);border-color:transparent;}
 .connect-ai-page .bcn-btn--ghost.bcn-btn--danger:hover {background:var(--bcn-neg-soft);color:var(--bcn-neg);}
-/* One scroll surface: let .silo-main scroll instead of a narrow inner pane. */
-.workspace-settings .connect-ai-page.ws-page {overflow:visible;flex:0 1 auto;min-height:0;}
+.connect-ai-page .ca-connections {margin-top:20px;padding-top:20px;border-top:1px solid var(--bcn-border-strong);}
+.connect-ai-page .ca-connections-head {margin-bottom:12px;max-width:72ch;}
+.connect-ai-page .ca-connections-title {margin:0 0 4px;font-size:15px;font-weight:650;letter-spacing:-.02em;color:var(--bcn-ink);}
+.connect-ai-page .ca-connections-lede {margin:0;font-size:12px;line-height:1.5;color:var(--bcn-ink-3);}
+.connect-ai-page .ca-connections-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px;align-items:start;}
+.connect-ai-page .ca-apps-scroll {max-height:min(360px,42vh);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+.connect-ai-page .ca-apps-scroll--company {max-height:min(480px,52vh);}
+/* One scroll surface: .silo-main scrolls. Do not shrink this pane — long lists
+   otherwise overflow visibly over the setup block above (flex-shrink bug). */
+.workspace-settings .connect-ai-page.ws-page {overflow:visible;flex:0 0 auto;min-height:auto;}
 .workspace-settings .bcn-header--compact {padding-bottom:8px;}
 @media (max-width:900px) {
   .connect-ai-page .ca-layout {grid-template-columns:1fr;}

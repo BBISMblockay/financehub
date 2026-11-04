@@ -33,27 +33,7 @@
       <div class="ws-page connect-ai-page">
         <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
 
-        <div class="ws-card ws-card--flat">
-          <div class="ws-card-head">
-            <div class="ws-title">Your apps</div>
-            <div class="ws-sub" id="mineSub">—</div>
-          </div>
-          <div class="ws-body ws-body--tight">
-            <div class="cn-grid" id="gridMine"><div class="cn-empty">Loading…</div></div>
-          </div>
-        </div>
-
-        <div class="ws-card ws-card--flat" id="cardCompany" hidden>
-          <div class="ws-card-head">
-            <div class="ws-title">Everyone’s apps</div>
-            <div class="ws-sub" id="coSub">—</div>
-          </div>
-          <div class="ws-body ws-body--tight">
-            <div class="cn-grid" id="gridCompany"><div class="cn-empty">Loading…</div></div>
-          </div>
-        </div>
-
-        <div class="ca-layout">
+        <div class="ca-layout" id="caSetup">
           <div class="ca-main">
             <div class="ws-card ws-card--flat">
               <div class="ws-card-head">
@@ -108,6 +88,35 @@
             </div>
           </aside>
         </div>
+
+        <section class="ca-connections" aria-labelledby="caConnectionsTitle">
+          <div class="ca-connections-head">
+            <h2 class="ca-connections-title" id="caConnectionsTitle">Connected apps</h2>
+            <p class="ca-connections-lede">Your connections and, for admins, everyone else in this workspace.</p>
+          </div>
+
+          <div class="ca-connections-grid">
+            <div class="ws-card ws-card--flat">
+              <div class="ws-card-head">
+                <div class="ws-title">Your apps</div>
+                <div class="ws-sub" id="mineSub">—</div>
+              </div>
+              <div class="ws-body ws-body--tight ca-apps-scroll">
+                <div class="cn-grid" id="gridMine"><div class="cn-empty">Loading…</div></div>
+              </div>
+            </div>
+
+            <div class="ws-card ws-card--flat" id="cardCompany" hidden>
+              <div class="ws-card-head">
+                <div class="ws-title">Everyone’s apps</div>
+                <div class="ws-sub" id="coSub">—</div>
+              </div>
+              <div class="ws-body ws-body--tight ca-apps-scroll ca-apps-scroll--company">
+                <div class="cn-grid" id="gridCompany"><div class="cn-empty">Loading…</div></div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   </div>
