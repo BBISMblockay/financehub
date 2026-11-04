@@ -19479,6 +19479,9 @@ $c$select (select count(*) from v_po_header_summary
 -- tables (RLS already refused those writes; this is the posture
 -- verify_v2_schema.sql asks for). Needs 20261104000500. No deploy.
 \i migrations/20261104003000_meta_custom_conversions_revoke.sql
+
+-- Workspace module menu preferences (no entitlement enforcement).
+\i migrations/20261104014709_workspace_module_visibility.sql
 -- Up to silo_api_app_connection_limit() (3) live connections per person per
 -- APPLICATION, in numbered slots, instead of one: claude.ai web, the Claude
 -- desktop app and Claude on a phone all key to claude|claude.ai, so

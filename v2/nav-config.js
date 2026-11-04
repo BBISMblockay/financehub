@@ -71,6 +71,7 @@
   // actually decides.
   const WORKSPACE_SETTINGS_PAGES = [
     ['settings/company','Company','settings-company.html'],
+    ['settings/modules','Silo Modules','settings-modules.html'],
     ['settings/team','Team','settings-team.html'],
     ['settings/integrations','Integrations','integrations.html'],
     ['settings/billing','Billing','billing.html'],
@@ -428,6 +429,56 @@
   // dashboard/page, but no standalone Sales report is exposed today.
   const STANDARD_SECTION_ORDER = ['Start', 'Ask SILO', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings'];
 
+  // Menu preferences only. Core destinations and unknown/future sections stay on.
+  const MODULES = [
+    { id: 'marketing', label: 'Marketing & SEO', sections: ['Marketing'] },
+    { id: 'finance', label: 'Finance', sections: ['Accounting', 'Requests'] },
+    { id: 'purchasing_inventory', label: 'Purchasing & Inventory', sections: ['Purchasing', 'Inventory', 'Product & inventory'] },
+    { id: 'planning', label: 'Planning', sections: ['Planning'] },
+    { id: 'team', label: 'Team', sections: ['Team'] },
+  ];
+  let moduleState = null;
+  let moduleLoad = 0;
+  let modulePending = null;
+  function loadModuleVisibility(db, company, fresh = false) {
+    // A save/reload must not reuse a read started before that write committed.
+    if (fresh && modulePending?.companyId === company?.id) {
+      return modulePending.promise.then(() => loadModuleVisibility(db, company));
+    }
+    if (company?.id && modulePending?.companyId === company.id) return modulePending.promise;
+    const pending = { companyId: company?.id };
+    pending.promise = readModuleVisibility(db, company).finally(() => {
+      if (modulePending === pending) modulePending = null;
+    });
+    modulePending = pending;
+    return pending.promise;
+  }
+  async function readModuleVisibility(db, company) {
+    const generation = ++moduleLoad;
+    // Never carry another workspace's preferences across a switch or failure.
+    moduleState = null;
+    if (!company?.id || company._staleReconcile) return null;
+    try {
+      const { data, error } = await db.from('workspace_module_visibility')
+        .select('company_entity_id,module_id,visible').eq('company_entity_id', company.id);
+      if (error || !Array.isArray(data)) throw new Error('Module settings unavailable');
+      const visibility = {};
+      for (const row of data) {
+        if (row.company_entity_id !== company.id || typeof row.visible !== 'boolean'
+            || !MODULES.some(m => m.id === row.module_id)) throw new Error('Invalid module settings');
+        visibility[row.module_id] = row.visible;
+      }
+      if (generation !== moduleLoad || global.__SILO_CONFIG__?.getActiveCompany?.()?.id !== company.id) return null;
+      moduleState = { companyId: company.id, visibility };
+      return visibility;
+    } catch { return null; }
+  }
+  function moduleVisible(item, company) {
+    const module = MODULES.find(m => m.sections.includes(item.section));
+    return !module || !company?.id || moduleState?.companyId !== company.id
+      || moduleState.visibility[module.id] !== false;
+  }
+
   /**
    * @param {'grandfathered' | 'standard'} profile
    * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
@@ -439,6 +490,7 @@
     const rolesFor = (item) => profile === 'standard' && item.rolesStandard ? item.rolesStandard : item.roles;
     const visible = NAV_ITEMS.filter((item) =>
       item.profiles.includes(profile)
+      && moduleVisible(item, company)
       && (!item.companyGate || item.companyGate(company))
       && (!item.requiresGrant || hasGrant(item.id))
       && (!item.departments || !dept || item.departments.includes(dept))
@@ -482,6 +534,8 @@
   }
 
   global.SiloNav = {
+    MODULES,
+    loadModuleVisibility,
     SALES_REPORT_PAGES,
     ACCOUNTING_PAGES,
     WORKSPACE_SETTINGS_PAGES,

@@ -676,6 +676,9 @@
             return;
           }
           clearReloadGuard();
+          // Navigation owns the preferences and fail-open handling. This same
+          // reconciliation paints the sidebar and feeds the command palette.
+          await Nav.loadModuleVisibility?.(opts.supabaseClient, company);
 
           // 1. Company label -- only touch the DOM if it actually changed,
           // so a normal load (cache already correct) never flickers it.
@@ -792,6 +795,7 @@
     }
 
     reconcileCompanyRoleAndNav();
+    window.addEventListener('silo:modules:changed', reconcileCompanyRoleAndNav);
 
     // Cross-tab wake-up: v2/company-picker.html writes this key to
     // localStorage (shared across tabs, unlike sessionStorage) right after

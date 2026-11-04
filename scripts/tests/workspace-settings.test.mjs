@@ -51,7 +51,7 @@ const nav = (() => { const w = {}; new Function('window', navSource)(w); return 
 test('the settings tabs are one click apart and the current one is identified', () => {
   const ids = nav.WORKSPACE_SETTINGS_PAGES.map(([id]) => id);
   assert.deepEqual(ids, [
-    'settings/company', 'settings/team', 'settings/integrations',
+    'settings/company', 'settings/modules', 'settings/team', 'settings/integrations',
     'settings/billing', 'settings/notifications', 'settings/connect-ai',
   ]);
   for (const active of ids) {

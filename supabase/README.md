@@ -3081,3 +3081,12 @@ it). Verified by the "Freight bookings above the shipment" check in
 - `20261104001000_meta_reach_frequency.sql`: nullable `reach` (bigint) and `frequency` (numeric(10,4)) on `marketing_kpis_daily` and `meta_ad_performance_daily`, with column comments and a catalog note. Additive — no existing column changes and no row is rewritten; the sync requests the two insights fields behind the same all-or-nothing guard as thruplays, so an account that refuses them loses only these columns. **Neither is additive**: `reach` is unique people (summing counts a person once per row) and `frequency` is impressions ÷ reach (averaging weights a 10-impression day like a 10,000-impression one). Roll-ups recompute frequency from impressions ÷ reach; a true de-duplicated reach for a period can only come from Meta for that period. Owes the same `ad-platform-sync-run` deploy as `20261104000500`.
 
 - `20261104003000_meta_custom_conversions_revoke.sql`: revokes the default `insert`/`update`/`delete` grant that `authenticated` picked up on `meta_custom_conversion_daily` and `meta_custom_conversions` (measured on production after `20261104000500` was applied). Nothing was exposed — RLS is on and each table carries a single company-scoped SELECT policy, so those writes were already refused — but `verify_v2_schema.sql` asks for the stricter posture used by `integration_feed_health`, and reports CRITICAL until this runs. Tightening only and idempotent; the service-role sync is unaffected.
+
+## Workspace menu visibility — `20261104014709_workspace_module_visibility.sql`
+
+Adds `workspace_module_visibility`, one boolean per company/module. Missing rows
+mean on. Active company members can read; only active company owner_admin/admin
+members can insert/update. No delete privilege, billing or entitlement behavior.
+The Silo Modules tab saves one switch at a time and verifies the returned row.
+Apply separately before enabling edits; a missing table preserves existing menus
+and shows an unavailable message in settings. No migration was applied by this task.

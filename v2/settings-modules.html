@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Silo Modules</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="workspace-settings.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <script src="settings-modules.js" defer></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main workspace-settings">
+      <header class="bcn-header"><div class="bcn-header-title">
+        <div>Silo Modules</div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Workspace menu visibility</div>
+      </div></header>
+      <div class="ws-page">
+        <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+        <div class="ws-card"><div class="ws-card-head">
+          <div class="ws-title">Show in this workspace's menu</div>
+          <p class="ws-sub">Changes save automatically and apply to everyone in this workspace.</p>
+        </div><div class="ws-body">
+          <p class="ws-note">These switches control menu visibility only. They do not change security permissions, purchased entitlements, billing, saved data or connected integrations. Existing page URLs still work under their existing permissions.</p>
+          <p class="ws-note">Home, Ask SILO, Reports and Settings keep their existing visibility rules. Turning a module on shows only links a person could already see.</p>
+          <div id="module-controls" class="ws-grid"></div>
+          <p class="ws-note" id="module-permission"></p>
+          <button class="bcn-btn bcn-btn--ghost" id="module-reload" type="button">Reload settings</button>
+        </div></div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -8584,3 +8584,20 @@ select
       then 'MISSING — the catalog no longer warns that reach and frequency are not additive'
     else 'ok'
   end as meta_reach_frequency_status;
+
+-- Workspace menu preferences: active-company member reads, admin writes.
+select 'workspace_module_visibility boundary' as check_name,
+ case when c.relrowsecurity
+   and has_table_privilege('authenticated', c.oid, 'SELECT,INSERT,UPDATE')
+   and not has_table_privilege('authenticated', c.oid, 'DELETE')
+   and not has_table_privilege('anon', c.oid, 'SELECT')
+   and (select count(*) from pg_policies p where p.schemaname='public'
+       and p.tablename='workspace_module_visibility'
+       and coalesce(p.qual, p.with_check) like '%active_company_id%'
+       and coalesce(p.qual, p.with_check) like '%is_active_user%') = 3
+   and exists (select 1 from pg_policies p where p.schemaname='public'
+       and p.tablename='workspace_module_visibility' and p.cmd='UPDATE'
+       and p.qual like '%is_entity_admin%' and p.with_check like '%is_entity_admin%')
+ then 'ok' else 'MISSING' end as status
+from (values(to_regclass('public.workspace_module_visibility'))) t(oid)
+left join pg_class c on c.oid=t.oid;
