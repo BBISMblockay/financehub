@@ -93,7 +93,13 @@ const iso = (daysAgo) => new Date(Date.now() - daysAgo * DAY).toISOString();
   r.ok('last used itself reads as a relative time, not a bare date',
     /^Last used (\d+ (minute|hour|day)s? ago|just now|never)$/.test(used.trim()));
   const sub0 = (await page.textContent('#mineSub')).trim();
-  r.test('the count names live connections only', () => r.eq(sub0, '2 connected'));
+  r.test('the count names live connections only',
+    () => r.eq(sub0.split(' · ')[0], '2 connected'));
+  // Two cards for one application is the normal shape now that a person may
+  // hold three -- web, desktop, phone -- so the subtitle says why rather than
+  // leaving somebody to Remove a working connection to tidy up.
+  r.ok('and says why one application appears twice',
+    /more than one device/.test(sub0));
 
   const shotList = process.env.CONNECTED_APPS_SHOT_LIST || '/opt/cursor/artifacts/connect-ai-apps-list.png';
   try { await page.screenshot({ path: shotList, fullPage: true }); }
