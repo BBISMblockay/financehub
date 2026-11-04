@@ -428,8 +428,31 @@ test('create_task is declared in the instructions as the only thing that changes
   assert.match(rules, /A task is not an answer/);
   const notes = rules.match(/create_task:[\s\S]*?',\n/)[0];
   assert.match(notes, /already reports/, 'the tool note says to check for a report first');
-  assert.match(read('supabase/functions/mcp/handler.mjs'), /report that looks like the same request/,
-    'and the tool description says what comes back');
+  // Blake, 2026-11-04 23:33: "if the create task flow found the answer, why
+  // create the task instead of just give [it to] the creator". So the tool's
+  // own description has to tell the model that nothing was created and what
+  // to do instead, or it will read created false as a failure and retry.
+  assert.match(src, /creates NOTHING/, 'the description says a strong match creates nothing');
+  assert.match(src, /confirm true/, 'and how to open the task anyway');
+  assert.match(notes, /created false/, 'the tool note says what created false means');
+});
+
+test('confirm is a boolean the server checks and passes on, and is never sent by default', async () => {
+  const { handle, calls } = harness(() => [200, { created: true, task_id: 'cafe' }]);
+
+  let body = await (await handle(post(rpc('tools/call',
+    { name: 'create_task', arguments: { title: 'Do a thing' } })))).json();
+  assert.equal(body.result.isError, false, JSON.stringify(body));
+  assert.ok(!('p_confirm' in calls[0].body), 'a first attempt never confirms');
+
+  await handle(post(rpc('tools/call',
+    { name: 'create_task', arguments: { title: 'Do a thing', confirm: true } })));
+  assert.equal(calls[1].body.p_confirm, true, 'an explicit confirm is passed on');
+
+  body = await (await handle(post(rpc('tools/call',
+    { name: 'create_task', arguments: { title: 'Do a thing', confirm: 'yes' } })))).json();
+  assert.equal(body.result.isError, true, 'a non-boolean confirm is refused');
+  assert.equal(calls.length, 2, 'and never reaches the database');
 });
 
 // ── 6. the server holds no authority of its own ────────────────────────────

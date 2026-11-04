@@ -199,7 +199,11 @@ export const TOOLS = [
       + 'approvals or anything sent outside SILO -- for those, say what you would do and give the person the '
       + 'SILO link. assignee_email must be someone in this company. Needs the work:write permission, which the '
       + 'person grants separately; up to 50 writes a day per connection. Pass idempotency_key and REUSE THE '
-      + 'SAME ONE if you retry, or you will open a second task. Returns the task and its URL, plus any SILO report that looks like the same request -- if the person was really asking for numbers SILO already reports, run that report and give them the answer rather than leaving a task for someone to do by hand.',
+      + 'SAME ONE if you retry, or you will open a second task. '
+      + 'An answer beats a task: when a SILO report clearly covers what was asked, this tool creates NOTHING and '
+      + 'returns that report with created false -- run it (run_report) and give the person the numbers instead of '
+      + 'leaving a colleague to produce by hand what SILO already produces. If they want the task opened anyway, '
+      + 'call again with confirm true. Otherwise it returns the task, its URL, and any report that merely looks related.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -212,6 +216,11 @@ export const TOOLS = [
         idempotency_key: {
           type: 'string',
           description: 'Your own id for this task, up to 100 characters. The same key returns the first task instead of a duplicate.',
+        },
+        confirm: {
+          type: 'boolean',
+          default: false,
+          description: 'Only after this tool answered with created false: true means open the task as well, even though SILO already reports it. Do not send true on a first attempt.',
         },
       },
       required: ['title'],
@@ -505,6 +514,12 @@ export function createMcpHandler({ env, fetchImpl }) {
           return rpcResult(id, toolErr('idempotency_key must be text up to 100 characters.'));
         }
         body.p_idempotency_key = args.idempotency_key.trim();
+      }
+      if (args.confirm != null) {
+        if (typeof args.confirm !== 'boolean') {
+          return rpcResult(id, toolErr('confirm must be true or false.'));
+        }
+        body.p_confirm = args.confirm;
       }
       const r = await callRpc(authorization, 'silo_api_create_task', body);
       if (!r.ok) return refusalResponse(id, r, true);

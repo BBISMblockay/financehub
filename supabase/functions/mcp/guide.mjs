@@ -52,7 +52,7 @@
  * This file adds no authority and reads nothing. It is text.
  */
 
-export const GUIDE_VERSION = '2026-11-04a';
+export const GUIDE_VERSION = '2026-11-05a';
 
 /* ── The rules, for the system prompt ───────────────────────────────────────
  *
@@ -82,14 +82,13 @@ const RULES = [
   'COMPLETE day, so today is normally absent on purpose. Ask for today only if the person did.',
   'Recent days keep moving: attribution and Redo revenue land for weeks after the order, so the newest',
   'days in any marketing report are still rising, not a trend.',
-  'Name the report and its window, and pass its caveats on rather than smoothing them away -- its',
-  'description says what it does and does not count.',
+  'Name the report and its window and pass its caveats on: its description says what it counts.',
   'Do not assemble an answer from reports that measure different things; query the tables.',
   'This connection cannot see the screen, open a page or change anything that already exists -- no editing,',
   'completing, reassigning, money, approvals or messages. Where the person granted write access it can open',
   'a task with create_task, and nothing else; asked for more, say what you would do and give them the',
-  'SILO page. A task is not an answer: if they asked for numbers SILO already reports, run the report',
-  'and answer.',
+  'SILO page. A task is not an answer: create_task refuses when SILO already reports what was asked',
+  'for, and hands you that report to run.',
 ].join(' ');
 
 export function instructionsWithTraining(base) {
@@ -461,9 +460,10 @@ const TOOL_NOTES = {
   create_task: 'Only when the person asked for a task. One call per task, and the same idempotency_key if '
     + 'you retry. Say what the task says and give its URL: opening a task is a note for a person, not the '
     + 'work being done. First ask whether the task is work at all: if what they want is numbers SILO '
-    + 'already reports, search for the report, run it and answer -- the result also comes back with any '
-    + 'report matching the request, so if one appears, deliver it and say the task is there if they still '
-    + 'want it.',
+    + 'already reports, search for the report, run it and answer. SILO checks that too -- an answer comes '
+    + 'back with created false and the report instead of a task, and then your job is to run that report '
+    + 'and give the person the numbers, not to try again. Only if they say they want the task as well, '
+    + 'call again with confirm true.',
   run_report: 'Prefer one report\'s own answer over combining reports. A blank measure means that source '
     + 'had no rows for that day, never zero, and revenue a platform or Redo "claims", "credits" or '
     + '"attributes" overlaps other sources and net sales, so it is never summed.',
