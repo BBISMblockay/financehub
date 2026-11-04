@@ -2839,7 +2839,9 @@
 
     function bindUiEvents(){
       el("logoutBtn").addEventListener("click", async () => {
-        try { await SUPABASE.auth.signOut(); } catch(e){ console.warn(e); }
+        // scope 'local': see v2/silo-chrome.js -- a global sign-out also
+        // deletes the sessions held by this person's API connections.
+        try { await SUPABASE.auth.signOut({ scope: 'local' }); } catch(e){ console.warn(e); }
         window.location.href = LOGIN_PATH;
       });
 

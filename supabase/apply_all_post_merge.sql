@@ -19482,4 +19482,14 @@ $c$select (select count(*) from v_po_header_summary
 
 -- Workspace module menu preferences (no entitlement enforcement).
 \i migrations/20261104014709_workspace_module_visibility.sql
+-- Up to silo_api_app_connection_limit() (3) live connections per person per
+-- APPLICATION, in numbered slots, instead of one: claude.ai web, the Claude
+-- desktop app and Claude on a phone all key to claude|claude.ai, so
+-- one-per-application ended the connection on the other devices every time
+-- somebody connected. Adds slot, replaces silo_api_grants_one_live_app with
+-- silo_api_grants_one_live_slot, and makes consent clear authorizations that
+-- never received a token before evicting the least recently used one. Needs
+-- 20261102180000. Nothing about the policy changes (2FA approval, 90-day
+-- maximum, 30-day idle, fail closed). No deploy.
+\i migrations/20261104020000_developer_api_app_connection_slots.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

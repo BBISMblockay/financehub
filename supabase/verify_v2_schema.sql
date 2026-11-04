@@ -7736,21 +7736,51 @@ select 'developer API boundary' as check_name, case
     where table_schema = 'public' and table_name = 'silo_api_grants'
       and column_name = 'app_key' and is_nullable = 'NO')
    then 'MISSING — silo_api_grants.app_key, or it is nullable, so connections are counted per client registration again'
+  -- Capped at silo_api_app_connection_limit() live connections per
+  -- (application, person), in numbered slots, since 20261104020000: one per
+  -- application ended Claude on a second device every time, because web, the
+  -- desktop app and the phone all key to claude|claude.ai. The cap lives in
+  -- the index, not only in silo_api_consent().
+  when to_regprocedure('public.silo_api_app_connection_limit()') is null
+   then 'MISSING — silo_api_app_connection_limit, so the number of connections per application is not stated anywhere'
+  when not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'silo_api_grants'
+      and column_name = 'slot' and is_nullable = 'NO')
+   then 'MISSING — silo_api_grants.slot, or it is nullable, so nothing numbers a person''s connections to one application'
   when not exists (
     select 1 from pg_class i join pg_index x on x.indexrelid = i.oid
-    where i.relname = 'silo_api_grants_one_live_app' and x.indisunique)
-   then 'MISSING — silo_api_grants_one_live_app, so one person could hold two live connections to one application'
-  -- Reads app_key through to_jsonb, not as a column: this file has to PLAN
-  -- before the migration is applied, and a bare app_key here would make the
-  -- whole check error out instead of reporting the branch above.
+    where i.relname = 'silo_api_grants_one_live_slot' and x.indisunique)
+   then 'MISSING — silo_api_grants_one_live_slot, so a person could hold any number of live connections to one application'
+  -- Reads app_key and slot through to_jsonb, not as columns: this file has to
+  -- PLAN before the migration is applied, and a bare column name here would
+  -- make the whole check error out instead of reporting the branch above.
   when exists (
     select 1 from public.silo_api_grants g
     where g.revoked_at is null
-    group by to_jsonb(g) ->> 'app_key', g.user_id having count(*) > 1)
-   then 'BROKEN — somebody holds two live connections to one application'
+    group by to_jsonb(g) ->> 'app_key', g.user_id, to_jsonb(g) ->> 'slot'
+    having count(*) > 1)
+   then 'BROKEN — two live connections share one application slot'
+  -- Not written as `count(*) > silo_api_app_connection_limit()`: a direct call
+  -- to a function that does not exist yet is resolved when this file is
+  -- PLANNED, which would make the whole check error out before the migration
+  -- is applied instead of reporting the branch above. The range CHECK is what
+  -- keeps slot inside what the index can police; the limit itself is the
+  -- allocator's, and the branch above catches a duplicate slot.
+  when not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.silo_api_grants'::regclass
+      and conname = 'silo_api_grants_slot_range')
+   then 'MISSING — silo_api_grants_slot_range, so a slot could be written outside the range the index polices'
   when pg_get_functiondef(to_regprocedure('public.silo_api_consent(text, text[])'))
          not like '%app_key = v_app%'
-   then 'BROKEN — silo_api_consent no longer replaces by application, so reconnecting adds a connection'
+   then 'BROKEN — silo_api_consent no longer counts connections by application'
+  when pg_get_functiondef(to_regprocedure('public.silo_api_consent(text, text[])'))
+         not like '%auth_session_id is null%'
+   then 'BROKEN — silo_api_consent no longer clears authorizations that never received a token, so stalled connects hold slots'
+  when has_function_privilege('silo_integration', 'public.silo_api_app_connection_limit()', 'execute')
+    or has_function_privilege('anon', 'public.silo_api_app_connection_limit()', 'execute')
+   then 'CRITICAL: a connection can call silo_api_app_connection_limit'
   when has_function_privilege('authenticated', 'public.silo_api_app_key(text)', 'execute')
     or has_function_privilege('anon', 'public.silo_api_app_key(text)', 'execute')
     or has_function_privilege('silo_integration', 'public.silo_api_app_key(text)', 'execute')

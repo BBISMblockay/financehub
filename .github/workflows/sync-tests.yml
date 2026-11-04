@@ -1712,6 +1712,19 @@ jobs:
       - name: Execute developer API one-connection-per-app regressions
         run: node scripts/tests/developer-api-one-connection-per-app-database.test.mjs
 
+      # 20261104020000: up to silo_api_app_connection_limit() (3) live
+      # connections per person per APPLICATION, in numbered slots. One per
+      # application meant one Claude connection in total -- web, desktop and
+      # phone all key to claude|claude.ai -- so each connect ended the others.
+      # Proves the three coexist, that a fourth evicts the LEAST RECENTLY USED
+      # one, that an authorization which never received a token is cleared
+      # first while one whose token was issued but which has not run a tool is
+      # not, that the cap is in the index and not only in the function, and
+      # that two-factor approval and the 90-day ceiling are unchanged.
+      # Mutation-tested.
+      - name: Execute developer API app connection slot regressions
+        run: node scripts/tests/developer-api-app-connection-slots-database.test.mjs
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.
