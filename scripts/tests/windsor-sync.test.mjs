@@ -34,6 +34,10 @@ const libUrl = new URL('../lib/windsor-sync-core.mjs', import.meta.url);
 async function loadCore() {
   let src = fs.readFileSync(libUrl, 'utf8');
   const sub = (from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); src = src.split(from).join(to); };
+  if (MUT === 'coreretry') sub('const r = await readOnceRetrying({ key, fetchImpl, connector, accountId, fields, from, to, counter });', 'const r = await readOnce({ key, fetchImpl, connector, accountId, fields, from, to, counter });');
+  if (MUT === 'bodyretry') sub('text = await res.text();', "text = await res.text().catch(() => '');");
+  if (MUT === 'diagnostics') sub('e.message = `${connector}/${dataset.key} ${from}..${to} ${stage}: ${e.message}`;', '');
+  if (MUT === 'emptyhttp') sub('if (!res.ok || errText)', 'if (errText)');
   if (MUT === 'identity') sub('assertAccountRows(rows, accountId, connector);', '');
   if (MUT === 'accountfilter') sub('const { kept, foreign, unattributed } = filterRowsToAccount(rows, accountId, ctx.dsId);', 'const kept = rows; const foreign = 0; const unattributed = 0;');
   if (MUT === 'payloadcompany') sub('const row = dataset.toRow({ ...r, date: day }, ctx);', 'const row = dataset.toRow({ ...r, date: day }, { ...ctx, companyId: r.company_entity_id ?? ctx.companyId });');
@@ -45,7 +49,7 @@ async function loadCore() {
   if (MUT === 'transient') sub('return r.transient ? readOnce(io) : r;', 'return r.transient ? { ...r, transient: false } : r;');
   if (MUT === 'generation') sub(".eq('mapping_generation', account.mapping_generation)\n", '\n');
   if (MUT === 'split') sub('      await readSplitting({ ...io, fields: batch, state, out });\n      return out;', '      out.incomplete = true;\n      return out;');
-  if (MUT === 'outage') sub('    if (state.answered === 0) incomplete = true;\n    else refused.push(...unanswered);', '    refused.push(...unanswered);');
+  if (MUT === 'outage') sub('      if (state.answered === 0) incomplete = true;\n      else refused.push(...unanswered);', '    refused.push(...unanswered);');
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
   if (MUT === 'consent') sub('account.sync_enabled !== true', 'false');
   if (MUT === 'sourcecontract') sub('const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;', 'const datasets = DATASETS[account.ds_id] || DATASETS.tiktok;');
@@ -575,4 +579,97 @@ test('explicit report text and stable object IDs are not truncated to 500 charac
   const row = DATASETS.klaviyo[1].toRow({ date: '2026-11-01', account_id: 'own', campaign_id: long, subject: long }, { companyId: A, accountId: 'own' });
   assert.equal(row.object_id, long); assert.equal(row.attributes.subject, long);
   assert.notEqual(row.row_hash, DATASETS.klaviyo[1].toRow({ date: '2026-11-01', campaign_id: long + 'y' }, { companyId: A, accountId: 'own' }).row_hash);
+});
+
+for (const failure of ['timeout', 'network', 'body', '503', '429', 'empty-503']) {
+  test(`core ${failure} retries the same request once and recovers without dropping fields`, async () => {
+    const fake = world([klaviyoAcct]);
+    const counter = { used: 0, limit: 20 };
+    const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: 'KA1', revenue: 12 }]);
+    const urls = [];
+    const fetchImpl = async (url, options) => {
+      if (new URL(url).pathname.endsWith('/fields')) return fw.fetchImpl(url, options);
+      urls.push(String(url));
+      if (urls.length === 1) {
+        if (failure === 'timeout') throw Object.assign(new Error(KEY), { name: 'TimeoutError' });
+        if (failure === 'network') throw new Error(KEY);
+        if (failure === 'body') return { ok: true, status: 200, text: async () => { throw new Error(KEY); } };
+        return { ok: false, status: failure === '429' ? 429 : 503,
+          text: async () => failure === 'empty-503' ? '' : `revenue upstream failure ${KEY}` };
+      }
+      // Other Klaviyo datasets can be empty; their identities cannot be fabricated.
+      if (new URL(url).searchParams.get('fields').includes('campaign_id') || new URL(url).searchParams.get('fields').includes('flow_id')) {
+        return { ok: true, status: 200, text: async () => '{"data":[]}' };
+      }
+      return fw.fetchImpl(url, options);
+    };
+    const r = await run(fake, { fetchImpl }, klaviyoAcct, { counter });
+    assert.equal(r.status, 'success');
+    assert.equal(urls[0], urls[1], 'retry retains dates, account, options and every field');
+    assert.equal(counter.used, 4, 'two account requests plus campaign and flow');
+    assert.deepEqual(r.dropped_fields, []);
+    assert.equal(fake.rows('klaviyo_performance_daily')[0].revenue, 12);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-11-02');
+  });
+}
+
+for (const limit of [1, 20]) {
+  test(`persistent core timeout is bounded with call budget ${limit} and keeps stored data/cursor`, async () => {
+    const account = { ...klaviyoAcct, history_from: '2026-09-01', synced_through: '2026-10-01' };
+    const fake = world([account]);
+    fake.tables.set('klaviyo_performance_daily', [{ row_hash: 'existing', revenue: 99 }]);
+    let asks = 0;
+    const fw = fakeWindsor(() => { asks++; throw Object.assign(new Error(KEY), { name: 'TimeoutError' }); });
+    const counter = { used: 0, limit };
+    const r = await run(fake, fw, account, { counter });
+    assert.equal(asks, Math.min(limit, 2));
+    assert.equal(counter.used, asks);
+    assert.equal(r.status, limit === 1 ? 'partial' : 'error');
+    assert.match(r.error, /klaviyo\/account 2026-09-29\.\.2026-11-02 core:/);
+    assert.ok(!r.error.includes(KEY));
+    assert.equal(fake.rows('windsor_linked_accounts')[0].history_from, account.history_from);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, account.synced_through);
+    assert.deepEqual(fake.rows('klaviyo_performance_daily'), [{ row_hash: 'existing', revenue: 99 }]);
+  });
+}
+
+test('core permanent HTTP failure is not retried and stored errors redact the owner key', async () => {
+  const fake = world([tiktokAcct]);
+  const fw = fakeWindsor(() => ({ status: 401, text: `unauthorized ${KEY}` }));
+  const r = await run(fake, fw, tiktokAcct);
+  assert.equal(r.status, 'error');
+  assert.equal(fw.log.length, 1);
+  assert.ok(!JSON.stringify(r).includes(KEY));
+  assert.ok(!fake.rows('windsor_linked_accounts')[0].last_sync_error.includes(KEY));
+});
+
+for (const stage of ['core', 'hunted batch 1']) {
+  test(`duplicate diagnostics identify ${stage} without exposing row or account values`, async () => {
+    const fake = world([tiktokAcct]);
+    const row = { account_id: tiktokAcct.account_id, date: '2026-11-01', campaign_id: 'private-campaign-value', campaign: 'private-name' };
+    const fw = fakeWindsor((c, u) => {
+      const hunted = u.searchParams.get('fields').includes('video_p100');
+      return (stage === 'core' || hunted) ? [row, { ...row, spend: 3 }] : [row];
+    }, { tiktok: [{ id: 'video_p100', type: 'NUMERIC', table: 'ads' }] });
+    const r = await run(fake, fw, tiktokAcct);
+    assert.equal(r.status, 'error');
+    assert.ok(r.error.includes(`tiktok/campaign 2026-09-29..2026-11-02 ${stage}:`));
+    assert.match(r.error, /Ambiguous duplicate row grain/);
+    for (const secret of [KEY, row.account_id, row.campaign_id, row.campaign]) assert.ok(!r.error.includes(secret));
+    assert.equal(fake.rows('marketing_kpis_daily').length, 0);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  });
+}
+
+test('persistent core 503 naming a field never negotiates it away', async () => {
+  const fake = world([klaviyoAcct]);
+  const fw = fakeWindsor(() => ({ status: 503, text: `revenue unavailable ${KEY}` }));
+  const r = await run(fake, fw, klaviyoAcct);
+  assert.equal(r.status, 'error');
+  assert.equal(fw.log.length, 2);
+  assert.equal(String(fw.log[0]), String(fw.log[1]));
+  assert.deepEqual(r.dropped_fields, []);
+  assert.equal(fake.rows('klaviyo_performance_daily').length, 0);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  assert.ok(!r.error.includes(KEY));
 });

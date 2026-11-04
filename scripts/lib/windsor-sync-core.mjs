@@ -309,38 +309,16 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
   let fields = [...dataset.fields];
   const dropped = [];
   for (let attempt = 0; attempt <= MAX_FIELD_RETRIES; attempt += 1) {
-    if (counter) {
-      if (counter.used >= counter.limit) throw Object.assign(new Error('call budget used up'), { budget: true });
-      counter.used += 1;
+    const r = await readOnceRetrying({ key, fetchImpl, connector, accountId, fields, from, to, counter });
+    if (r.rows) return { rows: r.rows, dropped };
+    // A timeout, rate limit or server failure is never evidence that a field
+    // is unsupported, even if the response mentions one of our field names.
+    if (!r.transient && r.named.length && attempt < MAX_FIELD_RETRIES) {
+      dropped.push(...r.named);
+      fields = fields.filter((f) => !r.named.includes(f));
+      continue;
     }
-    const url = windsorUrl(WINDSOR_CONNECTORS, `/${connector}`, {
-      api_key: key, fields: fields.join(','), date_from: from, date_to: to, select_accounts: accountId,
-      // Same server-owned per-connector options as the preview: TikTok sends
-      // no rows for inactive campaigns without include_inactive.
-      options: previewOptions(connector),
-    });
-    let res;
-    try {
-      res = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(120000) });
-    } catch (e) {
-      throw new Error(`${dataset.key}: ${e?.name === 'TimeoutError' ? 'timed out' : 'network error'}`);
-    }
-    const text = await res.text().catch(() => '');
-    const body = parseBody(text);
-    const errText = !res.ok ? text : (body && typeof body === 'object' && !Array.isArray(body) && body.error ? JSON.stringify(body.error) : '');
-    if (errText) {
-      const named = fieldsNamedIn(errText, fields);
-      if (named.length && attempt < MAX_FIELD_RETRIES) {
-        dropped.push(...named);
-        fields = fields.filter((f) => !named.includes(f));
-        continue;
-      }
-      throw new Error(`${dataset.key}: Windsor answered ${res.status}: ${redact(errText, key)}`);
-    }
-    const rows = rowsOf(body);
-    if (!rows) throw new Error(`${dataset.key}: not a list of rows (${describeShape(body)})`);
-    assertAccountRows(rows, accountId, connector);
-    return { rows, dropped };
+    throw new Error(`${dataset.key}: ${r.error}`);
   }
   throw new Error(`${dataset.key}: too many refused fields`);
 }
@@ -361,16 +339,17 @@ async function readOnce({ key, fetchImpl, connector, accountId, fields, from, to
     options: previewOptions(connector),
   });
   let res;
+  let text;
   try {
     res = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(120000) });
+    text = await res.text();
   } catch (e) {
     // No answer is not a refusal: the fields may well exist.
     return { error: e?.name === 'TimeoutError' ? 'timed out' : 'network error', named: [], transient: true };
   }
-  const text = await res.text().catch(() => '');
   const body = parseBody(text);
   const errText = !res.ok ? text : (body && typeof body === 'object' && !Array.isArray(body) && body.error ? JSON.stringify(body.error) : '');
-  if (errText) {
+  if (!res.ok || errText) {
     return { error: `Windsor answered ${res.status}: ${redact(errText, key)}`, named: fieldsNamedIn(errText, fields),
       // A server error or rate limit says nothing about the fields asked for.
       transient: res.status >= 500 || res.status === 429 };
@@ -484,43 +463,53 @@ export function mergeHunted(dataset, coreRows, huntedRowSets) {
  *  numeric field the connector's catalog lists for the dataset's tables, in
  *  batches. Fields refused earlier this run (`skip`) are not asked again. */
 export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId, dataset, from, to, counter, catalog, skip = new Set() }) {
-  const core = await fetchDataset({ key, fetchImpl, connector, accountId, dataset, from, to, counter });
-  const validate = (rows) => prepareRows(rows, { accountId, from, to, dataset,
-    ctx: { companyId: 'validation-only', accountId, dsId: connector } });
-  validate(core.rows);
-  if (!dataset.hunt || !catalog || !core.rows.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
-  const have = new Set(dataset.fields);
-  const extra = huntFields(catalog, dataset.hunt).filter((f) => !have.has(f) && !skip.has(f));
-  if (!extra.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
-  const tableOf = new Map(catalog.map((f) => [f.id, f.table]));
-  // The identity fields go in every batch so hunted rows can be matched.
-  const dims = dataset.fields.filter((f) => f === 'date' || f === 'account_id'
-    || ['campaign_id', 'campaign', 'flow_id', 'flow_message_id'].includes(f));
-  const sets = [];
-  const refused = [];
-  const unanswered = [];
-  let incomplete = false;
-  const state = { answered: 0, failures: 0 };
-  for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
-    const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
-      fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf, state });
-    for (const rows of b.rows) validate(rows);
-    sets.push(...b.rows);
-    refused.push(...b.refused);
-    unanswered.push(...b.unanswered);
-    if (b.incomplete) incomplete = true;
+  let stage = 'core';
+  try {
+    const core = await fetchDataset({ key, fetchImpl, connector, accountId, dataset, from, to, counter });
+    const validate = (rows) => prepareRows(rows, { accountId, from, to, dataset,
+      ctx: { companyId: 'validation-only', accountId, dsId: connector } });
+    validate(core.rows);
+    if (!dataset.hunt || !catalog || !core.rows.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
+    const have = new Set(dataset.fields);
+    const extra = huntFields(catalog, dataset.hunt).filter((f) => !have.has(f) && !skip.has(f));
+    if (!extra.length) return { ...core, refused: [], unmatched: 0, incomplete: false };
+    const tableOf = new Map(catalog.map((f) => [f.id, f.table]));
+    // The identity fields go in every batch so hunted rows can be matched.
+    const dims = dataset.fields.filter((f) => f === 'date' || f === 'account_id'
+      || ['campaign_id', 'campaign', 'flow_id', 'flow_message_id'].includes(f));
+    const sets = [];
+    const refused = [];
+    const unanswered = [];
+    let incomplete = false;
+    const state = { answered: 0, failures: 0 };
+    for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
+      stage = `hunted batch ${Math.floor(i / HUNT_BATCH_SIZE) + 1}`;
+      const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
+        fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf, state });
+      for (const rows of b.rows) validate(rows);
+      sets.push(...b.rows);
+      refused.push(...b.refused);
+      unanswered.push(...b.unanswered);
+      if (b.incomplete) incomplete = true;
+    }
+    if (unanswered.length) {
+      // Windsor answered for other hunted fields in this window but never for
+      // these, even one at a time: the field is the problem, not Windsor. They
+      // are dropped like a refusal so the rest of the window still lands. If
+      // Windsor answered for none, it is down: keep the window unwritten.
+      if (state.answered === 0) incomplete = true;
+      else refused.push(...unanswered);
+    }
+    stage = 'hunted merge';
+    const merged = mergeHunted(dataset, core.rows, sets);
+    if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');
+    return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
+  } catch (e) {
+    // Only local contract names, planned dates and a batch ordinal: never
+    // include account values, response rows or credential-bearing URLs.
+    e.message = `${connector}/${dataset.key} ${from}..${to} ${stage}: ${e.message}`;
+    throw e;
   }
-  if (unanswered.length) {
-    // Windsor answered for other hunted fields in this window but never for
-    // these, even one at a time: the field is the problem, not Windsor. They
-    // are dropped like a refusal so the rest of the window still lands. If
-    // Windsor answered for none, it is down: keep the window unwritten.
-    if (state.answered === 0) incomplete = true;
-    else refused.push(...unanswered);
-  }
-  const merged = mergeHunted(dataset, core.rows, sets);
-  if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');
-  return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
 }
 
 /** Fields whose value lands in a typed column. If Windsor refuses one of
