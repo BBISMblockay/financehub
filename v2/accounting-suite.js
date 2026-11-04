@@ -44,8 +44,165 @@
     try { window.localStorage?.setItem(COMPACT_KEY, on ? '1' : '0'); } catch {}
   }
 
-  function mount(main, active) {
-    if (!contains(active) || main.querySelector('[data-accounting-suite]')) return;
+  /* Plain-language labels on the tab strip; URLs and nav ids stay the same. */
+  const FRIENDLY_TITLE = {
+    'finance/card-coding': 'Bank activity',
+    'finance/accounting-export': 'Shopify journal',
+    'finance/qbo-reports': 'Financial reports',
+  };
+
+  const SHOPIFY_JOURNAL_HINT = 'In your SILO books already — post to QuickBooks by period.';
+
+  /* Areas of finance work — not a month-end sequence. Sales and reports are live in the books. */
+  const FINANCE_AREAS = [
+    { key: 'setup', label: 'Setup', href: '/v2/accounting-books.html',
+      pages: ['finance/books'], blurb: 'Opening balances, who keeps the books, and chart of accounts.' },
+    { key: 'activity', label: 'Bank activity', href: '/v2/transactions.html',
+      pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines as they arrive.' },
+    { key: 'sales', label: 'Shopify journal', href: '/v2/accounting-export.html',
+      pages: ['finance/accounting-export'], hint: SHOPIFY_JOURNAL_HINT,
+      blurb: 'Shopify sales are in your SILO books — post the journal to QuickBooks here.' },
+    { key: 'invoicing', label: 'Invoicing', href: '/v2/invoicing.html',
+      pages: ['finance/invoicing'], blurb: 'Send invoices and track what customers owe.' },
+    { key: 'reports', label: 'Reports & cash', href: '/v2/qbo-reports.html',
+      pages: ['finance/qbo-reports', 'finance/cash-forecast', 'finance/schedules', 'finance/fixed-assets'],
+      blurb: 'Financial reports and cash outlook from what is already recorded.' },
+  ];
+
+  const PAGE_HELP = {
+    'finance/books': { subtitle: 'Opening balances, chart of accounts, and book settings.' },
+    'finance/card-coding': { subtitle: 'Categorize bank and card activity for this period.' },
+    'finance/accounting-export': { subtitle: SHOPIFY_JOURNAL_HINT },
+    'finance/invoicing': { subtitle: 'Create invoices and see what customers owe.' },
+    'finance/qbo-reports': { subtitle: 'Run financial reports from your connected books.' },
+    'finance/schedules': { subtitle: 'Recurring entries and amortization over time.' },
+    'finance/fixed-assets': { subtitle: 'Track capital assets and depreciation.' },
+    'finance/cash-forecast': { subtitle: 'See cash ahead from history and what is planned.' },
+  };
+
+  function areaForPage(active) {
+    for (const area of FINANCE_AREAS) if (area.pages.includes(active)) return area;
+    return null;
+  }
+
+  function applyPageHelp(main, active) {
+    const help = PAGE_HELP[active];
+    if (!help) return;
+    const intro = typeof document.getElementById === 'function'
+      ? document.getElementById('booksIntro') : null;
+    if (intro && active === 'finance/books') { intro.textContent = help.subtitle; return; }
+    const header = main.querySelector && main.querySelector('.bcn-header');
+    if (!header || typeof header.querySelector !== 'function') return;
+    let sub = header.querySelector('[data-accounting-sub]');
+    if (!sub) {
+      sub = document.createElement('p');
+      sub.className = 'bcn-header-sub';
+      sub.dataset.accountingSub = '';
+      const title = header.querySelector('.bcn-header-title');
+      if (title) title.after(sub);
+      else header.querySelector(':scope > div')?.append(sub);
+    }
+    sub.textContent = help.subtitle;
+  }
+
+  function mountCloseBand(main, nav, active) {
+    const findBand = () => (main.querySelector && main.querySelector('[data-accounting-close]')) || null;
+    let band = findBand();
+    if (!band) {
+      band = document.createElement('section');
+      band.className = 'accounting-close';
+      band.dataset.accountingClose = '';
+      band.setAttribute('aria-label', 'Finance areas');
+      const head = document.createElement('div');
+      head.className = 'accounting-close-head';
+      head.innerHTML = '<span class="accounting-close-label">In your books</span>'
+        + '<span class="accounting-close-books" data-accounting-books hidden></span>'
+        + '<a class="accounting-close-queue" href="/v2/on-deck.html">Period review</a>';
+      const list = document.createElement('ol');
+      list.className = 'accounting-close-steps';
+      const stepEls = [];
+      for (const area of FINANCE_AREAS) {
+        const item = document.createElement('li');
+        item.className = 'accounting-close-step';
+        item.dataset.step = area.key;
+        const link = document.createElement('a');
+        link.href = area.href;
+        link.textContent = area.label;
+        if (area.hint) link.title = area.hint;
+        item.append(link);
+        list.append(item);
+        stepEls.push(item);
+      }
+      band._booksEl = head.querySelector('[data-accounting-books]');
+      band.append(head, list);
+      const here = document.createElement('p');
+      here.className = 'accounting-close-here';
+      here.dataset.accountingCloseHere = '';
+      band.append(here);
+      band._stepEls = stepEls;
+      band._hereEl = here;
+      if (typeof nav.after === 'function') nav.after(band);
+    }
+    const current = areaForPage(active);
+    const here = band._hereEl
+      || (band.querySelector && band.querySelector('[data-accounting-close-here]'));
+    const steps = band._stepEls
+      || (band.querySelectorAll && band.querySelectorAll('.accounting-close-step'));
+    if (steps) {
+      for (let i = 0; i < steps.length; i++) {
+        const el = steps[i];
+        if (!el?.classList) continue;
+        el.classList.toggle('is-current', FINANCE_AREAS[i] === current);
+        el.classList.remove('is-past');
+      }
+    }
+    if (here && current) {
+      here.textContent = `${current.label} — ${current.blurb}`;
+    } else if (here) here.textContent = '';
+  }
+
+  async function applyBooksContext(band, db, company) {
+    const el = band?._booksEl
+      || (band?.querySelector && band.querySelector('[data-accounting-books]'));
+    if (!el || !db || !company?.id) return;
+    try {
+      const { data, error } = await db.from('accounting_settings')
+        .select('bookkeeping_mode,silo_takeover_on').maybeSingle();
+      if (error) throw error;
+      if (data?.bookkeeping_mode === 'qbo') {
+        el.textContent = 'QuickBooks keeps the books';
+        el.hidden = false;
+        return;
+      }
+      if (data?.silo_takeover_on) {
+        el.textContent = `SILO keeps the books from ${data.silo_takeover_on}`;
+        el.hidden = false;
+        return;
+      }
+      el.textContent = 'SILO keeps the books';
+      el.hidden = false;
+    } catch {
+      el.hidden = true;
+    }
+  }
+
+  function mount(main, active, opts) {
+    if (!contains(active)) return;
+    const existing = main.querySelector('[data-accounting-suite]');
+    if (existing) {
+      const band = main.querySelector('[data-accounting-close]')
+        || (existing._closeBand);
+      mountCloseBand(main, existing, active);
+      applyPageHelp(main, active);
+      const closeBand = main.querySelector('[data-accounting-close]');
+      if (closeBand && opts?.supabaseClient) {
+        const co = window.__SILO_CONFIG__?.getActiveCompany?.();
+        if (co?.id) applyBooksContext(closeBand, opts.supabaseClient, co);
+        else window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient)
+          .then(c => c?.id && applyBooksContext(closeBand, opts.supabaseClient, c));
+      }
+      return;
+    }
     const nav=document.createElement('nav');
     nav.className='accounting-suite';nav.dataset.accountingSuite='';
     nav.setAttribute('aria-label','Accounting workspace');
@@ -57,12 +214,14 @@
       // data-label feeds the compact-mode tooltip; the text node stays in the
       // DOM in both modes, so the link's accessible name never depends on
       // which mode it is in.
-      link.dataset.label=title;
-      link.title=title;
+      const display = FRIENDLY_TITLE[id] || title;
+      link.dataset.label=display;
+      if (id === 'finance/accounting-export') link.dataset.accountingHint = SHOPIFY_JOURNAL_HINT;
+      link.title = link.dataset.accountingHint || display;
       link.innerHTML=svg(id);
       const text=document.createElement('span');
       text.className='accounting-suite-text';
-      text.textContent=title;
+      text.textContent=display;
       link.append(text);
       if(id===active)link.setAttribute('aria-current','page');
       links.append(link);
@@ -94,6 +253,15 @@
     nav.append(toggle);
 
     main.firstElementChild.after(nav);
+    mountCloseBand(main, nav, active);
+    applyPageHelp(main, active);
+    const band = main.querySelector('[data-accounting-close]');
+    if (band && opts?.supabaseClient) {
+      const co = window.__SILO_CONFIG__?.getActiveCompany?.();
+      if (co?.id) applyBooksContext(band, opts.supabaseClient, co);
+      else window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient)
+        .then(c => c?.id && applyBooksContext(band, opts.supabaseClient, c));
+    }
   }
   window.SiloAccounting={contains,mount};
 })();

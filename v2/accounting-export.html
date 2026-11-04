@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Sales & journals</title>
+  <title>SILO · Shopify journal</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="accounting-suite.css?v=615de4bff781" />
+  <link rel="stylesheet" href="accounting-suite.css?v=5a9d919a665f" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -422,7 +422,7 @@
   <main class="silo-main accounting-workspace">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">Sales &amp; journals</div>
+        <div class="bcn-header-title">Shopify journal</div>
         <div class="bcn-header-sub" id="subTitle">Journal-ready Shopify sales and payout entries</div>
       </div>
       <div class="bcn-header-actions">
@@ -461,7 +461,7 @@
       </div>
 
       <nav class="bcn-tabs ax-tabbar" id="axTabs" role="tablist">
-        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="journal">Sales journal</button>
+        <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="journal">Shopify journal</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="fees">Processing fees</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="register">Deposit register</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="mapping">Account mapping</button>
@@ -476,7 +476,7 @@
           <div class="ax-card">
             <div class="ax-card-header">
               <div>
-                <div class="ax-card-title">Sales journal — by location</div>
+                <div class="ax-card-title">Shopify journal — by location</div>
                 <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax and the receivable leg</div>
               </div>
               <div class="ax-right-actions">
@@ -2047,7 +2047,7 @@
         appEl: '#silo-app',
         active: 'finance/accounting-export',
         user: { email: user?.email || '', role: 'admin' },
-        crumbs: ['Accounting', 'Sales & journals'],
+        crumbs: ['Accounting', 'Shopify journal'],
         supabaseClient: sb,
       });
     }
