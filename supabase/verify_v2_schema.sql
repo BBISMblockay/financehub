@@ -8601,3 +8601,38 @@ select 'workspace_module_visibility boundary' as check_name,
  then 'ok' else 'MISSING' end as status
 from (values(to_regclass('public.workspace_module_visibility'))) t(oid)
 left join pg_class c on c.oid=t.oid;
+
+-- ── The record of what each AI connection did (20261103240000) ──────────────
+-- Two things make this log worth having, and both are easy to lose silently:
+-- the gate must stay VOLATILE (a STABLE function cannot insert, which is why
+-- nothing was recorded before), and no client role may write or widely read a
+-- record of who looked at the company's data.
+select 'connection call log' as check_name,
+  case
+    when to_regclass('public.silo_api_call_log') is null
+      then 'MISSING — silo_api_call_log (20261103240000 not applied)'
+    when (select provolatile from pg_proc
+           where oid = 'public.silo_api_require_scope(text)'::regprocedure) <> 'v'
+      then 'BROKEN — silo_api_require_scope is not VOLATILE, so no call can be recorded'
+    when not exists (select 1 from pg_proc
+                      where oid = 'public.silo_api_record_call(text)'::regprocedure)
+      then 'MISSING — silo_api_record_call'
+    when position('silo_api_record_call' in
+                  pg_get_functiondef('public.silo_api_require_scope(text)'::regprocedure)) = 0
+      then 'BROKEN — the gate no longer records the call it just authorized'
+    when not (select relrowsecurity from pg_class where oid = 'public.silo_api_call_log'::regclass)
+      or has_table_privilege('authenticated', 'public.silo_api_call_log', 'insert')
+      or has_table_privilege('authenticated', 'public.silo_api_call_log', 'update')
+      or has_table_privilege('authenticated', 'public.silo_api_call_log', 'delete')
+      or has_table_privilege('anon', 'public.silo_api_call_log', 'select')
+      then 'CRITICAL — a client role can write the call log, or anon can read it'
+    when (select count(*) from pg_policy
+           where polrelid = 'public.silo_api_call_log'::regclass) <> 1
+      or not exists (select 1 from pg_policy
+                      where polrelid = 'public.silo_api_call_log'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%'
+                        and pg_get_expr(polqual, polrelid) like '%is_exec_or_owner()%')
+      then 'CRITICAL — the call log is not select-only to the approver and the company owner'
+    else 'ok'
+  end as status;
