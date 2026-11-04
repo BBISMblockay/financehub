@@ -543,7 +543,7 @@
         if (!data) {
           // Stale session for a deleted account — clean up instead of
           // surfacing a raw "cannot coerce" error and blocking the form.
-          try { await supabaseClient.auth.signOut(); } catch {}
+          try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch {}
           throw new Error("That session belonged to an account that no longer exists — you've been signed out. Sign in again or use your invite link.");
         }
         if (!data.is_active) throw new Error("Your account is inactive.");
@@ -1082,7 +1082,7 @@
       // Leaves the half-finished sign-in: the password-only session is ended
       // here rather than left in this browser.
       document.getElementById("btnMfaCancel").addEventListener("click", async () => {
-        try { await supabaseClient.auth.signOut(); } catch {}
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch {}
         REDIRECT_STARTED = false;
         hideMfaStep();
       });
@@ -1256,7 +1256,7 @@
       btnSignout.addEventListener("click", async () => {
         clearStatus();
         try {
-          const { error } = await supabaseClient.auth.signOut();
+          const { error } = await supabaseClient.auth.signOut({ scope: 'local' });
           if (error) throw error;
           showStatus("Signed out.", "success");
           btnSignout.classList.add("hidden");

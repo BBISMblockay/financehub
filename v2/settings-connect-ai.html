@@ -441,11 +441,30 @@
     } catch (_) { /* a missing name is cosmetic; never let it fail the page */ }
   }
 
+  /* Three cards reading "Claude" is not a bug and not leftover registrations:
+     one person may hold up to three live connections to one application
+     (silo_api_app_connection_limit), because claude.ai, the desktop app and a
+     phone each authorize separately and before that they evicted each other on
+     every connect. Say so where the repeat is visible, rather than leaving
+     somebody to Remove a working connection to tidy up. */
+  function repeatNote(list) {
+    const seen = {};
+    for (const g of list) {
+      const n = K.displayName(_names[g.client_id], g.client_id);
+      seen[n] = (seen[n] || 0) + 1;
+      if (seen[n] > 1) {
+        return ' · the same application can be connected from more than one'
+          + ' device, and each device is its own connection';
+      }
+    }
+    return '';
+  }
+
   function paint(gridId, subId, list, opts) {
     const grid = el(gridId);
     grid.dataset.empty = opts.empty;
     grid.innerHTML = cardsFor(list, opts);
-    el(subId).textContent = list.length + ' connected';
+    el(subId).textContent = list.length + ' connected' + repeatNote(list);
     for (const g of list) {
       const card = grid.querySelector('.cn-app[data-grant="' + CSS.escape(g.id) + '"]');
       if (card) wireCard(card, g);

@@ -932,7 +932,14 @@
   async function signOut(opts) {
     try {
       if (opts && opts.supabaseClient) {
-        await opts.supabaseClient.auth.signOut();
+        // scope 'local' ends THIS browser's session only. The default is
+        // 'global', which deletes every GoTrue session the person has --
+        // including the one an MCP/API connection holds, so signing out of
+        // SILO made Claude, Cursor and the rest ask to be authorized again
+        // (measured on production 2026-11-03). The 90-day grant and the
+        // 30-day idle window are unchanged; this only stops a sign-out here
+        // from ending sessions it was never about.
+        await opts.supabaseClient.auth.signOut({ scope: 'local' });
       }
     } catch (e) { console.warn('signOut error:', e); }
     window.location.href = '/pages/login.html';

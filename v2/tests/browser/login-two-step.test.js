@@ -72,7 +72,7 @@ const FAKE = `
           setTimeout(function () { emit('SIGNED_IN'); }, 0);
           return later({ data: { user: session.user, session: session }, error: null });
         },
-        signOut: function () { rec('signOut'); session = null; emit('SIGNED_OUT'); return later({ error: null }); },
+        signOut: function (a) { rec('signOut', a); session = null; emit('SIGNED_OUT'); return later({ error: null }); },
         updateUser: function (a) { rec('updateUser', a); return later({ data: {}, error: null }); },
         resetPasswordForEmail: function () { return later({ error: null }); },
         signInWithOtp: function () { return later({ error: null }); },
@@ -198,6 +198,14 @@ const CONFIG = `window.__SILO_CONFIG__ = {
       await page.click('#btnMfaCancel');
       await settle(page);
       R.ok('"Use a different account" signs out', (await calls(page)).includes('signOut'));
+      // scope 'local', never the default 'global': a global sign-out deletes
+      // every GoTrue session this person has, including the one an MCP/API
+      // connection holds, which is what made Claude ask to be authorized
+      // again after any sign-out (2026-11-04).
+      R.ok('...this browser only, so API connections survive',
+        (await page.evaluate(() => (window.__CALLS__ || [])
+          .filter((c) => c.name === 'signOut')
+          .every((c) => c.args && c.args.scope === 'local'))));
       R.ok('...and brings the sign-in form back', (await shown(page, '#formPassword')) && !(await shown(page, '#formMfa')));
     }
 
