@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="settings-modules.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -21,22 +22,75 @@
 <body>
   <div class="silo-app" id="silo-app">
     <main class="silo-main workspace-settings">
-      <header class="bcn-header"><div class="bcn-header-title">
-        <div>Silo Modules</div>
-        <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Workspace menu visibility</div>
-      </div></header>
-      <div class="ws-page">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>Silo Modules</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Your workspace capability areas</div>
+        </div>
+      </header>
+
+      <section class="bcn-kpi-band" aria-label="Module summary" id="module-kpi-band" hidden>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">ENABLED</div>
+          <div class="bcn-kpi-value bcn-mono" id="module-kpi-enabled">—</div>
+          <div class="bcn-kpi-delta">of <span id="module-kpi-total">5</span> optional modules</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">NAVIGATION</div>
+          <div class="bcn-kpi-value bcn-mono" style="font-size:15px;line-height:1.35;padding-top:4px;">Workspace menu</div>
+          <div class="bcn-kpi-delta">Updates for everyone after each change</div>
+        </div>
+      </section>
+
+      <div class="ws-page sm-page">
         <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
-        <div class="ws-card"><div class="ws-card-head">
-          <div class="ws-title">Show in this workspace's menu</div>
-          <p class="ws-sub">Changes save automatically and apply to everyone in this workspace.</p>
-        </div><div class="ws-body">
-          <p class="ws-note">These switches control menu visibility only. They do not change security permissions, purchased entitlements, billing, saved data or connected integrations. Existing page URLs still work under their existing permissions.</p>
-          <p class="ws-note">Home, Ask SILO, Reports and Settings keep their existing visibility rules. Turning a module on shows only links a person could already see.</p>
-          <div id="module-controls" class="ws-grid"></div>
-          <p class="ws-note" id="module-permission"></p>
-          <button class="bcn-btn bcn-btn--ghost" id="module-reload" type="button">Reload settings</button>
-        </div></div>
+
+        <div class="sm-layout">
+          <div class="ws-card sm-catalog">
+            <div class="ws-card-head">
+              <div>
+                <div class="ws-title">Capability modules</div>
+                <p class="ws-sub" style="margin:4px 0 0;">Turn areas on or off for this workspace. People still reach tools they are allowed to use — including bookmarked URLs.</p>
+              </div>
+            </div>
+            <div class="ws-body">
+              <div id="module-controls" class="sm-module-list" aria-label="Workspace modules"></div>
+            </div>
+          </div>
+
+          <aside class="ws-card sm-aside">
+            <div class="ws-card-head">
+              <div class="ws-title">Always part of SILO</div>
+            </div>
+            <div class="ws-body">
+              <ul class="sm-core-list" aria-label="Core workspace areas">
+                <li class="sm-core-item">
+                  <span class="sm-core-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+                  </span>
+                  <span><span class="sm-core-name">Home &amp; insights</span>Start, dashboards, and SILO Reports stay available under their usual role and grant rules.</span>
+                </li>
+                <li class="sm-core-item">
+                  <span class="sm-core-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 3a7 7 0 0 0-4 12.7V19a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-3.3A7 7 0 0 0 12 3m0 2a5 5 0 0 1 3.5 8.5l-.2.2V19h-6.6v-5.3l-.2-.2A5 5 0 0 1 12 5"/></svg>
+                  </span>
+                  <span><span class="sm-core-name">Ask SILO</span>Controlled separately by workspace grants — not toggled here.</span>
+                </li>
+                <li class="sm-core-item">
+                  <span class="sm-core-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1m1 2v12h12V6zm2 2h8v2H8zm0 4h5v2H8z"/></svg>
+                  </span>
+                  <span><span class="sm-core-name">Workspace settings</span>Company profile, team, integrations, billing, and notifications.</span>
+                </li>
+              </ul>
+              <div class="sm-foot">
+                <p class="ws-note" id="module-permission"></p>
+                <p class="ws-note">Modules shape discovery in the sidebar — they do not change permissions, billing, entitlements, or stored data.</p>
+                <button class="bcn-btn bcn-btn--ghost" id="module-reload" type="button">Reload modules</button>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
   </div>
