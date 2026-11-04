@@ -23,21 +23,35 @@
     }
 
     .fin-landing-head {
-      margin-bottom: 24px;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--bcn-border-strong);
+    }
+
+    .fin-landing-eyebrow {
+      margin: 0 0 8px;
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-3);
     }
 
     .fin-landing-head h1 {
-      font-size: 22px;
-      font-weight: 700;
+      font-size: clamp(24px, 2.4vw, 30px);
+      font-weight: 800;
       color: var(--bcn-ink);
-      margin: 0 0 4px;
-      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+      letter-spacing: -0.03em;
     }
 
     .fin-landing-head p {
-      font-size: 13px;
+      font-size: 14px;
+      line-height: 1.5;
       color: var(--bcn-ink-2);
       margin: 0;
+      max-width: 42rem;
     }
 
     .fin-sections {
@@ -138,8 +152,9 @@
 
     <div class="fin-landing">
       <div class="fin-landing-head">
+        <p class="fin-landing-eyebrow" id="finLandingEyebrow">Operations workspace</p>
         <h1 id="finLandingTitle">SILO Home</h1>
-        <p id="finLandingSub">Choose a tool from the sidebar or below.</p>
+        <p id="finLandingSub">Sales, inventory, purchasing, finance, and marketing&mdash;pick a tool from the sidebar or the cards below.</p>
       </div>
 
       <!-- Compact On Deck link: shown only when real prepared work is waiting

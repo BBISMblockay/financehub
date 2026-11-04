@@ -1,0 +1,425 @@
+/* get-silo.com public welcome — runway hero + modules below. */
+#landing {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  color: var(--bcn-band-ink);
+  font-family: var(--bcn-font);
+  background: #02070c;
+  display: flex;
+  flex-direction: column;
+}
+
+#landing .lp-top,
+#landing .lp-body,
+#landing .lp-foot {
+  position: relative;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 5.6vw, 96px);
+}
+
+#landing .lp-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 20px 12px;
+  z-index: 3;
+}
+
+#landing .lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+}
+
+#landing .lp-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border-strong);
+}
+
+#landing .lp-top-signin {
+  min-height: 44px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bcn-band-ink);
+  background: transparent;
+  border: 1px solid #536375;
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+#landing .lp-top-signin:hover {
+  background: var(--bcn-surface);
+  border-color: var(--bcn-band-ink-2);
+}
+
+/* Cinematic runway — video/still fills the stage; copy sits on a scrim. */
+#landing .lp-runway {
+  position: relative;
+  flex: none;
+  min-height: clamp(520px, 78vh, 880px);
+  margin-inline: clamp(-20px, -2vw, 0);
+  display: flex;
+  align-items: flex-end;
+}
+
+#landing .lp-visual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #02070c;
+}
+
+#landing .lp-visual picture {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+#landing .lp-visual img,
+#landing .lp-visual video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 58% 42%;
+}
+
+#landing .lp-visual video {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#landing .lp-visual[data-motion="playing"] video,
+#landing .lp-visual[data-motion="paused"] video {
+  opacity: 1;
+}
+
+#landing .lp-runway-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(105deg, rgba(2, 7, 12, .94) 0%, rgba(2, 7, 12, .72) 42%, rgba(2, 7, 12, .35) 68%, rgba(2, 7, 12, .55) 100%),
+    linear-gradient(0deg, #02070c 0%, transparent 22%, transparent 78%, rgba(2, 7, 12, .85) 100%);
+}
+
+#landing .lp-runway-copy {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: clamp(28px, 6vw, 56px) clamp(20px, 5.6vw, 96px) clamp(32px, 5vw, 48px);
+}
+
+#landing .lp-eyebrow {
+  margin: 0 0 14px;
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #8fa3b8;
+}
+
+#landing h1 {
+  max-width: 11ch;
+  font-size: clamp(42px, 5.2vw, 72px);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -.045em;
+  margin: 0 0 18px;
+  color: var(--bcn-band-ink);
+  text-wrap: balance;
+}
+
+#landing .lp-description {
+  max-width: 36rem;
+  color: #c5d0dc;
+  font-size: clamp(17px, 1.55vw, 21px);
+  line-height: 1.55;
+  margin: 0;
+}
+
+#landing .lp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+#landing .bcn-btn {
+  min-height: 48px;
+  padding: 13px 22px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#landing .lp-signin {
+  color: #09111b;
+  background: var(--bcn-band-ink);
+  border-color: var(--bcn-band-ink);
+}
+
+#landing .lp-signin:hover {
+  background: #fff;
+  border-color: #fff;
+}
+
+#landing .lp-create {
+  color: var(--bcn-band-ink);
+  background: rgba(8, 17, 29, .55);
+  border-color: #536375;
+  backdrop-filter: blur(8px);
+}
+
+#landing .lp-create:hover {
+  background: var(--bcn-surface);
+  border-color: var(--bcn-band-ink-2);
+}
+
+#landing a:focus-visible,
+#landing button:focus-visible {
+  outline: 3px solid var(--bcn-accent);
+  outline-offset: 5px;
+}
+
+#landing .lp-invite {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #a3b3c3;
+}
+
+#landing .lp-invite a {
+  color: var(--bcn-band-ink);
+  text-underline-offset: 3px;
+}
+
+#landing .lp-motion-controls {
+  position: absolute;
+  z-index: 2;
+  right: clamp(20px, 5.6vw, 96px);
+  bottom: clamp(20px, 4vw, 36px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: min(300px, calc(100% - 40px));
+}
+
+#landing .lp-motion-toggle,
+#landing .lp-motion-fallback {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--bcn-band-ink-2);
+  background: #08111de6;
+  border-color: #536375;
+}
+
+#landing .lp-motion-toggle:hover {
+  color: #fff;
+  border-color: var(--bcn-band-ink-2);
+}
+
+#landing .lp-motion-controls [hidden] {
+  display: none;
+}
+
+#landing .lp-motion-status {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--bcn-band-ink-2);
+  background: #08111de6;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+#landing .lp-body {
+  flex: 1;
+  padding-bottom: 24px;
+}
+
+#landing .lp-details {
+  padding-block: 40px 48px;
+  border-top: 1px solid var(--bcn-border-strong);
+}
+
+#landing .lp-details h2 {
+  margin: 0 0 16px;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.22;
+  letter-spacing: -.02em;
+}
+
+#landing .lp-details h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+#landing .lp-details p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--bcn-ink-2);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+#landing .lp-workflows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-block: 28px;
+}
+
+#landing .lp-workflows .bcn-card {
+  background: rgba(8, 17, 29, .65);
+  border-color: var(--bcn-border-strong);
+}
+
+#landing .lp-workflows .bcn-card-body {
+  padding: 22px 24px;
+}
+
+#landing .lp-details a {
+  color: var(--bcn-band-ink);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+#landing .lp-about {
+  margin-top: 36px;
+}
+
+#landing .lp-about p + p {
+  margin-top: 16px;
+}
+
+#landing .lp-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding-block: 20px 28px;
+  font-size: 12px;
+  color: #a3b3c3;
+  border-top: 1px solid rgba(83, 99, 117, .35);
+}
+
+#landing .lp-foot nav {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+#landing .lp-foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--bcn-ink-2);
+  text-decoration: none;
+}
+
+#landing .lp-foot a:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  #landing .lp-runway {
+    min-height: clamp(480px, 92vh, 720px);
+    align-items: stretch;
+  }
+
+  #landing .lp-visual img,
+  #landing .lp-visual video {
+    object-position: 62% 38%;
+  }
+
+  #landing .lp-runway-copy {
+    margin-top: auto;
+    padding-top: 48px;
+  }
+
+  #landing h1 {
+    max-width: none;
+    font-size: clamp(36px, 9vw, 52px);
+  }
+
+  #landing .lp-description {
+    font-size: 17px;
+  }
+
+  #landing .lp-motion-controls {
+    position: static;
+    margin-top: 20px;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  #landing .lp-motion-status {
+    text-align: left;
+  }
+}
+
+@media (max-width: 600px) {
+  #landing .lp-workflows {
+    grid-template-columns: 1fr;
+  }
+
+  #landing .lp-workflows .bcn-card-body {
+    padding: 18px 20px;
+  }
+}
+
+@media (max-width: 420px) {
+  #landing .lp-actions {
+    gap: 10px;
+    margin-top: 22px;
+  }
+
+  #landing .bcn-btn {
+    padding-inline: 16px;
+  }
+
+  #landing .lp-invite {
+    max-width: 285px;
+  }
+
+  #landing .lp-foot nav {
+    gap: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #landing .bcn-btn {
+    transition: none;
+  }
+
+  #landing .lp-visual:not([data-user-motion="true"]) video {
+    display: none;
+  }
+}
