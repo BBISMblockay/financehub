@@ -1,0 +1,176 @@
+/* Silo Modules — workspace sidebar areas. Scoped to this page. */
+.workspace-settings .sm-page { max-width: 920px; padding-top: 12px; }
+
+.workspace-settings .sm-header {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.workspace-settings .sm-header .bcn-header-title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin-bottom: 0;
+  min-width: 0;
+}
+.workspace-settings .sm-header .bcn-header-title > div:first-child {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--bcn-ink);
+}
+.workspace-settings .sm-header .bcn-header-sub {
+  margin-top: 2px;
+  font-weight: 650;
+  color: var(--bcn-ink);
+}
+.workspace-settings .sm-lede {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--bcn-ink-2);
+  max-width: 52ch;
+}
+.workspace-settings .sm-header-act {
+  flex: none;
+  padding-top: 2px;
+}
+
+.workspace-settings .sm-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  gap: 14px;
+  align-items: start;
+}
+.workspace-settings .sm-catalog .ws-body { padding: 0; }
+.workspace-settings .sm-module-list { display: flex; flex-direction: column; }
+
+.workspace-settings .sm-module {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-top: 1px solid var(--bcn-border);
+}
+.workspace-settings .sm-module:first-child { border-top: 0; }
+.workspace-settings .sm-module.is-off { background: var(--bcn-bg); }
+.workspace-settings .sm-module.is-off .sm-module-mark,
+.workspace-settings .sm-module.is-off .sm-module-title,
+.workspace-settings .sm-module.is-off .sm-module-desc { opacity: .62; }
+
+.workspace-settings .sm-module-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  background: var(--bcn-sunken);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bcn-accent);
+  flex: none;
+}
+.workspace-settings .sm-module-mark svg { display: block; }
+
+.workspace-settings .sm-module-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--bcn-ink);
+}
+.workspace-settings .sm-module-desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--bcn-ink-3);
+}
+
+.workspace-settings .sm-module-toggle {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+}
+.workspace-settings .sm-module-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.workspace-settings .sm-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bcn-border);
+  transition: background .15s ease;
+  flex: none;
+  pointer-events: none;
+}
+.workspace-settings .sm-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bcn-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  transition: transform .15s ease;
+}
+.workspace-settings .sm-module-toggle input:checked + .sm-switch { background: var(--bcn-accent); }
+.workspace-settings .sm-module-toggle input:checked + .sm-switch::after { transform: translateX(18px); }
+.workspace-settings .sm-module-toggle input:focus-visible + .sm-switch {
+  outline: 2px solid var(--bcn-accent);
+  outline-offset: 2px;
+}
+.workspace-settings .sm-module-toggle input:disabled + .sm-switch {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.workspace-settings .sm-aside { margin-bottom: 0; }
+.workspace-settings .sm-aside-head { padding: 10px 14px; }
+.workspace-settings .ws-body--tight { padding: 12px 14px 14px; }
+.workspace-settings .sm-core-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.workspace-settings .sm-core-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--bcn-border);
+  font-size: 12px;
+}
+.workspace-settings .sm-core-row:first-child { border-top: 0; padding-top: 0; }
+.workspace-settings .sm-core-name { font-weight: 600; color: var(--bcn-ink); }
+.workspace-settings .sm-core-meta {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--bcn-ink-3);
+}
+.workspace-settings .sm-reload {
+  margin-top: 14px;
+  align-self: flex-start;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+@media (max-width: 900px) {
+  .workspace-settings .sm-layout { grid-template-columns: 1fr; }
+  .workspace-settings .sm-module { grid-template-columns: 40px minmax(0, 1fr) auto; }
+}

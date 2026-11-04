@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
+  <link rel="stylesheet" href="settings-modules.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -21,22 +22,41 @@
 <body>
   <div class="silo-app" id="silo-app">
     <main class="silo-main workspace-settings">
-      <header class="bcn-header"><div class="bcn-header-title">
-        <div>Silo Modules</div>
-        <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Workspace menu visibility</div>
-      </div></header>
-      <div class="ws-page">
+      <header class="bcn-header sm-header">
+        <div class="bcn-header-title">
+          <div>Silo Modules</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Workspace</div>
+          <p class="sm-lede">Choose which modules are active for everyone in this workspace.</p>
+        </div>
+        <div class="sm-header-act">
+          <span class="bcn-pill" id="module-permission" hidden></span>
+        </div>
+      </header>
+
+      <div class="ws-page sm-page">
         <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
-        <div class="ws-card"><div class="ws-card-head">
-          <div class="ws-title">Show in this workspace's menu</div>
-          <p class="ws-sub">Changes save automatically and apply to everyone in this workspace.</p>
-        </div><div class="ws-body">
-          <p class="ws-note">These switches control menu visibility only. They do not change security permissions, purchased entitlements, billing, saved data or connected integrations. Existing page URLs still work under their existing permissions.</p>
-          <p class="ws-note">Home, Ask SILO, Reports and Settings keep their existing visibility rules. Turning a module on shows only links a person could already see.</p>
-          <div id="module-controls" class="ws-grid"></div>
-          <p class="ws-note" id="module-permission"></p>
-          <button class="bcn-btn bcn-btn--ghost" id="module-reload" type="button">Reload settings</button>
-        </div></div>
+
+        <div class="sm-layout">
+          <div class="ws-card sm-catalog">
+            <div class="ws-body">
+              <div id="module-controls" class="sm-module-list" aria-label="Workspace modules"></div>
+            </div>
+          </div>
+
+          <aside class="ws-card sm-aside">
+            <div class="ws-card-head sm-aside-head">
+              <div class="ws-title">Always on</div>
+            </div>
+            <div class="ws-body ws-body--tight">
+              <ul class="sm-core-list" aria-label="Areas not controlled by module toggles">
+                <li class="sm-core-row"><span class="sm-core-name">Home &amp; reports</span></li>
+                <li class="sm-core-row"><span class="sm-core-name">Ask SILO</span><span class="sm-core-meta">Grants</span></li>
+                <li class="sm-core-row"><span class="sm-core-name">Settings</span></li>
+              </ul>
+              <button class="bcn-btn bcn-btn--ghost sm-reload" id="module-reload" type="button">Reload</button>
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
   </div>
