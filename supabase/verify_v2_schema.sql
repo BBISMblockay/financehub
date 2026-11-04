@@ -1896,6 +1896,11 @@ select
     when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
                      where n.nspname='public' and p.proname='refresh_sales_by_product_title_mv')
       then 'MISSING — refresh_sales_by_product_title_mv(); the rollup would freeze at whatever the migration populated'
+    when not exists (select 1 from pg_matviews m
+                     where m.schemaname='public' and m.matviewname='sales_by_product_title_daily_mv'
+                       and m.definition like '%shopify_product_skus%')
+      then 'MISSING — the canonical title join is gone (20261104193000); products_master alone is one row per SKU across every store, '
+        || 'so the title reverts to whichever store synced last and one product splits across two titles in every report'
     else 'ok'
   end as sales_by_product_title_daily_v;
 
