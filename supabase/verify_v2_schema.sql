@@ -8657,20 +8657,20 @@ select 'connection call log' as check_name,
 -- nobody can tell from the first.
 select 'work:write task tool' as check_name,
   case
-    when to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)') is null
-      then 'MISSING — silo_api_create_task (20261104230000 not applied)'
+    when to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)') is null
+      then 'MISSING — silo_api_create_task (20261105000000 not applied)'
     when to_regclass('public.silo_api_writes') is null
       then 'MISSING — silo_api_writes'
     when (select provolatile from pg_proc
-           where oid = to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)')) <> 'v'
+           where oid = to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)')) <> 'v'
       then 'BROKEN — silo_api_create_task is not VOLATILE, so PostgREST runs it read-only and no task can be written'
     when not has_function_privilege('silo_integration',
-           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)'), 'execute')
       then 'BROKEN — the integration role cannot call the one write tool it is meant to have'
     when has_function_privilege('authenticated',
-           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)'), 'execute')
       or has_function_privilege('anon',
-           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)'), 'execute')
       then 'CRITICAL — a browser role can call the connection write tool, which bypasses launch_tasks RLS'
     when position('/rpc/silo_api_create_task' in
                   pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
@@ -8688,6 +8688,12 @@ select 'work:write task tool' as check_name,
       or has_table_privilege('authenticated', 'public.silo_api_writes', 'delete')
       or has_table_privilege('anon', 'public.silo_api_writes', 'select')
       then 'CRITICAL — a client role can write the ledger that meters and caps connection writes'
+    when position('answer_exists' in
+                  pg_get_functiondef(to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)'))) = 0
+      then 'BROKEN — the write tool no longer hands back the report instead of a task SILO already answers (20261105000000)'
+    when (select count(*) from public.silo_chat_schema_catalog
+           where relname like 'ar\_%' and not coalesce(is_hidden, false)) > 0
+      then 'BROKEN — a retired AR relation is still in the index bots and Ask SILO are shown (20261105000000)'
     when not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'launch_tasks'
                         and column_name = 'created_by_app')

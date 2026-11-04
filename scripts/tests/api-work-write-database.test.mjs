@@ -26,7 +26,8 @@ const test = async (name, fn) => { await fn(); passed += 1; console.log(`ok ${pa
 const MUTATIONS = ['', 'session-company', 'no-member-check', 'loose-assignee', 'any-assignee',
                    'no-cap', 'no-idempotency', 'authenticated-execute', 'ignore-pause', 'no-path',
                    'no-hint', 'hint-ignores-privacy', 'hint-no-stopwords',
-                   'lax-scopes', 'no-scope-path'];
+                   'lax-scopes', 'no-scope-path',
+                   'no-answer-gate', 'gate-blocks-weak', 'ar-still-indexed', 'search-by-recency'];
 const mutation = process.env.WORK_WRITE_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const FILE = 'supabase/migrations/20261104230000_api_work_write_tasks.sql';
@@ -38,6 +39,11 @@ let MIGRATION = original;
 const FILE2 = 'supabase/migrations/20261104234500_api_consent_strict_scopes.sql';
 const original2 = readFileSync(FILE2, 'utf8');
 let MIGRATION2 = original2;
+// And the one after it: an answer beats a task, the retired AR import leaves
+// the index bots are shown, and report search stops answering by recency.
+const FILE3 = 'supabase/migrations/20261105000000_bot_answers_before_tasks.sql';
+const original3 = readFileSync(FILE3, 'utf8');
+let MIGRATION3 = original3;
 
 if (mutation === 'session-company') {
   // The whole point of reading the grant: a connection's token can carry any
@@ -68,9 +74,14 @@ if (mutation === 'no-idempotency') {
     '');
 }
 if (mutation === 'authenticated-execute') {
-  MIGRATION = MIGRATION.replace(
-    'revoke all on function public.silo_api_create_task(text, text, text, date, uuid, text, text) from public, anon, authenticated, silo_revoked;',
-    'revoke all on function public.silo_api_create_task(text, text, text, date, uuid, text, text) from public, anon, silo_revoked;\ngrant execute on function public.silo_api_create_task(text, text, text, date, uuid, text, text) to authenticated;');
+  // Both files: 20261105000000 re-creates the function with one more argument
+  // and re-states its grants, so mutating only the first proves nothing.
+  const loosen = (sql, sig) => sql.replace(
+    `revoke all on function public.silo_api_create_task(${sig}) from public, anon, authenticated, silo_revoked;`,
+    `revoke all on function public.silo_api_create_task(${sig}) from public, anon, silo_revoked;\n`
+      + `grant execute on function public.silo_api_create_task(${sig}) to authenticated;`);
+  MIGRATION = loosen(MIGRATION, 'text, text, text, date, uuid, text, text');
+  MIGRATION3 = loosen(MIGRATION3, 'text, text, text, date, uuid, text, text, boolean');
 }
 if (mutation === 'ignore-pause') {
   MIGRATION = MIGRATION.replace(/  if v_grant\.writes_paused_at is not null then\n[\s\S]*?end if;\n/, '');
@@ -102,7 +113,28 @@ if (mutation === 'lax-scopes') {
 if (mutation === 'no-scope-path') {
   MIGRATION2 = MIGRATION2.replace("    '/rpc/silo_api_scopes')", '    )');
 }
-assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2,
+if (mutation === 'no-answer-gate') {
+  // Back to Blake's complaint: SILO knew the answer and still left a person
+  // the job of producing it by hand.
+  MIGRATION3 = MIGRATION3.replace(/  if v_strong and not coalesce\(p_confirm, false\) then\n[\s\S]*?  end if;\n/, '');
+}
+if (mutation === 'gate-blocks-weak') {
+  // One shared word in a title is not "SILO already answers this", and
+  // swallowing a real task is the worse failure of the two.
+  MIGRATION3 = MIGRATION3.replace('when x.title_hits >= 2 then', 'when x.title_hits >= 1 then');
+}
+if (mutation === 'ar-still-indexed') {
+  MIGRATION3 = MIGRATION3.replace(/update public\.silo_chat_schema_catalog\n   set is_hidden = true,[\s\S]*?'ar_sync_status_v'\);\n/, '');
+}
+if (mutation === 'search-by-recency') {
+  // Both orderings, because they are one behaviour: which ten are chosen and
+  // the order they are handed back in.
+  MIGRATION3 = MIGRATION3.replace('     order by s.match_rank desc, s.updated_at desc nulls last, s.id',
+    '     order by s.updated_at desc nulls last, s.id');
+  MIGRATION3 = MIGRATION3.replace('           order by p.match_rank desc, p.updated_at desc nulls last, p.id)',
+    '           order by p.updated_at desc nulls last, p.id)');
+}
+assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3,
   `mutation ${mutation} changed nothing`);
 
 const A = '00000000-0000-4000-a000-00000000000a';   // the grant's company
@@ -247,10 +279,25 @@ begin
 end $fn$;
 create function public.attach_stamp_company_entity_id_triggers() returns void
   language sql as $fn$ select null::void $fn$;
-create table public.silo_chat_schema_catalog(relname text primary key, is_hidden boolean, reportable boolean);
-insert into public.silo_chat_schema_catalog values ('silo_api_writes', false, true);
+create table public.silo_chat_schema_catalog(relname text primary key, is_hidden boolean,
+  reportable boolean, description text, keywords text[]);
+insert into public.silo_chat_schema_catalog values
+  ('silo_api_writes', false, true, 'The write ledger.', array['writes']),
+  ('ar_invoices', false, false, 'Wholesale accounts receivable from the AR sync.', array['ar']),
+  ('ar_customers', false, false, 'Wholesale customer balances.', array['ar']),
+  ('ar_statements', false, false, 'Statements.', null),
+  ('ar_contact_log', false, false, 'Collections contacts.', null),
+  ('ar_action_queue', false, false, 'Collections queue.', null),
+  ('ar_customer_rollup_v', false, false, 'Rolled up AR position.', null),
+  ('ar_invoice_workbench_v', false, false, 'The collections working view.', null),
+  ('ar_customer_last_contact_v', false, false, 'Last contact.', null),
+  ('ar_customer_queue_summary_v', false, false, 'Queue summary.', null),
+  ('ar_sync_status_v', false, false, 'AR sync status.', null),
+  ('shopify_orders_v', false, true, 'One row per Shopify order.', array['orders','shopify']);
 create function public.refresh_chat_schema_catalog() returns void
   language sql as $fn$ select null::void $fn$;
+create function public.silo_company_timezone(p_company uuid) returns text
+  language sql stable as $fn$ select 'America/Los_Angeles' $fn$;
 
 -- The consent function as it shipped, so the migration REPLACES it exactly as
 -- it will in production. Only c_offered matters to this test.
@@ -272,6 +319,28 @@ const apply = async (text) => {
 };
 await apply(MIGRATION);
 await apply(MIGRATION2);
+// What silo_api_list_reports reads. Only the columns it names; the real view
+// carries the rest and RLS adds the company.
+await db.exec(`
+create view public.silo_chat_saved_reports_v as
+  select s.*, p.name as created_by_name, '[]'::jsonb as parameters
+    from public.silo_chat_saved_reports s
+    left join public.profiles p on p.id = s.created_by;`);
+await apply(MIGRATION3);
+
+// Two company reports for the search ranking: the one somebody searching "AR"
+// means, last updated long ago, and a newer one that merely contains those two
+// letters inside another word.
+const R_AR = '00000000-0000-4000-f000-000000000008';
+const R_MKT = '00000000-0000-4000-f000-000000000009';
+await db.exec(`
+insert into public.silo_chat_saved_reports
+  (id, company_entity_id, created_by, title, description, queries_run, visibility, source, archived_at, updated_at)
+values
+  ('${R_AR}',  '${A}', '${OWNER}', 'Wholesale AR — open balances', 'What customers owe on terms.',
+   array['select 1'], 'company', 'manual', null, now() - interval '200 days'),
+  ('${R_MKT}', '${A}', '${OWNER}', 'Marketing spend by platform',  'Every channel, by month.',
+   array['select 1'], 'company', 'manual', null, now());`);
 
 /* One tool call, as PostgREST makes it. */
 const call = async (args = {}, { grant = G, integration = true, company = A, sub = null } = {}) => {
@@ -286,7 +355,8 @@ const call = async (args = {}, { grant = G, integration = true, company = A, sub
     const r = (await db.query(`select public.silo_api_create_task(
       ${lit(args.title)}, ${lit(args.notes)}, ${lit(args.assignee)},
       ${args.due ? lit(args.due) + '::date' : 'null'}, ${args.launch ? lit(args.launch) + '::uuid' : 'null'},
-      ${lit(args.priority ?? 'normal')}, ${lit(args.key)}) as r`)).rows[0].r;
+      ${lit(args.priority ?? 'normal')}, ${lit(args.key)},
+      ${args.confirm === undefined ? 'null' : args.confirm ? 'true' : 'false'}) as r`)).rows[0].r;
     await db.exec('commit');
     return { ok: true, r };
   } catch (e) {
@@ -300,7 +370,7 @@ const reset = () => db.exec('truncate public.launch_tasks; truncate public.silo_
 
 // ── The fence, before any call ────────────────────────────────────────────
 await test('only the integration role may call the write tool', async () => {
-  const f = 'public.silo_api_create_task(text, text, text, date, uuid, text, text)';
+  const f = 'public.silo_api_create_task(text, text, text, date, uuid, text, text, boolean)';
   assert.equal((await one(`select has_function_privilege('silo_integration', '${f}', 'execute') as p`)).p, true);
   for (const role of ['anon', 'authenticated', 'silo_revoked']) {
     assert.equal((await one(`select has_function_privilege('${role}', '${f}', 'execute') as p`)).p, false,
@@ -548,22 +618,72 @@ await test('an empty priority falls back rather than failing, and notes may be o
   assert.equal(t.launch_id, null);
 });
 
-// ── "This is already a SILO report" ───────────────────────────────────────
-await test('a task that is really a report request comes back with the report', async () => {
+// ── An answer beats a task ────────────────────────────────────────────────
+await test('a request SILO already reports gets the report and NO task', async () => {
   await reset();
-  // Blake's example, verbatim in shape: the bot should deliver the report, not
-  // leave a person to run one SILO already has.
+  // Blake, 2026-11-04 23:33: "if the create task flow found the answer, why
+  // create the task instead of just give [it to] the creator of said task
+  // rather than duplicative work for [the] receiver". His own example.
   const r = await call({ title: 'Send me an open AR report for wholesale',
                          assignee: 'alex.rivera@baseballism.com' });
   assert.equal(r.ok, true, r.message);
+  assert.equal(r.r.created, false, 'nothing was created');
+  assert.equal(r.r.reason, 'answer_exists');
+  assert.equal(r.r.task_id, undefined, 'and there is no task to point at');
   const ids = r.r.report_matches.map((m) => m.report_id);
-  assert.ok(ids.includes(R_SYS), 'SILO’s own tied-out report is the first answer');
-  assert.equal(r.r.report_matches[0].verified, true, 'and it is marked as SILO’s own');
+  assert.ok(ids.includes(R_SYS), 'SILO’s own tied-out report is the answer');
+  assert.equal(r.r.report_matches[0].strength, 'strong', 'and it says why it stopped');
+  assert.equal(r.r.report_matches[0].verified, true);
   assert.match(r.r.report_matches[0].url, /\/v3\/report-builder\.html\?id=/, 'with a link a person can open');
-  assert.match(r.r.next_step, /instead of leaving the task/,
-    'the bot is told what to do with it, not just handed a list');
-  assert.equal((await tasks()).length, 1,
-    'the task is still created: a hint must never swallow a real request');
+  assert.match(r.r.next_step, /give the person the numbers/,
+    'the bot is told to answer, not handed a list');
+  assert.equal((await tasks()).length, 0);
+  assert.equal((await writes()).length, 0, 'and the refusal does not spend a write');
+});
+
+await test('confirm opens it anyway, and the same key still cannot double up', async () => {
+  await reset();
+  const r = await call({ title: 'Send me an open AR report for wholesale',
+                         assignee: 'alex.rivera@baseballism.com', key: 'k-1', confirm: true });
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.r.created, true);
+  assert.equal((await tasks()).length, 1, 'a bot that insists gets its task');
+  const again = await call({ title: 'Send me an open AR report for wholesale',
+                             assignee: 'alex.rivera@baseballism.com', key: 'k-1', confirm: true });
+  assert.equal(again.r.replayed, true);
+  assert.equal((await tasks()).length, 1, 'and a retry is still one task');
+});
+
+await test('a weak match still creates the task and carries the hint', async () => {
+  await reset();
+  // One word shared with a title and two with a description: real work that
+  // merely sounds like a report. Swallowing this would be the worse failure,
+  // which is why one title word is not enough to stop a write.
+  const r = await call({ title: 'Relabel the wholesale cartons in the warehouse account' });
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.r.created, true, 'a hint must never swallow a real request');
+  assert.equal((await tasks()).length, 1);
+  assert.ok(r.r.report_matches.length > 0, 'the related report is still offered');
+  assert.ok(r.r.report_matches.every((m) => m.strength === 'weak'));
+  assert.match(r.r.next_step, /before anyone does this by hand/);
+});
+
+await test('the retired AR import is no longer an answer a bot can reach', async () => {
+  const rows = await q(`select relname, is_hidden, reportable
+                          from public.silo_chat_schema_catalog
+                         where relname like 'ar\\_%' order by relname`);
+  assert.equal(rows.length, 10, 'every retired AR relation is accounted for');
+  for (const r of rows) {
+    assert.equal(r.is_hidden, true, `${r.relname} is still in the index bots are shown`);
+    assert.equal(r.reportable, false, `${r.relname} is still offered in the report builder`);
+  }
+  // Hiding is only half of it: a bot asking "what is owed" has to land
+  // somewhere, and that somewhere is Shopify order status.
+  const live = await one(`select description, keywords from public.silo_chat_schema_catalog
+                           where relname = 'shopify_orders_v'`);
+  assert.match(live.description, /Wholesale receivables live here/);
+  assert.ok(live.keywords.includes('accounts receivable'), 'in the words the question is asked in');
+  assert.ok(live.keywords.includes('orders'), 'and the keywords it already had are kept');
 });
 
 await test('the hint only offers reports that connection may already see', async () => {
@@ -589,6 +709,33 @@ await test('the hint only offers reports that connection may already see', async
   assert.ok(ids(await hint('yesterday’s sales across every channel')).includes(R_GENERIC),
     'it is still found by the words that mean something');
   assert.ok((await hint('wholesale open invoices')).length <= 3, 'at most three');
+});
+
+await test('report search answers by relevance, not by what changed last', async () => {
+  // Why the bot was guessing at AR at all: "AR" is inside "marketing",
+  // "margin" and "year", and the old search handed back the most recently
+  // updated of all those matches.
+  // The same connection, with the read scope its reports tool needs.
+  await db.exec(`update public.silo_api_grants
+                    set scopes = array['reports:read','data:read','work:write']
+                  where id = '${G}'`);
+  await db.exec(`set test.grant_id = '${G}'; set test.integration = 'on';
+                 set test.company = '${A}'; set test.sub = '${MEMBER}';
+                 set request.path = '/rpc/silo_api_list_reports';`);
+  const r = (await one(`select public.silo_api_list_reports('AR') as r`)).r;
+  const titles = r.reports.map((x) => x.title);
+  assert.ok(titles.length >= 2, JSON.stringify(titles));
+  assert.match(titles[0], /AR/, `the report someone means comes first, not ${titles[0]}`);
+  assert.ok(titles.includes('Marketing spend by platform'),
+    'the loose matches are still there, just not first');
+  // And a search that is a word in a title still beats one in a description.
+  const w = (await one(`select public.silo_api_list_reports('margin') as r`)).r;
+  assert.match(w.reports[0].title, /margin/i);
+  await db.exec(`reset test.grant_id; reset test.integration; reset test.company;
+                 reset test.sub; reset request.path;
+                 update public.silo_api_grants
+                    set scopes = array['data:read','work:write']
+                  where id = '${G}'`);
 });
 
 // ── The columns the task list reads ───────────────────────────────────────

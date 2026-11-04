@@ -19543,4 +19543,15 @@ $c$select (select count(*) from v_po_header_summary
 -- path, and makes an unrecognised scope a refusal. Needs 20261104230000.
 -- The tool-list half needs a deploy of the `mcp` function.
 \i migrations/20261104234500_api_consent_strict_scopes.sql
+
+-- An answer beats a task. The same live test showed a bot creating a task for
+-- a colleague while holding the report that answered the request, and reading
+-- the retired AR import (frozen when wholesale/AR moved onto Shopify order
+-- status) as if it were current. create_task now returns the report and
+-- creates nothing on a strong match (confirm overrides), the retired ar_*
+-- relations leave the index bots and Ask SILO are shown, shopify_orders_v says
+-- where receivables live, and report search ranks by relevance instead of by
+-- what changed last. Needs 20261104230000. Needs a deploy of the `mcp`
+-- function for the confirm argument and the new tool text.
+\i migrations/20261105000000_bot_answers_before_tasks.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
