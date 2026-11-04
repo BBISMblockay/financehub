@@ -664,7 +664,15 @@ jobs:
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.
       - name: Workspace settings navigation and platform separation
-        run: node --test scripts/tests/workspace-settings.test.mjs
+        run: node --test scripts/tests/workspace-settings.test.mjs scripts/tests/workspace-modules.test.mjs
+      - name: Prove module visibility and stale response safeguards
+        run: |
+          for mutation in filter late; do
+            if MODULE_MUTATION="$mutation" node --test scripts/tests/workspace-modules.test.mjs; then
+              echo "::error::$mutation did not fail the module suite"
+              exit 1
+            fi
+          done
 
       - name: Team settings feature access helpers
         run: node --test scripts/tests/team-feature-access.test.mjs
@@ -1306,6 +1314,15 @@ jobs:
           node-version: '22'
       - name: Install isolated PostgreSQL test dependency
         run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Workspace module persistence and permission boundaries
+        run: |
+          node scripts/tests/workspace-modules-database.test.mjs
+          for mutation in admin company; do
+            if MODULE_MUTATION="$mutation" node scripts/tests/workspace-modules-database.test.mjs; then
+              echo "::error::$mutation did not fail the module suite"
+              exit 1
+            fi
+          done
       - name: Execute product workflow draft and handoff regressions
         run: node scripts/tests/product-workflow-database.test.mjs
       - name: Execute product-level SKU spread and legacy compatibility regressions

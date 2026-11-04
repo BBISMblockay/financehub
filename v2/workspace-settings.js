@@ -17,6 +17,7 @@
      Keyed by tab id with a neutral fallback, so a tab added without an icon
      gets a plain page mark rather than a ragged row. */
   const ICONS = {
+    'settings/modules': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     // A building: the company itself.
     'settings/company': '<path d="M4 21V6l8-3 8 3v15"/><path d="M9 21v-5h6v5"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/>',
     // Two people: who is in the workspace.

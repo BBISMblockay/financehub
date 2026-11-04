@@ -19479,4 +19479,7 @@ $c$select (select count(*) from v_po_header_summary
 -- tables (RLS already refused those writes; this is the posture
 -- verify_v2_schema.sql asks for). Needs 20261104000500. No deploy.
 \i migrations/20261104003000_meta_custom_conversions_revoke.sql
+
+-- Workspace module menu preferences (no entitlement enforcement).
+\i migrations/20261104014709_workspace_module_visibility.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
