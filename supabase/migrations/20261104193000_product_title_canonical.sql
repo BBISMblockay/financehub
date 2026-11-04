@@ -260,6 +260,7 @@ declare
   deps  jsonb;
   dep   jsonb;
   g     jsonb;
+  gr    record;
   opts  text;
 begin
   with recursive closure as (
@@ -337,9 +338,27 @@ begin
       execute format('comment on view public.%I is %L', dep->>'relname', dep->>'cmt');
     end if;
 
-    -- `create view` re-applies Supabase's default privileges, so the grants
-    -- are replayed to put the object back exactly as it was rather than as
-    -- the defaults would have it.
+    -- `create view` re-applies Supabase's default privileges, which on this
+    -- project grant arwdDxtm on every new relation in public to anon,
+    -- authenticated and service_role. Replaying the captured grants on top of
+    -- that would be defaults PLUS the old ACL: a wrapper whose anon access was
+    -- explicitly revoked would come back readable by anon. So strip whatever
+    -- the create just granted -- every grantee except the owner, read from the
+    -- new object rather than from a hardcoded role list -- and only then put
+    -- the captured ACL back. The result is the ACL as it was found, no more.
+    for gr in select distinct
+                     case when a.grantee = 0 then null
+                          else pg_get_userbyid(a.grantee) end as grantee
+                from pg_class c
+                cross join aclexplode(c.relacl) a
+               where c.oid = format('public.%I', dep->>'relname')::regclass
+                 and a.grantee <> c.relowner
+    loop
+      execute format('revoke all on public.%I from %s',
+                     dep->>'relname',
+                     coalesce(quote_ident(gr.grantee), 'public'));
+    end loop;
+
     for g in select x from jsonb_array_elements(dep->'grants') x loop
       execute format('grant %s on public.%I to %s%s',
                      g->>'priv',

@@ -58,6 +58,12 @@ async function fresh() {
     create role authenticated;
     create role service_role;
 
+    -- Production shape: Supabase grants every new relation in public to these
+    -- three roles by default, so "create view" during the swap re-grants them
+    -- whatever the old ACL said. Without this line the anon assertions below
+    -- pass trivially.
+    alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+
     create function active_company_id() returns uuid language sql stable as
       $$ select current_setting('test.company')::uuid $$;
     create function silo_business_today() returns date language sql stable as
@@ -137,7 +143,9 @@ async function fresh() {
              where s1.company_entity_id = co.cid and s1.product_type is not null
                and s1.day_date >= (silo_business_today() - 365)
              group by s1.product_type) s;
-    revoke all on public.product_type_forecastable_v from anon;
+    -- Production's ACL on this one is SELECT alone for authenticated, not the
+    -- defaults' full set -- so the replay has something narrower to restore.
+    revoke all on public.product_type_forecastable_v from anon, authenticated;
     grant select on public.product_type_forecastable_v to authenticated;
 
     -- Depth 2. Production's reorder_plan_v reads the WRAPPER, not the matview,
@@ -471,6 +479,48 @@ await test('an untitled variant row never costs a SKU its catalog title', async 
     [['Catalog Spelling', 'products_master']]);
 });
 
+await test('the recreated views carry the ACL they had, not the creation defaults', async () => {
+  const { db, q } = await fresh();
+  await seedHoodie(db);
+
+  // What the swap has to restore, read before it runs.
+  const acl = async () => q(`
+    select c.relname,
+           coalesce((select string_agg(distinct a.privilege_type, ',' order by a.privilege_type)
+                       from aclexplode(c.relacl) a
+                      where a.grantee = 'anon'::regrole), '') as anon,
+           coalesce((select string_agg(distinct a.privilege_type, ',' order by a.privilege_type)
+                       from aclexplode(c.relacl) a
+                      where a.grantee = 'authenticated'::regrole), '') as authenticated
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relname in ('sales_by_product_title_daily_v', 'product_type_forecastable_v', 'reorder_plan_v')
+     order by c.relname`);
+
+  const before = await acl();
+  await db.exec(MIGRATION);
+  const after = await acl();
+
+  assert.deepEqual(after, before,
+    'a recreated view came back with Supabase\'s default grants layered on top of its old ACL');
+
+  // Stated explicitly, so the intent survives a fixture change: anon was
+  // revoked on both wrappers and must stay revoked; reorder_plan_v's anon
+  // grant is real and must survive; and authenticated held SELECT alone on
+  // product_type_forecastable_v, not the defaults' full set.
+  const [row] = await q(`
+    select has_table_privilege('anon','public.sales_by_product_title_daily_v','select') as anon_title_v,
+           has_table_privilege('anon','public.product_type_forecastable_v','select')    as anon_forecast_v,
+           has_table_privilege('anon','public.reorder_plan_v','select')                 as anon_reorder_v,
+           has_table_privilege('authenticated','public.product_type_forecastable_v','insert') as auth_insert,
+           has_table_privilege('anon','public.sales_by_product_title_daily_mv','select') as anon_mv`);
+  assert.equal(row.anon_title_v, false, 'anon regained the company-filtered wrapper');
+  assert.equal(row.anon_forecast_v, false, 'anon regained product_type_forecastable_v');
+  assert.equal(row.anon_reorder_v, true, 'the intentional anon grant on reorder_plan_v was stripped');
+  assert.equal(row.auth_insert, false, 'the creation defaults left authenticated more than the SELECT it had');
+  assert.equal(row.anon_mv, false, 'the matview carries no RLS; anon must not reach it');
+});
+
 // ─── mutations: break the fix, the tests must notice ────────────────────────
 const MUTATIONS = [
   ['the canonical join removed (back to products_master alone)',
@@ -493,6 +543,11 @@ const MUTATIONS = [
   ['the dependency closure capped at depth 1 (the production apply failure)',
    '       and closure.lvl < 10',
    '       and closure.lvl < 1'],
+  // The replay grants but never revokes, so Supabase's default privileges on
+  // a freshly created view survive underneath the captured ACL.
+  ['the creation-default grants left in place before the ACL replay',
+   "                 and a.grantee <> c.relowner",
+   '                 and false'],
   ['the dependent views never recreated',
    "  -- Shallowest first, each exactly as it was found.\n  for dep in select d from jsonb_array_elements(deps) d order by (d->>'lvl')::int loop",
    "  -- Shallowest first, each exactly as it was found.\n  for dep in select d from jsonb_array_elements(deps) d where false loop"],
@@ -588,6 +643,23 @@ for (const [name, from, to] of MUTATIONS) {
         await db.exec(mutated);
         const got = (await titles(q)).map((r) => [r.product_title, r.title_source]);
         failed = JSON.stringify(got) !== JSON.stringify([['Catalog Spelling', 'products_master']]);
+      } catch { failed = true; }
+      checks.push(failed);
+    }
+
+    // The recreated views must not come back with the creation defaults.
+    {
+      const { db, q } = await fresh();
+      await seedHoodie(db);
+      let failed = false;
+      try {
+        await db.exec(mutated);
+        const [row] = await q(`
+          select has_table_privilege('anon','public.sales_by_product_title_daily_v','select') as a1,
+                 has_table_privilege('anon','public.product_type_forecastable_v','select') as a2,
+                 has_table_privilege('authenticated','public.product_type_forecastable_v','insert') as a3,
+                 has_table_privilege('anon','public.reorder_plan_v','select') as keep`);
+        failed = row.a1 || row.a2 || row.a3 || !row.keep;
       } catch { failed = true; }
       checks.push(failed);
     }
