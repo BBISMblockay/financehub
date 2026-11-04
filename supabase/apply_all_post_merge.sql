@@ -19463,4 +19463,16 @@ $c$select (select count(*) from v_po_header_summary
 -- tables hidden from the chat catalog / MCP allowlist, descriptions rewritten
 -- without the vendor's name. Needs 20261103080000. No deploy.
 \i migrations/20261103233717_connected_sources_neutral_names.sql
+-- Meta custom conversions and custom pixel events: two new tables and a view
+-- (meta_custom_conversion_daily, meta_custom_conversions,
+-- meta_custom_conversion_daily_v) for the events the ads sync used to read out
+-- of Meta's response and discard. Purely additive -- no existing marketing
+-- table is altered. Owes a deploy of ad-platform-sync-run (its vendored copy of
+-- the sync core changed). Before the catalog cleanup.
+\i migrations/20261104000500_meta_custom_conversions.sql
+-- Reach and frequency columns on marketing_kpis_daily and
+-- meta_ad_performance_daily (nullable, additive) plus the catalog note that
+-- neither may be summed or averaged. Owes the same ad-platform-sync-run deploy
+-- as 20261104000500. Before the catalog cleanup.
+\i migrations/20261104001000_meta_reach_frequency.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
