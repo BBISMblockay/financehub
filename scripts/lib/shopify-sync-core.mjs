@@ -2274,14 +2274,6 @@ export async function runCatalogSync(supabase, connection, { batchId } = {}) {
     rowBySku.set(v.sku, {
       sku: v.sku,
       company_entity_id: connection.company_entity_id,
-      // LAST STORE TO SYNC WINS, and the order is alphabetical by shop_domain
-      // (loadConnections()). products_master is UNIQUE (company, sku) and this
-      // function runs once per store, so for a SKU carried by two catalogs this
-      // title is a statement about sync order, not about the product. Reports
-      // must NOT group on it: sales_by_product_title_daily_mv resolves one
-      // canonical title per (company, sku) out of shopify_product_skus below,
-      // preferring the published store copy (20261104193000). Grouping on this
-      // column split a youth hoodie into two titles and read 151 units of 430.
       product_title: (p.title || '').trim() || v.sku,
       variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
       product_type: productType,
