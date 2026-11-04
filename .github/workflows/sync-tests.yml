@@ -210,6 +210,7 @@ on:
       - 'supabase/migrations/*developer_api_connection_labels.sql'
       - 'scripts/tests/mcp-guide.test.mjs'
       - 'supabase/migrations/*api_work_write_tasks.sql'
+      - 'supabase/migrations/*api_consent_strict_scopes.sql'
       - 'scripts/tests/api-work-write-database.test.mjs'
       - 'v2/tasks.html'
       - 'v2/settings-company.html'
@@ -1771,7 +1772,7 @@ jobs:
       - name: Execute work:write task tool regressions
         run: |
           node scripts/tests/api-work-write-database.test.mjs
-          for mutation in session-company no-member-check loose-assignee any-assignee no-cap no-idempotency authenticated-execute ignore-pause no-path no-hint hint-ignores-privacy hint-no-stopwords; do
+          for mutation in session-company no-member-check loose-assignee any-assignee no-cap no-idempotency authenticated-execute ignore-pause no-path no-hint hint-ignores-privacy hint-no-stopwords lax-scopes no-scope-path; do
             if WORK_WRITE_MUTATION="$mutation" node scripts/tests/api-work-write-database.test.mjs; then
               echo "::error::$mutation did not fail the work:write suite"
               exit 1

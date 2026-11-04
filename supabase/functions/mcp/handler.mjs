@@ -221,6 +221,12 @@ export const TOOLS = [
   },
 ];
 
+/* Tools that need a scope the connection may not have been given. Only
+   writes are listed: every read tool here is covered by the two read scopes a
+   connection always carries, so filtering on those would hide tools from a
+   grant that works. */
+const TOOL_SCOPE = { create_task: 'work:write' };
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CORS = {
@@ -301,6 +307,27 @@ export function createMcpHandler({ env, fetchImpl }) {
     try { data = text ? JSON.parse(text) : null; } catch (_) { data = { message: text }; }
     if (res.ok) return { ok: true, status: res.status, data };
     return { ok: false, status: res.status, ...decodeRefusal(data) };
+  }
+
+  /* The tools THIS connection may actually call.
+     A client shows the person what the server advertises, so advertising a
+     write tool to a read-only connection tells them they granted something
+     they did not: Claude's connector read "Write/delete tools 1" for a grant
+     with no work:write (2026-11-04). The permission is still enforced per call
+     by silo_api_require_scope() -- this only stops the list from lying.
+     Failing to read the scopes hides the write tool rather than showing it:
+     a missing tool is a reconnect, an unexpected refusal is a mystery. */
+  async function toolsFor(authorization) {
+    let scopes = [];
+    try {
+      const out = await callRpc(authorization, 'silo_api_scopes', {});
+      if (out.ok && Array.isArray(out.data)) scopes = out.data;
+    } catch (_) { scopes = []; }
+    const allowed = TOOLS.filter((t) => {
+      const need = TOOL_SCOPE[t.name];
+      return !need || scopes.indexOf(need) !== -1;
+    });
+    return toolsWithGuide(allowed);
   }
 
   async function onInitialize(id, params, authorization) {
@@ -564,7 +591,7 @@ export function createMcpHandler({ env, fetchImpl }) {
       switch (msg.method) {
         case 'initialize': return await onInitialize(msg.id, msg.params, authorization);
         case 'ping':       return rpcResult(msg.id, {});
-        case 'tools/list': return rpcResult(msg.id, { tools: toolsWithGuide(TOOLS) });
+        case 'tools/list': return rpcResult(msg.id, { tools: await toolsFor(authorization) });
         case 'tools/call': return await onToolCall(msg.id, msg.params, authorization);
         default:           return rpcError(msg.id, -32601, 'Method not found: ' + msg.method);
       }

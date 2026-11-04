@@ -348,17 +348,52 @@
   /* The box, not the page's list: silo_api_consent() stores exactly the scopes
      it is handed, so this is the one place that decides whether the connection
      can write at all. Unticked is the default and the common case. */
+  /* The literals are the fallback on purpose. This page and
+     api-connections.js are separate files with separate cache lifetimes, so a
+     browser can run a new page against an older script in which a constant
+     does not exist yet -- which is how an approval on 2026-11-04 sent a null
+     where the write scope should have been and stored a connection without
+     the permission that had just been ticked. */
+  const WRITE = (K && K.WRITE_SCOPE) || 'work:write';
+  const READS = (K && Array.isArray(K.SILO_SCOPES) && K.SILO_SCOPES.length)
+    ? K.SILO_SCOPES : ['reports:read', 'data:read'];
+
   function chosenScopes() {
     const on = !!(el('optWrite') && el('optWrite').checked);
-    return on ? K.SILO_SCOPES.concat([K.WRITE_SCOPE]) : K.SILO_SCOPES;
+    return (on ? READS.concat([WRITE]) : READS).filter(Boolean);
   }
 
   async function writeGrant(clientId) {
     if (!clientId) throw new Error('This request did not name an application.');
+    const wanted = chosenScopes();
     const { error } = await db.rpc('silo_api_consent', {
-      p_client_id: clientId, p_scopes: chosenScopes(),
+      p_client_id: clientId, p_scopes: wanted,
     });
     if (error) throw new Error(error.message);
+
+    /* Read the grant back. The database now refuses a scope it does not
+       recognise, but this page is what the person read before clicking, so it
+       checks that what was stored is what they were shown rather than trusting
+       the write. Anything unreadable here is NOT treated as a failure: the
+       grant exists either way, and blocking the connection over a failed
+       verification read would be a worse bug than the one it guards. */
+    if (!wanted.includes(WRITE)) return;
+    try {
+      const { data } = await db
+        .from('silo_api_grants')
+        .select('scopes')
+        .eq('client_id', clientId)
+        .is('revoked_at', null)
+        .order('consented_at', { ascending: false })
+        .limit(1);
+      const stored = (data && data[0] && data[0].scopes) || null;
+      if (Array.isArray(stored) && !stored.includes(WRITE)) {
+        throw new Error('SILO approved the connection but did not record permission to open tasks. '
+          + 'Reload this page and approve again.');
+      }
+    } catch (e) {
+      if (e && /did not record permission/.test(e.message || '')) throw e;
+    }
   }
 
   async function setCompany(entityId) {

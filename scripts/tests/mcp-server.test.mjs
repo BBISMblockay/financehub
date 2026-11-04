@@ -181,15 +181,47 @@ test('a forged or expired token, which only PostgREST can detect, is also a 401'
 
 // ── 4. tools ───────────────────────────────────────────────────────────────
 
-test('stored and live tools are read-only; listing tools reads no data', async () => {
-  const { handle, calls } = harness();
+test('the tool list shows what this connection may call, and nothing else', async () => {
+  // Scopes are read per list. A client shows the person what the server
+  // advertises, so a read-only connection that sees a write tool is told it
+  // has a permission it does not (Claude's connector read "Write/delete tools
+  // 1" for a grant with no work:write, live on 2026-11-04).
+  const withScopes = (scopes) => harness((fn) =>
+    fn === 'silo_api_scopes' ? [200, scopes] : [200, CATALOG]);
+
+  const writer = withScopes(['reports:read', 'data:read', 'work:write']);
+  const wrote = await (await writer.handle(post(rpc('tools/list')))).json();
+  assert.deepEqual(wrote.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'create_task', 'how_to_use_silo']);
+  assert.deepEqual(writer.calls.map((c) => c.fn), ['silo_api_scopes'],
+    'listing reads the connection\'s own scopes and no data');
+
+  const reader = withScopes(['reports:read', 'data:read']);
+  const read1 = await (await reader.handle(post(rpc('tools/list')))).json();
+  assert.ok(!read1.result.tools.some((t) => t.name === 'create_task'),
+    'a read-only connection is not shown a tool it would be refused');
+  assert.deepEqual(read1.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'how_to_use_silo'],
+    'and every read tool is still there');
+
+  // Fail closed: an unreadable scope list hides the write tool rather than
+  // offering one that cannot be used. A missing tool is a reconnect; an
+  // unexplained refusal is a mystery.
+  for (const answer of [
+    (fn) => fn === 'silo_api_scopes' ? [500, { message: 'boom' }] : [200, CATALOG],
+    (fn) => { if (fn === 'silo_api_scopes') throw new Error('network'); return [200, CATALOG]; },
+  ]) {
+    const broken = harness(answer);
+    const out = await (await broken.handle(post(rpc('tools/list')))).json();
+    assert.ok(!out.result.tools.some((t) => t.name === 'create_task'),
+      'a refusal AND a thrown request must both hide the write tool');
+    assert.ok(out.result.tools.length > 1, 'but the reads still list');
+  }
+});
+
+test('create_task is the only tool that declares itself not read-only', async () => {
+  const { handle } = harness((fn) =>
+    fn === 'silo_api_scopes' ? [200, ['reports:read', 'data:read', 'work:write']] : [200, CATALOG]);
   const body = await (await handle(post(rpc('tools/list')))).json();
-  // how_to_use_silo is the training layer's own tool and reads no data
-  // (supabase/functions/mcp/guide.mjs, scripts/tests/mcp-guide.test.mjs).
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'create_task', 'how_to_use_silo']);
-  // create_task is the ONE tool that writes, and the only one allowed to
-  // declare itself not read-only. Pinned as a list so a second writer cannot
-  // arrive unremarked.
+  // Pinned as a list so a second writer cannot arrive unremarked.
   const writers = body.result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name);
   assert.deepEqual(writers, ['create_task']);
   for (const t of TOOLS) {
@@ -201,7 +233,6 @@ test('stored and live tools are read-only; listing tools reads no data', async (
       assert.equal(t.annotations.readOnlyHint, true, t.name);
     }
   }
-  assert.equal(calls.length, 0);
 });
 
 test('list_reports returns the catalog exactly as the database gave it', async () => {
@@ -414,7 +445,7 @@ test('the function never reaches for the database service role; live access adds
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
     ['silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query',
-     'silo_api_run_report', 'silo_api_windsor_connections']);
+     'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
 });
 
 test('the claims reader is the shared gate, byte for byte', () => {

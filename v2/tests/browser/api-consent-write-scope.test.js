@@ -13,6 +13,10 @@
  *   3. the "will be able to" list and the "will not be able to" line both
  *      change with it -- "change, add or delete anything" would be a lie about
  *      the "add" once writing is on
+ *   4. a grant that comes back WITHOUT the write permission stops the
+ *      approval with an error instead of handing the application a connection
+ *      the person thinks can open tasks (what happened live on 2026-11-04,
+ *      from a cached script sending a null scope)
  */
 'use strict';
 
@@ -33,7 +37,8 @@ const FIXTURE = {
   }],
 };
 
-async function openScreen(suite) {
+async function openScreen(suite, opts) {
+  const o = opts || {};
   await suite.context.addInitScript(() => {
     window.__FIXTURE_MFA__ = { currentLevel: 'aal2', factors: [{ id: 'f1', status: 'verified', factor_type: 'totp' }], calls: [] };
     window.__CONSENT_CALLS__ = [];
@@ -51,7 +56,8 @@ async function openScreen(suite) {
     return route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ redirect_url: '/v2/api-consent.html?done=1' }) });
   });
-  const page = await suite.open('/v2/api-consent.html?authorization_id=authz-1', FIXTURE, {
+  const page = await suite.open('/v2/api-consent.html?authorization_id=authz-1',
+    Object.assign({}, FIXTURE, o.tables || {}), {
     cachedCompany: { id: CO, title: 'Baseballism', entity_key: 'baseballism' },
     serverCompany: { id: CO, title: 'Baseballism', entity_key: 'baseballism' },
     rpc: {
@@ -92,6 +98,25 @@ const scopesOf = async (page) => page.evaluate(() => (window.__CONSENT_CALLS__ |
     await page.waitForFunction(() => (window.__CONSENT_CALLS__ || []).length > 0, { timeout: 10000 });
     r.test('approving without ticking it grants reads only', async () => {});
     r.eq((await scopesOf(page))[0], ['reports:read', 'data:read'], 'no work:write anywhere near it');
+    await page.close();
+
+    // ── 4: the grant is read back, and a missing permission is an error ──
+    page = await openScreen(suite, {
+      // The grant SILO stored carries the reads only -- the write was dropped
+      // somewhere between the tick and the database.
+      tables: { silo_api_grants: [{ id: 'g1', client_id: CLIENT, user_id: 'test-user',
+        company_entity_id: CO, scopes: ['reports:read', 'data:read'],
+        consented_at: new Date().toISOString(), revoked_at: null }] },
+    });
+    await page.check('#optWrite');
+    await page.click('#btnApprove');
+    await page.waitForFunction(() => {
+      const s = document.getElementById('status');
+      return s && !s.hidden && /did not record permission/i.test(s.textContent || '');
+    }, { timeout: 10000 });
+    r.test('a grant stored without the write permission stops the approval', async () => {});
+    r.has(await page.textContent('#status'), 'approve again', 'and says what to do about it');
+    r.eq(await page.isVisible('#btnApprove'), true, 'the person can try again rather than being stranded');
     await page.close();
 
     // ── 2 and 3: ticking it ─────────────────────────────────────────────

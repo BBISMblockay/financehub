@@ -92,7 +92,9 @@ test('the tool list carries the guide tool and the guidance on the other two', a
   assert.deepEqual(byName.list_reports.inputSchema, before.find((t) => t.name === 'list_reports').inputSchema,
     'the input schema is untouched -- only the prose is added to');
   assert.deepEqual(TOOLS, before, 'the exported tool list is not rewritten in place');
-  assert.equal(calls.length, 0, 'listing tools reads no data');
+  // Listing asks the database one thing only: which scopes THIS connection
+  // has, so a read-only grant is not shown the write tool. No business data.
+  assert.deepEqual(calls.map((c) => c.fn), ['silo_api_scopes'], 'listing tools reads no data');
 });
 
 test('the guide tool answers the glossary, the routing table and a note per report', async () => {
