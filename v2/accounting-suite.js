@@ -51,25 +51,26 @@
     'finance/qbo-reports': 'Financial reports',
   };
 
-  /* Where this page sits in a typical month-end path — orientation only. */
-  const CLOSE_STEPS = [
+  /* Areas of finance work — not a month-end sequence. Sales and reports are live in the books. */
+  const FINANCE_AREAS = [
     { key: 'setup', label: 'Setup', href: '/v2/accounting-books.html',
-      pages: ['finance/books'], blurb: 'Opening balances and book settings.' },
+      pages: ['finance/books'], blurb: 'Opening balances, who keeps the books, and chart of accounts.' },
     { key: 'activity', label: 'Bank activity', href: '/v2/transactions.html',
-      pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines for the period.' },
+      pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines as they arrive.' },
     { key: 'sales', label: 'Sales journals', href: '/v2/accounting-export.html',
-      pages: ['finance/accounting-export'], blurb: 'Turn sales into journal entries.' },
+      pages: ['finance/accounting-export'],
+      blurb: 'Shopify sales are already in your books — pick a period when you want to post the journal entry.' },
     { key: 'invoicing', label: 'Invoicing', href: '/v2/invoicing.html',
-      pages: ['finance/invoicing'], blurb: 'Send invoices and track payments.' },
-    { key: 'close', label: 'Reports & cash', href: '/v2/qbo-reports.html',
+      pages: ['finance/invoicing'], blurb: 'Send invoices and track what customers owe.' },
+    { key: 'reports', label: 'Reports & cash', href: '/v2/qbo-reports.html',
       pages: ['finance/qbo-reports', 'finance/cash-forecast', 'finance/schedules', 'finance/fixed-assets'],
-      blurb: 'Review statements, schedules, and cash ahead.' },
+      blurb: 'Financial reports and cash outlook from what is already recorded.' },
   ];
 
   const PAGE_HELP = {
     'finance/books': { subtitle: 'Opening balances, chart of accounts, and book settings.' },
     'finance/card-coding': { subtitle: 'Categorize bank and card activity for this period.' },
-    'finance/accounting-export': { subtitle: 'Build and review sales journal entries by period.' },
+    'finance/accounting-export': { subtitle: 'Shopify sales in your books — review and post journal entries by period.' },
     'finance/invoicing': { subtitle: 'Create invoices and see what customers owe.' },
     'finance/qbo-reports': { subtitle: 'Run financial reports from your connected books.' },
     'finance/schedules': { subtitle: 'Recurring entries and amortization over time.' },
@@ -77,8 +78,8 @@
     'finance/cash-forecast': { subtitle: 'See cash ahead from history and what is planned.' },
   };
 
-  function stepForPage(active) {
-    for (const step of CLOSE_STEPS) if (step.pages.includes(active)) return step;
+  function areaForPage(active) {
+    for (const area of FINANCE_AREAS) if (area.pages.includes(active)) return area;
     return null;
   }
 
@@ -109,22 +110,22 @@
       band = document.createElement('section');
       band.className = 'accounting-close';
       band.dataset.accountingClose = '';
-      band.setAttribute('aria-label', 'Month-end path');
+      band.setAttribute('aria-label', 'Finance areas');
       const head = document.createElement('div');
       head.className = 'accounting-close-head';
-      head.innerHTML = '<span class="accounting-close-label">Month-end path</span>'
+      head.innerHTML = '<span class="accounting-close-label">In your books</span>'
         + '<span class="accounting-close-books" data-accounting-books hidden></span>'
-        + '<a class="accounting-close-queue" href="/v2/on-deck.html">Review queue</a>';
+        + '<a class="accounting-close-queue" href="/v2/on-deck.html">Period review</a>';
       const list = document.createElement('ol');
       list.className = 'accounting-close-steps';
       const stepEls = [];
-      for (const step of CLOSE_STEPS) {
+      for (const area of FINANCE_AREAS) {
         const item = document.createElement('li');
         item.className = 'accounting-close-step';
-        item.dataset.step = step.key;
+        item.dataset.step = area.key;
         const link = document.createElement('a');
-        link.href = step.href;
-        link.textContent = step.label;
+        link.href = area.href;
+        link.textContent = area.label;
         item.append(link);
         list.append(item);
         stepEls.push(item);
@@ -139,22 +140,21 @@
       band._hereEl = here;
       if (typeof nav.after === 'function') nav.after(band);
     }
-    const current = stepForPage(active);
+    const current = areaForPage(active);
     const here = band._hereEl
       || (band.querySelector && band.querySelector('[data-accounting-close-here]'));
-    const idx = current ? CLOSE_STEPS.indexOf(current) : -1;
     const steps = band._stepEls
       || (band.querySelectorAll && band.querySelectorAll('.accounting-close-step'));
     if (steps) {
       for (let i = 0; i < steps.length; i++) {
         const el = steps[i];
         if (!el?.classList) continue;
-        el.classList.toggle('is-current', CLOSE_STEPS[i] === current);
-        el.classList.toggle('is-past', idx >= 0 && i < idx);
+        el.classList.toggle('is-current', FINANCE_AREAS[i] === current);
+        el.classList.remove('is-past');
       }
     }
     if (here && current) {
-      here.textContent = `You are on ${current.label} — ${current.blurb}`;
+      here.textContent = `${current.label} — ${current.blurb}`;
     } else if (here) here.textContent = '';
   }
 
