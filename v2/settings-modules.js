@@ -14,27 +14,27 @@
 
   const MODULE_COPY = {
     marketing: {
-      desc: 'Campaign analytics, ad creative, SEO, and marketing performance reports.',
+      desc: 'Marketing, ads, and SEO.',
       sections: ['Marketing'],
       icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 5h2v14H3zm4 0h2l7 12V5h2v14h-2l-7-12v12H7z"/></svg>',
     },
     finance: {
-      desc: 'Accounting, customers, payment requests, and finance operations.',
+      desc: 'Accounting and payment requests.',
       sections: ['Accounting', 'Requests'],
       icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 4h16v16H4zm2 2v12h12V6zm1.5 2h9v2h-9zm0 4h9v2h-9zm0 4h6v2h-6z"/></svg>',
     },
     purchasing_inventory: {
-      desc: 'Purchase orders, factories, inventory, products, and Product Studio.',
+      desc: 'POs, inventory, and products.',
       sections: ['Purchasing', 'Inventory', 'Product & inventory'],
       icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 8h16l-1.5 10H5.5zm2.2-4h11.6L19 6H5z"/></svg>',
     },
     planning: {
-      desc: 'Calendars, revenue projections, scenarios, launches, and task management.',
+      desc: 'Calendar, projections, and tasks.',
       sections: ['Planning'],
       icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3zm13 8H6v10h14zm0-4H6v2h14z"/></svg>',
     },
     team: {
-      desc: 'Performance reviews, compensation requests, and people workflows.',
+      desc: 'Reviews and compensation.',
       sections: ['Team'],
       icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 19a4 4 0 0 1 4-4h1.1a5 5 0 0 0-.1 1v3zm14.9 0v-3a5 5 0 0 0-.1-1H18a4 4 0 0 1 4 4z"/></svg>',
     },
@@ -47,23 +47,11 @@
   const lock = () => controls.forEach(input => { input.disabled = busy || !available || !canEdit; });
 
   function paintSummary(visibility) {
-    const total = nav.MODULES.length;
-    const enabled = nav.MODULES.filter(m => visibility[m.id] !== false).length;
-    $('module-kpi-total').textContent = String(total);
-    $('module-kpi-enabled').textContent = String(enabled);
-    $('module-kpi-band').hidden = false;
     for (const module of nav.MODULES) {
       const on = visibility[module.id] !== false;
       const card = cards.get(module.id);
       if (!card) continue;
       card.classList.toggle('is-off', !on);
-      const pill = card.querySelector('[data-module-state]');
-      if (pill) {
-        pill.textContent = on ? 'Enabled' : 'Hidden';
-        pill.className = `bcn-pill ${on ? 'bcn-pill--pos' : ''}`.trim();
-      }
-      const label = card.querySelector('.sm-toggle-label');
-      if (label) label.textContent = on ? 'On' : 'Off';
     }
   }
 
@@ -84,7 +72,7 @@
     available = false; canEdit = false; lock();
     const { co, user } = await current();
     company = co;
-    $('module-company').textContent = `${co.title || 'Workspace'} · Module catalog`;
+    $('module-company').textContent = co.title || 'Workspace';
     const membership = check(await db.from('entity_memberships').select('role')
       .eq('entity_id', co.id).eq('user_id', user.id).maybeSingle());
     if (!membership) throw new Error('Workspace membership required.');
@@ -95,8 +83,8 @@
     controls.forEach(input => { input.checked = visibility[input.value] !== false; });
     paintSummary(visibility);
     $('module-permission').textContent = canEdit
-      ? 'Workspace owners and administrators can enable or disable modules here.'
-      : 'Only workspace owners and administrators can change module settings.';
+      ? 'Owners and admins can edit.'
+      : 'View only.';
     available = true; lock();
   }
 
@@ -112,16 +100,9 @@
 
     const body = document.createElement('div');
     body.className = 'sm-module-body';
-    const head = document.createElement('div');
-    head.className = 'sm-module-head';
     const title = document.createElement('h3');
     title.className = 'sm-module-title';
     title.textContent = module.label;
-    const pill = document.createElement('span');
-    pill.className = 'bcn-pill bcn-pill--pos';
-    pill.dataset.moduleState = '';
-    pill.textContent = 'Enabled';
-    head.append(title, pill);
 
     const desc = document.createElement('p');
     desc.className = 'sm-module-desc';
@@ -135,7 +116,7 @@
       tag.textContent = name;
       sections.append(tag);
     }
-    body.append(head, desc, sections);
+    body.append(title, desc, sections);
 
     const toggle = document.createElement('label');
     toggle.className = 'sm-module-toggle';
@@ -144,13 +125,11 @@
     input.value = module.id;
     input.disabled = true;
     input.setAttribute('role', 'switch');
+    input.setAttribute('aria-label', module.label);
     const switchEl = document.createElement('span');
     switchEl.className = 'sm-switch';
     switchEl.setAttribute('aria-hidden', 'true');
-    const toggleLabel = document.createElement('span');
-    toggleLabel.className = 'sm-toggle-label';
-    toggleLabel.textContent = 'On';
-    toggle.append(input, switchEl, toggleLabel);
+    toggle.append(input, switchEl);
 
     article.append(mark, body, toggle);
     $('module-controls').append(article);
