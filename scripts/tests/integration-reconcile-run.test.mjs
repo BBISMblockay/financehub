@@ -21,6 +21,25 @@ import { spawn } from 'node:child_process';
 const CO = '11111111-1111-1111-1111-111111111111';
 const OTHER = '22222222-2222-2222-2222-222222222222';
 
+/** The reconciler measures freshness against the PACIFIC business day
+ *  (`pacificToday()` in scripts/reconcile-integrations.mjs), and `daysBetween()`
+ *  compares the first ten characters of each value -- so every "today" the
+ *  fixture seeds has to carry the Pacific date, including the timestamptz
+ *  stamps, whose UTC date runs a day ahead between 00:00 and 08:00 UTC. Seeding
+ *  `new Date().toISOString()` put the evidence a day ahead of the clock the code
+ *  reads, "synced today" measured as -1 days behind, and the suite went red
+ *  overnight and green by morning.
+ *
+ *  The sales feed is judged on the connection's own stamp (`last_sales_sync_at`),
+ *  not on the newest `day_date`, so the stamp is the one that decided this
+ *  failure; the day column is seeded the same way because it is compared against
+ *  the same clock wherever a feed has no stamp. */
+const PACIFIC_TODAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+/** An instant that falls on PACIFIC_TODAY, for the timestamptz stamps. */
+const PACIFIC_TODAY_AT = `${PACIFIC_TODAY}T12:00:00-08:00`;
+
 /** One Shopify store nobody ever imported, in a company of its own, plus the
  *  tables every other feed reads (empty, so those feeds say nothing). */
 function fixture() {
@@ -33,13 +52,13 @@ function fixture() {
       id: 'conn-live', company_entity_id: CO, shop_domain: 'live.myshopify.com',
       display_name: null, is_active: true, sync_enabled: true,
       last_test_status: 'ok', last_test_success: true, last_test_error: null,
-      meta: { last_sales_sync_at: new Date().toISOString() },
+      meta: { last_sales_sync_at: PACIFIC_TODAY_AT },
     }],
-    sales_by_day: [{ day_date: new Date().toISOString().slice(0, 10), shop_domain: 'live.myshopify.com', company_entity_id: CO },
+    sales_by_day: [{ day_date: PACIFIC_TODAY, shop_domain: 'live.myshopify.com', company_entity_id: CO },
       // The other company's copy of the new store: evidence that must NOT
       // count, because it is not this connection's company.
       { day_date: '2026-10-19', shop_domain: 'brandnew.myshopify.com', company_entity_id: OTHER }],
-    inventory_on_hand: [{ snapshot_at: new Date().toISOString(), shop_domain: 'live.myshopify.com', company_entity_id: CO }],
+    inventory_on_hand: [{ snapshot_at: PACIFIC_TODAY_AT, shop_domain: 'live.myshopify.com', company_entity_id: CO }],
   };
 }
 

@@ -250,9 +250,19 @@ await test('the fingerprint reads the sync record, not the fact table, and is re
  assert.notEqual(first.id, second.id, 'two seo drafts are open');
  // Counting the fingerprint's own calls: every branch resolves the company
  // timezone exactly once, so this counts calls to on_deck_source_version.
+ // It must keep returning the SAME zone the bootstrap defines (UTC), because
+ // the fingerprint buckets by the company's calendar day: the drafts above were
+ // prepared under UTC, so handing the instrumented copy a different zone moves
+ // the day boundary and makes a draft that nothing has invalidated read stale
+ // whenever the two zones are on different dates (00:00-08:00 UTC for Pacific).
+ // The zone is incidental here; counting the calls is the point.
  await root();
+ const zone = (await one('select public.silo_company_timezone($1) z',[A])).z;
  await db.exec('create sequence if not exists public.version_calls');
- await db.exec("create or replace function public.silo_company_timezone(uuid) returns text language plpgsql stable as $$begin perform nextval('public.version_calls'); return 'America/Los_Angeles'; end $$");
+ await db.exec("create or replace function public.silo_company_timezone(uuid) returns text language plpgsql stable as $$begin perform nextval('public.version_calls'); return 'UTC'; end $$");
+ // Fails the moment the instrumented copy drifts from the zone the drafts were
+ // prepared under, instead of only between midnight Pacific and midnight UTC.
+ assert.equal((await one('select public.silo_company_timezone($1) z',[A])).z, zone, 'instrumenting the fingerprint must not change the company timezone');
  const kinds = Number((await one("select count(distinct kind) n from public.on_deck_proposals where company_entity_id=$1 and status not in ('completed','dismissed','screened')",[A])).n);
  const open = Number((await one("select count(*) n from public.on_deck_proposals where company_entity_id=$1 and status not in ('completed','dismissed','screened')",[A])).n);
  assert.ok(open > kinds, 'the fixture must hold more drafts than workflows for this to prove anything');
