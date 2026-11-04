@@ -92,7 +92,7 @@ function opaque(value) {
       const errors = [];
       try {
         page = await suite.open(url, {}, {
-          ready: () => !!document.querySelector('[data-accounting-context]'),
+          ready: () => !!document.querySelector('.bcn-header-title'),
         });
       } catch (err) {
         r.ok(`${url} boots`, false, err.message.split('\n')[0]);
@@ -100,18 +100,15 @@ function opaque(value) {
       }
       page.on('pageerror', (e) => errors.push(e.message));
 
-      await check(`${url} · the context bar renders without a duplicate link row`, async () => {
-        const seen = await page.evaluate(() => ({
-          queue: document.querySelector('.accounting-context-queue')?.textContent?.trim(),
-          legacy: !!document.querySelector('[data-accounting-suite]'),
+      await check(`${url} · no inset accounting nav band`, async () => {
+        const legacy = await page.evaluate(() => ({
+          close: !!document.querySelector('[data-accounting-close]'),
+          suite: !!document.querySelector('[data-accounting-suite]'),
+          context: !!document.querySelector('[data-accounting-context]'),
         }));
-        r.eq(seen.queue, 'Period review');
-        r.eq(seen.legacy, false);
-      });
-
-      await check(`${url} · the context bar is opaque`, async () => {
-        const bg = await page.$eval('[data-accounting-context]', (n) => getComputedStyle(n).backgroundColor);
-        r.truthy(opaque(bg), `background-color was ${bg}`);
+        r.eq(legacy.close, false);
+        r.eq(legacy.suite, false);
+        r.eq(legacy.context, false);
       });
 
       for (const theme of ['light', 'dark']) {

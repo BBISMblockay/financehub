@@ -35,29 +35,29 @@ const mountContext=(active)=>{
   const header=new Element('header');header.className='bcn-header';
   const title=new Element('div');title.className='bcn-header-title';title.textContent='Page';
   header.children.push(title);
-  const main={_header:header,_context:null,_removed:false,
+  header.querySelector=function(sel){
+    if(sel==='[data-accounting-sub]'||sel==='.bcn-header-sub')return this._sub||null;
+    if(sel==='.bcn-header-title')return title;
+    return null;
+  };
+  title.after=function(node){header._sub=node;header.children.push(node);};
+  const main={_header:header,
     querySelector(sel){
-      if(sel==='[data-accounting-context]')return this._context;
-      if(sel==='[data-accounting-close]'||sel==='[data-accounting-suite]')return null;
+      if(sel==='[data-accounting-context]'||sel==='[data-accounting-close]'||sel==='[data-accounting-suite]')return null;
       if(sel==='.bcn-header')return this._header;
       return null;
     },
     firstElementChild:header,
   };
-  header.after=function(node){main._context=node;node._context=node;};
   window.SiloAccounting.mount(main, active);
-  return { window, main, bar: main._context };
+  return { window, main, sub: header._sub };
 };
-test('accounting pages get a slim context bar, not a second link row',()=>{
+test('accounting pages get subtitles only, no inset nav band',()=>{
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports']){
-    const {bar,main,window}=mountContext(active);
-    assert.ok(bar,'context bar mounts');
-    assert.equal(bar.className,'accounting-context');
-    const queue=bar.children.find(c=>c.tag==='a');
-    assert.equal(queue?.textContent,'Period review');
-    assert.equal(queue?.attributes?.href,'/v2/on-deck.html');
+    const {main,sub,window}=mountContext(active);
+    assert.ok(sub?.textContent?.length,'page subtitle applied');
+    assert.equal(main.querySelector('[data-accounting-context]'),null);
     window.SiloAccounting.mount(main,active);
-    assert.equal(main._context,bar,'remount reuses the same bar');
     assert.equal(window.SiloAccounting.contains('inventory/overview'),false);
   }
 });

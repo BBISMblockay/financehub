@@ -551,9 +551,15 @@ const TABLES = {
       await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
     });
 
-    await check('the accounting context bar is opaque', async () => {
-      const bg = await page.$eval('[data-accounting-context]', (n) => getComputedStyle(n).backgroundColor);
-      r.truthy(opaque(bg), 'background-color was ' + bg);
+    await check('no inset accounting nav band under the breadcrumb', async () => {
+      const legacy = await page.evaluate(() => ({
+        close: !!document.querySelector('[data-accounting-close]'),
+        suite: !!document.querySelector('[data-accounting-suite]'),
+        context: !!document.querySelector('[data-accounting-context]'),
+      }));
+      r.eq(legacy.close, false);
+      r.eq(legacy.suite, false);
+      r.eq(legacy.context, false);
     });
 
     await check('a native dialog has a solid background', async () => {
@@ -601,23 +607,9 @@ const TABLES = {
       await page.waitForTimeout(150);
       r.eq(await page.$eval('#txnDetailDrawer', (n) => n.hidden), true);
     });
-    await check('context bar links to period review and the page explains bank activity', async () => {
-      const seen = await page.evaluate(() => ({
-        queue: document.querySelector('.accounting-context-queue')?.textContent?.trim(),
-        sub: document.querySelector('[data-accounting-sub], .bcn-header-sub')?.textContent?.trim(),
-        legacyNav: !!document.querySelector('[data-accounting-suite]'),
-      }));
-      r.eq(seen.queue, 'Period review');
-      r.has(seen.sub || '', 'bank and card');
-      r.eq(seen.legacyNav, false, 'no duplicate horizontal accounting nav');
-    });
-
-    console.log('\n\u2500\u2500 touch and small screens \u2500\u2500');
-    await check('on a phone the context bar still offers period review', async () => {
-      await page.setViewportSize({ width: 390, height: 780 });
-      await page.waitForTimeout(200);
-      const queue = await page.$eval('.accounting-context-queue', (a) => a.textContent.trim());
-      r.eq(queue, 'Period review');
+    await check('the page header explains bank activity', async () => {
+      const sub = await page.$eval('[data-accounting-sub], .bcn-header-sub', (n) => n.textContent.trim());
+      r.has(sub, 'bank and card');
     });
 
     await check('filter controls stay inside a 390px screen with touch-sized targets', async () => {

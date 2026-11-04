@@ -35,9 +35,8 @@ const { tables, plan } = require('../lib/payments-fixtures');
     const invoices = await suite.open('/v2/invoicing.html', tables(), {
       ready: () => document.querySelector('#invoiceCount')?.textContent === '4 of 4',
     });
-    await check('Accounting workspace mounts context chrome without a second nav row', async () => {
-      assert.equal(await invoices.locator('[data-accounting-context] .accounting-context-queue').textContent(), 'Period review');
-      assert.equal(await invoices.locator('[data-accounting-suite]').count(), 0);
+    await check('Accounting workspace has no inset nav band', async () => {
+      assert.equal(await invoices.locator('[data-accounting-close], [data-accounting-suite], [data-accounting-context]').count(), 0);
     });
     await check('search, status selection, and empty result combine', async () => {
       await invoices.getByRole('searchbox', { name: 'Search latest invoices' }).fill('cedar');
