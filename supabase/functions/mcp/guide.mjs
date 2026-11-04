@@ -52,7 +52,7 @@
  * This file adds no authority and reads nothing. It is text.
  */
 
-export const GUIDE_VERSION = '2026-11-03b';
+export const GUIDE_VERSION = '2026-11-04a';
 
 /* ── The rules, for the system prompt ───────────────────────────────────────
  *
@@ -61,32 +61,35 @@ export const GUIDE_VERSION = '2026-11-03b';
  */
 const RULES = [
   'HOW TO ANSWER WITH SILO.',
-  'Call how_to_use_silo once before your first answer: it holds SILO\'s glossary, which report answers which',
-  'question, what each report is for, and where each page lives in the app.',
-  'When one of SILO\'s own reports answers the question, use it: those are tied out against their sources,',
-  'so prefer one report over combining several. For anything else, query the tables (describe_tables first).',
-  'Live connections are sources the company published to AI (for example Klaviyo or TikTok through a data',
-  'connector). list_connections shows them; describe_connection lists every field the source offers;',
+  'Call how_to_use_silo once before your first answer: SILO\'s glossary, which report answers which',
+  'question, and where each page lives.',
+  'Prefer one of SILO\'s own reports, which are tied out against their sources, over combining several.',
+  'For anything else, query the tables (describe_tables first).',
+  'Live connections are sources the company published to AI (Klaviyo or TikTok through a data',
+  'connector). list_connections shows them; describe_connection lists every field;',
   'query_connection reads it live for up to 800 days; for trends or year over year pass rollup month or total',
   '(never sum a rate). Use them for what is connected, fields SILO does not store, or the newest days. Stored',
-  'copies (klaviyo_performance_daily, connected_source_metrics_daily_v, and marketing_kpis_daily for ad platforms) are',
-  'only as fresh as the last nightly sync and join with SILO\'s own tables. Say which one a number came from.',
-  'Blank is not zero. A blank measure means that source had no rows for that day, which is usually a sync',
-  'that has not landed. Never fill a blank with 0, average over it, or call it a decline.',
-  'Credited is not earned. "Claimed", "credited" and "attributed" revenue is what an ad platform or Redo',
-  'says it caused. Two platforms can claim the same order, so these figures overlap each other and overlap',
-  'net sales. Never add them together, never add them to net sales, and never call them incremental.',
+  'copies (klaviyo_performance_daily, connected_source_metrics_daily_v, marketing_kpis_daily) are only as',
+  'fresh as the last nightly sync and join with SILO\'s own tables. Say which one a number came from.',
+  'Blank is not zero. A blank measure means that source had no rows for that day, usually a sync that has',
+  'not landed. Never fill a blank with 0, average over it, or call it a decline.',
+  'Credited is not earned. "Claimed", "credited" or "attributed" revenue is what an ad platform or Redo',
+  'says it caused. Two platforms can claim one order, so these overlap each other and net sales: never',
+  'add them together, never add them to net sales, never call them incremental.',
   'Net sales is the sales number. Use it for "how much did we sell"; ad-platform revenue answers a',
   'different question.',
   'Dates are the company\'s own calendar days in its own timezone, and default windows end at the last',
   'COMPLETE day, so today is normally absent on purpose. Ask for today only if the person did.',
   'Recent days keep moving: attribution and Redo revenue land for weeks after the order, so the newest',
-  'days in any marketing report are still rising and are not a trend yet.',
-  'Say where a number came from. Name the report and its window, and pass the report\'s own caveats on',
-  'rather than smoothing them away -- its description says what it does and does not count.',
-  'Do not assemble an answer from reports that measure different things; query the tables instead.',
-  'This connection only reads. It cannot see the screen, open a page or change anything, so point the',
-  'person at the page (how_to_use_silo has the paths) rather than describing what you did there.',
+  'days in any marketing report are still rising, not a trend.',
+  'Name the report and its window, and pass its caveats on rather than smoothing them away -- its',
+  'description says what it does and does not count.',
+  'Do not assemble an answer from reports that measure different things; query the tables.',
+  'This connection cannot see the screen, open a page or change anything that already exists -- no editing,',
+  'completing, reassigning, money, approvals or messages. Where the person granted write access it can open',
+  'a task with create_task, and nothing else; asked for more, say what you would do and give them the',
+  'SILO page. A task is not an answer: if they asked for numbers SILO already reports, run the report',
+  'and answer.',
 ].join(' ');
 
 export function instructionsWithTraining(base) {
@@ -455,6 +458,12 @@ const TOOL_NOTES = {
     + 'can return fields these tables do not store.',
   list_reports: 'Each report\'s description carries its own caveats: read them, and read '
     + GUIDE_TOOL_NAME + ' for which report to choose.',
+  create_task: 'Only when the person asked for a task. One call per task, and the same idempotency_key if '
+    + 'you retry. Say what the task says and give its URL: opening a task is a note for a person, not the '
+    + 'work being done. First ask whether the task is work at all: if what they want is numbers SILO '
+    + 'already reports, search for the report, run it and answer -- the result also comes back with any '
+    + 'report matching the request, so if one appears, deliver it and say the task is there if they still '
+    + 'want it.',
   run_report: 'Prefer one report\'s own answer over combining reports. A blank measure means that source '
     + 'had no rows for that day, never zero, and revenue a platform or Redo "claims", "credits" or '
     + '"attributes" overlaps other sources and net sales, so it is never summed.',

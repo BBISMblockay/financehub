@@ -145,6 +145,8 @@
   let _calls = {};        // grant id -> its 20 newest calls (its OWN query, not a shared page)
   let _callCounts = {};   // grant id -> { total, day }, counted in the database
   let _callsKnown = false;   // false until the call log answered; see loadActivity()
+  let _paused = {};       // grant id -> when its writing was paused, or null
+  let _pausedKnown = false;  // false until silo_api_grants answered for that column
 
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
     { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
@@ -259,6 +261,7 @@
         + esc(ago(g.last_used_at)) + '</span>'
         + ' · <span title="' + esc(exact(g.consented_at)) + '">added '
         + esc(ago(g.consented_at)) + '</span></div>'
+        + writeLine(g)
         + activityLine(g)
         + '</div>'
         + '<div class="cn-actions" data-actions>'
@@ -292,6 +295,8 @@
        history twice and leave it where it started. */
     const act = card.querySelector('[data-activity]');
     if (act) act.onclick = () => showCalls(card, g);
+    const wr = card.querySelector('[data-writes]');
+    if (wr) wr.onclick = () => toggleWrites(card, g);
   }
 
   /* A removed application LEAVES the page, both copies of it: the person said
@@ -424,7 +429,7 @@
     }
 
     const shown = [...live(mine), ...live(co)];
-    await Promise.all([loadLabels(shown), loadActivity(shown)]);
+    await Promise.all([loadLabels(shown), loadActivity(shown), loadWriteState(shown)]);
 
     paint('gridMine', 'mineSub', live(mine), {
       empty: 'No applications are connected to your account.', showWho: false,
@@ -506,6 +511,46 @@
      cannot see it. It says so instead. */
   const inActiveCompany = (g) => !!(_co && g.company_entity_id === _co.id);
 
+  /* Writing is a separate permission, so the card says whether this
+     connection has it and lets the person switch it off without disconnecting
+     the application. The scopes come off the grant row the page already reads;
+     the switch appears only once the pause column answers, so the card still
+     renders correctly before that migration is applied. */
+  const canWrite = (g) => Array.isArray(g.scopes) && g.scopes.includes(K.WRITE_SCOPE);
+
+  function writeLine(g) {
+    if (!canWrite(g)) return '';
+    const off = !!_paused[g.id];
+    const btn = _pausedKnown
+      ? ' <button class="cn-link" type="button" data-writes="' + esc(g.id) + '">'
+        + (off ? 'Allow writing' : 'Pause writing') + '</button>'
+      : '';
+    return '<div class="cn-meta cn-activity">'
+      + (off
+        ? 'Writing paused \u2014 it can still read'
+        : 'Can open tasks in this company, marked as this app. It cannot change anything that exists')
+      + btn + '</div>';
+  }
+
+  async function toggleWrites(card, g) {
+    const btn = card.querySelector('[data-writes="' + CSS.escape(g.id) + '"]');
+    if (btn) btn.disabled = true;
+    const paused = !_paused[g.id];
+    try {
+      const { data, error } = await db.rpc('silo_api_set_writes_paused', {
+        p_grant_id: g.id, p_paused: paused,
+      });
+      if (error) throw new Error(error.message);
+      if (data === false) throw new Error('That connection is not yours to change.');
+      _paused[g.id] = paused ? new Date().toISOString() : null;
+      setStatus(paused ? 'Writing paused. It can still read.' : 'Writing allowed again.', 'pos', 5000);
+      await load();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      setStatus('Could not change writing: ' + (e.message || e), 'neg', 6000);
+    }
+  }
+
   function activityLine(g) {
     if (!_callsKnown) return '';
     if (!inActiveCompany(g)) {
@@ -566,6 +611,24 @@
      returns nothing for the others, and a zero that only means "wrong company"
      is worse than no answer. activityLine() says which it is. */
   const CALLS_SHOWN = 20;
+
+  /* Its own query, for the same reason loadActivity() has one: before the
+     migration is applied the column does not exist, and PostgREST answers
+     42703 for the WHOLE select -- which would take the connections list down
+     with it. Asked for separately, an absent column costs the switch and
+     nothing else. */
+  async function loadWriteState(list) {
+    const ids = [...new Set((list || []).map((g) => g.id))];
+    if (!ids.length) return;
+    try {
+      const { data, error } = await db.from('silo_api_grants')
+        .select('id, writes_paused_at').in('id', ids);
+      if (error || !Array.isArray(data)) return;
+      _paused = {};
+      for (const r of data) _paused[r.id] = r.writes_paused_at || null;
+      _pausedKnown = true;
+    } catch (_) { /* no switch, rather than no page */ }
+  }
 
   async function loadActivity(list) {
     _calls = {};
@@ -826,10 +889,14 @@
   const SCOPE_LABEL = {
     'reports:read': 'SILO reports (run and read results)',
     'data:read': 'Company data (read-only lookups)',
+    'work:write': 'Open tasks (only if you tick it when approving)',
   };
 
   function renderGrantedScopes() {
-    const items = (K.SILO_SCOPES || []).map((key) => {
+    /* Writing is listed last and named as optional, because it is the one
+       permission the approval screen leaves unticked. */
+    const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE]);
+    const items = keys.map((key) => {
       const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
       const label = SCOPE_LABEL[key] || key;
       return '<li title="' + esc(detail) + '">' + esc(label) + '</li>';

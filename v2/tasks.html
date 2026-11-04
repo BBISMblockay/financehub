@@ -305,6 +305,16 @@
           <option value="">All types</option>
         </select>
       </div>
+      <!-- Only shown once an app has actually opened a task here (see
+           populateFilterDropdowns), so nobody gets a filter that can only
+           ever return nothing. -->
+      <div class="bcn-filter" id="fSourceWrap" hidden>
+        <select class="bcn-field" id="fSource">
+          <option value="">Anyone</option>
+          <option value="app">Opened by an app</option>
+          <option value="person">Opened by a person</option>
+        </select>
+      </div>
     </section>
 
     <!-- Tasks: table (default), board, calendar -->
@@ -738,6 +748,15 @@
       fType.appendChild(o);
     });
 
+    // Source: hidden until an app has opened at least one of these tasks.
+    const fSourceWrap = document.getElementById('fSourceWrap');
+    const fSource = document.getElementById('fSource');
+    if (fSourceWrap && fSource) {
+      const anyApp = allTasks.some(t => t.created_via === 'app');
+      if (!anyApp && fSource.value) { fSource.value = ''; }
+      fSourceWrap.hidden = !anyApp;
+    }
+
     // drawer: Type stays free text -- canonical + in-use values as suggestions.
     const dTypeList = document.getElementById('dTypeList');
     if (dTypeList) {
@@ -845,6 +864,7 @@
     const priority = document.getElementById('fPriority').value;
     const statusF  = document.getElementById('fStatus').value;
     const typeF    = document.getElementById('fType').value;
+    const sourceF  = document.getElementById('fSource')?.value || '';
 
     filteredTasks = allTasks.filter(t => {
       if (search) {
@@ -863,6 +883,8 @@
       if (assignee && assignee !== '__me__' && assignee !== '__none__' && t.assigned_to_user_id !== assignee) return false;
       if (priority && t.priority !== priority)   return false;
       if (typeF    && t.task_type !== typeF)      return false;
+      if (sourceF === 'app'    && t.created_via !== 'app') return false;
+      if (sourceF === 'person' && t.created_via === 'app') return false;
 
       if (statusF === 'open-inprogress') {
         if (t.status === 'done') return false;
@@ -903,7 +925,7 @@
     const aName = t.assigned_to_user_id ? profileName(t.assigned_to_user_id) : '—';
     const due = t.due_date ? fmtDate(t.due_date) : '—';
     return `<button type="button" class="tm-k-card" data-open-task="${escHtml(t.id)}">
-      <div class="tm-k-card-title">${t.is_private ? '🔒 ' : ''}${escHtml(t.task_title || '')}</div>
+      <div class="tm-k-card-title">${t.is_private ? '🔒 ' : ''}${escHtml(t.task_title || '')}${viaChip(t)}</div>
       <div class="tm-k-card-foot">
         <span class="${dc ? 'tm-due--' + dc : ''}">${due}</span>
         <span style="display:inline-flex;align-items:center;gap:4px;">${profileAvatarHtml(t.assigned_to_user_id, 'xs')}${escHtml(aName.split(' ')[0] || aName)}</span>
@@ -987,6 +1009,21 @@
     document.getElementById('tmCalGrid').innerHTML = html;
   }
 
+  /* ── "Via <app>" chip ──────────────────────────────────────────────────
+     A task an app opened for someone through SILO's developer API carries
+     created_via = 'app' and the application's own name in created_by_app.
+     The name is stored on the row at write time rather than looked up here,
+     because a colleague cannot read someone else's connection -- resolving it
+     at read time would show the name to its owner and nothing to the team.
+     Both columns are new: a row written before them (or a database where the
+     migration has not been applied yet) simply has no chip. */
+  function viaChip(t) {
+    if (t.created_via !== 'app') return '';
+    const app = String(t.created_by_app || '').trim() || 'an app';
+    return `<span class="bcn-pill bcn-pill--dark" style="font-size:10px;margin-left:6px;"
+      title="${escHtml(app)} opened this task through SILO's developer API. It cannot change it.">Via ${escHtml(app)}</span>`;
+  }
+
   /* ── Priority pill ─────────────────────────────────────────────── */
   function priorityPill(p) {
     const map = { critical: 'neg', high: 'warn', normal: 'accent', low: 'dark' };
@@ -1046,7 +1083,7 @@
 
       return `<tr class="${rowCls}" data-task-id="${escHtml(t.id)}">
         ${orderCell}
-        <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${t.is_private ? '<span title="Private" style="margin-right:4px;">🔒</span>' : ''}${escHtml(t.task_title || '')}</td>
+        <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${t.is_private ? '<span title="Private" style="margin-right:4px;">🔒</span>' : ''}${escHtml(t.task_title || '')}${viaChip(t)}</td>
         <td>${attachedCell}</td>
         <td>${launchCell}</td>
         <td style="white-space:nowrap;"><span style="display:inline-flex;align-items:center;gap:6px;">${profileAvatarHtml(t.assigned_to_user_id, 'xs')}${escHtml(aName)}</span></td>
@@ -1263,7 +1300,7 @@
     if (task) openDrawer(task);
   });
 
-  ['fSearch', 'fParent', 'fAssignee', 'fPriority', 'fStatus', 'fType'].forEach(id => {
+  ['fSearch', 'fParent', 'fAssignee', 'fPriority', 'fStatus', 'fType', 'fSource'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('input',  applyFilters);
     el.addEventListener('change', applyFilters);

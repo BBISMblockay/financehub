@@ -8647,3 +8647,53 @@ select 'connection call log' as check_name,
       then 'BROKEN — a catalog tool is STABLE again, so PostgREST runs it read-only and it records nothing (20261104030000)'
     else 'ok'
   end as status;
+
+-- ── work:write: a connection opening a task (20261104230000) ────────────────
+-- The first write any AI connection has. What must stay true: the tool reaches
+-- launch_tasks for the integration role ONLY (that role holds no table
+-- privileges, so the function is the whole door), `authenticated` never gains
+-- it by accident, the write ledger stays unwritable by any client role, and
+-- the idempotency index exists -- without it a bot's retry opens a second task
+-- nobody can tell from the first.
+select 'work:write task tool' as check_name,
+  case
+    when to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)') is null
+      then 'MISSING — silo_api_create_task (20261104230000 not applied)'
+    when to_regclass('public.silo_api_writes') is null
+      then 'MISSING — silo_api_writes'
+    when (select provolatile from pg_proc
+           where oid = to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)')) <> 'v'
+      then 'BROKEN — silo_api_create_task is not VOLATILE, so PostgREST runs it read-only and no task can be written'
+    when not has_function_privilege('silo_integration',
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+      then 'BROKEN — the integration role cannot call the one write tool it is meant to have'
+    when has_function_privilege('authenticated',
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+      or has_function_privilege('anon',
+           to_regprocedure('public.silo_api_create_task(text, text, text, date, uuid, text, text)'), 'execute')
+      then 'CRITICAL — a browser role can call the connection write tool, which bypasses launch_tasks RLS'
+    when position('/rpc/silo_api_create_task' in
+                  pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — the write path is not on the allowlist, so silo_check_request() refuses every call'
+    when position('work:write' in
+                  pg_get_functiondef('public.silo_api_consent(text, text[])'::regprocedure)) = 0
+      then 'BROKEN — work:write is not an offerable scope, so nobody can grant it'
+    when not exists (select 1 from pg_indexes
+                      where tablename = 'silo_api_writes'
+                        and indexname = 'silo_api_writes_idempotent')
+      then 'BROKEN — the idempotency index is gone, so a retry opens a second task'
+    when not (select relrowsecurity from pg_class where oid = 'public.silo_api_writes'::regclass)
+      or has_table_privilege('authenticated', 'public.silo_api_writes', 'insert')
+      or has_table_privilege('authenticated', 'public.silo_api_writes', 'update')
+      or has_table_privilege('authenticated', 'public.silo_api_writes', 'delete')
+      or has_table_privilege('anon', 'public.silo_api_writes', 'select')
+      then 'CRITICAL — a client role can write the ledger that meters and caps connection writes'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'launch_tasks'
+                        and column_name = 'created_by_app')
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'silo_api_grants'
+                        and column_name = 'writes_paused_at')
+      then 'MISSING — launch_tasks.created_by_app or silo_api_grants.writes_paused_at'
+    else 'ok'
+  end as status;

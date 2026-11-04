@@ -53,7 +53,11 @@ export const SERVER_INFO = { name: 'silo', title: 'SILO', version: '1.0.0', webs
 const ICON_DATA_URI = 'data:image/png;base64,' + ICON_PNG_BASE64;
 
 const INSTRUCTIONS = [
-  'SILO is an operations platform. This connection reads ONE company\'s SILO data, read-only, as the person',
+  'SILO is an operations platform. This connection reads ONE company\'s SILO data as the person who',
+  'connected it, and -- only where they granted work:write -- can open a task with create_task. Nothing',
+  'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
+  'nothing sent outside SILO. Asked for one of those, say what you would do and give the person the SILO link.',
+  'Reading, in order of use:',
   'who connected it. For live sources, list_connections shows only accounts explicitly published by this company.',
   'Use describe_connection, then query_connection; these are read-only and do not store source rows. Respect truncation.',
   '(1) Raw data, for analysis and any question: describe_tables lists the tables and views (pass names for',
@@ -186,6 +190,34 @@ export const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'create_task',
+    title: 'Open a task in SILO',
+    description: 'Open ONE new task in the company, as the person who connected. Creating only: it cannot '
+      + 'read, change, reassign, complete or delete a task that already exists, and it is not for money, '
+      + 'approvals or anything sent outside SILO -- for those, say what you would do and give the person the '
+      + 'SILO link. assignee_email must be someone in this company. Needs the work:write permission, which the '
+      + 'person grants separately; up to 50 writes a day per connection. Pass idempotency_key and REUSE THE '
+      + 'SAME ONE if you retry, or you will open a second task. Returns the task and its URL, plus any SILO report that looks like the same request -- if the person was really asking for numbers SILO already reports, run that report and give them the answer rather than leaving a task for someone to do by hand.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'What needs doing, under 200 characters.' },
+        notes: { type: 'string', description: 'The detail, including why you opened it.' },
+        assignee_email: { type: 'string', description: 'Email of a member of this company. Left out, the task is unassigned.' },
+        due_date: { type: 'string', description: 'YYYY-MM-DD.' },
+        launch_id: { type: 'string', description: 'A launch in this company to attach it to.' },
+        priority: { type: 'string', enum: ['low', 'normal', 'high'], default: 'normal' },
+        idempotency_key: {
+          type: 'string',
+          description: 'Your own id for this task, up to 100 characters. The same key returns the first task instead of a duplicate.',
+        },
+      },
+      required: ['title'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
 ];
 
@@ -405,6 +437,51 @@ export function createMcpHandler({ env, fetchImpl }) {
       const r = await callRpc(authorization, 'silo_api_query', { p_sql: sql, p_offset: off });
       if (!r.ok) return refusalResponse(id, dataScopeHint(r), true);
       return rpcResult(id, toolOk(fitRows(r.data)));
+    }
+
+    if (name === 'create_task') {
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      if (!title) return rpcResult(id, toolErr('title must say what needs doing.'));
+      if (title.length > 200) return rpcResult(id, toolErr('title must be under 200 characters; put the detail in notes.'));
+      const body = { p_title: title };
+      if (args.notes != null) {
+        if (typeof args.notes !== 'string') return rpcResult(id, toolErr('notes must be text.'));
+        body.p_notes = args.notes;
+      }
+      if (args.assignee_email != null) {
+        if (typeof args.assignee_email !== 'string' || !args.assignee_email.includes('@')) {
+          return rpcResult(id, toolErr('assignee_email must be the email address of someone in this company.'));
+        }
+        body.p_assignee_email = args.assignee_email.trim();
+      }
+      if (args.due_date != null) {
+        if (typeof args.due_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(args.due_date.trim())) {
+          return rpcResult(id, toolErr('due_date must look like 2026-11-30.'));
+        }
+        body.p_due_date = args.due_date.trim();
+      }
+      if (args.launch_id != null) {
+        if (!UUID.test(String(args.launch_id).trim())) {
+          return rpcResult(id, toolErr('launch_id must be a launch id from SILO.'));
+        }
+        body.p_launch_id = String(args.launch_id).trim();
+      }
+      if (args.priority != null) {
+        if (!['low', 'normal', 'high'].includes(args.priority)) {
+          return rpcResult(id, toolErr('priority must be low, normal or high.'));
+        }
+        body.p_priority = args.priority;
+      }
+      if (args.idempotency_key != null) {
+        if (typeof args.idempotency_key !== 'string' || !args.idempotency_key.trim()
+            || args.idempotency_key.length > 100) {
+          return rpcResult(id, toolErr('idempotency_key must be text up to 100 characters.'));
+        }
+        body.p_idempotency_key = args.idempotency_key.trim();
+      }
+      const r = await callRpc(authorization, 'silo_api_create_task', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
     }
 
     // Text, not data: no PostgREST call, so nothing here can be a way to

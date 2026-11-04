@@ -159,8 +159,23 @@ test('denying a repeat gives the application nothing', () => {
 });
 
 test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope string', () => {
-  assert.match(CONSENT, /rpc\('silo_api_consent',\s*\{[\s\S]{0,120}?K\.SILO_SCOPES/);
+  // The scopes now come from chosenScopes(), because writing is a tick box;
+  // what must stay true is that they are built from the constants and never
+  // from the scope string the application asked for.
+  assert.match(CONSENT, /rpc\('silo_api_consent',\s*\{[\s\S]{0,120}?chosenScopes\(\)/);
+  assert.match(CONSENT, /function chosenScopes\(\)[\s\S]{0,300}?K\.SILO_SCOPES/);
   assert.deepEqual(here(K.SILO_SCOPES), ['reports:read', 'data:read']);
+});
+
+test('the write scope is added only by the tick box, and is not a read scope', () => {
+  // K.SILO_SCOPES is what every connection gets; work:write is separate, so a
+  // connection that never ticked the box cannot be given it by this page.
+  assert.equal(K.WRITE_SCOPE, 'work:write');
+  assert.ok(!K.SILO_SCOPES.includes(K.WRITE_SCOPE), 'writing is never implied by the reads');
+  assert.match(CONSENT, /chosenScopes[\s\S]{0,300}?optWrite[\s\S]{0,200}?checked/,
+    'the only thing that adds it is the checkbox');
+  assert.match(CONSENT, /K\.SILO_SCOPES\.concat\(\[K\.WRITE_SCOPE\]\)/,
+    'and it is appended to the reads rather than replacing them');
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {

@@ -63,6 +63,7 @@
   const SCOPE_COPY = {
     'reports:read': 'Read your reports',
     'data:read': 'Read your company\'s SILO data and live sources explicitly enabled by a company admin, read-only; never logins or connection secrets',
+    'work:write': 'Open a task in this company, marked as this application \u2014 it can create one, and cannot change, complete or delete anything that already exists',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -138,6 +139,11 @@
      echoing an OAuth scope string as though it were the permission. */
   const SILO_SCOPES = ['reports:read', 'data:read'];
 
+  /* Asked for SEPARATELY, and never implied by a read scope: the consent
+     screen offers it as an unticked box, so an application that is only being
+     given reading cannot end up with writing because the page listed it. */
+  const WRITE_SCOPE = 'work:write';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -149,7 +155,7 @@
   }
 
   const api = {
-    IDLE_DAYS, SILO_SCOPES, STATUS_COPY, SCOPE_COPY,
+    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
   };
