@@ -79,7 +79,7 @@ const num = (v) => {
 function kpiRow(connection, platform, { accountId, accountName, day, campaignId, campaignName,
   impressions = 0, clicks = 0, spend = 0, conversions = 0, conversionValue = 0, sessions = null,
   viewContent = null, addToCart = null, initiateCheckout = null,
-  thruplays = null, leads = null,
+  thruplays = null, leads = null, reach = null, frequency = null,
 }, { syncedAt, batchId, source }) {
   return {
     company_entity_id: connection.company_entity_id,
@@ -105,6 +105,10 @@ function kpiRow(connection, platform, { accountId, accountName, day, campaignId,
     // Google rows never carry these and stay null.
     thruplays: thruplays == null ? null : Math.round(num(thruplays)),
     leads: leads == null ? null : Math.round(num(leads)),
+    // Unique people and a ratio. Null-preserving for the same reason, and
+    // never summed or averaged downstream -- see metaReach/metaFrequency.
+    reach: reach == null ? null : Math.round(num(reach)),
+    frequency: frequency == null ? null : num(frequency),
     // Identity only — metrics stay out so restated numbers upsert in place.
     row_hash: hashRow([
       connection.company_entity_id, platform, platform,
@@ -277,6 +281,58 @@ const LEAD_ACTION_TYPES = [
   'leadgen_grouped',
 ];
 
+/** Custom conversions and custom pixel events, which the named-event readers
+ * above cannot see.
+ *
+ * Meta reports a custom conversion as `offsite_conversion.custom.<numeric id>`
+ * and a custom pixel event as `offsite_conversion.fb_pixel_custom.<event>` --
+ * names that are defined by the advertiser, created at will, and therefore
+ * impossible to enumerate in code. pickAction() matches fixed names, so every
+ * one of these has been read out of the response and dropped on the floor on
+ * every run since the sync was written. This keeps them, verbatim, in
+ * long format: one entry per action_type, with the matching action_values
+ * entry when the conversion carries money.
+ *
+ * It takes what the request ALREADY returns. No new insights field is asked
+ * for, which matters because Meta rejects an entire insights request on one
+ * bad field name -- so this cannot take spend, purchases or ROAS down with it,
+ * no matter what a future account's events are called.
+ *
+ * Deliberately not summed into `conversions`: a custom conversion overlaps
+ * purchases (a sign-up and the purchase it leads to are both reported), and
+ * adding them would inflate the number every report and every bot reads. */
+const CUSTOM_ACTION_RE = /^(?:offsite|onsite)_conversion\.(?:custom|fb_pixel_custom)\./;
+
+export function collectCustomConversions(row) {
+  const actions = Array.isArray(row?.actions) ? row.actions : [];
+  if (!actions.length) return [];
+  const values = Array.isArray(row?.action_values) ? row.action_values : [];
+  const out = [];
+  const seen = new Set();
+  for (const a of actions) {
+    const type = String(a?.action_type ?? '');
+    if (!CUSTOM_ACTION_RE.test(type)) continue;
+    // Meta has been seen to repeat an action_type inside one row; the first
+    // entry wins rather than summing, which would double count it.
+    if (seen.has(type)) continue;
+    seen.add(type);
+    const count = Number(a?.value);
+    const valueHit = values.find((v) => String(v?.action_type ?? '') === type);
+    const amount = Number(valueHit?.value);
+    // The id only exists for a custom CONVERSION; a custom pixel event is
+    // named by its event name, and inventing an id for it would join it to
+    // the wrong name row.
+    const idMatch = /^(?:offsite|onsite)_conversion\.custom\.(\d+)$/.exec(type);
+    out.push({
+      actionType: type,
+      customConversionId: idMatch ? idMatch[1] : null,
+      conversions: Number.isFinite(count) ? count : 0,
+      conversionValue: Number.isFinite(amount) ? amount : 0,
+    });
+  }
+  return out;
+}
+
 /** Thruplays. Meta exposes these as their own top-level insights field
  * (`video_thruplay_watched_actions`), shaped like actions[]. Some campaigns
  * also surface a thruplay entry inside actions[], so fall back to that before
@@ -298,8 +354,37 @@ function pickThruplays(row) {
  * verifiable from here, so callers request it behind a flag that the fetch
  * loop clears and retries without on a field-name rejection. Degrading to
  * "no thruplays" beats taking down spend and ROAS with it. */
-function metaInsightFields(base, includeThruplays) {
-  return includeThruplays ? `${base},video_thruplay_watched_actions` : base;
+function metaInsightFields(base, includeThruplays, includeReachFrequency = false) {
+  let fields = base;
+  if (includeReachFrequency) fields += ',reach,frequency';
+  if (includeThruplays) fields += ',video_thruplay_watched_actions';
+  return fields;
+}
+
+/** Reach and frequency, requested together because frequency IS
+ * impressions / reach and one without the other cannot be recomputed.
+ *
+ * Both are core, long-standing insights fields, but they go behind the same
+ * all-or-nothing guard as thruplays rather than being trusted: Meta rejects an
+ * entire insights request on one unrecognised field name, so an account or an
+ * API version that refuses them must cost the frequency column and nothing
+ * else. The retry ladder drops thruplays first, then reach/frequency, so
+ * whichever name Meta objects to is eventually gone and spend still lands.
+ *
+ * FREQUENCY IS A RATIO AND REACH IS UNIQUE PEOPLE. Neither can be summed
+ * across days, campaigns or ads: the same person reached on Monday and Tuesday
+ * is one person, not two, and averaging two days' frequency weights a day with
+ * 10 impressions like a day with 10,000. Any roll-up recomputes frequency as
+ * total impressions / reach of the widest row it has, and says so. Stored
+ * null, never 0, when Meta does not report them -- an ad with no reach figure
+ * has not reached nobody. */
+function metaReach(row) {
+  const n = Number(row?.reach);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+function metaFrequency(row) {
+  const n = Number(row?.frequency);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Does this Meta error look like the API rejecting a field NAME, rather than
@@ -327,6 +412,9 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
   // Cleared for the rest of the run the first time Meta rejects the field.
   let withThruplays = true;
+  // Dropped independently of thruplays: whichever name Meta refuses, the other
+  // metric survives.
+  let withReachFrequency = true;
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
@@ -334,7 +422,10 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
       level: 'campaign',
       time_increment: '1',
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
-      fields: metaInsightFields('account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values', withThruplays),
+      fields: metaInsightFields(
+        'account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values',
+        withThruplays, withReachFrequency,
+      ),
       limit: '500',
       access_token: token,
     }).toString();
@@ -350,6 +441,12 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
         if (withThruplays && isMetaUnknownFieldError(err)) {
           console.warn('[warn] Meta rejected video_thruplay_watched_actions, retrying without it:', err.message);
           withThruplays = false;
+          url = buildUrl();
+          continue;
+        }
+        if (withReachFrequency && isMetaUnknownFieldError(err)) {
+          console.warn('[warn] Meta rejected reach/frequency, retrying without them:', err.message);
+          withReachFrequency = false;
           url = buildUrl();
           continue;
         }
@@ -378,6 +475,12 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
           // scored zero on it.
           thruplays: pickThruplays(r),
           leads: pickActionAny(r.actions, LEAD_ACTION_TYPES),
+          reach: metaReach(r),
+          frequency: metaFrequency(r),
+          // Rides along on the response already fetched. Consumers that do
+          // not know about it ignore the key; marketing_kpis_daily has no
+          // column for it and never sees it.
+          customConversions: collectCustomConversions(r),
         });
       }
       url = data.paging?.next ?? null;
@@ -414,6 +517,7 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   // one bad field name, so this is dropped and retried once rather than taking
   // ad-level spend down with it.
   let withThruplays = true;
+  let withReachFrequency = true;
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
@@ -423,7 +527,7 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
       time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
       fields: metaInsightFields(
         'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
-        withThruplays,
+        withThruplays, withReachFrequency,
       ),
       limit: '500',
       access_token: token,
@@ -437,6 +541,12 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
         if (withThruplays && isMetaUnknownFieldError(err)) {
           console.warn('[warn] Meta rejected video_thruplay_watched_actions at ad level, retrying without it:', err.message);
           withThruplays = false;
+          url = buildUrl();
+          continue;
+        }
+        if (withReachFrequency && isMetaUnknownFieldError(err)) {
+          console.warn('[warn] Meta rejected reach/frequency at ad level, retrying without them:', err.message);
+          withReachFrequency = false;
           url = buildUrl();
           continue;
         }
@@ -462,6 +572,9 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
           // video ad look like it failed at the thing it was bought for.
           thruplays: pickThruplays(r),
           leads: pickActionAny(r.actions, LEAD_ACTION_TYPES),
+          reach: metaReach(r),
+          frequency: metaFrequency(r),
+          customConversions: collectCustomConversions(r),
         });
       }
       url = data.paging?.next ?? null;
@@ -1114,13 +1227,24 @@ export async function runMetaAdLevelSync(supabase, connection, {
         : Math.round(Number(String(r.thruplays).replace(/[,$\s]/g, '')) || 0),
       leads: r.leads == null ? null
         : Math.round(Number(String(r.leads).replace(/[,$\s]/g, '')) || 0),
+      reach: r.reach == null ? null : Math.round(Number(r.reach) || 0),
+      frequency: r.frequency == null ? null : Number(r.frequency) || 0,
       // Identity only, like marketing_kpis_daily — restatements upsert in place.
       row_hash: hashRow([connection.company_entity_id, 'meta_ads_ad', r.accountId, r.adId, r.day]),
       source: PLATFORM_SOURCES.meta_ads,
       synced_at: syncedAt,
       sync_batch_id: batchId || null,
     }));
-  const perfUpserted = await upsertInChunks(supabase, 'meta_ad_performance_daily', perfRows, 'row_hash');
+  const perfUpserted = await upsertAllowingMissingColumns(
+    supabase, 'meta_ad_performance_daily', perfRows, 'row_hash', ['reach', 'frequency'],
+  );
+
+  // Ad-grain custom conversions. The names were already refreshed by the
+  // campaign pass in the same run, so this pass skips the lookup request
+  // (withNames: false) rather than paying for it twice.
+  const customConversions = await writeMetaCustomConversions(supabase, connection, raw, {
+    level: 'ad', syncedAt, batchId, withNames: false,
+  });
 
   const creatives = await fetchMetaAdCreatives(connection, raw.map((r) => r.adId));
   const creativeRows = creatives.map((c) => ({
@@ -1163,6 +1287,7 @@ export async function runMetaAdLevelSync(supabase, connection, {
 
   return {
     window,
+    custom_conversions: customConversions,
     ad_rows_fetched: raw.length,
     ad_rows_upserted: perfUpserted,
     creatives_upserted: creativesUpserted,
@@ -2057,6 +2182,166 @@ export async function fetchGa4Rows(connection, accessToken, window) {
   return rows;
 }
 
+/** Upsert that survives a database where the OPTIONAL columns do not exist yet.
+ *
+ * The gap this closes is real and routine here: code merges, and the migration
+ * is applied afterwards. In between, a payload naming `reach` is rejected by
+ * PostgREST for the WHOLE batch ("Could not find the 'reach' column ... in the
+ * schema cache"), which would stop the nightly marketing sync writing spend at
+ * all -- a new column taking down the feed it was supposed to enrich.
+ *
+ * So: try with them, and exactly once, on an error that names one of those
+ * columns, strip them and write the row that the old schema does accept. Any
+ * other failure is rethrown untouched -- this must not swallow a real write
+ * error. */
+async function upsertAllowingMissingColumns(supabase, table, rows, onConflict, optionalCols) {
+  try {
+    return await upsertInChunks(supabase, table, rows, onConflict);
+  } catch (err) {
+    const msg = String(err?.message || '');
+    const missing = optionalCols.filter((c) => new RegExp(`['"\\b]${c}['"\\b]`).test(msg));
+    const looksLikeMissingColumn = /column|schema cache|PGRST204|42703/i.test(msg);
+    if (!missing.length || !looksLikeMissingColumn) throw err;
+    console.warn(`[warn] ${table}: writing without ${missing.join(', ')} (migration not applied yet):`, msg);
+    const stripped = rows.map((r) => {
+      const copy = { ...r };
+      for (const c of optionalCols) delete copy[c];
+      return copy;
+    });
+    return upsertInChunks(supabase, table, stripped, onConflict);
+  }
+}
+
+// ── Meta custom conversions (additive side-table) ───────────────────────────
+//
+// Everything below writes ONLY meta_custom_conversion_daily and
+// meta_custom_conversions. It never touches marketing_kpis_daily or
+// meta_ad_performance_daily, and every call site wraps it so a failure here
+// cannot fail a sync: the worst case is that custom conversions are missing
+// for a night, which is exactly where SILO stood before this existed.
+
+/** Long-format rows for one pass's raw insights. `level` says which pass they
+ * came from -- campaign-grain and ad-grain rows describe the SAME conversions
+ * over the same spend, so a consumer picks one level and never sums both. */
+export function customConversionRows(connection, rawRows, { level, syncedAt, batchId }) {
+  const out = [];
+  for (const r of rawRows ?? []) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r?.day ?? ''))) continue;
+    const objectId = level === 'ad' ? r.adId : (r.campaignId ?? r.campaignName);
+    if (objectId == null) continue;
+    for (const c of r.customConversions ?? []) {
+      // Every entry Meta RETURNED is written, including an explicit zero.
+      // "Not reported" is already expressed by the action_type being absent
+      // from actions[] -- collectCustomConversions only emits what came back
+      // -- so there is nothing left here to filter. An explicit zero is a
+      // restatement: Meta re-reporting a day it had credited with 5 as 0 must
+      // overwrite that 5 under the same identity hash, and dropping the zero
+      // would leave the stale 5 on the page and in every report forever.
+      out.push({
+        company_entity_id: connection.company_entity_id,
+        connection_id: connection.id,
+        account_id: r.accountId != null ? String(r.accountId) : null,
+        day_date: r.day,
+        level,
+        campaign_id: r.campaignId != null ? String(r.campaignId) : null,
+        campaign_name: r.campaignName ?? null,
+        adset_id: r.adsetId != null ? String(r.adsetId) : null,
+        adset_name: r.adsetName ?? null,
+        ad_id: level === 'ad' ? String(r.adId) : null,
+        ad_name: level === 'ad' ? (r.adName ?? null) : null,
+        action_type: c.actionType,
+        custom_conversion_id: c.customConversionId,
+        conversions: num(c.conversions),
+        conversion_value: num(c.conversionValue),
+        // Identity only, like every other table here: company x level x
+        // account x object x day x action_type. Meta restates these numbers
+        // for weeks, so a restatement must update in place.
+        row_hash: hashRow([
+          connection.company_entity_id, 'meta_custom_conv', level,
+          r.accountId, objectId, r.day, c.actionType,
+        ]),
+        source: PLATFORM_SOURCES.meta_ads,
+        synced_at: syncedAt,
+        sync_batch_id: batchId || null,
+      });
+    }
+  }
+  return out;
+}
+
+/** The id -> name lookup. Separate request, separate failure: a token without
+ * ads_read, an account that refuses the edge, or a Meta outage leaves the
+ * names table untouched and the view falls back to showing the id. */
+export async function fetchMetaCustomConversionNames(connection) {
+  const token = connection.access_token;
+  const acct = connection.meta_ad_account_id;
+  if (!token || !acct) return [];
+  const rows = [];
+  let url = `https://graph.facebook.com/${META_API_VERSION}/${String(acct)}/customconversions?` + new URLSearchParams({
+    fields: 'id,name,custom_event_type,is_archived',
+    limit: '200',
+    access_token: token,
+  }).toString();
+  while (url) {
+    const data = await fetchMetaJsonOrThrow(url, {}, 'Meta custom conversions');
+    for (const c of data.data ?? []) {
+      if (c?.id == null) continue;
+      rows.push({
+        customConversionId: String(c.id),
+        name: c.name ?? null,
+        customEventType: c.custom_event_type ?? null,
+        isArchived: c.is_archived === true,
+      });
+    }
+    url = data.paging?.next ?? null;
+  }
+  return rows;
+}
+
+/** Write one pass's custom conversions and (best effort) their names.
+ *
+ * Returns a report rather than throwing. The caller logs it; nothing upstream
+ * branches on it, so an older database without the migration applied, a
+ * permission error, or a Meta refusal all degrade to zero rows written and a
+ * warning, leaving spend/purchases/ROAS untouched. */
+export async function writeMetaCustomConversions(supabase, connection, rawRows, {
+  level, syncedAt, batchId, withNames = true,
+} = {}) {
+  const report = { level, rows: 0, names: 0, warning: null };
+  try {
+    const rows = customConversionRows(connection, rawRows, { level, syncedAt, batchId });
+    if (rows.length) {
+      report.rows = await upsertInChunks(supabase, 'meta_custom_conversion_daily', rows, 'row_hash');
+    }
+  } catch (err) {
+    report.warning = `custom conversions not stored: ${err.message}`;
+    console.warn('[warn] Meta custom conversions not stored:', err.message);
+  }
+  if (!withNames) return report;
+  try {
+    const names = await fetchMetaCustomConversionNames(connection);
+    if (names.length) {
+      report.names = await upsertInChunks(supabase, 'meta_custom_conversions', names.map((n) => ({
+        company_entity_id: connection.company_entity_id,
+        custom_conversion_id: n.customConversionId,
+        connection_id: connection.id,
+        account_id: connection.meta_ad_account_id != null ? String(connection.meta_ad_account_id) : null,
+        name: n.name,
+        custom_event_type: n.customEventType,
+        is_archived: n.isArchived,
+        synced_at: syncedAt,
+      })), 'company_entity_id,custom_conversion_id');
+    }
+  } catch (err) {
+    // Names are a label, not the measurement. Losing them leaves the numbers
+    // readable as "Custom conversion <id>".
+    const msg = `custom conversion names not refreshed: ${err.message}`;
+    report.warning = report.warning ? `${report.warning}; ${msg}` : msg;
+    console.warn('[warn] Meta custom conversion names not refreshed:', err.message);
+  }
+  return report;
+}
+
 // ── Orchestration entry ─────────────────────────────────────────────────────
 
 export const PLATFORM_SOURCES = {
@@ -2099,10 +2384,25 @@ export async function runConnectionSync(supabase, env, connection, {
     .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(String(r.day ?? '')))
     .map((r) => kpiRow(connection, platform, r, { syncedAt, batchId, source }));
 
-  const upserted = await upsertInChunks(supabase, 'marketing_kpis_daily', kpiRows, 'row_hash');
+  const upserted = await upsertAllowingMissingColumns(
+    supabase, 'marketing_kpis_daily', kpiRows, 'row_hash', ['reach', 'frequency'],
+  );
+
+  // Additive side-write, Meta only, AFTER the KPI upsert has already
+  // succeeded: custom conversions are a bonus on top of the sync, never a
+  // reason for it to fail. writeMetaCustomConversions() returns its own
+  // errors instead of throwing, so this cannot change what the sync reports
+  // for spend, purchases or ROAS.
+  const customConversions = platform === 'meta_ads'
+    ? await writeMetaCustomConversions(supabase, connection, raw, {
+      level: 'campaign', syncedAt, batchId,
+    })
+    : null;
+
   return {
     platform,
     window,
+    custom_conversions: customConversions,
     rows_fetched: raw.length,
     kpi_rows_upserted: upserted,
     synced_at: syncedAt,

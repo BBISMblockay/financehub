@@ -279,6 +279,10 @@ function fakeMeta({ status = 200 } = {}) {
     metaCalls.push(u);
     if (!u.startsWith('https://graph.facebook.com/')) throw new Error(`unexpected fetch ${u}`);
     if (status !== 200) return new Response('{"error":{"message":"(#200) no ads_read","code":200}}', { status });
+    // The custom-conversion NAME lookup (20261104000500) is a different edge
+    // with no time_range. It is answered empty here: this suite is about the
+    // KPI sync, and the names are a label the sync degrades without.
+    if (u.includes('/customconversions?')) return new Response('{"data":[]}', { status: 200 });
     const range = JSON.parse(new URL(u).searchParams.get('time_range'));
     const data = range.since === '2026-08-31' ? [
       { account_id: '28476042445410282', account_name: 'Bat Nutz', campaign_id: '9', campaign_name: 'Launch',
@@ -297,9 +301,13 @@ await test('Meta: a click syncs the daily campaign totals, with no Google config
   assert.equal(body.kpi_rows_upserted, 1);
   assert.equal(body.scope, 'campaign_totals');
   assert.deepEqual(body.nightly_only, ['ad-level rows', 'creative images', 'Page posts']);
-  assert.ok(metaCalls.length > 0 && metaCalls.every((u) => u.includes('/act_28476042445410282/insights?')),
+  // Every Graph call must carry the act_ prefix the stored id lacks -- the
+  // insights calls and the custom-conversion name lookup alike.
+  assert.ok(metaCalls.length > 0 && metaCalls.every((u) => u.includes('/act_28476042445410282/')),
     'the stored id has no act_ prefix; the request must carry one');
-  assert.ok(metaCalls.every((u) => new URL(u).searchParams.get('level') === 'campaign'), 'campaign totals only, never ad level');
+  const insightCalls = metaCalls.filter((u) => u.includes('/insights?'));
+  assert.ok(insightCalls.length > 0, 'insights were requested');
+  assert.ok(insightCalls.every((u) => new URL(u).searchParams.get('level') === 'campaign'), 'campaign totals only, never ad level');
   const row = db.tables.marketing_kpis_daily[0];
   assert.equal(row.platform, 'meta_ads');
   assert.equal(row.company_entity_id, CO);

@@ -184,13 +184,13 @@
           <div class="bcn-card-body" style="padding:0;overflow:auto">
             <table class="mo-tbl">
               <thead><tr>
-                <th>Campaign</th><th>Spend</th><th>Spend share</th><th>Impressions</th><th>CTR</th>
+                <th>Campaign</th><th>Spend</th><th>Spend share</th><th>Impressions</th><th>Reach</th><th>Freq.</th><th>CTR</th>
                 <th>Purchases</th><th>CPA</th><th>Attr. Value</th><th>ROAS</th><th>ROAS Δ</th><th>Launch</th>
               </tr></thead>
-              <tbody id="campaignBody"><tr><td class="mo-empty" colspan="11"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+              <tbody id="campaignBody"><tr><td class="mo-empty" colspan="13"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
             </table>
           </div>
-          <div class="mo-note">ROAS/CPA are Meta-attributed — consistent for comparing campaigns against each other, inflated vs. the Shopify ledger. Budget verdicts belong to MER; allocation between campaigns belongs here.</div>
+          <div class="mo-note">ROAS/CPA are Meta-attributed — consistent for comparing campaigns against each other, inflated vs. the Shopify ledger. Budget verdicts belong to MER; allocation between campaigns belongs here. <b>Reach</b> is the biggest single day in the window, not a sum — the same person reached on two days is one person, and only Meta can de-duplicate a period. <b>Freq.</b> is impressions ÷ that reach, recomputed here rather than averaged, so read it as "how hard the heaviest day hit", not a window-wide figure.</div>
         </div>
       </div>
 
@@ -278,6 +278,22 @@
               <tbody id="funnelCampaignBody"><tr><td class="mo-empty" colspan="8"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
             </table>
           </div>
+        </div>
+
+        <div class="bcn-card" style="margin-top:12px">
+          <div class="bcn-card-header">
+            <h2>Custom conversions</h2>
+            <span class="bcn-card-meta" style="margin-left:auto;font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3)">Campaign level · this window</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto">
+            <table class="mo-tbl">
+              <thead><tr>
+                <th>Conversion</th><th>Count</th><th>Value</th><th>Days reported</th><th>Top campaign</th>
+              </tr></thead>
+              <tbody id="customConvBody"><tr><td class="mo-empty" colspan="5"><span class="mo-spinner"></span>Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mo-note">The conversions and pixel events you defined in Events Manager, as Meta credits them — the same columns Ads Manager shows beside Purchases. Campaign level, so it covers every ad; a conversion overlaps purchases (one sign-up can also be a sale), so never add these to purchases or to net sales. A conversion with no name yet shows its Meta id.</div>
         </div>
       </div>
 
@@ -427,11 +443,21 @@
     return out;
   }
 
-  const loadRows = () => loadPaged(() => scopeQ(
-    sb.from('marketing_kpis_daily')
-      .select('platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source,view_content,add_to_cart,initiate_checkout')
-      .gte('day_date', sinceIso())
-      .order('day_date', { ascending:true }).order('id', { ascending:true })));
+  // reach/frequency arrived with 20261104001000. The page and the migration
+  // ship separately, so a database without the columns must still load every
+  // KPI row: ask for them, and on refusal ask again without them. This read is
+  // NOT optional -- the whole page is built on it -- so it must never be the
+  // thing that fails.
+  const KPI_COLS = 'platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source,view_content,add_to_cart,initiate_checkout';
+  async function loadRows(){
+    const q = (cols) => loadPaged(() => scopeQ(
+      sb.from('marketing_kpis_daily')
+        .select(cols)
+        .gte('day_date', sinceIso())
+        .order('day_date', { ascending:true }).order('id', { ascending:true })));
+    try { return await q(KPI_COLS + ',reach,frequency'); }
+    catch(e){ console.warn('marketing_kpis_daily without reach/frequency', e); return q(KPI_COLS); }
+  }
 
   async function loadMer(){
     try {
@@ -443,14 +469,37 @@
     } catch(e){ console.warn('v_marketing_mer_daily unavailable', e); return []; }
   }
 
+  const AD_PERF_COLS = 'day_date,campaign_name,adset_name,ad_id,ad_name,impressions,clicks,spend,conversions,conversion_value';
   async function loadAdPerf(){
+    const q = (cols) => loadPaged(() => scopeQ(
+      sb.from('meta_ad_performance_daily')
+        .select(cols)
+        .gte('day_date', sinceIso())
+        .order('day_date', { ascending:true }).order('id', { ascending:true })));
+    // Same two-step as the KPI read: reach/frequency are new columns, and
+    // asking for one a database does not have must not cost the creatives.
+    try { return await q(AD_PERF_COLS + ',reach,frequency'); }
+    catch(e){
+      try { return await q(AD_PERF_COLS); }
+      catch(e2){ console.warn('meta_ad_performance_daily unavailable', e2); return []; }
+    }
+  }
+
+  // Custom conversions (20261104000500). Its own try/catch returning []: the
+  // page ships before the migration is applied, and an empty card is the
+  // correct state in that gap -- not a broken Funnel tab.
+  async function loadCustomConversions(){
     try {
       return await loadPaged(() => scopeQ(
-        sb.from('meta_ad_performance_daily')
-          .select('day_date,campaign_name,adset_name,ad_id,ad_name,impressions,clicks,spend,conversions,conversion_value')
+        sb.from('meta_custom_conversion_daily_v')
+          .select('day_date,level,campaign_name,conversion_name,custom_conversion_id,action_type,conversions,conversion_value')
+          // Campaign level only. Ad-level rows describe the SAME conversions
+          // over the same spend, so loading both and summing would double
+          // every number on this card.
+          .eq('level', 'campaign')
           .gte('day_date', sinceIso())
           .order('day_date', { ascending:true }).order('id', { ascending:true })));
-    } catch(e){ console.warn('meta_ad_performance_daily unavailable', e); return []; }
+    } catch(e){ console.warn('meta_custom_conversion_daily_v unavailable', e); return []; }
   }
 
   // preview_shareable_link arrived with 20260923150000. The page and the
@@ -688,7 +737,7 @@
     el('campaignFocus').hidden=!focusedCampaign;
     const meta = rows.filter(r => r.platform === 'meta_ads');
     if (!meta.length){
-      el('campaignBody').innerHTML = `<tr><td class="mo-empty" colspan="11">No Meta campaign data in this window.</td></tr>`;
+      el('campaignBody').innerHTML = `<tr><td class="mo-empty" colspan="13">No Meta campaign data in this window.</td></tr>`;
       return;
     }
     const daysSorted = [...new Set(meta.map(r => r.day_date))].sort();
@@ -697,10 +746,18 @@
     const byC = new Map();
     for (const r of meta){
       const key = r.campaign_id || r.campaign_name;
-      if (!byC.has(key)) byC.set(key, { id:r.campaign_id, name:r.campaign_name, spend:0, impr:0, clicks:0, conv:0, value:0, h1s:0, h1v:0, h2s:0, h2v:0 });
+      if (!byC.has(key)) byC.set(key, { id:r.campaign_id, name:r.campaign_name, spend:0, impr:0, clicks:0, conv:0, value:0, h1s:0, h1v:0, h2s:0, h2v:0, peakReach:null, peakReachImpr:0 });
       const c = byC.get(key);
       const s = Number(r.spend||0), v = Number(r.conversion_value||0);
       c.spend += s; c.impr += Number(r.impressions||0); c.clicks += Number(r.clicks||0);
+      // Reach is UNIQUE PEOPLE: summing days counts the same person once per
+      // day they saw an ad. The biggest single day is the only honest number
+      // available from daily rows, and frequency is recomputed from that day's
+      // own impressions rather than averaged across days.
+      if (r.reach != null && (c.peakReach == null || Number(r.reach) > c.peakReach)){
+        c.peakReach = Number(r.reach);
+        c.peakReachImpr = Number(r.impressions||0);
+      }
       c.conv += Number(r.conversions||0); c.value += v;
       if (r.day_date < midDay){ c.h1s += s; c.h1v += v; } else { c.h2s += s; c.h2v += v; }
     }
@@ -720,6 +777,8 @@
         <td>${money(c.spend)}</td>
         <td><span class="mo-bar" style="width:${Math.round(c.spend/maxSpend*70)}px"></span>${totalSpend ? Math.round(c.spend/totalSpend*100) : 0}%</td>
         <td>${numFmt(c.impr)}</td>
+        <td>${c.peakReach == null ? '—' : numFmt(c.peakReach)}</td>
+        <td>${c.peakReach ? (c.peakReachImpr/c.peakReach).toFixed(2) : '—'}</td>
         <td>${pctFmt(c.impr ? c.clicks/c.impr : null)}</td>
         <td>${numFmt(c.conv)}</td>
         <td>${c.conv ? money(c.spend/c.conv) : '—'}</td>
@@ -728,7 +787,7 @@
         <td>${deltaHtml}</td>
         <td>${c.id ? launchCell(CAMPAIGN_REF,c.id,'campaign') : 'No campaign ID'}</td>
       </tr>`;
-    }).join('') : `<tr><td class="mo-empty" colspan="11">This linked campaign has no data in this date window. Try 90d or show all.</td></tr>`;
+    }).join('') : `<tr><td class="mo-empty" colspan="13">This linked campaign has no data in this date window. Try 90d or show all.</td></tr>`;
   }
 
   // ── Creatives tab ──────────────────────────────────────────────
@@ -1044,6 +1103,41 @@
     </tr>`).join('');
   }
 
+  function renderCustomConversions(rows){
+    const by = new Map();
+    for (const r of rows || []){
+      // Group by IDENTITY, never by the display name. Two custom conversions
+      // can carry the same name ("Sign ups" for two campaigns), and keying on
+      // the name would merge them into one row with combined counts and the
+      // wrong top campaign. The id is the identity for a custom conversion;
+      // a custom pixel event has none, so its raw action_type stands in.
+      const key = r.custom_conversion_id || r.action_type || r.conversion_name || '—';
+      const label = r.conversion_name || r.custom_conversion_id || r.action_type || '—';
+      if (!by.has(key)) by.set(key, { name:label, count:0, value:0, days:new Set(), byCampaign:new Map() });
+      const c = by.get(key);
+      c.count += Number(r.conversions||0);
+      c.value += Number(r.conversion_value||0);
+      if (r.day_date) c.days.add(r.day_date);
+      const camp = r.campaign_name || '—';
+      c.byCampaign.set(camp, (c.byCampaign.get(camp)||0) + Number(r.conversions||0));
+    }
+    const list = [...by.values()].sort((a,b) => b.count - a.count);
+    if (!list.length){
+      el('customConvBody').innerHTML = `<tr><td class="mo-empty" colspan="5">No custom conversions reported in this window. Meta returns one only for a day it has something to report.</td></tr>`;
+      return;
+    }
+    el('customConvBody').innerHTML = list.map(c => {
+      const top = [...c.byCampaign.entries()].sort((a,b) => b[1]-a[1])[0];
+      return `<tr>
+        <td>${esc(c.name)}</td>
+        <td>${numFmt(c.count)}</td>
+        <td>${c.value > 0 ? money(c.value) : '—'}</td>
+        <td>${numFmt(c.days.size)}</td>
+        <td>${esc(top ? top[0] : '—')}</td>
+      </tr>`;
+    }).join('');
+  }
+
   // ── Channels tab ───────────────────────────────────────────────
   function renderChannels(rows, merRows){
     const ga4 = rows.filter(r => r.platform === 'ga4');
@@ -1240,9 +1334,9 @@
     el('btnRefresh').disabled = true;
     try {
       const [rows, merRows, adPerf, creatives, organic, pageDays, linksLoaded, redo,
-             igProfile, igAccountDays, pagePosts] = await Promise.all([
+             igProfile, igAccountDays, pagePosts, customConv] = await Promise.all([
         loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(), loadLaunchLinks(), loadRedo(),
-        loadIgAccount(), loadIgAccountDays(), loadPagePosts(),
+        loadIgAccount(), loadIgAccountDays(), loadPagePosts(), loadCustomConversions(),
       ]);
       _adPerf = adPerf; _creatives = creatives; _redo = redo; _campaignRows = rows;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
@@ -1255,6 +1349,7 @@
       renderCreatives();
       renderRedo();
       renderFunnel(rows);
+      renderCustomConversions(customConv);
       renderChannels(rows, merRows);
       renderOrganic(organic);
       renderIgAccount(igProfile, igAccountDays);

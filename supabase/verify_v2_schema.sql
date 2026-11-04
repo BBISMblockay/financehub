@@ -8492,3 +8492,65 @@ select 'integration feed health' as check_name,
       then 'MISSING — the catalog no longer tells a bot to check feed health before calling data missing'
     else 'ok'
   end as status;
+
+
+-- ── Meta custom conversions (20261104000500) ────────────────────────────────
+-- The events Ads Manager shows and SILO used to discard. The sync writes these
+-- tables in its own try/catch, so a missing table is SILENT in the nightly log:
+-- this check is the only place it surfaces.
+select
+  case
+    when to_regclass('public.meta_custom_conversion_daily') is null
+      then 'MISSING — meta_custom_conversion_daily (20261104000500 not applied)'
+    when to_regclass('public.meta_custom_conversions') is null
+      then 'MISSING — meta_custom_conversions name lookup'
+    when to_regclass('public.meta_custom_conversion_daily_v') is null
+      then 'MISSING — meta_custom_conversion_daily_v'
+    when not exists (select 1 from pg_class where relname = 'meta_custom_conversion_daily_v'
+                      and 'security_invoker=true' = any(reloptions))
+      then 'CRITICAL — meta_custom_conversion_daily_v does not run as its caller'
+    when not (select relrowsecurity from pg_class where oid = 'public.meta_custom_conversion_daily'::regclass)
+      or has_table_privilege('anon', 'public.meta_custom_conversion_daily', 'select')
+      or has_table_privilege('authenticated', 'public.meta_custom_conversion_daily', 'insert')
+      or has_table_privilege('authenticated', 'public.meta_custom_conversion_daily', 'update')
+      or has_table_privilege('authenticated', 'public.meta_custom_conversion_daily', 'delete')
+      then 'CRITICAL — a client role can write meta_custom_conversion_daily, or anon can read it'
+    when not exists (select 1 from pg_policy
+                      where polrelid = 'public.meta_custom_conversion_daily'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%')
+      then 'CRITICAL — meta_custom_conversion_daily is not scoped to the active company'
+    when has_table_privilege('authenticated', 'public.meta_custom_conversions', 'insert')
+      or has_table_privilege('anon', 'public.meta_custom_conversions', 'select')
+      then 'CRITICAL — meta_custom_conversions is writable by a client role, or readable by anon'
+    else 'ok'
+  end as meta_custom_conversions_status;
+
+
+-- ── Meta reach and frequency (20261104001000) ───────────────────────────────
+select
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='marketing_kpis_daily'
+                        and column_name='frequency')
+      then 'MISSING — marketing_kpis_daily.frequency (20261104001000 not applied)'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='marketing_kpis_daily'
+                        and column_name='reach')
+      then 'MISSING — marketing_kpis_daily.reach'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='meta_ad_performance_daily'
+                        and column_name='frequency')
+      then 'MISSING — meta_ad_performance_daily.frequency'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema='public' and table_name='meta_ad_performance_daily'
+                        and column_name='reach')
+      then 'MISSING — meta_ad_performance_daily.reach'
+    -- The trap, not the column: a bot that sums reach or averages frequency
+    -- reports a number that is simply wrong, and only the catalog can say so.
+    when not exists (select 1 from public.silo_chat_schema_catalog
+                      where relname = 'marketing_kpis_daily'
+                        and description like '%reach is unique people%')
+      then 'MISSING — the catalog no longer warns that reach and frequency are not additive'
+    else 'ok'
+  end as meta_reach_frequency_status;

@@ -1004,6 +1004,24 @@ jobs:
             echo "mutation $m failed the suite, as it must"
           done
 
+      # Custom conversions: the events the sync used to read out of the
+      # insights response and throw away. The mutations defend the one promise
+      # that matters -- the new write is ADDITIVE and can never cost the KPI
+      # or ad-performance rows -- plus identity-only hashing and the refusal to
+      # record an event Meta did not report.
+      - name: Meta custom conversions, reach and frequency
+        run: node scripts/tests/meta-custom-conversions.test.mjs
+      - name: The custom-conversion guards, removed, must break it
+        run: |
+          set -u
+          for m in 1 2 3 4 5 6 7 8; do
+            if node scripts/tests/meta-custom-conversions.test.mjs --mutate=$m >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "mutation $m failed the suite, as it must"
+          done
+
       # Click-to-connect: the account picker's stored values, and Reconnect
       # writing fresh tokens only onto the row it was started for.
       - name: Ad-platform account picker and in-place reconnect
