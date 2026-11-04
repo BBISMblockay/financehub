@@ -551,15 +551,13 @@ const TABLES = {
       await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
     });
 
-    await check('no inset accounting nav band under the breadcrumb', async () => {
-      const legacy = await page.evaluate(() => ({
-        close: !!document.querySelector('[data-accounting-close]'),
-        suite: !!document.querySelector('[data-accounting-suite]'),
-        context: !!document.querySelector('[data-accounting-context]'),
-      }));
-      r.eq(legacy.close, false);
-      r.eq(legacy.suite, false);
-      r.eq(legacy.context, false);
+    await check('the accounting suite nav bar is opaque', async () => {
+      const bg = await page.$eval('[data-accounting-suite]', (n) => getComputedStyle(n).backgroundColor);
+      r.truthy(opaque(bg), 'background-color was ' + bg);
+    });
+
+    await check('the In your books inset band is not shown', async () => {
+      r.eq(await page.$('[data-accounting-close]'), null);
     });
 
     await check('a native dialog has a solid background', async () => {
@@ -593,7 +591,7 @@ const TABLES = {
 
     // ------------------------------------------------------ the suite nav
 
-    console.log('\n\u2500\u2500 accounting workspace chrome \u2500\u2500');
+    console.log('\n\u2500\u2500 the accounting suite nav \u2500\u2500');
     // The row drawer is fixed to the right of the window and covers the nav;
     // Escape must close it, innermost first.
     await check('Escape closes the row drawer', async () => {
@@ -607,9 +605,128 @@ const TABLES = {
       await page.waitForTimeout(150);
       r.eq(await page.$eval('#txnDetailDrawer', (n) => n.hidden), true);
     });
-    await check('the page header explains bank activity', async () => {
-      const sub = await page.$eval('[data-accounting-sub], .bcn-header-sub', (n) => n.textContent.trim());
-      r.has(sub, 'bank and card');
+    await check('every destination has an icon and an accessible name', async () => {
+      const nav = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
+        name: a.textContent.trim(), label: a.dataset.label,
+        icon: !!a.querySelector('svg'), current: a.getAttribute('aria-current'),
+      })));
+      r.truthy(nav.length >= 7, 'got ' + nav.length + ' links');
+      r.truthy(nav.every((n) => n.icon), 'every link draws an icon');
+      r.truthy(nav.every((n) => n.name && n.name === n.label), 'name and tooltip label agree');
+      r.eq(nav.filter((n) => n.current === 'page').map((n) => n.name), ['Bank activity'],
+        'the active destination is marked');
+    });
+
+    await check('compact hides the label visually but keeps it as the name', async () => {
+      await page.click('.accounting-suite-compact');
+      await page.waitForTimeout(120);
+      const compact = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
+        name: a.textContent.trim(),
+        width: a.querySelector('.accounting-suite-text').getBoundingClientRect().width,
+      })));
+      r.truthy(compact.every((c) => c.width <= 1), 'label widths: ' + compact.map((c) => c.width).join(','));
+      r.truthy(compact.every((c) => c.name.length > 0), 'the text node is still in the DOM');
+    });
+
+    /* Cycle-1 review finding. Opacity and content prove the tooltip is STYLED,
+       not that it is painted: the links row scrolls horizontally, a scrollable
+       axis forces the other axis from visible to auto, and the tooltip sits
+       4px below each link -- outside that scrollport. Measured before the fix:
+       scrollport bottom 74px, tooltip top 78px, fully clipped while every
+       assertion below still passed. So this walks every ancestor and asks
+       whether any of them clips at the tooltip's own box. */
+    await check('the compact tooltip is not clipped by any ancestor', async () => {
+      const seen = await page.evaluate(() => {
+        const links = document.querySelector('.accounting-suite-links');
+        const a = links.querySelector('a');
+        const after = getComputedStyle(a, '::after');
+        const box = a.getBoundingClientRect();
+        // The tooltip's own box: 4px below the link (margin-top), its own height.
+        const top = box.bottom + 4;
+        const bottom = top + parseFloat(after.fontSize) * 2;
+        let node = a.parentElement;
+        let clippedBy = null;
+        while (node && node !== document.documentElement) {
+          const cs = getComputedStyle(node);
+          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
+            const b = node.getBoundingClientRect();
+            if (bottom > b.bottom + 0.5 || top < b.top - 0.5) {
+              clippedBy = (node.className && String(node.className)) || node.tagName;
+              break;
+            }
+          }
+          node = node.parentElement;
+        }
+        return { clippedBy, overflowX: getComputedStyle(links).overflowX,
+          overflowY: getComputedStyle(links).overflowY };
+      });
+      r.eq(seen.clippedBy, null, 'the tooltip is clipped by an ancestor');
+      // The cause, pinned directly: neither axis may establish a scrollport
+      // while the tooltip hangs below the row.
+      r.eq(seen.overflowY, 'visible');
+      r.eq(seen.overflowX, 'visible');
+    });
+
+    await check('the links row still scrolls when full labels are shown', async () => {
+      // The scrollport is only dropped in compact mode; with labels the row
+      // can be long enough to need it, and there is no tooltip to clip.
+      const overflow = await page.evaluate(() => {
+        const nav = document.querySelector('[data-accounting-suite]');
+        const links = nav.querySelector('.accounting-suite-links');
+        const wasCompact = nav.classList.contains('accounting-suite--compact');
+        nav.classList.remove('accounting-suite--compact');
+        const value = getComputedStyle(links).overflowX;
+        if (wasCompact) nav.classList.add('accounting-suite--compact');
+        return value;
+      });
+      r.eq(overflow, 'auto');
+    });
+
+    await check('compact draws its tooltip from data-label, on hover AND keyboard focus', async () => {
+      const content = await page.$eval('[data-accounting-suite] a',
+        (a) => getComputedStyle(a, '::after').content);
+      r.has(content, 'Bank activity');
+      /* :focus-visible needs focus to ARRIVE by keyboard -- a programmatic
+         .focus() right after a click does not match it in Chromium, which is
+         the same rule a real keyboard user gets. So: focus the first link,
+         then Tab to the second. */
+      await page.focus('[data-accounting-suite] a');
+      await page.keyboard.press('Tab');
+      // The tooltip fades in; wait past the transition rather than racing it.
+      await page.waitForTimeout(400);
+      const focused = await page.evaluate(() => {
+        const a = document.activeElement;
+        return { label: a.dataset && a.dataset.label,
+          matches: a.matches(':focus-visible'),
+          opacity: getComputedStyle(a, '::after').opacity };
+      });
+      // 'Invoicing', not 'Shopify journal': it joined ACCOUNTING_PAGES at
+      // index 1 and this assertion was not moved with it, so the suite had
+      // been red on main. Kept as the literal second destination -- reading
+      // the name out of SiloNav here would assert nothing about tab order.
+      r.eq(focused.label, 'Invoicing', 'Tab landed on the next destination');
+      r.truthy(focused.matches, 'the link is :focus-visible');
+      r.eq(focused.opacity, '1');
+    });
+
+    await check('toggling back restores the labels', async () => {
+      await page.click('.accounting-suite-compact');
+      await page.waitForTimeout(120);
+      const width = await page.$eval('[data-accounting-suite] .accounting-suite-text',
+        (n) => n.getBoundingClientRect().width);
+      r.truthy(width > 1, 'label width ' + width);
+    });
+
+    console.log('\n\u2500\u2500 touch and small screens \u2500\u2500');
+    await check('on a phone the labels show and the compact toggle is not offered', async () => {
+      await page.setViewportSize({ width: 390, height: 780 });
+      await page.waitForTimeout(200);
+      const seen = await page.evaluate(() => ({
+        toggleShown: getComputedStyle(document.querySelector('.accounting-suite-compact')).display !== 'none',
+        labelWidth: document.querySelector('[data-accounting-suite] .accounting-suite-text').getBoundingClientRect().width,
+      }));
+      r.eq(seen.toggleShown, false);
+      r.truthy(seen.labelWidth > 1, 'label width ' + seen.labelWidth);
     });
 
     await check('filter controls stay inside a 390px screen with touch-sized targets', async () => {
