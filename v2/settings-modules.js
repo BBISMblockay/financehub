@@ -14,29 +14,24 @@
 
   const MODULE_COPY = {
     marketing: {
-      desc: 'Marketing, ads, and SEO.',
-      sections: ['Marketing'],
-      icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 5h2v14H3zm4 0h2l7 12V5h2v14h-2l-7-12v12H7z"/></svg>',
+      desc: 'Campaigns, ads, and search',
+      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 5h2v14H3zm4 0h2l7 12V5h2v14h-2l-7-12v12H7z"/></svg>',
     },
     finance: {
-      desc: 'Accounting and payment requests.',
-      sections: ['Accounting', 'Requests'],
-      icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 4h16v16H4zm2 2v12h12V6zm1.5 2h9v2h-9zm0 4h9v2h-9zm0 4h6v2h-6z"/></svg>',
+      desc: 'Books, customers, and requests',
+      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 4h16v16H4zm2 2v12h12V6zm1.5 2h9v2h-9zm0 4h9v2h-9zm0 4h6v2h-6z"/></svg>',
     },
     purchasing_inventory: {
-      desc: 'POs, inventory, and products.',
-      sections: ['Purchasing', 'Inventory', 'Product & inventory'],
-      icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M4 8h16l-1.5 10H5.5zm2.2-4h11.6L19 6H5z"/></svg>',
+      desc: 'Buy, stock, and catalog',
+      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 8h16l-1.5 10H5.5zm2.2-4h11.6L19 6H5z"/></svg>',
     },
     planning: {
-      desc: 'Calendar, projections, and tasks.',
-      sections: ['Planning'],
-      icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3zm13 8H6v10h14zm0-4H6v2h14z"/></svg>',
+      desc: 'Calendar, plans, and tasks',
+      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3zm13 8H6v10h14zm0-4H6v2h14z"/></svg>',
     },
     team: {
-      desc: 'Reviews and compensation.',
-      sections: ['Team'],
-      icon: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 19a4 4 0 0 1 4-4h1.1a5 5 0 0 0-.1 1v3zm14.9 0v-3a5 5 0 0 0-.1-1H18a4 4 0 0 1 4 4z"/></svg>',
+      desc: 'Reviews and comp',
+      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 19a4 4 0 0 1 4-4h1.1a5 5 0 0 0-.1 1v3zm14.9 0v-3a5 5 0 0 0-.1-1H18a4 4 0 0 1 4 4z"/></svg>',
     },
   };
 
@@ -73,6 +68,7 @@
     const { co, user } = await current();
     company = co;
     $('module-company').textContent = co.title || 'Workspace';
+    const perm = $('module-permission');
     const membership = check(await db.from('entity_memberships').select('role')
       .eq('entity_id', co.id).eq('user_id', user.id).maybeSingle());
     if (!membership) throw new Error('Workspace membership required.');
@@ -82,14 +78,14 @@
     await current();
     controls.forEach(input => { input.checked = visibility[input.value] !== false; });
     paintSummary(visibility);
-    $('module-permission').textContent = canEdit
-      ? 'Owners and admins can edit.'
-      : 'View only.';
+    perm.textContent = canEdit ? 'Can edit' : 'View only';
+    perm.className = `bcn-pill ${canEdit ? 'bcn-pill--accent' : ''}`.trim();
+    perm.hidden = false;
     available = true; lock();
   }
 
   for (const module of nav.MODULES) {
-    const copy = MODULE_COPY[module.id] || { desc: '', sections: module.sections, icon: '' };
+    const copy = MODULE_COPY[module.id] || { desc: '', icon: '' };
     const article = document.createElement('article');
     article.className = 'sm-module';
     article.dataset.moduleId = module.id;
@@ -108,15 +104,7 @@
     desc.className = 'sm-module-desc';
     desc.textContent = copy.desc;
 
-    const sections = document.createElement('div');
-    sections.className = 'sm-module-sections';
-    for (const name of (copy.sections || module.sections)) {
-      const tag = document.createElement('span');
-      tag.className = 'sm-section-tag';
-      tag.textContent = name;
-      sections.append(tag);
-    }
-    body.append(title, desc, sections);
+    body.append(title, desc);
 
     const toggle = document.createElement('label');
     toggle.className = 'sm-module-toggle';

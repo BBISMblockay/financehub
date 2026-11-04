@@ -22,10 +22,14 @@
 <body>
   <div class="silo-app" id="silo-app">
     <main class="silo-main workspace-settings">
-      <header class="bcn-header">
+      <header class="bcn-header sm-header">
         <div class="bcn-header-title">
           <div>Silo Modules</div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Which modules show in the menu for this workspace</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed" id="module-company">Workspace</div>
+          <p class="sm-lede">Choose which areas appear in the sidebar for everyone in this workspace.</p>
+        </div>
+        <div class="sm-header-act">
+          <span class="bcn-pill" id="module-permission" hidden></span>
         </div>
       </header>
 
@@ -34,47 +38,23 @@
 
         <div class="sm-layout">
           <div class="ws-card sm-catalog">
-            <div class="ws-card-head">
-              <div>
-                <div class="ws-title">Modules</div>
-                <p class="ws-sub" style="margin:4px 0 0;">Saves for everyone. Direct links still work.</p>
-              </div>
-            </div>
             <div class="ws-body">
               <div id="module-controls" class="sm-module-list" aria-label="Workspace modules"></div>
             </div>
           </div>
 
           <aside class="ws-card sm-aside">
-            <div class="ws-card-head">
-              <div class="ws-title">Not toggled here</div>
+            <div class="ws-card-head sm-aside-head">
+              <div class="ws-title">Always on</div>
             </div>
-            <div class="ws-body">
-              <ul class="sm-core-list" aria-label="Core workspace areas">
-                <li class="sm-core-item">
-                  <span class="sm-core-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
-                  </span>
-                  <span><span class="sm-core-name">Home &amp; reports</span>Start and Insights</span>
-                </li>
-                <li class="sm-core-item">
-                  <span class="sm-core-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 3a7 7 0 0 0-4 12.7V19a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-3.3A7 7 0 0 0 12 3m0 2a5 5 0 0 1 3.5 8.5l-.2.2V19h-6.6v-5.3l-.2-.2A5 5 0 0 1 12 5"/></svg>
-                  </span>
-                  <span><span class="sm-core-name">Ask SILO</span>Grant-based</span>
-                </li>
-                <li class="sm-core-item">
-                  <span class="sm-core-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1m1 2v12h12V6zm2 2h8v2H8zm0 4h5v2H8z"/></svg>
-                  </span>
-                  <span><span class="sm-core-name">Settings</span>Company, team, billing</span>
-                </li>
+            <div class="ws-body ws-body--tight">
+              <ul class="sm-core-list" aria-label="Areas not controlled by module toggles">
+                <li class="sm-core-row"><span class="sm-core-name">Home &amp; reports</span></li>
+                <li class="sm-core-row"><span class="sm-core-name">Ask SILO</span><span class="sm-core-meta">Grants</span></li>
+                <li class="sm-core-row"><span class="sm-core-name">Settings</span></li>
               </ul>
-              <div class="sm-foot">
-                <p class="ws-note" id="module-permission"></p>
-                <p class="ws-note">Menu only — not permissions or billing.</p>
-                <button class="bcn-btn bcn-btn--ghost" id="module-reload" type="button">Reload</button>
-              </div>
+              <p class="sm-aside-note">Menu only — not permissions or billing. Direct links still work.</p>
+              <button class="bcn-btn bcn-btn--ghost sm-reload" id="module-reload" type="button">Reload</button>
             </div>
           </aside>
         </div>
