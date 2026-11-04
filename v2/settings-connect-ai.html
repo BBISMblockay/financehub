@@ -133,6 +133,8 @@
   let _names = {};   // client_id -> readable name, from Supabase's own grant list
   let _cos = {};     // company_entity_id -> title
   let _who = {};     // grant id -> approver's name or email
+  let _calls = {};   // grant id -> that connection's recent calls, newest first
+  let _callsKnown = false;   // false until the call log answered; see loadActivity()
 
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined,
     { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
@@ -247,6 +249,7 @@
         + esc(ago(g.last_used_at)) + '</span>'
         + ' · <span title="' + esc(exact(g.consented_at)) + '">added '
         + esc(ago(g.consented_at)) + '</span></div>'
+        + activityLine(g)
         + '</div>'
         + '<div class="cn-actions" data-actions>'
         + '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="' + esc(g.id) + '">Remove</button>'
@@ -274,6 +277,8 @@
     box.innerHTML = '<button class="bcn-btn bcn-btn--ghost bcn-btn--danger btn-xs" type="button" data-ask="'
       + esc(g.id) + '">Remove</button>';
     box.querySelector('[data-ask]').addEventListener('click', () => askToRemove(card, g));
+    const act = card.querySelector('[data-activity]');
+    if (act) act.addEventListener('click', () => showCalls(card, g));
   }
 
   /* A removed application LEAVES the page, both copies of it: the person said
@@ -405,7 +410,8 @@
       if (!e2) co = data;
     }
 
-    await loadLabels([...live(mine), ...live(co)]);
+    const shown = [...live(mine), ...live(co)];
+    await Promise.all([loadLabels(shown), loadActivity(shown)]);
 
     paint('gridMine', 'mineSub', live(mine), {
       empty: 'No applications are connected to your account.', showWho: false,
@@ -458,6 +464,83 @@
       }
     }
     return '';
+  }
+
+  /* What this connection has actually done.
+
+     `last_used_at` alone cannot answer that: it is one timestamp, bumped at
+     most hourly, and before 20261103240000 only the query and report tools
+     bumped it at all. The call log is one row per authorized call, so this is
+     the first screen on which "what did that app read" has an answer.
+
+     It says plainly what it does NOT cover, because a log that looks complete
+     and is not is worse than no log: a refused call is not recorded (the
+     refusal rolls its own transaction back), and neither is what came back. */
+  const TOOL_NAMES = {
+    silo_api_query: 'ran a query',
+    silo_api_run_report: 'ran a report',
+    silo_api_list_reports: 'listed reports',
+    silo_api_describe_tables: 'read the table list',
+    silo_api_windsor_connections: 'read connected sources',
+    unknown: 'made a call',
+  };
+  const toolName = (t) => TOOL_NAMES[t] || String(t || '').replace(/^silo_api_/, '').replace(/_/g, ' ');
+
+  function activityLine(g) {
+    if (!_callsKnown) return '';
+    const rows = _calls[g.id] || [];
+    if (!rows.length) {
+      return '<div class="cn-meta cn-activity">No calls recorded yet'
+        + (g.last_used_at ? ' — it was last used ' + esc(ago(g.last_used_at))
+            + ', before SILO started recording what each call was' : '')
+        + '.</div>';
+    }
+    const newest = rows[0];
+    const day = rows.filter((r) => Date.now() - new Date(r.created_at).getTime() < 86400000).length;
+    return '<div class="cn-meta cn-activity">'
+      + esc(rows.length) + ' call' + (rows.length === 1 ? '' : 's') + ' recorded'
+      + (day ? ', ' + esc(day) + ' in the last day' : '')
+      + ' · last: ' + esc(toolName(newest.tool))
+      + ' <span title="' + esc(exact(newest.created_at)) + '">' + esc(ago(newest.created_at)) + '</span>'
+      + ' <button class="cn-link" type="button" data-activity="' + esc(g.id) + '">Show calls</button>'
+      + '<div class="cn-calls" data-calls="' + esc(g.id) + '" hidden></div></div>';
+  }
+
+  function showCalls(card, g) {
+    const box = card.querySelector('[data-calls="' + CSS.escape(g.id) + '"]');
+    const btn = card.querySelector('[data-activity="' + CSS.escape(g.id) + '"]');
+    if (!box) return;
+    if (!box.hidden) { box.hidden = true; if (btn) btn.textContent = 'Show calls'; return; }
+    const rows = (_calls[g.id] || []).slice(0, 20);
+    box.innerHTML = '<table class="bcn-table cn-calls-table"><tbody>'
+      + rows.map((r) => '<tr><td class="bcn-mono">' + esc(exact(r.created_at)) + '</td>'
+        + '<td>' + esc(toolName(r.tool)) + '</td>'
+        + '<td class="bcn-mono">' + esc(r.scope || '') + '</td></tr>').join('')
+      + '</tbody></table>'
+      + '<div class="cn-note">Calls this connection was allowed to make. A call SILO refused is not'
+      + ' listed, and neither is what the answer contained.</div>';
+    box.hidden = false;
+    if (btn) btn.textContent = 'Hide calls';
+  }
+
+  /* One query for every grant on the page. Mirrors loadLabels(): before the
+     migration is applied the table does not exist, and the page then shows no
+     activity line at all rather than an empty one that reads as "this app has
+     done nothing". */
+  async function loadActivity(list) {
+    const ids = [...new Set(list.map((g) => g.id))];
+    if (!ids.length) return;
+    try {
+      const { data, error } = await db.from('silo_api_call_log')
+        .select('grant_id, tool, scope, created_at')
+        .in('grant_id', ids)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      if (error || !Array.isArray(data)) return;
+      _calls = {};
+      for (const r of data) (_calls[r.grant_id] = _calls[r.grant_id] || []).push(r);
+      _callsKnown = true;
+    } catch (_) { /* an absent log is not a reason to fail the page */ }
   }
 
   function paint(gridId, subId, list, opts) {

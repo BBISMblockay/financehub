@@ -19492,4 +19492,10 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261102180000. Nothing about the policy changes (2FA approval, 90-day
 -- maximum, 30-day idle, fail closed). No deploy.
 \i migrations/20261104020000_developer_api_app_connection_slots.sql
+
+-- One row per authorized AI-connection call (silo_api_call_log), recorded
+-- inside silo_api_require_scope() -- which every tool begins with -- so a tool
+-- added later is covered too. Also makes every tool count as activity for the
+-- 30-day idle policy, which only the query and report tools did. No deploy.
+\i migrations/20261103240000_api_call_log.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

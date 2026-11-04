@@ -1725,6 +1725,26 @@ jobs:
       - name: Execute developer API app connection slot regressions
         run: node scripts/tests/developer-api-app-connection-slots-database.test.mjs
 
+      # 20261103240000: one row per AUTHORIZED connection call, recorded inside
+      # the one function every tool begins with, so a tool added later is
+      # covered without a change. Proves the tool name comes from PostgREST's
+      # own request path, that a browser session is not recorded as a
+      # connection, that a refused call records nothing (the documented limit,
+      # pinned so the screen's wording stays true), that every tool now counts
+      # as activity for the 30-day idle policy, that retention is bounded to
+      # one company's own rows, and that a colleague cannot read what somebody
+      # else's app pulled. Mutation-tested.
+      - name: Execute connection call log regressions
+        run: |
+          node scripts/tests/api-call-log-database.test.mjs
+          for mutation in stable-scope open-policy no-touch no-prune log-browser ignore-read-only logging-can-break-a-read; do
+            if CALL_LOG_MUTATION="$mutation" node scripts/tests/api-call-log-database.test.mjs; then
+              echo "::error::$mutation did not fail the call log suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+
       # 20260922150000: the launch form's "products not known yet" flag. Proves
       # the author is stamped from auth.uid() (never the client), survives a
       # later edit, and a cleared flag carries no stale author or note.
