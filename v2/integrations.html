@@ -3330,7 +3330,7 @@
 
     async function removeQboConnection() {
       if (!_qboRow) return;
-      if (!confirm('Disconnect QuickBooks? The stored chart of accounts is deleted with it, and any Accounting Export mapping that points at a QBO account will fall back to its account name.')) return;
+      if (!confirm('Disconnect QuickBooks? The stored chart of accounts is deleted with it, and any Shopify journal mapping that points at a QBO account will fall back to its account name.')) return;
       const { error } = await db.from('quickbooks_connections').delete().eq('id', _qboRow.id);
       if (error) { setStatus('Disconnect failed: ' + error.message, 'neg'); return; }
       _qboRow = null;

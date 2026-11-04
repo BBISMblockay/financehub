@@ -335,7 +335,7 @@
   }
 
   function revenueStage(f) {
-    const link = { href: 'accounting-export.html', text: 'Open Accounting export' };
+    const link = { href: 'accounting-export.html', text: 'Open Shopify journal' };
     const limit = 'Silo can see that entries were posted for a month. It cannot tell whether every revenue source is represented in them — an untouched store or an unbilled channel looks the same as a complete month from here.';
     if (isUnmeasured(f.journals) || isUnmeasured(f.batches) || isUnmeasured(f.settings) || isUnmeasured(f.revenue)) {
       return { state: 'unknown', summary: 'Posted entries could not be read', link,
