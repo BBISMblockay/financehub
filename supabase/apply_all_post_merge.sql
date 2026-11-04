@@ -19475,4 +19475,8 @@ $c$select (select count(*) from v_po_header_summary
 -- neither may be summed or averaged. Owes the same ad-platform-sync-run deploy
 -- as 20261104000500. Before the catalog cleanup.
 \i migrations/20261104001000_meta_reach_frequency.sql
+-- Takes the default insert/update/delete grant off the two custom-conversion
+-- tables (RLS already refused those writes; this is the posture
+-- verify_v2_schema.sql asks for). Needs 20261104000500. No deploy.
+\i migrations/20261104003000_meta_custom_conversions_revoke.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
