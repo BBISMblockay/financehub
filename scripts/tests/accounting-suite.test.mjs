@@ -8,9 +8,7 @@ const suite=await read('v2/accounting-suite.js');
 const nav=await read('v2/nav-config.js');
 class Element {
   constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.attributes={};
-    this.listeners={};this.innerHTML='';this.textContent='';
-    // Enough of classList and addEventListener for the compact toggle: the
-    // nav is data, not framework, and its behaviour is worth asserting here.
+    this.listeners={};this.innerHTML='';this.textContent='';this.hidden=false;
     const classes=new Set();
     this.classList={add:c=>classes.add(c),remove:c=>classes.delete(c),
       contains:c=>classes.has(c),toggle:(c,on)=>{const want=on===undefined?!classes.has(c):!!on;
@@ -19,61 +17,56 @@ class Element {
   append(...values){this.children.push(...values);}
   setAttribute(k,v){this.attributes[k]=v;}
   getAttribute(k){return this.attributes[k];}
-  addEventListener(type,fn){(this.listeners[type]=this.listeners[type]||[]).push(fn);}
-  fire(type){for(const fn of this.listeners[type]||[])fn();}
+  set href(v){this.attributes.href=String(v);}
+  get href(){return this.attributes.href;}
+  querySelector(sel){
+    if(sel==='[data-accounting-context]')return this._context||null;
+    if(sel==='[data-accounting-books]')return this._context?.children?.[0]||null;
+    if(sel==='.bcn-header')return this._header||null;
+    if(sel==='[data-accounting-sub]'||sel==='.bcn-header-sub')return this._sub||null;
+    return null;
+  }
+  remove(){this._removed=true;}
 }
-const mountNav=(active)=>{
+const mountContext=(active)=>{
   const document={createElement:tag=>new Element(tag)},window={};
   vm.runInNewContext(nav,{window});
   vm.runInNewContext(suite,{window,document});
-  let mounted;
-  const main={querySelector:()=>mounted,firstElementChild:{after:node=>{mounted=node;}}};
-  window.SiloAccounting.mount(main,active);
-  return {window,main,nav:mounted,links:mounted.children[1].children,
-    toggle:mounted.children[2],remount:()=>window.SiloAccounting.mount(main,active)};
+  const header=new Element('header');header.className='bcn-header';
+  const title=new Element('div');title.className='bcn-header-title';title.textContent='Page';
+  header.children.push(title);
+  const main={_header:header,_context:null,_removed:false,
+    querySelector(sel){
+      if(sel==='[data-accounting-context]')return this._context;
+      if(sel==='[data-accounting-close]'||sel==='[data-accounting-suite]')return null;
+      if(sel==='.bcn-header')return this._header;
+      return null;
+    },
+    firstElementChild:header,
+  };
+  header.after=function(node){main._context=node;node._context=node;};
+  window.SiloAccounting.mount(main, active);
+  return { window, main, bar: main._context };
 };
-test('all accounting destinations are one click away and the current page is identified',()=>{
-  for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
-    const m=mountNav(active);
-    // 8, not 7: Invoicing joined ACCOUNTING_PAGES and this count was not
-    // updated with it, so the suite had been red on main. Kept as a literal
-    // rather than pages().length -- the point is that every destination is one
-    // click away, and comparing the list to itself would assert nothing.
-    assert.equal(m.links.length,8);assert.equal(m.links.filter(l=>l.attributes['aria-current']==='page').length,1);
-    assert.ok(m.links.every(l=>l.href.startsWith('/v2/')));
-    const first=m.nav;m.remount();assert.equal(first,m.nav);
-    assert.equal(m.window.SiloAccounting.contains('inventory/overview'),false);
+test('accounting pages get a slim context bar, not a second link row',()=>{
+  for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports']){
+    const {bar,main,window}=mountContext(active);
+    assert.ok(bar,'context bar mounts');
+    assert.equal(bar.className,'accounting-context');
+    const queue=bar.children.find(c=>c.tag==='a');
+    assert.equal(queue?.textContent,'Period review');
+    assert.equal(queue?.attributes?.href,'/v2/on-deck.html');
+    window.SiloAccounting.mount(main,active);
+    assert.equal(main._context,bar,'remount reuses the same bar');
+    assert.equal(window.SiloAccounting.contains('inventory/overview'),false);
   }
 });
-test('every destination draws an icon and keeps its label as the accessible name',()=>{
-  const {links}=mountNav('finance/card-coding');
-  for(const link of links){
-    // The icon is markup on the link; the LABEL is a real child text node, so
-    // clipping it in compact mode cannot take the accessible name with it.
-    assert.match(link.innerHTML,/^<svg /,'a destination drawn without an icon');
-    assert.match(link.innerHTML,/stroke="currentColor"/,'the icon must follow the link colour');
-    const text=link.children.find(child=>child.tag==='span');
-    assert.ok(text&&text.textContent,'a destination with no label element');
-    assert.equal(text.textContent,link.dataset.label,'the tooltip label and the visible label must agree');
-    assert.equal(link.title,link.dataset.accountingHint||link.dataset.label);
+test('every accounting destination remains in the sidebar',()=>{
+  const window={};vm.runInNewContext(nav,{window});
+  assert.equal(window.SiloNav.ACCOUNTING_PAGES.length,8);
+  for(const [id,,path] of window.SiloNav.ACCOUNTING_PAGES){
+    assert.ok(id&&path,`${id} has a route`);
   }
-  // Distinct icons, not one mark repeated -- the fallback is allowed once.
-  const drawings=new Set(links.map(l=>l.innerHTML.replace(/<span[\s\S]*$/,'')));
-  assert.equal(drawings.size,links.length,'two destinations share an icon');
-});
-test('the compact toggle flips the nav and says which state it is in',()=>{
-  const {nav,toggle}=mountNav('finance/card-coding');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),false);
-  assert.equal(toggle.attributes['aria-pressed'],'false');
-  const labelled=toggle.attributes['aria-label'];
-  assert.ok(labelled&&labelled.length,'the toggle needs an accessible name of its own');
-  toggle.fire('click');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),true);
-  assert.equal(toggle.attributes['aria-pressed'],'true');
-  assert.notEqual(toggle.attributes['aria-label'],labelled,'the name must describe what the click will do next');
-  toggle.fire('click');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),false);
-  assert.equal(toggle.attributes['aria-pressed'],'false');
 });
 test('one sidebar entry retains the existing finance department visibility',()=>{
   const window={};vm.runInNewContext(nav,{window});
