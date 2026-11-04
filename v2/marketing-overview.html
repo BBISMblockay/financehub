@@ -492,7 +492,7 @@
     try {
       return await loadPaged(() => scopeQ(
         sb.from('meta_custom_conversion_daily_v')
-          .select('day_date,level,campaign_name,conversion_name,custom_conversion_id,conversions,conversion_value')
+          .select('day_date,level,campaign_name,conversion_name,custom_conversion_id,action_type,conversions,conversion_value')
           // Campaign level only. Ad-level rows describe the SAME conversions
           // over the same spend, so loading both and summing would double
           // every number on this card.
@@ -1106,8 +1106,14 @@
   function renderCustomConversions(rows){
     const by = new Map();
     for (const r of rows || []){
-      const key = r.conversion_name || r.custom_conversion_id || '—';
-      if (!by.has(key)) by.set(key, { name:key, count:0, value:0, days:new Set(), byCampaign:new Map() });
+      // Group by IDENTITY, never by the display name. Two custom conversions
+      // can carry the same name ("Sign ups" for two campaigns), and keying on
+      // the name would merge them into one row with combined counts and the
+      // wrong top campaign. The id is the identity for a custom conversion;
+      // a custom pixel event has none, so its raw action_type stands in.
+      const key = r.custom_conversion_id || r.action_type || r.conversion_name || '—';
+      const label = r.conversion_name || r.custom_conversion_id || r.action_type || '—';
+      if (!by.has(key)) by.set(key, { name:label, count:0, value:0, days:new Set(), byCampaign:new Map() });
       const c = by.get(key);
       c.count += Number(r.conversions||0);
       c.value += Number(r.conversion_value||0);
@@ -1117,7 +1123,7 @@
     }
     const list = [...by.values()].sort((a,b) => b.count - a.count);
     if (!list.length){
-      el('customConvBody').innerHTML = `<tr><td class="mo-empty" colspan="5">No custom conversions reported in this window. Meta only returns one on a day an ad actually fired it.</td></tr>`;
+      el('customConvBody').innerHTML = `<tr><td class="mo-empty" colspan="5">No custom conversions reported in this window. Meta returns one only for a day it has something to report.</td></tr>`;
       return;
     }
     el('customConvBody').innerHTML = list.map(c => {

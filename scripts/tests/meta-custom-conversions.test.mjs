@@ -21,8 +21,10 @@
 //   4. row_hash is identity only (company x level x account x object x day x
 //      action_type) -- Meta restates these numbers for weeks, and a hash over
 //      the values would write a second row instead of correcting the first.
-//   5. A day Meta did not report the event writes NO row. Zero would read as
-//      "measured zero" rather than "not reported".
+//   5. A day Meta did not report the event writes NO row -- because the
+//      action_type is absent from the response, not because a zero was
+//      filtered. An EXPLICIT zero is a restatement and must be written, or a
+//      day Meta once credited with 5 and now reports as 0 keeps showing 5.
 //   6. Campaign-level and ad-level rows stay distinguishable, because they
 //      describe the same conversions over the same spend and summing both
 //      double counts.
@@ -62,8 +64,11 @@ if (mutation === 1) {
     "          connection.company_entity_id, 'meta_custom_conv', level,\n          r.accountId, objectId, r.day, c.actionType,",
     "          connection.company_entity_id, 'meta_custom_conv', level,\n          r.accountId, objectId, r.day, c.actionType, c.conversions, c.conversionValue,");
 } else if (mutation === 4) {
-  // Write a row for an event Meta did not report.
-  source = source.replace('if (!c.conversions && !c.conversionValue) continue;', 'if (false) continue;');
+  // Drop explicit zeros again: a restatement from 5 to 0 then writes nothing
+  // and the stale 5 stands.
+  source = source.replace(
+    '    for (const c of r.customConversions ?? []) {',
+    '    for (const c of r.customConversions ?? []) {\n      if (!c.conversions && !c.conversionValue) continue;');
 } else if (mutation === 6) {
   // Read a missing reach as 0 instead of null: "not reported" becomes
   // "reached nobody", which is a measurement nobody took.
@@ -258,12 +263,27 @@ await test('rows: the two grains never collide, and an ad row carries its ad', (
   assert.equal(ad[0].level, 'ad');
 });
 
-await test('rows: an unreported event writes no row, and a bad day is skipped', () => {
-  const raw = [
-    { day: '2026-11-01', accountId: 'act_123', campaignId: 'c1', customConversions: [{ actionType: 'offsite_conversion.custom.1', customConversionId: '1', conversions: 0, conversionValue: 0 }] },
-    { day: 'lifetime', accountId: 'act_123', campaignId: 'c1', customConversions: [{ actionType: 'offsite_conversion.custom.1', customConversionId: '1', conversions: 4, conversionValue: 0 }] },
-  ];
-  assert.deepEqual(customConversionRows(CONN, raw, { level: 'campaign', syncedAt: 'now' }), []);
+await test('rows: an event Meta never returned writes no row, and a bad day is skipped', () => {
+  // "Not reported" is the action_type being absent from the response, which
+  // collectCustomConversions expresses by emitting nothing for it.
+  const absent = [{ day: '2026-11-01', accountId: 'act_123', campaignId: 'c1', customConversions: collectCustomConversions({ actions: [{ action_type: 'omni_purchase', value: '3' }] }) }];
+  assert.deepEqual(customConversionRows(CONN, absent, { level: 'campaign', syncedAt: 'now' }), []);
+
+  const badDay = [{ day: 'lifetime', accountId: 'act_123', campaignId: 'c1', customConversions: [{ actionType: 'offsite_conversion.custom.1', customConversionId: '1', conversions: 4, conversionValue: 0 }] }];
+  assert.deepEqual(customConversionRows(CONN, badDay, { level: 'campaign', syncedAt: 'now' }), []);
+});
+
+await test('rows: an explicit zero is written, under the same identity, so it replaces a stored count', () => {
+  const opts = { level: 'campaign', syncedAt: 'now' };
+  const base = { day: '2026-11-01', accountId: 'act_123', campaignId: 'c1' };
+  const five = customConversionRows(CONN, [{ ...base, customConversions: collectCustomConversions({ actions: [{ action_type: 'offsite_conversion.custom.1', value: '5' }] }) }], opts);
+  const zero = customConversionRows(CONN, [{ ...base, customConversions: collectCustomConversions({ actions: [{ action_type: 'offsite_conversion.custom.1', value: '0' }] }) }], opts);
+  assert.equal(five[0].conversions, 5);
+  assert.equal(zero.length, 1, 'Meta re-reporting the day as 0 must still write');
+  assert.equal(zero[0].conversions, 0);
+  // Same row_hash, so the upsert overwrites the 5 instead of leaving it on the
+  // page and in every report beside a new zero row.
+  assert.equal(zero[0].row_hash, five[0].row_hash);
 });
 
 await test('rows: a value-only conversion is kept', () => {

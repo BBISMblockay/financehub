@@ -2230,11 +2230,13 @@ export function customConversionRows(connection, rawRows, { level, syncedAt, bat
     const objectId = level === 'ad' ? r.adId : (r.campaignId ?? r.campaignName);
     if (objectId == null) continue;
     for (const c of r.customConversions ?? []) {
-      // A day on which an ad did not fire the conversion is not a measurement
-      // worth storing: Meta simply omits the action_type, and writing a zero
-      // would turn "not reported" into "reported zero" -- the same mistake
-      // thruplays and leads keep null to avoid.
-      if (!c.conversions && !c.conversionValue) continue;
+      // Every entry Meta RETURNED is written, including an explicit zero.
+      // "Not reported" is already expressed by the action_type being absent
+      // from actions[] -- collectCustomConversions only emits what came back
+      // -- so there is nothing left here to filter. An explicit zero is a
+      // restatement: Meta re-reporting a day it had credited with 5 as 0 must
+      // overwrite that 5 under the same identity hash, and dropping the zero
+      // would leave the stale 5 on the page and in every report forever.
       out.push({
         company_entity_id: connection.company_entity_id,
         connection_id: connection.id,

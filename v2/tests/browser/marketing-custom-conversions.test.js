@@ -51,6 +51,9 @@ const R = createReporter('marketing-custom-conversions');
         // Same conversion at AD level. It must not be added in.
         conv({ id:'cc-3', level:'ad', ad_id:'a1', conversions:999 }),
         conv({ id:'cc-4', conversion_name:null, custom_conversion_id:'111', conversions:3 }),
+        // Same display name, different conversion. Names are not unique, so
+        // keying the card on the name would merge these two into one row.
+        conv({ id:'cc-5', custom_conversion_id:'222', conversion_name:'Black Friday 2026 Sign ups', campaign_name:'Second campaign', conversions:9 }),
       ],
     }), { ready });
     await page.click('[data-tab="funnel"]');
@@ -60,6 +63,11 @@ const R = createReporter('marketing-custom-conversions');
     R.not(body, '999', 'the ad-level copy of the same conversion is not added in');
     R.has(body, 'Early Bird 2026', 'top campaign named');
     R.has(body, '111', 'an unnamed conversion still shows, by its id');
+    // Two conversions sharing a name stay two rows: merged, the first would
+    // read 257 and claim the wrong top campaign.
+    R.not(body, '257', 'two conversions with the same name are not merged');
+    R.has(body, '9', 'the second same-named conversion has its own row');
+    R.eq(await page.locator('#customConvBody tr').count(), 3, 'one row per conversion identity');
     const levels = await page.evaluate(() => window.__QUERIES__
       .filter(q => q.table === 'meta_custom_conversion_daily_v')
       .flatMap(q => (q.filters || []).filter(f => f.col === 'level').map(f => f.val)));
