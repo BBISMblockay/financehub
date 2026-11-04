@@ -1653,6 +1653,15 @@ jobs:
       - name: Execute inventory workboard matview regressions
         run: node scripts/tests/inventory-workboard-matview-database.test.mjs
 
+      # 20261104193000: one canonical product title per (company, SKU). The
+      # titles are the point, not the totals -- the defect moved units between
+      # rows rather than losing them, so the production case (430 units read as
+      # 151 + 279) is the first assertion. Also runs the drop-and-recreate of
+      # the two views that read the matview, and the verify_v2_schema arm.
+      # Mutation-tested: five ways of breaking the rule, each caught.
+      - name: Execute canonical product title regressions
+        run: node scripts/tests/product-title-canonical-database.test.mjs
+
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta
       # thumbnails, image fallbacks) and every tie-out the migration writes.

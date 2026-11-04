@@ -19507,4 +19507,17 @@ $c$select (select count(*) from v_po_header_summary
 -- those three VOLATILE; their bodies do not change. A GET of them is answered
 -- 405 from here on; every known caller POSTs. No deploy.
 \i migrations/20261104030000_api_call_log_catalog_tools.sql
+-- One product, one title. sales_by_product_title_daily_mv resolved the title
+-- from products_master alone, which is UNIQUE (company, sku) while the catalog
+-- sync runs once per STORE -- so a SKU carried by two stores took whichever
+-- store synced last (alphabetical by shop_domain), and one product split across
+-- two titles in every title-grouped report: Ask SILO read 151 units for a youth
+-- hoodie that sold 430. The title is now resolved per (company, sku) from
+-- shopify_product_skus, preferring the published store copy, with
+-- products_master and then sales_by_day.product_name as fallbacks. Same select
+-- list, grain, grants and refresh function; the matview is rebuilt under a
+-- temporary name and swapped, so the two views that read it are recreated.
+-- No deploy.
+\i migrations/20261104193000_product_title_canonical.sql
+
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
