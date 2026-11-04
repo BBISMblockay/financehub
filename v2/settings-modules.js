@@ -29,10 +29,6 @@
       desc: 'Calendar, plans, and tasks',
       icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3v18H4V4h3zm13 8H6v10h14zm0-4H6v2h14z"/></svg>',
     },
-    team: {
-      desc: 'Reviews and comp',
-      icon: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 19a4 4 0 0 1 4-4h1.1a5 5 0 0 0-.1 1v3zm14.9 0v-3a5 5 0 0 0-.1-1H18a4 4 0 0 1 4 4z"/></svg>',
-    },
   };
 
   let company, canEdit = false, available = false, busy = false;
