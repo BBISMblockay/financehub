@@ -47,11 +47,11 @@
   /* Plain-language labels on the tab strip; URLs and nav ids stay the same. */
   const FRIENDLY_TITLE = {
     'finance/card-coding': 'Bank activity',
-    'finance/accounting-export': 'Sales journals',
+    'finance/accounting-export': 'Shopify journal',
     'finance/qbo-reports': 'Financial reports',
   };
 
-  const SALES_JOURNALS_HINT = 'In your SILO books already — post to QuickBooks by period.';
+  const SHOPIFY_JOURNAL_HINT = 'In your SILO books already — post to QuickBooks by period.';
 
   /* Areas of finance work — not a month-end sequence. Sales and reports are live in the books. */
   const FINANCE_AREAS = [
@@ -59,9 +59,9 @@
       pages: ['finance/books'], blurb: 'Opening balances, who keeps the books, and chart of accounts.' },
     { key: 'activity', label: 'Bank activity', href: '/v2/transactions.html',
       pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines as they arrive.' },
-    { key: 'sales', label: 'Sales journals', href: '/v2/accounting-export.html',
-      pages: ['finance/accounting-export'], hint: SALES_JOURNALS_HINT,
-      blurb: 'Shopify sales are in your SILO books — use this page to post them to QuickBooks.' },
+    { key: 'sales', label: 'Shopify journal', href: '/v2/accounting-export.html',
+      pages: ['finance/accounting-export'], hint: SHOPIFY_JOURNAL_HINT,
+      blurb: 'Shopify sales are in your SILO books — post the journal to QuickBooks here.' },
     { key: 'invoicing', label: 'Invoicing', href: '/v2/invoicing.html',
       pages: ['finance/invoicing'], blurb: 'Send invoices and track what customers owe.' },
     { key: 'reports', label: 'Reports & cash', href: '/v2/qbo-reports.html',
@@ -72,7 +72,7 @@
   const PAGE_HELP = {
     'finance/books': { subtitle: 'Opening balances, chart of accounts, and book settings.' },
     'finance/card-coding': { subtitle: 'Categorize bank and card activity for this period.' },
-    'finance/accounting-export': { subtitle: SALES_JOURNALS_HINT },
+    'finance/accounting-export': { subtitle: SHOPIFY_JOURNAL_HINT },
     'finance/invoicing': { subtitle: 'Create invoices and see what customers owe.' },
     'finance/qbo-reports': { subtitle: 'Run financial reports from your connected books.' },
     'finance/schedules': { subtitle: 'Recurring entries and amortization over time.' },
@@ -216,7 +216,7 @@
       // which mode it is in.
       const display = FRIENDLY_TITLE[id] || title;
       link.dataset.label=display;
-      if (id === 'finance/accounting-export') link.dataset.accountingHint = SALES_JOURNALS_HINT;
+      if (id === 'finance/accounting-export') link.dataset.accountingHint = SHOPIFY_JOURNAL_HINT;
       link.title = link.dataset.accountingHint || display;
       link.innerHTML=svg(id);
       const text=document.createElement('span');

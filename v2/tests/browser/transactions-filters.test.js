@@ -696,7 +696,7 @@ const TABLES = {
           matches: a.matches(':focus-visible'),
           opacity: getComputedStyle(a, '::after').opacity };
       });
-      // 'Invoicing', not 'Sales & journals': it joined ACCOUNTING_PAGES at
+      // 'Invoicing', not 'Shopify journal': it joined ACCOUNTING_PAGES at
       // index 1 and this assertion was not moved with it, so the suite had
       // been red on main. Kept as the literal second destination -- reading
       // the name out of SiloNav here would assert nothing about tab order.

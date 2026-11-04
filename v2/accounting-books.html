@@ -44,7 +44,7 @@
 <!-- Three tabs, not six. Six made a menu the reader had to read before
      finding anything, and three of them were reference you open once (the old
      QuickBooks books) or twice a year (the chart of accounts; locations, which
-     is not even editable here -- mappings live in Sales & journals). All three
+     is not even editable here -- mappings live in Shopify journal). All three
      are still here as sections of Setup, and a #hash or a jump to any of them
      still opens Setup and scrolls to it: data-owns is what a tab shows. -->
 <nav class="books-tabs" aria-label="Books"><button class="bcn-btn" data-surface="ledger" data-owns="ledger" aria-pressed="false">Ledger</button><button class="bcn-btn" data-surface="register" data-owns="register" aria-pressed="false">Journals</button><button class="bcn-btn" data-surface="setup" data-owns="setup accounts locations history" aria-pressed="true">Setup</button></nav>
@@ -80,7 +80,7 @@
 </section>
 <section id="locations" class="books-surface books-subsection" hidden>
 <article class="books-card"><details data-subsection><summary>Locations</summary>
-<div class="books-card"><div class="books-row"><div><h2>Locations</h2><p>QuickBooks locations journal lines are tagged with, and the Silo sales locations mapped to each. Mappings are edited in <a href="accounting-export.html">Sales &amp; journals</a>.</p></div></div><div id="locationsTable">Loading locations…</div></div>
+<div class="books-card"><div class="books-row"><div><h2>Locations</h2><p>QuickBooks locations journal lines are tagged with, and the Silo sales locations mapped to each. Mappings are edited in <a href="accounting-export.html">Shopify journal</a>.</p></div></div><div id="locationsTable">Loading locations…</div></div>
 </details></article>
 </section>
 <section id="history" class="books-surface books-subsection" hidden>
@@ -126,5 +126,5 @@
 <div class="ledger-controls"><label>Closing balances<select id="ledgerRun" class="bcn-field"></select></label><button id="ledgerFetch" class="bcn-btn" type="button" hidden>Fetch trial balance through today</button></div></div>
 <label class="ledger-check"><input type="checkbox" id="ledgerAll"> Show accounts with no balance or activity</label>
 <div id="ledgerTable">Loading the ledger…</div><div id="ledgerLines" class="ledger-lines" hidden></div></div></section>
-<section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Every entry that posts to QuickBooks through Silo — Transactions, Schedules, Fixed assets, Sales &amp; journals and hand-written adjustments. Discard a draft or void a posted entry here. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
+<section id="register" class="books-surface" hidden><div class="books-card"><div class="books-row"><div><h2>Journal register</h2><p>Every entry that posts to QuickBooks through Silo — Transactions, Schedules, Fixed assets, Shopify journal and hand-written adjustments. Discard a draft or void a posted entry here. Opening history appears separately in Setup.</p></div><button id="newJournal" class="bcn-btn">New journal entry</button></div><div id="registerTable"></div><button id="more" class="bcn-btn">Load more</button></div></section>
 </div></main></div></body></html>

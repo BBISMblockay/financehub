@@ -49,7 +49,7 @@
   const ACCOUNTING_PAGES = [
     ['finance/card-coding','Transactions','transactions.html'],
     ['finance/invoicing','Invoicing','invoicing.html'],
-    ['finance/accounting-export','Sales & journals','accounting-export.html'],
+    ['finance/accounting-export','Shopify journal','accounting-export.html'],
     ['finance/qbo-reports','Reports','qbo-reports.html'],
     ['finance/schedules','Schedules','schedules.html'],
     ['finance/fixed-assets','Fixed assets','fixed-assets.html'],
