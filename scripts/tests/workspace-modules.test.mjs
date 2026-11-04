@@ -59,6 +59,15 @@ test('late old-company response cannot affect new company, including same module
   resolve({data:[{company_entity_id:'a',module_id:'finance',visible:false}]});
   assert.equal(await old,null); assert.deepEqual(s.ids(),baseline);
 });
+test('stored team rows are ignored until Team is a module again', async () => {
+  const s = setup();
+  await s.nav.loadModuleVisibility(s.db([
+    { company_entity_id: 'a', module_id: 'team', visible: false },
+    { company_entity_id: 'a', module_id: 'finance', visible: true },
+  ]), s.co());
+  assert.ok(s.ids().includes('team/reviews'));
+  assert.equal((await s.nav.loadModuleVisibility(s.db([{ company_entity_id: 'a', module_id: 'team', visible: false }]), s.co())).team, undefined);
+});
 test('post-save refresh does not reuse a read started before the write', async () => {
   const s=setup(); let resolve;
   const old=s.nav.loadModuleVisibility({from:()=>({select:()=>({eq:()=>new Promise(r=>{resolve=r;})})})},s.co());

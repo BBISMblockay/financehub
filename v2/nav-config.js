@@ -430,12 +430,13 @@
   const STANDARD_SECTION_ORDER = ['Start', 'Ask SILO', 'Insights', 'Finance', 'Marketing', 'Planning', 'Team', 'Purchasing', 'Product & inventory', 'Sales', 'Settings'];
 
   // Menu preferences only. Core destinations and unknown/future sections stay on.
+  // Team sidebar (reviews, comp) stays on nav-profile rules until standard is ready.
+  // People management lives under Workspace settings → Team, not here.
   const MODULES = [
     { id: 'marketing', label: 'Marketing & SEO', sections: ['Marketing'] },
     { id: 'finance', label: 'Finance', sections: ['Accounting', 'Requests'] },
     { id: 'purchasing_inventory', label: 'Purchasing & Inventory', sections: ['Purchasing', 'Inventory', 'Product & inventory'] },
     { id: 'planning', label: 'Planning', sections: ['Planning'] },
-    { id: 'team', label: 'Team', sections: ['Team'] },
   ];
   let moduleState = null;
   let moduleLoad = 0;
@@ -464,8 +465,10 @@
       if (error || !Array.isArray(data)) throw new Error('Module settings unavailable');
       const visibility = {};
       for (const row of data) {
-        if (row.company_entity_id !== company.id || typeof row.visible !== 'boolean'
-            || !MODULES.some(m => m.id === row.module_id)) throw new Error('Invalid module settings');
+        if (row.company_entity_id !== company.id || typeof row.visible !== 'boolean') {
+          throw new Error('Invalid module settings');
+        }
+        if (!MODULES.some(m => m.id === row.module_id)) continue;
         visibility[row.module_id] = row.visible;
       }
       if (generation !== moduleLoad || global.__SILO_CONFIG__?.getActiveCompany?.()?.id !== company.id) return null;

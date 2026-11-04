@@ -33,7 +33,7 @@ const ready = () => !!document.querySelector('#module-permission').textContent |
     for(const role of ['owner_admin','admin','member','viewer']) {
       const page = await suite.open('/v2/settings-modules.html',tables(role),{cachedCompany:co,ready});
       const switches=page.getByRole('switch');
-      assert.equal(await switches.count(),5); checks++;
+      assert.equal(await switches.count(),4); checks++;
       assert.equal(await switches.first().isDisabled(), !['owner_admin','admin'].includes(role)); checks++;
       assert.equal(await page.locator('[data-workspace-settings] [aria-current="page"]').innerText(),'Silo Modules'); checks++;
       if(role==='admin') {
