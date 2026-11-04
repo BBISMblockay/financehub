@@ -8697,3 +8697,26 @@ select 'work:write task tool' as check_name,
       then 'MISSING — launch_tasks.created_by_app or silo_api_grants.writes_paused_at'
     else 'ok'
   end as status;
+
+-- ── A permission the person ticked cannot go missing (20261104234500) ──────
+-- Both halves of the fix found by the first live work:write test: the consent
+-- write refuses a scope it does not recognise (it used to drop it, storing a
+-- connection without the permission that had just been approved), and
+-- silo_api_scopes() exists for the MCP server's tool list, so a read-only
+-- connection is not shown a write tool it would be refused.
+select 'consent scope strictness' as check_name,
+  case
+    when to_regprocedure('public.silo_api_scopes()') is null
+      then 'MISSING — silo_api_scopes (20261104234500 not applied)'
+    when position('unknown_scope' in
+                  pg_get_functiondef('public.silo_api_consent(text, text[])'::regprocedure)) = 0
+      then 'BROKEN — consent drops an unrecognised scope silently again'
+    when position('/rpc/silo_api_scopes' in
+                  pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — the scope read is not on the path allowlist, so tools/list cannot filter'
+    when not has_function_privilege('silo_integration', to_regprocedure('public.silo_api_scopes()'), 'execute')
+      then 'BROKEN — a connection cannot read its own scopes'
+    when has_function_privilege('anon', to_regprocedure('public.silo_api_scopes()'), 'execute')
+      then 'CRITICAL — anon can read a connection''s scopes'
+    else 'ok'
+  end as status;

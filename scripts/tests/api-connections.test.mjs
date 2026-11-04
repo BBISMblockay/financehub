@@ -162,8 +162,8 @@ test('writeGrant calls silo_api_consent with SILO scopes, not the OAuth scope st
   // The scopes now come from chosenScopes(), because writing is a tick box;
   // what must stay true is that they are built from the constants and never
   // from the scope string the application asked for.
-  assert.match(CONSENT, /rpc\('silo_api_consent',\s*\{[\s\S]{0,120}?chosenScopes\(\)/);
-  assert.match(CONSENT, /function chosenScopes\(\)[\s\S]{0,300}?K\.SILO_SCOPES/);
+  assert.match(CONSENT, /const wanted = chosenScopes\(\);[\s\S]{0,200}?rpc\('silo_api_consent',\s*\{[\s\S]{0,120}?p_scopes: wanted/);
+  assert.match(CONSENT, /const READS =[\s\S]{0,200}?K\.SILO_SCOPES/);
   assert.deepEqual(here(K.SILO_SCOPES), ['reports:read', 'data:read']);
 });
 
@@ -174,8 +174,16 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   assert.ok(!K.SILO_SCOPES.includes(K.WRITE_SCOPE), 'writing is never implied by the reads');
   assert.match(CONSENT, /chosenScopes[\s\S]{0,300}?optWrite[\s\S]{0,200}?checked/,
     'the only thing that adds it is the checkbox');
-  assert.match(CONSENT, /K\.SILO_SCOPES\.concat\(\[K\.WRITE_SCOPE\]\)/,
+  assert.match(CONSENT, /READS\.concat\(\[WRITE\]\)/,
     'and it is appended to the reads rather than replacing them');
+  // The page and api-connections.js are separate files with separate cache
+  // lifetimes: on 2026-11-04 a browser ran the new page against the old script,
+  // K.WRITE_SCOPE was undefined, and a null scope was silently dropped by the
+  // database. The literals are the fallback, and the grant is read back.
+  assert.match(CONSENT, /const WRITE = \(K && K\.WRITE_SCOPE\) \|\| 'work:write'/);
+  assert.match(CONSENT, /\.filter\(Boolean\)/, 'and a missing name never reaches the database');
+  assert.match(CONSENT, /did not record permission to open tasks/,
+    'the page checks what was stored before reporting success');
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {

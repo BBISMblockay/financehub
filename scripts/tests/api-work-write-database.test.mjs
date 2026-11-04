@@ -25,12 +25,19 @@ const test = async (name, fn) => { await fn(); passed += 1; console.log(`ok ${pa
 
 const MUTATIONS = ['', 'session-company', 'no-member-check', 'loose-assignee', 'any-assignee',
                    'no-cap', 'no-idempotency', 'authenticated-execute', 'ignore-pause', 'no-path',
-                   'no-hint', 'hint-ignores-privacy', 'hint-no-stopwords'];
+                   'no-hint', 'hint-ignores-privacy', 'hint-no-stopwords',
+                   'lax-scopes', 'no-scope-path'];
 const mutation = process.env.WORK_WRITE_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const FILE = 'supabase/migrations/20261104230000_api_work_write_tasks.sql';
 const original = readFileSync(FILE, 'utf8');
 let MIGRATION = original;
+// The follow-up, written after the first live test: an unrecognised scope is
+// refused rather than dropped, and the MCP server can read this connection's
+// scopes so tools/list stops offering a tool the connection may not call.
+const FILE2 = 'supabase/migrations/20261104234500_api_consent_strict_scopes.sql';
+const original2 = readFileSync(FILE2, 'utf8');
+let MIGRATION2 = original2;
 
 if (mutation === 'session-company') {
   // The whole point of reading the grant: a connection's token can carry any
@@ -69,7 +76,10 @@ if (mutation === 'ignore-pause') {
   MIGRATION = MIGRATION.replace(/  if v_grant\.writes_paused_at is not null then\n[\s\S]*?end if;\n/, '');
 }
 if (mutation === 'no-path') {
+  // Both files, because 20261104234500 re-states the allowlist in full: a
+  // mutation that only edits the first one is overwritten by the second.
   MIGRATION = MIGRATION.replace("    '/rpc/silo_api_create_task')", '    )');
+  MIGRATION2 = MIGRATION2.replace("    '/rpc/silo_api_create_task',\n", '');
 }
 if (mutation === 'no-hint') {
   // The task is still created, so nothing breaks -- the bot simply never
@@ -84,7 +94,16 @@ if (mutation === 'hint-ignores-privacy') {
 if (mutation === 'hint-no-stopwords') {
   MIGRATION = MIGRATION.replace(/      and w <> all \(array\['report'[\s\S]*?'morning'\]\)\n/, '');
 }
-assert.ok(!mutation || MIGRATION !== original, `mutation ${mutation} changed nothing`);
+if (mutation === 'lax-scopes') {
+  // Back to dropping silently, which is what stored a connection without the
+  // permission the person had just ticked.
+  MIGRATION2 = MIGRATION2.replace(/  if exists \(\n    select 1\n    from unnest\(coalesce\(p_scopes[\s\S]*?end if;\n/, '');
+}
+if (mutation === 'no-scope-path') {
+  MIGRATION2 = MIGRATION2.replace("    '/rpc/silo_api_scopes')", '    )');
+}
+assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2,
+  `mutation ${mutation} changed nothing`);
 
 const A = '00000000-0000-4000-a000-00000000000a';   // the grant's company
 const B = '00000000-0000-4000-a000-00000000000b';   // another company
@@ -238,6 +257,8 @@ create function public.refresh_chat_schema_catalog() returns void
 create function public.silo_api_consent(p_client_id text, p_scopes text[] default array['reports:read'])
 returns uuid language plpgsql security definer set search_path = '' as $fn$
 begin raise exception 'stub'; end $fn$;
+create table public.entities(id uuid primary key, title text);
+insert into public.entities values ('${A}', 'Baseballism'), ('${B}', 'Other');
 
 grant usage on schema auth to authenticated, anon, service_role;
 grant execute on function auth.uid() to authenticated, anon, service_role;
@@ -250,6 +271,7 @@ const apply = async (text) => {
   }
 };
 await apply(MIGRATION);
+await apply(MIGRATION2);
 
 /* One tool call, as PostgREST makes it. */
 const call = async (args = {}, { grant = G, integration = true, company = A, sub = null } = {}) => {
@@ -296,8 +318,8 @@ await test('the write tool is on the path allowlist, and nothing else was opened
   assert.match(src, /\/rpc\/silo_api_create_task/, 'silo_check_request() refuses a path not named here');
   const paths = [...src.matchAll(/'\/rpc\/([a-z_]+)'/g)].map((m) => m[1]).sort();
   assert.deepEqual(paths, ['silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
-    'silo_api_query', 'silo_api_run_report', 'silo_api_windsor_connections'],
-    'exactly the five read paths plus the one write');
+    'silo_api_query', 'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections'],
+    'exactly the five read paths, the one write, and the scope read the tool list needs');
 });
 
 await test('work:write can be granted, and the allowlist is still an allowlist', async () => {
@@ -583,6 +605,69 @@ await test('a task a person typed keeps the new columns null, and junk cannot be
              values ('${A}', 'Bad provenance', 'somewhere_else')`),
     /launch_tasks_created_via_check|violates check constraint/,
     'the only two answers are app and ask_silo');
+});
+
+// ── The follow-up migration: no silent scope, and a listable scope read ───
+const consent = async (scopes, { sub = MEMBER, company = A, aal = 'aal2' } = {}) => {
+  const lit = scopes === null ? 'null'
+    : 'array[' + scopes.map((x) => (x === null ? 'null' : `'${x}'`)).join(',') + ']::text[]';
+  await db.exec('begin');
+  try {
+    await db.exec(`set local test.sub = '${sub}'; set local test.company = '${company}';
+      set local test.integration = 'off'; set local test.claims = '{"aal":"${aal}"}';`);
+    const id = (await db.query(`select public.silo_api_consent('client-x', ${lit}) as id`)).rows[0].id;
+    await db.exec('commit');
+    return { ok: true, id };
+  } catch (e) { await db.exec('rollback'); return { ok: false, message: e.message }; }
+};
+
+await test('a scope SILO does not recognise is refused, not quietly dropped', async () => {
+  // Live on 2026-11-04: an approval that ticked "also let it open tasks"
+  // stored the two read scopes, because the page sent a null where the write
+  // scope should have been and this filter dropped it.
+  const nulled = await consent(['reports:read', 'data:read', null]);
+  assert.equal(nulled.ok, false, 'a null scope must not be silently ignored');
+  assert.match(nulled.message, /unknown_scope/);
+
+  const typo = await consent(['reports:read', 'work:writes']);
+  assert.equal(typo.ok, false);
+  assert.match(typo.message, /unknown_scope/);
+
+  // And the good case still works, with all three stored.
+  const good = await consent(['reports:read', 'data:read', 'work:write']);
+  assert.equal(good.ok, true, good.message);
+  const row = await one(`select scopes from public.silo_api_grants where id = '${good.id}'`);
+  assert.deepEqual([...row.scopes].sort(), ['data:read', 'reports:read', 'work:write']);
+});
+
+await test('two-factor approval is still the precondition, unchanged', async () => {
+  const weak = await consent(['reports:read'], { aal: 'aal1' });
+  assert.equal(weak.ok, false);
+  assert.match(weak.message, /mfa_required/);
+});
+
+await test('a connection can read its own scopes, and nothing else can learn them from it', async () => {
+  await db.exec('begin');
+  await db.exec(`set local test.grant_id = '${G}'; set local test.integration = 'on';`);
+  const mine = (await db.query('select public.silo_api_scopes() as s')).rows[0].s;
+  await db.exec('rollback');
+  assert.deepEqual([...mine].sort(), ['data:read', 'work:write'],
+    'the MCP server lists tools from this');
+
+  // No live grant -> empty, which is how the server fails closed and hides
+  // the write tool rather than offering one that would be refused.
+  await db.exec('begin');
+  await db.exec(`set local test.grant_id = '${G_REVOKED}'; set local test.integration = 'on';`);
+  const revoked = (await db.query('select public.silo_api_scopes() as s')).rows[0].s;
+  await db.exec('rollback');
+  assert.deepEqual(revoked, []);
+
+  const f = 'public.silo_api_scopes()';
+  assert.equal((await one(`select has_function_privilege('silo_integration', '${f}', 'execute') as p`)).p, true);
+  assert.equal((await one(`select has_function_privilege('anon', '${f}', 'execute') as p`)).p, false);
+  const src = (await one(`select prosrc from pg_proc
+                           where oid = 'public.silo_api_path_allowed()'::regprocedure`)).prosrc;
+  assert.match(src, /\/rpc\/silo_api_scopes/, 'and the path gate admits the read it needs');
 });
 
 console.log(`\n${passed} checks passed${mutation ? ` (mutation: ${mutation})` : ''}`);

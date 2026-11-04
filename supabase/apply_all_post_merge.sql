@@ -19533,4 +19533,14 @@ $c$select (select count(*) from v_po_header_summary
 -- and 20261104020000. The MCP tool that calls it needs a deploy of the `mcp`
 -- function; until then the migration changes nothing a bot can reach.
 \i migrations/20261104230000_api_work_write_tasks.sql
+
+-- The follow-up to the first live test of that migration. Two silences:
+-- silo_api_consent() dropped a scope it did not recognise instead of refusing
+-- (an approval with the write box ticked stored read scopes only, from a
+-- browser running an older cached v2/api-connections.js), and the MCP server
+-- advertised the write tool to every connection, so a client showed
+-- "Write/delete tools 1" for a read-only grant. Adds silo_api_scopes() and its
+-- path, and makes an unrecognised scope a refusal. Needs 20261104230000.
+-- The tool-list half needs a deploy of the `mcp` function.
+\i migrations/20261104234500_api_consent_strict_scopes.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
