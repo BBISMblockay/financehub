@@ -92,7 +92,7 @@ function opaque(value) {
       const errors = [];
       try {
         page = await suite.open(url, {}, {
-          ready: () => !!document.querySelector('[data-accounting-suite]'),
+          ready: () => !!document.querySelector('[data-accounting-context]'),
         });
       } catch (err) {
         r.ok(`${url} boots`, false, err.message.split('\n')[0]);
@@ -100,19 +100,17 @@ function opaque(value) {
       }
       page.on('pageerror', (e) => errors.push(e.message));
 
-      await check(`${url} · the shared nav renders with an icon per destination`, async () => {
-        const nav = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
-          name: a.textContent.trim(), icon: !!a.querySelector('svg'),
-          label: a.dataset.label, current: a.getAttribute('aria-current'),
-        })));
-        r.truthy(nav.length >= 7, `only ${nav.length} destinations`);
-        r.truthy(nav.every((n) => n.icon), 'a destination is drawn without an icon');
-        r.truthy(nav.every((n) => n.name && n.name === n.label), 'a name and its tooltip disagree');
-        r.eq(nav.filter((n) => n.current === 'page').length, 1, 'exactly one destination is current');
+      await check(`${url} · the context bar renders without a duplicate link row`, async () => {
+        const seen = await page.evaluate(() => ({
+          queue: document.querySelector('.accounting-context-queue')?.textContent?.trim(),
+          legacy: !!document.querySelector('[data-accounting-suite]'),
+        }));
+        r.eq(seen.queue, 'Period review');
+        r.eq(seen.legacy, false);
       });
 
-      await check(`${url} · the nav bar itself is opaque`, async () => {
-        const bg = await page.$eval('[data-accounting-suite]', (n) => getComputedStyle(n).backgroundColor);
+      await check(`${url} · the context bar is opaque`, async () => {
+        const bg = await page.$eval('[data-accounting-context]', (n) => getComputedStyle(n).backgroundColor);
         r.truthy(opaque(bg), `background-color was ${bg}`);
       });
 
