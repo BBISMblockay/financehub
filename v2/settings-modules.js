@@ -74,7 +74,7 @@
     if (!membership) throw new Error('Workspace membership required.');
     canEdit = ['owner_admin', 'admin'].includes(membership.role);
     const visibility = await nav.loadModuleVisibility(db, co, true);
-    if (!visibility) throw new Error('Module settings could not be loaded. Existing menu visibility is preserved. Reload settings to try again.');
+    if (!visibility) throw new Error('Module settings could not be loaded. Reload settings to try again.');
     await current();
     controls.forEach(input => { input.checked = visibility[input.value] !== false; });
     paintSummary(visibility);

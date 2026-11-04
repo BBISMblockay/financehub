@@ -163,14 +163,8 @@
   letter-spacing: .04em;
   color: var(--bcn-ink-3);
 }
-.workspace-settings .sm-aside-note {
-  margin: 12px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--bcn-ink-3);
-}
 .workspace-settings .sm-reload {
-  margin-top: 10px;
+  margin-top: 14px;
   align-self: flex-start;
   padding-left: 0;
   padding-right: 0;
