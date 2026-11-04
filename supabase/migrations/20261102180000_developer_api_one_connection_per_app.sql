@@ -154,28 +154,47 @@ update public.silo_api_grants
 -- connection in favour of an unused one consented five minutes later (review
 -- of #1095, cycle 1; the test has a fixture for exactly that shape). A
 -- revocation is monotonic, so getting this backwards is not recoverable.
-with ranked as (
-  select id,
-         row_number() over (
-           partition by app_key, user_id
-           order by last_used_at desc nulls last, consented_at desc, id) as rn
-  from public.silo_api_grants
-  where revoked_at is null
-)
-update public.silo_api_grants g
-   set revoked_at = now()
-  from ranked r
- where r.id = g.id
-   and r.rn > 1;
+-- SUPERSEDED BY 20261104020000, and skipped once that migration is installed.
+-- apply_all_post_merge.sql replays every file in order, so this collapse runs
+-- again on a database that already allows three live connections per
+-- application -- where it would revoke two of them, monotonically and
+-- unrecoverably, and then recreate an index that holds the limit back at one.
+-- The `slot` column is the marker, because it is what 20261104020000 adds and
+-- what the newer rule is keyed on. On the original path -- a database that has
+-- never seen the slot migration -- nothing here changes.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'silo_api_grants'
+      and column_name = 'slot') then
+    raise notice 'silo_api_grants.slot exists: 20261102180000''s one-live collapse and index are superseded by 20261104020000, skipping';
+  else
+    with ranked as (
+      select id,
+             row_number() over (
+               partition by app_key, user_id
+               order by last_used_at desc nulls last, consented_at desc, id) as rn
+      from public.silo_api_grants
+      where revoked_at is null
+    )
+    update public.silo_api_grants g
+       set revoked_at = now()
+      from ranked r
+     where r.id = g.id
+       and r.rn > 1;
+
+    -- The rule, in the schema. The client_id index stays: it is now strictly
+    -- weaker than this one and costs nothing, and dropping a uniqueness
+    -- constraint is not something this migration needs to do to be correct.
+    create unique index if not exists silo_api_grants_one_live_app
+      on public.silo_api_grants (app_key, user_id) where revoked_at is null;
+  end if;
+end;
+$$;
 
 alter table public.silo_api_grants
   alter column app_key set not null;
-
--- The rule, in the schema. The client_id index stays: it is now strictly
--- weaker than this one and costs nothing, and dropping a uniqueness
--- constraint is not something this migration needs to do to be correct.
-create unique index if not exists silo_api_grants_one_live_app
-  on public.silo_api_grants (app_key, user_id) where revoked_at is null;
 
 -- ---------------------------------------------------------------------------
 -- 3. app_key is frozen, like everything else consent decided
@@ -422,18 +441,28 @@ begin
     raise exception 'silo_api_grants.app_key: missing or nullable';
   end if;
 
+  -- These two guard the ONE-per-application rule, which 20261104020000
+  -- replaces with silo_api_grants_one_live_slot and a limit of three. On a
+  -- database that has the slot schema they would fail this file on a replay
+  -- for doing exactly what the newer migration intends; 20261104020000's own
+  -- guards and verify_v2_schema.sql cover the rule that is actually in force.
   if not exists (
-    select 1 from pg_index x join pg_class i on i.oid = x.indexrelid
-    where i.relname = 'silo_api_grants_one_live_app' and x.indisunique) then
-    raise exception 'silo_api_grants_one_live_app: missing, so one person could hold two live connections to one application';
-  end if;
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'silo_api_grants'
+      and column_name = 'slot') then
+    if not exists (
+      select 1 from pg_index x join pg_class i on i.oid = x.indexrelid
+      where i.relname = 'silo_api_grants_one_live_app' and x.indisunique) then
+      raise exception 'silo_api_grants_one_live_app: missing, so one person could hold two live connections to one application';
+    end if;
 
-  select count(*) into v_dupes from (
-    select 1 from public.silo_api_grants
-    where revoked_at is null
-    group by app_key, user_id having count(*) > 1) s;
-  if v_dupes > 0 then
-    raise exception 'silo_api_grants: % duplicate live connections survived the collapse', v_dupes;
+    select count(*) into v_dupes from (
+      select 1 from public.silo_api_grants
+      where revoked_at is null
+      group by app_key, user_id having count(*) > 1) s;
+    if v_dupes > 0 then
+      raise exception 'silo_api_grants: % duplicate live connections survived the collapse', v_dupes;
+    end if;
   end if;
 
   -- The key function is the server's alone.

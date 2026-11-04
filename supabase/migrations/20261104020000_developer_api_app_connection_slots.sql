@@ -57,6 +57,18 @@
 --      NULL there. Judging on use alone would revoke a connection that was
 --      working seconds earlier.
 --
+--   1b. This person's live grant for the SAME client_id, whatever its state.
+--      silo_api_grants_one_live (client_id, user_id) from 20261020030000 is
+--      still in force and the insert has to satisfy it; the old blanket revoke
+--      cleared the way for free and rule 1 does not, because such a grant is
+--      bound and used. A client whose registration is NOT dynamic reconnects
+--      under the client_id it already holds -- the SILO Test Client and any
+--      customer-registered confidential client are exactly that -- so without
+--      this, re-approving one while a slot is free fails on a duplicate key
+--      and the approval cannot be completed at all. It is a replacement, not a
+--      cleanup, which is why state does not matter: an idle or expired grant
+--      whose revoked_at is still null blocks the insert just the same.
+--
 --   2. If every slot is still taken after that, the LEAST RECENTLY USED live
 --      grant is revoked and its slot reused. Ordered
 --      `last_used_at desc nulls last, consented_at desc` and the bottom row
@@ -82,6 +94,13 @@
 -- No gate is widened and no role gains anything.
 --
 -- Idempotent. No deploy. The frontend change beside it is independent of this.
+--
+-- apply_all_post_merge.sql replays every file in order, so 20261102180000 runs
+-- again before this one. Its collapse to a single live grant per application,
+-- the index it creates and the two guards that assert that rule are therefore
+-- skipped once `slot` exists -- in that file, because a replay must not revoke
+-- two of somebody's three connections, monotonically, for doing what this
+-- migration intends.
 
 -- ---------------------------------------------------------------------------
 -- 1. The number, in one place
@@ -334,6 +353,23 @@ begin
      and revoked_at is null
      and auth_session_id is null
      and last_used_at is null;
+
+  -- Rule 1b: this person's live grant for THIS SAME client registration, if
+  -- there is one. silo_api_grants_one_live (client_id, user_id) from
+  -- 20261020030000 is still in force and the insert below has to satisfy it.
+  -- Under the old blanket revoke that was automatic; now it is not, and a
+  -- client whose registration is NOT dynamic -- the SILO Test Client and any
+  -- customer-registered confidential client are exactly this -- reconnects
+  -- under the client_id it already holds. Without this, re-approving such a
+  -- client while a slot is free fails on a duplicate key and the person simply
+  -- cannot finish the approval. Not folded into rule 1: this one goes whatever
+  -- its state, because it is being replaced, not cleaned up, and its slot is
+  -- then the free slot rule 2 finds.
+  update public.silo_api_grants
+     set revoked_at = now()
+   where client_id = trim(p_client_id)
+     and user_id = v_user
+     and revoked_at is null;
 
   -- Rule 2: the lowest free slot, or the least recently used connection's.
   select s.n into v_slot

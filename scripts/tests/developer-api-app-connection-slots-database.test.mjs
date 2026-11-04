@@ -47,6 +47,10 @@ const SAMMIE = '00000000-0000-4000-b000-000000000002';
 const CLAUDE = (n) => `00000000-0000-4000-c000-0000000000${String(10 + n).padStart(2, '0')}`;
 const CURSOR_1 = '00000000-0000-4000-c000-000000000031';
 const CURSOR_2 = '00000000-0000-4000-c000-000000000032';
+// A client whose registration is NOT dynamic: it reconnects under the
+// client_id it already holds. The SILO Test Client and any customer-registered
+// confidential client are this shape.
+const STATIC_1 = '00000000-0000-4000-c000-000000000041';
 const CURSOR_URIS = 'https://www.cursor.com/agents/mcp/oauth/callback,http://localhost:8787/callback';
 
 // The grant that is already live when the migration runs.
@@ -68,7 +72,8 @@ create table auth.oauth_clients(
 insert into auth.oauth_clients values
   ${claudeRows},
   ('${CURSOR_1}', 'Cursor', '${CURSOR_URIS}', null),
-  ('${CURSOR_2}', 'Cursor', '${CURSOR_URIS}', null);
+  ('${CURSOR_2}', 'Cursor', '${CURSOR_URIS}', null),
+  ('${STATIC_1}', 'SILO Test Client', 'https://get-silo.com/oauth/test-callback', null);
 
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.sub', true), '')::uuid $$;
@@ -157,6 +162,7 @@ const useIt = async (id, ago) => db.exec(`update public.silo_api_grants
 
 const CLAUDE_KEY = 'claude|claude.ai';
 const CURSOR_KEY = 'cursor|localhost,www.cursor.com';
+const STATIC_KEY = 'silo test client|get-silo.com';
 
 await test('the grant that was already live sits in slot 0', async () => {
   const rows = await liveFor(BLAKE, CLAUDE_KEY);
@@ -298,6 +304,40 @@ await test('an abandoned authorization is cleaned even when slots are free', asy
   assert.equal(rows[0].slot, 0, 'and its slot was reused, not skipped');
 });
 
+await test('a client that reconnects under the SAME client_id can still approve', async () => {
+  // silo_api_grants_one_live (client_id, user_id) is still in force, and the
+  // insert has to satisfy it. The old blanket revoke cleared the way for free;
+  // rule 1 alone does not, because this grant is bound and used. Without rule
+  // 1b the approval dies on a duplicate key and the person cannot reconnect at
+  // all -- which is every non-dynamic registration, not an edge case.
+  await as(SAMMIE);
+  const first = await consent(STATIC_1);
+  await useIt(first, '10 minutes');
+
+  const again = await consent(STATIC_1);
+  const rows = await liveFor(SAMMIE, STATIC_KEY);
+  assert.notEqual(again, first);
+  assert.deepEqual(rows.map((r) => [r.id, r.slot]), [[again, 0]],
+    'the replacement takes the slot the old registration held');
+  const [{ revoked }] = await q(`select revoked_at is not null as revoked
+    from public.silo_api_grants where id = '${first}'`);
+  assert.equal(revoked, true);
+});
+
+await test('...including when its existing grant is idle or expired but not revoked', async () => {
+  // silo_api_grants_one_live is partial on revoked_at is null, so an idle or
+  // expired grant still blocks the insert even though no gate would honour it.
+  await as(SAMMIE);
+  const stale = (await liveFor(SAMMIE, STATIC_KEY))[0].id;
+  await db.exec(`update public.silo_api_grants
+    set auth_session_id = gen_random_uuid(), last_used_at = now() - interval '90 days'
+    where id = '${stale}'`);
+
+  const again = await consent(STATIC_1);
+  const rows = await liveFor(SAMMIE, STATIC_KEY);
+  assert.deepEqual(rows.map((r) => r.id), [again]);
+});
+
 await test('the schema, not only the function, is what caps the number', async () => {
   const [{ slot }] = await q(`select slot from public.silo_api_grants
     where user_id = '${BLAKE}' and app_key = '${CLAUDE_KEY}' and revoked_at is null
@@ -374,6 +414,29 @@ await test('the migration is idempotent', async () => {
   const after = await q(`select id, slot from public.silo_api_grants
     where revoked_at is null order by id`);
   assert.deepEqual(after, before);
+});
+
+await test('replaying the whole apply script keeps every live connection', async () => {
+  // apply_all_post_merge.sql re-runs every file IN ORDER, so 20261102180000
+  // runs again before this migration. Its collapse revokes every live grant
+  // for an (app_key, user_id) but one -- monotonically -- and recreates the
+  // index that holds the limit at one. Re-running only SLOTS does not catch
+  // that; this runs the pair the way the script does.
+  const before = await q(`select id, slot from public.silo_api_grants
+    where revoked_at is null order by id`);
+  const claudeLive = (await liveFor(BLAKE, CLAUDE_KEY)).length;
+  assert.equal(claudeLive, 3, 'three live Claude connections going in');
+
+  await db.exec(APP_KEY);
+  await db.exec(SLOTS);
+
+  const after = await q(`select id, slot from public.silo_api_grants
+    where revoked_at is null order by id`);
+  assert.deepEqual(after, before, 'the replay disconnected nobody');
+  const idx = await q(`select indexname from pg_indexes
+    where schemaname = 'public' and tablename = 'silo_api_grants'
+      and indexname = 'silo_api_grants_one_live_app'`);
+  assert.deepEqual(idx, [], 'and did not put the one-per-application index back');
 });
 
 console.log(`\n${passed} tests passed`);
