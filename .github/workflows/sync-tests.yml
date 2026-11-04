@@ -209,6 +209,9 @@ on:
       - 'supabase/migrations/*developer_api_query_tool.sql'
       - 'supabase/migrations/*developer_api_connection_labels.sql'
       - 'scripts/tests/mcp-guide.test.mjs'
+      - 'supabase/migrations/*api_work_write_tasks.sql'
+      - 'scripts/tests/api-work-write-database.test.mjs'
+      - 'v2/tasks.html'
       - 'v2/settings-company.html'
       - 'v2/po-builder.html'
       - 'v2/po-document-identity.js'
@@ -1749,6 +1752,28 @@ jobs:
           for mutation in stable-scope open-policy no-touch no-prune log-browser ignore-read-only logging-can-break-a-read stable-catalog stable-catalog-unchecked; do
             if CALL_LOG_MUTATION="$mutation" node scripts/tests/api-call-log-database.test.mjs; then
               echo "::error::$mutation did not fail the call log suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
+
+      # 20261104230000: work:write -- a connection opening a task, the first
+      # write any connection has had. Proves the company and the person come
+      # from the GRANT row and never from the session, that an assignee or a
+      # launch outside that company is refused (and an assignee is matched
+      # exactly, never by prefix), that a retry with the same idempotency key
+      # returns the FIRST task rather than a second one, that the rolling-day
+      # cap stops a loop and counts only the last day, that a paused or revoked
+      # connection and a connection without the scope cannot write, that no
+      # client role can write the ledger that meters it, and that a task that
+      # is really a request for a report comes back with the reports the
+      # connection may already see. Mutation-tested.
+      - name: Execute work:write task tool regressions
+        run: |
+          node scripts/tests/api-work-write-database.test.mjs
+          for mutation in session-company no-member-check loose-assignee any-assignee no-cap no-idempotency authenticated-execute ignore-pause no-path no-hint hint-ignores-privacy hint-no-stopwords; do
+            if WORK_WRITE_MUTATION="$mutation" node scripts/tests/api-work-write-database.test.mjs; then
+              echo "::error::$mutation did not fail the work:write suite"
               exit 1
             fi
             echo "$mutation failed the suite, as it must"

@@ -19520,4 +19520,17 @@ $c$select (select count(*) from v_po_header_summary
 -- No deploy.
 \i migrations/20261104193000_product_title_canonical.sql
 
+-- work:write, part one: a SILO AI connection can open a task, and nothing
+-- else. Adds the work:write scope to the consent allowlist, silo_api_writes
+-- (the ledger that gives a retry the first task back, caps a connection at
+-- silo_api_write_cap() writes a rolling day, and is what a usage bill would
+-- read), silo_api_create_task(), silo_api_report_hint() (so a task that is
+-- really a request for a report comes back with the report), the pause switch
+-- silo_api_set_writes_paused(), and created_by_grant_id / created_via /
+-- created_by_app on launch_tasks so the task list can say "Via <app>". The
+-- integration role holds no table privileges, so the function is the entire
+-- door; `authenticated` is deliberately NOT granted it. Needs 20261103240000
+-- and 20261104020000. The MCP tool that calls it needs a deploy of the `mcp`
+-- function; until then the migration changes nothing a bot can reach.
+\i migrations/20261104230000_api_work_write_tasks.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

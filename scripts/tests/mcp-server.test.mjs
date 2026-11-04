@@ -186,9 +186,21 @@ test('stored and live tools are read-only; listing tools reads no data', async (
   const body = await (await handle(post(rpc('tools/list')))).json();
   // how_to_use_silo is the training layer's own tool and reads no data
   // (supabase/functions/mcp/guide.mjs, scripts/tests/mcp-guide.test.mjs).
-  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'how_to_use_silo']);
-  for (const t of body.result.tools) assert.equal(t.annotations.readOnlyHint, true, t.name);
-  for (const t of TOOLS) assert.equal(t.annotations.readOnlyHint, true, t.name);
+  assert.deepEqual(body.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'create_task', 'how_to_use_silo']);
+  // create_task is the ONE tool that writes, and the only one allowed to
+  // declare itself not read-only. Pinned as a list so a second writer cannot
+  // arrive unremarked.
+  const writers = body.result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name);
+  assert.deepEqual(writers, ['create_task']);
+  for (const t of TOOLS) {
+    if (t.name === 'create_task') {
+      assert.equal(t.annotations.readOnlyHint, false);
+      assert.equal(t.annotations.destructiveHint, false, 'it creates; it can change nothing that exists');
+      assert.equal(t.annotations.idempotentHint, true, 'the same idempotency_key returns the first task');
+    } else {
+      assert.equal(t.annotations.readOnlyHint, true, t.name);
+    }
+  }
   assert.equal(calls.length, 0);
 });
 
@@ -323,6 +335,72 @@ test('decodeRefusal reads both the gate\'s JSON shape and a plain prefixed excep
   assert.equal(decodeRefusal(null).reauth, false);
 });
 
+// ── 5b. the one write ──────────────────────────────────────────────────────
+
+test('create_task passes exactly what the person asked for, and nothing it invented', async () => {
+  const { handle, calls } = harness();
+  const body = await (await handle(post(rpc('tools/call', {
+    name: 'create_task',
+    arguments: {
+      title: '  Chase the Scheels short-ship  ',
+      notes: 'Two cartons missing on PO 4821.',
+      assignee_email: 'Sammie@baseballism.com',
+      due_date: '2026-11-30',
+      priority: 'high',
+      idempotency_key: 'chat-91f2',
+    },
+  })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[0].fn, 'silo_api_create_task');
+  assert.deepEqual(calls[0].body, {
+    p_title: 'Chase the Scheels short-ship',
+    p_notes: 'Two cartons missing on PO 4821.',
+    p_assignee_email: 'Sammie@baseballism.com',
+    p_due_date: '2026-11-30',
+    p_priority: 'high',
+    p_idempotency_key: 'chat-91f2',
+  }, 'no status, no company, no actor: the database reads those off the grant');
+});
+
+test('create_task refuses a shape the database would have to guess at', async () => {
+  const { handle, calls } = harness();
+  const cases = [
+    [{}, /title must say/],
+    [{ title: '   ' }, /title must say/],
+    [{ title: 'x'.repeat(201) }, /under 200 characters/],
+    [{ title: 'ok', notes: 12 }, /notes must be text/],
+    [{ title: 'ok', assignee_email: 'sammie' }, /email address/],
+    [{ title: 'ok', due_date: '30/11/2026' }, /2026-11-30/],
+    [{ title: 'ok', launch_id: 'not-a-uuid' }, /launch id/],
+    [{ title: 'ok', priority: 'urgent' }, /low, normal or high/],
+    [{ title: 'ok', idempotency_key: 'k'.repeat(101) }, /up to 100 characters/],
+  ];
+  for (const [args, expected] of cases) {
+    const body = await (await handle(post(rpc('tools/call', { name: 'create_task', arguments: args })))).json();
+    assert.equal(body.result.isError, true, JSON.stringify(args));
+    assert.match(body.result.content[0].text, expected);
+  }
+  assert.equal(calls.length, 0, 'a refused shape never reaches the database');
+});
+
+test('create_task is declared in the instructions as the only thing that changes anything', () => {
+  const src = read('supabase/functions/mcp/handler.mjs');
+  const rules = read('supabase/functions/mcp/guide.mjs');
+  assert.match(src, /only where they granted work:write/);
+  assert.ok(!/This connection only reads\./.test(rules),
+    'the old "only reads" line is false once a write tool exists');
+  assert.match(rules, /create_task/);
+  // Blake, 2026-11-04: a bot asked for "an open AR report, tasked to Brett"
+  // should recognise that SILO already answers it and deliver the report. The
+  // database hands matching reports back with the task; the model has to be
+  // told to use them.
+  assert.match(rules, /A task is not an answer/);
+  const notes = rules.match(/create_task:[\s\S]*?',\n/)[0];
+  assert.match(notes, /already reports/, 'the tool note says to check for a report first');
+  assert.match(read('supabase/functions/mcp/handler.mjs'), /report that looks like the same request/,
+    'and the tool description says what comes back');
+});
+
 // ── 6. the server holds no authority of its own ────────────────────────────
 
 test('the function never reaches for the database service role; live access adds only a scoped resolver RPC', () => {
@@ -335,7 +413,8 @@ test('the function never reaches for the database service role; live access adds
   const src = read('supabase/functions/mcp/handler.mjs');
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
-    ['silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query', 'silo_api_run_report', 'silo_api_windsor_connections']);
+    ['silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query',
+     'silo_api_run_report', 'silo_api_windsor_connections']);
 });
 
 test('the claims reader is the shared gate, byte for byte', () => {

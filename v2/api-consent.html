@@ -63,6 +63,13 @@
       border-radius: 50%; background: var(--bcn-accent, #2f6df6);
     }
     .cs-cannot { color: var(--bcn-ink-2, #5b6472); }
+    .cs-opt {
+      display: flex; gap: 10px; align-items: flex-start;
+      margin: 0 0 20px; padding: 12px 14px;
+      border: 1px solid var(--bcn-line, #e3e7ee); border-radius: 10px;
+      font-size: 13px; line-height: 1.45; cursor: pointer;
+    }
+    .cs-opt input { margin-top: 2px; flex: none; }
     .cs-cannot li::before { background: var(--bcn-ink-3, #c3c9d2); }
     .cs-co { margin-bottom: 20px; }
     .cs-co select {
@@ -121,9 +128,16 @@
         <p class="cs-label">It will be able to</p>
         <ul class="cs-list" id="canList"></ul>
 
+        <label class="cs-opt" for="optWrite">
+          <input type="checkbox" id="optWrite" />
+          <span><strong>Also let it open tasks.</strong> It can create a task in this company, marked as this
+            application, and that is all it can write. Off unless you tick it, and you can switch it off later
+            in Workspace settings without disconnecting the application.</span>
+        </label>
+
         <p class="cs-label">It will not be able to</p>
         <ul class="cs-list cs-cannot">
-          <li>Change, add or delete anything</li>
+          <li id="cannotChange">Change, add or delete anything</li>
           <li>See any other company's data</li>
           <li>Open uploaded files, or read logins and connection secrets</li>
           <li>See anything you can't see in SILO yourself</li>
@@ -331,10 +345,18 @@
      authorization Supabase auto-approves -- because the grant row is what
      every boundary in the database reads. See planFromAuthorizationDetails()
      in api-connections.js for why the repeat path is the dangerous one. */
+  /* The box, not the page's list: silo_api_consent() stores exactly the scopes
+     it is handed, so this is the one place that decides whether the connection
+     can write at all. Unticked is the default and the common case. */
+  function chosenScopes() {
+    const on = !!(el('optWrite') && el('optWrite').checked);
+    return on ? K.SILO_SCOPES.concat([K.WRITE_SCOPE]) : K.SILO_SCOPES;
+  }
+
   async function writeGrant(clientId) {
     if (!clientId) throw new Error('This request did not name an application.');
     const { error } = await db.rpc('silo_api_consent', {
-      p_client_id: clientId, p_scopes: K.SILO_SCOPES,
+      p_client_id: clientId, p_scopes: chosenScopes(),
     });
     if (error) throw new Error(error.message);
   }
@@ -425,8 +447,18 @@
        ignores anything outside its own allowlist -- so echoing the request's
        scope string here would describe a permission that is not the one being
        given. */
-    el('canList').innerHTML = K.describeScopes(K.SILO_SCOPES)
-      .map((s) => '<li>' + esc(s) + '</li>').join('');
+    const paintScopes = () => {
+      el('canList').innerHTML = K.describeScopes(chosenScopes())
+        .map((s) => '<li>' + esc(s) + '</li>').join('');
+      /* With writing on, "change, add or delete anything" would be a lie about
+         the "add" -- and the thing people need to know is that nothing which
+         already exists can be touched. */
+      el('cannotChange').textContent = el('optWrite').checked
+        ? 'Change, complete or delete anything that already exists'
+        : 'Change, add or delete anything';
+    };
+    el('optWrite').addEventListener('change', paintScopes);
+    paintScopes();
 
     const sel = el('coSelect');
     sel.innerHTML = COMPANIES
