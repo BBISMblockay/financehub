@@ -1,99 +1,35 @@
 /* Shared accounting surfaces. Scoped so other working modules keep their layout. */
-/* Finance orientation — live books, not a month-end-only path. */
-.accounting-close {
-  flex: none;
-  padding: 10px 18px 12px;
-  background: var(--bcn-bg);
-  border-bottom: 1px solid var(--bcn-border);
-}
-.accounting-close-head {
+.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.accounting-suite-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.accounting-close-books {
-  flex: 1 1 auto;
+  margin-left: auto;
+  flex: none;
   min-width: 0;
+}
+.accounting-suite-books {
   font-size: 11px;
   font-weight: 600;
   color: var(--bcn-ink-2);
-  text-align: center;
+  text-align: right;
+  max-width: 26ch;
+  line-height: 1.3;
 }
-.accounting-close-books[hidden] { display: none; }
-.accounting-close-label {
-  font-family: var(--bcn-mono);
-  font-size: 10px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--bcn-ink-3);
-}
-.accounting-close-queue {
+.accounting-suite-books[hidden] { display: none; }
+.accounting-suite-queue {
   font-size: 12px;
   font-weight: 600;
   color: var(--bcn-accent);
   text-decoration: none;
-}
-.accounting-close-queue:hover { text-decoration: underline; }
-.accounting-close-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 0;
-}
-.accounting-close-step {
-  display: flex;
-  align-items: center;
-  font-size: 12px;
-}
-.accounting-close-step::after {
-  content: '';
-  width: 14px;
-  height: 1px;
-  background: var(--bcn-border-strong);
-  margin: 0 6px;
-  flex: none;
-}
-.accounting-close-step:last-child::after { display: none; }
-.accounting-close-step a {
-  color: var(--bcn-ink-2);
-  text-decoration: none;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
   white-space: nowrap;
 }
-.accounting-close-step a:hover {
-  color: var(--bcn-ink);
-  background: var(--bcn-sunken);
+.accounting-suite-queue:hover { text-decoration: underline; }
+@media (max-width: 900px) {
+  .accounting-suite-books { display: none; }
 }
-.accounting-close-step.is-current a {
-  color: var(--bcn-accent);
-  font-weight: 650;
-  border-color: var(--bcn-accent-border);
-  background: var(--bcn-accent-soft);
-}
-.accounting-close-here {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--bcn-ink-2);
-  max-width: 72ch;
-}
-@media (max-width: 760px) {
-  .accounting-close { padding: 10px 12px; }
-  .accounting-close-steps { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
-}
-
-.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
 .accounting-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
-.accounting-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
+.accounting-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;flex:1 1 auto;}
 .accounting-suite a {position:relative;display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
 .accounting-suite a svg {flex:none;opacity:.75;}
 .accounting-suite a[aria-current="page"] {color:var(--bcn-accent);border-bottom-color:var(--bcn-accent);font-weight:650;}
@@ -107,7 +43,7 @@
    the same in both modes -- a title attribute alone is not a reliable name and
    an icon-only link with none is unusable with a screen reader. */
 .accounting-suite-compact {display:inline-flex;align-items:center;justify-content:center;flex:none;
-  width:26px;height:26px;margin-left:auto;border:1px solid var(--bcn-border);border-radius:6px;
+  width:26px;height:26px;border:1px solid var(--bcn-border);border-radius:6px;
   background:transparent;color:var(--bcn-ink-3);cursor:pointer;}
 .accounting-suite-compact:hover {color:var(--bcn-ink);border-color:var(--bcn-border-strong);}
 .accounting-suite-compact[aria-pressed="true"] {color:var(--bcn-accent);border-color:var(--bcn-accent-border);background:var(--bcn-accent-soft);}
