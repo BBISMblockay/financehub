@@ -609,7 +609,7 @@ const TABLES = {
       r.truthy(nav.length >= 7, 'got ' + nav.length + ' links');
       r.truthy(nav.every((n) => n.icon), 'every link draws an icon');
       r.truthy(nav.every((n) => n.name && n.name === n.label), 'name and tooltip label agree');
-      r.eq(nav.filter((n) => n.current === 'page').map((n) => n.name), ['Transactions'],
+      r.eq(nav.filter((n) => n.current === 'page').map((n) => n.name), ['Bank activity'],
         'the active destination is marked');
     });
 
@@ -681,7 +681,7 @@ const TABLES = {
     await check('compact draws its tooltip from data-label, on hover AND keyboard focus', async () => {
       const content = await page.$eval('[data-accounting-suite] a',
         (a) => getComputedStyle(a, '::after').content);
-      r.has(content, 'Transactions');
+      r.has(content, 'Bank activity');
       /* :focus-visible needs focus to ARRIVE by keyboard -- a programmatic
          .focus() right after a click does not match it in Chromium, which is
          the same rule a real keyboard user gets. So: focus the first link,

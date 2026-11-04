@@ -552,7 +552,7 @@
       const util = el(renderUtility(opts));
       mainEl.prepend(util);
       updateThemeIcon();
-      window.SiloAccounting?.mount(mainEl, opts.active);
+      window.SiloAccounting?.mount(mainEl, opts.active, { supabaseClient: opts.supabaseClient });
       window.SiloWorkspaceSettings?.mount(mainEl, opts.active);
       window.SiloSeoSuite?.mount(mainEl, opts.active);
       window.SiloAdStudioSuite?.mount(mainEl, opts.active);

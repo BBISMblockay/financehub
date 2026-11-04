@@ -44,8 +44,162 @@
     try { window.localStorage?.setItem(COMPACT_KEY, on ? '1' : '0'); } catch {}
   }
 
-  function mount(main, active) {
-    if (!contains(active) || main.querySelector('[data-accounting-suite]')) return;
+  /* Plain-language labels on the tab strip; URLs and nav ids stay the same. */
+  const FRIENDLY_TITLE = {
+    'finance/card-coding': 'Bank activity',
+    'finance/accounting-export': 'Sales journals',
+    'finance/qbo-reports': 'Financial reports',
+  };
+
+  /* Where this page sits in a typical month-end path — orientation only. */
+  const CLOSE_STEPS = [
+    { key: 'setup', label: 'Setup', href: '/v2/accounting-books.html',
+      pages: ['finance/books'], blurb: 'Opening balances and book settings.' },
+    { key: 'activity', label: 'Bank activity', href: '/v2/transactions.html',
+      pages: ['finance/card-coding'], blurb: 'Categorize bank and card lines for the period.' },
+    { key: 'sales', label: 'Sales journals', href: '/v2/accounting-export.html',
+      pages: ['finance/accounting-export'], blurb: 'Turn sales into journal entries.' },
+    { key: 'invoicing', label: 'Invoicing', href: '/v2/invoicing.html',
+      pages: ['finance/invoicing'], blurb: 'Send invoices and track payments.' },
+    { key: 'close', label: 'Reports & cash', href: '/v2/qbo-reports.html',
+      pages: ['finance/qbo-reports', 'finance/cash-forecast', 'finance/schedules', 'finance/fixed-assets'],
+      blurb: 'Review statements, schedules, and cash ahead.' },
+  ];
+
+  const PAGE_HELP = {
+    'finance/books': { subtitle: 'Opening balances, chart of accounts, and book settings.' },
+    'finance/card-coding': { subtitle: 'Categorize bank and card activity for this period.' },
+    'finance/accounting-export': { subtitle: 'Build and review sales journal entries by period.' },
+    'finance/invoicing': { subtitle: 'Create invoices and see what customers owe.' },
+    'finance/qbo-reports': { subtitle: 'Run financial reports from your connected books.' },
+    'finance/schedules': { subtitle: 'Recurring entries and amortization over time.' },
+    'finance/fixed-assets': { subtitle: 'Track capital assets and depreciation.' },
+    'finance/cash-forecast': { subtitle: 'See cash ahead from history and what is planned.' },
+  };
+
+  function stepForPage(active) {
+    for (const step of CLOSE_STEPS) if (step.pages.includes(active)) return step;
+    return null;
+  }
+
+  function applyPageHelp(main, active) {
+    const help = PAGE_HELP[active];
+    if (!help) return;
+    const intro = typeof document.getElementById === 'function'
+      ? document.getElementById('booksIntro') : null;
+    if (intro && active === 'finance/books') { intro.textContent = help.subtitle; return; }
+    const header = main.querySelector && main.querySelector('.bcn-header');
+    if (!header || typeof header.querySelector !== 'function') return;
+    let sub = header.querySelector('[data-accounting-sub]');
+    if (!sub) {
+      sub = document.createElement('p');
+      sub.className = 'bcn-header-sub';
+      sub.dataset.accountingSub = '';
+      const title = header.querySelector('.bcn-header-title');
+      if (title) title.after(sub);
+      else header.querySelector(':scope > div')?.append(sub);
+    }
+    sub.textContent = help.subtitle;
+  }
+
+  function mountCloseBand(main, nav, active) {
+    const findBand = () => (main.querySelector && main.querySelector('[data-accounting-close]')) || null;
+    let band = findBand();
+    if (!band) {
+      band = document.createElement('section');
+      band.className = 'accounting-close';
+      band.dataset.accountingClose = '';
+      band.setAttribute('aria-label', 'Month-end path');
+      const head = document.createElement('div');
+      head.className = 'accounting-close-head';
+      head.innerHTML = '<span class="accounting-close-label">Month-end path</span>'
+        + '<span class="accounting-close-books" data-accounting-books hidden></span>'
+        + '<a class="accounting-close-queue" href="/v2/on-deck.html">Review queue</a>';
+      const list = document.createElement('ol');
+      list.className = 'accounting-close-steps';
+      const stepEls = [];
+      for (const step of CLOSE_STEPS) {
+        const item = document.createElement('li');
+        item.className = 'accounting-close-step';
+        item.dataset.step = step.key;
+        const link = document.createElement('a');
+        link.href = step.href;
+        link.textContent = step.label;
+        item.append(link);
+        list.append(item);
+        stepEls.push(item);
+      }
+      band._booksEl = head.querySelector('[data-accounting-books]');
+      band.append(head, list);
+      const here = document.createElement('p');
+      here.className = 'accounting-close-here';
+      here.dataset.accountingCloseHere = '';
+      band.append(here);
+      band._stepEls = stepEls;
+      band._hereEl = here;
+      if (typeof nav.after === 'function') nav.after(band);
+    }
+    const current = stepForPage(active);
+    const here = band._hereEl
+      || (band.querySelector && band.querySelector('[data-accounting-close-here]'));
+    const idx = current ? CLOSE_STEPS.indexOf(current) : -1;
+    const steps = band._stepEls
+      || (band.querySelectorAll && band.querySelectorAll('.accounting-close-step'));
+    if (steps) {
+      for (let i = 0; i < steps.length; i++) {
+        const el = steps[i];
+        if (!el?.classList) continue;
+        el.classList.toggle('is-current', CLOSE_STEPS[i] === current);
+        el.classList.toggle('is-past', idx >= 0 && i < idx);
+      }
+    }
+    if (here && current) {
+      here.textContent = `You are on ${current.label} — ${current.blurb}`;
+    } else if (here) here.textContent = '';
+  }
+
+  async function applyBooksContext(band, db, company) {
+    const el = band?._booksEl
+      || (band?.querySelector && band.querySelector('[data-accounting-books]'));
+    if (!el || !db || !company?.id) return;
+    try {
+      const { data, error } = await db.from('accounting_settings')
+        .select('bookkeeping_mode,silo_takeover_on').maybeSingle();
+      if (error) throw error;
+      if (data?.bookkeeping_mode === 'qbo') {
+        el.textContent = 'QuickBooks keeps the books';
+        el.hidden = false;
+        return;
+      }
+      if (data?.silo_takeover_on) {
+        el.textContent = `SILO keeps the books from ${data.silo_takeover_on}`;
+        el.hidden = false;
+        return;
+      }
+      el.textContent = 'SILO keeps the books';
+      el.hidden = false;
+    } catch {
+      el.hidden = true;
+    }
+  }
+
+  function mount(main, active, opts) {
+    if (!contains(active)) return;
+    const existing = main.querySelector('[data-accounting-suite]');
+    if (existing) {
+      const band = main.querySelector('[data-accounting-close]')
+        || (existing._closeBand);
+      mountCloseBand(main, existing, active);
+      applyPageHelp(main, active);
+      const closeBand = main.querySelector('[data-accounting-close]');
+      if (closeBand && opts?.supabaseClient) {
+        const co = window.__SILO_CONFIG__?.getActiveCompany?.();
+        if (co?.id) applyBooksContext(closeBand, opts.supabaseClient, co);
+        else window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient)
+          .then(c => c?.id && applyBooksContext(closeBand, opts.supabaseClient, c));
+      }
+      return;
+    }
     const nav=document.createElement('nav');
     nav.className='accounting-suite';nav.dataset.accountingSuite='';
     nav.setAttribute('aria-label','Accounting workspace');
@@ -57,12 +211,13 @@
       // data-label feeds the compact-mode tooltip; the text node stays in the
       // DOM in both modes, so the link's accessible name never depends on
       // which mode it is in.
-      link.dataset.label=title;
-      link.title=title;
+      const display = FRIENDLY_TITLE[id] || title;
+      link.dataset.label=display;
+      link.title=display;
       link.innerHTML=svg(id);
       const text=document.createElement('span');
       text.className='accounting-suite-text';
-      text.textContent=title;
+      text.textContent=display;
       link.append(text);
       if(id===active)link.setAttribute('aria-current','page');
       links.append(link);
@@ -94,6 +249,15 @@
     nav.append(toggle);
 
     main.firstElementChild.after(nav);
+    mountCloseBand(main, nav, active);
+    applyPageHelp(main, active);
+    const band = main.querySelector('[data-accounting-close]');
+    if (band && opts?.supabaseClient) {
+      const co = window.__SILO_CONFIG__?.getActiveCompany?.();
+      if (co?.id) applyBooksContext(band, opts.supabaseClient, co);
+      else window.__SILO_CONFIG__?.ensureActiveCompany?.(opts.supabaseClient)
+        .then(c => c?.id && applyBooksContext(band, opts.supabaseClient, c));
+    }
   }
   window.SiloAccounting={contains,mount};
 })();

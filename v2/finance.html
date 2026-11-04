@@ -285,6 +285,33 @@
     });
   })();
 
+  // Grandfathered Home still uses static cards; hide links for modules that
+  // are off (standard Home mirrors the sidebar and picks this up automatically).
+  (async function filterCardsByModules() {
+    const nav = window.SiloNav;
+    if (!nav?.MODULES || !supabaseClient) return;
+    const company = window.__SILO_CONFIG__?.getActiveCompany?.()
+      || await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient);
+    if (!company?.id || window.SiloChrome?.resolveNavProfile?.(company) === 'standard') return;
+    const visibility = await nav.loadModuleVisibility(supabaseClient, company);
+    if (!visibility) return;
+    const hiddenSections = new Set();
+    for (const mod of nav.MODULES) {
+      if (visibility[mod.id] === false) mod.sections.forEach(s => hiddenSections.add(s));
+    }
+    if (!hiddenSections.size) return;
+    const byHref = new Map(nav.NAV_ITEMS.map(item => [item.href, item]));
+    document.querySelectorAll('.fin-link[href]').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      const item = byHref.get(href) || byHref.get(href.replace(/^\/v2/, '/v2'));
+      if (item && hiddenSections.has(item.section)) a.remove();
+    });
+    document.querySelectorAll('.fin-card').forEach((card) => {
+      if (!card.querySelector('.fin-link')) card.remove();
+    });
+  })();
+  window.addEventListener('silo:modules:changed', () => { location.reload(); });
+
   // Department filter for the tool cards — mirrors the sidebar rules.
   // Cards/links tagged data-departments show only for those departments
   // (same session cache as silo-chrome; unresolved = show everything).
