@@ -3040,6 +3040,8 @@ and authorized synthetic-company acceptance remain rollout gates. See
 
 **Additive attribution history (not applied):** `20261028205139_attribution_additive_history.sql` adds a service-only append RPC, atomic `sync_jobs` receipts, and protection for backfilled codes against concurrent normal publication. Apply separately after the attribution evidence migrations; like those migrations it is deliberately outside the repository-wide rebuild (which lacks the prerequisite tables). No new table or client grant. Run `verify_attribution_schema.sql` after approved apply. See `docs/ops/attribution-additive-history.md`.
 
+**Chunked attribution publish:** `20261105060000_attribution_chunked_publish.sql` adds `stage_shopify_attribution_orders()` and `finalize_shopify_attribution_day()`, so a day too large to send in one request stages its evidence in slices and then writes the day row on its own. `publish_shopify_attribution_day()` is unchanged and still handles every day small enough to send whole. Same advisory lock, supersede rule and revenue reconciliation; the only difference is that finalize checks evidence presence against `shopify_attribution_orders` rather than against a payload argument. No new table, no policy change, service-only grants. Like the other attribution migrations it sits outside the repository-wide rebuild, which lacks the prerequisite tables. Run `verify_attribution_schema.sql` after apply. See `/mnt/project-files/specs/attribution-chunked-publish-2026-11-05.md`.
+
 ## Freight bookings and one arrival date — `20261028220000`
 
 Adds `shipment_bookings` (a forwarder booking / container) and

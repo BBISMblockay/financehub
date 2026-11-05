@@ -97,7 +97,7 @@ export async function fetchSalesDay(connection,day,ql) {
   }
   throw Error('Attribution daily row cap reached; no snapshot published');
 }
-export async function collectDay(connection, day, { ql, gql, rest, publish, decorate=null, commit=false, now=()=>new Date().toISOString() }) {
+export async function collectDay(connection, day, { ql, gql, rest, publish, stage=null, finalize=null, decorate=null, commit=false, now=()=>new Date().toISOString(), chunk=500, threshold=5000 }) {
   // Stamp before reads: a slower old extraction cannot overwrite a newer one.
   const extracted = now();
   const shop = (await gql(connection, 'query AttributionShop { shop { currencyCode ianaTimezone primaryDomain { host } } }')).shop;
@@ -114,9 +114,20 @@ export async function collectDay(connection, day, { ql, gql, rest, publish, deco
     if(decorate)evidence.allocations=decorate(evidence);
     orders.push({order_id:row.order_id,evidence});
   }
-  if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
+  // A day's evidence goes up in one request, which stops being deliverable somewhere
+  // above four thousand orders -- 2025-11-27 (8,231) died twice on that call, once as a
+  // failed fetch and once as a Cloudflare 520. Past the threshold the evidence is staged
+  // in slices and the day row finalized separately; readers cannot see either until the
+  // day row lands, because every consumer reaches evidence through it. Below the
+  // threshold this is byte for byte the single call that has published every snapshot.
+  const staged = commit && stage && finalize && orders.length > threshold;
+  if (staged) {
+    for (let i=0;i<orders.length;i+=chunk) await stage({p_connection:connection.id,p_orders:orders.slice(i,i+chunk),p_extracted:extracted});
+    await finalize({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
+      p_ledger:ledger,p_net:net,p_total:total,p_extracted:extracted});
+  } else if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
     p_ledger:ledger,p_orders:orders,p_net:net,p_total:total,p_extracted:extracted});
-  return {day,orders:orders.length,pending,net_cents:net,total_cents:total,committed:commit};
+  return {day,orders:orders.length,pending,net_cents:net,total_cents:total,committed:commit,staged};
 }
 export function dayRange(start,end) {
   const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && new Date(v+'T00:00:00Z').toISOString().slice(0,10) === v;

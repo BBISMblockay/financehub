@@ -33,6 +33,8 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ATTRIBUTION_PUBLISH_CHUNK: ${{ vars.ATTRIBUTION_PUBLISH_CHUNK }}
+      ATTRIBUTION_PUBLISH_THRESHOLD: ${{ vars.ATTRIBUTION_PUBLISH_THRESHOLD }}
       ATTRIBUTION_MODE: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
       ATTRIBUTION_SYNC_ENABLED: ${{ vars.ATTRIBUTION_SYNC_ENABLED }}
       ATTRIBUTION_CONNECTION_ID: ${{ inputs.connection_id || vars.ATTRIBUTION_CONNECTION_ID }}

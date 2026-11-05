@@ -141,6 +141,73 @@ if(report&&discounts){
  const projected=(await db.query(LEDGER_SELECT+" where day='2026-09-01'::date and window_days=30")).rows[0];
  for(const added of ['discount_codes','discount_code'])assert.ok(!(added in projected),`${added} must not be added to the Attribution page's payload`);
 }
+// ---- Chunked publish (20261105060000): a day too large to send in one request ----
+{
+ await db.exec('reset role');
+ const chunked=files.find(n=>n.endsWith('_attribution_chunked_publish.sql'));
+ assert.ok(chunked,'the chunked publish migration must be present');
+ let sql=await readFile(new URL('../../supabase/migrations/'+chunked,import.meta.url),'utf8');
+ if(process.env.ATTRIBUTION_DB_MUTATION==='chunked_evidence')
+  sql=sql.replace(" raise exception 'Missing order evidence'; end if;"," null; end if;");
+ if(process.env.ATTRIBUTION_DB_MUTATION==='chunked_downgrade')
+  sql=sql.replace(" and not coalesce((excluded.evidence#>>'{order,customerJourneySummary,ready}')::boolean,false));"," and false);");
+ await db.exec(sql);await db.exec(sql);
+
+ await db.exec('reset role; set role service_role');
+ const d2='2026-09-02';
+ const stage=(orders,stamp)=>db.query('select stage_shopify_attribution_orders($1,$2::jsonb,$3) as n',[conn,JSON.stringify(orders),stamp]);
+ const finalize=(ledger,net,total,stamp)=>db.query(`select finalize_shopify_attribution_day($1,'${d2}','USD','America/Los_Angeles',$2::jsonb,$3,$4,$5) as ok`,
+  [conn,JSON.stringify(ledger),net,total,stamp]);
+ const ev=(id,ready=true)=>({order_id:id,evidence:{order:{name:'#'+id,customerJourneySummary:{ready}}}});
+ const line=id=>({order_id:id,net_cents:-100,total_cents:-100});
+
+ // The day row must not appear until every order it names has evidence.
+ await assert.rejects(finalize([line('a')],-100,-100,'2026-10-05T00:00:00Z'),/Missing order evidence/);
+ assert.equal(Number((await db.query('select count(*) c from shopify_attribution_days where day=$1',[d2])).rows[0].c),0,
+  'a refused finalize leaves no day row behind');
+
+ // Evidence staged ahead of the day is invisible: the ledger view is driven by the day row.
+ assert.equal((await stage([ev('a'),ev('b')],'2026-10-05T00:00:00Z')).rows[0].n,2);
+ if(report)assert.equal(Number((await db.query('select count(*) c from silo_attribution_ledger_v where day=$1',[d2])).rows[0].c),0,
+  'staged evidence with no day row must not reach the ledger');
+
+ await assert.rejects(finalize([line('a'),line('b')],0,-200,'2026-10-05T00:00:00Z'),/Revenue or identity mismatch/);
+ assert.equal((await finalize([line('a'),line('b')],-200,-200,'2026-10-05T00:00:00Z')).rows[0].ok,true);
+ assert.equal(Number((await db.query('select net_cents from shopify_attribution_days where day=$1',[d2])).rows[0].net_cents),-200);
+ if(report)assert.equal(Number((await db.query('select count(*) c from silo_attribution_ledger_v where day=$1 and window_days=30',[d2])).rows[0].c),2);
+
+ // Same supersede rule as the whole-day publish: an older extraction is refused, not raised.
+ assert.equal((await finalize([line('a'),line('b')],-200,-200,'2026-10-04T00:00:00Z')).rows[0].ok,false);
+
+ // A chunk must be internally coherent before any of it is written.
+ await assert.rejects(stage([ev('c'),ev('c')],'2026-10-06T00:00:00Z'),/Duplicate evidence/);
+ await assert.rejects(stage([{order_id:'',evidence:{}}],'2026-10-06T00:00:00Z'),/Invalid evidence chunk/);
+ await assert.rejects(stage([{order_id:'c'}],'2026-10-06T00:00:00Z'),/Invalid evidence chunk/);
+ assert.equal(Number((await db.query("select count(*) c from shopify_attribution_orders where order_id='c'")).rows[0].c),0);
+
+ // The downgrade guard, and why finalize tests presence rather than freshness: a later
+ // extraction that lost the journey must not replace a ready one, which leaves the row
+ // stamped older than the day being finalized. Testing fetched_at here would refuse a day
+ // whose evidence is present and better.
+ assert.equal((await stage([ev('d',true)],'2026-10-05T00:00:00Z')).rows[0].n,1);
+ await stage([ev('d',false)],'2026-10-07T00:00:00Z');
+ const kept=(await db.query("select evidence#>>'{order,customerJourneySummary,ready}' r, fetched_at from shopify_attribution_orders where order_id='d'")).rows[0];
+ assert.equal(kept.r,'true','a ready journey is never downgraded by a later extraction');
+ assert.equal((await finalize([line('a'),line('b'),line('d')],-300,-300,'2026-10-08T00:00:00Z')).rows[0].ok,true,
+  'a day finalizes on evidence that exists, even where the row is older than the extraction');
+
+ await db.exec('reset role');
+ for(const role of ['anon','authenticated']) {
+  await db.exec('set role '+role);
+  await assert.rejects(db.query('select stage_shopify_attribution_orders($1,$2::jsonb,$3)',[conn,'[]','2026-10-05T00:00:00Z']),/permission denied/);
+  await assert.rejects(db.query(`select finalize_shopify_attribution_day($1,'${d2}','USD','UTC','[]'::jsonb,0,0,$2)`,[conn,'2026-10-05T00:00:00Z']),/permission denied/);
+  await db.exec('reset role');
+ }
+ await db.exec('set role service_role');
+ await db.query('delete from shopify_attribution_days where day=$1',[d2]);
+ await db.query("delete from shopify_attribution_orders where order_id in ('a','b','d')");
+}
+
 await db.exec('reset role; set role authenticated');await db.query("select set_config('test.company',$1,false)",[co]);
 await assert.rejects(publish(),/permission denied/);
 await assert.rejects(db.exec('delete from shopify_attribution_orders'),/permission denied/);

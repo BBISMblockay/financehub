@@ -38,6 +38,41 @@ const deps={ql:async(c,q)=>q.includes('GROUP BY')?sales:control,gql:async(c,q)=>
 await collectDay(conn,day,deps);assert.equal(published,1);
 await collectDay(conn,day,{...deps,commit:false});assert.equal(published,1);
 await assert.rejects(collectDay(conn,day,{...deps,rest:async()=>{throw Error('interrupted');}}),/interrupted/);assert.equal(published,1);
+
+// A day too large to send in one request stages its evidence in slices and then finalizes the
+// day row on its own. 2025-11-27 (8,231 orders) died twice on the single call, so above the
+// threshold the whole-day publish must not be attempted at all.
+{
+ const many=[1,2,3,4,5].map(n=>({day,order_id:String(n),net_sales:'-10.01',total_sales:'-11.02'}));
+ const bigControl=[{net_sales:'-50.05',total_sales:'-55.10'}];
+ const bigDeps={...deps,ql:async(c,q)=>q.includes('GROUP BY')?many:bigControl,
+  gql:async(c,q)=>q.includes('AttributionShop')?{shop:{currencyCode:'USD',ianaTimezone:'America/Los_Angeles',primaryDomain:{host:'shop.test'}}}:{order}};
+ let whole=0;const chunks=[];let finalized=null;
+ const result=await collectDay(conn,day,{...bigDeps,threshold:2,chunk:2,
+  publish:async()=>{whole++;},
+  stage:async p=>{chunks.push(p);},
+  finalize:async p=>{finalized=p;}});
+ assert.equal(whole,0,'a day past the threshold must never attempt the whole-day publish');
+ assert.equal(result.staged,true);
+ assert.deepEqual(chunks.map(c=>c.p_orders.length),[2,2,1],'evidence goes up in slices of the chunk size');
+ assert.deepEqual(chunks.flatMap(c=>c.p_orders.map(o=>o.order_id)),['1','2','3','4','5'],'every order is staged exactly once');
+ assert.ok(chunks.every(c=>c.p_extracted===finalized.p_extracted),'one extraction stamp covers the staged day');
+ assert.ok(chunks.every(c=>c.p_connection===conn.id));
+ assert.ok(!('p_orders' in finalized),'the finalize call carries the ledger only, not the evidence');
+ assert.equal(finalized.p_ledger.length,5);
+ assert.equal(finalized.p_net,-5005);
+ assert.ok(!JSON.stringify(chunks).includes('secret'),'staged evidence is sanitized like published evidence');
+ // Exactly at the threshold is still a single call: the switch is for days that have been
+ // proven undeliverable, and the whole-day path is the one with the track record.
+ let atEdge=0,stagedAtEdge=0;
+ const edge=await collectDay(conn,day,{...bigDeps,threshold:5,chunk:2,
+  publish:async()=>{atEdge++;},stage:async()=>{stagedAtEdge++;},finalize:async()=>{}});
+ assert.equal(atEdge,1);assert.equal(stagedAtEdge,0);assert.equal(edge.staged,false);
+ // Without the callbacks wired there is no staged path to fall into.
+ let legacy=0;
+ await collectDay(conn,day,{...bigDeps,threshold:2,publish:async()=>{legacy++;}});
+ assert.equal(legacy,1,'a caller that passes no stage/finalize keeps the single call');
+}
 // Exercise the real shared parser, including its truncation guard.
 const originalFetch=globalThis.fetch;
 try{
