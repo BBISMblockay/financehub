@@ -19560,4 +19560,10 @@ $c$select (select count(*) from v_po_header_summary
 -- and the gate's own sentence tells the bot to send that link. Needs
 -- 20261105000000. Needs a deploy of the `mcp` function for the guide text.
 \i migrations/20261105003000_report_hint_dashboard.sql
+
+-- The nightly drift check's API-surface list did not know about the write
+-- tool: silo_api_create_task and silo_api_scopes join it (both are on the
+-- PostgREST path allowlist), and silo_api_write_cap loses a grant to the
+-- integration role that nothing ever used. No deploy.
+\i migrations/20261105060000_integration_grants_api_surface.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
