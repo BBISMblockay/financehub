@@ -1904,6 +1904,25 @@ select
     else 'ok'
   end as sales_by_product_title_daily_v;
 
+-- 20261105080000: the same canonical title in products_master.product_title
+-- itself -- the column the Catalog tab, PO builder, launch-calendar picker,
+-- SEO Studio and the v3 report builder read. A SEPARATE check from the rollup
+-- above on purpose: it is a different object, and the rollup's check is lifted
+-- verbatim by scripts/tests/product-title-canonical-database.test.mjs, which
+-- knows nothing of this function.
+select
+  case
+    when not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                     where n.nspname='public' and p.proname='apply_canonical_product_titles')
+      then 'MISSING — apply_canonical_product_titles() (20261105080000); products_master.product_title reverts to whichever '
+        || 'store synced last, so the Catalog tab, PO builder and launch-calendar picker disagree with every report'
+    when has_function_privilege('authenticated', 'public.apply_canonical_product_titles()', 'EXECUTE')
+      or has_function_privilege('anon', 'public.apply_canonical_product_titles()', 'EXECUTE')
+      then 'BROKEN — apply_canonical_product_titles() is executable by anon or authenticated; it is a definer function that '
+        || 'writes products_master for every company'
+    else 'ok'
+  end as apply_canonical_product_titles;
+
 -- ── Inventory workboard, materialized (20261012210000) ────────────────
 -- The view kept its name, its 40 columns and their order; what changed
 -- underneath is that it reads a matview instead of joining two wrapper views on

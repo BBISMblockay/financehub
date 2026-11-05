@@ -19570,4 +19570,10 @@ $c$select (select count(*) from v_po_header_summary
 -- any connected source syncs and a natively synced platform can appear in both
 -- tables. Catalog text only, no schema change. No deploy.
 \i migrations/20261105070000_connected_source_any_platform.sql
+-- 20261105080000: products_master.product_title becomes ONE canonical title
+-- per (company, sku) -- the same resolution the sales rollup uses -- so the
+-- Catalog tab, PO builder, launch-calendar picker, SEO Studio and v3 report
+-- builder stop showing whichever store synced last. Backfills on apply and
+-- runs at the end of every Shopify sync. No deploy.
+\i migrations/20261105080000_products_master_canonical_title.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

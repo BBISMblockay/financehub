@@ -1674,6 +1674,16 @@ jobs:
       - name: Execute canonical product title regressions
         run: node scripts/tests/product-title-canonical-database.test.mjs
 
+      # 20261105080000: the same canonical title, this time in
+      # products_master.product_title itself -- the column the Catalog tab, PO
+      # builder, launch-calendar picker, SEO Studio and the v3 report builder
+      # read, which the rollup fix above left alone. Runs the migration's own
+      # backfill and stability guard, both tiebreaks, the tenant boundary, the
+      # grants and the verify_v2_schema arms. Mutation-tested: six ways of
+      # breaking the rule, each caught.
+      - name: Execute canonical products_master title regressions
+        run: node scripts/tests/products-master-canonical-title-database.test.mjs
+
       # 20260925150000: marketing and inventory SILO reports. Runs the deployed
       # report SQL over fixtures (grain, totals, missing days, expired Meta
       # thumbnails, image fallbacks) and every tie-out the migration writes.
