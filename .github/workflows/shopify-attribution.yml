@@ -14,6 +14,9 @@ on:
       probe_order_id:
         description: Optional numeric Shopify order ID. Read-only probe; blank dates and commit=false required
         required: false
+      probe_plan_day:
+        description: Optional YYYY-MM-DD. Read-only speed probe (deep sales paging, journey batch cost, landing batch); blank dates and commit=false required
+        required: false
       commit:
         description: Publish verified snapshots (false is read-only)
         type: boolean
@@ -42,6 +45,11 @@ jobs:
       ATTRIBUTION_END: ${{ inputs.end_date }}
       ATTRIBUTION_COMMIT: ${{ inputs.commit }}
       ATTRIBUTION_PROBE_ORDER_ID: ${{ inputs.probe_order_id }}
+      ATTRIBUTION_PROBE_PLAN_DAY: ${{ inputs.probe_plan_day }}
+      ATTRIBUTION_JOURNEY_BATCH: ${{ vars.ATTRIBUTION_JOURNEY_BATCH }}
+      ATTRIBUTION_JOURNEY_MOMENTS: ${{ vars.ATTRIBUTION_JOURNEY_MOMENTS }}
+      ATTRIBUTION_LANDING_BATCH: ${{ vars.ATTRIBUTION_LANDING_BATCH }}
+      ATTRIBUTION_MAX_DAY_ROWS: ${{ vars.ATTRIBUTION_MAX_DAY_ROWS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,7 +60,7 @@ jobs:
           node --input-type=module <<'NODE'
           import {dayRange} from './scripts/lib/shopify-attribution-evidence.mjs';
           const env=process.env;
-          if (!env.ATTRIBUTION_PROBE_ORDER_ID && env.ATTRIBUTION_MODE !== 'scheduled') {
+          if (!env.ATTRIBUTION_PROBE_ORDER_ID && !env.ATTRIBUTION_PROBE_PLAN_DAY && env.ATTRIBUTION_MODE !== 'scheduled') {
             dayRange(env.ATTRIBUTION_START,env.ATTRIBUTION_END);
           }
           NODE
@@ -61,6 +69,10 @@ jobs:
         if: inputs.probe_order_id != ''
         timeout-minutes: 10
         run: node scripts/shopify-attribution-probe.mjs
+      - name: Measure collection limits without writes or token refresh
+        if: inputs.probe_plan_day != ''
+        timeout-minutes: 20
+        run: node scripts/shopify-attribution-plan-probe.mjs
       - name: Collect snapshots
-        if: inputs.probe_order_id == ''
+        if: inputs.probe_order_id == '' && inputs.probe_plan_day == ''
         run: node scripts/shopify-attribution-sync.mjs

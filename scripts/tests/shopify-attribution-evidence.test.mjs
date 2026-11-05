@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {collectDay,fetchJourney,fetchSalesDay,validateDay,landingEvidence,dayRange,sanitizeDiscountCodes} from '../lib/shopify-attribution-evidence.mjs';
+import {collectDay,fetchJourney,fetchJourneys,fetchLandingSites,fetchSalesDay,validateDay,landingEvidence,dayRange,sanitizeDiscountCodes} from '../lib/shopify-attribution-evidence.mjs';
 import {shopifyql,shopifyGraphql} from '../lib/shopify-sync-core.mjs';
 const day='2026-09-01',conn={id:'c',shop_domain:'test.myshopify.com'};
 const visit={id:'v1',__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},landingPage:'https://shop.test/p?utm_contact=secret'};
@@ -129,7 +129,7 @@ try{
  assert.equal(validateDay(day,pagedSales,[{net_sales:'2549.00',total_sales:'2803.90'}]).net,254900);
 }finally{globalThis.fetch=originalFetch;}
 await assert.rejects(fetchSalesDay(conn,day,async()=>Object.assign([],{raw:{table_data_was_null:true}})),/Incomplete/);
-await assert.rejects(fetchSalesDay(conn,day,async()=>Array(500).fill(sales[0])),/cap/);
+await assert.rejects(fetchSalesDay(conn,day,async()=>Array(500).fill(sales[0])),/ceiling/);
 assert.throws(()=>validateDay(day,[...sales,...sales],control),/identity/);
 let unavailablePublished=0;
 for(const d of [day,'2026-09-02']){
@@ -139,4 +139,184 @@ for(const d of [day,'2026-09-02']){
   publish:async p=>{unavailablePublished++;assert.equal(p.p_net,-1001);assert.equal(p.p_orders[0].evidence.order.evidence_status,'unavailable');assert.ok(!('discountCodes' in p.p_orders[0].evidence.order));}});
 }
 assert.equal(unavailablePublished,2);
-console.log('Attribution evidence: integrated failure paths, unavailable reversals and actual shared 999/1000 boundary passed');
+// ---------------------------------------------------------------------------
+// Batched collection. A day used to cost two sequential HTTP calls per order
+// (4,103 orders = 32 min at a dead-flat 2.13/sec). These tests hold the batched
+// path to one standard: it must produce EXACTLY what the serial path produces.
+// ---------------------------------------------------------------------------
+{
+ const visitFor=n=>({id:'v'+n,__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',
+  source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},
+  landingPage:'https://shop.test/p?utm_contact=secret'});
+ const ready=n=>({__typename:'Order',id:'gid://shopify/Order/'+n,name:'#'+n,createdAt:'2026-09-01T02:00:00Z',sourceName:'web',
+  discountCodes:['TEAM50'],customerJourneySummary:{ready:true,firstVisit:visitFor(n),lastVisit:visitFor(n),
+   moments:{nodes:[visitFor(n)],pageInfo:{hasNextPage:false}}}});
+ // Order 3 is deeper than the shallow batch page, so the batch must hand it back to the
+ // single-order fetch rather than publish a truncated journey.
+ const deepFirst=n=>({...ready(n),customerJourneySummary:{ready:true,firstVisit:visitFor(n),lastVisit:visitFor(n),
+  moments:{nodes:[visitFor(n)],pageInfo:{hasNextPage:true,endCursor:'deep-page-2'}}}});
+ const deepRest=n=>({...ready(n),customerJourneySummary:{ready:true,firstVisit:visitFor(n),lastVisit:visitFor(n+'b'),
+  moments:{nodes:[visitFor(n+'b')],pageInfo:{hasNextPage:false}}}});
+ const notReady=n=>({...ready(n),customerJourneySummary:{ready:false}});
+
+ const shapes={'1':ready,'2':notReady,'3':deepFirst,'4':()=>null,'5':ready};
+ let singleCalls=0,batchCalls=0,deepSingles=0;
+ const gql=async(c,q,v)=>{
+  if(q.includes('AttributionShop'))return {shop:{currencyCode:'USD',ianaTimezone:'America/Los_Angeles',primaryDomain:{host:'shop.test'}}};
+  if(q.includes('AttributionJourneyBatch')){
+   batchCalls++;
+   return {nodes:v.ids.map(gid=>{const n=gid.split('/').pop();return shapes[n](n);})};
+  }
+  singleCalls++;
+  const n=v.id.split('/').pop();
+  if(n==='3'){deepSingles++;return {order:v.after?deepRest(n):deepFirst(n)};}
+  return {order:shapes[n](n)};
+ };
+
+ // fetchJourneys: every shape handled, and only the deep order costs an extra round trip.
+ const got=await fetchJourneys(conn,['1','2','3','4','5'],{gql,moments:1});
+ assert.equal(batchCalls,1,'five orders are one request');
+ assert.equal(deepSingles,2,'only the deep journey is paged on its own');
+ assert.deepEqual([...got.keys()],['1','2','4','5','3'],'every id asked for comes back');
+ assert.equal(got.get('2').customerJourneySummary.ready,false,'a journey that is not ready stays not ready');
+ assert.equal(got.get('4').evidence_status,'unavailable','an id Shopify will not return is unavailable, never dropped');
+ assert.equal(got.get('4').name,'4','an unavailable order is named by the id asked for');
+ assert.deepEqual(got.get('3').customerJourneySummary.moments.nodes.map(v=>v.id).sort(),['v3','v3b'],
+  'the deep journey is completed, not truncated');
+ assert.ok(!JSON.stringify(got).includes('secret'),'batched evidence is sanitized like serial evidence');
+
+ // Repeated visit ids must keep the LAST copy. The page rebuilds a journey with
+ // Map.set(), so whichever copy is stored last is the one it shows; storing the first
+ // instead would silently change which visit a sale is credited to. The copies here
+ // differ in sourceType so keeping the wrong one is visible.
+ const repeated={__typename:'Order',id:'gid://shopify/Order/9',name:'#9',createdAt:'2026-09-01T02:00:00Z',
+  sourceName:'web',discountCodes:[],customerJourneySummary:{ready:true,
+   firstVisit:{...visitFor(9),sourceType:'first-copy'},
+   lastVisit:{...visitFor(9),sourceType:'last-copy'},
+   moments:{nodes:[{...visitFor(9),sourceType:'middle-copy'}],pageInfo:{hasNextPage:false}}}};
+ const deduped=await fetchJourneys(conn,['9'],{gql:async()=>({nodes:[repeated]})});
+ const stored=deduped.get('9').customerJourneySummary.moments.nodes;
+ assert.equal(stored.length,1,'one visit id is one visit');
+ assert.equal(stored[0].sourceType,'last-copy','the last copy of a repeated visit id wins');
+ assert.equal(deduped.get('9').customerJourneySummary.lastVisit.sourceType,'last-copy');
+
+ // The batch is matched to ids BY POSITION, so a short or padded answer must be refused
+ // rather than silently misattributing one order's journey to another order.
+ // A short answer is refused -- and because a failed batch halves itself, the refusal has
+ // to survive all the way down to a single id rather than being papered over by a retry
+ // that happens to line up.
+ const splits=[];
+ await assert.rejects(fetchJourneys(conn,['1','2','3','4'],{onSplit:s=>splits.push(s.size),
+  gql:async(c,q,v)=>({nodes:v.ids.slice(0,Math.max(0,v.ids.length-1)).map(gid=>shapes['1'](gid.split('/').pop()))})}),/every order/);
+ assert.deepEqual(splits,[4,2],'the batch halves before it gives up');
+ await assert.rejects(fetchJourneys(conn,['1'],{gql:async()=>({nodes:null})}),/every order/);
+ // A node that is not an order at all is a wrong id, not an unmeasured order.
+ await assert.rejects(fetchJourneys(conn,['1'],{gql:async()=>({nodes:[{__typename:'Customer',id:'gid://shopify/Customer/1'}]})}),/non-order/);
+
+ // A cost refusal or a throttle must cost speed, not the day. The batch halves until the
+ // calls fit, and every order still comes back exactly once.
+ const seen=[],halved=[];
+ const throttled=await fetchJourneys(conn,['1','2','3','4','5'],{moments:1,onSplit:s=>halved.push(s.size),
+  gql:async(c,q,v)=>{
+   if(q.includes('AttributionJourneyBatch')){
+    seen.push(v.ids.length);
+    if(v.ids.length>2)throw Error('Shopify GraphQL: Query cost exceeds limit');
+    return {nodes:v.ids.map(gid=>{const n=gid.split('/').pop();return shapes[n](n);})};
+   }
+   const n=v.id.split('/').pop();
+   return {order:n==='3'?(v.after?deepRest(n):deepFirst(n)):shapes[n](n)};
+  }});
+ assert.deepEqual(halved,[5,3],'only the batches that failed were halved');
+ // A batch that throws PART WAY through parsing must leave nothing behind. Order 3 is a
+ // deep journey staged before the bad node further down the same answer throws, so a
+ // batch that kept its half-parsed work would queue that deep journey twice and pay for
+ // it twice.
+ {
+  let deepPages=0;
+  const mixed=await fetchJourneys(conn,['3','bad'],{moments:1,
+   gql:async(c,q,v)=>{
+    if(q.includes('AttributionJourneyBatch'))return {nodes:v.ids.map(gid=>{
+     const n=gid.split('/').pop();
+     if(n!=='bad')return deepFirst(n);
+     return v.ids.length>1?{__typename:'Customer',id:'gid://shopify/Customer/1'}:ready('bad');
+    })};
+    const n=v.id.split('/').pop();
+    if(n==='3')deepPages++;
+    return {order:v.after?deepRest(n):deepFirst(n)};
+   }});
+  assert.equal(deepPages,2,'the deep journey is paged once, not once per abandoned attempt');
+  assert.deepEqual([...mixed.keys()].sort(),['3','bad']);
+ }
+ assert.deepEqual(seen,[5,3,2,1,2],'it halves down to calls that fit, then stops halving');
+ assert.deepEqual([...throttled.keys()].sort(),['1','2','3','4','5'],'every order survives the halving exactly once');
+ assert.equal(throttled.get('4').evidence_status,'unavailable');
+ assert.deepEqual(throttled.get('3').customerJourneySummary.moments.nodes.map(v=>v.id).sort(),['v3','v3b'],
+  'a deep journey inside a halved batch is still completed');
+ assert.equal((await fetchJourneys(conn,[],{gql:async()=>{throw Error('no request for an empty batch');}})).size,0);
+
+ // fetchLandingSites: a batch that answers only some ids re-asks the rest one at a time.
+ const asked=[];
+ const landings=await fetchLandingSites(conn,['1','2','3'],{batch:3,
+  restBatch:async(c,ids)=>[{id:1,landing_site:'/a'},{id:'3',landing_site:'/c'}],
+  rest:async(c,id)=>{asked.push(id);return {id,landing_site:'/single'};}});
+ assert.deepEqual(asked,['2'],'only the id the batch left out is asked for singly');
+ assert.equal(landings.get('1').landing_site,'/a');
+ assert.equal(landings.get('2').landing_site,'/single');
+ assert.equal(landings.get('3').landing_site,'/c','a numeric id and a string id are the same order');
+ // A batch that fails entirely degrades to the serial calls, which is today's behaviour.
+ const degraded=[];
+ await fetchLandingSites(conn,['7','8'],{batch:2,restBatch:async()=>[],rest:async(c,id)=>{degraded.push(id);return {id};}});
+ assert.deepEqual(degraded,['7','8'],'a refused batch falls back to every order, losing speed and nothing else');
+ // Without a batch callback there is no batched path to fall into.
+ const serialOnly=[];
+ await fetchLandingSites(conn,['9'],{rest:async(c,id)=>{serialOnly.push(id);return {id};}});
+ assert.deepEqual(serialOnly,['9']);
+
+ // THE EQUIVALENCE PROOF. The same fixture day, collected serially and in batches, must
+ // publish byte-for-byte the same payload. This is what makes turning batching on a
+ // configuration change rather than a rewrite of what a snapshot means.
+ const many=['1','2','3','4','5'].map(n=>({day,order_id:n,net_sales:'10.00',total_sales:'11.00'}));
+ const dayControl=[{net_sales:'50.00',total_sales:'55.00'}];
+ const restCalls={serial:[],batched:[]};
+ const base=mode=>({
+  ql:async(c,q)=>q.includes('GROUP BY')?many:dayControl,
+  gql,
+  rest:async(c,id)=>{restCalls[mode].push(id);return {id,landing_site:'/p?utm_source=redo&utm_contact=secret'};},
+  commit:true,
+ });
+ let serialPayload=null,batchedPayload=null;
+ await collectDay(conn,day,{...base('serial'),publish:async p=>{serialPayload=p;}});
+ await collectDay(conn,day,{...base('batched'),journeyBatch:5,landingBatch:5,journeyMoments:1,
+  restBatch:async(c,ids)=>ids.map(id=>({id,landing_site:'/p?utm_source=redo&utm_contact=secret'})),
+  publish:async p=>{batchedPayload=p;}});
+ const comparable=p=>({...p,p_extracted:'stamp'});
+ assert.deepEqual(comparable(batchedPayload),comparable(serialPayload),
+  'batched collection publishes exactly what serial collection publishes');
+ assert.equal(batchedPayload.p_orders.length,5);
+ assert.deepEqual(batchedPayload.p_orders.map(o=>o.order_id),['1','2','3','4','5'],'ledger order survives batching');
+ // Order 4 is unavailable, so its landing site must never be asked for -- in either mode.
+ assert.ok(!restCalls.serial.includes('4')&&!restCalls.batched.includes('4'),
+  'an unavailable order is never asked for a landing site');
+ assert.equal(batchedPayload.p_orders[3].evidence.order.evidence_status,'unavailable');
+ assert.ok(!JSON.stringify(batchedPayload).includes('secret'));
+}
+
+// ---------------------------------------------------------------------------
+// The day row ceiling. 2025-11-28 (9,916 orders) failed on OUR bound, not on a
+// refusal from Shopify, so the bound is a parameter -- but the penny
+// reconciliation stays the thing that decides whether a day may publish.
+// ---------------------------------------------------------------------------
+{
+ const big=Array.from({length:10500},(_,i)=>({order_id:String(i+1),day,net_sales:'1.00',total_sales:'1.00'}));
+ const ql=async(c,q)=>{const offset=Number(q.match(/OFFSET (\d+)/)?.[1]||0);return big.slice(offset,offset+500);};
+ await assert.rejects(fetchSalesDay(conn,day,ql),/ceiling of 10000/,'the default ceiling is unchanged');
+ const all=await fetchSalesDay(conn,day,ql,{maxRows:20000});
+ assert.equal(all.length,10500,'a raised ceiling pages the whole day');
+ assert.equal(validateDay(day,all,[{net_sales:'10500.00',total_sales:'10500.00'}],{maxRows:20000}).net,1050000);
+ // What makes raising the ceiling safe: a day whose rows do not add up to its own control
+ // total cannot publish, however many rows were read.
+ assert.throws(()=>validateDay(day,all,[{net_sales:'10499.00',total_sales:'10500.00'}],{maxRows:20000}),/mismatch/);
+ // And deep paging that silently repeats a window is caught as an identity failure.
+ assert.throws(()=>validateDay(day,[...all,all[0]],[{net_sales:'10501.00',total_sales:'10501.00'}],{maxRows:20000}),/identity/);
+}
+console.log('Attribution evidence: integrated failure paths, unavailable reversals, actual shared 999/1000 boundary, batched/serial equivalence and the day row ceiling passed');

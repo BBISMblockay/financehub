@@ -16,6 +16,17 @@ const env=process.env, scheduled=env.ATTRIBUTION_MODE === 'scheduled';
 // An unset GitHub repo variable arrives as '' rather than undefined, and Number('') is 0.
 const positive=(value,fallback)=>{const n=Number(value===undefined||value===''?fallback:value);if(!Number.isInteger(n)||n<1)throw Error('Publish chunking must be positive integers');return n;};
 const publishChunk=positive(env.ATTRIBUTION_PUBLISH_CHUNK,500), publishThreshold=positive(env.ATTRIBUTION_PUBLISH_THRESHOLD,5000);
+// Collection speed. Both batch sizes default to 1, which is the serial order-at-a-time path
+// that has published every snapshot so far, so an unset variable changes nothing. A day used
+// to be two sequential HTTP calls per order -- a 4,103-order day measured 32 minutes at a
+// dead-flat 2.13 orders/sec, which is pure round-trip latency. Batching is the fix; the sizes
+// are variables because the right journey batch depends on Shopify's calculated query cost,
+// which has to be measured per shop rather than assumed.
+const journeyBatch=positive(env.ATTRIBUTION_JOURNEY_BATCH,1), journeyMoments=positive(env.ATTRIBUTION_JOURNEY_MOMENTS,10);
+const landingBatch=positive(env.ATTRIBUTION_LANDING_BATCH,1);
+// REST caps a single ids= list at 250.
+if(landingBatch>250)throw Error('Landing batch cannot exceed the REST page limit of 250');
+const maxDayRows=positive(env.ATTRIBUTION_MAX_DAY_ROWS,10000);
 const coverage=env.ATTRIBUTION_MODE === 'coverage';
 if (coverage && env.ATTRIBUTION_COVERAGE_ENABLED !== 'true') {
   console.log('Attribution coverage disabled'); process.exit(0);
@@ -87,10 +98,28 @@ async function publishDay(connection,day,commit,catalog,beforePublish=async()=>{
   const result=await collectDay(connection,day,{
     ql:shopifyql,gql:shopifyGraphql,commit,decorate:evidence=>allocationWindows(evidence,catalog),
     chunk:publishChunk,threshold:publishThreshold,
+    journeyBatch,landingBatch,journeyMoments,maxRows:maxDayRows,
+    // A journey batch that Shopify refuses halves itself and tries again, so a throttle
+    // costs speed rather than the day. Logged so a batch size that is permanently too
+    // large for this shop shows up as itself, not as the speedup mysteriously missing.
+    onSplit:info=>console.log(JSON.stringify({day,event:'journey_batch_split',...info})),
     rest:async(c,id)=>{
       const response=await fetchWithRetry(`https://${c.shop_domain}/admin/api/${c.api_version}/orders/${id}.json?fields=id,landing_site`,{headers:{'X-Shopify-Access-Token':c.access_token}});
       if(!response.ok)throw Error('Order landing fetch failed: '+response.status);
       return (await response.json()).order;
+    },
+    // Many orders' landing sites in one call. A batch that fails for any reason returns
+    // nothing rather than throwing, and fetchLandingSites() then re-asks each id the way it
+    // always has -- so the worst case is today's speed, not a lost day. The refusal is
+    // logged because a batch quietly degrading to serial would otherwise look like the
+    // speedup simply not working.
+    restBatch:async(c,ids)=>{
+      const url=`https://${c.shop_domain}/admin/api/${c.api_version}/orders.json?ids=${ids.join(',')}&fields=id,landing_site&limit=${ids.length}&status=any`;
+      let response;
+      try{response=await fetchWithRetry(url,{headers:{'X-Shopify-Access-Token':c.access_token}});}
+      catch{console.log(JSON.stringify({day,event:'landing_batch_unavailable',size:ids.length}));return [];}
+      if(!response.ok){console.log(JSON.stringify({day,event:'landing_batch_refused',size:ids.length,status:response.status}));return [];}
+      return (await response.json()).orders||[];
     },
     publish:async args=>{await beforePublish();const {data,error}=await db.rpc('publish_shopify_attribution_day',args);if(error)throw Error('Snapshot publication failed: '+error.message);if(!data)throw Error('Snapshot superseded by a newer extraction');},
     // Staging writes evidence only, which no reader can reach without a day row, but the
