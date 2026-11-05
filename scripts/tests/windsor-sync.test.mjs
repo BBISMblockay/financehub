@@ -53,9 +53,15 @@ async function loadCore() {
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
   if (MUT === 'consent') sub('account.sync_enabled !== true', 'false');
   if (MUT === 'sourcecontract') sub('const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;', 'const datasets = DATASETS[account.ds_id] || DATASETS.tiktok;');
-  if (MUT === 'grain') sub("if (byHash.has(row.row_hash)) throw new Error('Ambiguous duplicate row grain; window not saved');", '');
+  if (MUT === 'grain') sub("if (byHash.has(row.row_hash)) throw Object.assign(new Error('Ambiguous duplicate row grain; window not saved'), { grain: true });", '');
   if (MUT === 'window') sub('|| day < from || day > to)', ')');
-  if (MUT === 'huntedgrain') sub('for (const rows of b.rows) validate(rows);', '');
+  if (MUT === 'huntedgrain') sub('          validate(set.rows);\n          sets.push(set.rows);', '          sets.push(set.rows);');
+  // The window is halved only after the whole window failed.
+  if (MUT === 'windowsplit') sub('    const halves = r.transient ? splitWindow(from, to) : null;', '    const halves = null;');
+  // The floor is what bounds splitting; without it a window halves to a day.
+  if (MUT === 'splitfloor') sub('if (!Number.isFinite(days) || days <= MIN_SPLIT_DAYS) return null;', 'if (!Number.isFinite(days) || days < 2) return null;');
+  // A bad hunted field must be found and dropped, not taken at face value.
+  if (MUT === 'grainisolate') sub('          await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,\n            fields: set.fields, validate, state, out: iso });', '          iso.good.push(set.rows);');
   if (MUT === 'huntunmatched') sub("if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');", '');
   // Absolute imports so the temp copy resolves the repo's modules.
   src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
@@ -545,13 +551,12 @@ test('distinct same-day campaigns survive, ambiguous same-key text rows fail, re
   assert.equal(good.status, 'success');
   assert.deepEqual(fake.rows('marketing_kpis_daily').map(r => r.campaign_name), ['First', 'Second']);
 });
-for (const kind of ['duplicate', 'missing-date', 'unmatched']) {
+for (const kind of ['missing-date', 'unmatched']) {
   test(`hunted ${kind} fails before core writes and cursor advancement`, async () => {
     const fake = world([pinAcct]);
     const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1' };
     const fw = fakeWindsor((c, u) => {
       if (u.searchParams.get('fields').includes('spend')) return [{ ...base, spend: 1 }];
-      if (kind === 'duplicate') return [{ ...base, saves: 1 }, { ...base, saves: 2 }];
       return [{ ...base, ...(kind === 'missing-date' ? { date: null } : { campaign_id: 'other' }), saves: 9 }];
     }, { tiktok: pinCatalog });
     const r = await run(fake, fw, pinAcct);
@@ -613,7 +618,7 @@ for (const failure of ['timeout', 'network', 'body', '503', '429', 'empty-503'])
   });
 }
 
-for (const limit of [1, 20]) {
+for (const limit of [1, 40]) {
   test(`persistent core timeout is bounded with call budget ${limit} and keeps stored data/cursor`, async () => {
     const account = { ...klaviyoAcct, history_from: '2026-09-01', synced_through: '2026-10-01' };
     const fake = world([account]);
@@ -622,7 +627,10 @@ for (const limit of [1, 20]) {
     const fw = fakeWindsor(() => { asks++; throw Object.assign(new Error(KEY), { name: 'TimeoutError' }); });
     const counter = { used: 0, limit };
     const r = await run(fake, fw, account, { counter });
-    assert.equal(asks, Math.min(limit, 2));
+    // Two attempts at the whole window, then one pair per halving down to the
+    // floor. Each ask can cost two minutes, so this is the real bound on what
+    // a provider that answers nothing can spend.
+    assert.ok(asks <= 8, `an unanswered window must not halve for ever (asks ${asks})`);
     assert.equal(counter.used, asks);
     assert.equal(r.status, limit === 1 ? 'partial' : 'error');
     assert.match(r.error, /klaviyo\/account 2026-09-29\.\.2026-11-02 core:/);
@@ -643,33 +651,138 @@ test('core permanent HTTP failure is not retried and stored errors redact the ow
   assert.ok(!fake.rows('windsor_linked_accounts')[0].last_sync_error.includes(KEY));
 });
 
-for (const stage of ['core', 'hunted batch 1']) {
-  test(`duplicate diagnostics identify ${stage} without exposing row or account values`, async () => {
-    const fake = world([tiktokAcct]);
-    const row = { account_id: tiktokAcct.account_id, date: '2026-11-01', campaign_id: 'private-campaign-value', campaign: 'private-name' };
-    const fw = fakeWindsor((c, u) => {
-      const hunted = u.searchParams.get('fields').includes('video_p100');
-      return (stage === 'core' || hunted) ? [row, { ...row, spend: 3 }] : [row];
-    }, { tiktok: [{ id: 'video_p100', type: 'NUMERIC', table: 'ads' }] });
-    const r = await run(fake, fw, tiktokAcct);
-    assert.equal(r.status, 'error');
-    assert.ok(r.error.includes(`tiktok/campaign 2026-09-29..2026-11-02 ${stage}:`));
-    assert.match(r.error, /Ambiguous duplicate row grain/);
-    for (const secret of [KEY, row.account_id, row.campaign_id, row.campaign]) assert.ok(!r.error.includes(secret));
-    assert.equal(fake.rows('marketing_kpis_daily').length, 0);
-    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
-  });
-}
+test('a duplicate in the CORE read still fails the window, named by stage and with no row values', async () => {
+  const fake = world([tiktokAcct]);
+  const row = { account_id: tiktokAcct.account_id, date: '2026-11-01', campaign_id: 'private-campaign-value', campaign: 'private-name' };
+  const fw = fakeWindsor(() => [row, { ...row, spend: 3 }],
+    { tiktok: [{ id: 'video_p100', type: 'NUMERIC', table: 'ads' }] });
+  const r = await run(fake, fw, tiktokAcct);
+  assert.equal(r.status, 'error');
+  assert.ok(r.error.includes('tiktok/campaign 2026-09-29..2026-11-02 core:'));
+  assert.match(r.error, /Ambiguous duplicate row grain/);
+  for (const secret of [KEY, row.account_id, row.campaign_id, row.campaign]) assert.ok(!r.error.includes(secret));
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0,
+    'the core read decides which rows exist; an ambiguous one is never guessed at');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+});
 
 test('persistent core 503 naming a field never negotiates it away', async () => {
   const fake = world([klaviyoAcct]);
   const fw = fakeWindsor(() => ({ status: 503, text: `revenue unavailable ${KEY}` }));
   const r = await run(fake, fw, klaviyoAcct);
   assert.equal(r.status, 'error');
-  assert.equal(fw.log.length, 2);
-  assert.equal(String(fw.log[0]), String(fw.log[1]));
+  assert.equal(String(fw.log[0]), String(fw.log[1]), 'the retry is the identical request');
+  // Every ask carries the same field list: a 5xx that happens to mention a
+  // field must not cost that field, whether the window is halved or not.
+  const asked = new Set(fw.log.map((u) => u.searchParams.get('fields')));
+  assert.equal(asked.size, 1, 'splitting changes the dates asked for, never the fields');
   assert.deepEqual(r.dropped_fields, []);
   assert.equal(fake.rows('klaviyo_performance_daily').length, 0);
   assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
   assert.ok(!r.error.includes(KEY));
+});
+
+// ── A window Windsor will not answer for is asked in halves ────────────────
+// The live failure this closes (2026-11-04, run 41919728554):
+//   klaviyo/account 2026-09-30..2026-11-03 core: timed out
+// The retry asked the identical 35-day question twice and got nothing twice.
+
+test('splitWindow halves a window into two disjoint parts and stops at the floor', () => {
+  const [a, b] = core.splitWindow('2026-09-29', '2026-11-02');
+  assert.deepEqual(a, ['2026-09-29', '2026-10-16']);
+  assert.deepEqual(b, ['2026-10-17', '2026-11-02']);
+  assert.equal(core.shiftDate(a[1], 1), b[0], 'no day is skipped between the halves');
+  assert.equal(core.splitWindow('2026-10-27', '2026-11-02'), null, 'a week is not split further');
+  assert.equal(core.splitWindow('2026-11-02', '2026-11-02'), null);
+});
+
+test('a 35-day window that times out twice is read in halves and both halves land', async () => {
+  const fake = world([klaviyoAcct]);
+  const fw = fakeWindsor((c, u) => {
+    const from = u.searchParams.get('date_from');
+    const to = u.searchParams.get('date_to');
+    const fields = u.searchParams.get('fields');
+    if (from === '2026-09-29' && to === '2026-11-02') throw Object.assign(new Error(KEY), { name: 'TimeoutError' });
+    // Only the account report has rows; the other two cannot have their
+    // identities fabricated.
+    if (fields.includes('campaign_id') || fields.includes('flow_id')) return [];
+    return [{ date: from, account_id: 'KA1', revenue: 5 }];
+  });
+  const r = await run(fake, fw, klaviyoAcct);
+  assert.equal(r.status, 'success');
+  assert.deepEqual(r.dropped_fields, [], 'a window nobody answered for is not evidence against any field');
+  const days = fake.rows('klaviyo_performance_daily').map((x) => x.day_date).sort();
+  assert.deepEqual(days, ['2026-09-29', '2026-10-17'], 'one row from each half, neither overlapping nor missing');
+  const windows = fw.log.filter((u) => !u.searchParams.get('fields').includes('campaign_id')
+    && !u.searchParams.get('fields').includes('flow_id'))
+    .map((u) => `${u.searchParams.get('date_from')}..${u.searchParams.get('date_to')}`);
+  assert.deepEqual(windows, [
+    '2026-09-29..2026-11-02', '2026-09-29..2026-11-02',   // asked whole, twice
+    '2026-09-29..2026-10-16', '2026-10-17..2026-11-02',   // then in halves
+  ]);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-11-02');
+});
+
+test('a window Windsor answers is never split, so split and whole reads cannot disagree', async () => {
+  const fake = world([klaviyoAcct]);
+  const fw = fakeWindsor((c, u) => {
+    const fields = u.searchParams.get('fields');
+    if (fields.includes('campaign_id') || fields.includes('flow_id')) return [];
+    return [{ date: '2026-11-01', account_id: 'KA1', revenue: 7 }];
+  });
+  const r = await run(fake, fw, klaviyoAcct);
+  assert.equal(r.status, 'success');
+  const windows = new Set(fw.log.map((u) => `${u.searchParams.get('date_from')}..${u.searchParams.get('date_to')}`));
+  assert.deepEqual([...windows], ['2026-09-29..2026-11-02'], 'the whole window answered, so it is never re-asked in parts');
+  assert.equal(fake.rows('klaviyo_performance_daily')[0].revenue, 7);
+});
+
+// ── One hunted field that breaks the row grain is found and dropped ────────
+// The live failure this closes (same run):
+//   tiktok/campaign 2026-09-30..2026-11-03 hunted batch 4:
+//   Ambiguous duplicate row grain; window not saved
+
+test('a hunted field that returns two rows for one day is isolated; the rest of the batch still lands', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const fw = fakeWindsor((c, u) => {
+    const fields = u.searchParams.get('fields');
+    if (fields.includes('spend')) return [{ ...base, spend: 4, impressions: 10 }];
+    // `saves` is the offender: asked for, the day comes back twice.
+    if (fields.includes('saves')) return [{ ...base, saves: 1 }, { ...base, saves: 2 }];
+    const out = { ...base };
+    for (const f of ['total_conversions', 'ctr', 'video_p100']) if (fields.includes(f)) out[f] = 3;
+    return [out];
+  }, { tiktok: pinCatalog });
+
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.status, 'success', 'one unusable field must not cost the window');
+  assert.deepEqual(r.refused_fields, ['saves'], 'exactly the offender, not the batch it travelled in');
+  const [row] = fake.rows('marketing_kpis_daily');
+  assert.equal(row.spend, 4);
+  assert.equal(row.extra.total_conversions, 3, 'the other hunted fields in the same batch still land');
+  assert.equal(row.extra.ctr, 3);
+  assert.equal(row.extra.video_p100, 3);
+  assert.equal(row.extra.saves, undefined);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-11-02');
+});
+
+test('isolating a bad hunted field is bounded and never guesses a row into existence', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const fw = fakeWindsor((c, u) => {
+    const fields = u.searchParams.get('fields');
+    if (fields.includes('spend')) return [{ ...base, spend: 4 }];
+    return [{ ...base, saves: 1 }, { ...base, saves: 2 }];   // every hunted read is ambiguous
+  }, { tiktok: pinCatalog });
+
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.status, 'success');
+  assert.deepEqual([...r.refused_fields].sort(), ['ctr', 'saves', 'total_conversions', 'video_p100'],
+    'when every hunted field looks bad, every one of them is dropped rather than trusted');
+  const [row] = fake.rows('marketing_kpis_daily');
+  assert.equal(row.spend, 4, 'the core row, which is unambiguous, still lands');
+  assert.equal(Object.keys(row.extra ?? {}).length, 0);
+  assert.ok(fw.log.length <= 2 + core.MAX_GRAIN_READS + 4, `bounded isolation reads (${fw.log.length})`);
+  assert.ok(fw.log.length >= 4, 'the batch really was bisected rather than dropped whole');
 });

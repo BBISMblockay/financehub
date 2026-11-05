@@ -143,3 +143,63 @@ stage for persistent failures, retained cursors on failures, and no newly
 supported YouTube import. Production execution and metric reconciliation remain
 release-verification gates; no live rerun, write, merge, deploy or migration
 apply was performed in this investigation.
+
+## What the 2026-11-04 run proved, and the two fixes it pointed at (2026-11-05)
+
+The dry run Blake dispatched after #1135 merged (run `41919728554`, main
+`7782a69`) failed, and said exactly why — which is what the diagnostics were
+for:
+
+```
+klaviyo/account 2026-09-30..2026-11-03 core: account: timed out
+tiktok/campaign 2026-09-30..2026-11-03 hunted batch 4: Ambiguous duplicate row grain; window not saved
+```
+
+Seven of 3000 calls. YouTube stayed unsupported, as intended.
+
+**Klaviyo — the retry is not enough, the window is.** Asking the identical
+35-day question twice got nothing twice. The core read now halves a window
+Windsor did not answer for, down to a floor of `MIN_SPLIT_DAYS` = 7. Three
+guards make this safe to do without the range-semantics evidence the previous
+note asked for:
+
+- It happens **only after the whole window has already failed**, so a working
+  full-window read is never replaced by split reads, and a stored value never
+  changes because of how the question was asked. The two cannot disagree,
+  because the two never both exist.
+- The halves are **disjoint and cover the window**, and every row still carries
+  its own date, so the halves are concatenated, never summed. No metric is
+  aggregated across a range by this code.
+- **Every half must succeed.** A half that still fails throws, the window is
+  not written, and the cursor does not advance — the behaviour before this
+  change. Halves are read depth-first, so the first failing one ends it: an
+  unanswered 35-day window costs two whole-window attempts and one pair per
+  halving, eight reads, and then the account's run ends as before.
+
+What this does not establish: that Windsor returns the same daily values over a
+7-day range as over a 35-day one. It cannot be established while the 35-day
+range returns nothing at all. If a later comparison shows the values differ by
+range, the fix is to narrow `RECENT_DAYS`, not to re-widen on failure.
+
+**TikTok — the offending field is now found instead of costing the window.**
+`hunted batch 4` told us this is a hunted field, not the core request. A
+duplicate or missing-identity row from a hunted batch now marks the error
+`grain` and the batch is bisected (`isolateGrainOffenders`, at most
+`MAX_GRAIN_READS` = 12 reads) until the field that does it is identified. It is
+then refused by name, recorded on the mapping row and not asked again this run,
+and the rest of the batch still lands. A group that cannot be told apart —
+because the reads stop answering — is dropped whole rather than trusted.
+
+The core read is deliberately **not** isolated this way: it decides which rows
+exist, so an ambiguous core grain still fails the window unwritten.
+
+This matches what Windsor documents for TikTok (advertiser-level and lifetime
+fields such as `cash_spend`, and `include_inactive` adding inactive entity
+rows): such a field cannot sit on a daily campaign row, and now it is dropped
+by name instead of taking the window with it.
+
+**Still unverified.** Neither fix has run against Windsor. The next authorized
+run is the gate: Klaviyo should either land rows or fail naming a half-window,
+and TikTok should either land rows with one or more fields listed in
+`refused_fields` or fail somewhere new. Metric reconciliation against the
+provider remains a separate release gate.
