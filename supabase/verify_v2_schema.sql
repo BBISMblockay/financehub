@@ -8698,6 +8698,15 @@ select 'work:write task tool' as check_name,
       or position('silo_api_report_dashboard' in
                   pg_get_functiondef(to_regprocedure('public.silo_api_report_hint(uuid, uuid, text)'))) = 0
       then 'MISSING — the hint no longer names the dashboard a report is a tile of (20261105003000)'
+    when has_function_privilege('authenticated',
+           to_regprocedure('public.silo_api_report_dashboard(uuid, uuid, uuid)'), 'execute')
+      or has_function_privilege('authenticated',
+           to_regprocedure('public.silo_api_report_hint(uuid, uuid, text)'), 'execute')
+      or has_function_privilege('silo_integration',
+           to_regprocedure('public.silo_api_report_dashboard(uuid, uuid, uuid)'), 'execute')
+      or has_function_privilege('silo_integration',
+           to_regprocedure('public.silo_api_report_hint(uuid, uuid, text)'), 'execute')
+      then 'CRITICAL — a client role can call a lookup that trusts the company and person it is handed, which names a colleague''s private dashboard or report (20261105003000)'
     when not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'launch_tasks'
                         and column_name = 'created_by_app')

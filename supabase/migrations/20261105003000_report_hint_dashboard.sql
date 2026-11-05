@@ -52,10 +52,24 @@ as $$
 $$;
 
 comment on function public.silo_api_report_dashboard(uuid, uuid, uuid) is
-  'The dashboard a saved report is tiled on, when there is one the given person may see (a company dashboard, or their own private one). Used by the write and search tools so a bot sends the page rather than one tile of it. Null when the report is on no dashboard. 20261105003000.';
+  'The dashboard a saved report is tiled on, when there is one the given person may see (a company dashboard, or their own private one). INTERNAL: it takes the company and the person as arguments and trusts them, so no client role may call it -- only the checked entry points (silo_api_create_task, silo_api_list_reports, silo_api_report_hint), which read both off the grant or the session. Null when the report is on no dashboard. 20261105003000.';
 
-revoke all on function public.silo_api_report_dashboard(uuid, uuid, uuid) from public, anon;
-grant execute on function public.silo_api_report_dashboard(uuid, uuid, uuid) to authenticated, silo_integration;
+-- No client role, by design. Both of this file's helpers take the company and
+-- the person as ARGUMENTS and trust them, which is safe only because the
+-- caller is always one of SILO's own definer entry points, where those two
+-- values come from the grant row or auth.uid(). Granted to a signed-in
+-- person, the same function would let anyone name a colleague's id and read
+-- the title of a dashboard they keep private. silo_api_exec is granted
+-- because silo_api_list_reports is owned by it and a definer function's
+-- calls are checked against its OWNER, not its caller.
+revoke all on function public.silo_api_report_dashboard(uuid, uuid, uuid)
+  from public, anon, authenticated, silo_integration, silo_revoked;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'silo_api_exec') then
+    execute 'grant execute on function public.silo_api_report_dashboard(uuid, uuid, uuid) to silo_api_exec';
+  end if;
+end $$;
 
 -- ── 2. The hint carries it ────────────────────────────────────────────────
 -- Same candidates, same scoring, same strength rule as 20261105000000. Two
@@ -119,8 +133,16 @@ $$;
 comment on function public.silo_api_report_hint(uuid, uuid, text) is
   'The saved reports that look like the same request as a piece of text: SILO''s own reports plus the company''s shared ones and that person''s private ones, scored on words shared at a word start. Each match says strength (strong when two or more of the request''s words are in the report TITLE) and the dashboard it is tiled on, where the caller may see one. silo_api_create_task returns the report instead of creating anything on a strong match. 20261105003000.';
 
-revoke all on function public.silo_api_report_hint(uuid, uuid, text) from public, anon;
-grant execute on function public.silo_api_report_hint(uuid, uuid, text) to authenticated, silo_integration;
+-- Same reasoning, and this one closes a hole that predates the dashboard:
+-- the hint has taken the person as an argument since 20261104230000 while
+-- being executable by `authenticated`, so a signed-in member could have named
+-- a colleague's id and read the titles of that colleague's PRIVATE saved
+-- reports. Nothing in SILO calls it from a browser -- silo_api_create_task is
+-- its only caller -- so it becomes internal too. Ask SILO's own copy of this
+-- behaviour, when it is built, must resolve the person from the session
+-- rather than be handed one.
+revoke all on function public.silo_api_report_hint(uuid, uuid, text)
+  from public, anon, authenticated, silo_integration, silo_revoked;
 
 -- ── 3. So does the search ─────────────────────────────────────────────────
 -- Same function as 20261105000000, still VOLATILE for the reason stated

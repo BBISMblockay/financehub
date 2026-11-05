@@ -28,7 +28,7 @@ const MUTATIONS = ['', 'session-company', 'no-member-check', 'loose-assignee', '
                    'no-hint', 'hint-ignores-privacy', 'hint-no-stopwords',
                    'lax-scopes', 'no-scope-path',
                    'no-answer-gate', 'gate-blocks-weak', 'ar-still-indexed', 'search-by-recency',
-                   'no-dashboard', 'dashboard-ignores-privacy'];
+                   'no-dashboard', 'dashboard-ignores-privacy', 'helpers-callable'];
 const mutation = process.env.WORK_WRITE_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const FILE = 'supabase/migrations/20261104230000_api_work_write_tasks.sql';
@@ -149,6 +149,16 @@ if (mutation === 'search-by-recency') {
 if (mutation === 'no-dashboard') {
   MIGRATION4 = MIGRATION4.replace(/           public\.silo_api_report_dashboard\(c\.id, p_company, p_user\) as dashboard\n/,
     "           null::json as dashboard\n");
+}
+if (mutation === 'helpers-callable') {
+  // Review cycle 1 of #1140, P1: both helpers take the company and the person
+  // as arguments and trust them, so a client role that can call one can name a
+  // colleague and read the title of a dashboard -- or a report -- they keep
+  // private.
+  MIGRATION4 = MIGRATION4.replace(
+    'revoke all on function public.silo_api_report_dashboard(uuid, uuid, uuid)\n  from public, anon, authenticated, silo_integration, silo_revoked;',
+    'revoke all on function public.silo_api_report_dashboard(uuid, uuid, uuid) from public, anon;\n'
+      + 'grant execute on function public.silo_api_report_dashboard(uuid, uuid, uuid) to authenticated, silo_integration;');
 }
 if (mutation === 'dashboard-ignores-privacy') {
   // Naming someone else's private dashboard is a leak, not a convenience.
@@ -723,6 +733,28 @@ await test('the retired AR import is no longer an answer a bot can reach', async
   assert.match(live.description, /Wholesale receivables live here/);
   assert.ok(live.keywords.includes('accounts receivable'), 'in the words the question is asked in');
   assert.ok(live.keywords.includes('orders'), 'and the keywords it already had are kept');
+});
+
+await test('the lookups that trust their arguments are reachable only through SILO', async () => {
+  // They take the company and the person as ARGUMENTS. That is safe inside a
+  // definer entry point, which reads both off the grant or the session, and
+  // it is a way to name a colleague's private dashboard or private report
+  // from the browser the moment a client role can call one directly.
+  for (const f of ['public.silo_api_report_dashboard(uuid, uuid, uuid)',
+                   'public.silo_api_report_hint(uuid, uuid, text)']) {
+    for (const role of ['anon', 'authenticated', 'silo_integration', 'silo_revoked']) {
+      assert.equal(
+        (await one(`select has_function_privilege('${role}', '${f}', 'execute') as p`)).p, false,
+        `${role} can call ${f} with any company and any person it likes`);
+    }
+  }
+  // And the checked entry points still work, which is what the rest of this
+  // file exercises -- the tool call below is the proof that revoking did not
+  // break the path it exists to serve.
+  await reset();
+  const r = await call({ title: 'Relabel the wholesale cartons in the warehouse account' });
+  assert.equal(r.ok, true, r.message);
+  assert.equal(r.r.created, true);
 });
 
 await test('a report that lives on a dashboard is answered with the dashboard', async () => {
