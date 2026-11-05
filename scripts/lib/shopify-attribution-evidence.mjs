@@ -116,13 +116,15 @@ export async function collectDay(connection, day, { ql, gql, rest, publish, stag
   }
   // A day's evidence goes up in one request, which stops being deliverable somewhere
   // above four thousand orders -- 2025-11-27 (8,231) died twice on that call, once as a
-  // failed fetch and once as a Cloudflare 520. Past the threshold the evidence is staged
-  // in slices and the day row finalized separately; readers cannot see either until the
-  // day row lands, because every consumer reaches evidence through it. Below the
-  // threshold this is byte for byte the single call that has published every snapshot.
+  // failed fetch and once as a Cloudflare 520. Past the threshold the evidence goes up in
+  // slices to a staging table no reader can see, and finalize promotes it into the
+  // evidence table and writes the day row in ONE transaction -- so the request is split
+  // but the commit is not, and re-publishing an already-published day still changes
+  // nothing until it changes everything. Below the threshold this is byte for byte the
+  // single call that has published every snapshot.
   const staged = commit && stage && finalize && orders.length > threshold;
   if (staged) {
-    for (let i=0;i<orders.length;i+=chunk) await stage({p_connection:connection.id,p_orders:orders.slice(i,i+chunk),p_extracted:extracted});
+    for (let i=0;i<orders.length;i+=chunk) await stage({p_connection:connection.id,p_day:day,p_orders:orders.slice(i,i+chunk),p_extracted:extracted});
     await finalize({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
       p_ledger:ledger,p_net:net,p_total:total,p_extracted:extracted});
   } else if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
