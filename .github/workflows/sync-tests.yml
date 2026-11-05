@@ -568,7 +568,7 @@ jobs:
       - name: The Windsor sync's guards, removed, must break it
         run: |
           set -u
-          for m in adcoverage automap autodirect autoplace autograin autooverride anygate identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions huntmerge skiprefused consent sourcecontract grain huntedgrain huntunmatched huntmatched narrowtimeout blindset lastchance transient generation split outage coreretry bodyretry diagnostics emptyhttp windowsplit splitfloor grainisolate grainunanswered grainbudget; do
+          for m in retire retirerewind retiresource adcoverage automap autodirect autoplace autograin autooverride anygate identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions huntmerge skiprefused consent sourcecontract grain huntedgrain huntunmatched huntmatched narrowtimeout blindset lastchance transient generation split outage coreretry bodyretry diagnostics emptyhttp windowsplit splitfloor grainisolate grainunanswered grainbudget; do
             out="$(WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs 2>&1)" && rc=0 || rc=$?
             if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

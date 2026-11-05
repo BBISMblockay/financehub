@@ -87,6 +87,12 @@ async function loadCore() {
   // A fabricated zero conversion must never reach the averaged ad table.
   if (MUT === 'adcoverage') subLib("    const missing = ['conversions', 'revenue'].filter((m) => !chosen[m]);", '    const missing = [];');
   if (MUT === 'anygate') sub('  if (!datasets && !anyConnector) {', '  if (false) {');
+  // A source that moved destination must not leave its old rows behind.
+  if (MUT === 'retire') sub("  if (!dataset.auto || dryRun) return 0;", '  return 0;');
+  // ...and the days this run did not reach have to be walked again.
+  if (MUT === 'retirerewind') sub("          if (w.kind === 'recent') summary.destination_changed = true;", '');
+  // Retirement is for OUR rows only; the native sync owns its own.
+  if (MUT === 'retiresource') sub("    .eq('source', WINDSOR_SOURCE)\n", '');
   if (MUT === 'huntunmatched') sub("    if (blind.length && blind.length === answered.length) {", '    if (false) {');
   // ...but a few spare objects must not throw away a window that otherwise merged.
   if (MUT === 'huntmatched') sub("    const answered = merged.sets.filter((x) => x.rows);\n    const blind = answered.filter((x) => !x.matched);", '    const answered = []; const blind = [];')
@@ -354,23 +360,84 @@ test('an ad source that cannot report conversions or revenue is never written as
   assert.equal(row.revenue, null);
 });
 
-test('a company nulling a conversion measure moves an ad source out of the averaged table', async () => {
+// #1148 review cycle 2 P2: a source that moves between the two automatic
+// destinations used to leave its earlier rows in the old table for ever, so
+// the same day existed twice under two different meanings -- Marketing
+// Overview reading the stale ad row while connected-source reporting showed
+// the new one. Both runs share ONE fake database, because the finding is about
+// rows already stored, which a second fresh database cannot show.
+test('a source that changes destination retires what it left behind, both ways', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const row = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
+    impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10 };
+  const fw = () => fakeWindsor(() => [row], { pinterest: adCatalog() });
+  const fake = world([acct]);
+  // SILO's own Google sync owns rows in the same table, for the same company,
+  // account and day. They must survive every retirement: they are not ours.
+  const native = { company_entity_id: A, platform: 'pinterest_ads', source: 'google_ads_api',
+    account_id: 'PIN-1', day_date: '2026-11-01', spend: 999, row_hash: 'native-1' };
+  // So must another tenant's Windsor rows for the same source and day.
+  const otherTenant = { company_entity_id: B, ds_id: 'pinterest', source: 'windsor',
+    account_id: 'PIN-1', day_date: '2026-11-01', row_hash: 'other-1' };
+  const survivors = () => {
+    assert.ok(fake.rows('marketing_kpis_daily').some((r) => r.row_hash === 'native-1'),
+      "the native sync's row for the same platform, account and day is never retired");
+    assert.ok(fake.rows('windsor_metrics_daily').some((r) => r.row_hash === 'other-1'),
+      "another company's rows for the same source and day are never retired");
+  };
+
+  const both = await run(fake, fw(), acct);
+  assert.equal(both.mapped_to, 'marketing_kpis_daily', 'with both measures it is an ad platform');
+  assert.equal(both.destination_changed, undefined, 'a first sync has moved nothing');
+  fake.tables.get('marketing_kpis_daily').push({ ...native });
+  fake.tables.set('windsor_metrics_daily', [{ ...otherTenant }]);
+
+  // The company stops naming a revenue field, so the source moves to the
+  // nullable table -- and its ad rows have to go with it.
+  const moved = await run(fake, fw(), acct, { overrides: { revenue: null } });
+  assert.equal(moved.status, 'success');
+  assert.equal(moved.mapped_to, 'windsor_metrics_daily');
+  assert.equal(moved.retired_rows, 1);
+  assert.equal(moved.destination_changed, true);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 0,
+    'the ad copy of that day is gone, so nothing is counted twice');
+  const ours = fake.rows('windsor_metrics_daily').filter((r) => r.company_entity_id === A);
+  assert.equal(ours.length, 1);
+  assert.equal(ours[0].revenue, null,
+    'the measure the company chose to leave blank is blank, not zero');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].history_from, null,
+    'every stored day is walked again, so the days this run did not reach are moved too');
+  assert.equal(moved.history_complete, false, 'and the run does not claim a complete history');
+  survivors();
+
+  // And back again, on the same stored rows, when the mapping names one again.
+  const back = await run(fake, fw(), { ...acct, history_from: null });
+  assert.equal(back.mapped_to, 'marketing_kpis_daily');
+  assert.equal(back.retired_rows, 1);
+  assert.equal(back.destination_changed, true);
+  assert.equal(fake.rows('windsor_metrics_daily').filter((r) => r.company_entity_id === A).length, 0);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 1);
+  survivors();
+
+  // Nothing moved this time, so nothing is retired and no rewind is asked for.
+  const settled = await run(fake, fw(), { ...acct, history_from: null });
+  assert.equal(settled.retired_rows, undefined);
+  assert.equal(settled.destination_changed, undefined);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 1);
+  survivors();
+});
+
+test('a dry run retires nothing', async () => {
   const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
   const row = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
     impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10 };
   const fake = world([acct]);
-  const fw = fakeWindsor(() => [row], { pinterest: adCatalog() });
-  const both = await run(fake, fw, acct);
-  assert.equal(both.mapped_to, 'marketing_kpis_daily', 'with both measures it is an ad platform');
-
-  const fake2 = world([acct]);
-  const r = await run(fake2, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct,
-    { overrides: { revenue: null } });
-  assert.equal(r.status, 'success');
-  assert.equal(r.mapped_to, 'windsor_metrics_daily');
-  assert.equal(fake2.rows('marketing_kpis_daily').length, 0);
-  assert.equal(fake2.rows('windsor_metrics_daily')[0].revenue, null,
-    'the measure the company chose to leave blank is blank, not zero');
+  await run(fake, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 1);
+  const r = await run(fake, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct,
+    { overrides: { revenue: null }, dryRun: true });
+  assert.equal(r.retired_rows, undefined);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 1, 'a dry run reads; it never deletes');
 });
 
 test('a source SILO already syncs natively never lands in marketing_kpis_daily', async () => {

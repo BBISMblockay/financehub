@@ -109,6 +109,7 @@ for (const [companyId, list] of byCompany) {
       + `${r.refused_fields?.length ? `, ${r.refused_fields.length} hunted field(s) not returned by Windsor` : ''}`
       + `${r.ignored_mappings?.length ? `, mapping ignored for ${r.ignored_mappings.join(', ')} (field not offered by Windsor)` : ''}`
       + `${r.history_from ? `, history from ${r.history_from}${r.history_complete ? ' (complete)' : ''}` : ''}`
+      + `${r.destination_changed ? `, moved to ${r.mapped_to ?? 'another table'}: ${r.retired_rows} row(s) retired from the previous one, history rewound` : ''}`
       + `${r.dropped_fields.length ? `, Windsor refused ${r.dropped_fields.join(', ')}` : ''}${r.error ? `, ${r.error}` : ''}`);
     if (DRY_RUN) console.log(JSON.stringify(r.windows, null, 2));
   }

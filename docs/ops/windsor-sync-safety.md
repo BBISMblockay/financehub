@@ -294,12 +294,28 @@ Windsor. So the last, one-field ask is made with the full
 `READ_TIMEOUT_MS`: the shorter budget narrows reads, it never decides a
 refusal. (Review cycle 1 P2 on #1145.)
 
-### Still unverified
+### Verified: run 41982913314 (2026-11-05)
 
-Neither change has run against Windsor. The next authorized run is the gate:
-TikTok should land rows for `tiktok/campaign` with a `hunted_unmatched` count
-in the window's record, or fail somewhere new. Metric reconciliation against
-the provider remains a separate release gate.
+Dry run on `main` 7fccd12, 06:48–07:13Z, 121 of 3000 calls — the first Windsor
+run that has come back green. Both changes did what they were for.
+
+`tiktok/campaign` lands rows. The recent window
+(2026-09-30..2026-11-03): `4 returned, 4 kept, hunted_unmatched 272,
+refused 4`. Two history windows clean, 22 and 34 rows, `hunted_unmatched 0`;
+history walked back to 2025-01-16. A fourth history window returned
+`skipped: Windsor did not answer for some fields; asked again next run` — the
+designed `incomplete` path, nothing written, cursor unmoved. Klaviyo
+unchanged: `success`, history complete from 2024-11-02. 25 minutes against the
+previous run's 29, which is the narrowed-read trim.
+
+**Those 272 are expected, and worth knowing.** Each hunted read names about 25
+campaigns; only the 4 with spend exist in the core read, so the spares are
+dropped. So in a RECENT window a zero-spend campaign carries no hunted
+metrics. The history windows show 0, so it is a recent-window effect of TikTok
+returning no-spend campaigns for some metrics only. It is counted in the
+window's record rather than silent.
+
+Metric reconciliation against the provider remains a separate release gate.
 
 ## Any source, with no contract written for it (2026-11-05)
 
@@ -374,6 +390,42 @@ marketing explorer and MER, and `windsor_metrics_daily` is published as
 Migration `20261105070000` corrects that view's catalog text, which said ad
 platforms were never here — a natively synced platform's second copy now is,
 and a reader who did not know that would add the two together.
+
+### A source that moves destination takes its old rows with it
+
+Added for review cycle 2's finding on #1148, which was real. A company that
+stops naming a revenue field, or a provider whose field list loses a conversion
+measure, sends an already-synced source from `marketing_kpis_daily` to
+`windsor_metrics_daily`. Nothing retired what it had already written to the
+first table, so the same day existed twice under two different meanings:
+Marketing Overview reading the stale ad row while connected-source reporting
+showed the new one.
+
+`retireMovedRows()` deletes that window's rows from the destination the source
+has left. The rules it rests on:
+
+- **Per window, and only after the replacement has landed**, so nothing is
+  removed before what replaces it exists. It throws rather than returns on
+  failure, which leaves the window's progress unrecorded and the window asked
+  again — not the day stored twice.
+- **The predicate cannot reach anyone else's rows**: `company_entity_id`,
+  `source = 'windsor'`, the source's own `platform` / `ds_id`, `account_id`,
+  and that window's days. SILO's native Google, Meta, TikTok and GA4 rows carry
+  `<platform>_api`, so they are out of reach by construction; so is another
+  tenant's. Both are tested, and removing the `source` clause fails the suite.
+- **There is no moment where both copies are stored.** A day not yet re-walked
+  has only the old copy; a day re-walked has only the new.
+- **The rewind is asked for by the sync when it has to be.** A mapping change
+  already rewinds history (`windsor_field_mappings_rewind`); a provider
+  dropping a field does not. So when the RECENT window finds rows to retire,
+  the run records `history_from = null` and every stored day is rewritten where
+  it now belongs. Only the recent window decides it, which is what keeps the
+  walk from restarting under itself: once the rewind is under way that window
+  finds nothing left to retire.
+- **A dry run retires nothing.**
+
+Only the automatic path can move. TikTok's and Klaviyo's tables are written
+into `windsor-sync-core.mjs` and cannot change.
 
 ### What this does not change
 

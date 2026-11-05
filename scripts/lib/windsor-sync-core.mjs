@@ -42,6 +42,7 @@ import {
   WINDSOR_CONNECTORS, connectorForSource, windsorUrl, redact, parseBody, rowsOf,
   describeShape, filterRowsToAccount, previewOptions, DIRECT_SYNC_SOURCES,
   STANDARD_FIELDS, NUMERIC_TYPES, assertAccountRows, chooseMeasures, syncPlacement,
+  adPlatformName,
 } from '../../supabase/functions/windsor-broker/windsor-lib.mjs';
 
 export { DIRECT_SYNC_SOURCES, STANDARD_FIELDS };
@@ -785,6 +786,42 @@ export function columnFields(dataset) {
 const TIKTOK_COLUMN_FIELDS = ['impressions', 'clicks', 'spend', 'complete_payment', 'total_complete_payment_rate',
   'initiate_checkout', 'web_event_add_to_cart', 'form', 'campaign_id', 'campaign'];
 
+/** The two tables the automatic path can place a source in. A source moves
+ *  between them when the company's field mapping stops naming a conversions or
+ *  revenue field, or when Windsor's own field list loses one: `syncPlacement`
+ *  then sends it to the nullable table instead. Nothing used to retire what it
+ *  had already written to the other one, so the same day existed twice under
+ *  two different meanings -- Marketing Overview reading the stale ad row while
+ *  connected-source reporting showed the new one. (#1148 review cycle 2 P2.)
+ *
+ *  Called per window, AFTER that window's rows have landed in the new table,
+ *  so nothing is removed before its replacement exists, and only ever for the
+ *  rows this Windsor account wrote: `source = 'windsor'` keeps it off the
+ *  native Google/Meta/TikTok/GA4 rows (they carry `<platform>_api`), and the
+ *  company, account and day range keep it off every other tenant and window.
+ *  Returns how many rows were retired. Idempotent: a second pass finds none. */
+export async function retireMovedRows({ supabase, dataset, dsId, companyId, accountId, from, to, dryRun }) {
+  // Only the automatic path can move; tiktok and klaviyo have their tables
+  // written into this file and cannot change destination.
+  if (!dataset.auto || dryRun) return 0;
+  const other = dataset.table === 'marketing_kpis_daily'
+    ? { table: 'windsor_metrics_daily', col: 'ds_id', val: dsId }
+    : { table: 'marketing_kpis_daily', col: 'platform', val: adPlatformName(dsId) };
+  // A name Windsor gives that cannot be a SILO platform was never written to
+  // marketing_kpis_daily, so there is nothing of ours there to retire.
+  if (!other.val) return 0;
+  const { data, error } = await supabase.from(other.table).delete()
+    .eq('company_entity_id', companyId)
+    .eq('source', WINDSOR_SOURCE)
+    .eq(other.col, other.val)
+    .eq('account_id', accountId)
+    .gte('day_date', from)
+    .lte('day_date', to)
+    .select('row_hash');
+  if (error) throw new Error(`could not retire the previous destination's rows: ${error.message}`);
+  return Array.isArray(data) ? data.length : 0;
+}
+
 /** Rows that may be written for this account and window: this account's
  *  rows only, with a real date inside the window, one per identity. */
 export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
@@ -940,6 +977,25 @@ export async function syncAccount({
         }
         const written = dryRun ? 0 : await upsertInChunks(supabase, dataset.table, prep.rows, 'row_hash');
         summary.rows_written += written;
+        // The replacement has landed, so this window's rows in the destination
+        // this source used to be placed in can go. It throws rather than
+        // returns on failure, which leaves this window's progress unrecorded
+        // and the window asked again, instead of leaving the day stored twice.
+        const retired = await retireMovedRows({
+          supabase, dataset, dsId: account.ds_id, companyId: ctx.companyId,
+          accountId: ctx.accountId, from: w.from, to: w.to, dryRun,
+        });
+        if (retired) {
+          summary.retired_rows = (summary.retired_rows ?? 0) + retired;
+          // Rows were stored under the old meaning, so every stored day has to
+          // be rewritten where it now belongs. A mapping change already rewinds
+          // history (windsor_field_mappings_rewind); Windsor's field list
+          // losing a measure does not, which is why the sync asks for the
+          // rewind itself. Only the RECENT window decides it: during the rewind
+          // that window finds nothing left to retire, so this fires once and
+          // the walk is not restarted under itself.
+          if (w.kind === 'recent') summary.destination_changed = true;
+        }
         wSum.datasets[dataset.key] = {
           returned: raw.length, kept: prep.rows.length, written, foreign: prep.foreign,
           unattributed: prep.unattributed, out_of_window: prep.outOfWindow, duplicates: prep.duplicates,
@@ -959,8 +1015,12 @@ export async function syncAccount({
         : await recordProgress({ history_from: historyFrom });
       if (!kept) { summary.mapping_changed = true; break; }
     }
-    const historyDone = historyFrom <= plan.target;
-    summary.history_from = historyFrom;
+    // A source that moved destination has its history walked again from the
+    // start, so the days still sitting in the old table are rewritten (and
+    // retired) rather than left there.
+    const rewind = summary.destination_changed ? { history_from: null } : {};
+    const historyDone = !summary.destination_changed && historyFrom <= plan.target;
+    summary.history_from = summary.destination_changed ? null : historyFrom;
     summary.history_complete = historyDone;
     summary.status = summary.dropped_fields.length || summary.unanswered ? 'partial' : 'success';
     const problems = [
@@ -973,12 +1033,18 @@ export async function syncAccount({
       // Hunted fields Windsor would not return for this account, by name:
       // visible on the mapping row rather than silently missing.
       ...(anyConnector ? { refused_fields: summary.refused_fields.slice(0, 2000) } : {}),
+      ...rewind,
     });
   } catch (e) {
     summary.status = e?.budget ? 'partial' : 'error';
     summary.error = redact(e?.message || String(e), key);
-    summary.history_from = historyFrom;
-    await record({ last_sync_status: summary.status, last_sync_error: summary.error }).catch(() => {});
+    summary.history_from = summary.destination_changed ? null : historyFrom;
+    await record({
+      last_sync_status: summary.status, last_sync_error: summary.error,
+      // The retirement already happened for the windows that landed, so the
+      // rewind is owed even though this run ended badly.
+      ...(summary.destination_changed ? { history_from: null } : {}),
+    }).catch(() => {});
   }
   return summary;
 }
