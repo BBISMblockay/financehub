@@ -31,9 +31,16 @@ import { hashRow } from '../lib/shopify-sync-core.mjs';
 const MUT = process.env.WINDSOR_SYNC_MUTATION || '';
 const libUrl = new URL('../lib/windsor-sync-core.mjs', import.meta.url);
 
+const brokerLibUrl = new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', import.meta.url);
+
 async function loadCore() {
   let src = fs.readFileSync(libUrl, 'utf8');
+  // Some guards the sync depends on live in the broker's shared library, so a
+  // mutated copy of that is loaded too: a guard there must be as testable as
+  // one here, or moving code between the two would quietly lose its test.
+  let libSrc = fs.readFileSync(brokerLibUrl, 'utf8');
   const sub = (from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); src = src.split(from).join(to); };
+  const subLib = (from, to) => { assert.ok(libSrc.includes(from), `mutation ${MUT}: pattern missing`); libSrc = libSrc.split(from).join(to); };
   if (MUT === 'coreretry') sub('const r = await readOnceRetrying({ key, fetchImpl, connector, accountId, fields, from, to, counter });', 'const r = await readOnce({ key, fetchImpl, connector, accountId, fields, from, to, counter });');
   if (MUT === 'bodyretry') sub('text = await res.text();', "text = await res.text().catch(() => '');");
   if (MUT === 'diagnostics') sub('e.message = `${connector}/${dataset.key} ${from}..${to} ${stage}: ${e.message}`;', '');
@@ -77,6 +84,8 @@ async function loadCore() {
   // A company's own field choice beats the automatic pick.
   if (MUT === 'autooverride') sub('    const auto = autoDataset(account.ds_id, catalog, overrides);', '    const auto = autoDataset(account.ds_id, catalog);');
   // Without the any-connector tables there is nowhere to put a mapped source.
+  // A fabricated zero conversion must never reach the averaged ad table.
+  if (MUT === 'adcoverage') subLib("    const missing = ['conversions', 'revenue'].filter((m) => !chosen[m]);", '    const missing = [];');
   if (MUT === 'anygate') sub('  if (!datasets && !anyConnector) {', '  if (false) {');
   if (MUT === 'huntunmatched') sub("    if (blind.length && blind.length === answered.length) {", '    if (false) {');
   // ...but a few spare objects must not throw away a window that otherwise merged.
@@ -87,10 +96,13 @@ async function loadCore() {
   if (MUT === 'lastchance') sub('      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: READ_TIMEOUT_MS });', '      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: NARROWED_READ_TIMEOUT_MS });');
   // A narrowed read must not sit on the full-width wait; that is the 29 minutes.
   if (MUT === 'narrowtimeout') sub('export const NARROWED_READ_TIMEOUT_MS = 60000;', 'export const NARROWED_READ_TIMEOUT_MS = READ_TIMEOUT_MS;');
-  // Absolute imports so the temp copy resolves the repo's modules.
-  src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
-    .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'windsor-sync-'));
+  // The broker library beside it (it imports nothing of its own); everything
+  // else by absolute URL, so the temp copy resolves the repo's modules.
+  const libFile = path.join(dir, 'windsor-lib.mjs');
+  fs.writeFileSync(libFile, libSrc);
+  src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", "'./windsor-lib.mjs'")
+    .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
   const file = path.join(dir, 'windsor-sync-core.mjs');
   fs.writeFileSync(file, src);
   return import(file);
@@ -313,6 +325,52 @@ test('an ad source with no hand-made dataset lands in marketing_kpis_daily on co
   assert.equal(row.extra.saves, 7, 'and every other numeric field is kept by name');
   assert.equal(row.source, 'windsor');
   assert.equal(fake.rows('windsor_metrics_daily').length, 0);
+});
+
+// #1148 review cycle 1 P2: marketing_kpis_daily's conversions and
+// conversion_value are NOT NULL, and the marketing pages sum them over every
+// paid platform for CPA and ROAS. A source with spend but no conversion field
+// would be written as zero and drag both down with nobody able to tell.
+test('an ad source that cannot report conversions or revenue is never written as zero', async () => {
+  const acct = { ...tiktokAcct, id: 'm-ms', ds_id: 'microsoft', account_id: 'MS-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: 'MS-1', campaign_id: 'm1',
+    campaign: 'Brand', impressions: 300, clicks: 9, spend: 40 }],
+  { microsoft: [
+    { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'account_name', type: 'TEXT' },
+    { id: 'campaign_id', type: 'TEXT' }, { id: 'campaign', type: 'TEXT' },
+    { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' }, { id: 'spend', type: 'NUMERIC' },
+  ] });
+
+  const r = await run(fake, fw, acct);
+  assert.equal(r.status, 'success');
+  assert.equal(r.mapped_to, 'windsor_metrics_daily');
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0,
+    'no fabricated zero reaches the table the marketing pages average over');
+  const row = fake.rows('windsor_metrics_daily')[0];
+  assert.equal(row.spend, 40, 'the spend is still kept');
+  assert.equal(row.clicks, 9);
+  assert.equal(row.conversions, null, 'and what the source cannot report is NULL, not 0');
+  assert.equal(row.revenue, null);
+});
+
+test('a company nulling a conversion measure moves an ad source out of the averaged table', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const row = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
+    impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10 };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [row], { pinterest: adCatalog() });
+  const both = await run(fake, fw, acct);
+  assert.equal(both.mapped_to, 'marketing_kpis_daily', 'with both measures it is an ad platform');
+
+  const fake2 = world([acct]);
+  const r = await run(fake2, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct,
+    { overrides: { revenue: null } });
+  assert.equal(r.status, 'success');
+  assert.equal(r.mapped_to, 'windsor_metrics_daily');
+  assert.equal(fake2.rows('marketing_kpis_daily').length, 0);
+  assert.equal(fake2.rows('windsor_metrics_daily')[0].revenue, null,
+    'the measure the company chose to leave blank is blank, not zero');
 });
 
 test('a source SILO already syncs natively never lands in marketing_kpis_daily', async () => {

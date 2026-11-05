@@ -316,7 +316,7 @@ export function huntFields(catalog, { tables = null } = {}) {
 export function autoDataset(dsId, catalog, overrides = {}) {
   // The broker decides whether to offer the toggle from this same function, so
   // the page can never offer one the sync refuses (windsor-lib.mjs).
-  const placement = syncPlacement(dsId, catalog);
+  const placement = syncPlacement(dsId, catalog, overrides);
   if (!placement.ok || placement.kind === 'fixed') return null;
   const ids = new Set((catalog || []).map((f) => f.id));
   const campaignId = ids.has('campaign_id') ? 'campaign_id' : null;
@@ -355,16 +355,12 @@ export function autoDataset(dsId, catalog, overrides = {}) {
           impressions: intOrNull(r[chosen.impressions]) ?? 0,
           clicks: intOrNull(r[chosen.clicks]) ?? 0,
           spend: numOrNull(r[chosen.spend]) ?? 0,
-          // NOT NULL columns. A platform with no conversion field writes 0
-          // here and says so in extra._unmapped, so it is not read as zero.
-          conversions: chosen.conversions ? (numOrNull(r[chosen.conversions]) ?? 0) : 0,
-          conversion_value: chosen.revenue ? (numOrNull(r[chosen.revenue]) ?? 0) : 0,
-          extra: {
-            ...leftoverNumbers(r, mapped),
-            ...(chosen.conversions && chosen.revenue ? {} : {
-              _unmapped: ['conversions', 'revenue'].filter((c) => !chosen[c]),
-            }),
-          },
+          // NOT NULL columns, and `syncPlacement` only sends a source here
+          // when it has a field for both: a fabricated zero would be summed
+          // by the marketing pages as a measured result.
+          conversions: numOrNull(r[chosen.conversions]) ?? 0,
+          conversion_value: numOrNull(r[chosen.revenue]) ?? 0,
+          extra: leftoverNumbers(r, mapped),
           // Same identity convention as the direct syncs (platform, platform,
           // account, campaign, day).
           row_hash: hashRow([ctx.companyId, platform, platform, ctx.accountId, cid ?? cname, r.date]),

@@ -344,9 +344,29 @@ would accept.
 |--------|---------|
 | TikTok, Klaviyo | their hand-made datasets, unchanged |
 | A platform SILO syncs natively (Google Ads, Meta, GA4) | `windsor_metrics_daily` — **never** `marketing_kpis_daily`, so it cannot be counted twice against that sync |
-| Ad-like, not natively synced (spend + impressions + clicks + campaign) | `marketing_kpis_daily` as `<connector>_ads` |
+| Ad-like, not natively synced (spend + impressions + clicks + campaign), **with a conversions and a revenue field** | `marketing_kpis_daily` as `<connector>_ads` |
+| Ad-like but missing either conversion measure, or with one the company nulled | `windsor_metrics_daily`, where NULL means unmeasured |
 | Anything else | `windsor_metrics_daily` |
 | No `date`, or no `account_id` | nothing: it cannot be placed, and the toggle is refused with that reason |
+
+### Why an ad source without conversions is kept out of the ad table
+
+`marketing_kpis_daily.conversions` and `.conversion_value` are NOT NULL, so a
+source that cannot report them can only be written as **zero** — and the
+marketing pages sum those columns across every paid platform to get CPA and
+ROAS (`renderKpis` in `v2/marketing-overview.html`). A platform contributing
+spend and a fabricated zero therefore drags both ratios towards nothing, and
+nobody reading the page can tell it happened. A marker in `extra` does not
+help, because that read does not select `extra`.
+
+It is the table that cannot express "not measured", so such a source goes to
+`windsor_metrics_daily`, whose measures are nullable and where NULL means
+exactly that. Its spend and clicks are still kept in full. This also holds when
+a company nulls `conversions` or `revenue` in its own field mapping: the rows
+move, and the connections page says where they will land. The alternative —
+teaching every reporting consumer about partial coverage — changes numbers on a
+live page to accommodate a row that should not have been written.
+(#1148 review cycle 1 P2.)
 
 Both destinations are already readable: `marketing_kpis_daily` feeds the
 marketing explorer and MER, and `windsor_metrics_daily` is published as

@@ -261,6 +261,7 @@ test('field_catalog lists one own account\'s numeric fields and the sync\'s pick
       { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'campaign_id', type: 'TEXT' },
       { id: 'spend', type: 'NUMERIC', name: 'Spend' }, { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' },
       { id: 'total_conversions', type: 'NUMERIC' }, { id: 'saves', type: 'NUMERIC', table: 'Engagement' },
+      { id: 'total_conversions_value', type: 'NUMERIC' },
     ] };
   } });
   const h = handlerFor(w, fw);
@@ -273,9 +274,36 @@ test('field_catalog lists one own account\'s numeric fields and the sync\'s pick
   assert.equal(by.conversions.auto, 'total_conversions');
   assert.equal(by.conversions.chosen, 'saves', 'this company\'s mapping');
   assert.equal(by.spend.chosen, 'spend', 'another company\'s mapping never applies');
-  assert.deepEqual(r.body.numeric_fields.map((f) => f.id), ['spend', 'impressions', 'clicks', 'total_conversions', 'saves']);
+  assert.deepEqual(r.body.numeric_fields.map((f) => f.id),
+    ['spend', 'impressions', 'clicks', 'total_conversions', 'saves', 'total_conversions_value']);
   assert.equal((await call(h, { action: 'field_catalog', linked_account_id: 'acc-b' })).status, 404, 'not B\'s account');
   assert.ok(!r.text.includes(KEY));
+});
+
+// #1148 review cycle 1 P2: marketing_kpis_daily's conversion columns are NOT
+// NULL, and the marketing pages sum them across every paid platform, so a
+// source that cannot report them must not be written there as zero.
+test('an ad source that cannot report conversions or revenue is placed where NULL means unmeasured', async () => {
+  const w = world();
+  w.fake.tables.get('windsor_linked_accounts').push({ id: 'acc-m', company_entity_id: A, link_id: 'link-a', ds_id: 'microsoft', account_id: 'm-1' });
+  const adFields = [
+    { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'campaign_id', type: 'TEXT' },
+    { id: 'spend', type: 'NUMERIC' }, { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' },
+  ];
+  const fw = fakeWindsor({ 'GET connectors.windsor.ai/microsoft/fields': () => ({ body: adFields }) });
+  const r = await call(handlerFor(w, fw), { action: 'field_catalog', linked_account_id: 'acc-m' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.kind, 'ad', 'it is still an ad source');
+  assert.equal(r.body.sync_supported, true, 'and it still syncs');
+  assert.match(r.body.destination, /^windsor_metrics_daily \(no conversions or revenue field/);
+
+  // A company nulling a measure moves the rows too, and the page must say so.
+  w.fake.tables.set('windsor_field_mappings', [
+    { company_entity_id: A, ds_id: 'microsoft', measure: 'revenue', field_id: null }]);
+  const withBoth = fakeWindsor({ 'GET connectors.windsor.ai/microsoft/fields': () => ({ body: [
+    ...adFields, { id: 'conversions', type: 'NUMERIC' }, { id: 'revenue', type: 'NUMERIC' }] }) });
+  const r2 = await call(handlerFor(w, withBoth), { action: 'field_catalog', linked_account_id: 'acc-m' });
+  assert.match(r2.body.destination, /^windsor_metrics_daily \(no revenue field/);
 });
 
 test('unlink removes only an own account, and keeps SILO\'s row if Windsor refuses', async () => {

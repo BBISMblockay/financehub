@@ -311,7 +311,7 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       if (own.error) return own.error;
       const p = await placementFor(own.row.ds_id);
       if (p.error) return p.error;
-      const { connector, catalog, placement } = p;
+      const { connector, catalog } = p;
       const conn = { value: connector };
       // The company's own choices, so `chosen` is what the next run will use.
       const { data: maps, error: mapErr } = await admin.from('windsor_field_mappings')
@@ -320,6 +320,9 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       // automatic picks rather than fail.
       const overrides = mapErr ? {} : Object.fromEntries((maps ?? []).map((m) => [m.measure, m.field_id]));
       const choice = chooseMeasures(own.row.ds_id, catalog, overrides);
+      // With this company's own choices: nulling a measure can move where the
+      // rows go, and the page must show where they will actually land.
+      const placement = syncPlacement(own.row.ds_id, catalog, overrides);
       return json({
         ds_id: own.row.ds_id, connector: conn.value, kind: choice.kind,
         sync_supported: placement.ok,

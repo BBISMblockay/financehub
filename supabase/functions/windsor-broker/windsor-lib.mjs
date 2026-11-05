@@ -347,7 +347,7 @@ export function chooseMeasures(dsId, catalog, overrides = {}) {
  *  An ad-like source also needs a name that is a valid platform. A connector
  *  SILO already syncs natively is never ad-like (`isAdLike`), so it goes to
  *  windsor_metrics_daily and can never double-count against that sync. */
-export function syncPlacement(dsId, catalog) {
+export function syncPlacement(dsId, catalog, overrides = {}) {
   const ids = new Set((catalog || []).map((f) => f.id));
   if (FIXED_SOURCES.includes(dsId)) {
     return { ok: true, kind: 'fixed', table: null, reason: 'its own SILO table (fields fixed by SILO)' };
@@ -361,6 +361,21 @@ export function syncPlacement(dsId, catalog) {
     if (!platform) {
       return { ok: false, kind: 'ad', table: null,
         reason: "this source's name cannot be used as a SILO platform" };
+    }
+    // marketing_kpis_daily's conversions and conversion_value are NOT NULL, so
+    // a source that cannot report them would be written as ZERO, and the
+    // marketing pages sum those columns across every paid platform to get CPA
+    // and ROAS: a platform with spend and a fabricated zero drags both towards
+    // nothing, and nobody reading the page can tell. A marker in `extra` does
+    // not help, because those reads do not select it. So a source that cannot
+    // fill them does not belong in that table; it goes to
+    // windsor_metrics_daily, where a measure the source does not report is
+    // NULL and means exactly that. (#1148 review cycle 1 P2.)
+    const { chosen } = chooseMeasures(dsId, catalog, overrides);
+    const missing = ['conversions', 'revenue'].filter((m) => !chosen[m]);
+    if (missing.length) {
+      return { ok: true, kind: 'metrics', table: 'windsor_metrics_daily', unmeasured: missing,
+        reason: `windsor_metrics_daily (no ${missing.join(' or ')} field, which marketing_kpis_daily cannot record as unmeasured)` };
     }
     return { ok: true, kind: 'ad', table: 'marketing_kpis_daily', platform,
       reason: `marketing_kpis_daily as ${platform}` };
