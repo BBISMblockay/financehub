@@ -65,7 +65,12 @@ async function loadCore() {
   if (MUT === 'grainbudget') sub('    if (state.grainReads >= MAX_GRAIN_READS) { out.incomplete = true; continue; }', '    if (state.grainReads >= MAX_GRAIN_READS) { out.refused.push(...half); continue; }');
   // A bad hunted field must be found and dropped, not taken at face value.
   if (MUT === 'grainisolate') sub('          await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,\n            fields: set.fields, validate, state, out: iso });', '          iso.good.push(set.rows);');
-  if (MUT === 'huntunmatched') sub("if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');", '');
+  // Hunted rows that match NO core row at all are a grain shift, not spare objects.
+  if (MUT === 'huntunmatched') sub("    if (merged.unmatched && !merged.matched) {\n      throw new Error('Hunted rows do not match the core row grain; window not saved');\n    }", '');
+  // ...but a few spare objects must not throw away a window that otherwise merged.
+  if (MUT === 'huntmatched') sub('if (merged.unmatched && !merged.matched) {', 'if (merged.unmatched) {');
+  // A narrowed read must not sit on the full-width wait; that is the 29 minutes.
+  if (MUT === 'narrowtimeout') sub('export const NARROWED_READ_TIMEOUT_MS = 60000;', 'export const NARROWED_READ_TIMEOUT_MS = READ_TIMEOUT_MS;');
   // Absolute imports so the temp copy resolves the repo's modules.
   src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
     .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
@@ -506,6 +511,85 @@ test('hunted merging cannot borrow another account metrics', () => {
     [[{ account_id: 'other', date: '2026-11-01', campaign_id: 'c', clicks: 999 }]]);
   assert.equal(result.rows[0].clicks, undefined);
   assert.equal(result.unmatched, 1);
+});
+
+test('mergeHunted counts the rows that found a core row as well as the ones that did not', () => {
+  const result = core.mergeHunted({ mergeKey: (r) => r.campaign_id },
+    [{ account_id: 'own', date: '2026-11-01', campaign_id: 'c1' }],
+    [[{ account_id: 'own', date: '2026-11-01', campaign_id: 'c1', saves: 7 },
+      { account_id: 'own', date: '2026-11-01', campaign_id: 'spare', saves: 9 }]]);
+  assert.equal(result.matched, 1);
+  assert.equal(result.unmatched, 1);
+  assert.equal(result.rows.length, 1, 'a hunted row is never turned into a core row');
+  assert.equal(result.rows[0].saves, 7);
+});
+
+// Live run 41977825834: TikTok's isolated hunted reads named campaigns the
+// core read never returned. Those are spare objects, not a grain shift.
+test('a hunted row for an object the core read left out is dropped, and the window still lands', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1' };
+  const fw = fakeWindsor((c, u) => {
+    if (u.searchParams.get('fields').includes('spend')) return [{ ...base, campaign: 'Core', spend: 4 }];
+    return [{ ...base, saves: 3 }, { ...base, campaign_id: 'no-spend-campaign', saves: 9 }];
+  }, { tiktok: pinCatalog });
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.status, 'success');
+  assert.equal(r.rows_written, 1);
+  const written = fake.rows('marketing_kpis_daily');
+  assert.deepEqual(written.map((w) => w.campaign_id), ['pc1'], 'the spare campaign is not written');
+  assert.equal(written[0].extra.saves, 3, 'the matching hunted value still lands');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-11-02',
+    'the window counts as covered, so the cursor advances');
+  assert.equal(r.windows[0].datasets.campaign.hunted_unmatched, 1,
+    'the dropped row is counted in the window record');
+});
+
+// Run 41977825834: one failing TikTok account took 29 minutes, almost all of
+// it narrowed reads each waiting the full two minutes.
+test('a narrowed read waits half as long as the first full-width ask', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1' };
+  const waits = [];
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) return [{ ...base, campaign: 'Core', spend: 4 }];
+    // The full-width hunted batch never answers, so it is asked in halves.
+    if (f.includes('saves') && f.includes('total_conversions')) return { status: 503, text: 'slow' };
+    return [{ ...base, saves: 2 }];
+  }, { tiktok: pinCatalog });
+  const fetchImpl = async (url, options) => {
+    const u = new URL(url);
+    if (!u.pathname.endsWith('/fields')) {
+      const f = u.searchParams.get('fields').split(',');
+      // Hunted reads only: the core read asks for `spend`.
+      if (!f.includes('spend')) waits.push({ fields: f.length, timeoutMs: options.timeoutMs });
+    }
+    return fw.fetchImpl(url, options);
+  };
+  const r = await run(fake, { ...fw, fetchImpl }, pinAcct);
+  assert.equal(r.status, 'success');
+  const widest = Math.max(...waits.map((w) => w.fields));
+  const narrowed = waits.filter((w) => w.fields < widest);
+  assert.ok(narrowed.length, 'the batch was in fact narrowed');
+  for (const w of waits) {
+    assert.equal(w.timeoutMs, w.fields === widest ? core.READ_TIMEOUT_MS : core.NARROWED_READ_TIMEOUT_MS);
+  }
+  assert.ok(core.NARROWED_READ_TIMEOUT_MS < core.READ_TIMEOUT_MS);
+});
+
+test('hunted rows that match no core row at all still fail the window', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01' };
+  const fw = fakeWindsor((c, u) => {
+    if (u.searchParams.get('fields').includes('spend')) return [{ ...base, campaign_id: 'pc1', campaign: 'Core', spend: 4 }];
+    return [{ ...base, campaign_id: 'x1', saves: 3 }, { ...base, campaign_id: 'x2', saves: 9 }];
+  }, { tiktok: pinCatalog });
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.status, 'error');
+  assert.match(r.error, /core row grain/);
+  assert.equal(r.rows_written, 0);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
 });
 
 
