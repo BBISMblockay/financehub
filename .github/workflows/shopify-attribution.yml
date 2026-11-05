@@ -17,6 +17,18 @@ on:
       probe_plan_day:
         description: Optional YYYY-MM-DD. Read-only speed probe (deep sales paging, journey batch cost, landing batch); blank dates and commit=false required
         required: false
+      journey_batch:
+        description: Optional. Orders per journey request for THIS run only; blank uses the repo variable (default 1 = serial)
+        required: false
+      landing_batch:
+        description: Optional. Orders per landing-site request for THIS run only; blank uses the repo variable (default 1 = serial)
+        required: false
+      journey_moments:
+        description: Optional. Visits per journey page for THIS run only; blank uses the repo variable (default 10)
+        required: false
+      max_day_rows:
+        description: Optional. Order-row ceiling for one day for THIS run only; blank uses the repo variable (default 10000)
+        required: false
       commit:
         description: Publish verified snapshots (false is read-only)
         type: boolean
@@ -46,10 +58,10 @@ jobs:
       ATTRIBUTION_COMMIT: ${{ inputs.commit }}
       ATTRIBUTION_PROBE_ORDER_ID: ${{ inputs.probe_order_id }}
       ATTRIBUTION_PROBE_PLAN_DAY: ${{ inputs.probe_plan_day }}
-      ATTRIBUTION_JOURNEY_BATCH: ${{ vars.ATTRIBUTION_JOURNEY_BATCH }}
-      ATTRIBUTION_JOURNEY_MOMENTS: ${{ vars.ATTRIBUTION_JOURNEY_MOMENTS }}
-      ATTRIBUTION_LANDING_BATCH: ${{ vars.ATTRIBUTION_LANDING_BATCH }}
-      ATTRIBUTION_MAX_DAY_ROWS: ${{ vars.ATTRIBUTION_MAX_DAY_ROWS }}
+      ATTRIBUTION_JOURNEY_BATCH: ${{ inputs.journey_batch || vars.ATTRIBUTION_JOURNEY_BATCH }}
+      ATTRIBUTION_JOURNEY_MOMENTS: ${{ inputs.journey_moments || vars.ATTRIBUTION_JOURNEY_MOMENTS }}
+      ATTRIBUTION_LANDING_BATCH: ${{ inputs.landing_batch || vars.ATTRIBUTION_LANDING_BATCH }}
+      ATTRIBUTION_MAX_DAY_ROWS: ${{ inputs.max_day_rows || vars.ATTRIBUTION_MAX_DAY_ROWS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
