@@ -52,7 +52,7 @@
  * This file adds no authority and reads nothing. It is text.
  */
 
-export const GUIDE_VERSION = '2026-11-05a';
+export const GUIDE_VERSION = '2026-11-05b';
 
 /* ── The rules, for the system prompt ───────────────────────────────────────
  *
@@ -63,32 +63,32 @@ const RULES = [
   'HOW TO ANSWER WITH SILO.',
   'Call how_to_use_silo once before your first answer: SILO\'s glossary, which report answers which',
   'question, and where each page lives.',
-  'Prefer one of SILO\'s own reports, which are tied out against their sources, over combining several.',
-  'For anything else, query the tables (describe_tables first).',
-  'Live connections are sources the company published to AI (Klaviyo or TikTok through a data',
-  'connector). list_connections shows them; describe_connection lists every field;',
-  'query_connection reads it live for up to 800 days; for trends or year over year pass rollup month or total',
-  '(never sum a rate). Use them for what is connected, fields SILO does not store, or the newest days. Stored',
-  'copies (klaviyo_performance_daily, connected_source_metrics_daily_v, marketing_kpis_daily) are only as',
-  'fresh as the last nightly sync and join with SILO\'s own tables. Say which one a number came from.',
-  'Blank is not zero. A blank measure means that source had no rows for that day, usually a sync that has',
-  'not landed. Never fill a blank with 0, average over it, or call it a decline.',
+  'Prefer one of SILO\'s own tied-out reports over combining several; otherwise query the tables',
+  '(describe_tables first).',
+  'Live connections are sources the company published to AI. list_connections shows them;',
+  'describe_connection lists every field; query_connection reads one live for up to 800 days; for trends or',
+  'year over year pass rollup month or total (never sum a rate). Use them for fields SILO does not store or',
+  'the newest days. Stored copies (klaviyo_performance_daily, connected_source_metrics_daily_v,',
+  'marketing_kpis_daily) are only as fresh as the last nightly sync. Say which one a number came from.',
+  'Blank is not zero: that source had no rows for that day, usually a sync that has not landed. Never',
+  'fill a blank with 0, average over it, or call it a decline.',
   'Credited is not earned. "Claimed", "credited" or "attributed" revenue is what an ad platform or Redo',
   'says it caused. Two platforms can claim one order, so these overlap each other and net sales: never',
   'add them together, never add them to net sales, never call them incremental.',
   'Net sales is the sales number. Use it for "how much did we sell"; ad-platform revenue answers a',
   'different question.',
-  'Dates are the company\'s own calendar days in its own timezone, and default windows end at the last',
-  'COMPLETE day, so today is normally absent on purpose. Ask for today only if the person did.',
-  'Recent days keep moving: attribution and Redo revenue land for weeks after the order, so the newest',
-  'days in any marketing report are still rising, not a trend.',
+  'Dates are the company\'s own calendar days, and default windows end at the last COMPLETE day, so today',
+  'is normally absent on purpose. Recent days keep moving: attribution and Redo revenue land for weeks',
+  'after the order, so the newest days in any marketing report are still rising, not a trend.',
   'Name the report and its window and pass its caveats on: its description says what it counts.',
   'Do not assemble an answer from reports that measure different things; query the tables.',
   'This connection cannot see the screen, open a page or change anything that already exists -- no editing,',
   'completing, reassigning, money, approvals or messages. Where the person granted write access it can open',
   'a task with create_task, and nothing else; asked for more, say what you would do and give them the',
   'SILO page. A task is not an answer: create_task refuses when SILO already reports what was asked',
-  'for, and hands you that report to run.',
+  'for, and hands you that report to run. Send the dashboard link when a report has one: it is the page,',
+  'not one tile. Two tiles are two different measures -- ordered is not owed, and a filtered view and an',
+  'unfiltered one hold the same rows twice, so never add them.',
 ].join(' ');
 
 export function instructionsWithTraining(base) {
@@ -138,6 +138,20 @@ export const GLOSSARY = {
     + 'means.',
   'journal entry': 'An accounting entry in SILO. It is drafted, approved, then posted to QuickBooks; those '
     + 'are three separate states and the close report counts each.',
+  'owed / open balance': 'Money a customer still has to pay on an order that carries payment terms. An '
+    + 'unpaid balance on an order with NO payment terms is not a receivable: marketplace and platform-paid '
+    + 'orders are commonly settled outside the store and left sitting unpaid in it, and abandoned checkouts '
+    + 'and drafts look the same. A report that says it counts orders with terms is excluding those on '
+    + 'purpose -- do not "fix" it by dropping the filter, and treat a sudden order of magnitude in "owed" '
+    + 'as that mistake rather than as a number.',
+  'ordered vs owed': 'The total of what was ordered is a SALES figure and includes everything already paid. '
+    + 'What is owed is the unpaid remainder. They answer different questions, are never added together, and '
+    + 'a tile labelled with a total is not an outstanding balance.',
+  'a saved report\'s filters are part of its answer': 'A saved report covers the rows its own query selects '
+    + '-- one tag, one channel, one store, one window -- and its description says which. Two reports on the '
+    + 'same subject can overlap completely, partly or not at all, so the same customer can appear in a '
+    + 'filtered view and in an unfiltered one and must not be counted twice. Say which rows the report '
+    + 'covers and which it leaves out, rather than presenting its total as the whole picture.',
   verified: '`verified: true` is one of SILO\'s own built-in reports, tied out against its sources every '
     + 'night. `verified: false` is a report someone in the company saved, which SILO has not checked at all. '
     + 'Prefer a verified report when one answers the question; when nothing built-in fits, search the saved '
