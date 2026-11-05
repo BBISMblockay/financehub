@@ -476,8 +476,10 @@ async function readSplitting({ fields, state, out, ...io }) {
 }
 
 /** Reads one hunted batch may spend finding which field broke the row grain.
- *  Bisecting 60 fields down to one costs about a dozen. */
-export const MAX_GRAIN_READS = 12;
+ *  Bisecting a 60-field batch down to one offender costs about a dozen; the
+ *  allowance is double that so a batch with two or three of them still
+ *  resolves rather than leaving its window unwritten run after run. */
+export const MAX_GRAIN_READS = 24;
 
 /** A hunted read came back at a shape the dataset's row identity cannot
  *  address -- two rows for one account/day/object, or an object id missing.
@@ -491,12 +493,22 @@ async function isolateGrainOffenders({ fields, validate, state, out, ...io }) {
   if (fields.length <= 1) { out.refused.push(...fields); return; }
   const mid = Math.ceil(fields.length / 2);
   for (const half of [fields.slice(0, mid), fields.slice(mid)]) {
-    if (state.grainReads >= MAX_GRAIN_READS) { out.refused.push(...half); continue; }
+    // Out of reads: these fields have NOT been shown to be the problem, so
+    // they are left unresolved rather than refused. An ambiguous batch is no
+    // evidence against the fields that travelled in it.
+    if (state.grainReads >= MAX_GRAIN_READS) { out.incomplete = true; continue; }
     state.grainReads += 1;
     const r = await readOnce({ ...io, fields: [...io.dims, ...half] });
-    // No answer, or a refusal, for a field group already known to be bad:
-    // drop it rather than spend more reads telling the halves apart.
-    if (!r.rows) { out.refused.push(...half); continue; }
+    if (!r.rows) {
+      // A refusal names the fields: that is evidence, and they are dropped
+      // like any other unusable field. No answer at all is not evidence --
+      // treating a timeout as a refusal would let a provider blip erase
+      // stored values and still advance the cursor, so the window is marked
+      // incomplete and asked again next run instead.
+      if (r.transient) out.incomplete = true;
+      else out.refused.push(...half);
+      continue;
+    }
     try {
       validate(r.rows);
       out.good.push(r.rows);
@@ -560,11 +572,15 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
           sets.push(set.rows);
         } catch (e) {
           if (!e?.grain) throw e;
-          const iso = { refused: [], good: [] };
+          const iso = { refused: [], good: [], incomplete: false };
           await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,
             fields: set.fields, validate, state, out: iso });
           refused.push(...iso.refused);
           sets.push(...iso.good);
+          // Something in this batch could not be told apart. Writing now
+          // would replace stored values without it and count the window as
+          // covered, so the window waits for the next run.
+          if (iso.incomplete) incomplete = true;
         }
       }
       refused.push(...b.refused);

@@ -190,6 +190,18 @@ then refused by name, recorded on the mapping row and not asked again this run,
 and the rest of the batch still lands. A group that cannot be told apart —
 because the reads stop answering — is dropped whole rather than trusted.
 
+**An ambiguous batch is no evidence against the fields that travelled in it.**
+Isolation refuses a field only when a read *answered* and that field was shown
+to be the problem, or when Windsor refused it by name. A subgroup the provider
+stops answering for, and a subgroup the read allowance never reaches, are left
+unresolved and mark the window `incomplete` — so it is not written and the
+cursor does not advance, the same handling an unanswered hunted field already
+had. Treating either as a refusal would let a provider blip replace stored
+metrics with a row collected without them, count the window as covered, and
+skip those fields for the rest of the run. (Raised as P2 on #1141 review cycle
+1; the allowance is 24 reads so that a batch with two or three real offenders
+still resolves instead of leaving its window unwritten run after run.)
+
 The core read is deliberately **not** isolated this way: it decides which rows
 exist, so an ambiguous core grain still fails the window unwritten.
 

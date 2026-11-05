@@ -60,6 +60,9 @@ async function loadCore() {
   if (MUT === 'windowsplit') sub('    const halves = r.transient ? splitWindow(from, to) : null;', '    const halves = null;');
   // The floor is what bounds splitting; without it a window halves to a day.
   if (MUT === 'splitfloor') sub('if (!Number.isFinite(days) || days <= MIN_SPLIT_DAYS) return null;', 'if (!Number.isFinite(days) || days < 2) return null;');
+  // "Could not tell" must never be recorded as "this field is bad".
+  if (MUT === 'grainunanswered') sub('      if (r.transient) out.incomplete = true;\n      else out.refused.push(...half);', '      out.refused.push(...half);');
+  if (MUT === 'grainbudget') sub('    if (state.grainReads >= MAX_GRAIN_READS) { out.incomplete = true; continue; }', '    if (state.grainReads >= MAX_GRAIN_READS) { out.refused.push(...half); continue; }');
   // A bad hunted field must be found and dropped, not taken at face value.
   if (MUT === 'grainisolate') sub('          await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,\n            fields: set.fields, validate, state, out: iso });', '          iso.good.push(set.rows);');
   if (MUT === 'huntunmatched') sub("if (merged.unmatched) throw new Error('Hunted rows do not match the core row grain; window not saved');", '');
@@ -785,4 +788,55 @@ test('isolating a bad hunted field is bounded and never guesses a row into exist
   assert.equal(Object.keys(row.extra ?? {}).length, 0);
   assert.ok(fw.log.length <= 2 + core.MAX_GRAIN_READS + 4, `bounded isolation reads (${fw.log.length})`);
   assert.ok(fw.log.length >= 4, 'the batch really was bisected rather than dropped whole');
+});
+
+// An ambiguous batch is no evidence against the fields that travelled in it:
+// if isolation cannot answer for a subgroup, those fields are left unresolved
+// and the window waits, rather than being written without them.
+
+test('a subgroup that times out during isolation leaves the window and its stored metrics alone', async () => {
+  const fake = world([pinAcct]);
+  const stored = { row_hash: 'existing', company_entity_id: A, spend: 1, extra: { saves: 9, ctr: 9, video_p100: 9 } };
+  fake.tables.set('marketing_kpis_daily', [{ ...stored }]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const fw = fakeWindsor((c, u) => {
+    const fields = u.searchParams.get('fields');
+    if (fields.includes('spend')) return [{ ...base, spend: 4 }];
+    // The batch answers, ambiguously, because `saves` is genuinely bad; the
+    // half that does NOT contain it is the one the provider stops answering.
+    if (fields.includes('saves')) return [{ ...base, saves: 1 }, { ...base, saves: 2 }];
+    if (fields.includes('ctr')) throw Object.assign(new Error(KEY), { name: 'TimeoutError' });
+    return [{ ...base, total_conversions: 3 }];
+  }, { tiktok: pinCatalog });
+
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.unanswered, true, 'the window is not covered, so it is asked again next run');
+  assert.ok(!r.refused_fields.includes('ctr'), 'a provider that did not answer has not refused anything');
+  assert.ok(!r.refused_fields.includes('video_p100'));
+  assert.deepEqual(fake.rows('marketing_kpis_daily'), [stored],
+    'stored metrics are never replaced by a row collected without them');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined,
+    'and the cursor does not move over a window that was not fully collected');
+});
+
+test('isolation running out of reads leaves the window unwritten rather than dropping what it never checked', async () => {
+  const wide = [
+    { id: 'date', type: 'DATE', table: null }, { id: 'account_id', type: 'TEXT' },
+    { id: 'campaign_id', type: 'TEXT', table: 'Campaign' }, { id: 'campaign', type: 'TEXT', table: 'Campaign' },
+    ...Array.from({ length: 40 }, (_, i) => ({ id: `metric_${i}`, type: 'NUMERIC', table: 'Wide' })),
+  ];
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const fw = fakeWindsor((c, u) => {
+    const fields = u.searchParams.get('fields');
+    if (fields.includes('spend')) return [{ ...base, spend: 4 }];
+    return [{ ...base, metric_0: 1 }, { ...base, metric_0: 2 }];   // every hunted read is ambiguous
+  }, { tiktok: wide });
+
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.unanswered, true, 'the batch was never resolved, so the window is not counted as covered');
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  const hunted = fw.log.filter((u) => !u.searchParams.get('fields').includes('spend'));
+  assert.ok(hunted.length <= 1 + core.MAX_GRAIN_READS, `isolation stays bounded (${hunted.length} hunted reads)`);
 });
