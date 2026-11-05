@@ -1438,6 +1438,20 @@ jobs:
             fi
             echo "$mutation failed the suite, as it must"
           done
+      # The catalog told bots that shopify_order_lines.title was reliable, which
+      # invited the one query that still splits a product after the canonical
+      # title fix. Text only, so the risks are the bad sentence surviving, an
+      # append firing twice, and a clobbered description.
+      - name: Execute order-line title catalog regressions
+        run: |
+          node scripts/tests/order-line-title-catalog-database.test.mjs
+          for mutation in keep-reliable-sentence no-replacement-advice no-append-guard clobber-description wrong-relation; do
+            if ORDER_LINE_TITLE_MUTATION="$mutation" node scripts/tests/order-line-title-catalog-database.test.mjs; then
+              echo "::error::$mutation did not fail the order-line title catalog suite"
+              exit 1
+            fi
+            echo "$mutation failed the suite, as it must"
+          done
       # Business meaning for the 60 relations that had none, and is_hidden on the
       # install/claim/credentials plumbing. Catalog text only, so the risks are
       # clobbering a curated description, a seeded name that lands nowhere, and

@@ -19576,4 +19576,8 @@ $c$select (select count(*) from v_po_header_summary
 -- builder stop showing whichever store synced last. Backfills on apply and
 -- runs at the end of every Shopify sync. No deploy.
 \i migrations/20261105080000_products_master_canonical_title.sql
+-- 20261105090000: the catalog called shopify_order_lines.title "reliable",
+-- which invited the one query that still splits a product after the canonical
+-- title fix. Catalog text only, no schema change. No deploy.
+\i migrations/20261105090000_order_line_title_not_canonical.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
