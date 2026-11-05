@@ -267,8 +267,8 @@ test('field_catalog lists one own account\'s numeric fields and the sync\'s pick
   const r = await call(h, { action: 'field_catalog', linked_account_id: 'acc-p' });
   assert.equal(r.status, 200);
   assert.equal(r.body.kind, 'ad');
-  assert.equal(r.body.sync_supported, false);
-  assert.match(r.body.destination, /Sync blocked/);
+  assert.equal(r.body.sync_supported, true, 'an ad source Windsor can place is syncable with nothing built for it');
+  assert.equal(r.body.destination, 'marketing_kpis_daily as pinterest_ads');
   const by = Object.fromEntries(r.body.measures.map((m) => [m.measure, m]));
   assert.equal(by.conversions.auto, 'total_conversions');
   assert.equal(by.conversions.chosen, 'saves', 'this company\'s mapping');
@@ -405,23 +405,59 @@ test('preview only normalizes Facebook account aliases for Facebook', async () =
   }
 });
 
-test('sync consent is company-scoped, boolean-only and limited to explicit datasets', async () => {
-  const w = world(); const fw = fakeWindsor({}); const h = handlerFor(w, fw);
+test('sync consent is company-scoped, boolean-only, and offered wherever a row can be placed', async () => {
+  const w = world();
+  const fw = fakeWindsor({
+    // No date and no account: these rows cannot be placed anywhere.
+    'GET connectors.windsor.ai/googlesheets/fields': () => ({ body: [{ id: 'col_a', type: 'NUMERIC' }] }),
+    'GET connectors.windsor.ai/pinterest/fields': () => ({ body: [
+      { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'campaign_id', type: 'TEXT' },
+      { id: 'spend', type: 'NUMERIC' }, { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' },
+    ] }),
+  });
+  const h = handlerFor(w, fw);
   w.fake.tables.get('windsor_linked_accounts').push(
     { id: 'own-fixed', company_entity_id: A, ds_id: 'tiktok', account_id: 'T1', sync_enabled: false },
-    { id: 'own-generic', company_entity_id: A, ds_id: 'googlesheets', account_id: 'S1', sync_enabled: false });
+    { id: 'own-generic', company_entity_id: A, ds_id: 'googlesheets', account_id: 'S1', sync_enabled: false },
+    { id: 'own-ad', company_entity_id: A, ds_id: 'pinterest', account_id: 'P1', sync_enabled: false });
   const set = (id, enabled, extra = {}) => call(h, { action: 'set_sync', linked_account_id: id, enabled, ...extra });
   assert.equal((await set('acc-b', true, { company_entity_id: B })).status, 404);
   assert.equal((await set('own-fixed', 'true')).status, 400);
-  assert.equal((await set('own-generic', true)).status, 409);
+
+  const blocked = await set('own-generic', true);
+  assert.equal(blocked.status, 409, 'a source whose rows cannot be placed still cannot be enabled');
+  assert.match(blocked.body.error, /no date and account/);
+
+  const generic = await set('own-ad', true);
+  assert.equal(generic.status, 200, 'and one Windsor can place needs nothing built for it');
+  assert.equal(generic.body.sync_enabled, true);
+
   const on = await set('own-fixed', true);
   assert.equal(on.status, 200); assert.equal(on.body.sync_enabled, true);
   const off = await set('own-fixed', false);
   assert.equal(off.status, 200); assert.equal(off.body.sync_enabled, false);
   assert.equal(w.fake.rows('windsor_linked_accounts').find(r => r.id === 'acc-b').sync_enabled, undefined);
-  assert.equal(fw.log.length, 0, 'consent does not read source data or change vendor authorization');
+
+  // Deciding where rows would land reads Windsor's PUBLIC field list and
+  // nothing else: no owner key, and never the account's data.
+  for (const c of fw.log) {
+    assert.match(String(c.url.pathname), /\/fields$/, 'consent reads no source data');
+    assert.equal(c.url.searchParams.get('api_key'), null);
+  }
   w.fake.tables.get('entity_memberships')[0].role = 'member';
   assert.equal((await set('own-fixed', true)).status, 403);
+});
+
+test('turning sync off never depends on Windsor answering', async () => {
+  const w = world();
+  const fw = fakeWindsor({});   // every Windsor call fails
+  const h = handlerFor(w, fw);
+  w.fake.tables.get('windsor_linked_accounts').push(
+    { id: 'own-ad', company_entity_id: A, ds_id: 'pinterest', account_id: 'P1', sync_enabled: true });
+  const off = await call(h, { action: 'set_sync', linked_account_id: 'own-ad', enabled: false });
+  assert.equal(off.status, 200);
+  assert.equal(off.body.sync_enabled, false);
+  assert.equal(fw.log.length, 0, 'a pause asks Windsor nothing');
 });
 
 test('LLM publication is separate, explicitly boolean, company-admin scoped and source read-only', async () => {

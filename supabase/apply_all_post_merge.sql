@@ -19566,4 +19566,8 @@ $c$select (select count(*) from v_po_header_summary
 -- PostgREST path allowlist), and silo_api_write_cap loses a grant to the
 -- integration role that nothing ever used. No deploy.
 \i migrations/20261105063000_integration_grants_api_surface.sql
+-- 20261105070000: catalog text for connected_source_metrics_daily_v, now that
+-- any connected source syncs and a natively synced platform can appear in both
+-- tables. Catalog text only, no schema change. No deploy.
+\i migrations/20261105070000_connected_source_any_platform.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

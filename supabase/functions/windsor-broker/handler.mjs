@@ -38,7 +38,7 @@ import {
   parseSource, connectorForSource, previewOptions, parseFields, parseDatePreset, windsorUrl, redact,
   parseBody, describeShape, extractLink, rowsOf, partitionLinkedAccounts, planUpserts,
   filterRowsToAccount, chooseMeasures, NUMERIC_TYPES, IDENTITY_ERROR,
-  normalizeFields, previewDefaults, normalizeConnectors,
+  normalizeFields, previewDefaults, normalizeConnectors, syncPlacement,
 } from './windsor-lib.mjs';
 
 export const CORS = {
@@ -107,6 +107,22 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
     if (!mayConnect({ profile, profileError, membership, membershipError, companyId })) {
       return json({ error: 'Admin access required for this company' }, 403);
     }
+
+    // Windsor's public field list for one source, and where its rows would be
+    // stored. The sync builds its dataset from the same `syncPlacement`, so the
+    // page cannot offer a toggle the sync would refuse, nor hide one it would
+    // take. Resolves { error } on anything it could not read.
+    const placementFor = async (dsId) => {
+      const conn = connectorForSource(dsId);
+      if (!conn.ok) return { error: json({ error: conn.reason }, 400) };
+      // Public list: built without the key, so nothing secret can leak.
+      const r = await windsor(windsorUrl(WINDSOR_CONNECTORS, `/${conn.value}/fields`, {}));
+      if (!r.ok) return { error: json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502) };
+      const list = Array.isArray(r.body) ? r.body : rowsOf(r.body);
+      if (!list) return { error: json({ error: 'Windsor did not return a field list', shape: describeShape(r.body) }, 502) };
+      const catalog = normalizeFields(list);
+      return { connector: conn.value, catalog, placement: syncPlacement(dsId, catalog) };
+    };
 
     if (action === 'status') return json({ configured: Boolean(key) });
     if (!key && !['set_sync','set_mcp'].includes(action)) return json({ error: 'Windsor is not configured (WINDSOR_API_KEY is not set)' }, 503);
@@ -235,8 +251,13 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const own = await ownAccount();
       if (own.error) return own.error;
       if (typeof body.enabled !== 'boolean') return json({ error: 'enabled must be a boolean' }, 400);
+      // Turning sync ON is only offered where the sync could actually place a
+      // row. Turning it OFF is always allowed, whatever the source: a pause
+      // must never depend on Windsor answering.
       if (body.enabled && !FIXED_SOURCES.includes(own.row.ds_id)) {
-        return json({ error: 'Sync blocked: this source needs a reviewed identity, date and row-grain contract.' }, 409);
+        const p = await placementFor(own.row.ds_id);
+        if (p.error) return p.error;
+        if (!p.placement.ok) return json({ error: `Sync blocked: ${p.placement.reason}.` }, 409);
       }
       const { data, error } = await admin.from(ACCOUNTS).update({ sync_enabled: body.enabled })
         .eq('id', own.row.id).eq('company_entity_id', companyId).select('id, sync_enabled');
@@ -288,14 +309,10 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
     if (action === 'field_catalog') {
       const own = await ownAccount();
       if (own.error) return own.error;
-      const conn = connectorForSource(own.row.ds_id);
-      if (!conn.ok) return json({ error: conn.reason }, 400);
-      // Public list: built without the key, so nothing secret can leak.
-      const r = await windsor(windsorUrl(WINDSOR_CONNECTORS, `/${conn.value}/fields`, {}));
-      if (!r.ok) return json({ error: `Windsor answered ${r.status || 'nothing'}`, detail: r.detail }, 502);
-      const list = Array.isArray(r.body) ? r.body : rowsOf(r.body);
-      if (!list) return json({ error: 'Windsor did not return a field list', shape: describeShape(r.body) }, 502);
-      const catalog = normalizeFields(list);
+      const p = await placementFor(own.row.ds_id);
+      if (p.error) return p.error;
+      const { connector, catalog, placement } = p;
+      const conn = { value: connector };
       // The company's own choices, so `chosen` is what the next run will use.
       const { data: maps, error: mapErr } = await admin.from('windsor_field_mappings')
         .select('measure, field_id').eq('company_entity_id', companyId).eq('ds_id', own.row.ds_id);
@@ -305,8 +322,8 @@ export function createWindsorHandler({ env, admin, fetchImpl, checkMfa, checkInt
       const choice = chooseMeasures(own.row.ds_id, catalog, overrides);
       return json({
         ds_id: own.row.ds_id, connector: conn.value, kind: choice.kind,
-        sync_supported: FIXED_SOURCES.includes(own.row.ds_id),
-        destination: choice.kind === 'fixed' ? 'its own SILO table (fields fixed by SILO)' : 'Sync blocked pending a reviewed row-grain contract',
+        sync_supported: placement.ok,
+        destination: placement.ok ? placement.reason : `Sync blocked: ${placement.reason}`,
         measures: choice.measures.map((m) => ({ measure: m, auto: choice.auto[m], chosen: choice.chosen[m],
           override: Object.prototype.hasOwnProperty.call(overrides, m) ? overrides[m] : undefined,
           ignored: choice.ignored.includes(m) })),

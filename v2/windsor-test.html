@@ -316,13 +316,16 @@
       });
       td.append(llm,document.createTextNode(' '));
       const sync = document.createElement('button'); sync.className = 'bcn-btn bcn-btn--ghost';
-      const supported = ['tiktok', 'klaviyo'].includes(a.ds_id);
+      // Any source can be offered: where its rows land is worked out from the
+      // source's own field list when the button is pressed, so the list needs
+      // no extra call per row. A source whose rows cannot be placed -- no day,
+      // no account -- is refused then, with the reason shown.
       const hasConsent = typeof a.sync_enabled === 'boolean';
-      sync.textContent = !supported ? 'Sync blocked' : !hasConsent ? 'Sync update required'
+      sync.textContent = !hasConsent ? 'Sync update required'
         : a.sync_enabled ? 'Pause sync' : 'Enable sync';
-      sync.disabled = !supported || !hasConsent;
-      sync.title = !supported ? 'This source needs a reviewed identity, date and row-grain contract. Preview remains available.'
-        : 'Applies to subsequent runs; a run already in progress may finish.';
+      sync.disabled = !hasConsent;
+      sync.title = 'Applies to subsequent runs; a run already in progress may finish. '
+        + 'Where the rows land is read from this source\u2019s own field list.';
       sync.addEventListener('click', () => busy(sync, async () => {
         const out = await broker({ action: 'set_sync', linked_account_id: a.id, enabled: !a.sync_enabled });
         if (typeof out.sync_enabled !== 'boolean') throw new Error('Could not confirm sync setting. Reload connections.');
@@ -390,7 +393,9 @@
     $('mapTitle').textContent = `4. Sync details — ${integrationName(a.ds_id)}`;
     $('mapIntro').textContent = out.kind === 'fixed'
       ? 'This source has an explicit daily report definition. Supported numeric fields are requested; any refused fields from the last run are listed below.'
-      : 'Sync blocked: this source needs a reviewed identity, date and row-grain contract. Preview remains available; changing measure mappings cannot enable sync.';
+      : out.sync_supported
+        ? `Daily rows go to ${out.destination}, mapped from this source\u2019s own field list. Every numeric field is requested as well and kept by name; any the last run was refused is listed below. Choose a different field for a measure below if the automatic pick is wrong.`
+        : `${out.destination}. Preview remains available; changing measure mappings cannot enable sync.`;
     const refused = a.refused_fields || [];
     $('mapRefused').textContent = refused.length ? `Windsor did not return these fields on the last run: ${refused.join(', ')}` : '';
     $('mapRefused').hidden = !refused.length;

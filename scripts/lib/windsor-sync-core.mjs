@@ -19,7 +19,13 @@
 //              place rather than counted twice.
 //   klaviyo -> klaviyo_performance_daily, three reports (account, campaign,
 //              flow message).
-//   other sources -> blocked until a reviewed lossless dataset contract exists.
+//   any other source -> mapped from Windsor's own field list (autoDataset):
+//              one SILO already syncs natively goes to windsor_metrics_daily so
+//              it cannot be counted twice; an ad-like one SILO does not sync
+//              goes to marketing_kpis_daily as '<connector>_ads'; anything
+//              else to windsor_metrics_daily. A company can choose which field
+//              fills each SILO measure (windsor_field_mappings). The row grain
+//              is proved per window by prepareRows, not vouched for in advance.
 // For every dataset, every numeric field Windsor lists is also asked for, in
 // batches (fetchDatasetHunted), and stored by name; a field Windsor will not
 // return is listed on the mapping row (refused_fields), not silently dropped.
@@ -35,7 +41,7 @@
 import {
   WINDSOR_CONNECTORS, connectorForSource, windsorUrl, redact, parseBody, rowsOf,
   describeShape, filterRowsToAccount, previewOptions, DIRECT_SYNC_SOURCES,
-  STANDARD_FIELDS, NUMERIC_TYPES, assertAccountRows,
+  STANDARD_FIELDS, NUMERIC_TYPES, assertAccountRows, chooseMeasures, syncPlacement,
 } from '../../supabase/functions/windsor-broker/windsor-lib.mjs';
 
 export { DIRECT_SYNC_SOURCES, STANDARD_FIELDS };
@@ -257,7 +263,7 @@ export const DATASETS = Object.freeze({
   ],
 });
 
-// Field discovery enriches explicit datasets only; a catalog is not a row-grain contract.
+// A catalog does not prove a row grain; prepareRows does, per window.
 
 const FIELD_ID_RE = /^[a-z0-9_.]{1,64}$/i;
 const NUMERIC = new Set(NUMERIC_TYPES);
@@ -286,6 +292,113 @@ export function huntFields(catalog, { tables = null } = {}) {
   return (catalog || [])
     .filter((f) => NUMERIC.has(f.type) && (!want || want.has(f.table)))
     .map((f) => f.id);
+}
+
+/** The dataset for a connector with no hand-made one, built from Windsor's own
+ *  field list, or null when that list cannot place a row (no date or no
+ *  account_id). This is what makes a new Windsor source work on connect with
+ *  nothing built for it: Windsor's job is access, and asking a person to write
+ *  a contract per source gives that away.
+ *
+ *  A field list does not PROVE a row grain, which is why this was removed from
+ *  the sync path on 2026-11-03 (`fbfc8e3`) and only TikTok and Klaviyo ran.
+ *  What has changed is that the grain is now proved per window at runtime
+ *  instead of vouched for in advance: `prepareRows` requires a real in-window
+ *  date, requires every row to belong to the account asked for, and refuses
+ *  the whole window unwritten — cursor unmoved — if two rows collide on one
+ *  account/day/object or an object id is missing. A source whose rows do not
+ *  come back at an addressable grain therefore stores nothing and says so,
+ *  which is the evidence the hand review was standing in for.
+ *
+ *  Double counting stays structural, not a judgement: a connector SILO already
+ *  syncs natively (DIRECT_SYNC_SOURCES) is never ad-like here, so it lands in
+ *  windsor_metrics_daily and never in marketing_kpis_daily. */
+export function autoDataset(dsId, catalog, overrides = {}) {
+  // The broker decides whether to offer the toggle from this same function, so
+  // the page can never offer one the sync refuses (windsor-lib.mjs).
+  const placement = syncPlacement(dsId, catalog);
+  if (!placement.ok || placement.kind === 'fixed') return null;
+  const ids = new Set((catalog || []).map((f) => f.id));
+  const campaignId = ids.has('campaign_id') ? 'campaign_id' : null;
+  const campaignName = ids.has('campaign') ? 'campaign' : null;
+  const dims = ['date', 'account_id', ...(ids.has('account_name') ? ['account_name'] : []),
+    ...(campaignId ? [campaignId] : []), ...(campaignName ? [campaignName] : [])];
+  // The company's own choices (windsor_field_mappings) win over the
+  // automatic pick; the same function decides what the mapping page shows.
+  const choice = chooseMeasures(dsId, catalog, overrides);
+  const chosen = choice.chosen;
+  const mergeKey = (r) => (campaignId ? r[campaignId] : null) ?? (campaignName ? r[campaignName] : null) ?? '';
+  // The dataset's key is its grain, and `prepareRows` reads it: anything but
+  // 'account' must carry an object id on every row. A connector with no
+  // campaign dimension reports its account's daily totals, so calling it
+  // 'auto' (as the deleted version did) made every such source fail the window
+  // on a missing object identity. It also reads better in the error messages,
+  // which are tagged `<connector>/<key> <from>..<to> <stage>`.
+  const key = campaignId || campaignName ? 'campaign' : 'account';
+
+  if (placement.kind === 'ad') {
+    const { platform } = placement;
+    const core = ['impressions', 'clicks', 'spend', 'conversions', 'revenue'].map((c) => chosen[c]).filter(Boolean);
+    const mapped = new Set([...dims, ...core]);
+    return {
+      key, table: 'marketing_kpis_daily', auto: 'ad', platform, ignoredOverrides: choice.ignored,
+      fields: [...new Set([...dims, ...core])],
+      columnFields: [...core, ...dims.filter((d) => d !== 'date' && d !== 'account_id' && d !== 'account_name')],
+      mergeKey, hunt: { tables: null },
+      toRow: (r, ctx) => {
+        const cid = campaignId ? strOrNull(r[campaignId]) : null;
+        const cname = campaignName ? strOrNull(r[campaignName]) : null;
+        return {
+          company_entity_id: ctx.companyId, connection_id: null, platform, ds_id: platform,
+          account_id: ctx.accountId, account_name: strOrNull(r.account_name) ?? ctx.accountName,
+          day_date: r.date, campaign_id: cid, campaign_name: cname,
+          impressions: intOrNull(r[chosen.impressions]) ?? 0,
+          clicks: intOrNull(r[chosen.clicks]) ?? 0,
+          spend: numOrNull(r[chosen.spend]) ?? 0,
+          // NOT NULL columns. A platform with no conversion field writes 0
+          // here and says so in extra._unmapped, so it is not read as zero.
+          conversions: chosen.conversions ? (numOrNull(r[chosen.conversions]) ?? 0) : 0,
+          conversion_value: chosen.revenue ? (numOrNull(r[chosen.revenue]) ?? 0) : 0,
+          extra: {
+            ...leftoverNumbers(r, mapped),
+            ...(chosen.conversions && chosen.revenue ? {} : {
+              _unmapped: ['conversions', 'revenue'].filter((c) => !chosen[c]),
+            }),
+          },
+          // Same identity convention as the direct syncs (platform, platform,
+          // account, campaign, day).
+          row_hash: hashRow([ctx.companyId, platform, platform, ctx.accountId, cid ?? cname, r.date]),
+          source: WINDSOR_SOURCE, synced_at: ctx.syncedAt, sync_batch_id: ctx.batchId,
+        };
+      },
+    };
+  }
+
+  const core = Object.values(chosen).filter(Boolean);
+  return {
+    key, table: 'windsor_metrics_daily', auto: 'metrics', ignoredOverrides: choice.ignored,
+    fields: [...new Set([...dims, ...core])],
+    columnFields: [...core, ...dims.filter((d) => d !== 'date' && d !== 'account_id' && d !== 'account_name')],
+    mergeKey, hunt: { tables: null },
+    toRow: (r, ctx) => {
+      const oid = mergeKey(r);
+      const objectId = isBlank(oid) ? '' : String(oid).slice(0, 500);
+      const out = {
+        company_entity_id: ctx.companyId, ds_id: dsId,
+        account_id: ctx.accountId, account_name: strOrNull(r.account_name) ?? ctx.accountName,
+        day_date: r.date,
+        object_type: campaignId || campaignName ? 'campaign' : 'account',
+        object_id: objectId,
+        object_name: campaignName ? strOrNull(r[campaignName]) : null,
+        metrics: leftoverNumbers(r, new Set(['date', 'account_id', 'account_name'])),
+        source: WINDSOR_SOURCE,
+        row_hash: hashRow([ctx.companyId, 'windsor', dsId, ctx.accountId, objectId, r.date]),
+        synced_at: ctx.syncedAt, sync_batch_id: ctx.batchId,
+      };
+      for (const col of Object.keys(STANDARD_FIELDS)) out[col] = chosen[col] ? numOrNull(r[chosen[col]]) : null;
+      return out;
+    },
+  };
 }
 
 const REQUIRED_FIELDS = new Set(['date', 'account_id']);
@@ -754,20 +867,44 @@ export async function syncAccount({
     await record({ last_sync_status: 'unsupported', last_sync_error: `not a Windsor data source SILO can read: ${account.ds_id}` });
     return summary;
   }
-  // A catalog cannot establish a lossless row grain. Never auto-map unknown sources.
-  const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;
-  if (!datasets) {
-    summary.status = 'unsupported';
-    summary.error = 'Sync blocked: this source needs a reviewed identity, date and row-grain contract. Preview remains available.';
-    await record({ last_sync_status: 'unsupported', last_sync_error: summary.error });
-    return summary;
-  }
+  // Consent is the first gate, before anything is asked of Windsor. A paused
+  // account is not read, not catalogued and not mapped.
   if (account.sync_enabled !== true) {
     summary.status = 'paused';
     return summary; // Do not touch history, last sync result, or Windsor while paused.
   }
   if (!catalogCache.has(conn.value)) catalogCache.set(conn.value, await fetchFieldCatalog({ fetchImpl, connector: conn.value }));
   const catalog = catalogCache.get(conn.value);
+  // `Object.hasOwn`, so a ds_id of `__proto__` or `constructor` cannot reach a
+  // dataset through the prototype chain.
+  let datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;
+  if (!datasets && !anyConnector) {
+    // windsor_metrics_daily and the per-company mapping do not exist yet.
+    summary.status = 'unsupported';
+    summary.error = `${account.ds_id} needs migration 20261103080000 (any connector)`;
+    await record({ last_sync_status: 'unsupported', last_sync_error: summary.error });
+    return summary;
+  }
+  if (!datasets) {
+    if (!catalog) {
+      summary.status = 'error';
+      summary.error = `could not read Windsor's field list for ${conn.value}`;
+      await record({ last_sync_status: 'error', last_sync_error: summary.error });
+      return summary;
+    }
+    const auto = autoDataset(account.ds_id, catalog, overrides);
+    if (!auto) {
+      // No date, or no account_id, or an ad-like source whose name cannot be
+      // made into a platform: there is no way to place a row, so nothing runs.
+      summary.status = 'unsupported';
+      summary.error = `Windsor lists no usable date and account identity for ${account.ds_id}`;
+      await record({ last_sync_status: 'unsupported', last_sync_error: summary.error });
+      return summary;
+    }
+    datasets = [auto];
+    summary.mapped_to = auto.table;
+    if (auto.ignoredOverrides.length) summary.ignored_mappings = auto.ignoredOverrides;
+  }
   const refusedThisRun = new Set();
 
   const plan = planWindows({ today: pacificToday(now), historyFrom: account.history_from, historyMonths, maxHistoryWindows });

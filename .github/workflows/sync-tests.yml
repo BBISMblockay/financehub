@@ -568,9 +568,17 @@ jobs:
       - name: The Windsor sync's guards, removed, must break it
         run: |
           set -u
-          for m in identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions huntmerge skiprefused consent sourcecontract grain huntedgrain huntunmatched huntmatched narrowtimeout blindset lastchance transient generation split outage coreretry bodyretry diagnostics emptyhttp windowsplit splitfloor grainisolate grainunanswered grainbudget; do
-            if WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs >/dev/null 2>&1; then
+          for m in automap autodirect autoplace autograin autooverride anygate identity accountfilter payloadcompany selectaccounts resume window refusedcolumn syncoptions huntmerge skiprefused consent sourcecontract grain huntedgrain huntunmatched huntmatched narrowtimeout blindset lastchance transient generation split outage coreretry bodyretry diagnostics emptyhttp windowsplit splitfloor grainisolate grainunanswered grainbudget; do
+            out="$(WINDSOR_SYNC_MUTATION="$m" node --test scripts/tests/windsor-sync.test.mjs 2>&1)" && rc=0 || rc=$?
+            if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            # A mutation whose pattern no longer appears in the source fails the
+            # suite for the wrong reason, which would hide an untested guard
+            # behind a passing job. The code moved; the mutation must follow it.
+            if printf '%s' "$out" | grep -q 'pattern missing'; then
+              echo "::error::mutation $m no longer matches the source -- update its pattern, do not leave it dead"
               exit 1
             fi
             echo "$m failed the suite, as it must"

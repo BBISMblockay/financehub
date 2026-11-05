@@ -336,6 +336,38 @@ export function chooseMeasures(dsId, catalog, overrides = {}) {
 }
 
 
+/** Where this source's rows would be stored, and whether they can be stored at
+ *  all. ONE source of truth: the sync's `autoDataset` builds from it, the
+ *  broker decides whether sync may be switched on from it, and the connections
+ *  page shows what it says, so the page can never offer a toggle the sync
+ *  would refuse, nor hide one it would accept.
+ *
+ *  A row needs a day and an account to be placed, so a field list without
+ *  `date` and `account_id` cannot be stored however many measures it carries.
+ *  An ad-like source also needs a name that is a valid platform. A connector
+ *  SILO already syncs natively is never ad-like (`isAdLike`), so it goes to
+ *  windsor_metrics_daily and can never double-count against that sync. */
+export function syncPlacement(dsId, catalog) {
+  const ids = new Set((catalog || []).map((f) => f.id));
+  if (FIXED_SOURCES.includes(dsId)) {
+    return { ok: true, kind: 'fixed', table: null, reason: 'its own SILO table (fields fixed by SILO)' };
+  }
+  if (!ids.has('date') || !ids.has('account_id')) {
+    return { ok: false, kind: null, table: null,
+      reason: 'Windsor lists no date and account for this source, so a row cannot be placed' };
+  }
+  if (isAdLike(dsId, ids)) {
+    const platform = adPlatformName(dsId);
+    if (!platform) {
+      return { ok: false, kind: 'ad', table: null,
+        reason: "this source's name cannot be used as a SILO platform" };
+    }
+    return { ok: true, kind: 'ad', table: 'marketing_kpis_daily', platform,
+      reason: `marketing_kpis_daily as ${platform}` };
+  }
+  return { ok: true, kind: 'metrics', table: 'windsor_metrics_daily', reason: 'windsor_metrics_daily' };
+}
+
 export const IDENTITY_ERROR = 'The source returned rows whose account identity could not be verified. No data from this response was used. Verify the selector-to-resource relationship before retrying.';
 
 /** Validate EVERY response, including metric batches, before merging or writing.
