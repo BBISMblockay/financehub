@@ -649,6 +649,22 @@ async function main() {
       console.error(`[error] wow sales daily mv refresh: ${wowRollupError.message}`);
     }
 
+    // One canonical title per (company, sku) in products_master itself
+    // (20261105080000). products_master is one row per SKU across every store,
+    // so the upsert above leaves whichever store synced last -- which is why a
+    // product could be called one thing in a report and another in the Catalog
+    // tab, the PO builder or the launch-calendar picker, all of which read this
+    // column. It runs HERE, after every store in this run has upserted, and
+    // before the rollup refresh below so the two agree. A failure is a real
+    // error: the stored titles would stay as the last store left them.
+    const { data: titlesFixed, error: canonicalTitleError } = await supabase.rpc('apply_canonical_product_titles');
+    if (canonicalTitleError) {
+      hadError = true;
+      console.error(`[error] canonical product titles: ${canonicalTitleError.message}`);
+    } else if (titlesFixed) {
+      console.log(`canonical product titles: ${titlesFixed} row(s) brought into line`);
+    }
+
     // The product-title rollup. Materialized 20260907120000 because the
     // unbounded reads over it (max(day_date) inside the Top products report,
     // an open-ended date_from on the Logistics tile) had to build the whole
