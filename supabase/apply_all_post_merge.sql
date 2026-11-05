@@ -19565,5 +19565,5 @@ $c$select (select count(*) from v_po_header_summary
 -- tool: silo_api_create_task and silo_api_scopes join it (both are on the
 -- PostgREST path allowlist), and silo_api_write_cap loses a grant to the
 -- integration role that nothing ever used. No deploy.
-\i migrations/20261105060000_integration_grants_api_surface.sql
+\i migrations/20261105063000_integration_grants_api_surface.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
