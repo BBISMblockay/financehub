@@ -51,27 +51,37 @@ const FILE4 = 'supabase/migrations/20261105003000_report_hint_dashboard.sql';
 const original4 = readFileSync(FILE4, 'utf8');
 let MIGRATION4 = original4;
 
+/* A migration that RE-STATES a function silently undoes a mutation made to
+   the file that first stated it -- the later CREATE OR REPLACE simply wins,
+   the suite goes green, and the mutation proves nothing. (CI caught exactly
+   that here: six of these were dead after 20261105000000 re-stated
+   silo_api_create_task.) So a mutation to a function body is applied to EVERY
+   file that states that function, and these two helpers are the only way to
+   make one. */
+const inTask = (fn) => { MIGRATION = fn(MIGRATION); MIGRATION3 = fn(MIGRATION3); };
+const inHint = (fn) => { MIGRATION = fn(MIGRATION); MIGRATION3 = fn(MIGRATION3); MIGRATION4 = fn(MIGRATION4); };
+
 if (mutation === 'session-company') {
   // The whole point of reading the grant: a connection's token can carry any
   // active company, and the write must not follow it.
-  MIGRATION = MIGRATION.replace('  v_company := v_grant.company_entity_id;',
-    '  v_company := coalesce(public.active_company_id(), v_grant.company_entity_id);');
+  inTask((m) => m.replace('  v_company := v_grant.company_entity_id;',
+    '  v_company := coalesce(public.active_company_id(), v_grant.company_entity_id);'));
 }
 if (mutation === 'no-member-check') {
   // Anchored on the comment above it: silo_api_consent() further up this same
   // migration contains a byte-identical membership check, and removing THAT
   // one instead would prove nothing about the write tool.
-  MIGRATION = MIGRATION.replace(/  -- The person it acts as must still be a member[\s\S]*?end if;\n/, '');
+  inTask((m) => m.replace(/  -- The person it acts as must still be a member[\s\S]*?end if;\n/, ''));
 }
 if (mutation === 'loose-assignee') {
-  MIGRATION = MIGRATION.replace("    where lower(p.email) = lower(btrim(p_assignee_email))",
-    "    where lower(p.email) like lower(btrim(p_assignee_email)) || '%'");
+  inTask((m) => m.replace("    where lower(p.email) = lower(btrim(p_assignee_email))",
+    "    where lower(p.email) like lower(btrim(p_assignee_email)) || '%'"));
 }
 if (mutation === 'any-assignee') {
-  MIGRATION = MIGRATION.replace(/    join public\.entity_memberships em\n      on em\.user_id = p\.id and em\.entity_id = v_company\n/, '');
+  inTask((m) => m.replace(/    join public\.entity_memberships em\n      on em\.user_id = p\.id and em\.entity_id = v_company\n/, ''));
 }
 if (mutation === 'no-cap') {
-  MIGRATION = MIGRATION.replace(/  if v_used >= public\.silo_api_write_cap\(\) then\n[\s\S]*?end if;\n/, '');
+  inTask((m) => m.replace(/  if v_used >= public\.silo_api_write_cap\(\) then\n[\s\S]*?end if;\n/, ''));
 }
 if (mutation === 'no-idempotency') {
   // Without the unique index the "claim" insert always succeeds, so a timed-out
@@ -90,7 +100,7 @@ if (mutation === 'authenticated-execute') {
   MIGRATION3 = loosen(MIGRATION3, 'text, text, text, date, uuid, text, text, boolean');
 }
 if (mutation === 'ignore-pause') {
-  MIGRATION = MIGRATION.replace(/  if v_grant\.writes_paused_at is not null then\n[\s\S]*?end if;\n/, '');
+  inTask((m) => m.replace(/  if v_grant\.writes_paused_at is not null then\n[\s\S]*?end if;\n/, ''));
 }
 if (mutation === 'no-path') {
   // Both files, because 20261104234500 re-states the allowlist in full: a
@@ -101,16 +111,15 @@ if (mutation === 'no-path') {
 if (mutation === 'no-hint') {
   // The task is still created, so nothing breaks -- the bot simply never
   // learns that SILO already answers the question, which is the whole ask.
-  MIGRATION = MIGRATION.replace(/  v_hint := public\.silo_api_report_hint[^\n]*\n/, "  v_hint := '[]'::json;\n");
-  MIGRATION3 = MIGRATION3.replace(/  v_hint := public\.silo_api_report_hint[^\n]*\n/, "  v_hint := '[]'::json;\n");
+  inTask((m) => m.replace(/  v_hint := public\.silo_api_report_hint[^\n]*\n/, "  v_hint := '[]'::json;\n"));
 }
 if (mutation === 'hint-ignores-privacy') {
-  MIGRATION = MIGRATION.replace(
+  inHint((m) => m.replace(
     "               and (s.visibility = 'company' or s.created_by = p_user)))",
-    '               and true))');
+    '               and true))'));
 }
 if (mutation === 'hint-no-stopwords') {
-  MIGRATION = MIGRATION.replace(/      and w <> all \(array\['report'[\s\S]*?'morning'\]\)\n/, '');
+  inHint((m) => m.replace(/      and w <> all \(array\['report'[\s\S]*?'morning'\]\)\n/, ''));
 }
 if (mutation === 'lax-scopes') {
   // Back to dropping silently, which is what stored a connection without the
