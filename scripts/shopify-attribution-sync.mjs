@@ -27,6 +27,17 @@ const landingBatch=positive(env.ATTRIBUTION_LANDING_BATCH,1);
 // REST caps a single ids= list at 250.
 if(landingBatch>250)throw Error('Landing batch cannot exceed the REST page limit of 250');
 const maxDayRows=positive(env.ATTRIBUTION_MAX_DAY_ROWS,10000);
+// Incremental refresh. 0 is off, and off is what every run has done so far: collect every
+// order of every day in the window. The nightly coverage run re-collects the trailing SEVEN
+// days in full, so a store doing 4,000 orders a day re-read ~28,000 orders a night to learn
+// almost nothing. Set to a number of days and an order whose evidence is younger than that,
+// was readable, had a ready journey and has not been touched in Shopify since, is not
+// fetched again. The number is also the staleness bound: every order in the window is still
+// re-read within that many days, so nothing depends on assuming that a journey change moves
+// an order's updatedAt.
+const reuseMaxAgeDays=Number(env.ATTRIBUTION_REUSE_MAX_AGE_DAYS===undefined||env.ATTRIBUTION_REUSE_MAX_AGE_DAYS===''?0:env.ATTRIBUTION_REUSE_MAX_AGE_DAYS);
+if(!Number.isInteger(reuseMaxAgeDays)||reuseMaxAgeDays<0||reuseMaxAgeDays>60)throw Error('Evidence reuse age must be 0-60 whole days');
+const changeBatch=positive(env.ATTRIBUTION_CHANGE_BATCH,250);
 const coverage=env.ATTRIBUTION_MODE === 'coverage';
 if (coverage && env.ATTRIBUTION_COVERAGE_ENABLED !== 'true') {
   console.log('Attribution coverage disabled'); process.exit(0);
@@ -98,7 +109,35 @@ async function publishDay(connection,day,commit,catalog,beforePublish=async()=>{
   const result=await collectDay(connection,day,{
     ql:shopifyql,gql:shopifyGraphql,commit,decorate:evidence=>allocationWindows(evidence,catalog),
     chunk:publishChunk,threshold:publishThreshold,
-    journeyBatch,landingBatch,journeyMoments,maxRows:maxDayRows,
+    journeyBatch,landingBatch,journeyMoments,maxRows:maxDayRows,reuseMaxAgeDays,
+    // What is already stored for these orders. Read in pages because a day's ledger can
+    // run to five figures and PostgREST filters travel in the URL.
+    storedEvidence:async ids=>{
+      const out=new Map();
+      for(let i=0;i<ids.length;i+=500){
+        const {data,error}=await db.from('shopify_attribution_orders')
+          .select('order_id,evidence,fetched_at').eq('connection_id',connection.id).in('order_id',ids.slice(i,i+500));
+        if(error)throw Error('Stored evidence read failed: '+error.message);
+        for(const row of data||[])out.set(String(row.order_id),{evidence:row.evidence,fetched_at:row.fetched_at});
+      }
+      return out;
+    },
+    // The cheap half of the decision: one tiny request per 250 orders asking nothing but
+    // whether each has been touched since we last read it. Orders with nothing stored are
+    // never asked about, so a first collection or a manual backfill pays nothing for this.
+    orderChanges:async ids=>{
+      const out=new Map();
+      for(let i=0;i<ids.length;i+=changeBatch){
+        const slice=ids.slice(i,i+changeBatch);
+        const data=await shopifyGraphql(connection,'query AttributionOrderChanges($ids: [ID!]!) { nodes(ids: $ids) { __typename ... on Order { id updatedAt } } }',
+          {ids:slice.map(id=>'gid://shopify/Order/'+id)});
+        for(const node of data?.nodes||[]){
+          if(node?.__typename==='Order'&&node.updatedAt)out.set(String(node.id).split('/').pop(),node.updatedAt);
+        }
+      }
+      return out;
+    },
+    onReuse:info=>console.log(JSON.stringify({day,event:'evidence_reuse',...info})),
     // A journey batch that Shopify refuses halves itself and tries again, so a throttle
     // costs speed rather than the day. Logged so a batch size that is permanently too
     // large for this shop shows up as itself, not as the speedup mysteriously missing.

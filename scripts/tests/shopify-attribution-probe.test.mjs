@@ -111,7 +111,7 @@ assert.match(workflow,/if: inputs.probe_plan_day != ''\s+timeout-minutes: 20\s+r
 assert.match(workflow,/if: inputs.probe_order_id == '' && inputs.probe_plan_day == ''\s+run: node scripts\/shopify-attribution-sync.mjs/);
 const coverage=readFileSync(new URL('../../.github/workflows/shopify-attribution-coverage.yml',import.meta.url),'utf8');
 // The batch sizes must reach the job, or the speedup is dead code in production.
-for(const name of ['ATTRIBUTION_JOURNEY_BATCH','ATTRIBUTION_JOURNEY_MOMENTS','ATTRIBUTION_LANDING_BATCH','ATTRIBUTION_MAX_DAY_ROWS']){
+for(const name of ['ATTRIBUTION_JOURNEY_BATCH','ATTRIBUTION_JOURNEY_MOMENTS','ATTRIBUTION_LANDING_BATCH','ATTRIBUTION_MAX_DAY_ROWS','ATTRIBUTION_REUSE_MAX_AGE_DAYS']){
  // A dispatch input overrides the repo variable, so a size can be timed on ONE day,
  // read-only, before it is turned on for every run. Without the override the only way to
  // try a batch size would be to change it for production first.
@@ -123,6 +123,10 @@ for(const name of ['ATTRIBUTION_JOURNEY_BATCH','ATTRIBUTION_JOURNEY_MOMENTS','AT
  // sizes have to reach that job too or only manual backfills get faster.
  assert.ok(coverage.includes(name+': ${{ vars.'+name+' }}'),name+' must be passed to the coverage job');
 }
+// The incremental refresh exists for the nightly run above all, so its sizing must reach
+// the coverage job even though it has no dispatch inputs of its own.
+assert.ok(coverage.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
+assert.ok(workflow.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
 const ci=readFileSync(new URL('../../.github/workflows/attribution-tests.yml',import.meta.url),'utf8');
 assert.ok(ci.includes('node scripts/tests/shopify-attribution-probe.test.mjs'));
 assert.ok(ci.includes('node scripts/tests/shopify-attribution-plan-probe.test.mjs'),'the speed probe is covered in CI');

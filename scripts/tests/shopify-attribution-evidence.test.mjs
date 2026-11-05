@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {collectDay,fetchJourney,fetchJourneys,fetchLandingSites,fetchSalesDay,validateDay,landingEvidence,dayRange,sanitizeDiscountCodes} from '../lib/shopify-attribution-evidence.mjs';
+import {collectDay,fetchJourney,fetchJourneys,fetchLandingSites,fetchSalesDay,validateDay,landingEvidence,dayRange,sanitizeDiscountCodes,planReuse,reusableEvidence} from '../lib/shopify-attribution-evidence.mjs';
 import {shopifyql,shopifyGraphql} from '../lib/shopify-sync-core.mjs';
 const day='2026-09-01',conn={id:'c',shop_domain:'test.myshopify.com'};
 const visit={id:'v1',__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://facebook.com/?email=secret',utmParameters:{source:'facebook',medium:'paid'},landingPage:'https://shop.test/p?utm_contact=secret'};
@@ -319,4 +319,151 @@ assert.equal(unavailablePublished,2);
  // And deep paging that silently repeats a window is caught as an identity failure.
  assert.throws(()=>validateDay(day,[...all,all[0]],[{net_sales:'10501.00',total_sales:'10501.00'}],{maxRows:20000}),/identity/);
 }
-console.log('Attribution evidence: integrated failure paths, unavailable reversals, actual shared 999/1000 boundary, batched/serial equivalence and the day row ceiling passed');
+// ---------------------------------------------------------------------------
+// Incremental refresh. The nightly coverage run re-collects the trailing seven
+// days IN FULL, so a 4,000-order-a-day store re-read ~28,000 orders a night to
+// learn almost nothing. Reuse changes what is FETCHED and nothing else: the day
+// still publishes evidence for every order, because both publish functions
+// refuse a day that is missing any.
+// ---------------------------------------------------------------------------
+{
+ const ago=h=>new Date(Date.parse('2026-09-02T00:00:00Z')-h*3600000).toISOString();
+ const now='2026-09-02T00:00:00Z';
+ const storedRow=(over={})=>({fetched_at:ago(24),evidence:{
+  order:{id:'gid://shopify/Order/1',name:'#1',sourceName:'web',discountCodes:['TEAM50'],
+   customerJourneySummary:{ready:true,firstVisit:{id:'v1'},lastVisit:{id:'v1'},moments:{nodes:[{id:'v1'}],pageInfo:{hasNextPage:false}}}},
+  raw:{landing_path:'/p',tracking:{utm_source:'redo'},landing_truncated:false},
+  own_hosts:['stale.example'],allocations:{stale:true}},...over});
+
+ // reusableEvidence: each refusal is a case where the evidence could have moved.
+ assert.equal(reusableEvidence(storedRow(),now,7),true);
+ assert.equal(reusableEvidence(undefined,now,7),false,'nothing stored is nothing to reuse');
+ assert.equal(reusableEvidence({fetched_at:ago(24),evidence:null},now,7),false);
+ assert.equal(reusableEvidence({fetched_at:ago(24),evidence:[]},now,7),false,'an array is not an evidence object');
+ for (const missing of ['order','raw']) {
+  const row=storedRow(); delete row.evidence[missing];
+  assert.equal(reusableEvidence(row,now,7),false,'a row missing '+missing+' is re-fetched, not trusted');
+ }
+ {
+  const row=storedRow(); row.evidence.order.evidence_status='unavailable';
+  assert.equal(reusableEvidence(row,now,7),false,'an unavailable order may since have become readable');
+ }
+ {
+  const row=storedRow(); row.evidence.order.customerJourneySummary={ready:false};
+  assert.equal(reusableEvidence(row,now,7),false,'a pending journey is what a refresh is FOR');
+ }
+ {
+  const row=storedRow(); row.evidence.order.customerJourneySummary=null;
+  assert.equal(reusableEvidence(row,now,7),false);
+ }
+ assert.equal(reusableEvidence(storedRow({fetched_at:'not-a-date'}),now,7),false);
+ assert.equal(reusableEvidence(storedRow({fetched_at:undefined}),now,7),false);
+ assert.equal(reusableEvidence(storedRow({fetched_at:ago(-1)}),now,7),false,'a stamp in the future bounds nothing');
+ assert.equal(reusableEvidence(storedRow({fetched_at:ago(24*8)}),now,7),false,'past the age bound it is read again');
+ assert.equal(reusableEvidence(storedRow({fetched_at:ago(24*8)}),now,9),true);
+ // Zero days admits nothing, which is why it is the off switch: planReuse refuses to plan
+ // at all at 0, and the predicate would refuse every row anyway.
+ assert.equal(reusableEvidence(storedRow(),now,0),false);
+ assert.equal(reusableEvidence(storedRow({fetched_at:now}),now,0),true,'only a read taken this instant is zero days old');
+
+ // planReuse: the decision, and what it costs.
+ const stored=new Map([['1',storedRow()],['2',storedRow()],['3',storedRow({fetched_at:ago(24*30)})]]);
+ let changeCalls=0,askedAbout=null;
+ const deps=changes=>({storedEvidence:async()=>stored,
+  orderChanges:async ids=>{changeCalls++;askedAbout=ids;return new Map(ids.map(id=>[id,changes[id]??ago(48)]));},
+  extracted:now,maxAgeDays:7});
+ {
+  changeCalls=0;
+  const plan=await planReuse(['1','2','3','4'],deps({}));
+  assert.deepEqual([...plan.keys()],['1','2'],'only orders unchanged since their stored read are reused');
+  assert.deepEqual(askedAbout,['1','2'],'order 3 is past the age bound and 4 has nothing stored, so neither is asked about');
+  assert.equal(changeCalls,1);
+ }
+ {
+  // Touched in Shopify AFTER we stored it: fetch it.
+  const plan=await planReuse(['1','2'],deps({'1':ago(2)}));
+  assert.deepEqual([...plan.keys()],['2'],'an order touched since the stored read is fetched again');
+ }
+ {
+  // Shopify did not answer for it. Not knowing whether it moved is not knowing it did not.
+  const plan=await planReuse(['1','2'],{...deps({}),orderChanges:async()=>new Map([['2',ago(48)]])});
+  assert.deepEqual([...plan.keys()],['2'],'an order Shopify did not answer for is never assumed unchanged');
+ }
+ {
+  // Off by default, and off costs no request at all.
+  let touched=0;
+  const off=await planReuse(['1'],{storedEvidence:async()=>{touched++;return stored;},orderChanges:async()=>{touched++;return new Map();},extracted:now,maxAgeDays:0});
+  assert.equal(off.size,0);assert.equal(touched,0,'reuse off reads nothing and asks nothing');
+ }
+ {
+  // A day with nothing stored -- a first collection, or a manual backfill -- must not pay
+  // for the change pass.
+  let asked=0;
+  const fresh=await planReuse(['9'],{storedEvidence:async()=>new Map(),orderChanges:async()=>{asked++;return new Map();},extracted:now,maxAgeDays:7});
+  assert.equal(fresh.size,0);assert.equal(asked,0,'nothing stored means nothing to ask Shopify about');
+ }
+ for (const broken of [
+  {storedEvidence:async()=>{throw Error('database refused');},orderChanges:async()=>new Map()},
+  {storedEvidence:async()=>stored,orderChanges:async()=>{throw Error('Shopify refused');}},
+ ]) {
+  const notes=[];
+  const plan=await planReuse(['1','2'],{...broken,extracted:now,maxAgeDays:7,onReuse:n=>notes.push(n)});
+  assert.equal(plan.size,0,'reuse that cannot be planned costs speed, not the day');
+  assert.match(notes[0].unavailable,/refused/,'and it says so rather than looking like nothing to reuse');
+ }
+
+ // THE INTEGRATED GUARANTEE. A refreshed day must publish exactly what a full collection
+ // publishes -- same orders, same ledger, same money -- while fetching only what changed.
+ const visit=n=>({id:'v'+n,__typename:'CustomerVisit',occurredAt:'2026-09-01T01:00:00Z',source:'https://x.test/',utmParameters:{}});
+ const live=n=>({__typename:'Order',id:'gid://shopify/Order/'+n,name:'#'+n,createdAt:'2026-09-01T02:00:00Z',sourceName:'web',
+  discountCodes:['TEAM50'],customerJourneySummary:{ready:true,firstVisit:visit(n),lastVisit:visit(n),
+   moments:{nodes:[visit(n)],pageInfo:{hasNextPage:false}}}});
+ const three=['1','2','3'].map(n=>({day,order_id:n,net_sales:'10.00',total_sales:'11.00'}));
+ const threeControl=[{net_sales:'30.00',total_sales:'33.00'}];
+ const fetched={full:[],partial:[]};
+ const base=mode=>({
+  ql:async(c,q)=>q.includes('GROUP BY')?three:threeControl,
+  gql:async(c,q,v)=>{
+   if(q.includes('AttributionShop'))return {shop:{currencyCode:'USD',ianaTimezone:'UTC',primaryDomain:{host:'shop.test'}}};
+   const ids=q.includes('Batch')?v.ids:[v.id];
+   for(const gid of ids)fetched[mode].push(gid.split('/').pop());
+   return q.includes('Batch')?{nodes:ids.map(g=>live(g.split('/').pop()))}:{order:live(v.id.split('/').pop())};
+  },
+  rest:async(c,id)=>({id,landing_site:'/p?utm_source=redo'}),
+  decorate:e=>({channel:e.order.customerJourneySummary?.firstVisit?.id ?? 'none'}),
+  commit:true,journeyBatch:3,landingBatch:3,
+  restBatch:async(c,ids)=>ids.map(id=>({id,landing_site:'/p?utm_source=redo'})),
+  // The extraction stamp is what the age bound is measured against, so the fixture has to
+  // own the clock or the stored rows read as months old.
+  now:()=>now,
+ });
+ let fullPayload=null,partialPayload=null,note=null;
+ await collectDay(conn,day,{...base('full'),publish:async p=>{fullPayload=p;}});
+ // Orders 1 and 2 are stored, unchanged and young; 3 is not stored at all.
+ const storedTwo=new Map([['1',{fetched_at:ago(24),evidence:{...fullPayload.p_orders[0].evidence,own_hosts:['stale.example'],allocations:{stale:true}}}],
+                          ['2',{fetched_at:ago(24),evidence:{...fullPayload.p_orders[1].evidence,own_hosts:['stale.example'],allocations:{stale:true}}}]]);
+ const result=await collectDay(conn,day,{...base('partial'),
+  reuseMaxAgeDays:7,storedEvidence:async()=>storedTwo,
+  orderChanges:async ids=>new Map(ids.map(id=>[id,ago(48)])),
+  onReuse:n=>{note=n;},
+  publish:async p=>{partialPayload=p;}});
+ assert.deepEqual(fetched.full,['1','2','3'],'a full collection fetches every order');
+ assert.deepEqual(fetched.partial,['3'],'a refresh fetches only the order it has nothing good for');
+ assert.equal(result.reused,2,'and reports how many it stood on');
+ assert.deepEqual(note,{orders:3,stored:2,candidates:2,reused:2});
+ const comparable=p=>({...p,p_extracted:'stamp'});
+ assert.deepEqual(comparable(partialPayload),comparable(fullPayload),
+  'a refreshed day publishes exactly what a full collection publishes');
+ // Specifically: the whole ledger is still there, which is what the publish functions
+ // require ("Missing order evidence"), and the two things that must NOT be reused were
+ // rebuilt rather than carried over from the stored row.
+ assert.deepEqual(partialPayload.p_orders.map(o=>o.order_id),['1','2','3']);
+ assert.equal(partialPayload.p_ledger.length,3);
+ assert.equal(partialPayload.p_net,3000);
+ for (const o of partialPayload.p_orders) {
+  assert.ok(!o.evidence.own_hosts.includes('stale.example'),'own_hosts is rebuilt from the shop as it is now');
+  assert.notDeepEqual(o.evidence.allocations,{stale:true},'allocations are re-derived against today\'s catalog');
+  assert.equal(o.evidence.allocations.channel,'v'+o.order_id);
+ }
+}
+console.log('Attribution evidence: integrated failure paths, unavailable reversals, actual shared 999/1000 boundary, batched/serial equivalence, the day row ceiling and incremental refresh passed');

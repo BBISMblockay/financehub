@@ -29,6 +29,9 @@ on:
       max_day_rows:
         description: Optional. Order-row ceiling for one day for THIS run only; blank uses the repo variable (default 10000)
         required: false
+      reuse_max_age_days:
+        description: Optional. Reuse stored evidence younger than this many days for THIS run only; blank uses the repo variable (default 0 = collect every order)
+        required: false
       commit:
         description: Publish verified snapshots (false is read-only)
         type: boolean
@@ -62,6 +65,8 @@ jobs:
       ATTRIBUTION_JOURNEY_MOMENTS: ${{ inputs.journey_moments || vars.ATTRIBUTION_JOURNEY_MOMENTS }}
       ATTRIBUTION_LANDING_BATCH: ${{ inputs.landing_batch || vars.ATTRIBUTION_LANDING_BATCH }}
       ATTRIBUTION_MAX_DAY_ROWS: ${{ inputs.max_day_rows || vars.ATTRIBUTION_MAX_DAY_ROWS }}
+      ATTRIBUTION_REUSE_MAX_AGE_DAYS: ${{ inputs.reuse_max_age_days || vars.ATTRIBUTION_REUSE_MAX_AGE_DAYS }}
+      ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

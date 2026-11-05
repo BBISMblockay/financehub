@@ -237,7 +237,73 @@ export async function fetchLandingSites(connection, ids, { rest, restBatch = nul
   return out;
 }
 
-export async function collectDay(connection, day, { ql, gql, rest, restBatch=null, publish, stage=null, finalize=null, decorate=null, commit=false, now=()=>new Date().toISOString(), chunk=500, threshold=5000, journeyBatch=1, landingBatch=1, journeyMoments=10, maxRows=DEFAULT_MAX_DAY_ROWS, onSplit=null }) {
+/** May this stored evidence row stand in for fetching the order again?
+ *
+ *  Reuse is for orders whose evidence cannot have changed. Four things must hold, and
+ *  each rules out a case where it could have:
+ *   - the row carries both halves of the evidence a fetch produces (`order` and `raw`),
+ *     so a row written by an older or partial shape is re-fetched rather than trusted;
+ *   - the order was readable and its journey was READY. A not-ready journey is exactly
+ *     the thing a refresh exists to pick up, and an unavailable order may since have
+ *     become readable, so neither is ever reused;
+ *   - `fetched_at` is in the past. An unparseable or missing stamp makes `age` NaN and
+ *     every comparison against it false, so it is refused by the same line -- which is
+ *     why there is no separate parse check here, and both cases are tested;
+ *   - the row is younger than `maxAgeDays`. This is the backstop that does not depend on
+ *     Shopify: whether or not a journey change moves an order's `updatedAt`, every order
+ *     in the refresh window is read again within this many days, so staleness is bounded
+ *     by configuration rather than by an assumption about an upstream field. */
+export function reusableEvidence(row, nowIso, maxAgeDays) {
+  const e = row?.evidence;
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return false;
+  if (!e.order || typeof e.order !== 'object' || !e.raw || typeof e.raw !== 'object') return false;
+  if (e.order.evidence_status === 'unavailable') return false;
+  if (e.order.customerJourneySummary?.ready !== true) return false;
+  const age = Date.parse(nowIso) - Date.parse(row.fetched_at ?? '');
+  return age >= 0 && age <= maxAgeDays * 86400000;
+}
+
+/** Which of a day's orders need fetching at all.
+ *
+ *  The nightly coverage run re-collects the trailing seven days IN FULL, so a store doing
+ *  4,000 orders a day re-read about 28,000 orders every night to learn almost nothing.
+ *  This is what stops the daily cost scaling with store size.
+ *
+ *  It changes only what is FETCHED. The day still publishes its whole ledger with evidence
+ *  for every order in it, because both publish functions refuse a day that is missing any
+ *  ("Missing order evidence"), and that guard is worth keeping exactly as it is. The money
+ *  is re-read from ShopifyQL every time regardless, so the reconciliation is never reusing
+ *  anything.
+ *
+ *  Returns the evidence to reuse, keyed by order id. Anything absent is fetched. */
+export async function planReuse(ids, { storedEvidence, orderChanges, extracted, maxAgeDays, onReuse = null }) {
+  if (!(maxAgeDays > 0) || !storedEvidence || !ids.length) return new Map();
+  try {
+    const stored = await storedEvidence(ids);
+    // Only orders that are reusable on their own terms are worth asking Shopify about,
+    // so a day with nothing stored -- a first collection, or a manual backfill -- costs
+    // no extra request at all.
+    const candidates = ids.filter(id => reusableEvidence(stored.get(id), extracted, maxAgeDays));
+    const changes = candidates.length && orderChanges ? await orderChanges(candidates) : new Map();
+    const reuse = new Map();
+    for (const id of candidates) {
+      const changed = Date.parse(changes.get(id) ?? '');
+      // An order Shopify did not answer for is fetched, never assumed unchanged: not
+      // knowing whether it moved is not the same as knowing it did not.
+      if (!Number.isFinite(changed)) continue;
+      if (changed <= Date.parse(stored.get(id).fetched_at)) reuse.set(id, stored.get(id).evidence);
+    }
+    if (onReuse) onReuse({ orders: ids.length, stored: stored.size, candidates: candidates.length, reused: reuse.size });
+    return reuse;
+  } catch (error) {
+    // Reuse is an optimisation, so losing it must cost speed and nothing else: the day
+    // falls back to collecting every order, which is what it did before this existed.
+    if (onReuse) onReuse({ orders: ids.length, reused: 0, unavailable: error?.message ? String(error.message).slice(0, 200) : 'unknown' });
+    return new Map();
+  }
+}
+
+export async function collectDay(connection, day, { ql, gql, rest, restBatch=null, publish, stage=null, finalize=null, decorate=null, commit=false, now=()=>new Date().toISOString(), chunk=500, threshold=5000, journeyBatch=1, landingBatch=1, journeyMoments=10, maxRows=DEFAULT_MAX_DAY_ROWS, onSplit=null, storedEvidence=null, orderChanges=null, reuseMaxAgeDays=0, onReuse=null }) {
   // Stamp before reads: a slower old extraction cannot overwrite a newer one.
   const extracted = now();
   const shop = (await gql(connection, 'query AttributionShop { shop { currencyCode ianaTimezone primaryDomain { host } } }')).shop;
@@ -252,9 +318,13 @@ export async function collectDay(connection, day, { ql, gql, rest, restBatch=nul
   // byte for byte the serial path that has published every snapshot so far, so turning
   // this on is a configuration change and turning it off is too.
   const orders=[]; let pending=0;
+  // Orders whose evidence provably cannot have changed are not fetched again. Off unless
+  // reuseMaxAgeDays is set, and even then only what is FETCHED changes: every order still
+  // goes into the published day.
+  const reuse=await planReuse(ledger.map(r=>r.order_id),{storedEvidence,orderChanges,extracted,maxAgeDays:reuseMaxAgeDays,onReuse});
   const outer=Math.max(landingBatch,journeyBatch,1);
   for (let i=0;i<ledger.length;i+=outer) {
-    const slice=ledger.slice(i,i+outer), ids=slice.map(r=>r.order_id);
+    const slice=ledger.slice(i,i+outer), ids=slice.map(r=>r.order_id).filter(id=>!reuse.has(id));
     const journeys=new Map();
     if (journeyBatch>1) {
       for (let j=0;j<ids.length;j+=journeyBatch) {
@@ -267,11 +337,21 @@ export async function collectDay(connection, day, { ql, gql, rest, restBatch=nul
     // invent evidence for an order we are explicitly recording as unmeasured.
     const landings=await fetchLandingSites(connection,ids.filter(id=>journeys.get(id)?.evidence_status!=='unavailable'),{rest,restBatch,batch:landingBatch});
     for (const row of slice) {
-      const order=journeys.get(row.order_id);
-      if (!order) throw Error('Journey missing for a ledger order');
-      pending += order.customerJourneySummary?.ready === false ? 1 : 0;
-      const raw=order.evidence_status === 'unavailable' ? null : landings.get(row.order_id);
-      const evidence={order,raw:landingEvidence(raw?.landing_site),own_hosts};
+      const stored=reuse.get(row.order_id);
+      let evidence;
+      if (stored) {
+        // Only the two expensive halves are reused. `own_hosts` is rebuilt from the shop
+        // as it is NOW, and the allocations are re-derived below against today's catalog,
+        // because a refresh is partly how a changed catalog or launch window reaches an
+        // already-collected order.
+        evidence={order:stored.order,raw:stored.raw,own_hosts};
+      } else {
+        const order=journeys.get(row.order_id);
+        if (!order) throw Error('Journey missing for a ledger order');
+        pending += order.customerJourneySummary?.ready === false ? 1 : 0;
+        const raw=order.evidence_status === 'unavailable' ? null : landings.get(row.order_id);
+        evidence={order,raw:landingEvidence(raw?.landing_site),own_hosts};
+      }
       if(decorate)evidence.allocations=decorate(evidence);
       orders.push({order_id:row.order_id,evidence});
     }
@@ -291,7 +371,7 @@ export async function collectDay(connection, day, { ql, gql, rest, restBatch=nul
       p_ledger:ledger,p_net:net,p_total:total,p_extracted:extracted});
   } else if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
     p_ledger:ledger,p_orders:orders,p_net:net,p_total:total,p_extracted:extracted});
-  return {day,orders:orders.length,pending,net_cents:net,total_cents:total,committed:commit,staged};
+  return {day,orders:orders.length,pending,reused:reuse.size,net_cents:net,total_cents:total,committed:commit,staged};
 }
 export function dayRange(start,end) {
   const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && new Date(v+'T00:00:00Z').toISOString().slice(0,10) === v;
