@@ -303,8 +303,33 @@ export function fieldsNamedIn(text, fields) {
   return named;
 }
 
+/** Shortest window a read is split down to. This is the only bound splitting
+ *  needs: the halves are read depth-first and the first one that still fails
+ *  throws, so an unanswered 35-day window costs two whole-window attempts and
+ *  then one pair per halving -- eight reads -- before the dataset gives up,
+ *  and a dataset error ends the account for this run. */
+export const MIN_SPLIT_DAYS = 7;
+
+/** The two halves of [from, to], or null when the window is already at or
+ *  under MIN_SPLIT_DAYS. Halves are disjoint and cover the whole window, so
+ *  no day is read twice and none is skipped. */
+export function splitWindow(from, to) {
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (!Number.isFinite(days) || days <= MIN_SPLIT_DAYS) return null;
+  const mid = shiftDate(from, Math.ceil(days / 2) - 1);
+  return [[from, mid], [shiftDate(mid, 1), to]];
+}
+
 /** Read one dataset for one account and window. Returns the raw rows and the
- *  fields Windsor refused. Throws (redacted) on anything else. */
+ *  fields Windsor refused. Throws (redacted) on anything else.
+ *
+ *  A window Windsor will not answer for at all -- the Klaviyo account report
+ *  over 35 days has been timing out twice in a row since 2026-11-04 -- is
+ *  asked for in halves instead. This happens ONLY after the whole window has
+ *  failed, so a working full-window read is never replaced by split reads and
+ *  the two cannot disagree; every half must succeed or the window still
+ *  fails, unwritten, as before. Rows carry their own date, so the halves
+ *  concatenate without being combined. */
 export async function fetchDataset({ key, fetchImpl, connector, accountId, dataset, from, to, counter }) {
   let fields = [...dataset.fields];
   const dropped = [];
@@ -317,6 +342,17 @@ export async function fetchDataset({ key, fetchImpl, connector, accountId, datas
       dropped.push(...r.named);
       fields = fields.filter((f) => !r.named.includes(f));
       continue;
+    }
+    const halves = r.transient ? splitWindow(from, to) : null;
+    if (halves) {
+      const rows = [];
+      for (const [a, b] of halves) {
+        const part = await fetchDataset({ key, fetchImpl, connector, accountId,
+          dataset: { ...dataset, fields }, from: a, to: b, counter });
+        rows.push(...part.rows);
+        for (const f of part.dropped) if (!dropped.includes(f)) dropped.push(f);
+      }
+      return { rows, dropped };
     }
     throw new Error(`${dataset.key}: ${r.error}`);
   }
@@ -380,7 +416,7 @@ async function readHuntBatch({ fields, tableOf, state, ...io }) {
   let batch = [...fields];
   for (let attempt = 0; attempt <= MAX_FIELD_RETRIES && batch.length; attempt += 1) {
     const r = await readOnceRetrying({ ...io, fields: [...dims, ...batch] });
-    if (r.rows) { state.answered += 1; out.rows.push(r.rows); return out; }
+    if (r.rows) { state.answered += 1; out.rows.push({ fields: [...batch], rows: r.rows }); return out; }
     if (r.transient) {
       // Windsor did not answer this batch. A wide batch can be too slow for
       // it even when each field is fine, so ask again in halves.
@@ -400,7 +436,7 @@ async function readHuntBatch({ fields, tableOf, state, ...io }) {
     if (byTable.size <= 1) { out.refused.push(...batch); return out; }
     for (const part of byTable.values()) {
       const p = await readOnceRetrying({ ...io, fields: [...dims, ...part] });
-      if (p.rows) { state.answered += 1; out.rows.push(p.rows); }
+      if (p.rows) { state.answered += 1; out.rows.push({ fields: [...part], rows: p.rows }); }
       else if (p.transient) { state.failures += 1; await readSplitting({ ...io, fields: part, state, out }); }
       else out.refused.push(...part);
     }
@@ -425,7 +461,7 @@ async function readSplitting({ fields, state, out, ...io }) {
   for (const half of [fields.slice(0, mid), fields.slice(mid)]) {
     if (state.failures > MAX_UNANSWERED_PER_WINDOW) { out.incomplete = true; return; }
     const r = await readOnce({ ...io, fields: [...io.dims, ...half] });
-    if (r.rows) { state.answered += 1; out.rows.push(r.rows); continue; }
+    if (r.rows) { state.answered += 1; out.rows.push({ fields: [...half], rows: r.rows }); continue; }
     if (r.transient) { state.failures += 1; await readSplitting({ ...io, fields: half, state, out }); continue; }
     const named = r.named.filter((f) => half.includes(f));
     if (named.length) {
@@ -436,6 +472,50 @@ async function readSplitting({ fields, state, out, ...io }) {
     }
     if (half.length === 1) out.refused.push(...half);
     else await readSplitting({ ...io, fields: half, state, out });
+  }
+}
+
+/** Reads one hunted batch may spend finding which field broke the row grain.
+ *  Bisecting a 60-field batch down to one offender costs about a dozen; the
+ *  allowance is double that so a batch with two or three of them still
+ *  resolves rather than leaving its window unwritten run after run. */
+export const MAX_GRAIN_READS = 24;
+
+/** A hunted read came back at a shape the dataset's row identity cannot
+ *  address -- two rows for one account/day/object, or an object id missing.
+ *  That is ONE field's doing (TikTok's catalog carries advertiser-level and
+ *  lifetime fields that do not belong on a daily campaign row), so the batch
+ *  is bisected to find it, it is refused like any other unusable field, and
+ *  the rest of the batch still lands. Before this, one such field cost the
+ *  whole window. The core read is never isolated this way: it decides which
+ *  rows exist, so a core grain failure still fails the window. */
+async function isolateGrainOffenders({ fields, validate, state, out, ...io }) {
+  if (fields.length <= 1) { out.refused.push(...fields); return; }
+  const mid = Math.ceil(fields.length / 2);
+  for (const half of [fields.slice(0, mid), fields.slice(mid)]) {
+    // Out of reads: these fields have NOT been shown to be the problem, so
+    // they are left unresolved rather than refused. An ambiguous batch is no
+    // evidence against the fields that travelled in it.
+    if (state.grainReads >= MAX_GRAIN_READS) { out.incomplete = true; continue; }
+    state.grainReads += 1;
+    const r = await readOnce({ ...io, fields: [...io.dims, ...half] });
+    if (!r.rows) {
+      // A refusal names the fields: that is evidence, and they are dropped
+      // like any other unusable field. No answer at all is not evidence --
+      // treating a timeout as a refusal would let a provider blip erase
+      // stored values and still advance the cursor, so the window is marked
+      // incomplete and asked again next run instead.
+      if (r.transient) out.incomplete = true;
+      else out.refused.push(...half);
+      continue;
+    }
+    try {
+      validate(r.rows);
+      out.good.push(r.rows);
+    } catch (e) {
+      if (!e?.grain) throw e;
+      await isolateGrainOffenders({ ...io, fields: half, validate, state, out });
+    }
   }
 }
 
@@ -481,13 +561,28 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
     const refused = [];
     const unanswered = [];
     let incomplete = false;
-    const state = { answered: 0, failures: 0 };
+    const state = { answered: 0, failures: 0, grainReads: 0 };
     for (let i = 0; i < extra.length; i += HUNT_BATCH_SIZE) {
       stage = `hunted batch ${Math.floor(i / HUNT_BATCH_SIZE) + 1}`;
       const b = await readHuntBatch({ key, fetchImpl, connector, accountId, from, to, counter, dims,
         fields: extra.slice(i, i + HUNT_BATCH_SIZE), tableOf, state });
-      for (const rows of b.rows) validate(rows);
-      sets.push(...b.rows);
+      for (const set of b.rows) {
+        try {
+          validate(set.rows);
+          sets.push(set.rows);
+        } catch (e) {
+          if (!e?.grain) throw e;
+          const iso = { refused: [], good: [], incomplete: false };
+          await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,
+            fields: set.fields, validate, state, out: iso });
+          refused.push(...iso.refused);
+          sets.push(...iso.good);
+          // Something in this batch could not be told apart. Writing now
+          // would replace stored values without it and count the window as
+          // covered, so the window waits for the next run.
+          if (iso.incomplete) incomplete = true;
+        }
+      }
       refused.push(...b.refused);
       unanswered.push(...b.unanswered);
       if (b.incomplete) incomplete = true;
@@ -536,10 +631,13 @@ export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
       || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day
       || day < from || day > to) throw new Error('Invalid or out-of-window date; window not saved');
     if (dataset.key !== 'account' && isBlank(dataset.mergeKey?.(r))) {
-      throw new Error('Missing object identity for row grain; window not saved');
+      // `grain`: the rows came back at a shape this dataset's identity cannot
+      // address. For a hunted batch that is one field's fault and is isolated
+      // (fetchDatasetHunted); for the core read it still fails the window.
+      throw Object.assign(new Error('Missing object identity for row grain; window not saved'), { grain: true });
     }
     const row = dataset.toRow({ ...r, date: day }, ctx);
-    if (byHash.has(row.row_hash)) throw new Error('Ambiguous duplicate row grain; window not saved');
+    if (byHash.has(row.row_hash)) throw Object.assign(new Error('Ambiguous duplicate row grain; window not saved'), { grain: true });
     byHash.set(row.row_hash, row);
   }
   return { rows: [...byHash.values()], foreign, unattributed, outOfWindow, duplicates };
