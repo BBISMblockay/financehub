@@ -31,9 +31,16 @@ import { hashRow } from '../lib/shopify-sync-core.mjs';
 const MUT = process.env.WINDSOR_SYNC_MUTATION || '';
 const libUrl = new URL('../lib/windsor-sync-core.mjs', import.meta.url);
 
+const brokerLibUrl = new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', import.meta.url);
+
 async function loadCore() {
   let src = fs.readFileSync(libUrl, 'utf8');
+  // Some guards the sync depends on live in the broker's shared library, so a
+  // mutated copy of that is loaded too: a guard there must be as testable as
+  // one here, or moving code between the two would quietly lose its test.
+  let libSrc = fs.readFileSync(brokerLibUrl, 'utf8');
   const sub = (from, to) => { assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`); src = src.split(from).join(to); };
+  const subLib = (from, to) => { assert.ok(libSrc.includes(from), `mutation ${MUT}: pattern missing`); libSrc = libSrc.split(from).join(to); };
   if (MUT === 'coreretry') sub('const r = await readOnceRetrying({ key, fetchImpl, connector, accountId, fields, from, to, counter });', 'const r = await readOnce({ key, fetchImpl, connector, accountId, fields, from, to, counter });');
   if (MUT === 'bodyretry') sub('text = await res.text();', "text = await res.text().catch(() => '');");
   if (MUT === 'diagnostics') sub('e.message = `${connector}/${dataset.key} ${from}..${to} ${stage}: ${e.message}`;', '');
@@ -52,7 +59,7 @@ async function loadCore() {
   if (MUT === 'outage') sub('      if (state.answered === 0) incomplete = true;\n      else refused.push(...unanswered);', '    refused.push(...unanswered);');
   if (MUT === 'skiprefused') sub('refusedThisRun.add(f);', '');
   if (MUT === 'consent') sub('account.sync_enabled !== true', 'false');
-  if (MUT === 'sourcecontract') sub('const datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;', 'const datasets = DATASETS[account.ds_id] || DATASETS.tiktok;');
+  if (MUT === 'sourcecontract') sub('let datasets = Object.hasOwn(DATASETS, account.ds_id) ? DATASETS[account.ds_id] : null;', 'let datasets = DATASETS[account.ds_id] || DATASETS.tiktok;');
   if (MUT === 'grain') sub("if (byHash.has(row.row_hash)) throw Object.assign(new Error('Ambiguous duplicate row grain; window not saved'), { grain: true });", '');
   if (MUT === 'window') sub('|| day < from || day > to)', ')');
   if (MUT === 'huntedgrain') sub('          validate(set.rows);\n          sets.push(set.rows);', '          sets.push(set.rows);');
@@ -66,7 +73,27 @@ async function loadCore() {
   // A bad hunted field must be found and dropped, not taken at face value.
   if (MUT === 'grainisolate') sub('          await isolateGrainOffenders({ key, fetchImpl, connector, accountId, from, to, counter, dims,\n            fields: set.fields, validate, state, out: iso });', '          iso.good.push(set.rows);');
   // Hunted rows that match NO core row at all are a grain shift, not spare objects.
-  if (MUT === 'huntunmatched') sub("    if (merged.unmatched && !merged.matched) {\n      throw new Error('Hunted rows do not match the core row grain; window not saved');\n    }", '');
+  // Windsor's own field list is what makes a new source work on connect.
+  if (MUT === 'automap') sub('    const auto = autoDataset(account.ds_id, catalog, overrides);', '    const auto = null;');
+  // A source SILO syncs natively must never reach marketing_kpis_daily.
+  if (MUT === 'autodirect') sub("  if (placement.kind === 'ad') {", '  if (true) {');
+  // No date or no account identity means no way to place a row.
+  if (MUT === 'autoplace') sub("  if (!placement.ok || placement.kind === 'fixed') return null;", '');
+  // The dataset's key is its grain, and prepareRows reads it.
+  if (MUT === 'autograin') sub("  const key = campaignId || campaignName ? 'campaign' : 'account';", "  const key = 'auto';");
+  // A company's own field choice beats the automatic pick.
+  if (MUT === 'autooverride') sub('    const auto = autoDataset(account.ds_id, catalog, overrides);', '    const auto = autoDataset(account.ds_id, catalog);');
+  // Without the any-connector tables there is nowhere to put a mapped source.
+  // A fabricated zero conversion must never reach the averaged ad table.
+  if (MUT === 'adcoverage') subLib("    const missing = ['conversions', 'revenue'].filter((m) => !chosen[m]);", '    const missing = [];');
+  if (MUT === 'anygate') sub('  if (!datasets && !anyConnector) {', '  if (false) {');
+  // A source that moved destination must not leave its old rows behind.
+  if (MUT === 'retire') sub("  if (!dataset.auto || dryRun) return 0;", '  return 0;');
+  // ...and the days this run did not reach have to be walked again.
+  if (MUT === 'retirerewind') sub("          if (w.kind === 'recent') summary.destination_changed = true;", '');
+  // Retirement is for OUR rows only; the native sync owns its own.
+  if (MUT === 'retiresource') sub("    .eq('source', WINDSOR_SOURCE)\n", '');
+  if (MUT === 'huntunmatched') sub("    if (blind.length && blind.length === answered.length) {", '    if (false) {');
   // ...but a few spare objects must not throw away a window that otherwise merged.
   if (MUT === 'huntmatched') sub("    const answered = merged.sets.filter((x) => x.rows);\n    const blind = answered.filter((x) => !x.matched);", '    const answered = []; const blind = [];')
   // A read that matched nothing is not excused by a sibling that matched.
@@ -75,10 +102,13 @@ async function loadCore() {
   if (MUT === 'lastchance') sub('      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: READ_TIMEOUT_MS });', '      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: NARROWED_READ_TIMEOUT_MS });');
   // A narrowed read must not sit on the full-width wait; that is the 29 minutes.
   if (MUT === 'narrowtimeout') sub('export const NARROWED_READ_TIMEOUT_MS = 60000;', 'export const NARROWED_READ_TIMEOUT_MS = READ_TIMEOUT_MS;');
-  // Absolute imports so the temp copy resolves the repo's modules.
-  src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", `'${new URL('../../supabase/functions/windsor-broker/windsor-lib.mjs', libUrl).href}'`)
-    .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'windsor-sync-'));
+  // The broker library beside it (it imports nothing of its own); everything
+  // else by absolute URL, so the temp copy resolves the repo's modules.
+  const libFile = path.join(dir, 'windsor-lib.mjs');
+  fs.writeFileSync(libFile, libSrc);
+  src = src.replace("'../../supabase/functions/windsor-broker/windsor-lib.mjs'", "'./windsor-lib.mjs'")
+    .replace("'./shopify-sync-core.mjs'", `'${new URL('./shopify-sync-core.mjs', libUrl).href}'`);
   const file = path.join(dir, 'windsor-sync-core.mjs');
   fs.writeFileSync(file, src);
   return import(file);
@@ -245,14 +275,15 @@ test('an error is recorded on the mapping row with the key redacted, and does no
   assert.ok(!m.last_sync_error.includes(KEY), 'the owner key never lands in the database');
 });
 
-test('an unreviewed connector makes no catalog or data call and is recorded as unsupported', async () => {
-  const fake = world([{ ...tiktokAcct, id: 'm-x', ds_id: 'mysql' }]);
-  const fw = fakeWindsor(() => []);
-  const r = await run(fake, fw, { ...tiktokAcct, id: 'm-x', ds_id: 'mysql' });
-  assert.equal(r.status, 'unsupported');
-  assert.equal(fw.log.length, 0);
-  assert.equal(fw.catalogLog.length, 0);
-  assert.match(fake.rows('windsor_linked_accounts')[0].last_sync_error, /row-grain contract/);
+test('a connector Windsor has no field list for cannot be mapped and reads no data', async () => {
+  const acct = { ...tiktokAcct, id: 'm-x', ds_id: 'mysql' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => []);   // no catalog registered: /fields answers 404
+  const r = await run(fake, fw, acct);
+  assert.equal(r.status, 'error');
+  assert.equal(fw.log.length, 0, 'no data is asked for without a field list');
+  assert.match(fake.rows('windsor_linked_accounts')[0].last_sync_error, /field list/);
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
 });
 
 test('a connector whose field list has no date or account cannot place a row: unsupported', async () => {
@@ -262,6 +293,252 @@ test('a connector whose field list has no date or account cannot place a row: un
   const r = await run(fake, fw, acct);
   assert.equal(r.status, 'unsupported');
   assert.equal(fw.log.length, 0);
+});
+
+// ── A source with no hand-made dataset works on connect ────────────────────
+// Blake 2026-11-05: "why would it be different for klaviyo vs google we
+// shouldn't have to build out for each". The gate that required one was ours,
+// not Windsor's; the runtime grain guards below are what replaced it.
+const adCatalog = (extra = []) => [
+  { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'account_name', type: 'TEXT' },
+  { id: 'campaign_id', type: 'TEXT' }, { id: 'campaign', type: 'TEXT' },
+  { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' },
+  { id: 'spend', type: 'NUMERIC' }, { id: 'conversions', type: 'NUMERIC' },
+  { id: 'conversion_value', type: 'NUMERIC' }, ...extra,
+];
+
+test('an ad source with no hand-made dataset lands in marketing_kpis_daily on connect', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [{
+    date: '2026-11-01', account_id: 'PIN-1', account_name: 'A Pinterest', campaign_id: 'p1',
+    campaign: 'Spring', impressions: 500, clicks: 20, spend: 12.5, conversions: 3, conversion_value: 90,
+    saves: 7,
+  }], { pinterest: adCatalog([{ id: 'saves', type: 'NUMERIC' }]) });
+
+  const r = await run(fake, fw, acct);
+  assert.equal(r.status, 'success');
+  assert.equal(r.mapped_to, 'marketing_kpis_daily');
+  const row = fake.rows('marketing_kpis_daily')[0];
+  assert.equal(row.platform, 'pinterest_ads');
+  assert.equal(row.company_entity_id, A, "the company comes from the mapping row, never Windsor's payload");
+  assert.equal(row.account_id, 'PIN-1');
+  assert.equal(row.campaign_id, 'p1');
+  assert.equal(row.spend, 12.5);
+  assert.equal(row.clicks, 20);
+  assert.equal(row.conversions, 3);
+  assert.equal(row.conversion_value, 90);
+  assert.equal(row.extra.saves, 7, 'and every other numeric field is kept by name');
+  assert.equal(row.source, 'windsor');
+  assert.equal(fake.rows('windsor_metrics_daily').length, 0);
+});
+
+// #1148 review cycle 1 P2: marketing_kpis_daily's conversions and
+// conversion_value are NOT NULL, and the marketing pages sum them over every
+// paid platform for CPA and ROAS. A source with spend but no conversion field
+// would be written as zero and drag both down with nobody able to tell.
+test('an ad source that cannot report conversions or revenue is never written as zero', async () => {
+  const acct = { ...tiktokAcct, id: 'm-ms', ds_id: 'microsoft', account_id: 'MS-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: 'MS-1', campaign_id: 'm1',
+    campaign: 'Brand', impressions: 300, clicks: 9, spend: 40 }],
+  { microsoft: [
+    { id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' }, { id: 'account_name', type: 'TEXT' },
+    { id: 'campaign_id', type: 'TEXT' }, { id: 'campaign', type: 'TEXT' },
+    { id: 'impressions', type: 'NUMERIC' }, { id: 'clicks', type: 'NUMERIC' }, { id: 'spend', type: 'NUMERIC' },
+  ] });
+
+  const r = await run(fake, fw, acct);
+  assert.equal(r.status, 'success');
+  assert.equal(r.mapped_to, 'windsor_metrics_daily');
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0,
+    'no fabricated zero reaches the table the marketing pages average over');
+  const row = fake.rows('windsor_metrics_daily')[0];
+  assert.equal(row.spend, 40, 'the spend is still kept');
+  assert.equal(row.clicks, 9);
+  assert.equal(row.conversions, null, 'and what the source cannot report is NULL, not 0');
+  assert.equal(row.revenue, null);
+});
+
+// #1148 review cycle 2 P2: a source that moves between the two automatic
+// destinations used to leave its earlier rows in the old table for ever, so
+// the same day existed twice under two different meanings -- Marketing
+// Overview reading the stale ad row while connected-source reporting showed
+// the new one. Both runs share ONE fake database, because the finding is about
+// rows already stored, which a second fresh database cannot show.
+test('a source that changes destination retires what it left behind, both ways', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const row = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
+    impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10 };
+  const fw = () => fakeWindsor(() => [row], { pinterest: adCatalog() });
+  const fake = world([acct]);
+  // SILO's own Google sync owns rows in the same table, for the same company,
+  // account and day. They must survive every retirement: they are not ours.
+  const native = { company_entity_id: A, platform: 'pinterest_ads', source: 'google_ads_api',
+    account_id: 'PIN-1', day_date: '2026-11-01', spend: 999, row_hash: 'native-1' };
+  // So must another tenant's Windsor rows for the same source and day.
+  const otherTenant = { company_entity_id: B, ds_id: 'pinterest', source: 'windsor',
+    account_id: 'PIN-1', day_date: '2026-11-01', row_hash: 'other-1' };
+  const survivors = () => {
+    assert.ok(fake.rows('marketing_kpis_daily').some((r) => r.row_hash === 'native-1'),
+      "the native sync's row for the same platform, account and day is never retired");
+    assert.ok(fake.rows('windsor_metrics_daily').some((r) => r.row_hash === 'other-1'),
+      "another company's rows for the same source and day are never retired");
+  };
+
+  const both = await run(fake, fw(), acct);
+  assert.equal(both.mapped_to, 'marketing_kpis_daily', 'with both measures it is an ad platform');
+  assert.equal(both.destination_changed, undefined, 'a first sync has moved nothing');
+  fake.tables.get('marketing_kpis_daily').push({ ...native });
+  fake.tables.set('windsor_metrics_daily', [{ ...otherTenant }]);
+
+  // The company stops naming a revenue field, so the source moves to the
+  // nullable table -- and its ad rows have to go with it.
+  const moved = await run(fake, fw(), acct, { overrides: { revenue: null } });
+  assert.equal(moved.status, 'success');
+  assert.equal(moved.mapped_to, 'windsor_metrics_daily');
+  assert.equal(moved.retired_rows, 1);
+  assert.equal(moved.destination_changed, true);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 0,
+    'the ad copy of that day is gone, so nothing is counted twice');
+  const ours = fake.rows('windsor_metrics_daily').filter((r) => r.company_entity_id === A);
+  assert.equal(ours.length, 1);
+  assert.equal(ours[0].revenue, null,
+    'the measure the company chose to leave blank is blank, not zero');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].history_from, null,
+    'every stored day is walked again, so the days this run did not reach are moved too');
+  assert.equal(moved.history_complete, false, 'and the run does not claim a complete history');
+  survivors();
+
+  // And back again, on the same stored rows, when the mapping names one again.
+  const back = await run(fake, fw(), { ...acct, history_from: null });
+  assert.equal(back.mapped_to, 'marketing_kpis_daily');
+  assert.equal(back.retired_rows, 1);
+  assert.equal(back.destination_changed, true);
+  assert.equal(fake.rows('windsor_metrics_daily').filter((r) => r.company_entity_id === A).length, 0);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 1);
+  survivors();
+
+  // Nothing moved this time, so nothing is retired and no rewind is asked for.
+  const settled = await run(fake, fw(), { ...acct, history_from: null });
+  assert.equal(settled.retired_rows, undefined);
+  assert.equal(settled.destination_changed, undefined);
+  assert.equal(fake.rows('marketing_kpis_daily').filter((r) => r.source === 'windsor').length, 1);
+  survivors();
+});
+
+test('a dry run retires nothing', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const row = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
+    impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10 };
+  const fake = world([acct]);
+  await run(fake, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 1);
+  const r = await run(fake, fakeWindsor(() => [row], { pinterest: adCatalog() }), acct,
+    { overrides: { revenue: null }, dryRun: true });
+  assert.equal(r.retired_rows, undefined);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 1, 'a dry run reads; it never deletes');
+});
+
+test('a source SILO already syncs natively never lands in marketing_kpis_daily', async () => {
+  for (const ds of core.DIRECT_SYNC_SOURCES) {
+    const acct = { ...tiktokAcct, id: `m-${ds}`, ds_id: ds, account_id: 'DS-1' };
+    const fake = world([acct]);
+    const fw = fakeWindsor(() => [{
+      date: '2026-11-01', account_id: 'DS-1', account_name: 'Native too', campaign_id: 'c1',
+      campaign: 'Brand', impressions: 10, clicks: 1, spend: 2, conversions: 1, conversion_value: 5,
+    }], { [ds]: adCatalog() });
+
+    const r = await run(fake, fw, acct);
+    assert.equal(r.status, 'success', ds);
+    assert.equal(r.mapped_to, 'windsor_metrics_daily', ds);
+    assert.equal(fake.rows('marketing_kpis_daily').length, 0,
+      `${ds} would be counted twice against its own sync`);
+    const row = fake.rows('windsor_metrics_daily')[0];
+    assert.equal(row.ds_id, ds);
+    assert.equal(row.object_type, 'campaign');
+    assert.equal(row.object_id, 'c1');
+    assert.equal(row.spend, 2);
+    assert.equal(row.metrics.clicks, 1, 'every numeric field is kept by name as well');
+  }
+});
+
+test('a non-ad source lands in windsor_metrics_daily at account grain', async () => {
+  const acct = { ...tiktokAcct, id: 'm-y', ds_id: 'yotpo', account_id: 'Y-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: 'Y-1', orders: 4, revenue: 220 }],
+    { yotpo: [{ id: 'date', type: 'DATE' }, { id: 'account_id', type: 'TEXT' },
+      { id: 'orders', type: 'NUMERIC' }, { id: 'revenue', type: 'NUMERIC' }] });
+
+  const r = await run(fake, fw, acct);
+  assert.equal(r.status, 'success', r.error);
+  assert.equal(r.mapped_to, 'windsor_metrics_daily');
+  const row = fake.rows('windsor_metrics_daily')[0];
+  assert.equal(row.object_type, 'account');
+  assert.equal(row.object_id, '');
+  assert.equal(row.orders, 4);
+  assert.equal(row.revenue, 220);
+  assert.equal(row.impressions, null, 'a measure the connector has no field for is NULL, never 0');
+});
+
+test("an auto-mapped source is held to the same row grain as a hand-made one", async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const base = { date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1', campaign: 'Spring',
+    impressions: 1, clicks: 1, spend: 1, conversions: 0, conversion_value: 0 };
+  for (const [name, rows] of [
+    ['two rows for one campaign-day', [base, { ...base, spend: 9 }]],
+    ['a row for another account', [{ ...base, account_id: 'SOMEONE-ELSE' }]],
+    ['a day outside the window', [{ ...base, date: '2020-01-01' }]],
+  ]) {
+    const fake = world([acct]);
+    const fw = fakeWindsor(() => rows, { pinterest: adCatalog() });
+    const r = await run(fake, fw, acct);
+    assert.equal(r.status, 'error', name);
+    assert.equal(r.rows_written, 0, name);
+    assert.equal(fake.rows('marketing_kpis_daily').length, 0, name);
+    assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined, name);
+  }
+});
+
+test("a company's own field choice beats the automatic one, and a bogus choice is reported", async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => [{ date: '2026-11-01', account_id: 'PIN-1', campaign_id: 'p1',
+    campaign: 'Spring', impressions: 5, clicks: 2, spend: 3, conversions: 1, conversion_value: 10,
+    total_conversions: 42 }], { pinterest: adCatalog([{ id: 'total_conversions', type: 'NUMERIC' }]) });
+
+  const r = await run(fake, fw, acct, { overrides: { conversions: 'total_conversions', revenue: 'not_a_field' } });
+  assert.equal(r.status, 'success');
+  assert.equal(fake.rows('marketing_kpis_daily')[0].conversions, 42);
+  assert.deepEqual(r.ignored_mappings, ['revenue'], 'a choice the connector does not list is reported, not used');
+});
+
+// Consent is checked before the source is catalogued or mapped, so merging
+// this change cannot start syncing an account that was paused while its source
+// was unsupported.
+for (const consent of [false, undefined, null, 'true']) {
+  test(`a mappable source is not read, catalogued or mapped while consent is ${consent}`, async () => {
+    const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1', sync_enabled: consent };
+    const fake = world([acct]);
+    const fw = fakeWindsor(() => { throw new Error('Must not read a paused account'); }, { pinterest: adCatalog() });
+    const r = await run(fake, fw, acct);
+    assert.equal(r.status, 'paused');
+    assert.equal(fw.log.length, 0);
+    assert.equal(fw.catalogLog.length, 0, 'a paused account is not even catalogued');
+    assert.equal(fake.calls.updates.length, 0, 'and its last sync result is left alone');
+  });
+}
+
+test('without the any-connector tables a mapped source does not run at all', async () => {
+  const acct = { ...tiktokAcct, id: 'm-pin', ds_id: 'pinterest', account_id: 'PIN-1' };
+  const fake = world([acct]);
+  const fw = fakeWindsor(() => { throw new Error('Must not fetch before the migration is applied'); },
+    { pinterest: adCatalog() });
+  const r = await run(fake, fw, acct, { anyConnector: false });
+  assert.equal(r.status, 'unsupported');
+  assert.match(fake.rows('windsor_linked_accounts')[0].last_sync_error, /20261103080000/);
+  assert.equal(fw.log.length, 0);
+  assert.equal(fake.rows('marketing_kpis_daily').length, 0);
 });
 
 // ── Any connector, mapped from Windsor's field list ─────────────────────────
@@ -598,17 +875,30 @@ test('hunted rows that match no core row at all still fail the window', async ()
 
 
 
-for (const ds of ['googlesheets', 'youtube', 'mysql', 'pinterest', 'some_new_source', '__proto__', 'constructor']) {
-  test(`${ds}: consent cannot enable an unreviewed arbitrary schema`, async () => {
+// A source with no hand-made dataset is now mapped from Windsor's own field
+// list, so these assert what still CANNOT happen: a schema Windsor's field
+// list cannot place a row in stores nothing, and a ds_id that names an object
+// on Object's prototype never reaches a dataset through it.
+for (const ds of ['googlesheets', 'mysql', 'some_new_source']) {
+  test(`${ds}: a field list that cannot place a row syncs nothing`, async () => {
     const account = { ...tiktokAcct, ds_id: ds, sync_enabled: true, history_from: '2026-01-01' };
     const fake = world([account]);
-    const fw = fakeWindsor(() => { throw new Error('Must not fetch unsupported data'); });
+    // A catalog with measures but no date and no account identity.
+    const fw = fakeWindsor(() => { throw new Error('Must not fetch unplaceable data'); },
+      { [ds]: [{ id: 'rows', type: 'NUMERIC' }, { id: 'bytes', type: 'NUMERIC' }] });
     const r = await run(fake, fw, account);
     assert.equal(r.status, 'unsupported');
     assert.equal(r.rows_written, 0);
-    assert.equal(fw.catalogLog.length, 0);
+    assert.equal(fw.log.length, 0, 'no data call is made for a source that cannot be placed');
     assert.equal(fake.rows('windsor_linked_accounts')[0].history_from, account.history_from);
     assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+  });
+}
+
+for (const ds of ['__proto__', 'constructor', 'toString']) {
+  test(`${ds} cannot reach a dataset through Object's prototype`, () => {
+    assert.equal(Object.hasOwn(DATASETS, ds), false);
+    assert.equal(core.autoDataset(ds, [{ id: 'rows', type: 'NUMERIC' }]), null);
   });
 }
 for (const consent of [false, undefined, null, 'true']) {

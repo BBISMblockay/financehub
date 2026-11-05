@@ -11,6 +11,7 @@ const { startSuite } = require('../lib/harness');
   let releaseCatalog;
   let delayed = false;
   let failSync = false;
+  let blockUnplaceable = true;
   let failMcp = false;
   const fields = [{ id: 'account_id', name: 'Account ID', type: 'TEXT' },
     { id: 'date', name: 'Date', type: 'DATE' },
@@ -32,7 +33,12 @@ const { startSuite } = require('../lib/harness');
     }
     if (body.action === 'set_sync') {
       data = { sync_enabled: body.enabled };
-      if (failSync) { status = 503; data = { error: 'Could not save sync setting' }; }
+      // A source whose rows cannot be placed is refused when the toggle is
+      // pressed, not hidden from the page: the reason comes back with it.
+      if (blockUnplaceable && body.enabled && body.linked_account_id === 'b') {
+        status = 409;
+        data = { error: 'Sync blocked: Windsor lists no date and account for this source, so a row cannot be placed.' };
+      } else if (failSync) { status = 503; data = { error: 'Could not save sync setting' }; }
       else await route.request().frame().evaluate(({ id, enabled }) => {
         window.__FIXTURE_TABLES__.windsor_linked_accounts.find(a => a.id === id).sync_enabled = enabled;
       }, { id: body.linked_account_id, enabled: body.enabled });
@@ -112,14 +118,32 @@ const { startSuite } = require('../lib/harness');
     await page.waitForFunction(() => !document.getElementById('pvRun').disabled);
     await page.locator('#pvRun').click();
     await page.waitForFunction(() => !document.getElementById('pvTable').hidden);
-    assert.equal(await page.getByRole('button', { name: 'Sync blocked', exact: true }).count(), 2);
-    assert.equal(await page.getByRole('button', { name: 'Sync blocked', exact: true }).first().isDisabled(), true);
+    // Sync is offered for every source, including ones with no hand-made
+    // dataset: where the rows land is decided from the source's own field
+    // list when the toggle is pressed. Only a missing consent column disables
+    // it, because then there is nowhere to record the answer.
+    assert.equal(await page.getByRole('button', { name: 'Sync update required', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: 'Sync update required', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Enable sync', exact: true }).count(), 2,
+      'the source with no hand-made dataset is offered too');
+    const rowFor = (name) => page.locator('#accounts tr').filter({ hasText: name });
+
+    // Pressed, and refused with the reason: nothing is hidden in advance.
+    await rowFor('own-b').getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('a row cannot be placed'));
+    assert.equal(await rowFor('own-b').getByRole('button', { name: 'Enable sync', exact: true }).count(), 1,
+      'a refused source is still offered, not silently switched on');
+    blockUnplaceable = false;
+    await rowFor('own-b').getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('Sync enabled'));
+    assert.deepEqual(calls.filter(c => c.action === 'set_sync').at(-1), { action: 'set_sync', linked_account_id: 'b', enabled: true });
+
     failSync = true;
-    await page.getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await rowFor('own-c').getByRole('button', { name: 'Enable sync', exact: true }).click();
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('Could not save sync'));
-    assert.equal(await page.getByRole('button', { name: 'Enable sync', exact: true }).count(), 1);
+    assert.equal(await rowFor('own-c').getByRole('button', { name: 'Enable sync', exact: true }).count(), 1);
     failSync = false;
-    await page.getByRole('button', { name: 'Enable sync', exact: true }).click();
+    await rowFor('own-c').getByRole('button', { name: 'Enable sync', exact: true }).click();
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('Sync enabled'));
     assert.deepEqual(calls.filter(c => c.action === 'set_sync').at(-1), { action: 'set_sync', linked_account_id: 'c', enabled: true });
     assert.equal(await page.getByRole('button', { name: 'Enable sync', exact: true }).count(), 0);

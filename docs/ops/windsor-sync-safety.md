@@ -3,12 +3,18 @@
 ## Outcome and acceptance
 
 Company admins connect sources and preview them on `v2/windsor-test.html`.
-Connection is not permission to import arbitrary data. New accounts start paused;
-only the existing explicit TikTok and Klaviyo dataset definitions can be enabled.
-Other sources remain previewable, with sync blocked pending a reviewed schema,
-identity binding, date semantics, dimensions and stable row key. No arbitrary
-spreadsheet importer, selector binding inference, or existing data deletion is
-part of this change.
+Connection is not permission to import arbitrary data: new accounts start
+paused, and an admin of that company switches each one on.
+
+**Superseded on 2026-11-05 — see "Any source, with no contract written for it"
+at the end of this file.** As written on 2026-11-03, only the explicit TikTok
+and Klaviyo dataset definitions could be enabled, and every other source was
+previewable with sync blocked pending a reviewed schema, identity binding,
+date semantics, dimensions and stable row key. Sync is now offered wherever
+Windsor's own field list can place a row, because the row grain is proved per
+window at runtime instead of reviewed in advance. No arbitrary spreadsheet
+importer, selector binding inference, or existing data deletion is part of
+either change.
 
 ## Preflight (2026-11-03)
 
@@ -288,9 +294,157 @@ Windsor. So the last, one-field ask is made with the full
 `READ_TIMEOUT_MS`: the shorter budget narrows reads, it never decides a
 refusal. (Review cycle 1 P2 on #1145.)
 
+### Verified: run 41982913314 (2026-11-05)
+
+Dry run on `main` 7fccd12, 06:48–07:13Z, 121 of 3000 calls — the first Windsor
+run that has come back green. Both changes did what they were for.
+
+`tiktok/campaign` lands rows. The recent window
+(2026-09-30..2026-11-03): `4 returned, 4 kept, hunted_unmatched 272,
+refused 4`. Two history windows clean, 22 and 34 rows, `hunted_unmatched 0`;
+history walked back to 2025-01-16. A fourth history window returned
+`skipped: Windsor did not answer for some fields; asked again next run` — the
+designed `incomplete` path, nothing written, cursor unmoved. Klaviyo
+unchanged: `success`, history complete from 2024-11-02. 25 minutes against the
+previous run's 29, which is the narrowed-read trim.
+
+**Those 272 are expected, and worth knowing.** Each hunted read names about 25
+campaigns; only the 4 with spend exist in the core read, so the spares are
+dropped. So in a RECENT window a zero-spend campaign carries no hunted
+metrics. The history windows show 0, so it is a recent-window effect of TikTok
+returning no-spend campaigns for some metrics only. It is counted in the
+window's record rather than silent.
+
+Metric reconciliation against the provider remains a separate release gate.
+
+## Any source, with no contract written for it (2026-11-05)
+
+Blake, on being told Google Ads would need work before it could sync: "why
+would it be different for klaviyo vs google we shouldn't have to build out for
+each that's not windsors point of aiding access." He is right, and the gate was
+ours. `autoDataset()` — built on 2026-11-03 and deleted the same day by
+`fbfc8e3` — is restored, so a connected source syncs with nothing written for
+it.
+
+### Why it is safe now and was not then
+
+`fbfc8e3` gave the reason in this file: "Generic catalog shape alone proves
+neither ownership nor row grain, so automatic mapping is removed from the sync
+path." That was true of a field list then and is still true of a field list
+now. What changed is that the sync no longer relies on one. `prepareRows` is
+run on every response, core and hunted, before anything is written, and it
+
+- rejects the window unless every row carries a real date inside it,
+- rejects the window unless every row belongs to the account that was asked
+  for (`select_accounts` + `assertAccountRows` + `filterRowsToAccount`), and
+- rejects the window if two rows collide on one account/day/object, or an
+  object id is missing where the grain needs one.
+
+A rejected window is **not written and does not move the cursor**, and the
+reason is recorded on the mapping row. So a source whose rows do not come back
+at an addressable grain stores nothing and says why — which is the evidence the
+hand review was standing in for, gathered per window from the rows themselves
+rather than promised in advance by a person reading a field list. The hardening
+in #1141 and #1145 is what makes this dependable: a read that cannot be
+understood now leaves the window alone instead of writing part of it.
+
+### Where a source's rows go, decided in one place
+
+`syncPlacement(dsId, catalog)` in `windsor-lib.mjs` is the single rule, used by
+the sync's `autoDataset`, by the broker's `set_sync` (whether the toggle may be
+switched on) and by `field_catalog` (what the page shows). They cannot drift,
+so the page can never offer a toggle the sync would refuse, nor hide one it
+would accept.
+
+| Source | Goes to |
+|--------|---------|
+| TikTok, Klaviyo | their hand-made datasets, unchanged |
+| A platform SILO syncs natively (Google Ads, Meta, GA4) | `windsor_metrics_daily` — **never** `marketing_kpis_daily`, so it cannot be counted twice against that sync |
+| Ad-like, not natively synced (spend + impressions + clicks + campaign), **with a conversions and a revenue field** | `marketing_kpis_daily` as `<connector>_ads` |
+| Ad-like but missing either conversion measure, or with one the company nulled | `windsor_metrics_daily`, where NULL means unmeasured |
+| Anything else | `windsor_metrics_daily` |
+| No `date`, or no `account_id` | nothing: it cannot be placed, and the toggle is refused with that reason |
+
+### Why an ad source without conversions is kept out of the ad table
+
+`marketing_kpis_daily.conversions` and `.conversion_value` are NOT NULL, so a
+source that cannot report them can only be written as **zero** — and the
+marketing pages sum those columns across every paid platform to get CPA and
+ROAS (`renderKpis` in `v2/marketing-overview.html`). A platform contributing
+spend and a fabricated zero therefore drags both ratios towards nothing, and
+nobody reading the page can tell it happened. A marker in `extra` does not
+help, because that read does not select `extra`.
+
+It is the table that cannot express "not measured", so such a source goes to
+`windsor_metrics_daily`, whose measures are nullable and where NULL means
+exactly that. Its spend and clicks are still kept in full. This also holds when
+a company nulls `conversions` or `revenue` in its own field mapping: the rows
+move, and the connections page says where they will land. The alternative —
+teaching every reporting consumer about partial coverage — changes numbers on a
+live page to accommodate a row that should not have been written.
+(#1148 review cycle 1 P2.)
+
+Both destinations are already readable: `marketing_kpis_daily` feeds the
+marketing explorer and MER, and `windsor_metrics_daily` is published as
+`connected_source_metrics_daily_v`, which Ask SILO and saved reports can read.
+Migration `20261105070000` corrects that view's catalog text, which said ad
+platforms were never here — a natively synced platform's second copy now is,
+and a reader who did not know that would add the two together.
+
+### A source that moves destination takes its old rows with it
+
+Added for review cycle 2's finding on #1148, which was real. A company that
+stops naming a revenue field, or a provider whose field list loses a conversion
+measure, sends an already-synced source from `marketing_kpis_daily` to
+`windsor_metrics_daily`. Nothing retired what it had already written to the
+first table, so the same day existed twice under two different meanings:
+Marketing Overview reading the stale ad row while connected-source reporting
+showed the new one.
+
+`retireMovedRows()` deletes that window's rows from the destination the source
+has left. The rules it rests on:
+
+- **Per window, and only after the replacement has landed**, so nothing is
+  removed before what replaces it exists. It throws rather than returns on
+  failure, which leaves the window's progress unrecorded and the window asked
+  again — not the day stored twice.
+- **The predicate cannot reach anyone else's rows**: `company_entity_id`,
+  `source = 'windsor'`, the source's own `platform` / `ds_id`, `account_id`,
+  and that window's days. SILO's native Google, Meta, TikTok and GA4 rows carry
+  `<platform>_api`, so they are out of reach by construction; so is another
+  tenant's. Both are tested, and removing the `source` clause fails the suite.
+- **There is no moment where both copies are stored.** A day not yet re-walked
+  has only the old copy; a day re-walked has only the new.
+- **The rewind is asked for by the sync when it has to be.** A mapping change
+  already rewinds history (`windsor_field_mappings_rewind`); a provider
+  dropping a field does not. So when the RECENT window finds rows to retire,
+  the run records `history_from = null` and every stored day is rewritten where
+  it now belongs. Only the recent window decides it, which is what keeps the
+  walk from restarting under itself: once the rewind is under way that window
+  finds nothing left to retire.
+- **A dry run retires nothing.**
+
+Only the automatic path can move. TikTok's and Klaviyo's tables are written
+into `windsor-sync-core.mjs` and cannot change.
+
+### What this does not change
+
+Consent is still the first gate and is still explicit: `sync_enabled` must be
+boolean `true`, an admin of that company sets it, a paused account is not read,
+catalogued or mapped, and **turning sync off never depends on Windsor
+answering**. A `ds_id` of `__proto__` or `constructor` still cannot reach a
+dataset. Without migration `20261103080000` there is nowhere to put a mapped
+source, and the sync says so rather than guessing. Currency is still not
+converted, and text fields other than the account and object names are still
+dropped.
+
 ### Still unverified
 
-Neither change has run against Windsor. The next authorized run is the gate:
-TikTok should land rows for `tiktok/campaign` with a `hunted_unmatched` count
-in the window's record, or fail somewhere new. Metric reconciliation against
-the provider remains a separate release gate.
+No connected source other than TikTok and Klaviyo has run against Windsor under
+this. Google Ads is the one worth proving first, because SILO syncs it natively
+too, so Windsor's spend and clicks can be reconciled against SILO's own for the
+same days — the only check that shows the mapping is right rather than
+plausible. Its field list, read 2026-11-05, carries 2,542 fields of which 495
+are numeric: nine hunted batches per window, which the call budget absorbs.
+`windsor-broker` must be deployed for the toggle to work, and the migration
+applied; both are Blake's.
