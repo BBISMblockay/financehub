@@ -215,3 +215,82 @@ run is the gate: Klaviyo should either land rows or fail naming a half-window,
 and TikTok should either land rows with one or more fields listed in
 `refused_fields` or fail somewhere new. Metric reconciliation against the
 provider remains a separate release gate.
+
+## What the 2026-11-05 run proved, and the two changes it pointed at
+
+Dry run [41977825834](https://github.com/BBISMblockay/financehub/actions/runs/41977825834)
+(on `main` 47726ea, 50 of 3000 calls) was the gate above. Both #1141 fixes did
+what they were written to do, and each uncovered the next thing behind it.
+
+**Klaviyo passes.** `klaviyo XaGZh7 2026-09-30..2026-11-03 account: 1 returned,
+1 kept`, then `success, 0 rows, 37 hunted field(s) not returned by Windsor,
+history from 2024-11-02 (complete)`. The 35-day core read no longer times out,
+its 24-month history walk is already complete, and the hunted pass — never
+reached before, because the core read failed first — answers for 21 fields and
+refuses 37 by name. `campaign` and `flow` return no rows at all, which is what
+a connector dormant since roughly April 2026 looks like.
+
+**TikTok reached the next guard.** `hunted batch 4` no longer fails: isolation
+found the offending field and the batch's other fields landed. 29 minutes in it
+failed instead at `tiktok/campaign 2026-09-30..2026-11-03 hunted merge: Hunted
+rows do not match the core row grain; window not saved`.
+
+### A hunted row for an object the core read left out is dropped, not fatal
+
+`mergeHunted` counted every hunted row that found no core row and the window
+was refused if there was even one. That is the right instinct for the case the
+guard was written for — the two reads describing different objects — but it is
+the wrong verdict for a spare row, and a spare row is what Windsor returns
+here: a campaign with no spend in the window but a nonzero engagement metric
+appears in a hunted read and not in the core read.
+
+Dropping that row costs nothing that was ever going to be stored. The core read
+decides which rows exist, `mergeHunted` already refuses to turn a hunted row
+into a core row, and no core row is left without a value by dropping one.
+So the window now lands and the count stays in its record as
+`hunted_unmatched`.
+
+**The verdict is per read, never over the batch as a whole.** One read's rows
+say nothing about another's. A read that answered and whose rows matched
+*nothing* in the core contributed nothing, so writing the window would replace
+a stored row's metrics with a row collected without that read's fields and
+count the window as covered — the same harm the `incomplete` machinery exists
+to prevent. Such a read therefore marks the window `incomplete`: unwritten,
+cursor unmoved, asked again next run. Only when **no** hunted read anywhere
+matched is the window failed loudly, because then the two reads are not
+describing the same objects at all. (Review cycle 1 P2 on #1145: the first
+version counted matches over the whole batch, so one read that matched excused
+every read that matched nothing.)
+
+### A narrowed read waits one minute, not two
+
+Almost all of TikTok's 29 minutes was waiting. Every read waited
+`READ_TIMEOUT_MS` = 120s, and an unanswered read is asked again before it is
+halved, so each failure cost four minutes before any narrowing happened.
+
+A narrowed read — a half, a single Windsor table, a grain probe — asks for a
+**subset** of a question Windsor has already been asked, so it has no business
+taking longer than the full-width ask. Those now wait
+`NARROWED_READ_TIMEOUT_MS` = 60s. The first, full-width ask keeps the full two
+minutes: 60 hunted fields over 35 days is genuinely slow, and that is the read
+worth being patient with.
+
+A narrowed read that times out is still not evidence against its fields: it is
+halved again, and if nothing answers the window is marked `incomplete`, left
+unwritten with the cursor unmoved, exactly as before.
+
+**One place is different, and it gets the full wait back.** A field is written
+off for the rest of the run only at one field wide — `readSplitting` puts a
+singleton it cannot get an answer for into `out.unanswered`, and once any other
+hunted read has answered, that is recorded as a refusal. A field that is simply
+slow, needing say 90 seconds, would then be refused by the clock rather than by
+Windsor. So the last, one-field ask is made with the full
+`READ_TIMEOUT_MS`: the shorter budget narrows reads, it never decides a
+refusal. (Review cycle 1 P2 on #1145.)
+
+### Still unverified
+
+Neither change has run against Windsor. The next authorized run is the gate:
+TikTok should land rows for `tiktok/campaign` with a `hunted_unmatched` count
+in the window's record, or fail somewhere new. Metric reconciliation against
+the provider remains a separate release gate.
