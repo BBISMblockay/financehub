@@ -32,19 +32,26 @@ select 'attribution additive history' as check_name,
    and tgfoid=to_regprocedure('public.protect_attribution_backfilled_codes()')) then 'MISSING'
  else 'ok' end as status;
 
--- Chunked publish (20261105060000). A day too large to send in one request stages
--- its evidence and finalizes the day row separately; both halves are service-only,
--- exactly like the whole-day publish they sit beside.
+-- Chunked publish (20261105060000). A day too large to send in one request stages its
+-- evidence and finalizes in one transaction. The staging table is NOT reader-facing, so
+-- unlike the two snapshot tables it must be unreadable by authenticated as well as anon.
 select 'attribution chunked publish' as check_name,
- case when to_regprocedure('public.stage_shopify_attribution_orders(uuid,jsonb,timestamptz)') is null
+ case when to_regprocedure('public.stage_shopify_attribution_orders(uuid,date,jsonb,timestamptz)') is null
        or to_regprocedure('public.finalize_shopify_attribution_day(uuid,date,text,text,jsonb,bigint,bigint,timestamptz)') is null
+       or to_regclass('public.shopify_attribution_orders_staged') is null
   then 'MISSING — apply 20261105060000_attribution_chunked_publish.sql'
- when has_function_privilege('anon','public.stage_shopify_attribution_orders(uuid,jsonb,timestamptz)','EXECUTE')
-   or has_function_privilege('authenticated','public.stage_shopify_attribution_orders(uuid,jsonb,timestamptz)','EXECUTE')
+ when has_function_privilege('anon','public.stage_shopify_attribution_orders(uuid,date,jsonb,timestamptz)','EXECUTE')
+   or has_function_privilege('authenticated','public.stage_shopify_attribution_orders(uuid,date,jsonb,timestamptz)','EXECUTE')
    or has_function_privilege('anon','public.finalize_shopify_attribution_day(uuid,date,text,text,jsonb,bigint,bigint,timestamptz)','EXECUTE')
    or has_function_privilege('authenticated','public.finalize_shopify_attribution_day(uuid,date,text,text,jsonb,bigint,bigint,timestamptz)','EXECUTE')
+   or has_table_privilege('anon','public.shopify_attribution_orders_staged','SELECT')
+   or has_table_privilege('authenticated','public.shopify_attribution_orders_staged','SELECT')
+   or not (select relrowsecurity from pg_class where oid='public.shopify_attribution_orders_staged'::regclass)
   then 'CRITICAL'
- when not has_function_privilege('service_role','public.stage_shopify_attribution_orders(uuid,jsonb,timestamptz)','EXECUTE')
+ when not has_function_privilege('service_role','public.stage_shopify_attribution_orders(uuid,date,jsonb,timestamptz)','EXECUTE')
    or not has_function_privilege('service_role','public.finalize_shopify_attribution_day(uuid,date,text,text,jsonb,bigint,bigint,timestamptz)','EXECUTE')
   then 'MISSING'
+ -- The first cut of this migration (#1142) stated a three-argument stage function that
+ -- wrote evidence in place. If it was ever applied, that signature must be gone.
+ when to_regprocedure('public.stage_shopify_attribution_orders(uuid,jsonb,timestamptz)') is not null then 'CRITICAL'
  else 'ok' end as status;
