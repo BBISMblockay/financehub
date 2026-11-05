@@ -469,7 +469,20 @@ export const MAX_UNANSWERED_PER_WINDOW = 8;
  *  incomplete instead. */
 async function readSplitting({ fields, state, out, ...io }) {
   if (state.failures > MAX_UNANSWERED_PER_WINDOW) { out.incomplete = true; return; }
-  if (fields.length <= 1) { out.unanswered.push(...fields); return; }
+  if (fields.length <= 1) {
+    // out.unanswered is where a field can be written off for the rest of the
+    // run, so a narrowed read's shorter budget must not be what decides it:
+    // that budget is a speed measure, not evidence about the field. Give the
+    // last ask the full wait before concluding Windsor will never answer.
+    if (fields.length) {
+      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: READ_TIMEOUT_MS });
+      if (last.rows) { state.answered += 1; out.rows.push({ fields: [...fields], rows: last.rows }); return; }
+      if (!last.transient) { out.refused.push(...fields); return; }
+      state.failures += 1;
+    }
+    out.unanswered.push(...fields);
+    return;
+  }
   const mid = Math.ceil(fields.length / 2);
   for (const half of [fields.slice(0, mid), fields.slice(mid)]) {
     if (state.failures > MAX_UNANSWERED_PER_WINDOW) { out.incomplete = true; return; }
@@ -537,23 +550,29 @@ const mergeId = (dataset, r) => `${r?.account_id ?? ''}\u0000${String(r?.date ??
 /** Copy hunted values onto the core rows they belong to (same account, day
  *  and object). A core value is never overwritten, and a hunted row with no
  *  core row is not turned into one: the core read decides which rows exist.
- *  Returns how many hunted rows found their core row (`matched`) and how many
- *  did not (`unmatched`); the caller decides what that means. */
+ *  Reports the totals and, per hunted read, how many of ITS rows found a core
+ *  row: one read's rows are no evidence about another's, so the verdict has to
+ *  be per read. The caller decides what that means. */
 export function mergeHunted(dataset, coreRows, huntedRowSets) {
   const index = new Map();
   for (const r of coreRows) if (r && typeof r === 'object') index.set(mergeId(dataset, r), r);
   let unmatched = 0;
   let matched = 0;
+  const sets = [];
   for (const set of huntedRowSets) {
+    const per = { rows: 0, matched: 0, unmatched: 0 };
+    sets.push(per);
     for (const h of set || []) {
       if (!h || typeof h !== 'object') continue;
+      per.rows += 1;
       const target = index.get(mergeId(dataset, h));
-      if (!target) { unmatched += 1; continue; }
+      if (!target) { unmatched += 1; per.unmatched += 1; continue; }
       matched += 1;
+      per.matched += 1;
       for (const [k, v] of Object.entries(h)) if (!(k in target)) target[k] = v;
     }
   }
-  return { rows: coreRows, unmatched, matched };
+  return { rows: coreRows, unmatched, matched, sets };
 }
 
 /** Core read (dataset.fields, refusals negotiated as before) plus every
@@ -619,13 +638,25 @@ export async function fetchDatasetHunted({ key, fetchImpl, connector, accountId,
     // nothing: it was never going to be written, because the core read
     // decides which rows exist, and no core row is left without a value by
     // dropping it. The count is kept in the window's record as
-    // `hunted_unmatched`. But if hunted rows came back and NOT ONE of them
-    // found its core row, the two reads are not describing the same objects
-    // at all — that is the grain shift this guard is for, and the window is
-    // not written.
-    if (merged.unmatched && !merged.matched) {
+    // `hunted_unmatched`.
+    //
+    // The verdict is per READ, never over the batch as a whole. One read's
+    // rows say nothing about another's, so a read that answered and whose
+    // rows matched NOTHING in the core is not excused by a sibling that
+    // matched: its fields contributed nothing, and writing the window would
+    // replace a stored row's metrics with a row collected without them and
+    // count the window as covered.
+    const answered = merged.sets.filter((x) => x.rows);
+    const blind = answered.filter((x) => !x.matched);
+    if (blind.length && blind.length === answered.length) {
+      // Not one hunted row anywhere found its core row: the two reads are not
+      // describing the same objects at all. That is the grain shift this
+      // guard is for, and it is worth failing loudly.
       throw new Error('Hunted rows do not match the core row grain; window not saved');
     }
+    // Some reads matched and some matched nothing: not a grain shift, not
+    // something to drop either. The window waits for the next run.
+    if (blind.length) incomplete = true;
     return { rows: merged.rows, dropped: core.dropped, refused, unmatched: merged.unmatched, incomplete };
   } catch (e) {
     // Only local contract names, planned dates and a batch ordinal: never

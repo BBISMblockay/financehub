@@ -68,7 +68,11 @@ async function loadCore() {
   // Hunted rows that match NO core row at all are a grain shift, not spare objects.
   if (MUT === 'huntunmatched') sub("    if (merged.unmatched && !merged.matched) {\n      throw new Error('Hunted rows do not match the core row grain; window not saved');\n    }", '');
   // ...but a few spare objects must not throw away a window that otherwise merged.
-  if (MUT === 'huntmatched') sub('if (merged.unmatched && !merged.matched) {', 'if (merged.unmatched) {');
+  if (MUT === 'huntmatched') sub("    const answered = merged.sets.filter((x) => x.rows);\n    const blind = answered.filter((x) => !x.matched);", '    const answered = []; const blind = [];')
+  // A read that matched nothing is not excused by a sibling that matched.
+  if (MUT === 'blindset') sub('    if (blind.length) incomplete = true;', '');
+  // The last, one-field ask decides a refusal, so it gets the full wait.
+  if (MUT === 'lastchance') sub('      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: READ_TIMEOUT_MS });', '      const last = await readOnce({ ...io, fields: [...io.dims, ...fields], timeoutMs: NARROWED_READ_TIMEOUT_MS });');
   // A narrowed read must not sit on the full-width wait; that is the 29 minutes.
   if (MUT === 'narrowtimeout') sub('export const NARROWED_READ_TIMEOUT_MS = 60000;', 'export const NARROWED_READ_TIMEOUT_MS = READ_TIMEOUT_MS;');
   // Absolute imports so the temp copy resolves the repo's modules.
@@ -901,6 +905,80 @@ test('a subgroup that times out during isolation leaves the window and its store
     'stored metrics are never replaced by a row collected without them');
   assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined,
     'and the cursor does not move over a window that was not fully collected');
+});
+
+// #1145 review cycle 1, P2: `matched` was counted over the whole batch, so
+// one read that matched excused every other read that matched nothing.
+test('one hunted read that matched is no excuse for another that matched nothing', async () => {
+  const fake = world([pinAcct]);
+  const stored = { row_hash: 'existing', company_entity_id: A, spend: 1, extra: { saves: 9, total_conversions: 9 } };
+  fake.tables.set('marketing_kpis_daily', [{ ...stored }]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const fw = fakeWindsor((c, u) => {
+    const f = u.searchParams.get('fields');
+    if (f.includes('spend')) return [{ ...base, spend: 4 }];
+    // The wide hunted ask is refused naming nothing, so it is retried one
+    // Windsor table at a time: that is how one window gets several reads.
+    if (f.includes('saves') && f.includes('total_conversions')) return { status: 400, text: 'cannot combine these tables' };
+    // This read answers, and every row it returns is for a campaign the core
+    // read never named. Nothing it was asked for reached a core row.
+    if (f.includes('total_conversions')) return [{ ...base, campaign_id: 'never-in-core', total_conversions: 3 }];
+    return [{ ...base, saves: 1 }];
+  }, { tiktok: pinCatalog });
+
+  const r = await run(fake, fw, pinAcct);
+  assert.equal(r.unanswered, true, 'the window is not covered, so it is asked again next run');
+  assert.ok(!r.refused_fields?.includes('total_conversions'),
+    'a read whose rows did not match has not refused the field');
+  assert.deepEqual(fake.rows('marketing_kpis_daily'), [stored],
+    'stored metrics are never replaced by a row collected without them');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, undefined);
+});
+
+// #1145 review cycle 1, P2: the shorter wait must not be what writes a field
+// off. A field is only ever written off at one field wide, so that last ask
+// gets the full wait.
+test('a single field that needs longer than a narrowed read allows is still asked with the full wait', async () => {
+  const fake = world([pinAcct]);
+  const base = { account_id: PIN, date: '2026-11-01', campaign_id: 'pc1', campaign: 'Pins' };
+  const DIMS = ['date', 'account_id', 'campaign_id', 'campaign'];
+  const waits = [];
+  const fw = fakeWindsor(() => [], { tiktok: pinCatalog });
+  const fetchImpl = async (url, options) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/fields')) return fw.fetchImpl(url, options);
+    const f = u.searchParams.get('fields').split(',');
+    if (f.includes('spend')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ data: [{ ...base, spend: 4 }] }) };
+    }
+    const hunted = f.filter((x) => !DIMS.includes(x));
+    waits.push({ hunted, timeoutMs: options.timeoutMs });
+    // Any ask carrying `video_p100` alongside others is too slow to answer;
+    // that is what drives the batch down to one field at a time.
+    if (hunted.includes('video_p100') && hunted.length > 1) {
+      return { ok: false, status: 503, text: async () => 'too slow' };
+    }
+    // `video_p100` on its own is a real field that simply needs longer than a
+    // narrowed read's budget. Nothing else does.
+    if (hunted.includes('video_p100') && options.timeoutMs < core.READ_TIMEOUT_MS) {
+      throw Object.assign(new Error(KEY), { name: 'TimeoutError' });
+    }
+    const row = { ...base };
+    for (const h of hunted) row[h] = 4;
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: [row] }) };
+  };
+
+  const r = await run(fake, { ...fw, fetchImpl }, pinAcct);
+  const solo = waits.filter((w) => w.hunted.length === 1 && w.hunted[0] === 'video_p100');
+  assert.ok(solo.length, 'the batch was in fact narrowed down to the slow field alone');
+  assert.ok(solo.some((w) => w.timeoutMs === core.READ_TIMEOUT_MS),
+    'and that one-field ask was made with the full wait');
+  assert.equal(r.status, 'success');
+  assert.ok(!r.unanswered, 'the slow field answered, so the window is covered');
+  assert.ok(!(r.refused_fields || []).includes('video_p100'),
+    'a field that answers when given the full wait is not refused');
+  assert.equal(fake.rows('marketing_kpis_daily')[0].extra.video_p100, 4, 'and its value lands');
+  assert.equal(fake.rows('windsor_linked_accounts')[0].synced_through, '2026-11-02');
 });
 
 test('isolation running out of reads leaves the window unwritten rather than dropping what it never checked', async () => {

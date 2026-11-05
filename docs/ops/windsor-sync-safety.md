@@ -247,10 +247,20 @@ appears in a hunted read and not in the core read.
 Dropping that row costs nothing that was ever going to be stored. The core read
 decides which rows exist, `mergeHunted` already refuses to turn a hunted row
 into a core row, and no core row is left without a value by dropping one.
-So the window now lands, the count stays in its record as `hunted_unmatched`,
-and the window is refused only when hunted rows came back and **not one** of
-them found its core row — the real grain shift, with no room left to argue it
-is a handful of spare objects.
+So the window now lands and the count stays in its record as
+`hunted_unmatched`.
+
+**The verdict is per read, never over the batch as a whole.** One read's rows
+say nothing about another's. A read that answered and whose rows matched
+*nothing* in the core contributed nothing, so writing the window would replace
+a stored row's metrics with a row collected without that read's fields and
+count the window as covered — the same harm the `incomplete` machinery exists
+to prevent. Such a read therefore marks the window `incomplete`: unwritten,
+cursor unmoved, asked again next run. Only when **no** hunted read anywhere
+matched is the window failed loudly, because then the two reads are not
+describing the same objects at all. (Review cycle 1 P2 on #1145: the first
+version counted matches over the whole batch, so one read that matched excused
+every read that matched nothing.)
 
 ### A narrowed read waits one minute, not two
 
@@ -265,10 +275,18 @@ taking longer than the full-width ask. Those now wait
 minutes: 60 hunted fields over 35 days is genuinely slow, and that is the read
 worth being patient with.
 
-This cannot lose data. A narrowed read that times out is still not evidence
-against its fields: it is halved again, and if nothing answers the window is
-marked `incomplete`, left unwritten with the cursor unmoved, exactly as before.
-The shorter wait is spent in reads, never in rows.
+A narrowed read that times out is still not evidence against its fields: it is
+halved again, and if nothing answers the window is marked `incomplete`, left
+unwritten with the cursor unmoved, exactly as before.
+
+**One place is different, and it gets the full wait back.** A field is written
+off for the rest of the run only at one field wide — `readSplitting` puts a
+singleton it cannot get an answer for into `out.unanswered`, and once any other
+hunted read has answered, that is recorded as a refusal. A field that is simply
+slow, needing say 90 seconds, would then be refused by the clock rather than by
+Windsor. So the last, one-field ask is made with the full
+`READ_TIMEOUT_MS`: the shorter budget narrows reads, it never decides a
+refusal. (Review cycle 1 P2 on #1145.)
 
 ### Still unverified
 
