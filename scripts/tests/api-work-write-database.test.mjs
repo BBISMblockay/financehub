@@ -27,7 +27,8 @@ const MUTATIONS = ['', 'session-company', 'no-member-check', 'loose-assignee', '
                    'no-cap', 'no-idempotency', 'authenticated-execute', 'ignore-pause', 'no-path',
                    'no-hint', 'hint-ignores-privacy', 'hint-no-stopwords',
                    'lax-scopes', 'no-scope-path',
-                   'no-answer-gate', 'gate-blocks-weak', 'ar-still-indexed', 'search-by-recency'];
+                   'no-answer-gate', 'gate-blocks-weak', 'ar-still-indexed', 'search-by-recency',
+                   'no-dashboard', 'dashboard-ignores-privacy'];
 const mutation = process.env.WORK_WRITE_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const FILE = 'supabase/migrations/20261104230000_api_work_write_tasks.sql';
@@ -44,6 +45,11 @@ let MIGRATION2 = original2;
 const FILE3 = 'supabase/migrations/20261105000000_bot_answers_before_tasks.sql';
 const original3 = readFileSync(FILE3, 'utf8');
 let MIGRATION3 = original3;
+// And the one after that: point at the dashboard a report is a tile of, not
+// at the tile.
+const FILE4 = 'supabase/migrations/20261105003000_report_hint_dashboard.sql';
+const original4 = readFileSync(FILE4, 'utf8');
+let MIGRATION4 = original4;
 
 if (mutation === 'session-company') {
   // The whole point of reading the grant: a connection's token can carry any
@@ -96,6 +102,7 @@ if (mutation === 'no-hint') {
   // The task is still created, so nothing breaks -- the bot simply never
   // learns that SILO already answers the question, which is the whole ask.
   MIGRATION = MIGRATION.replace(/  v_hint := public\.silo_api_report_hint[^\n]*\n/, "  v_hint := '[]'::json;\n");
+  MIGRATION3 = MIGRATION3.replace(/  v_hint := public\.silo_api_report_hint[^\n]*\n/, "  v_hint := '[]'::json;\n");
 }
 if (mutation === 'hint-ignores-privacy') {
   MIGRATION = MIGRATION.replace(
@@ -122,6 +129,7 @@ if (mutation === 'gate-blocks-weak') {
   // One shared word in a title is not "SILO already answers this", and
   // swallowing a real task is the worse failure of the two.
   MIGRATION3 = MIGRATION3.replace('when x.title_hits >= 2 then', 'when x.title_hits >= 1 then');
+  MIGRATION4 = MIGRATION4.replace('when x.title_hits >= 2 then', 'when x.title_hits >= 1 then');
 }
 if (mutation === 'ar-still-indexed') {
   MIGRATION3 = MIGRATION3.replace(/update public\.silo_chat_schema_catalog\n   set is_hidden = true,[\s\S]*?'ar_sync_status_v'\);\n/, '');
@@ -133,8 +141,21 @@ if (mutation === 'search-by-recency') {
     '     order by s.updated_at desc nulls last, s.id');
   MIGRATION3 = MIGRATION3.replace('           order by p.match_rank desc, p.updated_at desc nulls last, p.id)',
     '           order by p.updated_at desc nulls last, p.id)');
+  MIGRATION4 = MIGRATION4.replace('     order by s.match_rank desc, s.updated_at desc nulls last, s.id',
+    '     order by s.updated_at desc nulls last, s.id');
+  MIGRATION4 = MIGRATION4.replace('           order by p.match_rank desc, p.updated_at desc nulls last, p.id)',
+    '           order by p.updated_at desc nulls last, p.id)');
 }
-assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3,
+if (mutation === 'no-dashboard') {
+  MIGRATION4 = MIGRATION4.replace(/           public\.silo_api_report_dashboard\(c\.id, p_company, p_user\) as dashboard\n/,
+    "           null::json as dashboard\n");
+}
+if (mutation === 'dashboard-ignores-privacy') {
+  // Naming someone else's private dashboard is a leak, not a convenience.
+  MIGRATION4 = MIGRATION4.replace("     and (d.visibility = 'company' or d.created_by = p_user)", '');
+}
+assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3
+          || MIGRATION4 !== original4,
   `mutation ${mutation} changed nothing`);
 
 const A = '00000000-0000-4000-a000-00000000000a';   // the grant's company
@@ -327,6 +348,24 @@ create view public.silo_chat_saved_reports_v as
     from public.silo_chat_saved_reports s
     left join public.profiles p on p.id = s.created_by;`);
 await apply(MIGRATION3);
+
+// The dashboards a report can be a tile of.
+const D_SHARED = '00000000-0000-4000-1000-000000000001';   // the company's
+const D_THEIRS = '00000000-0000-4000-1000-000000000002';   // a colleague's private one
+await db.exec(`
+create table public.dashboards(
+  id uuid primary key, company_entity_id uuid, created_by uuid, name text,
+  visibility text, updated_at timestamptz default now());
+create table public.dashboard_widgets(
+  id uuid primary key default gen_random_uuid(), dashboard_id uuid,
+  company_entity_id uuid, report_id uuid, title text);
+insert into public.dashboards values
+  ('${D_SHARED}', '${A}', '${OWNER}',  'Wholesale Tracking', 'company', now()),
+  ('${D_THEIRS}', '${A}', '${OWNER}',  'Blake''s scratch board', 'private', now());
+insert into public.dashboard_widgets (dashboard_id, company_entity_id, report_id, title) values
+  ('${D_SHARED}', '${A}', '${R_SYS}',    'Open AR'),
+  ('${D_THEIRS}', '${A}', '${R_SHARED}', 'Shipped');`);
+await apply(MIGRATION4);
 
 // Two company reports for the search ranking: the one somebody searching "AR"
 // means, last updated long ago, and a newer one that merely contains those two
@@ -684,6 +723,31 @@ await test('the retired AR import is no longer an answer a bot can reach', async
   assert.match(live.description, /Wholesale receivables live here/);
   assert.ok(live.keywords.includes('accounts receivable'), 'in the words the question is asked in');
   assert.ok(live.keywords.includes('orders'), 'and the keywords it already had are kept');
+});
+
+await test('a report that lives on a dashboard is answered with the dashboard', async () => {
+  await reset();
+  // The question after the gate worked: "you linked to report instead of the
+  // dashboard why?" -- the bot could not know the report was one tile of one.
+  const r = await call({ title: 'Send me an open AR report for wholesale' });
+  assert.equal(r.r.created, false);
+  const m = r.r.report_matches[0];
+  assert.equal(m.report_id, R_SYS);
+  assert.equal(m.dashboard.name, 'Wholesale Tracking', 'the page, not the tile');
+  assert.match(m.dashboard.url, /\/v3\/dashboard\.html\?id=/);
+  assert.match(r.r.next_step, /dashboard url/, 'and the bot is told to send that one');
+
+  // A colleague's PRIVATE dashboard is not named, even though the report on
+  // it is one this person may read.
+  const hint = async (text, user = MEMBER) =>
+    (await one(`select public.silo_api_report_hint('${A}', '${user}', '${text.replace(/'/g, "''")}') as h`)).h;
+  const shipped = (await hint('wholesale shipped orders by account'))
+    .find((x) => x.report_id === R_SHARED);
+  assert.ok(shipped, 'the report itself is still offered');
+  assert.equal(shipped.dashboard, null, 'but not the private board it sits on');
+  assert.equal((await hint('wholesale shipped orders by account', OWNER))
+    .find((x) => x.report_id === R_SHARED).dashboard.name, 'Blake\'s scratch board',
+    'its owner does see it');
 });
 
 await test('the hint only offers reports that connection may already see', async () => {

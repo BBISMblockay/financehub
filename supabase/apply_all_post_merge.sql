@@ -19554,4 +19554,10 @@ $c$select (select count(*) from v_po_header_summary
 -- what changed last. Needs 20261104230000. Needs a deploy of the `mcp`
 -- function for the confirm argument and the new tool text.
 \i migrations/20261105000000_bot_answers_before_tasks.sql
+
+-- Point at the dashboard, not one tile of it: the hint and the report search
+-- now carry the dashboard a report is tiled on, where the caller may see it,
+-- and the gate's own sentence tells the bot to send that link. Needs
+-- 20261105000000. Needs a deploy of the `mcp` function for the guide text.
+\i migrations/20261105003000_report_hint_dashboard.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
