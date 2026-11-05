@@ -8,6 +8,7 @@ import vm from 'node:vm';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const html = readFileSync(`${root}index.html`, 'utf8');
+const landingCss = readFileSync(`${root}assets/landing/public-home.css`, 'utf8');
 const inline = [...html.matchAll(/<script(?:\s+type="module")?>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 assert.equal(inline.length, 2, 'test must exercise both actual inline scripts');
 
@@ -161,9 +162,10 @@ test('hero keeps responsive stills beneath a dimensioned, deferred decorative vi
 });
 
 test('keyboard focus, reduced motion, and mobile layout are explicit', () => {
-  assert.match(html, /#landing a:focus-visible/);
-  assert.match(html, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(html, /@media \(max-width: 900px\)/);
+  assert.match(html, /href="\/assets\/landing\/public-home\.css\?v=[a-f0-9]+"/);
+  assert.match(landingCss, /#landing a:focus-visible/);
+  assert.match(landingCss, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(landingCss, /@media \(max-width: 900px\)/);
   assert.match(html, /<nav aria-label="Legal and contact">/);
 });
 
