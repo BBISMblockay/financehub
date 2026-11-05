@@ -1,0 +1,35 @@
+name: Migration versions
+
+# Fails if two migration files share a version timestamp.
+#
+# supabase_migrations.schema_migrations is keyed by the leading version alone,
+# so applying one of a colliding pair records the version and leaves the other
+# looking applied while its statements never ran. Each PR adds only one file,
+# so the collision is invisible in a diff and only shows up weeks later as an
+# object that is missing in production for no apparent reason.
+#
+# Runs on every change to the migrations directory. No secrets, no database,
+# no network: it reads filenames.
+
+on:
+  push:
+    branches: [main]
+    paths: &migration_paths
+      - 'supabase/migrations/**'
+      - 'scripts/check-migration-versions.mjs'
+      - '.github/workflows/migration-versions.yml'
+  pull_request:
+    paths: *migration_paths
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-migration-versions.mjs
