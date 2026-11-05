@@ -10,6 +10,12 @@ import {loadCatalog} from './lib/silo-attribution-catalog.mjs';
 import {coverageConfig,runCoverage,canPublish,storeToday} from './lib/shopify-attribution-coverage.mjs';
 
 const env=process.env, scheduled=env.ATTRIBUTION_MODE === 'scheduled';
+// Days at or below the threshold publish in the single call they always have; only a day
+// too large to send whole takes the staged path. The default sits above the largest day
+// ever published successfully (4,118), so nothing that works today changes behaviour.
+// An unset GitHub repo variable arrives as '' rather than undefined, and Number('') is 0.
+const positive=(value,fallback)=>{const n=Number(value===undefined||value===''?fallback:value);if(!Number.isInteger(n)||n<1)throw Error('Publish chunking must be positive integers');return n;};
+const publishChunk=positive(env.ATTRIBUTION_PUBLISH_CHUNK,500), publishThreshold=positive(env.ATTRIBUTION_PUBLISH_THRESHOLD,5000);
 const coverage=env.ATTRIBUTION_MODE === 'coverage';
 if (coverage && env.ATTRIBUTION_COVERAGE_ENABLED !== 'true') {
   console.log('Attribution coverage disabled'); process.exit(0);
@@ -80,12 +86,19 @@ async function publishDay(connection,day,commit,catalog,beforePublish=async()=>{
   console.log(JSON.stringify({day,status:'collecting',commit}));
   const result=await collectDay(connection,day,{
     ql:shopifyql,gql:shopifyGraphql,commit,decorate:evidence=>allocationWindows(evidence,catalog),
+    chunk:publishChunk,threshold:publishThreshold,
     rest:async(c,id)=>{
       const response=await fetchWithRetry(`https://${c.shop_domain}/admin/api/${c.api_version}/orders/${id}.json?fields=id,landing_site`,{headers:{'X-Shopify-Access-Token':c.access_token}});
       if(!response.ok)throw Error('Order landing fetch failed: '+response.status);
       return (await response.json()).order;
     },
     publish:async args=>{await beforePublish();const {data,error}=await db.rpc('publish_shopify_attribution_day',args);if(error)throw Error('Snapshot publication failed: '+error.message);if(!data)throw Error('Snapshot superseded by a newer extraction');},
+    // Staging writes evidence only, which no reader can reach without a day row, but the
+    // eligibility re-check still runs before every chunk and before the day lands: a
+    // connection that loses eligibility mid-day stops writing at the next slice. That is
+    // one extra connection read per chunk, twenty for the largest day we have.
+    stage:async args=>{await beforePublish();const {error}=await db.rpc('stage_shopify_attribution_orders',args);if(error)throw Error('Evidence staging failed: '+error.message);},
+    finalize:async args=>{await beforePublish();const {data,error}=await db.rpc('finalize_shopify_attribution_day',args);if(error)throw Error('Snapshot publication failed: '+error.message);if(!data)throw Error('Snapshot superseded by a newer extraction');},
   });
   console.log(JSON.stringify({...result,status:'success'}));
 }
