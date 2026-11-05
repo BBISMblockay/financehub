@@ -57,7 +57,7 @@ await assert.rejects(collectDay(conn,day,{...deps,rest:async()=>{throw Error('in
  assert.deepEqual(chunks.map(c=>c.p_orders.length),[2,2,1],'evidence goes up in slices of the chunk size');
  assert.deepEqual(chunks.flatMap(c=>c.p_orders.map(o=>o.order_id)),['1','2','3','4','5'],'every order is staged exactly once');
  assert.ok(chunks.every(c=>c.p_extracted===finalized.p_extracted),'one extraction stamp covers the staged day');
- assert.ok(chunks.every(c=>c.p_connection===conn.id));
+ assert.ok(chunks.every(c=>c.p_connection===conn.id&&c.p_day===day),'each chunk names the day it belongs to');
  assert.ok(!('p_orders' in finalized),'the finalize call carries the ledger only, not the evidence');
  assert.equal(finalized.p_ledger.length,5);
  assert.equal(finalized.p_net,-5005);

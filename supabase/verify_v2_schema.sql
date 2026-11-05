@@ -7597,6 +7597,11 @@ select 'developer API boundary' as check_name, case
         'silo_api_run_report', 'silo_api_list_reports',
         -- data:read since 20261030110000: the MCP query tool.
         'silo_api_query', 'silo_api_describe_tables',
+        -- work:write since 20261104230000: the one write tool, and the scope
+        -- list the MCP server reads to decide which tools to advertise
+        -- (20261104234500). Both are on silo_api_path_allowed(), which is
+        -- what makes them the API surface rather than an extra grant.
+        'silo_api_create_task', 'silo_api_scopes',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
