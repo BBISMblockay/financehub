@@ -10,6 +10,7 @@
       const term = search.value.trim().toLowerCase();
       const matches = items.filter((x) => `${x.name} ${x.id}`.toLowerCase().includes(term));
       status.textContent = items.length ? `${matches.length} integrations${selected ? ` · Selected: ${selected.name}` : ''}` : 'No integrations loaded.';
+      if (items.length && !matches.length) status.textContent = 'No integrations match your search. Try another name.';
       for (const item of matches) {
         const button = document.createElement('button');
         button.type = 'button'; button.className = 'bcn-btn bcn-btn--ghost';
@@ -28,20 +29,22 @@
         }
         icon.setAttribute('aria-hidden', 'true');
         button.appendChild(icon); button.appendChild(document.createTextNode(` ${item.name}`));
-        button.addEventListener('click', () => { selected = item; onSelect(item); render(); });
+        button.addEventListener('click', () => { selected = item; onSelect(item); render(); list.querySelector('[aria-pressed="true"]')?.focus(); });
         list.appendChild(button);
       }
     }
     search.addEventListener('input', render);
     return { setItems(next) { items = next; selected = null; onSelect(null); render(); } };
   }
-  function fieldPicker({ search, list, status, onChange, max = 30 }) {
+  function fieldPicker({ search, list, status, report, onChange, max = 30 }) {
     let fields = []; let selected = new Set();
     function render() {
       list.replaceChildren();
       const term = search.value.trim().toLowerCase();
-      const matches = fields.filter((f) => `${f.name} ${f.id} ${f.table || ''}`.toLowerCase().includes(term));
+      const matches = fields.filter((f) => (!report?.value || !f.table || f.table === report.value) && `${f.name} ${f.id} ${f.table || ''}`.toLowerCase().includes(term));
       status.textContent = `${selected.size}/${max} fields selected · ${matches.length} matching fields. Account identity is required.`;
+      const groups = new Set(fields.filter(f => selected.has(f.id) && f.table).map(f => f.table));
+      if (groups.size > 1) status.textContent += ' Selection spans report groups; the source may reject this combination.';
       for (const f of matches) {
         const label = document.createElement('label'); label.className = 'wt-field-option';
         const input = document.createElement('input'); input.type = 'checkbox';
@@ -50,6 +53,7 @@
         input.addEventListener('change', () => {
           if (input.checked) selected.add(f.id); else selected.delete(f.id);
           onChange([...selected]); render();
+          [...list.querySelectorAll('input')].find(el => el.value === f.id)?.focus();
         });
         label.appendChild(input);
         label.appendChild(document.createTextNode(` ${f.name}${f.table ? ` (${f.table})` : ''}`));
@@ -58,9 +62,16 @@
       }
     }
     search.addEventListener('input', render);
+    report?.addEventListener('change', render);
     return {
       setFields(next, defaults) {
         fields = next; search.value = '';
+        if (report) {
+          report.replaceChildren();
+          for (const name of ['', ...new Set(fields.map(f => f.table).filter(Boolean))]) {
+            const option = document.createElement('option'); option.value = name; option.textContent = name || 'All report groups'; report.appendChild(option);
+          }
+        }
         selected = new Set(defaults.filter((id) => fields.some((f) => f.id === id)).slice(0, max));
         onChange([...selected]); render();
       },

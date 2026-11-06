@@ -38,12 +38,22 @@ Selected raw rows preserve multiplicity and text; no account/day aggregation,
 deduplication, source-row storage, cache, sync cursor or history advancement is
 involved. Connection and authorization metadata still live in SILO. Limits:
 29 requested fields (plus identity), 200 returned rows, 24,000 row characters,
-2 MiB per upstream response, 20 seconds per upstream request, date presets of
-7/14/30 days. A query makes metadata and data requests; latency can approach
+16 MiB per upstream response, 20 seconds per upstream request, date presets of
+7/14/30 days or an explicit range of at most 800 days. A query makes metadata and data requests; latency can approach
 40 seconds plus authorization calls. Metadata lists page at 100 items.
 Responses identify source, fields, period, fetch time and truncation. They are
 bounded exploratory answers, **not certified complete datasets or totals**.
 There is no upstream pagination or completeness contract in this implementation.
+Generic rollups (`day`, `week`, `month`, `total`) now fail closed with a readable
+error. Numeric types do not establish additivity or row grain, so no generic
+source has an approved summation contract. Use `rollup: "none"`; this does not
+change the direct pillars or existing stored reporting. Responses explicitly
+carry `completeness_status: "unverified"`; empty responses contain no synthetic
+zero rows and explain that the cause (history, range, compatibility) is unknown.
+Field discovery exposes report groups as hints, not compatibility guarantees.
+Text-only sources get suggested text fields; the picker can filter by report
+group and warns when selected fields span groups.
+
 A row too large to return intact fails rather than silently losing text.
 
 A source in the picker is not proof that its returned identity equals the stored
