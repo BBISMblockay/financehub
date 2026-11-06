@@ -188,9 +188,12 @@ for(const [label,extra] of [['preset and range together',{date_preset:'last_7d'}
   ['future end',{date_to:'2099-01-01'}],['over 800 days',{date_from:'2020-01-01'}],['malformed date',{date_from:'2025-13-40'}],
   ['only one end',{date_to:undefined}],['unknown rollup',{rollup:'year'}],['day rollup without date',{fields:['value'],rollup:'day'}]]){
  await check(`invalid window refused with no data request: ${label}`,async()=>{
-  mode='series';calls=[];const args={...yoy,fields:['date','value'],rollup:'month',...extra};
+  // Exercise date guards on the supported raw path. A refused rollup would
+  // mask a missing range guard by failing for an unrelated reason.
+  mode='series';calls=[];const args={...yoy,fields:['date','value'],rollup:'none',...extra};
   for(const k of Object.keys(args)) if(args[k]===undefined) delete args[k];
   const r=await tool('query_connection',args);assert.equal(r.body.result.isError,true);
+  if (label === 'over 800 days') assert.match(r.raw,/at most 800 days/);
   assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')),'no data call');mode='valid';
  });
 }
