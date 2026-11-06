@@ -6,6 +6,7 @@ const { startSuite } = require('../lib/harness');
   const suite = await startSuite({ secureContext: true });
   const calls = [];
   let failPreview = false;
+  let emptyPreview = false;
   let legacyConnector = false;
   let catalogMode = 'current';
   let releaseCatalog;
@@ -15,7 +16,7 @@ const { startSuite } = require('../lib/harness');
   let failMcp = false;
   const fields = [{ id: 'account_id', name: 'Account ID', type: 'TEXT' },
     { id: 'date', name: 'Date', type: 'DATE' },
-    { id: 'watch_minutes', name: 'Minutes watched', type: 'NUMERIC' }];
+    { id: 'watch_minutes', name: 'Minutes watched', type: 'NUMERIC', table:'video' }, {id:'subject',name:'Subject',type:'TEXT',table:'messages'}];
   await suite.context.route('**/functions/v1/windsor-broker', async (route) => {
     const body = route.request().postDataJSON(); calls.push(body);
     let status = 200; let data;
@@ -26,7 +27,7 @@ const { startSuite } = require('../lib/harness');
     if (body.action === 'field_catalog') {
       if (delayed && body.linked_account_id === 'a') await new Promise((resolve) => { releaseCatalog = resolve; });
       data = { fields: body.linked_account_id === 'a' ? fields : fields.slice(0, 2),
-        default_fields: body.linked_account_id === 'a' ? fields.map((f) => f.id) : ['account_id', 'date'] };
+        default_fields: body.linked_account_id === 'a' ? fields.slice(0,3).map((f) => f.id) : ['account_id', 'date'] };
       if (catalogMode === 'legacy') data = { numeric_fields: [fields[2]], total_fields: 100, kind: 'fixed' };
       if (catalogMode === 'missing_identity') data = { fields: [fields[2]], default_fields: [] };
       if (catalogMode === 'bad_defaults') data = { fields, default_fields: [] };
@@ -52,6 +53,7 @@ const { startSuite } = require('../lib/harness');
     }
     if (body.action === 'preview') {
       if (failPreview) { status = 409; data = { error: 'Account identity could not be verified.' }; }
+      else if (emptyPreview) data = {fields:body.fields.split(','),returned:0,rows:[]};
       else data = { fields: body.fields.split(','), returned: 1, rows: [{ account_id: 'own', date: '2026-11-01', watch_minutes: 42 }] };
     }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
@@ -64,10 +66,21 @@ const { startSuite } = require('../lib/harness');
         { id: 'c', ds_id: 'klaviyo', account_id: 'own-c', account_name: 'Third', sync_enabled: false },
         { id: 'd', ds_id: 'tiktok', account_id: 'own-d', account_name: 'Fourth', sync_enabled: true }],
     }, { ready: () => document.querySelectorAll('#accounts button').length >= 2 });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({width,height:1000});
+      if (width < 700) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 0);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no page-level horizontal overflow');
+      assert.ok(await page.locator('.bcn-card-body').evaluateAll(els => els.every(e => e.scrollWidth <= e.clientWidth)), 'card content fits; only tables scroll horizontally');
+      await page.screenshot({path:`/tmp/windsor-connectors-${width}.png`,fullPage:true});
+    }
+    await page.setViewportSize({width:1440,height:1000});
+    assert.equal(await page.getByRole('heading',{name:'Windsor connectors'}).count(),1);
+    assert.match(await page.locator('#accounts').innerText(),/Not published/);
     assert.equal(await page.locator('#mintBtn').isDisabled(), true);
     await page.locator('#sourceSearch').fill('You');
     assert.equal(await page.locator('#sourceList button').count(), 1);
     await page.getByRole('button', { name: 'YouTube', exact: true }).click();
+    assert.equal(await page.locator('#sourceList button[aria-pressed="true"]').evaluate(el=>el===document.activeElement),true);
     await page.locator('#mintBtn').click();
     await page.waitForFunction(() => !document.getElementById('linkBox').hidden);
     assert.equal(calls.find((c) => c.action === 'mint_link').source, 'youtube');
@@ -77,12 +90,26 @@ const { startSuite } = require('../lib/harness');
     await page.waitForFunction(() => !document.getElementById('pvRun').disabled);
     assert.equal(await page.locator('#fieldList input:checked').count(), 3);
     assert.equal(await page.locator('#fieldList input[value="account_id"]').isDisabled(), true);
+    await page.locator('#fieldList input[value="watch_minutes"]').focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('#fieldList input[value="watch_minutes"]').evaluate(el=>el===document.activeElement),true);
+    await page.keyboard.press('Space');
+    await page.locator('#fieldReport').selectOption('messages');
+    assert.equal(await page.locator('#fieldList input[value="watch_minutes"]').count(),0);
+    assert.equal(await page.locator('#fieldList input[value="account_id"]').count(),1);
+    await page.locator('#fieldReport').selectOption('');
     await page.locator('#fieldSearch').fill('Minutes');
     assert.equal(await page.locator('#fieldList input').count(), 1);
     await page.locator('#pvRun').click();
     await page.waitForFunction(() => !document.getElementById('pvTable').hidden);
     assert.match(await page.locator('#pvTable').innerText(), /Minutes watched/);
     assert.match(await page.locator('#pvTable').innerText(), /42/);
+    emptyPreview = true;
+    await page.locator('#pvRun').click();
+    await page.waitForFunction(() => document.getElementById('pvSummary').textContent.includes('does not mean zero'));
+    assert.equal(await page.locator('#pvTable tbody tr').count(),0);
+    assert.match(await page.locator('#pvSummary').innerText(),/completeness is unverified/);
+    emptyPreview = false;
     failPreview = true;
     await page.locator('#pvRun').click();
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('identity'));

@@ -414,9 +414,10 @@ export function previewDefaults(catalog) {
   const ids = new Set(catalog.map((f) => f.id));
   if (!ids.has('account_id')) return [];
   const numeric = catalog.filter((f) => NUMERIC_TYPES.includes(f.type));
-  const table = numeric[0]?.table;
+  const candidates = numeric.length ? numeric : catalog.filter(f => !['account_id', 'date', 'account_name'].includes(f.id));
+  const table = candidates[0]?.table;
   return ['account_id', ...['date', 'account_name'].filter((id) => ids.has(id)),
-    ...numeric.filter((f) => f.table === table).slice(0, 5).map((f) => f.id)]
+    ...candidates.filter((f) => f.table === table).slice(0, 5).map((f) => f.id)]
     .filter((id, i, all) => all.indexOf(id) === i);
 }
 

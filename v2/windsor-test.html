@@ -11,7 +11,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
-  <title>Silo — Windsor connection test</title>
+  <title>Silo — Windsor connectors</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
@@ -33,6 +33,7 @@
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="windsor-connectors.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../pages/config.js"></script>
   <script src="v2-shell.js" defer></script>
@@ -45,19 +46,18 @@
     <main class="silo-main">
       <header class="bcn-header">
         <div>
-          <div class="bcn-header-title">Windsor connection test</div>
+          <h1 class="bcn-header-title">Windsor connectors</h1>
           <div class="wt-muted" id="hdrSub" style="margin:0">Checking access…</div>
         </div>
         <div class="bcn-header-actions"><span class="bcn-pill" id="keyPill">—</span></div>
       </header>
 
-      <div class="bcn-status" id="status" hidden></div>
+      <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
 
       <section class="bcn-card">
-        <div class="bcn-card-header"><span>1. Connect an account through Windsor</span></div>
+        <div class="bcn-card-header"><span>Browse the connector catalog</span></div>
         <div class="bcn-card-body">
-          <p class="wt-muted">Creates a connect link for this company only. The sign-in screen that opens is
-            Windsor's, not SILO's. Whatever is connected through it is filed under this company and nobody else.</p>
+          <p class="wt-muted">Explore Windsor’s catalog and connect an account to this company. Availability depends on the source and your Windsor access; a catalog listing does not guarantee setup or live queries.</p>
           <div class="wt-row">
             <div class="bcn-field-group"><label class="bcn-label" for="sourceSearch">Find an integration</label>
               <input class="bcn-field" id="sourceSearch" type="search" placeholder="Search integrations" autocomplete="off" /></div>
@@ -79,17 +79,21 @@
 
       <section class="bcn-card">
         <div class="bcn-card-header">
-          <span>2. Company connections · sync and LLM access</span>
+          <span>Company connections</span>
           <button class="bcn-btn bcn-btn--ghost" id="reconcileBtn">Refresh from Windsor</button>
         </div>
         <div class="bcn-card-body">
-          <p class="wt-muted">New accounts start paused. Sync requires a supported dataset; other sources can be previewed while their schema and row identity are reviewed. Pause applies to subsequent runs; a run already in progress may finish.</p>
-          <p class="wt-muted">LLM access is separate from sync. Allowing it lets this company’s approved SILO AI connections with data access query this account live, read-only. Source rows are not saved. Use one SILO MCP connection in a compatible AI client; no Windsor key is shared.</p>
+          <div class="wt-capabilities">
+            <div><strong>Connected accounts</strong><p>Accounts linked to this company. Preview available fields before enabling access.</p></div>
+            <div><strong>SILO MCP publication</strong><p>Explicitly allow each account for approved AI clients. Live queries are read-only; source rows are not saved.</p></div>
+            <div><strong>Optional stored sync</strong><p>Separate consent and source support required. Sync status does not establish MCP availability.</p></div>
+          </div>
+          <p class="wt-muted">SILO’s direct integrations remain the source for core reports. Pausing sync applies to subsequent runs; an active run may finish.</p>
           <div class="wt-summary" id="reconcileSummary" hidden></div>
           <div class="wt-scroll">
             <table class="bcn-table">
               <thead><tr><th class="bcn-th-left">Source</th><th class="bcn-th-left">Account</th>
-                <th class="bcn-th-left">Name</th><th class="bcn-th-left">Last seen</th><th class="bcn-th-left">Nightly sync</th><th class="bcn-th-left">Actions</th></tr></thead>
+                <th class="bcn-th-left">Last seen</th><th class="bcn-th-left">Stored sync</th><th class="bcn-th-left">SILO MCP</th><th class="bcn-th-left">Actions</th></tr></thead>
               <tbody id="accounts"><tr><td colspan="6" class="wt-muted">Loading…</td></tr></tbody>
             </table>
           </div>
@@ -97,14 +101,15 @@
       </section>
 
       <section class="bcn-card" id="previewCard" hidden>
-        <div class="bcn-card-header"><span id="previewTitle">3. Preview</span></div>
+        <div class="bcn-card-header"><span id="previewTitle">Account preview</span></div>
         <div class="bcn-card-body">
           <p class="wt-muted">Reads straight from Windsor for this one account. Nothing is stored.
             Choose from the fields this integration offers. Start with the suggested selection; combining report tables may be refused by the source.</p>
           <div class="wt-row">
             <div class="bcn-field-group"><label class="bcn-label" for="pvConnector">Integration</label><input class="bcn-field" id="pvConnector" type="text" readonly title="Fixed by the account's own data source" /></div>
+            <div class="bcn-field-group"><label class="bcn-label" for="fieldReport">Report group</label><select class="bcn-field" id="fieldReport"><option value="">All report groups</option></select></div>
             <div class="bcn-field-group"><label class="bcn-label" for="fieldSearch">Find a field</label><input class="bcn-field" id="fieldSearch" type="search" placeholder="Search available fields" /></div>
-            <div class="bcn-field-group"><label class="bcn-label">Range</label><select class="bcn-field" id="pvRange"><option value="last_7d">Last 7 days</option><option value="last_14d">Last 14 days</option>
+            <div class="bcn-field-group"><label class="bcn-label" for="pvRange">Range</label><select class="bcn-field" id="pvRange"><option value="last_7d">Last 7 days</option><option value="last_14d">Last 14 days</option>
                 <option value="last_30d">Last 30 days</option></select></div>
             <button class="bcn-btn bcn-btn--primary" id="pvRun" disabled>Run preview</button>
           </div>
@@ -116,7 +121,7 @@
       </section>
 
       <section class="bcn-card" id="mapCard" hidden>
-        <div class="bcn-card-header"><span id="mapTitle">4. Sync details</span>
+        <div class="bcn-card-header"><span id="mapTitle">Stored sync details</span>
         </div>
         <div class="bcn-card-body">
           <p class="wt-muted" id="mapIntro" style="margin-top:0"></p>
@@ -151,13 +156,13 @@
   if (!co?.id) { setStatus('No active company for this session. Pick a company first.', 'neg'); return; }
   let role = 'user';
   try { role = (await db.from('profiles').select('role').eq('id', session.user.id).single()).data?.role || 'user'; } catch (_) {}
-  $('hdrSub').textContent = `Trial page, not in the menu. Everything here belongs to ${co.title || co.entity_key || 'this company'}.`;
+  $('hdrSub').textContent = `Manage external sources for ${co.title || co.entity_key || 'this company'}.`;
 
   if (window.SiloChrome) {
     window.SiloChrome.mount({
       appEl: '#silo-app', active: 'settings/integrations',
       user: { email: session.user.email || '', role },
-      crumbs: ['Settings', 'Integrations', 'Windsor test'], supabaseClient: db,
+      crumbs: ['Settings', 'Integrations', 'Windsor connectors'], supabaseClient: db,
     });
   }
 
@@ -196,7 +201,7 @@
   // ── Key status ──────────────────────────────────────────────────────────
   try {
     const st = await broker({ action: 'status' });
-    $('keyPill').textContent = st.configured ? 'Windsor key set' : 'Windsor key missing';
+    $('keyPill').textContent = st.configured ? 'Service configured' : 'Setup needed';
     $('keyPill').className = 'bcn-pill ' + (st.configured ? 'bcn-pill--pos' : 'bcn-pill--neg');
   } catch (e) {
     $('keyPill').textContent = 'Function unavailable';
@@ -218,12 +223,12 @@
   await loadIntegrations();
   let previewVersion = 0;
   let previewBusy = false;
-  const fieldsPicker = WindsorPicker.fieldPicker({ search: $('fieldSearch'), list: $('fieldList'), status: $('fieldStatus'),
+  const fieldsPicker = WindsorPicker.fieldPicker({ search: $('fieldSearch'), list: $('fieldList'), status: $('fieldStatus'), report: $('fieldReport'),
     onChange(ids) { $('pvRun').disabled = previewBusy || !ids.includes('account_id'); } });
   async function openPreview(a) {
     const version = ++previewVersion;
     selected = a;
-    $('previewTitle').textContent = `3. Preview — ${a.account_name || a.ds_id}`;
+    $('previewTitle').textContent = `Account preview — ${a.account_name || a.ds_id}`;
     $('pvConnector').value = integrationName(a.ds_id);
     $('previewCard').hidden = false;
     $('pvTable').hidden = true; $('pvSummary').hidden = true;
@@ -280,7 +285,11 @@
     for (const a of data) {
       const tr = document.createElement('tr');
       const cell = (text, mono) => { const td = document.createElement('td'); td.textContent = text ?? '—'; if (mono) td.className = 'wt-mono'; tr.appendChild(td); };
-      cell(integrationName(a.ds_id)); cell(a.account_id, true); cell(a.account_name);
+      cell(integrationName(a.ds_id));
+      const accountTd = document.createElement('td');
+      const name = document.createElement('strong'); name.textContent = a.account_name || a.account_id;
+      const identity = document.createElement('div'); identity.className = 'wt-account-id'; identity.textContent = a.account_id;
+      accountTd.append(name, identity); tr.appendChild(accountTd);
       cell(a.last_seen_at ? new Date(a.last_seen_at).toLocaleString() : '—');
       // What the nightly Windsor Sync did with it (null before the first run).
       const syncTd = document.createElement('td');
@@ -314,7 +323,10 @@
           await loadAccounts();
         });
       });
-      td.append(llm,document.createTextNode(' '));
+      const mcpTd = document.createElement('td');
+      const publication = document.createElement('div'); publication.className = 'wt-access-state';
+      publication.textContent = !canPublish ? 'Unavailable' : a.mcp_enabled ? 'Published · queries verify identity' : 'Not published';
+      mcpTd.append(publication, llm); tr.appendChild(mcpTd);
       const sync = document.createElement('button'); sync.className = 'bcn-btn bcn-btn--ghost';
       // Any source can be offered: where its rows land is worked out from the
       // source's own field list when the button is pressed, so the list needs
@@ -332,7 +344,7 @@
         setStatus(out.sync_enabled ? 'Sync enabled for subsequent runs.' : 'Sync paused for subsequent runs. A run already in progress may finish.', 'pos');
         await loadAccounts();
       }));
-      td.appendChild(sync);
+      syncTd.appendChild(sync);
       const pv = document.createElement('button'); pv.className = 'bcn-btn bcn-btn--ghost'; pv.textContent = 'Preview';
       pv.addEventListener('click', () => openPreview(a));
       // Two clicks, not confirm(): unlinking removes the account from SILO's
@@ -350,7 +362,7 @@
       });
       const mp = document.createElement('button'); mp.className = 'bcn-btn bcn-btn--ghost'; mp.textContent = 'Sync details';
       mp.addEventListener('click', () => busy(mp, () => openMapping(a)));
-      td.append(pv, document.createTextNode(' '), mp, document.createTextNode(' '), un);
+      const actions = document.createElement('div'); actions.className = 'wt-actions'; actions.append(pv, mp, un); td.appendChild(actions);
       tr.appendChild(td);
       tbody.appendChild(tr);
     }
@@ -384,13 +396,13 @@
     await loadAccounts();
   }));
 
-  // ── 4. Sync details (no speculative measure mapping for blocked sources) ──
+  // ── Stored sync details (no speculative measure mapping for blocked sources) ──
   let mapOpenSeq = 0;
   async function openMapping(a) {
     const seq = ++mapOpenSeq;
     const out = await broker({ action: 'field_catalog', linked_account_id: a.id });
     if (seq !== mapOpenSeq) return;
-    $('mapTitle').textContent = `4. Sync details — ${integrationName(a.ds_id)}`;
+    $('mapTitle').textContent = `Stored sync details — ${integrationName(a.ds_id)}`;
     $('mapIntro').textContent = out.kind === 'fixed'
       ? 'This source has an explicit daily report definition. Supported numeric fields are requested; any refused fields from the last run are listed below.'
       : out.sync_supported
@@ -403,7 +415,7 @@
     $('mapCard').scrollIntoView({ behavior: 'smooth' });
   }
 
-  // ── 3. Preview ──────────────────────────────────────────────────────────
+  // ── Account preview ──────────────────────────────────────────────────────────
   $('pvRun').addEventListener('click', async () => {
     if (previewBusy) return;
     previewBusy = true;
@@ -418,7 +430,9 @@
       if (version !== previewVersion) return;
       const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
       const notes = [`Windsor returned ${n(out.returned, 'row', 'rows')}; showing ${out.rows.length} for this account.`];
-      if (out.maybe_truncated) notes.push('This hit the 200-row preview cap, so it may be cut short.');
+      if (!out.rows.length) notes.push('No rows does not mean zero. Try a different range or fields from one report group; missing history or source compatibility may also explain this.');
+      notes.push('Source completeness is unverified.');
+      if (out.maybe_truncated) notes.push('The preview may be cut short; do not use it as a total.');
       $('pvSummary').textContent = notes.join(' ');
       $('pvSummary').hidden = false;
       const table = $('pvTable');

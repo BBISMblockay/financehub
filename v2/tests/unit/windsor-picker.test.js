@@ -6,6 +6,9 @@ const path = require('node:path');
 // Tiny DOM for control state; the browser suite executes the real page separately.
 function el() {
   return { value: '', children: [], handlers: {}, attrs: {}, style: {},
+    focus() { this.focused = true; },
+    querySelector() { return this.children.find(x => x.attrs?.['aria-pressed'] === 'true'); },
+    querySelectorAll() { return this.children.flatMap(x => x.children || []).filter(x => x.type === 'checkbox'); },
     appendChild(x) { this.children.push(x); }, replaceChildren() { this.children = []; },
     setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(k, v) { this.handlers[k] = v; } };
 }
