@@ -3342,9 +3342,8 @@
         // queued, not at connect: a connection with sync off syncs nothing, so
         // a job queued earlier would have been recorded done having imported
         // nothing. requeueAfterSkip covers the account that was connected
-        // before its key or its conversion metric arrived.
-        // requeueAfterSkip covers the account connected before its key or its
-        // conversion metric arrived. NOT requeueTerminal: a finished import must
+        // before its key or its conversion metric arrived. NOT requeueTerminal:
+        // a finished import must
         // not be paid for again every time somebody toggles the switch.
         await firstConnectBootstrap('klaviyo', null, { requeueAfterSkip: true });
         refreshBootstrapJobs();
