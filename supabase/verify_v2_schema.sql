@@ -8826,3 +8826,40 @@ select 'Klaviyo native integration' as check_name,
       then 'MISSING — integration_bootstrap_jobs does not accept klaviyo, so a first sync cannot be queued'
     else 'ok'
   end as status;
+
+-- Klaviyo audiences and account currency (20261110010000): the lists and
+-- segments a campaign went to, named, and the account's own currency for SMS
+-- cost. The audience table is company-readable and client-unwritable like the
+-- other Klaviyo data tables.
+select 'Klaviyo audiences and account currency' as check_name,
+  case
+    when to_regclass('public.klaviyo_audiences') is null
+      then 'MISSING — run 20261110010000_klaviyo_audiences.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'klaviyo_messages' and column_name = 'audiences')
+      then 'MISSING — klaviyo_messages.audiences; run 20261110010000_klaviyo_audiences.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'klaviyo_connections' and column_name = 'account_currency')
+      then 'MISSING — klaviyo_connections.account_currency; run 20261110010000_klaviyo_audiences.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.klaviyo_audiences'::regclass)
+      then 'CRITICAL — RLS is off on klaviyo_audiences'
+    when has_table_privilege('anon', 'public.klaviyo_audiences', 'select')
+      then 'CRITICAL — klaviyo_audiences is readable by anon'
+    when has_table_privilege('authenticated', 'public.klaviyo_audiences', 'insert')
+      or has_table_privilege('authenticated', 'public.klaviyo_audiences', 'update')
+      or has_table_privilege('authenticated', 'public.klaviyo_audiences', 'delete')
+      then 'CRITICAL — a client role can write klaviyo_audiences'
+    when not exists (select 1 from pg_policy
+                      where polrelid = 'public.klaviyo_audiences'::regclass
+                        and polcmd = 'r'
+                        and pg_get_expr(polqual, polrelid) like '%active_company_id()%')
+      then 'CRITICAL — klaviyo_audiences is not select-only within the active company'
+    when not exists (select 1 from pg_index i
+                      where i.indrelid = 'public.klaviyo_audiences'::regclass and i.indisunique
+                        and (select array_agg(a.attname::text order by k.ord)
+                               from unnest(i.indkey) with ordinality as k(attnum, ord)
+                               join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+                            = array['company_entity_id', 'kind', 'klaviyo_id'])
+      then 'MISSING — the klaviyo_audiences identity is not unique, so each sync would add every list again'
+    else 'ok'
+  end as status;

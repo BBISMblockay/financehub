@@ -13,6 +13,12 @@
  *   EMAIL_SMS_MUTATION=redo-wording  put Redo back in the table's own wording
  *   EMAIL_SMS_MUTATION=not-linkable  take launch linking off Klaviyo rows
  *   EMAIL_SMS_MUTATION=link-per-row  link the ROW rather than the message
+ *   EMAIL_SMS_MUTATION=no-audience   stop showing a campaign's audience
+ *   EMAIL_SMS_MUTATION=hard-context  let a missing audience column fail the read
+ *
+ * The audience comes from reads the numbers do not need, on a column a
+ * migration adds. The last pass serves the page those columns
+ * MISSING, as an unapplied migration would, and the numbers must still show.
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -29,6 +35,11 @@ const MUTATIONS = {
   ],
   'no-vendor': ['<th>Vendor</th>', ''],
   'redo-wording': ['<h2>Email &amp; SMS messages</h2>', '<h2>Redo email &amp; SMS messages</h2>'],
+  'no-audience': ['${esc(m.name)}${audienceLine(m.audience)}', '${esc(m.name)}'],
+  'hard-context': [
+    "soft('audiences', () => loadPaged(",
+    "(async(_l,f)=>f())('audiences', () => loadPaged(",
+  ],
   'not-linkable': [
     "const launch=m=>launchCell(m.ref,m.refId,'message');",
     "const launch=m=>m.ref===REDO_REF?launchCell(m.ref,m.refId,'message'):'—';",
@@ -69,21 +80,39 @@ const transform = (rel, source) => {
       // measurement must reach the table, the widest, and its revenue must be
       // that window's -- never 1234.56 + 100.
       klaviyo_message_performance_v: [
-        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', message_name:'Klaviyo autumn email',
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', connection_id:'kc-eur', message_name:'Klaviyo autumn email',
           parent_name:null, channel:'email', timeframe_start:ago(365), timeframe_end:today,
           conversion_metric_id:'MET1', recipients:1000, conversions:12, conversion_value:1234.56 },
-        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', message_name:'Klaviyo autumn email',
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', connection_id:'kc-eur', message_name:'Klaviyo autumn email',
           parent_name:null, channel:'email', timeframe_start:ago(60), timeframe_end:today,
           conversion_metric_id:'MET1', recipients:100, conversions:1, conversion_value:100 },
         // The same campaign measured against a SECOND conversion metric: a
         // different event, so its own row -- but the same message, so the same
         // launch link.
-        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', message_name:'Klaviyo autumn email',
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', connection_id:'kc-eur', message_name:'Klaviyo autumn email',
           parent_name:null, channel:'email', timeframe_start:ago(60), timeframe_end:today,
           conversion_metric_id:'MET2', recipients:100, conversions:2, conversion_value:50 },
-        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', message_name:'Welcome 2',
+        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', connection_id:'kc-old', message_name:'Welcome 2',
           parent_name:'Welcome flow', channel:'sms', timeframe_start:ago(60), timeframe_end:today,
           conversion_metric_id:'MET1', recipients:200, conversions:4, conversion_value:99.5 },
+      ],
+      // The campaign went to a list and a segment SILO has names for, plus one
+      // id it has not synced, and excluded a segment. The unknown id is shown
+      // as itself: SILO does not guess what an unsynced id is.
+      klaviyo_messages: [
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1',
+          audiences:{ name:null, included:['L1','S9'], excluded:['S2'] } },
+        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', audiences:null },
+      ],
+      klaviyo_audiences: [
+        { company_entity_id:'test-company', kind:'list', klaviyo_id:'L1', name:'Newsletter' },
+        { company_entity_id:'test-company', kind:'segment', klaviyo_id:'S2', name:'Unengaged 180d' },
+      ],
+      // An account whose preferred currency is EUR. The page must NOT
+      // relabel revenue with it: Klaviyo does not say conversion_value is in
+      // the preferred currency, so the row stays USD, as before.
+      klaviyo_connections: [
+        { id:'kc-eur', company_entity_id:'test-company', account_currency:'EUR' },
       ],
     };
     const ready = () => document.getElementById('statusText')?.textContent.includes('rows loaded.');
@@ -135,7 +164,33 @@ const transform = (rel, source) => {
     R.eq(await page.locator('[data-link-source="klaviyo_messages"][data-link-id="flow_message:fmsg1"]').count(), 1,
       'the flow message links by its own identity');
 
+    // Who the campaign went to, named, under the campaign's name.
+    R.has(klaviyoRow, 'To Newsletter, S9');
+    R.has(klaviyoRow, 'not Unengaged 180d');
+    const flowRow = await page.locator('#redoBody tr', { hasText:'Welcome 2' }).innerText();
+    R.not(flowRow, 'To ', 'a flow message has no audience of its own');
+
+    // Revenue stays USD whatever the account prefers.
+    R.has(klaviyoRow, '$1,234.56');
+    R.not(klaviyoRow, '€');
+    R.has(flowRow, '$99.50');
+
     await page.close();
+
+    // ── the migration not applied yet ──────────────────────────────────
+    // Every context column missing, as PostgREST reports it. The numbers
+    // still show; only the audience line and the reported currency go.
+    const bare = await suite.open('/v2/marketing-overview.html', tables, { ready,
+      missingColumns: { klaviyo_messages: ['audiences'] } });
+    await bare.click('[data-tab="redo"]');
+    // Counted first, so a context read that takes the rows down with it fails
+    // here, on an assertion, rather than as a locator timeout below.
+    R.eq(await bare.locator('#redoBody tr').count(), 4, 'a missing context column must not take the Klaviyo rows with it');
+    const bareRow = await bare.locator('#redoBody tr', { hasText:'Klaviyo autumn email' }).first().innerText();
+    R.has(bareRow, '1,234.56', 'the numbers do not depend on the audience read');
+    R.not(bareRow, 'To Newsletter');
+    R.has(bareRow, '$1,234.56');
+    await bare.close();
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

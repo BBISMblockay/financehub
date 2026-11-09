@@ -19590,6 +19590,15 @@ $c$select (select count(*) from v_po_header_summary
 -- test-klaviyo-connection before the UI's buttons work.
 \i migrations/20261109040000_klaviyo_native_integration.sql
 
+-- 20261110010000: Klaviyo audiences and account currency -- klaviyo_audiences
+-- (the account's lists and segments, by name), klaviyo_messages.audiences (who
+-- a campaign went to) and klaviyo_connections.account_currency (the account's
+-- own preferred_currency, which Klaviyo SMS cost is reported in). Additive and
+-- idempotent. Needs 20261109040000 first. Deploy integration-sync-kick and
+-- test-klaviyo-connection after it, so the sync writes audiences and the
+-- connection test stores the currency.
+\i migrations/20261110010000_klaviyo_audiences.sql
+
 -- 20261109210000: the three Klaviyo SILO reports (Performance, the flows-only
 -- revenue trend, Email vs SMS) and their tie-outs. Data only -- three rows in
 -- silo_chat_saved_reports and three in silo_report_tieouts, idempotent on

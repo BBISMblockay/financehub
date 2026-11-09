@@ -78,6 +78,9 @@ export const MIN_INTERVAL_MS = Object.freeze({
 // /api/metrics takes no page[size] at all.
 const PAGE_SIZE_CAMPAIGNS = 100;
 const PAGE_SIZE_FLOWS = 50;
+// Lists and segments cap page[size] at 10 -- a tenth of what campaigns allow.
+// Their rate limit is far higher (75/s burst), so the extra pages cost little.
+const PAGE_SIZE_AUDIENCES = 10;
 const MAX_PAGES = 200;
 // Flow-message names need one call per flow. Bounded so a pathological account
 // cannot turn a nightly into an hour of metadata requests; names are a nicety,
@@ -510,7 +513,10 @@ function lowerChannel(value) {
  */
 export async function fetchCampaignMessages({ connection, log = () => {}, ...rest }) {
   const query = {
-    include: 'campaign-messages',
+    // campaign-audiences comes back in the same read: the campaign's audience
+    // is a RELATED object, not an attribute, so without the include there is
+    // only an id and the audience would need a request per campaign.
+    include: 'campaign-messages,campaign-audiences',
     'page[size]': PAGE_SIZE_CAMPAIGNS,
   };
   // No channel filter, and no fallback to one. `filter` on /api/campaigns
@@ -537,6 +543,54 @@ export function campaignMessageRows({ campaigns = [], included = [], companyEnti
       if (m?.id) campaignForMessage.set(String(m.id), String(c.id));
     }
   }
+  // Each MESSAGE's own audience. A campaign can carry several
+  // campaign-audience resources (one per message, e.g. an A/B test sent to
+  // different lists), so the campaign's first audience is not its messages'
+  // audience. Klaviyo links them both ways -- a campaign-message carries
+  // relationships['campaign-audience'], an audience carries
+  // relationships['campaign-messages'] -- and either is used. Only when
+  // neither link is present AND the campaign has exactly one audience is that
+  // one taken, since then there is nothing else it could be. Otherwise NULL:
+  // a wrong audience under a message's name is worse than none.
+  // The ids are stored as returned, because Klaviyo's docs do not say whether
+  // a given one is a list or a segment.
+  const audienceById = new Map();
+  for (const item of included) {
+    if (item?.type === 'campaign-audience' && item?.id) audienceById.set(String(item.id), item);
+  }
+  const relIds = (rel) => (Array.isArray(rel) ? rel : rel ? [rel] : []).map((r) => r?.id).filter(Boolean).map(String);
+  const audienceForMessageVia = new Map();
+  for (const [id, a] of audienceById) {
+    for (const mid of relIds(a?.relationships?.['campaign-messages']?.data)) audienceForMessageVia.set(mid, id);
+  }
+  const audiencesOfCampaign = new Map();
+  for (const c of campaigns) {
+    const ids = relIds(c?.relationships?.['campaign-audiences']?.data).filter((id) => audienceById.has(id));
+    audiencesOfCampaign.set(String(c.id), ids);
+  }
+  const audienceValue = (id) => {
+    const attrs = audienceById.get(id)?.attributes || {};
+    // Klaviyo documents two shapes: the schema nests the fields under
+    // `definition`, the overview shows them flat (audience_name/included/
+    // excluded). Both are read; whichever is present wins.
+    const def = attrs.definition && typeof attrs.definition === 'object' ? attrs.definition : attrs;
+    const inc = def.included;
+    const exc = def.excluded;
+    if (!Array.isArray(inc) && !Array.isArray(exc)) return null;
+    return {
+      name: def.name ?? def.audience_name ?? null,
+      included: Array.isArray(inc) ? inc.map(String) : [],
+      excluded: Array.isArray(exc) ? exc.map(String) : [],
+    };
+  };
+  const audienceForMessage = (item, campaignId) => {
+    const own = relIds(item?.relationships?.['campaign-audience']?.data).find((id) => audienceById.has(id))
+      || audienceForMessageVia.get(String(item.id));
+    if (own) return audienceValue(own);
+    const ofCampaign = campaignId ? audiencesOfCampaign.get(campaignId) || [] : [];
+    return ofCampaign.length === 1 ? audienceValue(ofCampaign[0]) : null;
+  };
+
   const rows = [];
   for (const item of included) {
     if (item?.type !== 'campaign-message') continue;
@@ -562,9 +616,49 @@ export function campaignMessageRows({ campaigns = [], included = [], companyEnti
       updated_at_remote: campaign?.attributes?.updated_at ?? null,
       tags: [],
       attributes: { definition: def, campaign: cdef },
+      // NULL, not {}, when Klaviyo returned no audience: an empty object would
+      // read as "sent to nobody" rather than "not reported".
+      audiences: audienceForMessage(item, campaignId),
       synced_at: syncedAt,
       sync_batch_id: syncBatchId,
     });
+  }
+  return rows;
+}
+
+/**
+ * Every list and segment in the account, as klaviyo_audiences rows.
+ *
+ * This is what `lists:read` and `segments:read` are for. Without it a campaign's
+ * audience is a row of opaque ids; with it the ids have names. Both endpoints
+ * have the same shape, so they share one mapper.
+ *
+ * Klaviyo exposes no profile count on either endpoint (revision 2026-10-15) and
+ * no parameter that adds one, so none is stored. `attributes` keeps whatever
+ * else came back, so a later field needs no backfill.
+ */
+export async function fetchAudiences({ connection, companyEntityId, connectionId, syncedAt, syncBatchId, ...rest }) {
+  const rows = [];
+  for (const [kind, path] of [['list', 'lists'], ['segment', 'segments']]) {
+    const { data } = await fetchAllPages({
+      connection, path, query: { 'page[size]': PAGE_SIZE_AUDIENCES }, ...rest,
+    });
+    for (const item of data) {
+      if (!item?.id) continue;
+      const attrs = item.attributes || {};
+      rows.push({
+        company_entity_id: companyEntityId,
+        connection_id: connectionId,
+        kind,
+        klaviyo_id: String(item.id),
+        name: attrs.name ?? null,
+        created_at_remote: attrs.created ?? null,
+        updated_at_remote: attrs.updated ?? null,
+        attributes: attrs,
+        synced_at: syncedAt,
+        sync_batch_id: syncBatchId,
+      });
+    }
   }
   return rows;
 }
@@ -888,8 +982,21 @@ export function flowMessageRows({
 async function upsertChunked(supabase, table, rows, onConflict, size = 500) {
   for (let i = 0; i < rows.length; i += size) {
     const { error } = await supabase.from(table).upsert(rows.slice(i, i + size), { onConflict });
-    if (error) throw new Error(`${table} upsert failed: ${error.message}`);
+    if (error) throw new Error(`${table} upsert failed: ${error.message}`, { cause: error });
   }
+}
+
+/**
+ * True when a write failed ONLY because migration 20261110010000 is not
+ * applied yet: PostgREST names the missing table (PGRST205) or column
+ * (PGRST204), Postgres the same as 42P01 / 42703. The nightly runs from main,
+ * so between a merge and the apply it meets a database without them -- and
+ * the numbers must still land. Anything else is a real failure.
+ */
+export function isUnappliedSchema(err, name) {
+  const e = err?.cause || err;
+  return ['PGRST204', 'PGRST205', '42P01', '42703'].includes(String(e?.code || ''))
+    && String(e?.message || '').includes(name);
 }
 
 /**
@@ -936,6 +1043,21 @@ export async function syncKlaviyoWindow({
     connection, startDate, endDate, conversionMetricId, ...stamp, ...http,
   });
 
+  // The account's lists and segments, so a campaign's audience ids have names.
+  // FAIL-SOFT, and deliberately so: a connection granted before these scopes
+  // were used still works, and an account that refuses them loses the names,
+  // not the sync. A scope refusal is the only thing swallowed here -- any other
+  // failure is a real outage and must stop the run before anything is written.
+  let audienceRows = [];
+  let audiencesSkipped = null;
+  try {
+    audienceRows = await fetchAudiences({ connection, ...stamp, ...http });
+  } catch (err) {
+    if (!isScopeError(err)) throw err;
+    audiencesSkipped = err.code || 'scope';
+    log(`[klaviyo] lists/segments not readable (${audiencesSkipped}); audience names skipped`);
+  }
+
   // Every flow message either report named, with its flow.
   const flowForMessage = new Map([...flowValues.flowForMessage, ...flowSeries.flowForMessage]);
   const flowIds = [...new Set([...flowForMessage.values()].filter(Boolean))];
@@ -957,6 +1079,8 @@ export async function syncKlaviyoWindow({
     flow_daily_rows_upserted: dailyRows.length,
     flow_series_requests: flowSeries.series_windows,
     flow_message_names_resolved: messageNames.size,
+    audiences_upserted: audienceRows.length,
+    audiences_skipped: audiencesSkipped,
   };
 
   if (dryRun) {
@@ -965,7 +1089,28 @@ export async function syncKlaviyoWindow({
   }
 
   // ── 2. write ─────────────────────────────────────────────────────────────
-  await upsertChunked(supabase, 'klaviyo_messages', messageRows, 'company_entity_id,kind,klaviyo_id');
+  // Audiences first: a campaign row's ids are worth more once their names are
+  // there, and an audience row is never swept -- a list that stops being
+  // returned may still be named by an old campaign.
+  try {
+    await upsertChunked(supabase, 'klaviyo_audiences', audienceRows, 'company_entity_id,kind,klaviyo_id');
+  } catch (err) {
+    if (!isUnappliedSchema(err, 'klaviyo_audiences')) throw err;
+    counts.audiences_upserted = 0;
+    counts.audiences_skipped = 'migration_not_applied';
+    log('[klaviyo] klaviyo_audiences does not exist yet (20261110010000 not applied); audience names skipped');
+  }
+  try {
+    await upsertChunked(supabase, 'klaviyo_messages', messageRows, 'company_entity_id,kind,klaviyo_id');
+  } catch (err) {
+    if (!isUnappliedSchema(err, 'audiences')) throw err;
+    // Same rows, without the one column the database does not have yet.
+    // Upserts are idempotent, so a retry from the first chunk is safe.
+    log('[klaviyo] klaviyo_messages.audiences does not exist yet (20261110010000 not applied); campaign audiences skipped');
+    counts.audiences_skipped = 'migration_not_applied';
+    await upsertChunked(supabase, 'klaviyo_messages',
+      messageRows.map(({ audiences: _unstored, ...row }) => row), 'company_entity_id,kind,klaviyo_id');
+  }
   await upsertChunked(supabase, 'klaviyo_message_performance', performanceRows,
     'company_entity_id,kind,klaviyo_id,channel,timeframe_start,timeframe_end');
   await upsertChunked(supabase, 'klaviyo_flow_daily', dailyRows,

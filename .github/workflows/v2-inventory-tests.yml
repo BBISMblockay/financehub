@@ -167,7 +167,7 @@ jobs:
       - name: Email & SMS vendor guards (mutations)
         run: |
           set -u
-          for m in sum-windows no-vendor redo-wording not-linkable link-per-row; do
+          for m in sum-windows no-vendor redo-wording not-linkable link-per-row no-audience hard-context; do
             if EMAIL_SMS_MUTATION="$m" node v2/tests/browser/marketing-email-sms-vendors.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

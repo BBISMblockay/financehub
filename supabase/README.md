@@ -2299,6 +2299,34 @@ through `klaviyo_message_performance_v` / `klaviyo_flow_daily_v`
 - Runbook: `docs/ops/klaviyo-integration.md`. Tests:
   `scripts/tests/klaviyo-sync.test.mjs`.
 
+## Klaviyo audiences and account currency — `20261110010000_klaviyo_audiences.sql`
+
+What `lists:read`, `segments:read` and `accounts:read` are used for.
+
+- **`klaviyo_audiences`**: one row per list or segment in the connected account
+  (`kind` says which), with its name. Unique on
+  `(company_entity_id, kind, klaviyo_id)`, because list and segment ids are
+  separate id spaces. Select-only within the active company, service-role
+  writes, like the other Klaviyo data tables. **No profile count**: Klaviyo's
+  list and segment endpoints expose none, and a column that could only be NULL
+  would read as "nobody is on this list".
+- **`klaviyo_messages.audiences`** (jsonb, campaigns only):
+  `{name, included:[id...], excluded:[id...]}` as Klaviyo returned it. Klaviyo
+  calls these group ids without saying whether each is a list or a segment, so
+  readers resolve them against `klaviyo_audiences` on id alone, and show an
+  unresolved id as itself.
+- **`klaviyo_connections.account_currency`**: the account's `preferred_currency`
+  from `GET /api/accounts`, written by the connection test, stored as a fact
+  about the account. **It is not the currency of `text_message_spend`**, which
+  Klaviyo's Reporting API defines as USD whatever the account prefers, so SMS
+  cost is never relabelled with it. **NULL means Klaviyo did not say, not
+  USD**: a grant made before `accounts:read` was requested.
+- The audience read is the one fail-soft fetch in the Klaviyo sync. A grant
+  without `lists:read` / `segments:read` still syncs every number, and only the
+  names are skipped (`audiences_skipped` in the run result).
+- Tests: `scripts/tests/klaviyo-audiences-database.test.mjs` (real
+  PostgreSQL), `scripts/tests/klaviyo-sync.test.mjs`.
+
 ## Redo marketing reporting — `20260924120000_redo_marketing_reporting.sql`
 
 `redo_marketing_messages` (one row per Redo campaign or automation) and

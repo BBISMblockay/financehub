@@ -126,7 +126,7 @@ test('a row count that moves or a read that stops short fails instead of underco
 const klaviyoWindows=[...fullWindows,win('klaviyo','2026-08-31','2026-10-01')];
 const klaviyoAttempted={...attemptedAll,klaviyo:true};
 const klaviyoAdmin={...admin,klaviyo:[{id:'k'}]};
-test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
+test("Klaviyo SMS sending cost counts, in USD by Klaviyo's own definition",()=>{
   const out=summarizeSpend({klaviyo:[
     {channel:'sms',day_date:'2026-09-02',text_message_spend:'12.34',connection_id:'k'},
     {channel:'sms',day_date:'2026-09-03',text_message_spend:0.0075,connection_id:'k'},
@@ -138,7 +138,9 @@ test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
   assert.equal(k.status,'complete');
   assert.equal(k.cents,1235,'fractional sending costs sum before rounding');
   assert.equal(k.kind,'Sending cost','not ad spend: it never belongs in MER or ROAS');
-  assert.match(spendNote(k),/Assumed USD/,'an assumed currency is never silent');
+  // Klaviyo's Reporting API defines text_message_spend as USD, so there is
+  // nothing to caveat: it is not an assumption any more.
+  assert.equal(spendNote(k),'','USD is stated by Klaviyo, so the figure carries no "assumed" caveat');
   assert.ok(!out.has('Klaviyo Email'),'Klaviyo charges for email by plan, so there is no email cost row');
 });
 test("a store on another currency gets no Klaviyo figure, because Klaviyo reports none",()=>{

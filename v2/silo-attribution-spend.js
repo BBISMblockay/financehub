@@ -14,18 +14,19 @@ export const SPEND_SOURCES=[
   {channel:'TikTok Ads',table:'marketing_kpis_daily',rows:'kpi',connections:'ads',column:'platform',key:'tiktok_ads',job:'tiktok_ads_kpis',kind:'Ad spend',spendColumn:'spend',currencyColumn:null},
   {channel:'Redo Email',table:'redo_marketing_daily',rows:'redo',connections:'redo',column:'channel',key:'EMAIL',job:'redo_marketing',kind:'Sending cost',spendColumn:'spend',currencyColumn:'spend_currency'},
   {channel:'Redo SMS',table:'redo_marketing_daily',rows:'redo',connections:'redo',column:'channel',key:'SMS',job:'redo_marketing',kind:'Sending cost',spendColumn:'spend',currencyColumn:'spend_currency'},
-  // Klaviyo's SMS sending cost, by flow day. Klaviyo charges for email by plan
-  // rather than per send, so a Klaviyo Email row would never exist. The
-  // account's currency is not stored, and USD is ASSUMED on Blake's call
-  // (2026-11-09) rather than inferred -- the note says so wherever the figure
-  // is shown.
-  // Klaviyo's SMS sending cost for FLOWS, by day. Campaign SMS cost lives in
+  // Klaviyo's SMS sending cost for FLOWS, by day. Klaviyo charges for email by
+  // plan rather than per send, so a Klaviyo Email row would never exist.
+  // Currency: Klaviyo's Reporting API defines text_message_spend as "The total
+  // text message spend in USD" -- whatever the account's preferred currency.
+  // So it is USD by the vendor's own definition, not by assumption, and it is
+  // never re-labelled with klaviyo_connections.account_currency: an account
+  // that prefers CAD is still billed SMS in USD here. Campaign SMS cost lives in
   // klaviyo_message_performance and is a total over a measurement window, not
   // a daily figure, so it cannot be added to a date-range total. It is read
   // anyway, through `uncosted`, so that its existence stops this source from
   // certifying itself complete: a company sending paid SMS campaigns and no
   // flows would otherwise read as a COMPLETE $0, which overstates return.
-  {channel:'Klaviyo SMS (flows)',table:'klaviyo_flow_daily',rows:'klaviyo',connections:'klaviyo',column:'channel',key:'sms',job:'klaviyo',kind:'Sending cost',spendColumn:'text_message_spend',currencyColumn:null,assumed:'USD',
+  {channel:'Klaviyo SMS (flows)',table:'klaviyo_flow_daily',rows:'klaviyo',connections:'klaviyo',column:'channel',key:'sms',job:'klaviyo',kind:'Sending cost',spendColumn:'text_message_spend',currencyColumn:null,
    uncosted:{rows:'klaviyoCampaign',why:'campaign sending cost is reported per measurement window, not per day'}},
 ];
 const PAGE=1000,LIMIT=50000,uuid=/^[0-9a-f-]{36}$/i,isoDay=/^\d{4}-\d{2}-\d{2}$/;
