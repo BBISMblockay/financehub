@@ -10,6 +10,9 @@
 //     different measurement, not a stale one;
 //   * a statistic Klaviyo did not report stays NULL, never 0, and a series
 //     value is read for its OWN day;
+//   * the daily series is asked for in <= 60-day slices, because Klaviyo's
+//     daily cap is 60 days and not the year the other reports take, and
+//     every slice's days are kept;
 //   * no rate is ever stored, and conversion_metric_id is stamped on every row;
 //   * a scope, a credential or an uninstalled grant is recorded `skipped`, not
 //     failed, and is not retried;
@@ -42,6 +45,8 @@
 //   KLAVIYO_SYNC_MUTATION=reauth         an uninstalled grant is refreshed again anyway
 //   KLAVIYO_SYNC_MUTATION=dryrun         a dry run writes rows
 //   KLAVIYO_SYNC_MUTATION=chunk          a backfill asks Klaviyo for more than a year at once
+//   KLAVIYO_SYNC_MUTATION=serieschunk    the daily series is asked for the whole window at once
+//   KLAVIYO_SYNC_MUTATION=seriesdrop      only the last sub-window's days are kept
 //   KLAVIYO_SYNC_MUTATION=native         Windsor syncs Klaviyo even where SILO syncs it natively
 //
 // Run: node --test scripts/tests/klaviyo-sync.test.mjs
@@ -92,6 +97,11 @@ async function loadCore() {
   // The first sync's requested depth losing to the connection's stored one.
   if (MUT === 'storeddepth') sub('  if (startDate || asked) return requested;', '  if (startDate) return requested;');
   if (MUT === 'chunk') sub('export function chunkWindow({ startDate, endDate }, maxDays = MAX_RANGE_DAYS) {', 'export function chunkWindow({ startDate, endDate }, maxDays = 100000) {');
+  // The 60-day daily cap ignored: one request for the whole window, which is
+  // what Klaviyo answered with a 400 on production.
+  if (MUT === 'serieschunk') sub('chunkWindow({ startDate, endDate }, MAX_SERIES_RANGE_DAYS).reverse()', '[{ startDate, endDate }]');
+  // Sliced correctly, then all but the last slice thrown away.
+  if (MUT === 'seriesdrop') sub('    rows.push(...part.rows);', '    rows.length = 0;\n    rows.push(...part.rows);');
 
   const b64 = Buffer.from(src).toString('base64');
   return import(`data:text/javascript;base64,${b64}`);
@@ -318,6 +328,93 @@ test('a backfill is cut into <= 365-day chunks, newest first, disjoint and cover
   for (let i = 1; i < chunks.length; i += 1) {
     assert.equal(core.addDays(chunks[i].endDate, 1), chunks[i - 1].startDate, 'chunks must be adjacent and disjoint');
   }
+});
+
+// ── the daily series' own 60-day cap ───────────────────────────────────────
+
+/** A flow series whose days follow whatever window was asked for, so a slice
+ * that is never requested is a day that is never stored. */
+function seriesForRequest(call) {
+  const tf = call.body?.data?.attributes?.timeframe || {};
+  const start = String(tf.start).slice(0, 10);
+  const end = String(tf.end).slice(0, 10);
+  return {
+    body: {
+      data: {
+        attributes: {
+          date_times: [`${start}T00:00:00Z`, `${end}T00:00:00Z`],
+          results: [{
+            groupings: { flow_id: 'flow1', flow_message_id: 'fmsg1', send_channel: 'email' },
+            statistics: { delivered: [1, 2], conversions: [0, 1] },
+          }],
+        },
+      },
+    },
+  };
+}
+
+test('the daily flow series is sliced to <= 60 days, adjacent and disjoint, covering the window', async () => {
+  const core = await loadCore();
+  // 155 days: one 365-day reporting chunk, but three daily-series slices.
+  const START = '2026-06-01';
+  const END = '2026-11-02';
+  const calls = [];
+  const plan = planFor({
+    '/api/flow-series-reports/': (i) => seriesForRequest(calls.filter((c) => c.url.includes('flow-series-reports')) [i]),
+  });
+  const db = seededDb();
+  const out = await core.syncKlaviyoConnection({
+    supabase: db,
+    connection,
+    startDate: START,
+    endDate: END,
+    clientId: 'cid',
+    clientSecret: 'csec',
+    now: () => NOW,
+    fetchImpl: fakeKlaviyo(plan, calls),
+    sleep: async () => {},
+    log: () => {},
+  });
+  assert.equal(out.skipped, undefined, `sync skipped unexpectedly: ${out.skipped}`);
+
+  const series = calls.filter((c) => c.url.includes('flow-series-reports'));
+  assert.equal(series.length, 3, 'a 155-day window is three daily slices, not one request');
+  assert.equal(out.chunks[0].flow_series_requests, 3,
+    'the stored record must say how many slices it took');
+
+  const asked = series.map((c) => {
+    const tf = c.body.data.attributes.timeframe;
+    assert.equal(c.body.data.attributes.interval, 'daily', 'the series must stay a DAILY series');
+    return { startDate: String(tf.start).slice(0, 10), endDate: String(tf.end).slice(0, 10) };
+  });
+  for (const w of asked) {
+    assert.ok(core.daysBetweenInclusive(w.startDate, w.endDate) <= core.MAX_SERIES_RANGE_DAYS,
+      `slice ${w.startDate}..${w.endDate} is over Klaviyo's 60-day daily cap and would 400`);
+  }
+  // Oldest first, adjacent, and the whole window covered: a gap is a silently
+  // missing day in klaviyo_flow_daily, which no error would ever report.
+  assert.equal(asked[0].startDate, START, 'the oldest slice must start at the window start');
+  assert.equal(asked[asked.length - 1].endDate, END, 'the newest slice must end at the window end');
+  for (let i = 1; i < asked.length; i += 1) {
+    assert.equal(core.addDays(asked[i - 1].endDate, 1), asked[i].startDate,
+      'slices must be adjacent and disjoint');
+  }
+
+  // Every slice's rows are kept, not just the last one's.
+  const days = new Set((db.tables.get('klaviyo_flow_daily') || []).map((r) => r.day_date));
+  for (const w of asked) {
+    assert.ok(days.has(w.startDate), `the day ${w.startDate} from one slice was dropped`);
+    assert.ok(days.has(w.endDate), `the day ${w.endDate} from one slice was dropped`);
+  }
+});
+
+test('a window inside the daily cap is still exactly one series request', async () => {
+  const core = await loadCore();
+  const { out, calls } = await runSync(core, { daysBack: 2 });
+  assert.equal(out.skipped, undefined);
+  assert.equal(calls.filter((c) => c.url.includes('flow-series-reports')).length, 1,
+    'the nightly must not pay for slicing it does not need');
+  assert.equal(out.chunks[0].flow_series_requests, 1);
 });
 
 // ── the happy path, and what it stores ─────────────────────────────────────
