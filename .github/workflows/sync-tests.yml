@@ -891,7 +891,7 @@ jobs:
           for m in per-day-rates ignore-channel zero-rate sms-opens no-cap \
                    usd-always stale-company \
                    klaviyo-widest klaviyo-no-vendor klaviyo-metric-merged \
-                   pool-totals flow-no-window csv-no-metric; do
+                   pool-totals flow-no-window csv-no-metric pool-windows; do
             if WOW_REDO_MUTATION="$m" node scripts/tests/wow-redo-marketing.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

@@ -35,6 +35,7 @@
  *   WOW_REDO_MUTATION=pool-totals     (one total across vendors and metrics)
  *   WOW_REDO_MUTATION=flow-no-window  (a flow row borrows the report period)
  *   WOW_REDO_MUTATION=csv-no-metric   (the export drops the conversion metric)
+ *   WOW_REDO_MUTATION=pool-windows    (one total across different windows)
  *
  * Run:  node scripts/tests/wow-redo-marketing.test.mjs
  */
@@ -47,7 +48,7 @@ const mutation = process.env.WOW_REDO_MUTATION || '';
 assert.ok(['', 'per-day-rates', 'ignore-channel', 'zero-rate', 'sms-opens', 'no-cap',
   'usd-always', 'stale-company',
   'klaviyo-widest', 'klaviyo-no-vendor', 'klaviyo-metric-merged',
-  'pool-totals', 'flow-no-window', 'csv-no-metric'].includes(mutation),
+  'pool-totals', 'flow-no-window', 'csv-no-metric', 'pool-windows'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const pristine = await readFile(PAGE, 'utf8');
@@ -97,6 +98,12 @@ if (mutation === 'ignore-channel') {
   html = html.replace(
     "const key = `${g.vendor || ''}|${g.metric || ''}`;",
     "const key = 'all';");
+} else if (mutation === 'pool-windows') {
+  // Vendor and metric kept apart, but spans pooled: a 60-day measurement added
+  // to a 7-day one, under a label that names neither period.
+  html = html.replace(
+    "const key = `${g.vendor || ''}|${g.metric || ''}|${g.measured || ''}`;",
+    "const key = `${g.vendor || ''}|${g.metric || ''}`;");
 } else if (mutation === 'flow-no-window') {
   // A flow's 60-day window printed as if it were the report's period.
   html = html.replace(
@@ -489,6 +496,12 @@ console.log('wow-redo-marketing: all assertions passed');
            parent_name: 'Welcome flow', channel: 'sms', timeframe_start: '2026-08-27',
            recipients: 60, delivered: 59,
            clicks_unique: 4, conversions: 3, conversion_value: 80, text_message_spend: 1.5 }),
+    // A second flow on the SAME metric whose only measurement is the week.
+    // Its $20 and the 60-day flow's $80 are not $100 of anything: one covers
+    // seven days and the other sixty.
+    kRow({ kind: 'flow_message', klaviyo_id: 'kf2', message_name: 'Back in stock',
+           parent_name: 'Back in stock flow', channel: 'sms',
+           recipients: 20, delivered: 20, conversions: 1, conversion_value: 20 }),
   ];
   const kb = makeSandbox();
   const kGrouped = vm.runInContext('groupKlaviyo(__rows)', Object.assign(kb, { __rows: K_FIXTURE }));
@@ -532,6 +545,16 @@ console.log('wow-redo-marketing: all assertions passed');
   // Pooling them across vendors would add overlapping attribution, and across
   // conversion metrics would count the same message's different events as
   // more of the same thing. k1 alone would read 780 delivered / $620.
+  // Two flows, one metric, different windows: there is no combined total, and
+  // each line that is printed says which window it covers.
+  const autoTotals = kb.nodes.get('redoAutoTotals').innerHTML;
+  assert.ok(!/\$100\b/.test(autoTotals),
+    'a 60-day measurement and a 7-day one must not be added into one headline');
+  assert.match(autoTotals, /2026-08-27 \u2192 2026-10-25/, 'each Klaviyo line names its own window');
+  assert.match(autoTotals, /2026-10-19 \u2192 2026-10-25/);
+  assert.match(autoTotals, /measured over different windows/i,
+    'and the card says a window is part of what makes a sum legitimate');
+
   const totals = kb.nodes.get('redoCampTotals').innerHTML;
   assert.ok(!/>780</.test(totals), 'two metrics of one campaign must not be added into one delivered count');
   assert.ok(!/\$620/.test(totals), 'nor their revenue');

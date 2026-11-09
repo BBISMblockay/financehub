@@ -1754,11 +1754,18 @@
       // pooling either produces a number that describes nothing. One vendor on
       // one metric -- the normal case -- is a single line that reads exactly as
       // a single total did.
+      // The measurement WINDOW is part of what makes a sum legitimate too.
+      // groupKlaviyo picks a window per message, so two messages on the same
+      // vendor and metric can cover different spans: one flow measured over 60
+      // days and one over the week are not addable, and their sum is neither
+      // the week's nor the 60 days'. The window is in the key, and the label
+      // prints it. A Redo row has no window of its own -- it IS the report
+      // period -- so it stays one line that reads exactly as before.
       const groups = new Map();
       for (const g of rows) {
-        const key = `${g.vendor || ''}|${g.metric || ''}`;
+        const key = `${g.vendor || ''}|${g.metric || ''}|${g.measured || ''}`;
         if (!groups.has(key)) groups.set(key, { vendor:g.vendor || '', metric:g.metric || '',
-          delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
+          measured:g.measured || '', delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
         const a = groups.get(key);
         a.delivered += g.delivered; a.opens += g.opens; a.clicks += g.clicks;
         a.orders += g.orders;
@@ -1769,10 +1776,23 @@
       const perCur = (totals, fmt) => Object.entries(totals)
         .sort((a, b) => b[1] - a[1])
         .map(([cur, v]) => fmt(v, cur)).join(' · ') || '—';
-      const lines = [...groups.values()].sort((a, b) =>
-        a.vendor.localeCompare(b.vendor) || a.metric.localeCompare(b.metric));
-      const label = g => lines.length < 2 && !g.metric ? ''
-        : `<span><b>${esc(g.vendor || 'Total')}${g.metric ? ` · ${esc(g.metric)}` : ''}</b></span>`;
+      let lines = [...groups.values()].sort((a, b) =>
+        a.vendor.localeCompare(b.vendor) || a.metric.localeCompare(b.metric)
+        || a.measured.localeCompare(b.measured));
+      // Honest, but it must not become a wall. Past a handful of windows on one
+      // vendor and metric there is no total worth printing, so say that instead
+      // of printing many or, worse, one wrong one.
+      const WINDOW_LINES = 3, suppressed = [];
+      for (const vm of new Set(lines.map(g => `${g.vendor}|${g.metric}`))) {
+        const share = lines.filter(g => `${g.vendor}|${g.metric}` === vm);
+        if (share.length > WINDOW_LINES) {
+          suppressed.push({ vendor:share[0].vendor, metric:share[0].metric, windows:share.length });
+          lines = lines.filter(g => !share.includes(g));
+        }
+      }
+      const many = lines.length + suppressed.length > 1;
+      const label = g => !many && !g.metric && !g.measured ? ''
+        : `<span><b>${esc(g.vendor || 'Total')}${g.metric ? ` · ${esc(g.metric)}` : ''}</b>${g.measured ? ` <span class="dim">${esc(g.measured)}</span>` : ''}</span>`;
       if (tot) tot.innerHTML = rows.length
         ? lines.map(g => `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">`
           + label(g)
@@ -1781,7 +1801,8 @@
           + `<span>Revenue credited by the vendor <b>${perCur(g.revenue, moneyIn)}</b></span>`
           + `<span>Sending cost <b>${perCur(g.spend, money2In)}</b></span>`
           + `</span>`).join('')
-          + (lines.length > 1 ? `<span class="dim" style="text-transform:none;letter-spacing:0">Kept apart on purpose: vendors credit overlapping orders, and two conversion metrics count different events for the same message. Adding these lines together would describe nothing.</span>` : '')
+          + suppressed.map(s => `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0"><span><b>${esc(s.vendor)}${s.metric ? ` · ${esc(s.metric)}` : ''}</b></span><span class="dim">measured over ${intFmt(s.windows)} different windows — no combined total; read the rows</span></span>`).join('')
+          + (many ? `<span class="dim" style="text-transform:none;letter-spacing:0">Kept apart on purpose: vendors credit overlapping orders, two conversion metrics count different events for the same message, and figures measured over different windows cover different periods. Adding these lines together would describe nothing.</span>` : '')
         : '';
       body.innerHTML = shown.length ? shown.map(g => {
         const sms = String(g.channel || '').toUpperCase() === 'SMS';
