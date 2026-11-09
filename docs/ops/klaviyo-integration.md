@@ -157,6 +157,26 @@ Sending `page[size]` to `/api/metrics` returns **400** with
 SILO bug, not a bad key, and the connection test says so in those words
 rather than telling an admin to replace a working credential.
 
+## The first sync, and how deep it goes
+
+Three doors, all of them the same core:
+
+1. **Turning sync on** queues a bootstrap job (365 days) AND kicks
+   `integration-sync-kick`, which pulls a trailing 7 days straight away so the
+   card is not empty while the queue is drained. The kick is best effort; the
+   queued job is what guarantees the data.
+2. **Workflow dispatch** with `start_date` for a dated backfill, cut into
+   365-day chunks, newest first.
+3. **The nightly**, a trailing 60 days (`days_back` on the connection row).
+
+`KLAVIYO_DAYS_BACK` is BLANK when nobody asked. That is deliberate and it is
+load-bearing: `effectiveDaysBack` lets a connection's stored `days_back` win
+over the default but **not** over a depth the caller asked for. Defaulting the
+variable to `'60'` in the entry point made the nightly and an explicit request
+indistinguishable, and the stored 60 then swallowed the bootstrap's 365 on
+every first import -- measured on production 2026-11-09, where a first sync
+asked for a year and stored `2026-09-10..2026-11-08`.
+
 ## Klaviyo's app listing (OAuth)
 
 | Listing field | Value |

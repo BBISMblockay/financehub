@@ -25,7 +25,7 @@
 // that is a configuration state for one company, not an outage for the rest.
 
 import { createClient } from '@supabase/supabase-js';
-import { syncKlaviyoConnection } from './lib/klaviyo-sync-core.mjs';
+import { effectiveDaysBack, syncKlaviyoConnection } from './lib/klaviyo-sync-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -34,7 +34,13 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const ONLY_COMPANY_ID = process.env.KLAVIYO_COMPANY_ID || '';
-const DAYS_BACK = process.env.KLAVIYO_DAYS_BACK || '60';
+// Passed to effectiveDaysBack as `requested`: BLANK when nobody asked, which
+// is how the nightly is told apart from Integration Bootstrap setting 365 on
+// purpose. Defaulting it to '60' here would make the two indistinguishable,
+// and the per-connection override then swallowed the bootstrap's year --
+// measured on production 2026-11-09, where a first sync asked for 365 days
+// and stored 60.
+const DAYS_BACK = process.env.KLAVIYO_DAYS_BACK || '';
 const START = process.env.KLAVIYO_START || '';
 const END = process.env.KLAVIYO_END || '';
 const DRY_RUN = String(process.env.KLAVIYO_DRY_RUN || '').toLowerCase() === 'true';
@@ -75,7 +81,11 @@ async function main() {
         connection,
         // A per-connection days_back wins over the workflow's default, so one
         // company can be pulled deeper without changing the schedule for all.
-        daysBack: START ? DAYS_BACK : (connection.days_back || DAYS_BACK),
+        daysBack: effectiveDaysBack({
+          requested: DAYS_BACK,
+          connectionDaysBack: connection.days_back,
+          startDate: START,
+        }),
         startDate: START,
         endDate: END,
         dryRun: DRY_RUN,
