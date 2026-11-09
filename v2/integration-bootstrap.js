@@ -36,6 +36,7 @@
       ['returns_backfill', 'past returns'],
       ['marketing', 'campaign reporting'],
     ],
+    klaviyo: [['performance', 'campaign and flow reporting']],
   };
 
   const LABEL = {
@@ -46,6 +47,7 @@
     tiktok_ads: 'TikTok',
     search_console: 'Search Console',
     redo: 'Redo',
+    klaviyo: 'Klaviyo',
   };
 
   /** Queue the first full sync for a connection that was just saved.

@@ -2258,6 +2258,47 @@ Report page needs no change.
   The same migration refreshes the Ask SILO / report-builder catalog.
 - Test: `scripts/tests/incoming-shipment-audit-database.test.mjs`.
 
+## Klaviyo native integration — `20261109040000_klaviyo_native_integration.sql`
+
+Klaviyo as a pillar of its own: `klaviyo_connections` (one row per company,
+carrying either a pasted private API key or an OAuth grant),
+`klaviyo_messages`, `klaviyo_message_performance`, `klaviyo_flow_daily` and
+`klaviyo_oauth_states`, written by `scripts/klaviyo-sync.mjs`
+(`klaviyo-sync.yml`, nightly + manual backfill) from Klaviyo's own API. Read
+through `klaviyo_message_performance_v` / `klaviyo_flow_daily_v`
+(`security_invoker`).
+
+- **Campaign performance is not daily, and cannot be.** Klaviyo publishes no
+  campaign series endpoint — only `POST /api/campaign-values-reports/`, which
+  returns window totals per campaign message. So the window's bounds are part
+  of the key, and rows from two overlapping windows must never be summed.
+  Flows have a real daily series (`klaviyo_flow_daily`).
+- **Counts only, no rates**, for Redo's reason: a Klaviyo rate is a count over
+  a count (returned as a fraction 0.0–1.0) and is malformed per day. Pool over
+  the window, then divide.
+- **`conversion_metric_id` is stamped on every performance row.** It is
+  required on every Klaviyo report and chosen per account; rows measured
+  against different metrics are different measurements.
+- **`conversion_value` is Klaviyo-attributed revenue**, never incremental: it
+  overlaps net sales and ad-platform claims. `text_message_spend` is SMS
+  sending cost, not ad spend, and does not belong in `marketing_kpis_daily`.
+- **NULL means not reported, never zero** — SMS statistics are null before
+  2025-10-01 and on contracted plans.
+- Reading `klaviyo_connections` is `is_admin_user()`-gated, because the row
+  carries a live credential. `klaviyo_oauth_states` holds the PKCE verifier and
+  has no client policy at all. The three data tables are select-only within the
+  active company, service-role writes.
+- The migration appends `'klaviyo'` to **two live CHECK constraints**
+  (`sync_jobs.job_type` and `integration_bootstrap_jobs.integration`), read
+  from the database rather than from a file and raising instead of guessing.
+- Applying it turns nothing on: no connection exists, and the sync reads only
+  rows with `sync_enabled`.
+- `klaviyo_performance_daily` (the Windsor copy) is untouched, and the two
+  never run for the same company — `windsor-sync-core.mjs` records
+  `superseded_by_native`.
+- Runbook: `docs/ops/klaviyo-integration.md`. Tests:
+  `scripts/tests/klaviyo-sync.test.mjs`.
+
 ## Redo marketing reporting — `20260924120000_redo_marketing_reporting.sql`
 
 `redo_marketing_messages` (one row per Redo campaign or automation) and

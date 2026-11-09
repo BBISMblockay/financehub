@@ -44,18 +44,48 @@ const shopJob = {
 
 // ── The plan exists for every integration the table accepts ────────────────
 
-// The CHECK constraint in 20261013060000 and this plan table have to agree:
-// an integration the table accepts but nothing can plan is a row that sits in
-// the queue for ever, and one the table rejects can never be enqueued.
+// The CHECK constraint and this plan table have to agree: an integration the
+// table accepts but nothing can plan is a row that sits in the queue for ever,
+// and one the table rejects can never be enqueued.
+//
+// The list is NOT one migration's any more. 20261013060000 created it, and a
+// later migration may APPEND to the live constraint (20261109040000 appends
+// klaviyo) -- which is the only safe way to extend it, because production
+// carries hand-applied objects and an applied migration is never edited. So
+// the accepted set is the original CHECK plus every later append, and a new
+// integration that forgets either half still fails here.
+const MIGRATIONS_DIR = new URL('../../supabase/migrations/', import.meta.url);
 const MIGRATION = fs.readFileSync(
-  new URL('../../supabase/migrations/20261013060000_integration_bootstrap_jobs.sql', import.meta.url),
+  new URL('20261013060000_integration_bootstrap_jobs.sql', MIGRATIONS_DIR),
   'utf8',
 );
+
+/** Values appended to integration_bootstrap_jobs.integration by a later
+ * migration: `add constraint ... check (integration = any (array[%s, %L]))`
+ * executed with one new value. */
+function appendedIntegrations() {
+  const out = [];
+  for (const name of fs.readdirSync(MIGRATIONS_DIR).sort()) {
+    if (!name.endsWith('.sql') || name.startsWith('20261013060000')) continue;
+    const sql = fs.readFileSync(new URL(name, MIGRATIONS_DIR), 'utf8');
+    if (!sql.includes('integration_bootstrap_jobs')) continue;
+    // Scoped to THIS table's append, so a migration that also extends
+    // sync_jobs.job_type in the same file does not leak that value in here.
+    for (const m of sql.matchAll(
+      /integration_bootstrap_jobs add constraint[\s\S]{0,400}?members,\s*'([a-z0-9_]+)'/g)) {
+      out.push(m[1]);
+    }
+  }
+  return out;
+}
 
 await test('every integration in the table CHECK has a plan, and vice versa', () => {
   const block = MIGRATION.match(/integration text not null check \(integration in \(([\s\S]*?)\)\)/);
   assert.ok(block, 'could not find the integration CHECK in the migration');
-  const inCheck = [...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]).sort();
+  const inCheck = [
+    ...[...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]),
+    ...appendedIntegrations(),
+  ].sort();
   const planned = Object.keys(BOOTSTRAP_PLANS).sort();
   assert.deepEqual(inCheck, planned);
 });

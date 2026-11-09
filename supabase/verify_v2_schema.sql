@@ -8763,3 +8763,66 @@ select 'consent scope strictness' as check_name,
       then 'CRITICAL — anon can read a connection''s scopes'
     else 'ok'
   end as status;
+-- Klaviyo native integration (20261109040000): SILO reads Klaviyo's own API
+-- through a per-company connection carrying a credential, so even READING the
+-- connection row is admin-only; the three data tables are select-only within
+-- the active company and written only by the sync (service role); and both
+-- queues accept the new vocabulary, without which a first sync cannot even be
+-- enqueued.
+select 'Klaviyo native integration' as check_name,
+  case
+    when to_regclass('public.klaviyo_connections') is null
+      or to_regclass('public.klaviyo_messages') is null
+      or to_regclass('public.klaviyo_message_performance') is null
+      or to_regclass('public.klaviyo_flow_daily') is null
+      or to_regclass('public.klaviyo_message_performance_v') is null
+      or to_regclass('public.klaviyo_flow_daily_v') is null
+      then 'MISSING — run 20261109040000_klaviyo_native_integration.sql'
+    when exists (select 1 from unnest(array[
+                   'klaviyo_connections', 'klaviyo_messages',
+                   'klaviyo_message_performance', 'klaviyo_flow_daily',
+                   'klaviyo_oauth_states']) as t(n)
+                  where not (select relrowsecurity from pg_class
+                              where oid = ('public.' || t.n)::regclass))
+      then 'CRITICAL — RLS is off on a Klaviyo table'
+    when has_table_privilege('anon', 'public.klaviyo_connections', 'select')
+      or has_table_privilege('anon', 'public.klaviyo_message_performance', 'select')
+      or has_table_privilege('anon', 'public.klaviyo_flow_daily', 'select')
+      or has_table_privilege('anon', 'public.klaviyo_oauth_states', 'select')
+      or has_table_privilege('authenticated', 'public.klaviyo_oauth_states', 'select')
+      then 'CRITICAL — a Klaviyo table is readable by anon, or the PKCE verifier is readable by a client'
+    when has_table_privilege('authenticated', 'public.klaviyo_messages', 'insert')
+      or has_table_privilege('authenticated', 'public.klaviyo_message_performance', 'insert')
+      or has_table_privilege('authenticated', 'public.klaviyo_flow_daily', 'insert')
+      or has_table_privilege('authenticated', 'public.klaviyo_message_performance', 'update')
+      or has_table_privilege('authenticated', 'public.klaviyo_flow_daily', 'update')
+      then 'CRITICAL — a client role can write a Klaviyo data table'
+    when not exists (select 1 from pg_policy
+                      where polrelid = 'public.klaviyo_connections'::regclass
+                        and pg_get_expr(polqual, polrelid) like '%is_admin_user()%')
+      then 'CRITICAL — the Klaviyo connection row, which carries a credential, is not admin-only'
+    when exists (select 1 from unnest(array[
+                   'klaviyo_messages', 'klaviyo_message_performance', 'klaviyo_flow_daily']) as t(n)
+                  where not exists (select 1 from pg_policy
+                                     where polrelid = ('public.' || t.n)::regclass
+                                       and polcmd = 'r'
+                                       and pg_get_expr(polqual, polrelid) like '%active_company_id()%'))
+      then 'CRITICAL — a Klaviyo data table is not select-only within the active company'
+    when exists (select 1 from pg_class c
+                  where c.relname in ('klaviyo_message_performance_v', 'klaviyo_flow_daily_v')
+                    and c.relkind = 'v'
+                    and coalesce((select option_value from pg_options_to_table(c.reloptions)
+                                   where option_name = 'security_invoker'), 'false') <> 'true')
+      then 'CRITICAL — a Klaviyo view is not security_invoker, so RLS does not apply through it'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.sync_jobs'::regclass
+                        and conname = 'sync_jobs_job_type_check'
+                        and pg_get_constraintdef(oid) ~ '''klaviyo''')
+      then 'MISSING — sync_jobs does not accept the klaviyo job type'
+    when not exists (select 1 from pg_constraint
+                      where conrelid = 'public.integration_bootstrap_jobs'::regclass
+                        and contype = 'c'
+                        and pg_get_constraintdef(oid) ~ '''klaviyo''')
+      then 'MISSING — integration_bootstrap_jobs does not accept klaviyo, so a first sync cannot be queued'
+    else 'ok'
+  end as status;

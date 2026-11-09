@@ -150,6 +150,33 @@ const REDO_STAGES = [
   },
 ];
 
+/** Klaviyo's first sync is simply its nightly asked for a longer window: the
+ * reporting API has no "everything since the beginning" call, so history is a
+ * backfill over explicit dates and the core cuts it into Klaviyo's 365-day
+ * chunks. A connection with no credential is SKIPPED, not retried -- a
+ * connection awaiting a pasted key is a configuration state, not a failure.
+ *
+ * `conversion_metric_id` is the other prerequisite (every Klaviyo report
+ * requires one) but it is not listed in `needs`: it is resolved by Test
+ * connection, the core skips the connection when it is missing and says so in
+ * sync_jobs, and treating it as a missing field here would report the stage
+ * skipped before Klaviyo had been asked anything at all.
+ */
+const KLAVIYO_STAGES = [
+  {
+    stage: 'performance',
+    script: 'scripts/klaviyo-sync.mjs',
+    // Either auth mode satisfies this: a pasted private key, or OAuth tokens.
+    // `needs` would demand every field, which no connection has.
+    needsAny: ['api_key', 'access_token', 'refresh_token'],
+    env: (job, opts) => ({
+      KLAVIYO_COMPANY_ID: job.company_entity_id,
+      KLAVIYO_START: opts.klaviyoStart || '',
+      KLAVIYO_DAYS_BACK: String(opts.klaviyoHistoryDays),
+    }),
+  },
+];
+
 /** integration -> its ordered stages. An integration absent from here has no
  * plan, and planBootstrap throws rather than returning an empty one: an empty
  * plan would report a job `done` having run nothing, which is the exact
@@ -162,7 +189,12 @@ export const BOOTSTRAP_PLANS = {
   tiktok_ads: adStages('tiktok_ads'),
   search_console: SEARCH_CONSOLE_STAGES,
   redo: REDO_STAGES,
+  klaviyo: KLAVIYO_STAGES,
 };
+
+/** Integrations whose connection is one row per company, so a bootstrap job
+ * legitimately carries no connection_id. */
+export const COMPANY_SCOPED_INTEGRATIONS = new Set(['redo', 'klaviyo']);
 
 export const BOOTSTRAP_DEFAULTS = {
   // 60 days, matching what a store without read_all_orders can return at all
@@ -176,6 +208,11 @@ export const BOOTSTRAP_DEFAULTS = {
   searchConsoleDays: 480,
   redoReturnsStart: '',
   redoMarketingStart: '',
+  // Blank klaviyoStart means "use the trailing window below" rather than a
+  // dated backfill: nobody has measured yet how far back Klaviyo's reporting
+  // stays trustworthy, so the first sync asks for a year and no more.
+  klaviyoStart: '',
+  klaviyoHistoryDays: 365,
 };
 
 /** The stages this job consists of, with the env each one needs.
@@ -194,19 +231,27 @@ export function planBootstrap(job, { options = {}, connection = null } = {}) {
   if (!job.company_entity_id) {
     throw new Error('Bootstrap job has no company_entity_id');
   }
-  // Every integration but Redo is per-connection; Redo is one row per company
-  // and its scripts take the company, not a connection id.
-  if (job.integration !== 'redo' && !job.connection_id) {
+  // Most integrations are per-connection. Redo and Klaviyo are one row per
+  // company and their scripts take the company, not a connection id.
+  if (!COMPANY_SCOPED_INTEGRATIONS.has(job.integration) && !job.connection_id) {
     throw new Error(`Bootstrap job for ${job.integration} has no connection_id`);
   }
   const opts = { ...BOOTSTRAP_DEFAULTS, ...options };
   return plan.map((s) => {
+    // `needs` is every field; `needsAny` is at least one of them, which is
+    // what an integration with two auth modes requires (Klaviyo: a pasted
+    // private key OR OAuth tokens -- demanding both would skip every real
+    // connection).
     const missing = (s.needs || []).filter((f) => !connection || !connection[f]);
+    const anyFields = s.needsAny || [];
+    const anyMissing = anyFields.length && !anyFields.some((f) => connection && connection[f]);
     return {
       stage: s.stage,
       script: s.script,
       env: s.env(job, opts),
-      skip: missing.length ? `missing ${missing.join(', ')}` : null,
+      skip: missing.length ? `missing ${missing.join(', ')}`
+        : anyMissing ? `missing one of ${anyFields.join(', ')}`
+          : null,
     };
   });
 }
