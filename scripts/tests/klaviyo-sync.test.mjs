@@ -737,6 +737,22 @@ test('a 400 from Klaviyo is not reported to the admin as a rejected credential',
   assert.ok(/rejected the credential/i.test(bad.body.error));
 });
 
+test('the page states no verdict of its own about why a test failed', () => {
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  // Comments stripped: this is about what the page SAYS to an admin, and the
+  // line explaining why it must not say it is not a violation of itself.
+  const code = page.split('\n').filter((l) => !/^\s*(\/\/|<!--)/.test(l)).join('\n');
+  // The handler distinguishes 401 (the key), 403 (the scope) and 400 (SILO's
+  // own request). A fixed prefix in the browser overrules all three at once,
+  // and the one it used to state -- "refused the credential" -- is the single
+  // most expensive thing to say wrongly: it sends an admin to replace a key
+  // that works.
+  assert.ok(!/refused the credential|rejected the credential/.test(code),
+    'the page must not label a failure itself; the handler already worded it');
+  assert.match(code, /setStatus\(out\?\.error \|\|/,
+    "the handler's own message is what the admin reads");
+});
+
 test('the Connect with Klaviyo button is hidden until the deployment says it works', () => {
   const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
   const btn = page.match(/<button[^>]*id="btn-connect-klaviyo"[^>]*>/);

@@ -3379,7 +3379,13 @@
         return;
       }
       if (!out?.success) {
-        setStatus('Klaviyo refused the credential: ' + (out?.error || 'unknown error'), 'neg', 15000);
+        // The handler's own words, verbatim. It already tells a rejected key
+        // (401) apart from a missing scope (403) and from a request SILO built
+        // wrongly (400), and each needs a different thing done about it. A
+        // fixed "refused the credential" prefix here would overrule all three
+        // and send somebody to replace a key that works -- which is exactly
+        // what happened on the first live test.
+        setStatus(out?.error || 'The Klaviyo test failed and Klaviyo gave no reason.', 'neg', 15000);
         loadKlaviyoConnection();
         return;
       }
