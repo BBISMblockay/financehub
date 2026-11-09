@@ -199,6 +199,29 @@ export function daysBetweenInclusive(start, end) {
 }
 
 /**
+ * How deep to pull for ONE connection, given what the caller asked for and
+ * what that connection is configured for. Pure, and exported because the
+ * precedence is the whole point and it was wrong in production:
+ *
+ *   - `requested` set (the bootstrap's 365, a hand-dispatched depth) wins over
+ *     everything. Asking explicitly and being overruled by a stored default is
+ *     the bug this exists to prevent: a first sync asked for a year and stored
+ *     60 days on 2026-11-09.
+ *   - otherwise a per-connection `connectionDaysBack` wins over the fallback,
+ *     so one company can be pulled deeper without changing the schedule for all.
+ *   - a backfill with an explicit start date needs no depth at all, so the
+ *     requested value is passed through untouched.
+ *
+ * Returns a value `resolveWindow` will accept, or throw on -- it deliberately
+ * does not validate, so a nonsense depth fails in one place with one message.
+ */
+export function effectiveDaysBack({ requested = '', connectionDaysBack = null, startDate = '', fallback = 60 }) {
+  const asked = String(requested ?? '').trim() !== '';
+  if (startDate || asked) return requested;
+  return connectionDaysBack || fallback;
+}
+
+/**
  * The window to pull: the trailing `daysBack` days ending YESTERDAY in the
  * account's timezone (today is partial and would be restated tomorrow).
  * Explicit start/end win.
@@ -971,7 +994,7 @@ export async function syncTimezone(supabase, connection) {
  */
 export async function syncKlaviyoConnection({
   supabase, connection, daysBack = 60, startDate = '', endDate = '', dryRun = false,
-  clientId = '', clientSecret = '',
+  clientId = '', clientSecret = '', jobParams = null,
   now = () => new Date(), fetchImpl = fetch, sleep = defaultSleep, log = () => {},
 }) {
   const co = connection.company_entity_id;
@@ -992,7 +1015,18 @@ export async function syncKlaviyoConnection({
 
   const { data: job, error: jobErr } = await supabase
     .from('sync_jobs')
-    .insert({ company_entity_id: co, job_type: KLAVIYO_JOB_TYPE, status: 'running', started_at: now().toISOString() })
+    // `params` records WHO asked for this window. The nightly passes none and
+    // stores none; a hand-pressed sync passes { trigger: 'kick', ... } so a
+    // stored row can be told apart from the schedule's without guessing from
+    // its timestamp -- which is the only other evidence, and is wrong as soon
+    // as a cron fires late (they routinely do on this repo).
+    .insert({
+      company_entity_id: co,
+      job_type: KLAVIYO_JOB_TYPE,
+      status: 'running',
+      started_at: now().toISOString(),
+      ...(jobParams ? { params: jobParams } : {}),
+    })
     .select('id')
     .single();
   if (jobErr) throw new Error(`sync_jobs insert failed: ${jobErr.message}`);

@@ -1,0 +1,21 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createHandler } from './handler.mjs';
+import { syncKlaviyoConnection } from './lib/klaviyo-sync-core.mjs';
+import { syncRedoMarketingConnection } from './lib/redo-marketing-sync-core.mjs';
+
+const url = Deno.env.get('SUPABASE_URL')!;
+const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+Deno.serve(createHandler({
+  service,
+  userClientFor: (authHeader: string) => createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  }),
+  // Keyed by the `core` name in KICK_INTEGRATIONS, so the request path never
+  // branches on which integration it is holding.
+  cores: { syncKlaviyoConnection, syncRedoMarketingConnection },
+  log: console.log,
+}));

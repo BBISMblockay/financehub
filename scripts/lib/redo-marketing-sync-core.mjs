@@ -378,7 +378,7 @@ async function businessTimezone(supabase, companyEntityId) {
  * `result`, so a partial backfill says how far it got.
  */
 export async function syncRedoMarketingConnection({
-  supabase, connection, daysBack = 60, startDate = '', endDate = '',
+  supabase, connection, daysBack = 60, startDate = '', endDate = '', jobParams = null,
   now = () => new Date(), fetchImpl = fetch, sleep = defaultSleep, log = () => {},
 }) {
   const co = connection.company_entity_id;
@@ -393,7 +393,15 @@ export async function syncRedoMarketingConnection({
 
   const { data: job, error: jobErr } = await supabase
     .from('sync_jobs')
-    .insert({ company_entity_id: co, job_type: REDO_MARKETING_JOB_TYPE, status: 'running', started_at: now().toISOString() })
+    // See klaviyo-sync-core.mjs: `params` is how a hand-pressed sync is told
+    // apart from the schedule's in the stored row. The nightly passes none.
+    .insert({
+      company_entity_id: co,
+      job_type: REDO_MARKETING_JOB_TYPE,
+      status: 'running',
+      started_at: now().toISOString(),
+      ...(jobParams ? { params: jobParams } : {}),
+    })
     .select('id')
     .single();
   if (jobErr) throw new Error(`sync_jobs insert failed: ${jobErr.message}`);
