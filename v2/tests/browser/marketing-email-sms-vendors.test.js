@@ -11,6 +11,8 @@
  *   EMAIL_SMS_MUTATION=sum-windows   keep every Klaviyo window, not the widest
  *   EMAIL_SMS_MUTATION=no-vendor     drop the Vendor column
  *   EMAIL_SMS_MUTATION=redo-wording  put Redo back in the table's own wording
+ *   EMAIL_SMS_MUTATION=not-linkable  take launch linking off Klaviyo rows
+ *   EMAIL_SMS_MUTATION=link-per-row  link the ROW rather than the message
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -27,6 +29,16 @@ const MUTATIONS = {
   ],
   'no-vendor': ['<th>Vendor</th>', ''],
   'redo-wording': ['<h2>Email &amp; SMS messages</h2>', '<h2>Redo email &amp; SMS messages</h2>'],
+  'not-linkable': [
+    "const launch=m=>launchCell(m.ref,m.refId,'message');",
+    "const launch=m=>m.ref===REDO_REF?launchCell(m.ref,m.refId,'message'):'—';",
+  ],
+  // A link keyed by the ROW rather than the message gives each conversion
+  // metric its own link, so one message links several times over.
+  'link-per-row': [
+    "const launch=m=>launchCell(m.ref,m.refId,'message');",
+    "const launch=m=>launchCell(m.ref,m.id,'message');",
+  ],
 };
 const MUT = process.env.EMAIL_SMS_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -63,6 +75,12 @@ const transform = (rel, source) => {
         { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', message_name:'Klaviyo autumn email',
           parent_name:null, channel:'email', timeframe_start:ago(60), timeframe_end:today,
           conversion_metric_id:'MET1', recipients:100, conversions:1, conversion_value:100 },
+        // The same campaign measured against a SECOND conversion metric: a
+        // different event, so its own row -- but the same message, so the same
+        // launch link.
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', message_name:'Klaviyo autumn email',
+          parent_name:null, channel:'email', timeframe_start:ago(60), timeframe_end:today,
+          conversion_metric_id:'MET2', recipients:100, conversions:2, conversion_value:50 },
         { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', message_name:'Welcome 2',
           parent_name:'Welcome flow', channel:'sms', timeframe_start:ago(60), timeframe_end:today,
           conversion_metric_id:'MET1', recipients:200, conversions:4, conversion_value:99.5 },
@@ -82,7 +100,9 @@ const transform = (rel, source) => {
 
     // One row per Klaviyo message, whatever windows are stored.
     const rows = await page.locator('#redoBody tr').count();
-    R.eq(rows, 3, 'three messages, not four: the second stored window is the same sends measured again');
+    // Four rows: Redo, the flow message, and camp1 once per conversion metric.
+    // Windows collapse, metrics do not -- they count different events.
+    R.eq(rows, 4, 'the second stored window is the same sends measured again, so it adds no row');
     R.has(body, '1,234.56');
     R.not(body, '1,334.56');
     R.not(body, '1,100');
@@ -91,7 +111,8 @@ const transform = (rel, source) => {
     R.has(head, 'vendor');
     R.has(body, 'Klaviyo');
     R.has(body, 'Redo');
-    const klaviyoRow = await page.locator('#redoBody tr', { hasText:'Klaviyo autumn email' }).innerText();
+    // Two rows now carry that name, one per conversion metric.
+    const klaviyoRow = await page.locator('#redoBody tr', { hasText:'Klaviyo autumn email' }).first().innerText();
     R.has(klaviyoRow, 'Klaviyo');
     R.has(klaviyoRow, 'MET1');
     const redoRow = await page.locator('#redoBody tr', { hasText:'Redo autumn email' }).innerText();
@@ -104,10 +125,15 @@ const transform = (rel, source) => {
     R.not(head, 'attributed by redo');
     R.has(card, 'Never add two vendors');
 
-    // Launch linking is Redo's; a Klaviyo row says so instead of offering an
-    // inert control.
-    R.eq(await page.locator('[data-link-source="redo_marketing_messages"]').count(), 1,
-      'only the Redo message is linkable');
+    // Both vendors link to a launch, and a Klaviyo link belongs to the
+    // MESSAGE: its two conversion-metric rows offer the same link id, so one
+    // link covers the message rather than one of its measurements.
+    R.eq(await page.locator('[data-link-source="redo_marketing_messages"][data-link-id="campaign:redo-1"]').count(), 1,
+      'the Redo message keeps its link control');
+    R.eq(await page.locator('[data-link-source="klaviyo_messages"][data-link-id="campaign:camp1"]').count(), 2,
+      'both metric rows of one Klaviyo message offer the same link');
+    R.eq(await page.locator('[data-link-source="klaviyo_messages"][data-link-id="flow_message:fmsg1"]').count(), 1,
+      'the flow message links by its own identity');
 
     await page.close();
   } finally {
