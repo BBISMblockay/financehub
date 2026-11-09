@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Klaviyo-initiated install. This is the "OAuth installation URL" on SILO's
+     Klaviyo app listing: Klaviyo requires one URL that starts the install from
+     EITHER side, and it is hit cold, by someone who may not be signed in and
+     whose browser carries nothing from Klaviyo.
+
+     Until this page existed, SILO's Klaviyo OAuth could only start from inside
+     /v2/integrations.html, which needs a session and a chosen workspace, so
+     there was nothing to put in that field.
+
+     Chrome-less on purpose, like company-picker.html and shopify-install.html:
+     the visitor may not be signed in, and a sidebar around a sign-in bounce is
+     noise. ADDITIVE: nothing in SILO links here.
+     Logic: v2/klaviyo-install.js. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex" />
+  <title>Connect Klaviyo</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <style>
+    body { margin: 0; background: var(--bcn-canvas, #f4f5f7); }
+    .ki-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; box-sizing: border-box; }
+    .ki-card { width: 100%; max-width: 460px; background: var(--bcn-surface, #fff); border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 14px; padding: 28px 24px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
+    .ki-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+    .ki-title { font-size: 17px; font-weight: 600; color: var(--bcn-ink, #111827); margin: 0 0 4px; }
+    .ki-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin: 0 0 20px; }
+    .ki-workspace { font-weight: 600; color: var(--bcn-ink, #111827); }
+    .ki-scopes { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .ki-scopes li { font-size: 12px; color: var(--bcn-ink-2, #374151); display: flex; gap: 8px; }
+    .ki-scopes li::before { content: '•'; color: var(--bcn-ink-3, #6b7280); }
+    .ki-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <main class="ki-wrap">
+    <div class="ki-card">
+      <div class="ki-logo">S</div>
+      <h1 class="ki-title" id="kiTitle">Connect Klaviyo to SILO</h1>
+      <p class="ki-sub" id="kiSub">Checking your workspace&hellip;</p>
+      <ul class="ki-scopes" id="kiScopes" hidden>
+        <li>Reads your campaigns, flows, lists, segments and metrics.</li>
+        <li>Never sends email or SMS, and never changes anything in Klaviyo.</li>
+        <li>Nothing is fetched until you turn the sync on in SILO.</li>
+      </ul>
+      <div class="ki-actions" id="kiActions" hidden>
+        <button class="bcn-btn bcn-btn--primary" id="kiConnect" type="button">Continue to Klaviyo</button>
+        <a class="bcn-btn bcn-btn--ghost" id="kiCancel" href="/v2/integrations.html">Cancel</a>
+      </div>
+      <div class="bcn-status" id="status" hidden></div>
+    </div>
+  </main>
+  <script src="klaviyo-install.js"></script>
+</body>
+</html>

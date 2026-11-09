@@ -157,6 +157,32 @@ Sending `page[size]` to `/api/metrics` returns **400** with
 SILO bug, not a bad key, and the connection test says so in those words
 rather than telling an admin to replace a working credential.
 
+## Klaviyo's app listing (OAuth)
+
+| Listing field | Value |
+|---|---|
+| OAuth installation URL | `https://get-silo.com/v2/klaviyo-install.html` |
+| Redirect URL | `https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/klaviyo-oauth-callback` |
+| Scopes | `campaigns:read flows:read metrics:read segments:read lists:read` |
+
+The redirect URL is hardcoded in BOTH halves of the flow (`klaviyo-oauth-start`
+and `klaviyo-oauth-callback`) and Klaviyo matches it exactly, so no trailing
+slash and no other spelling.
+
+`/v2/klaviyo-install.html` exists because Klaviyo wants ONE url that starts the
+install from either side, and the OAuth flow otherwise only starts from inside
+Integrations, which needs a session and a chosen workspace. The page handles a
+cold hit: login with a return path, the company picker if no workspace is
+active, then `klaviyo-oauth-start` and a forward to Klaviyo. The last hop is
+behind a click on purpose -- the visitor is told which workspace they are about
+to attach before they go.
+
+**Three things must be true before that URL completes a grant**: `KLAVIYO_CLIENT_ID`
+and `KLAVIYO_CLIENT_SECRET` set as Supabase secrets, both OAuth functions
+deployed, and `SILO_APP_URL` set to the customer domain -- the callback defaults
+to `https://bbismblockay.github.io/financehub`, so without it a customer who
+approves lands on the GitHub Pages URL rather than on get-silo.com.
+
 ## Still unverified
 
 - **Nothing has run against a live Klaviyo account.** The contract came from
