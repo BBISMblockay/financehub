@@ -67,6 +67,7 @@ on:
       # views from: klaviyo-silo-reports-database.test.mjs reads the REAL view
       # definitions, so a renamed view column must run this suite too.
       - 'supabase/migrations/*klaviyo_silo_reports.sql'
+      - 'supabase/migrations/*klaviyo_dashboard_tiles.sql'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -1792,7 +1793,8 @@ jobs:
           node scripts/tests/klaviyo-silo-reports-database.test.mjs
           for m in sum-windows narrowest-window sms-opens zero-not-blank \
                    trend-unbounded split-sums-windows no-guard \
-                   metric-mixed trend-mixes-metrics perf-no-recon; do
+                   metric-mixed trend-mixes-metrics perf-no-recon \
+                   kpi-all-metrics tile-overlap tile-wrong-query; do
             if KLAVIYO_REPORTS_MUTATION="$m" node scripts/tests/klaviyo-silo-reports-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

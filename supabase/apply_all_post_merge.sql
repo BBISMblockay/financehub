@@ -19595,4 +19595,9 @@ $c$select (select count(*) from v_po_header_summary
 -- silo_chat_saved_reports and three in silo_report_tieouts, idempotent on
 -- re-apply. No deploy. Needs 20261109040000 first, for the views it reads.
 \i migrations/20261109210000_klaviyo_silo_reports.sql
+
+-- 20261109230000: the Klaviyo totals report the KPI tiles read, and the Klaviyo
+-- tiles on the Marketing system dashboard. Data only, no deploy. Needs
+-- 20261109210000 (the reports the tiles read) and 20260925193000 (the board).
+\i migrations/20261109230000_klaviyo_dashboard_tiles.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
