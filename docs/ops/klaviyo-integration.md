@@ -269,7 +269,7 @@ asked for a year and stored `2026-09-10..2026-11-08`.
 |---|---|
 | OAuth installation URL | `https://get-silo.com/v2/klaviyo-install.html` |
 | Redirect URL | `https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/klaviyo-oauth-callback` |
-| Scopes | `campaigns:read flows:read metrics:read segments:read lists:read` |
+| Scopes | `campaigns:read flows:read metrics:read segments:read lists:read accounts:read` |
 
 The redirect URL is hardcoded in BOTH halves of the flow (`klaviyo-oauth-start`
 and `klaviyo-oauth-callback`) and Klaviyo matches it exactly, so no trailing

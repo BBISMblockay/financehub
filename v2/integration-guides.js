@@ -61,6 +61,7 @@
     'metrics:read',
     'segments:read',
     'lists:read',
+    'accounts:read',
   ];
   const REDO_MARKETING_SCOPES = [
     'Campaigns',

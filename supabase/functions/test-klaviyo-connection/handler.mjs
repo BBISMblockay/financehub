@@ -12,11 +12,15 @@
 //   1. GET /api/metrics  -- needs `metrics:read`, which the sync needs anyway,
 //      so this call doubles as the credential test. It also carries the
 //      candidate conversion metrics, which is what the UI picker shows.
-//   2. GET /api/accounts -- BEST EFFORT. It needs `accounts:read`, a scope the
-//      sync itself never uses, so a 403 here is recorded and ignored: the
-//      account id, name and timezone stay null and the sync falls back to the
-//      company's business timezone. Failing the test over a scope nothing
-//      needs would be a worse answer than a partial one.
+//   2. GET /api/accounts -- BEST EFFORT. It needs `accounts:read`, which SILO
+//      requests at install but an older connection (or a private key made
+//      before 2026-11-09) will not carry, so a 403 here is recorded and
+//      ignored: the account id, name, timezone and currency stay null, the
+//      sync falls back to the company's business timezone, and Klaviyo SMS
+//      cost is labelled as an ASSUMED currency wherever it is shown. Failing
+//      the whole test over it would be a worse answer than a partial one.
+//      Klaviyo cannot widen an existing grant, so a connection made before
+//      the scope was requested must re-consent before this call can succeed.
 //
 // A conversion metric is chosen automatically only when Klaviyo has exactly
 // one obvious candidate ("Placed Order"); otherwise the caller picks from the
@@ -109,9 +113,20 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
   if (!connection) return { status: 404, body: { error: 'No Klaviyo connection for this company' } };
 
   const record = async (patch) => {
-    await supabase.from('klaviyo_connections')
-      .update({ last_tested_at: now().toISOString(), updated_at: now().toISOString(), ...patch })
-      .eq('id', connection.id);
+    const row = { last_tested_at: now().toISOString(), updated_at: now().toISOString(), ...patch };
+    const write = (r) => supabase.from('klaviyo_connections').update(r).eq('id', connection.id);
+    const res = await write(row);
+    // account_currency arrives with migration 20261110010000. Until that is
+    // applied, PostgREST refuses the WHOLE update over the one unknown column
+    // (PGRST204) -- which would silently drop the test result, the account
+    // name and the conversion metric along with it. So that one refusal, and
+    // only that one, is retried without the column: everything else this
+    // write carries is older than the migration and must still land.
+    const err = res?.error;
+    if (err && 'account_currency' in row && /account_currency/.test(`${err.message || ''} ${err.details || ''}`)) {
+      const { account_currency: _unstored, ...rest } = row;
+      await write(rest);
+    }
   };
 
   if (connection.reauth_required_at) {
@@ -140,7 +155,7 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
     // Klaviyo's own meanings: 403 the key lacks the scope; 400/401 the key is
     // missing or invalid. Said plainly, because the fix differs.
     const error = metricsRes.status === 403
-      ? 'The Klaviyo key is valid but lacks the metrics:read scope. Klaviyo cannot add a scope to an existing key — create a new read-only key with campaigns:read, flows:read, metrics:read, segments:read and lists:read.'
+      ? 'The Klaviyo key is valid but lacks the metrics:read scope. Klaviyo cannot add a scope to an existing key — create a new read-only key with campaigns:read, flows:read, metrics:read, segments:read, lists:read and accounts:read.'
       : metricsRes.status === 401
         ? `Klaviyo rejected the credential: ${metricsRes.detail}`
         : metricsRes.status === 400
@@ -156,7 +171,7 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
   const metrics = metricsRes.metrics;
 
   // 2. Account details: best effort, see the note at the top of this file.
-  let account = { id: null, name: null, timezone: null, scope_missing: false };
+  let account = { id: null, name: null, timezone: null, currency: null, scope_missing: false };
   const accountRes = await klaviyoGet({ path: 'accounts', authorization, fetchImpl });
   if (accountRes.ok) {
     const first = Array.isArray(accountRes.json?.data) ? accountRes.json.data[0] : null;
@@ -164,6 +179,10 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
       id: first?.id ? String(first.id) : null,
       name: first?.attributes?.contact_information?.organization_name ?? null,
       timezone: first?.attributes?.timezone ?? null,
+      // Klaviyo's own `preferred_currency` (an ISO code, e.g. 'USD'). It is
+      // the currency Klaviyo bills SMS sending in, and the only currency this
+      // integration can state rather than assume.
+      currency: first?.attributes?.preferred_currency ?? null,
       scope_missing: false,
     };
   } else {
@@ -182,6 +201,7 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
     ...(account.id ? { klaviyo_account_id: account.id } : {}),
     ...(account.name ? { klaviyo_account_name: account.name } : {}),
     ...(account.timezone ? { account_timezone: account.timezone } : {}),
+    ...(account.currency ? { account_currency: account.currency } : {}),
     ...(chosen ? { conversion_metric_id: chosen.id, conversion_metric_name: chosen.name } : {}),
   };
   await record(patch);
@@ -200,7 +220,7 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
       needs_conversion_metric: !chosen,
       notes: [
         ...(account.scope_missing
-          ? ['Klaviyo would not return account details (no accounts:read scope). Reporting still works; the window is computed in the company\'s business timezone instead of the account\'s.']
+          ? ['Klaviyo would not return account details (no accounts:read scope). Reporting still works; the measurement window is computed in the company\'s business timezone instead of the account\'s, and Klaviyo SMS cost is labelled as an assumed currency. Reconnect to grant the scope.']
           : []),
         ...(!chosen ? ['Choose which Klaviyo metric counts as a conversion (normally "Placed Order"). Every Klaviyo report requires one.'] : []),
       ],

@@ -52,6 +52,9 @@ on:
       - 'supabase/functions/klaviyo-oauth-start/**'
       - 'supabase/functions/test-klaviyo-connection/**'
       - 'supabase/migrations/*klaviyo_native_integration.sql'
+      # Klaviyo lists, segments and account currency
+      # (klaviyo-audiences-database.test.mjs).
+      - 'supabase/migrations/*klaviyo_audiences.sql'
       # The immediate first sync for Klaviyo and Redo marketing
       # (integration-sync-kick.test.mjs), including its verbatim copies of
       # both nightly cores -- a change to only a copy would otherwise leave
@@ -592,7 +595,7 @@ jobs:
       - name: The Klaviyo sync's guards, removed, must break it
         run: |
           set -u
-          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk serieschunk seriesdrop storeddepth workflowdepth native; do
+          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk serieschunk seriesdrop storeddepth workflowdepth native audiencescope audiencehard audiencedrop currencyfield currencyhardfail; do
             out="$(KLAVIYO_SYNC_MUTATION="$m" node --test scripts/tests/klaviyo-sync.test.mjs 2>&1)" && rc=0 || rc=$?
             if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
@@ -2436,6 +2439,23 @@ jobs:
           set -u
           for m in rls company credential writes verifier invoker grain nullchannel jobtype bootstrap; do
             if KLAVIYO_DB_MUTATION="$m" node scripts/tests/klaviyo-native-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Klaviyo audiences and account currency (20261110010000), run after the
+      # native migration it extends, then twice: lists and segments stay in
+      # their company, no client authors one, the same audience is one row,
+      # and the account's currency column exists with NULL kept as NULL.
+      - name: Klaviyo audiences and account currency (real PostgreSQL)
+        run: node scripts/tests/klaviyo-audiences-database.test.mjs
+      - name: The Klaviyo audience guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company writes identity currency; do
+            if KLAVIYO_AUDIENCE_DB_MUTATION="$m" node scripts/tests/klaviyo-audiences-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

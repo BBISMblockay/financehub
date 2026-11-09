@@ -38,6 +38,13 @@ const SCOPES = [
   'metrics:read',
   'segments:read',
   'lists:read',
+  // The account's own name, IANA timezone and preferred currency. Without it
+  // SILO has to compute a measurement window in the company's business
+  // timezone rather than the Klaviyo account's, and takes the currency of
+  // Klaviyo's SMS sending cost on faith -- which it then has to label as
+  // assumed wherever the money is shown. Adding it is why an existing
+  // connection must re-consent: Klaviyo cannot widen a grant in place.
+  'accounts:read',
 ].join(' ');
 
 const json = (body: unknown, status = 200) =>

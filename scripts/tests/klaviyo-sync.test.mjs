@@ -48,6 +48,9 @@
 //   KLAVIYO_SYNC_MUTATION=serieschunk    the daily series is asked for the whole window at once
 //   KLAVIYO_SYNC_MUTATION=seriesdrop      only the last sub-window's days are kept
 //   KLAVIYO_SYNC_MUTATION=native         Windsor syncs Klaviyo even where SILO syncs it natively
+//   KLAVIYO_SYNC_MUTATION=audiencescope  a 403 on lists fails the run instead of dropping names
+//   KLAVIYO_SYNC_MUTATION=audiencehard   any lists failure is swallowed, not just a scope refusal
+//   KLAVIYO_SYNC_MUTATION=audiencedrop   a campaign is stored without the audience it was sent to
 //
 // Run: node --test scripts/tests/klaviyo-sync.test.mjs
 import assert from 'node:assert/strict';
@@ -81,6 +84,12 @@ async function loadCore() {
   if (MUT === 'timeframeend') sub("end: `${endDate}T23:59:59+00:00`", "end: `${endDate}T00:00:00+00:00`");
   if (MUT === 'conversionstamp') sub('      conversion_metric_id: conversionMetricId,\n      ...columns,', '      ...columns,');
   if (MUT === 'scopeerror') sub('    if (isScopeError(err)) {', '    if (false) {');
+  // The audience read is the ONLY fail-soft fetch in the sync, so both of its
+  // edges are mutated: refusing to soften a scope refusal, and softening
+  // everything.
+  if (MUT === 'audiencescope') sub('    if (!isScopeError(err)) throw err;', '    throw err;');
+  if (MUT === 'audiencehard') sub('    if (!isScopeError(err)) throw err;', '    if (false) throw err;');
+  if (MUT === 'audiencedrop') sub('      audiences: (campaignId && audienceForCampaign.get(campaignId)) || null,', '      audiences: null,');
   if (MUT === 'retry4xx') sub('    if (res.status === 429 || res.status === 503) {', '    if (res.status === 429 || res.status === 503 || res.status === 403) {');
   if (MUT === 'retryafter') sub('      const waitMs = retryAfter > 0\n        ? (retryAfter * 1000) + Math.floor(random() * 500)', '      const waitMs = retryAfter > 0\n        ? 0');
   if (MUT === 'ratebudget') sub('    if (since < minGap) await sleep(minGap - since);', '');
@@ -124,6 +133,10 @@ async function loadHandler() {
       "      query: cursor ? { 'page[cursor]': cursor, 'page[size]': 100 } : { 'page[size]': 100 },");
   }
   if (MUT === 'metricsonepage') sub('    const next = res.json?.links?.next;', '    const next = null;');
+  // The account's currency: read from Klaviyo, and stored even before the
+  // migration that adds its column has been applied.
+  if (MUT === 'currencyfield') sub('      currency: first?.attributes?.preferred_currency ?? null,', '      currency: null,');
+  if (MUT === 'currencyhardfail') sub("    if (err && 'account_currency' in row &&", '    if (false &&');
   if (MUT === 'badrequestlabel') {
     sub('      : metricsRes.status === 401\n', '      : metricsRes.status === 401 || metricsRes.status === 400\n');
   }
@@ -191,13 +204,37 @@ const campaignsBody = {
   data: [{
     id: 'camp1',
     attributes: { created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-02T00:00:00Z', definition: { name: 'October drop', archived: false, status: 'sent' } },
-    relationships: { 'campaign-messages': { data: [{ id: 'msg1', type: 'campaign-message' }] } },
+    relationships: {
+      'campaign-messages': { data: [{ id: 'msg1', type: 'campaign-message' }] },
+      // The audience is a RELATED object, not an attribute: without the
+      // include there would be an id here and nothing else.
+      'campaign-audiences': { data: [{ id: 'aud1', type: 'campaign-audience' }] },
+    },
   }],
   included: [{
     id: 'msg1',
     type: 'campaign-message',
     attributes: { definition: { name: 'October drop — email', channel: 'email', status: 'sent', content: { subject: 'New drop' }, send_options: { send_time: '2026-10-05T17:00:00Z' } } },
+  }, {
+    id: 'aud1',
+    type: 'campaign-audience',
+    // One included id is a LIST and one is a SEGMENT, mixed in one array, which
+    // is what Klaviyo does and why the ids are resolved on id alone.
+    attributes: { definition: { name: 'October drop audience', included: ['list1', 'seg1'], excluded: ['seg2'], priority: 1 } },
   }],
+  links: { next: null },
+};
+
+const listsBody = {
+  data: [{ id: 'list1', type: 'list', attributes: { name: 'Newsletter', created: '2025-02-01T00:00:00Z', updated: '2026-02-01T00:00:00Z', opt_in_process: 'single_opt_in' } }],
+  links: { next: null },
+};
+
+const segmentsBody = {
+  data: [
+    { id: 'seg1', type: 'segment', attributes: { name: 'Engaged 30 days', created: '2025-03-01T00:00:00Z', updated: '2026-03-01T00:00:00Z', is_active: true } },
+    { id: 'seg2', type: 'segment', attributes: { name: 'Unsubscribed', created: '2025-04-01T00:00:00Z', updated: '2026-04-01T00:00:00Z', is_active: true } },
+  ],
   links: { next: null },
 };
 
@@ -260,6 +297,8 @@ const happyPlan = {
   '/api/campaigns': { body: campaignsBody },
   '/api/flows/': { body: { data: [], included: [], links: { next: null } } },
   '/api/flows?': { body: flowsBody },
+  '/api/lists': { body: listsBody },
+  '/api/segments': { body: segmentsBody },
   '/api/campaign-values-reports/': { body: campaignValuesBody },
   '/api/flow-values-reports/': { body: flowValuesBody },
   '/api/flow-series-reports/': { body: flowSeriesBody },
@@ -997,4 +1036,147 @@ test('the nightly sends no depth, so a connection\'s own days_back still wins', 
   const { effectiveDaysBack } = await loadCore();
   assert.equal(effectiveDaysBack({ requested: '', connectionDaysBack: 90 }), 90);
   assert.equal(effectiveDaysBack({ requested: '365', connectionDaysBack: 90 }), '365');
+});
+
+// ── Lists and segments: the scopes SILO asks for, used ─────────────────────
+// SILO's OAuth has always requested lists:read and segments:read. Until this
+// was written nothing called either endpoint, which is a permission asked for
+// and not used. These tests pin what that use is, and that losing it cannot
+// take the rest of the sync down with it.
+
+test('every list and segment is stored with its kind, and no profile count is invented', async () => {
+  const core = await loadCore();
+  const { db, calls } = await runSync(core);
+  const rows = db.rows('klaviyo_audiences');
+  assert.equal(rows.length, 3, 'one list and two segments');
+  const list = rows.find((r) => r.klaviyo_id === 'list1');
+  assert.equal(list.kind, 'list');
+  assert.equal(list.name, 'Newsletter');
+  assert.equal(list.company_entity_id, CO, 'company scoped');
+  assert.equal(list.created_at_remote, '2025-02-01T00:00:00Z');
+  // Klaviyo exposes no count on these endpoints. A column of nulls would read
+  // as "nobody is on this list", so there must be no such column at all.
+  assert.ok(!('profile_count' in list), 'no count is stored, because Klaviyo reports none');
+  assert.equal(list.attributes.opt_in_process, 'single_opt_in', 'the rest of the payload is kept whole');
+  assert.deepEqual(rows.filter((r) => r.kind === 'segment').map((r) => r.name).sort(),
+    ['Engaged 30 days', 'Unsubscribed']);
+  // Both endpoints are read, at the page size they actually allow.
+  assert.ok(calls.some((c) => c.url.includes('/api/lists')), 'lists read');
+  assert.ok(calls.some((c) => c.url.includes('/api/segments')), 'segments read');
+  for (const c of calls.filter((x) => /\/api\/(lists|segments)/.test(x.url))) {
+    assert.match(c.url, /page%5Bsize%5D=10/, 'lists and segments cap page size at 10, not 100');
+  }
+});
+
+test("a campaign carries the audience it was sent to, mixed list and segment ids as returned", async () => {
+  const core = await loadCore();
+  const { db } = await runSync(core);
+  const campaign = db.rows('klaviyo_messages').find((r) => r.kind === 'campaign');
+  assert.ok(campaign.audiences, 'the campaign names its audience');
+  assert.equal(campaign.audiences.name, 'October drop audience');
+  // Stored as returned: one list id and one segment id in the same array,
+  // which is why nothing may assume an id's kind.
+  assert.deepEqual(campaign.audiences.included, ['list1', 'seg1']);
+  assert.deepEqual(campaign.audiences.excluded, ['seg2']);
+  const flow = db.rows('klaviyo_messages').find((r) => r.kind === 'flow_message');
+  if (flow) assert.equal(flow.audiences ?? null, null, 'a flow message has no audience of its own');
+  // The include is what makes this one request rather than one per campaign.
+  assert.ok(db.rows('klaviyo_messages').length > 0);
+});
+
+test('an account that will not share its lists loses the names, not the sync', async () => {
+  const core = await loadCore();
+  const { db, out } = await runSync(core, {
+    plan: planFor({ '/api/lists': { status: 403, body: { errors: [{ detail: 'missing lists:read' }] } } }),
+  });
+  assert.equal(db.rows('klaviyo_audiences').length, 0, 'no audience names');
+  // Everything else still landed: this is the whole point of fail-soft here.
+  assert.ok(db.rows('klaviyo_messages').length > 0, 'messages still written');
+  assert.ok(db.rows('klaviyo_message_performance').length > 0, 'performance still written');
+  assert.notEqual(out.status, 'failed', 'and the run is not an outage');
+});
+
+test('a lists failure that is NOT a refusal still stops the run before anything is written', async () => {
+  const core = await loadCore();
+  await assert.rejects(runSync(core, {
+    plan: planFor({ '/api/lists': { status: 500, body: { errors: [{ detail: 'boom' }] } } }),
+  }));
+});
+
+
+// ── accounts:read: the account's name, timezone and currency ──────────────
+// SILO now asks for accounts:read at sign-in. The connection test reads
+// GET /api/accounts and stores what it says; the currency matters most,
+// because Klaviyo reports SMS sending cost with no currency of its own.
+function accountsFetch({ accounts = { status: 200 } } = {}) {
+  return async (url) => {
+    const u = String(url);
+    if (u.includes('/api/metrics')) {
+      return new Response(JSON.stringify({ data: [{ type: 'metric', id: 'MPO', attributes: { name: 'Placed Order' } }], links: {} }), { status: 200 });
+    }
+    if (u.includes('/api/accounts')) {
+      if (accounts.status !== 200) {
+        return new Response(JSON.stringify({ errors: [{ detail: 'missing accounts:read' }] }), { status: accounts.status });
+      }
+      return new Response(JSON.stringify({ data: [{ type: 'account', id: 'ACC1', attributes: {
+        test_account: false, timezone: 'Europe/Berlin', preferred_currency: 'EUR', locale: 'de-DE', public_api_key: 'Pk1',
+        contact_information: { organization_name: 'Some Shop GmbH' } } }] }), { status: 200 });
+    }
+    return new Response('{}', { status: 404 });
+  };
+}
+
+test("the connection test stores the account's own name, timezone and currency", async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'oauth', access_token: 'at', token_expires_at: new Date(Date.now() + 36e5).toISOString() });
+  const res = await handler.runKlaviyoTest({ supabase: db, companyEntityId: CO, fetchImpl: accountsFetch() });
+  assert.equal(res.body.success, true);
+  assert.equal(res.body.account.currency, 'EUR');
+  const { data: row } = await db.from('klaviyo_connections').select('*').eq('id', CONN).maybeSingle();
+  assert.equal(row.klaviyo_account_name, 'Some Shop GmbH');
+  assert.equal(row.account_timezone, 'Europe/Berlin');
+  assert.equal(row.account_currency, 'EUR', "Klaviyo's answer, so the SMS cost stops being assumed USD");
+  assert.ok(!res.body.notes.some((n) => /accounts:read/.test(n)), 'nothing to warn about once the scope is granted');
+});
+
+test('before the currency column exists, the rest of the test result still lands', async () => {
+  // Migration 20261110010000 adds account_currency. Until it is applied,
+  // PostgREST refuses the whole update over that one column (PGRST204). The
+  // test result, the account name and the conversion metric must survive it.
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'oauth', access_token: 'at', token_expires_at: new Date(Date.now() + 36e5).toISOString() });
+  const unapplied = {
+    ...db,
+    from(table) {
+      const real = db.from(table);
+      if (table !== 'klaviyo_connections') return real;
+      return new Proxy(real, { get(t, k) {
+        if (k !== 'update') return typeof t[k] === 'function' ? t[k].bind(t) : t[k];
+        return (patch) => ('account_currency' in patch
+          ? { eq: async () => ({ data: null, error: { code: 'PGRST204', message: "Could not find the 'account_currency' column of 'klaviyo_connections' in the schema cache" } }) }
+          : t.update(patch));
+      } });
+    },
+  };
+  const res = await handler.runKlaviyoTest({ supabase: unapplied, companyEntityId: CO, fetchImpl: accountsFetch() });
+  assert.equal(res.body.success, true);
+  const { data: row } = await db.from('klaviyo_connections').select('*').eq('id', CONN).maybeSingle();
+  assert.equal(row.last_test_success, true, 'the test result is not lost over a column the database does not have yet');
+  assert.equal(row.conversion_metric_id, 'MPO', 'nor is the conversion metric, without which no report runs');
+  assert.equal(row.klaviyo_account_name, 'Some Shop GmbH');
+  assert.equal(row.account_currency, undefined);
+});
+
+test('a grant without accounts:read still passes, and says to reconnect', async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'oauth', access_token: 'at', token_expires_at: new Date(Date.now() + 36e5).toISOString() });
+  const res = await handler.runKlaviyoTest({ supabase: db, companyEntityId: CO, fetchImpl: accountsFetch({ accounts: { status: 403 } }) });
+  assert.equal(res.body.success, true, 'reporting still works without the account details');
+  assert.equal(res.body.account.currency, null);
+  assert.ok(res.body.notes.some((n) => /accounts:read/.test(n) && /Reconnect/.test(n)));
+  const { data: row } = await db.from('klaviyo_connections').select('*').eq('id', CONN).maybeSingle();
+  assert.ok(row.account_currency == null, 'no currency is invented for an account that did not say');
 });

@@ -530,10 +530,53 @@
   // window. This is the same pick the Klaviyo system reports make.
   async function loadKlaviyo(){
     try {
-      return await loadPaged(() => scopeQ(sb.from('klaviyo_message_performance_v')
-        .select('kind,klaviyo_id,message_name,parent_name,channel,timeframe_start,timeframe_end,conversion_metric_id,recipients,conversions,conversion_value')
-        .gte('timeframe_end',sinceIso()).order('timeframe_end',{ascending:true}).order('klaviyo_id',{ascending:true})));
+      const [rows, ctx] = await Promise.all([
+        loadPaged(() => scopeQ(sb.from('klaviyo_message_performance_v')
+          .select('kind,klaviyo_id,connection_id,message_name,parent_name,channel,timeframe_start,timeframe_end,conversion_metric_id,recipients,conversions,conversion_value')
+          .gte('timeframe_end',sinceIso()).order('timeframe_end',{ascending:true}).order('klaviyo_id',{ascending:true}))),
+        loadKlaviyoContext(),
+      ]);
+      for (const r of rows){
+        r._audience = ctx.audiences.get(`${r.kind}:${r.klaviyo_id}`) || null;
+        r._currency = ctx.currency.get(r.connection_id) || null;
+      }
+      return rows;
     } catch(e){ console.warn('Klaviyo reporting unavailable',e); return []; }
+  }
+  // What the performance rows do not carry: who a campaign was sent to, and
+  // which currency the account reports money in. Each read is separately
+  // fail-soft, because neither is needed to show the numbers:
+  //   * Audience -- the list and segment ids Klaviyo returns on the campaign
+  //     (klaviyo_messages.audiences), named from klaviyo_audiences. An id that
+  //     names nothing SILO has synced is shown as the id, never guessed at.
+  //   * Currency -- the account's own preferred_currency
+  //     (klaviyo_connections.account_currency, needs accounts:read). That
+  //     table is admin-only under RLS, so for anyone else, and for a
+  //     connection granted before the scope, this is empty and the row falls
+  //     back to USD exactly as before.
+  async function loadKlaviyoContext(){
+    const soft = async (label, run) => { try { return await run(); } catch(e){ console.warn(`Klaviyo ${label} unavailable`,e); return []; } };
+    const [messages, audiences, connections] = await Promise.all([
+      soft('audiences', () => loadPaged(() => scopeQ(sb.from('klaviyo_messages').select('kind,klaviyo_id,audiences')
+        .eq('kind','campaign').not('audiences','is',null).order('klaviyo_id',{ascending:true})))),
+      soft('audience names', () => loadPaged(() => scopeQ(sb.from('klaviyo_audiences').select('kind,klaviyo_id,name')
+        .order('kind',{ascending:true}).order('klaviyo_id',{ascending:true})))),
+      soft('account currency', async () => {
+        const { data, error } = await scopeQ(sb.from('klaviyo_connections').select('id,account_currency'));
+        if (error) throw error; return data || [];
+      }),
+    ]);
+    // Klaviyo's docs call the audience entries group ids without saying
+    // whether each is a list or a segment, so the name lookup ignores kind.
+    const nameOf = new Map(audiences.filter(a => a.name).map(a => [String(a.klaviyo_id), a.name]));
+    const named = ids => (Array.isArray(ids) ? ids : []).map(id => nameOf.get(String(id)) || String(id));
+    const byMessage = new Map();
+    for (const m of messages){
+      const a = m.audiences; if (!a || typeof a !== 'object') continue;
+      byMessage.set(`${m.kind}:${m.klaviyo_id}`, { included: named(a.included), excluded: named(a.excluded) });
+    }
+    const currency = new Map(connections.filter(c => /^[A-Z]{3}$/.test(c.account_currency || '')).map(c => [c.id, c.account_currency]));
+    return { audiences: byMessage, currency };
   }
   const safeHref = (v) => (typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim()) ? v.trim() : null);
 
@@ -1068,20 +1111,27 @@
         id:`klaviyo:${key}`, vendor:'Klaviyo',
         name:r.message_name||r.parent_name||r.klaviyo_id,
         kind:r.kind==='flow_message'?'flow message':(r.kind||'—'),
-        channel:r.channel||'—', currency:'USD',
+        channel:r.channel||'—', currency:r._currency||'USD', audience:r._audience,
         sends:Number(r.recipients||0), orders:Number(r.conversions||0), revenue:Number(r.conversion_value||0),
         measured:`${day(r.timeframe_start)} → ${day(r.timeframe_end)}`,
         metric:r.conversion_metric_id||'', linkable:false,
       });
     }
     let messages=[...byMessage.values()].sort((a,b)=>b.revenue-a.revenue);
+    // Who a Klaviyo campaign went to, under its name. Context only: it never
+    // feeds a number. Exclusions go in the tooltip so the line stays short.
+    const audienceLine=a=>{
+      if(!a||!a.included.length)return '';
+      const tip=a.excluded.length?`Sent to: ${a.included.join(', ')}. Excluded: ${a.excluded.join(', ')}.`:`Sent to: ${a.included.join(', ')}.`;
+      return `<div class="mo-empty" title="${esc(tip)}">To ${esc(a.included.join(', '))}${a.excluded.length?` · not ${esc(a.excluded.join(', '))}`:''}</div>`;
+    };
     if(focusedRedo) messages=messages.filter(m=>m.id===focusedRedo);
     // Launch linking is Redo's: the link row's source names Redo's message
     // table, so a Klaviyo row has nothing to point at. Saying so beats an
     // inert button.
     const launch=m=>m.linkable?launchCell(REDO_REF,m.id,'message')
       :'<span class="mo-empty" title="Launch linking covers Redo messages. A Klaviyo message has no link row to point at yet.">—</span>';
-    el('redoBody').innerHTML=messages.length?messages.map(m=>`<tr><td>${esc(m.name)}${m.metric?` <span class="mo-empty" title="Klaviyo measured this against conversion metric ${esc(m.metric)}. Rows measured under different metrics count different events and must not be added.">· ${esc(m.metric)}</span>`:''}</td><td>${esc(m.vendor)}</td><td>${esc(m.kind)}</td><td>${esc(m.channel)}</td><td>${esc(m.measured)}</td><td>${numFmt(m.sends)}</td><td>${numFmt(m.orders)}</td><td>${money(m.revenue,m.currency)}</td><td>${launch(m)}</td></tr>`).join('')
+    el('redoBody').innerHTML=messages.length?messages.map(m=>`<tr><td>${esc(m.name)}${audienceLine(m.audience)}${m.metric?` <span class="mo-empty" title="Klaviyo measured this against conversion metric ${esc(m.metric)}. Rows measured under different metrics count different events and must not be added.">· ${esc(m.metric)}</span>`:''}</td><td>${esc(m.vendor)}</td><td>${esc(m.kind)}</td><td>${esc(m.channel)}</td><td>${esc(m.measured)}</td><td>${numFmt(m.sends)}</td><td>${numFmt(m.orders)}</td><td>${money(m.revenue,m.currency)}</td><td>${launch(m)}</td></tr>`).join('')
       :`<tr><td class="mo-empty" colspan="9">${focusedRedo?'This linked message has no data in this date window. Try 90d or show all.':'No email or SMS message data in this window. Connect Redo or Klaviyo, or widen the dates.'}</td></tr>`;
   }
   el('clearRedoFocus').onclick=()=>{focusedRedo=null;const url=new URL(location.href);url.searchParams.delete('redo');history.replaceState(null,'',url);renderRedo();};
