@@ -54,10 +54,10 @@
     <p class="ig-print-brand">SILO</p>
     <h1>Integration setup guides</h1>
     <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
-    <p class="ig-print-meta">Generated 2026-10-13 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
+    <p class="ig-print-meta">Generated 2026-11-09 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
     <section class="ig-print-toc">
       <h2 class="ig-section-label">Contents</h2>
-      <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li></ol>
+      <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li><li><a href="#guide-klaviyo">Klaviyo — email &amp; SMS</a></li></ol>
     </section>
     <p class="ig-print-oauth">One-click in SILO (no separate guide): Google Ads, GA4, TikTok Ads, QuickBooks Online, Shopify OAuth, and Stripe Connect.</p>
   </header>
@@ -378,6 +378,63 @@
       <section class="ig-print-trouble">
           <h3 class="ig-section-label">If something goes wrong</h3>
           <div class="ig-print-faq"><p class="ig-print-q">Last event never updates</p><div class="ig-print-a">The URL or secret in Redo doesn't match SILO's. Copy both again from the Redo row.</div></div><div class="ig-print-faq"><p class="ig-print-q">Marketing numbers are missing</p><div class="ig-print-a">The API token is missing the marketing read scopes; the nightly records the sync as skipped. Create a token with all five scopes and paste it in.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section><section class="ig-print-part">
+        <h2 class="ig-print-part-title">Klaviyo — email &amp; SMS</h2>
+        <article class="ig-print-guide" id="guide-klaviyo">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 3 minutes</p>
+        <h2 class="ig-print-guide-title">Connect Klaviyo</h2>
+        <p class="ig-summary">SILO reads your Klaviyo campaign and flow reporting every night. Read-only: it never sends, edits or imports a profile.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li>Owner, Admin or Manager access in Klaviyo (only those roles can create an API key)</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Create a read-only private API key</div>
+        <div class="ig-step-body">In Klaviyo, open <strong>Settings → API keys</strong> and create a key with <strong>Custom</strong> access, granting <strong>Read</strong> on each of these and nothing else:</div>
+        <div class="ig-scopes"><code>campaigns:read</code><code>flows:read</code><code>metrics:read</code><code>segments:read</code><code>lists:read</code></div>
+        <p class="ig-print-url"><span class="ig-print-url-label">Klaviyo API keys</span> <a href="https://www.klaviyo.com/settings/account/api-keys">https://www.klaviyo.com/settings/account/api-keys</a></p>
+        <div class="ig-step-note">Klaviyo cannot change a key's scopes afterwards. If one is missing you have to delete the key and make a new one, so it is worth checking the list before saving.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Paste the key into SILO</div>
+        <div class="ig-step-body">On the Klaviyo row, click <strong>Paste an API key…</strong> and paste the key. It begins with <code>pk_</code>. SILO tests it straight away and reads back your account and its reporting timezone.</div>
+        
+        
+        <div class="ig-step-note">The short six-character company ID is Klaviyo's PUBLIC key and cannot read reports — it is not the one to paste here.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Choose what counts as a conversion</div>
+        <div class="ig-step-body">Klaviyo measures every conversion and all attributed revenue against one metric, normally <strong>Placed Order</strong>. SILO picks that one automatically when it exists; otherwise choose it from the dropdown on the row.</div>
+        
+        
+        <div class="ig-step-note">Changing it later changes what every Klaviyo number means, so rows measured against different metrics are never added together.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Turn sync on</div>
+        <div class="ig-step-body">Switch <strong>Sync</strong> on. SILO queues a first import of the last year and then re-reads a trailing 60 days every night, because Klaviyo keeps attributing orders to a send for weeks after it went out.</div>
+        
+        
+        
+      </div>
+    </li></ol>
+      
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">&quot;The Klaviyo key is valid but lacks the metrics:read scope&quot;</p><div class="ig-print-a">The key was created without that scope and Klaviyo cannot add one. Create a new custom read-only key with all five scopes and paste it over the old one.</div></div><div class="ig-print-faq"><p class="ig-print-q">Numbers do not match Klaviyo&#39;s dashboard</p><div class="ig-print-a">Check the conversion metric on the row is the same one Klaviyo's own report uses, and compare the same window: SILO stores campaign numbers per reporting window, not per day, because Klaviyo publishes no daily series for campaigns.</div></div><div class="ig-print-faq"><p class="ig-print-q">SMS numbers are blank</p><div class="ig-print-a">Klaviyo returns no SMS statistics before 1 October 2025, or on a contracted plan. Blank means not reported, not zero.</div></div><div class="ig-print-faq"><p class="ig-print-q">Flow names show but message names do not</p><div class="ig-print-a">Klaviyo did not return the flow message list for this account. Nothing is lost: every number is still attributed to the right message, only its name is missing.</div></div>
         </section>
       <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
       <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
