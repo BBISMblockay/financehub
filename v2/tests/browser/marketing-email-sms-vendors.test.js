@@ -15,6 +15,9 @@
  *   EMAIL_SMS_MUTATION=link-per-row  link the ROW rather than the message
  *   EMAIL_SMS_MUTATION=no-audience   stop showing a campaign's audience
  *   EMAIL_SMS_MUTATION=hard-context  let a missing audience column fail the read
+ *   EMAIL_SMS_MUTATION=hide-unmeasured  drop synced messages that have no measurement
+ *   EMAIL_SMS_MUTATION=unmeasured-zero  show an unmeasured message's numbers as 0
+ *   EMAIL_SMS_MUTATION=unmeasured-all   list old, archived and non-live messages too
  *
  * The audience comes from reads the numbers do not need, on a column a
  * migration adds. The last pass serves the page those columns
@@ -46,6 +49,9 @@ const MUTATIONS = {
   ],
   // A link keyed by the ROW rather than the message gives each conversion
   // metric its own link, so one message links several times over.
+  'hide-unmeasured': ['for(const m of unmeasuredKlaviyo(_klaviyo.unmeasured||[],measured)){', 'for(const m of []){'],
+  'unmeasured-zero': ["sends:null, orders:null, revenue:null, measured:unmeasuredLabel(m)", "sends:0, orders:0, revenue:0, measured:unmeasuredLabel(m)"],
+  'unmeasured-all': ['      if(m.archived===true||measured.has(`${m.kind}:${m.klaviyo_id}`))return false;\n', '      if(measured.has(`${m.kind}:${m.klaviyo_id}`))return false;\n      return true;\n'],
   'link-per-row': [
     "const launch=m=>launchCell(m.ref,m.refId,'message');",
     "const launch=m=>launchCell(m.ref,m.id,'message');",
@@ -100,9 +106,19 @@ const transform = (rel, source) => {
       // id it has not synced, and excluded a segment. The unknown id is shown
       // as itself: SILO does not guess what an unsynced id is.
       klaviyo_messages: [
-        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1',
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp1', name:'Klaviyo autumn email', status:'sent', send_time:today,
           audiences:{ name:null, included:['L1','S9'], excluded:['S2'] } },
-        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', audiences:null },
+        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg1', name:'Welcome 2', status:'live', audiences:null },
+        // Synced, never measured: what a new or test account has right after
+        // connect. The draft and the live flow message are listed; the
+        // campaign sent long before the range, the archived draft and the
+        // message in a draft flow are not.
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp-draft', name:'Sample draft campaign', status:'draft', send_time:null,
+          audiences:{ name:'Audience 1', included:['L1'], excluded:[] } },
+        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg-live', name:'Abandoned cart 1', parent_name:'Abandoned cart', channel:'email', status:'live', audiences:null },
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp-old', name:'Old sent campaign', status:'sent', send_time:ago(400) + 'T10:00:00Z', audiences:null },
+        { company_entity_id:'test-company', kind:'campaign', klaviyo_id:'camp-archived', name:'Archived draft', status:'draft', archived:true, audiences:null },
+        { company_entity_id:'test-company', kind:'flow_message', klaviyo_id:'fmsg-draft', name:'Draft flow email', status:'draft', audiences:null },
       ],
       klaviyo_audiences: [
         { company_entity_id:'test-company', kind:'list', klaviyo_id:'L1', name:'Newsletter' },
@@ -129,9 +145,10 @@ const transform = (rel, source) => {
 
     // One row per Klaviyo message, whatever windows are stored.
     const rows = await page.locator('#redoBody tr').count();
-    // Four rows: Redo, the flow message, and camp1 once per conversion metric.
-    // Windows collapse, metrics do not -- they count different events.
-    R.eq(rows, 4, 'the second stored window is the same sends measured again, so it adds no row');
+    // Four measured rows -- Redo, the flow message, and camp1 once per
+    // conversion metric (windows collapse, metrics do not) -- plus the two
+    // synced messages with no measurement yet.
+    R.eq(rows, 6, 'the second stored window is the same sends measured again, so it adds no row');
     R.has(body, '1,234.56');
     R.not(body, '1,334.56');
     R.not(body, '1,100');
@@ -170,6 +187,21 @@ const transform = (rel, source) => {
     const flowRow = await page.locator('#redoBody tr', { hasText:'Welcome 2' }).innerText();
     R.not(flowRow, 'To ', 'a flow message has no audience of its own');
 
+    // Synced but never measured: listed with a dash, never a zero, and never
+    // when it is outside the range, archived, or in a flow that is not live.
+    const draftRow = await page.locator('#redoBody tr', { hasText:'Sample draft campaign' }).innerText();
+    R.has(draftRow, 'Draft · no sends yet');
+    R.has(draftRow, 'To Newsletter', 'its audience shows before it is ever sent');
+    R.not(draftRow, '$0.00', 'not measured is not zero');
+    R.has(draftRow, '—');
+    const liveRow = await page.locator('#redoBody tr', { hasText:'Abandoned cart 1' }).innerText();
+    R.has(liveRow, 'Live · no sends yet');
+    R.not(body, 'Old sent campaign');
+    R.not(body, 'Archived draft');
+    R.not(body, 'Draft flow email');
+    R.eq(await page.locator('[data-link-source="klaviyo_messages"][data-link-id="campaign:camp-draft"]').count(), 1,
+      'an unmeasured message can still be linked to a launch');
+
     // Revenue stays USD whatever the account prefers.
     R.has(klaviyoRow, '$1,234.56');
     R.not(klaviyoRow, '€');
@@ -185,7 +217,7 @@ const transform = (rel, source) => {
     await bare.click('[data-tab="redo"]');
     // Counted first, so a context read that takes the rows down with it fails
     // here, on an assertion, rather than as a locator timeout below.
-    R.eq(await bare.locator('#redoBody tr').count(), 4, 'a missing context column must not take the Klaviyo rows with it');
+    R.eq(await bare.locator('#redoBody tr').count(), 6, 'a missing context column must not take the Klaviyo rows with it');
     const bareRow = await bare.locator('#redoBody tr', { hasText:'Klaviyo autumn email' }).first().innerText();
     R.has(bareRow, '1,234.56', 'the numbers do not depend on the audience read');
     R.not(bareRow, 'To Newsletter');

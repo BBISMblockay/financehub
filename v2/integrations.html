@@ -3276,6 +3276,43 @@
       renderKlaviyoConnection(data || null);
       _summaryState.klaviyo = data || null;
       updateSummaryBand();
+      if (data?.last_synced_at) {
+        const found = await klaviyoSyncedSummary();
+        if (found) renderKlaviyoConnection(data, found);
+      }
+    }
+
+    // What the sync has brought in, said on the card: a connected account
+    // with no sends yet (a new or test account) otherwise looks like a sync
+    // that did nothing. Counts of synced rows only -- never a performance
+    // figure. Fail-soft: without it the card reads exactly as before.
+    async function klaviyoSyncedSummary() {
+      const count = async (table, kind) => {
+        let q = db.from(table).select('klaviyo_id', { count: 'exact', head: true });
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        if (kind) q = q.eq('kind', kind);
+        const { count: n, error } = await q;
+        if (error) throw error;
+        return Number(n || 0);
+      };
+      try {
+        const [campaigns, flowMessages, audiences] = await Promise.all([
+          count('klaviyo_messages', 'campaign'),
+          count('klaviyo_messages', 'flow_message'),
+          // klaviyo_audiences arrives with 20261110010000; before that this
+          // one count fails and only it is left out.
+          count('klaviyo_audiences').catch(() => null),
+        ]);
+        const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+        return [
+          plural(campaigns, 'campaign', 'campaigns'),
+          plural(flowMessages, 'flow message', 'flow messages'),
+          ...(audiences == null ? [] : [plural(audiences, 'list or segment', 'lists & segments')]),
+        ].join(' · ');
+      } catch (err) {
+        console.warn('Klaviyo synced counts unavailable', err);
+        return '';
+      }
     }
 
     function klaviyoStatusCell(row) {
@@ -3296,7 +3333,7 @@
         : '<span class="bcn-pill">Tested — sync off</span>';
     }
 
-    function renderKlaviyoConnection(row) {
+    function renderKlaviyoConnection(row, found = '') {
       const tbody = document.getElementById('klaviyo-connections-list');
       const addBtn = document.getElementById('btn-add-klaviyo');
       const oauthBtn = document.getElementById('btn-connect-klaviyo');
@@ -3352,7 +3389,7 @@
           </label>
           <div style="margin-top:6px;">${klaviyoStatusCell(row)}</div>
         </td>
-        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}</td>
+        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}${found ? `<div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);" data-klaviyo-found>Synced ${escHtml(found)}</div>` : ''}</td>
         <td>
           <button class="int-btn" onclick="testKlaviyoConnection()">Test</button>
           <button class="int-btn int-btn--danger" onclick="removeKlaviyoConnection()">Remove</button>
