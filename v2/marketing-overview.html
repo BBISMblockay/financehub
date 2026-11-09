@@ -221,9 +221,9 @@
 
       <div data-panel="redo" hidden>
         <div class="bcn-card">
-          <div class="bcn-card-header"><h2>Redo email &amp; SMS messages</h2><span id="redoFocus" hidden>Showing linked message <button type="button" id="clearRedoFocus" class="bcn-btn bcn-btn--ghost">Show all</button></span></div>
-          <div class="bcn-card-body" style="padding:0;overflow:auto"><table class="mo-tbl"><thead><tr><th>Message</th><th>Type</th><th>Channel</th><th>Sends</th><th>Orders</th><th>Revenue attributed by Redo</th><th>Launch</th></tr></thead><tbody id="redoBody"><tr><td class="mo-empty" colspan="7">Loading…</td></tr></tbody></table></div>
-          <div class="mo-note">Redo credits revenue to messages that touched orders. This is not incremental sales and overlaps other platforms' claims. Do not add it to Shopify sales or ad-attributed revenue.</div>
+          <div class="bcn-card-header"><h2>Email &amp; SMS messages</h2><span id="redoFocus" hidden>Showing linked message <button type="button" id="clearRedoFocus" class="bcn-btn bcn-btn--ghost">Show all</button></span></div>
+          <div class="bcn-card-body" style="padding:0;overflow:auto"><table class="mo-tbl"><thead><tr><th>Message</th><th>Vendor</th><th>Type</th><th>Channel</th><th title="Klaviyo reports a campaign only as a total over a measurement window, never by day, so a Klaviyo row shows the window it was measured over. A Redo row covers the date range above.">Measured</th><th>Sends</th><th>Orders</th><th>Revenue attributed</th><th>Launch</th></tr></thead><tbody id="redoBody"><tr><td class="mo-empty" colspan="9">Loading…</td></tr></tbody></table></div>
+          <div class="mo-note">Each vendor credits revenue by its own rules — Redo to messages that touched orders, Klaviyo against the account's conversion metric. None of it is incremental sales: it overlaps the ad platforms' claims, Shopify sales, and <b>the other vendor</b>. Never add two vendors' rows together, and never add either to Shopify sales or ad-attributed revenue.</div>
         </div>
       </div>
 
@@ -522,6 +522,19 @@
         .gte('day_date',sinceIso()).order('day_date',{ascending:true}).order('redo_id',{ascending:true})));
     } catch(e){ console.warn('Redo reporting unavailable',e); return []; }
   }
+  // Klaviyo measures a campaign only as a TOTAL over a window, never by day,
+  // and SILO stores several windows for the same message (the nightly's
+  // trailing 60 days, a backfill's year). Adding them double counts the same
+  // sends, so the table shows ONE measurement per message, channel and
+  // conversion metric -- the widest window ending in the range -- and names the
+  // window. This is the same pick the Klaviyo system reports make.
+  async function loadKlaviyo(){
+    try {
+      return await loadPaged(() => scopeQ(sb.from('klaviyo_message_performance_v')
+        .select('kind,klaviyo_id,message_name,parent_name,channel,timeframe_start,timeframe_end,conversion_metric_id,recipients,conversions,conversion_value')
+        .gte('timeframe_end',sinceIso()).order('timeframe_end',{ascending:true}).order('klaviyo_id',{ascending:true})));
+    } catch(e){ console.warn('Klaviyo reporting unavailable',e); return []; }
+  }
   const safeHref = (v) => (typeof v === 'string' && /^https?:\/\/[^\s<>"']+$/i.test(v.trim()) ? v.trim() : null);
 
   async function loadOrganic(){
@@ -791,7 +804,7 @@
   }
 
   // ── Creatives tab ──────────────────────────────────────────────
-  let _adPerf = [], _creatives = [], _redo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
+  let _adPerf = [], _creatives = [], _redo = [], _klaviyo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
   let focusedAd = new URLSearchParams(location.search).get('ad');
   let focusedCampaign = new URLSearchParams(location.search).get('campaign');
   let focusedRedo = new URLSearchParams(location.search).get('redo');
@@ -1030,18 +1043,46 @@
   let _campaignRows = [];
   function renderRedo(){
     el('redoFocus').hidden=!focusedRedo;
+    const money=(v,cur)=>new Intl.NumberFormat('en-US',{style:'currency',currency:/^[A-Z]{3}$/.test(cur)?cur:'USD'}).format(v);
     const byMessage=new Map();
     for(const r of _redo){
       const id=`${r.kind}:${r.redo_id}`;
-      if(!byMessage.has(id)) byMessage.set(id,{id,name:r.name||r.redo_id,kind:r.kind,channel:r.channel||'—',currency:r.revenue_currency||'USD',sends:0,orders:0,revenue:0});
+      if(!byMessage.has(id)) byMessage.set(id,{id,vendor:'Redo',name:r.name||r.redo_id,kind:r.kind,channel:r.channel||'—',currency:r.revenue_currency||'USD',sends:0,orders:0,revenue:0,measured:'Date range',linkable:true});
       const m=byMessage.get(id);
       if(m.channel !== (r.channel||'—')) m.channel='Email/SMS';
       m.sends+=Number(r.sends||0);m.orders+=Number(r.orders||0);m.revenue+=Number(r.revenue||0);
     }
+    // One measurement per Klaviyo message, channel and conversion metric: the
+    // WIDEST window whose end is in range, ties to the newest. Two windows of
+    // the same sends are the same sends measured twice, never two rows to add.
+    const byKlaviyo=new Map();
+    const day=v=>String(v||'').slice(0,10);
+    const span=r=>(Date.parse(day(r.timeframe_end))-Date.parse(day(r.timeframe_start)))||0;
+    for(const r of _klaviyo){
+      const key=`${r.kind}:${r.klaviyo_id}:${r.channel||''}:${r.conversion_metric_id||''}`;
+      const held=byKlaviyo.get(key);
+      if(!held || span(r)>span(held) || (span(r)===span(held) && day(r.timeframe_end)>day(held.timeframe_end))) byKlaviyo.set(key,r);
+    }
+    for(const [key,r] of byKlaviyo){
+      byMessage.set(`klaviyo:${key}`,{
+        id:`klaviyo:${key}`, vendor:'Klaviyo',
+        name:r.message_name||r.parent_name||r.klaviyo_id,
+        kind:r.kind==='flow_message'?'flow message':(r.kind||'—'),
+        channel:r.channel||'—', currency:'USD',
+        sends:Number(r.recipients||0), orders:Number(r.conversions||0), revenue:Number(r.conversion_value||0),
+        measured:`${day(r.timeframe_start)} → ${day(r.timeframe_end)}`,
+        metric:r.conversion_metric_id||'', linkable:false,
+      });
+    }
     let messages=[...byMessage.values()].sort((a,b)=>b.revenue-a.revenue);
     if(focusedRedo) messages=messages.filter(m=>m.id===focusedRedo);
-    el('redoBody').innerHTML=messages.length?messages.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.kind)}</td><td>${esc(m.channel)}</td><td>${numFmt(m.sends)}</td><td>${numFmt(m.orders)}</td><td>${new Intl.NumberFormat('en-US',{style:'currency',currency:/^[A-Z]{3}$/.test(m.currency)?m.currency:'USD'}).format(m.revenue)}</td><td>${launchCell(REDO_REF,m.id,'message')}</td></tr>`).join('')
-      :`<tr><td class="mo-empty" colspan="7">${focusedRedo?'This linked message has no data in this date window. Try 90d or show all.':'No Redo message data in this window.'}</td></tr>`;
+    // Launch linking is Redo's: the link row's source names Redo's message
+    // table, so a Klaviyo row has nothing to point at. Saying so beats an
+    // inert button.
+    const launch=m=>m.linkable?launchCell(REDO_REF,m.id,'message')
+      :'<span class="mo-empty" title="Launch linking covers Redo messages. A Klaviyo message has no link row to point at yet.">—</span>';
+    el('redoBody').innerHTML=messages.length?messages.map(m=>`<tr><td>${esc(m.name)}${m.metric?` <span class="mo-empty" title="Klaviyo measured this against conversion metric ${esc(m.metric)}. Rows measured under different metrics count different events and must not be added.">· ${esc(m.metric)}</span>`:''}</td><td>${esc(m.vendor)}</td><td>${esc(m.kind)}</td><td>${esc(m.channel)}</td><td>${esc(m.measured)}</td><td>${numFmt(m.sends)}</td><td>${numFmt(m.orders)}</td><td>${money(m.revenue,m.currency)}</td><td>${launch(m)}</td></tr>`).join('')
+      :`<tr><td class="mo-empty" colspan="9">${focusedRedo?'This linked message has no data in this date window. Try 90d or show all.':'No email or SMS message data in this window. Connect Redo or Klaviyo, or widen the dates.'}</td></tr>`;
   }
   el('clearRedoFocus').onclick=()=>{focusedRedo=null;const url=new URL(location.href);url.searchParams.delete('redo');history.replaceState(null,'',url);renderRedo();};
 
@@ -1334,11 +1375,11 @@
     el('btnRefresh').disabled = true;
     try {
       const [rows, merRows, adPerf, creatives, organic, pageDays, linksLoaded, redo,
-             igProfile, igAccountDays, pagePosts, customConv] = await Promise.all([
+             igProfile, igAccountDays, pagePosts, customConv, klaviyo] = await Promise.all([
         loadRows(), loadMer(), loadAdPerf(), loadCreatives(), loadOrganic(), loadPageInsights(), loadLaunchLinks(), loadRedo(),
-        loadIgAccount(), loadIgAccountDays(), loadPagePosts(), loadCustomConversions(),
+        loadIgAccount(), loadIgAccountDays(), loadPagePosts(), loadCustomConversions(), loadKlaviyo(),
       ]);
-      _adPerf = adPerf; _creatives = creatives; _redo = redo; _campaignRows = rows;
+      _adPerf = adPerf; _creatives = creatives; _redo = redo; _klaviyo = klaviyo; _campaignRows = rows;
       const hasAny = rows.length > 0 || (merRows||[]).some(m => Number(m.online_net_sales||0) > 0);
       el('dataModePill').textContent = hasAny ? 'LIVE' : 'NOT CONNECTED';
       el('dataModePill').className = `bcn-pill ${hasAny ? 'bcn-pill--pos' : 'bcn-pill--accent'}`;
