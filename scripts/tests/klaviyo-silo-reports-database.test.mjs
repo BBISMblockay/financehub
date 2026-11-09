@@ -32,6 +32,9 @@
 //   KLAVIYO_REPORTS_MUTATION=metric-mixed       two conversion metrics collapse into one row
 //   KLAVIYO_REPORTS_MUTATION=trend-mixes-metrics the trend adds two metrics into one day
 //   KLAVIYO_REPORTS_MUTATION=perf-no-recon      Performance keeps only its row-count sanity check
+//   KLAVIYO_REPORTS_MUTATION=kpi-all-metrics    the KPI query returns a row per conversion metric
+//   KLAVIYO_REPORTS_MUTATION=tile-overlap       a Klaviyo tile lands on a tile already on the board
+//   KLAVIYO_REPORTS_MUTATION=tile-wrong-query   the by-metric table reads the one-metric KPI query
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/klaviyo-silo-reports-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -43,7 +46,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 const MUT = process.env.KLAVIYO_REPORTS_MUTATION || '';
 assert.ok(['', 'sum-windows', 'narrowest-window', 'sms-opens', 'zero-not-blank',
   'trend-unbounded', 'split-sums-windows', 'no-guard',
-  'metric-mixed', 'trend-mixes-metrics', 'perf-no-recon'].includes(MUT), `Unknown mutation ${MUT}`);
+  'metric-mixed', 'trend-mixes-metrics', 'perf-no-recon',
+  'kpi-all-metrics', 'tile-overlap', 'tile-wrong-query'].includes(MUT), `Unknown mutation ${MUT}`);
 
 const db = new PGlite();
 const q = async (sql) => (await db.query(sql)).rows;
@@ -407,6 +411,123 @@ await test('a changed definition turns its tie-out to NO DATA', async () => {
     const [r] = await q(c.check_sql);
     assert.notEqual(r.left_value, null, `${c.name}: and it reports again once the check is refreshed`);
   }
+});
+
+// ── The totals report and the Marketing dashboard tiles (20261109230000) ────
+// The tiles are loaded beside the REAL bucket-dashboard seed, so an overlap
+// with a tile that is already on that board is caught here rather than by
+// someone opening the page.
+await db.exec(`
+create table dashboards(id uuid primary key, company_entity_id uuid, created_by uuid, name text,
+  description text, visibility text, filter_state jsonb, source text);
+create table dashboard_widgets(id uuid primary key, dashboard_id uuid, company_entity_id uuid,
+  created_by uuid, report_id uuid, query_index int, title text, visual_type text,
+  visual_config jsonb, layout jsonb, sort_order int);
+`);
+await db.exec(readFileSync('supabase/migrations/20260925193000_silo_bucket_dashboards.sql', 'utf8'));
+
+const TOTALS = 'c9000000-0000-4000-a000-000000000004';
+const MARKETING = '5110da5b-0000-4000-a000-000000000012';
+let tiles = readFileSync('supabase/migrations/20261109230000_klaviyo_dashboard_tiles.sql', 'utf8');
+const tsub = (from, to) => {
+  assert.ok(tiles.includes(from), `mutation ${MUT}: pattern missing`);
+  tiles = tiles.split(from).join(to);
+};
+// The KPI query covering every metric is the failure this report's shape
+// exists to prevent: a KPI tile sums its rows.
+if (MUT === 'kpi-all-metrics') tsub('  join latest l on l.conversion_metric_id = m.conversion_metric_id\n', '');
+if (MUT === 'tile-overlap') tsub(`'{"x":0,"y":27,"w":7,"h":4}'::jsonb, 17`, `'{"x":0,"y":15,"w":7,"h":4}'::jsonb, 17`);
+if (MUT === 'tile-wrong-query') tsub(`'c9000000-0000-4000-a000-000000000004',1,\n 'Klaviyo by conversion metric'`,
+  `'c9000000-0000-4000-a000-000000000004',0,\n 'Klaviyo by conversion metric'`);
+await db.exec(tiles);
+
+const totals = (await q(`select queries_run, parameters, columns_metadata from silo_chat_saved_reports
+  where id = '${TOTALS}'`))[0];
+const runTotals = async (i, values = {}) => {
+  const out = P.substitute(totals.queries_run[i], totals.parameters,
+    P.defaultsFor(P.normalizeDeclarations(totals.parameters), values));
+  assert.ok(out.sql, out.error);
+  return q(out.sql);
+};
+
+await test('the KPI query is ONE row -- the latest conversion metric -- and says how many there were', async () => {
+  const rows = await runTotals(0);
+  assert.equal(rows.length, 1, 'a KPI tile sums its rows, so a second metric here would be added onto the card');
+  const [r] = rows;
+  assert.equal(r.conversion_metric_id, 'MET1', 'the newest window end, ties broken by id, not an arbitrary pick');
+  assert.equal(num(r.metrics_in_period), 2, 'and the board is told there was another metric');
+  assert.equal(num(r.messages), 3);
+  assert.equal(num(r.sends), 1200, 'the widest window per message, never two windows summed');
+  assert.equal(num(r.delivered), 1178);
+  assert.equal(num(r.delivery_rate), 98.2);
+  assert.equal(num(r.click_rate), 5.9);
+  assert.equal(num(r.attributed_orders), 18);
+  assert.equal(num(r.attributed_revenue), 1384.06);
+  assert.equal(num(r.sending_cost), 12.34);
+});
+
+await test('the by-metric query holds every metric and agrees with Performance', async () => {
+  const rows = await runTotals(1);
+  assert.deepEqual(rows.map((r) => r.conversion_metric_id), ['MET1', 'MET2']);
+  assert.equal(num(rows[0].attributed_revenue), 1384.06);
+  assert.equal(num(rows[1].attributed_revenue), 500);
+  const perfTotal = (await run(PERF)).reduce((a, r) => a + num(r.attributed_revenue), 0);
+  assert.equal(rows.reduce((a, r) => a + num(r.attributed_revenue), 0), Math.round(perfTotal * 100) / 100,
+    'every metric together is the message list, or one of them has drifted');
+});
+
+await test('both totals tie-outs pass, and the KPI one is exact', async () => {
+  const cs = await q(`select name, kind, check_sql, tolerance from silo_report_tieouts
+    where report_id = '${TOTALS}' order by name`);
+  assert.equal(cs.length, 2);
+  assert.ok(cs.some((c) => c.kind === 'reconciliation'), 'a row count alone would pass a wrong total');
+  for (const c of cs) {
+    const [r] = await q(c.check_sql);
+    assert.notEqual(r.left_value, null, `${c.name}: NO DATA`);
+    assert.ok(Math.abs(num(r.left_value) - num(r.right_value)) <= num(c.tolerance),
+      `${c.name}: ${r.left_value} vs ${r.right_value}`);
+  }
+});
+
+await test('every Klaviyo tile reads a report that exists, by a query that exists', async () => {
+  const widgets = await q(`select id, report_id, query_index, title, visual_type, visual_config, layout, sort_order
+    from dashboard_widgets where dashboard_id = '${MARKETING}' order by sort_order`);
+  const mine = widgets.filter((w) => w.title.includes('Klaviyo'));
+  assert.equal(mine.length, 8, 'the section, four KPI tiles, the trend, the message table and the metric table');
+  for (const w of mine) {
+    if (!w.report_id) continue;
+    const [rep] = await q(`select queries_run, columns_metadata from silo_chat_saved_reports where id = '${w.report_id}'`);
+    assert.ok(rep, `${w.title}: points at a report that does not exist`);
+    assert.ok(w.query_index < rep.queries_run.length, `${w.title}: query_index ${w.query_index} is past the end`);
+    const cfg = w.visual_config;
+    assert.ok(cfg.empty_message, `${w.title}: a tile with no rows must say why, not render blank`);
+    // A tile naming a column the report does not return is a blank card.
+    for (const col of (cfg.columns || []).concat(cfg.y_field ? [cfg.y_field] : [], cfg.x_field ? [cfg.x_field] : [])) {
+      assert.ok(Object.prototype.hasOwnProperty.call(rep.columns_metadata, col),
+        `${w.title}: column ${col} is not in that report's columns_metadata`);
+    }
+  }
+  // The by-metric tile must read the per-metric query, not the KPI one.
+  const byMetric = mine.find((w) => w.title === 'Klaviyo by conversion metric');
+  assert.equal(byMetric.query_index, 1, 'the KPI query covers one metric by design, so it cannot be this table');
+  // Redo's section names its vendor now that two vendors share the board.
+  const redo = widgets.find((w) => w.id === 'd0000000-0000-4000-a00c-000000000007');
+  assert.equal(redo.title, 'Email and SMS (Redo)');
+});
+
+await test('no Klaviyo tile lands on top of a tile already on that board', async () => {
+  const widgets = await q(`select title, layout from dashboard_widgets where dashboard_id = '${MARKETING}'`);
+  const box = (w) => ({ t: w.title, x: w.layout.x, y: w.layout.y, w: w.layout.w, h: w.layout.h });
+  const boxes = widgets.map(box);
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i]; const b = boxes[j];
+      const hits = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      assert.ok(!hits, `${a.t} overlaps ${b.t}`);
+      assert.ok(a.x + a.w <= 12, `${a.t} runs past the 12-column grid`);
+    }
+  }
+  assert.equal(new Set(widgets.map((w) => `${w.title}`)).size, widgets.length, 'two tiles share a title');
 });
 
 console.log(`\n${passed} passed`);
