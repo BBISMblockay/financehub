@@ -1,0 +1,169 @@
+<!doctype html>
+<!-- Testing instructions for SILO's Klaviyo app review.
+
+     Klaviyo's listing asks for ONE public URL describing how its reviewers
+     install and exercise the app. This is that page. It is linked from
+     nowhere in SILO and is reached only by its URL, like klaviyo-install.html.
+
+     Two rules hold this page's shape:
+       1. NO CREDENTIALS, ever. Klaviyo's own form says so, and a login pasted
+          into a public page is a login anyone can use. Access is requested by
+          email and granted to a named reviewer.
+       2. Nothing company-specific. SILO is multi-tenant; a reviewer sees their
+          own test workspace, so the steps are written for any workspace.
+
+     Static and chrome-less on purpose: a reviewer is not signed in, and a
+     sidebar around a sign-in bounce is noise. No JavaScript, no data reads. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex" />
+  <title>SILO — Klaviyo testing instructions</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    body { margin: 0; background: var(--bcn-canvas, #f4f5f7); }
+    .kt-wrap { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; box-sizing: border-box; }
+    .kt-card { background: var(--bcn-surface, #fff); border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 14px; padding: 28px 26px; box-shadow: 0 8px 28px rgba(2,6,23,.07); }
+    .kt-logo { width: 40px; height: 40px; background: var(--bcn-band, #0f1117); border-radius: 10px; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; margin-bottom: 18px; }
+    h1 { font-size: 20px; font-weight: 600; color: var(--bcn-ink, #111827); margin: 0 0 4px; }
+    h2 { font-size: 14px; font-weight: 600; color: var(--bcn-ink, #111827); margin: 28px 0 8px;
+      padding-top: 18px; border-top: 1px solid var(--bcn-border, #e2e5ea); }
+    h2:first-of-type { border-top: 0; padding-top: 0; }
+    p, li { font-size: 13px; line-height: 1.6; color: var(--bcn-ink-2, #374151); }
+    p { margin: 0 0 10px; }
+    ol, ul { margin: 0 0 10px; padding-left: 20px; }
+    li { margin-bottom: 5px; }
+    .kt-sub { font-size: 13px; color: var(--bcn-ink-3, #6b7280); margin: 0 0 4px; }
+    .kt-note { background: var(--bcn-canvas, #f4f5f7); border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; }
+    .kt-note strong { color: var(--bcn-ink, #111827); }
+    code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px;
+      background: var(--bcn-canvas, #f4f5f7); border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 5px; padding: 1px 5px; }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 12px; }
+    th, td { text-align: left; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid var(--bcn-border, #e2e5ea);
+      color: var(--bcn-ink-2, #374151); vertical-align: top; }
+    th { color: var(--bcn-ink-3, #6b7280); font-weight: 600; }
+    a { color: var(--bcn-accent, #2563eb); }
+    .kt-foot { font-size: 12px; color: var(--bcn-ink-3, #6b7280); margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <main class="kt-wrap">
+    <div class="kt-card">
+      <div class="kt-logo">S</div>
+      <h1>Testing SILO's Klaviyo integration</h1>
+      <p class="kt-sub">For the Klaviyo app review team. Everything below can be done in a test
+        workspace with sample data; nothing is sent to your subscribers at any point.</p>
+
+      <h2>1. What the app does</h2>
+      <p>SILO is an operations and reporting platform. Companies connect the tools they already
+        use — their store, ad platforms, bank, email and SMS — and SILO puts the numbers from all
+        of them on one set of reports.</p>
+      <p>The Klaviyo integration is <strong>read-only reporting</strong>. SILO pulls campaign,
+        flow and message statistics on a schedule and shows them beside the company's other
+        marketing. It never sends an email or an SMS, never creates or edits a campaign, flow,
+        list, segment or profile, and never writes anything back to Klaviyo.</p>
+
+      <h2>2. Getting a test login</h2>
+      <div class="kt-note">
+        <p style="margin:0"><strong>No credentials appear on this page.</strong> Email
+          <a href="mailto:support@get-silo.com">support@get-silo.com</a> with the subject
+          <code>Klaviyo app review</code> and the email address you want access on. We create a
+          reviewer account on an empty test workspace and reply with a sign-in link, usually the
+          same business day. The account is removed when the review closes.</p>
+      </div>
+      <p>The test workspace starts with no integrations connected, so the install flow below is
+        exercised from the beginning. Tell us if you would rather test against a workspace that
+        already has a store connected, so the attribution surfaces have sales to sit beside.</p>
+
+      <h2>3. Installing from Klaviyo (the install URL)</h2>
+      <p>This is the flow behind the app listing's install button, and it works when hit cold, by
+        someone who is not signed in to SILO.</p>
+      <ol>
+        <li>Open the install URL: <code>https://get-silo.com/v2/klaviyo-install.html</code></li>
+        <li>If you are not signed in, SILO asks you to sign in and returns you to this page. If
+          your account belongs to more than one workspace, it asks which one to connect.</li>
+        <li>The page names the workspace being connected and lists what the app will read. Choose
+          <strong>Continue to Klaviyo</strong>.</li>
+        <li>Klaviyo's own consent screen opens. Approve it with the account you are testing.</li>
+        <li>Klaviyo returns you to SILO, which confirms the connection and shows it on the
+          workspace's Integrations page.</li>
+      </ol>
+
+      <h2>4. Installing from inside SILO</h2>
+      <p>The same connection can be started by an existing user:</p>
+      <ol>
+        <li>Sign in and open <strong>Settings → Integrations</strong>.</li>
+        <li>Find the Klaviyo card and choose <strong>Connect</strong>.</li>
+        <li>Approve the Klaviyo consent screen. You land back on Integrations with the account
+          name and its connection status shown on the card.</li>
+      </ol>
+
+      <h2>5. Permissions requested, and why</h2>
+      <table>
+        <thead><tr><th>Scope</th><th>What SILO uses it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>campaigns:read</code></td><td>Campaign names, channel, send time and status, so a message can be named in a report rather than shown as an ID.</td></tr>
+          <tr><td><code>flows:read</code></td><td>The same for flows and their messages.</td></tr>
+          <tr><td><code>metrics:read</code></td><td>Delivery, open, click, unsubscribe, conversion and revenue statistics — the numbers the reports are made of. It also reads the account's conversion metrics, so a figure can say which event it counted.</td></tr>
+          <tr><td><code>lists:read</code></td><td>List names, used to label audience figures.</td></tr>
+          <tr><td><code>segments:read</code></td><td>Segment names, for the same reason.</td></tr>
+        </tbody>
+      </table>
+      <p>All five are read scopes. SILO requests no write scope of any kind, so no action in SILO
+        can change anything in Klaviyo. If a write feature is ever added it will need a new scope
+        and a fresh consent from the account owner.</p>
+
+      <h2>6. What happens after you connect</h2>
+      <ul>
+        <li>A first sync starts <strong>immediately</strong> on connect, so there is something to
+          look at within a minute or two rather than the next day.</li>
+        <li>After that the sync runs daily, with a second catch-up run the same day if the first
+          does not complete. Each run overwrites a trailing window, so re-running changes nothing
+          except to bring the numbers up to date.</li>
+        <li>A new account can be backfilled further back on request.</li>
+        <li>A test account with sample data and no send history will show campaigns and flows with
+          zero or very small numbers. That is expected and is enough to confirm the flow of data.</li>
+      </ul>
+
+      <h2>7. Where the data appears</h2>
+      <table>
+        <thead><tr><th>Where</th><th>What to look for</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Settings → Integrations</strong></td><td>The Klaviyo card: the connected account, when it last synced, and whether the last sync succeeded.</td></tr>
+          <tr><td><strong>Marketing → Performance → Email &amp; SMS</strong></td><td>One row per message, with the vendor, channel, the window the figures were measured over, sends, orders and the revenue Klaviyo credits.</td></tr>
+          <tr><td><strong>Marketing → Marketing Report</strong></td><td>The campaigns and flows cards for the reported period, beside the rest of the week's marketing.</td></tr>
+          <tr><td><strong>Marketing → Silo Attribution</strong></td><td>Email and SMS as channels in the attribution model, with SMS sending cost listed as a cost rather than as ad spend.</td></tr>
+          <tr><td><strong>Reports</strong></td><td>Ready-made Klaviyo reports — message performance, a daily trend and a flow breakdown — runnable over any date range.</td></tr>
+        </tbody>
+      </table>
+      <p>Two things on those screens are deliberate and may look unusual on review. Klaviyo reports
+        a campaign as a total over a <em>measurement window</em> rather than per day, so every
+        Klaviyo figure names the window it covers instead of borrowing the report's dates. And
+        statistics measured against different conversion metrics stay on separate rows, because
+        they count different events and adding them would be wrong.</p>
+
+      <h2>8. Disconnecting</h2>
+      <p>On <strong>Settings → Integrations</strong>, the Klaviyo card offers <strong>Disconnect</strong>.
+        That revokes SILO's stored token immediately and stops all syncing. Uninstalling the app
+        from Klaviyo's side has the same effect: the token stops working, and SILO's next sync
+        records the connection as needing re-authorisation rather than retrying endlessly.</p>
+
+      <h2>9. Questions during review</h2>
+      <p>Email <a href="mailto:support@get-silo.com">support@get-silo.com</a> with
+        <code>Klaviyo app review</code> in the subject. If something does not behave as described
+        here, please say which step and what you saw — that is a bug on our side, not a step to
+        work around.</p>
+
+      <p class="kt-foot">SILO · <a href="https://get-silo.com">get-silo.com</a> ·
+        <a href="/legal/privacy.html">Privacy</a> · <a href="/legal/eula.html">Terms</a></p>
+    </div>
+  </main>
+</body>
+</html>
