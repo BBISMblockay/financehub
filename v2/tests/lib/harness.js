@@ -507,7 +507,16 @@ async function startSuite(options = {}) {
     if (!file.startsWith(REPO_ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404); res.end('not found'); return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    const type = MIME[path.extname(file)] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': type });
+    // options.transform lets a suite serve a deliberately BROKEN copy of a
+    // page, which is how a page suite mutation-tests itself: break the guard,
+    // prove the suite goes red. It only sees text, and only when a suite asks
+    // for it, so an ordinary run reads the file off disk unchanged.
+    if (options.transform && /^(text|application\/(javascript|json))/.test(type)) {
+      res.end(String(options.transform(rel, fs.readFileSync(file, 'utf8'))));
+      return;
+    }
     res.end(fs.readFileSync(file));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

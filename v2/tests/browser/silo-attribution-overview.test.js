@@ -41,7 +41,12 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
      if(table==='marketing_kpis_daily')data=[{platform:'meta_ads',day_date:'2026-09-30',spend:300},{platform:'google_ads',day_date:'2026-09-30',spend:50}];
      if(table==='redo_marketing_daily')data=[{channel:'SMS',day_date:'2026-09-30',spend:12.5,spend_currency:'USD'}];
      // Completed sync windows; partialSpend leaves the ad platforms without one.
-     if(table==='sync_jobs')data=['meta_ads_kpis','google_ads_kpis','tiktok_ads_kpis','redo_marketing'].filter(j=>!window.partialSpend||j==='redo_marketing').map(job_type=>({job_type,window:{startDate:'2026-09-01',endDate:'2026-10-01'}}));
+     // Completed sync windows, and the "has this ever run" probe, both read
+     // this table; the probe asks per job_type, so the stub has to honour that
+     // filter. Without it every spend source looks connected in this fixture,
+     // including one this synthetic company does not use, and the total reads
+     // as incomplete for a reason that does not exist.
+     if(table==='sync_jobs')data=['meta_ads_kpis','google_ads_kpis','tiktok_ads_kpis','redo_marketing'].filter(j=>!window.partialSpend||j==='redo_marketing').filter(j=>!filters.job_type||(Array.isArray(filters.job_type)?filters.job_type.includes(j):j===filters.job_type)).map(job_type=>({job_type,window:{startDate:'2026-09-01',endDate:'2026-10-01'}}));
      resolve({data,count:Array.isArray(data)?data.length:null});}};return q;}})};` }));
   const url=`http://127.0.0.1:${server.address().port}/v2/silo-attribution.html?start=2026-09-30&end=2026-09-30`;
   await page.goto(url);await page.waitForSelector('.attr-together',{timeout:10000}).catch(async e=>{console.error(await page.locator('body').innerText(),errors);throw e;});
