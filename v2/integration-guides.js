@@ -53,6 +53,15 @@
   // pages_show_list is what lets Test's /me/accounts lookup list the Pages;
   // without it Meta refuses that call and the tester shows no Pages at all.
   const META_ORGANIC_SCOPES = ['pages_show_list', 'pages_read_engagement', 'instagram_basic', 'instagram_manage_insights'];
+  // Klaviyo cannot add a scope to a key after it is created, so a key short of
+  // one of these has to be replaced, not edited. Every one of them is READ.
+  const KLAVIYO_SCOPES = [
+    'campaigns:read',
+    'flows:read',
+    'metrics:read',
+    'segments:read',
+    'lists:read',
+  ];
   const REDO_MARKETING_SCOPES = [
     'Campaigns',
     'Marketing automations',
@@ -270,6 +279,46 @@
       ],
       action: { id: 'redo_row', label: 'Go to the Redo row' },
     },
+    klaviyo: {
+      title: 'Connect Klaviyo',
+      summary: 'SILO reads your Klaviyo campaign and flow reporting every night. Read-only: it never sends, edits or imports a profile.',
+      time: 'About 3 minutes',
+      needs: ['Owner, Admin or Manager access in Klaviyo (only those roles can create an API key)'],
+      steps: () => [
+        {
+          title: 'Create a read-only private API key',
+          body: 'In Klaviyo, open <strong>Settings → API keys</strong> and create a key with <strong>Custom</strong> access, '
+            + 'granting <strong>Read</strong> on each of these and nothing else:',
+          scopes: KLAVIYO_SCOPES,
+          note: 'Klaviyo cannot change a key\'s scopes afterwards. If one is missing you have to delete the key and make a new one, so it is worth checking the list before saving.',
+          links: [{ label: 'Klaviyo API keys', href: 'https://www.klaviyo.com/settings/account/api-keys' }],
+        },
+        {
+          title: 'Paste the key into SILO',
+          body: 'On the Klaviyo row, click <strong>Paste an API key…</strong> and paste the key. It begins with <code>pk_</code>. '
+            + 'SILO tests it straight away and reads back your account and its reporting timezone.',
+          note: 'The short six-character company ID is Klaviyo\'s PUBLIC key and cannot read reports — it is not the one to paste here.',
+        },
+        {
+          title: 'Choose what counts as a conversion',
+          body: 'Klaviyo measures every conversion and all attributed revenue against one metric, normally <strong>Placed Order</strong>. '
+            + 'SILO picks that one automatically when it exists; otherwise choose it from the dropdown on the row.',
+          note: 'Changing it later changes what every Klaviyo number means, so rows measured against different metrics are never added together.',
+        },
+        {
+          title: 'Turn sync on',
+          body: 'Switch <strong>Sync</strong> on. SILO queues a first import of the last year and then re-reads a trailing 60 days every night, '
+            + 'because Klaviyo keeps attributing orders to a send for weeks after it went out.',
+        },
+      ],
+      troubleshooting: [
+        { q: '"The Klaviyo key is valid but lacks the metrics:read scope"', a: 'The key was created without that scope and Klaviyo cannot add one. Create a new custom read-only key with all five scopes and paste it over the old one.' },
+        { q: 'Numbers do not match Klaviyo\'s dashboard', a: 'Check the conversion metric on the row is the same one Klaviyo\'s own report uses, and compare the same window: SILO stores campaign numbers per reporting window, not per day, because Klaviyo publishes no daily series for campaigns.' },
+        { q: 'SMS numbers are blank', a: 'Klaviyo returns no SMS statistics before 1 October 2025, or on a contracted plan. Blank means not reported, not zero.' },
+        { q: 'Flow names show but message names do not', a: 'Klaviyo did not return the flow message list for this account. Nothing is lost: every number is still attributed to the right message, only its name is missing.' },
+      ],
+      action: { id: 'klaviyo_row', label: 'Go to the Klaviyo row' },
+    },
   };
 
   const esc = (s) => String(s == null ? '' : s)
@@ -321,6 +370,7 @@
     { key: 'shopify_token', section: 'Shopify — legacy Admin API token' },
     { key: 'meta_ads', section: 'Meta Ads — system user token' },
     { key: 'redo', section: 'Redo — returns & marketing' },
+    { key: 'klaviyo', section: 'Klaviyo — email & SMS' },
   ];
 
   function stepHtmlPrint(s, i) {

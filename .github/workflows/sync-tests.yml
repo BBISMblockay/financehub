@@ -47,6 +47,11 @@ on:
       # which is the one thing that notices a copy drifting from the original.
       - 'supabase/migrations/*developer_api_idle_disconnect.sql'
       - 'supabase/functions/*/integration-gate.mjs'
+      # Klaviyo native integration (klaviyo-sync.test.mjs) and its two gated
+      # functions.
+      - 'supabase/functions/klaviyo-oauth-start/**'
+      - 'supabase/functions/test-klaviyo-connection/**'
+      - 'supabase/migrations/*klaviyo_native_integration.sql'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -555,6 +560,25 @@ jobs:
           set -u
           for m in trustfilter notoken rowfilter bodycompany conflict redact connector linkwindow grouptoken mapcompany; do
             if WINDSOR_MUTATION="$m" node --test scripts/tests/windsor-broker.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Klaviyo native sync: nothing is written until every fetch succeeded, a
+      # sweep touches only this run's window and only rows older than it, an
+      # unreported statistic stays NULL, a scope or credential problem is
+      # recorded rather than failed, Klaviyo's rate limits are respected by
+      # construction, and Windsor stands down where SILO syncs Klaviyo itself.
+      - name: Klaviyo sync
+        run: node --test scripts/tests/klaviyo-sync.test.mjs
+      - name: The Klaviyo sync's guards, removed, must break it
+        run: |
+          set -u
+          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget unreadable reauth dryrun chunk native; do
+            out="$(KLAVIYO_SYNC_MUTATION="$m" node --test scripts/tests/klaviyo-sync.test.mjs 2>&1)" && rc=0 || rc=$?
+            if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
@@ -2313,6 +2337,25 @@ jobs:
           set -u
           for m in rls admin lease attempts uniq grant anongrant skiplocked; do
             if INTEGRATION_BOOTSTRAP_DB_MUTATION="$m" node scripts/tests/integration-bootstrap-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Klaviyo's database half (20261109040000), with the migration EXECUTED
+      # twice: tenant isolation through both views, a connection row no
+      # non-admin can even read (it carries a live credential), a PKCE verifier
+      # no client role can read, data tables no client may author, a
+      # performance grain that holds BECAUSE channel is NOT NULL, and both
+      # queues learning 'klaviyo' idempotently.
+      - name: Klaviyo native integration (real PostgreSQL)
+        run: node scripts/tests/klaviyo-native-database.test.mjs
+      - name: The Klaviyo tables' guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company credential writes verifier invoker grain nullchannel jobtype bootstrap; do
+            if KLAVIYO_DB_MUTATION="$m" node scripts/tests/klaviyo-native-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

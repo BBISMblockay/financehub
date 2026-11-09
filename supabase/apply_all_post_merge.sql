@@ -19576,4 +19576,13 @@ $c$select (select count(*) from v_po_header_summary
 -- builder stop showing whichever store synced last. Backfills on apply and
 -- runs at the end of every Shopify sync. No deploy.
 \i migrations/20261105080000_products_master_canonical_title.sql
+-- 20261109040000: Klaviyo as a native integration pillar -- its own connection
+-- (a pasted private key or an OAuth grant), klaviyo_messages,
+-- klaviyo_message_performance, klaviyo_flow_daily and their two
+-- security_invoker views, plus 'klaviyo' appended to sync_jobs.job_type and to
+-- integration_bootstrap_jobs.integration. Applying it turns nothing on: no
+-- connection exists, and the sync reads only rows with sync_enabled. Needs a
+-- deploy of klaviyo-oauth-start, klaviyo-oauth-callback (NO JWT) and
+-- test-klaviyo-connection before the UI's buttons work.
+\i migrations/20261109040000_klaviyo_native_integration.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

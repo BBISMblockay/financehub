@@ -35,6 +35,7 @@ const INLINE = [
   'comp-request-notify', 'google-oauth-start', 'org-invite-send', 'payment-request-submitted-notify', 'platform-invite-send',
   'quickbooks-accounts-sync', 'quickbooks-oauth-start', 'quickbooks-report', 'review-finish', 'review-send',
   'shopify-connect-dev-app', 'shopify-oauth-start', 'tiktok-oauth-start',
+  'klaviyo-oauth-start', 'test-klaviyo-connection',
 ];
 const HANDLERS = {
   'meta-oauth-start': 'handler.mjs',

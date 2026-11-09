@@ -110,6 +110,7 @@
     .int-card-icon--shopify { background: #95bf47; }
     .int-card-icon--ads     { background: #2563eb; }
     .int-card-icon--redo    { background: #ef4444; }
+    .int-card-icon--klaviyo { background: #1a1a1a; }
     .int-card-icon--qbo     { background: #2ca01c; }
     .int-card-icon--stripe  { background: #635bff; }
     /* white-space: normal is required, not cosmetic -- .int-table td sets
@@ -789,6 +790,55 @@
 
         <section class="int-card">
           <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--klaviyo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Klaviyo</h2>
+              <p>Email &amp; SMS campaigns and flows, read straight from Klaviyo.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="klaviyo" aria-label="Collapse Klaviyo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Credential</th>
+                <th>Counts as a conversion</th>
+                <th>Sync</th>
+                <th>Last sync</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="klaviyo-connections-list">
+              <tr><td colspan="6"><div class="empty-state" id="klaviyo-empty"><strong>Not connected</strong>Connect Klaviyo below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="6">
+                  <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-klaviyo">Paste an API key…</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-klaviyo">Connect with Klaviyo</button>
+                    <button type="button" class="ig-open-btn" data-guide="klaviyo">Klaviyo setup guide</button>
+                  </div>
+                  <div class="form-row" id="klaviyo-add-form" style="display:none;gap:12px;align-items:center;flex-wrap:wrap;padding-bottom:10px;">
+                    <input class="bcn-field bcn-field--mono" id="klaviyo-api-key" type="password" style="min-width:320px;"
+                      placeholder="pk_..." autocomplete="off" />
+                    <button class="bcn-btn bcn-btn--primary" id="btn-save-klaviyo">Save key</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-klaviyo">Cancel</button>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+          </div>
+        </section>
+
+        <section class="int-card">
+          <header class="int-card-header">
             <span class="int-card-icon int-card-icon--qbo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm.642 4.1335c.9554 0 1.7296.776 1.7296 1.7332v9.0667h1.6c1.614 0 2.9275-1.3156 2.9275-2.933 0-1.6173-1.3136-2.9333-2.9276-2.9333h-.6654V7.3334h.6654c2.5722 0 4.6577 2.0897 4.6577 4.667 0 2.5774-2.0855 4.6666-4.6577 4.6666H12.642zM7.9837 7.333h3.3291v12.533c-.9555 0-1.73-.7759-1.73-1.7332V9.0662H7.9837c-1.6146 0-2.9277 1.316-2.9277 2.9334 0 1.6175 1.3131 2.9333 2.9277 2.9333h.6654v1.7332h-.6654c-2.5725 0-4.6577-2.0892-4.6577-4.6665 0-2.5771 2.0852-4.6666 4.6577-4.6666Z"/></svg></span>
             <div class="int-card-header-text">
               <h2>QuickBooks Online</h2>
@@ -883,7 +933,7 @@
     // page. Each load* function stores its own rows here and re-derives
     // the whole band — never reads the DOM back, so it can't drift from
     // what's actually loaded.
-    const _summaryState = { shopify: [], ad: [], redo: null, qbo: null };
+    const _summaryState = { shopify: [], ad: [], redo: null, klaviyo: null, qbo: null };
 
     // ══ First-connect auto sync ════════════════════════════════════════════
     // Connecting an integration used to leave its data to a button or to a
@@ -996,6 +1046,11 @@
         s.shopify.filter((r) => r.last_test_status === 'ok').length
         + s.ad.filter((r) => r.last_test_success === true).length
         + (s.redo?.is_active ? 1 : 0)
+        // Klaviyo counts as connected only once its credential has been
+        // PROVED, like the ad platforms: a pasted key that Klaviyo rejects is
+        // not a connection, and a tile that says otherwise is how a dead feed
+        // goes unnoticed.
+        + (s.klaviyo?.last_test_success === true ? 1 : 0)
         + (s.qbo?.last_test_success ? 1 : 0);
 
       const needsAttention =
@@ -1105,6 +1160,7 @@
       loadConnections();
       loadAdConnections();
       loadRedoConnection();
+      loadKlaviyoConnection();
       refreshBootstrapJobs();
       loadQboConnection();
       loadStripe();
@@ -1114,7 +1170,13 @@
       const urlParams = new URLSearchParams(window.location.search);
       const oauthPlatform = urlParams.get('platform');
       if (urlParams.get('oauth_connected')) {
-        if (oauthPlatform) {
+        if (oauthPlatform === 'klaviyo') {
+          // Klaviyo is not an ad platform and has no account picker: the grant
+          // already names the account, so the next step is the test, which is
+          // what resolves the conversion metric every report needs.
+          setStatus('✓ Klaviyo connected — testing the grant…', 'pos', 6000);
+          testKlaviyoConnection();
+        } else if (oauthPlatform) {
           // Straight into the choice, rather than a banner saying to go and
           // find an ID: a new connection opens the picker; a reconnected one
           // is tested, since its property was already chosen.
@@ -1612,6 +1674,8 @@
         reveal(document.getElementById('meta-token'));
       } else if (action === 'redo_row') {
         reveal(document.getElementById('redo-connections-list').closest('section'));
+      } else if (action === 'klaviyo_row') {
+        reveal(document.getElementById('klaviyo-connections-list').closest('section'));
       }
     }
 
@@ -3112,6 +3176,284 @@
       // honest outcome rather than a failure.
       await firstConnectBootstrap('redo', null);
       loadRedoConnection();
+    });
+
+    // ══ Klaviyo (email & SMS, one connection per company) ═════════════════
+    // Two auth modes on one row: a pasted private key, or an OAuth grant. The
+    // row is admin-only to READ (it carries the credential), so this card
+    // renders nothing at all for a non-admin -- which is the correct answer,
+    // not an error.
+    //
+    // Nothing here switches sync on by itself. Enabling sync is the consent,
+    // and it is what queues the first backfill.
+
+    // The conversion-metric options, as the last test returned them. Kept in
+    // memory rather than stored: they are Klaviyo's list, not SILO's data, and
+    // a stale copy would offer a metric that no longer exists.
+    let _klaviyoMetrics = [];
+
+    async function loadKlaviyoConnection() {
+      const { data, error } = await db
+        .from('klaviyo_connections')
+        // Deliberately NOT api_key, access_token or refresh_token: the card
+        // never shows a saved credential back (Klaviyo cannot reveal a key
+        // again either), so pulling one into the page and its memory would buy
+        // nothing. `auth_mode` is what the card needs to know.
+        .select('id, display_name, auth_mode, is_active, sync_enabled, '
+          + 'klaviyo_account_id, klaviyo_account_name, account_timezone, conversion_metric_id, '
+          + 'conversion_metric_name, reauth_required_at, last_tested_at, last_test_success, '
+          + 'last_test_error, last_synced_at')
+        .maybeSingle();
+      if (error) {
+        // A non-admin cannot read this row at all, and RLS answers that as no
+        // row rather than an error -- so a real error here is worth saying.
+        setStatus('Failed to load the Klaviyo connection: ' + error.message, 'neg');
+        return;
+      }
+      renderKlaviyoConnection(data || null);
+      _summaryState.klaviyo = data || null;
+      updateSummaryBand();
+    }
+
+    function klaviyoStatusCell(row) {
+      if (row.reauth_required_at) {
+        return '<span class="bcn-pill">Reconnect needed</span>';
+      }
+      if (row.last_test_success === false) {
+        return `<span class="bcn-pill">Test failed</span><div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);">${escHtml(row.last_test_error || '')}</div>`;
+      }
+      if (row.last_test_success !== true) {
+        return '<span class="bcn-pill">Not tested</span>';
+      }
+      if (!row.conversion_metric_id) {
+        return '<span class="bcn-pill">Pick a conversion metric</span>';
+      }
+      return row.sync_enabled
+        ? '<span class="bcn-pill">Syncing nightly</span>'
+        : '<span class="bcn-pill">Tested — sync off</span>';
+    }
+
+    function renderKlaviyoConnection(row) {
+      const tbody = document.getElementById('klaviyo-connections-list');
+      const addBtn = document.getElementById('btn-add-klaviyo');
+      const oauthBtn = document.getElementById('btn-connect-klaviyo');
+      if (!row) {
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>Not connected</strong>Connect Klaviyo below</div></td></tr>';
+        addBtn.hidden = false;
+        oauthBtn.hidden = false;
+        return;
+      }
+      addBtn.hidden = true;
+      oauthBtn.hidden = true;
+
+      const account = row.klaviyo_account_name || row.klaviyo_account_id
+        ? `${escHtml(row.klaviyo_account_name || row.klaviyo_account_id)}`
+        : '<span style="color:var(--bcn-ink-3);">Run Test to read the account</span>';
+      const tz = row.account_timezone
+        ? `<div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);">Reporting timezone ${escHtml(row.account_timezone)}</div>`
+        : '';
+
+      // The credential cell never shows a saved secret back. Klaviyo cannot
+      // reveal a key again either, so a readable field would only invite
+      // pasting over a working one by accident.
+      const credential = row.auth_mode === 'oauth'
+        ? '<span class="bcn-pill">OAuth</span>'
+        : `<span class="bcn-pill">API key</span>
+           <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+             <input class="bcn-field bcn-field--mono" style="min-width:220px;" type="password"
+               placeholder="Replace the key…" autocomplete="off"
+               onchange="replaceKlaviyoKey(this)" />
+           </div>`;
+
+      // The picker only has options straight after a test; before that it
+      // shows what is stored, so the cell never looks empty when it is not.
+      const metricOptions = _klaviyoMetrics.length
+        ? _klaviyoMetrics.map((m) => `<option value="${escAttr(m.id)}" ${m.id === row.conversion_metric_id ? 'selected' : ''}>${escHtml(m.name || m.id)}</option>`).join('')
+        : `<option value="${escAttr(row.conversion_metric_id || '')}" selected>${escHtml(row.conversion_metric_name || row.conversion_metric_id || 'Not set')}</option>`;
+
+      tbody.innerHTML = `<tr>
+        <td>${account}${tz}</td>
+        <td>${credential}</td>
+        <td>
+          <select class="bcn-field" style="min-width:180px;" onchange="setKlaviyoConversionMetric(this)">
+            ${metricOptions}
+          </select>
+          <div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);">Klaviyo measures every conversion and all attributed revenue against this metric.</div>
+        </td>
+        <td>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
+              ${row.last_test_success === true && row.conversion_metric_id ? '' : 'disabled'}
+              onchange="toggleKlaviyoSync(this.checked)" />
+            ${row.sync_enabled ? 'On' : 'Off'}
+          </label>
+          <div style="margin-top:6px;">${klaviyoStatusCell(row)}</div>
+        </td>
+        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}</td>
+        <td>
+          <button class="int-btn" onclick="testKlaviyoConnection()">Test</button>
+          <button class="int-btn int-btn--danger" onclick="removeKlaviyoConnection()">Remove</button>
+        </td>
+      </tr>`;
+    }
+
+    async function updateKlaviyoConnection(patch) {
+      const { error } = await db.from('klaviyo_connections')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('company_entity_id', _co.id);
+      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return false; }
+      return true;
+    }
+
+    async function replaceKlaviyoKey(input) {
+      const key = String(input.value || '').trim();
+      if (!key) return;
+      // A replaced key invalidates what the last test proved, so the row goes
+      // back to "not tested" rather than keeping a pass the new key never
+      // earned. Sync stays as it was; the test is what re-enables it.
+      const ok = await updateKlaviyoConnection({
+        api_key: key, auth_mode: 'api_key', access_token: null, refresh_token: null,
+        token_expires_at: null, reauth_required_at: null,
+        last_test_success: null, last_test_error: null,
+      });
+      input.value = '';
+      if (!ok) return;
+      setStatus('Key saved — testing it…', 'info', 5000);
+      await testKlaviyoConnection();
+    }
+
+    async function setKlaviyoConversionMetric(select) {
+      const id = String(select.value || '');
+      if (!id) return;
+      const chosen = _klaviyoMetrics.find((m) => m.id === id);
+      if (!await updateKlaviyoConnection({
+        conversion_metric_id: id,
+        conversion_metric_name: chosen?.name || null,
+      })) return;
+      setStatus('✓ Conversion metric saved.', 'pos', 5000);
+      loadKlaviyoConnection();
+    }
+
+    async function toggleKlaviyoSync(on) {
+      if (!await updateKlaviyoConnection({ sync_enabled: on })) return;
+      if (on) {
+        setStatus('✓ Klaviyo sync on — queueing the first import.', 'pos', 8000);
+        // Enabling sync IS the consent, so this is where the backfill is
+        // queued, not at connect: a connection with sync off syncs nothing, so
+        // a job queued earlier would have been recorded done having imported
+        // nothing. requeueAfterSkip covers the account that was connected
+        // before its key or its conversion metric arrived.
+        // requeueAfterSkip covers the account connected before its key or its
+        // conversion metric arrived. NOT requeueTerminal: a finished import must
+        // not be paid for again every time somebody toggles the switch.
+        await firstConnectBootstrap('klaviyo', null, { requeueAfterSkip: true });
+        refreshBootstrapJobs();
+      } else {
+        setStatus('Klaviyo sync off. Nothing will be fetched until it is back on.', 'info', 6000);
+      }
+      loadKlaviyoConnection();
+    }
+
+    async function testKlaviyoConnection() {
+      setStatus('Testing the Klaviyo connection…', 'info', 4000);
+      const { data: { session } } = await db.auth.getSession();
+      let out;
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/test-klaviyo-connection`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        out = await res.json();
+        if (!res.ok) throw new Error(out?.error || `HTTP ${res.status}`);
+      } catch (err) {
+        setStatus('Test failed: ' + (err?.message || err), 'neg', 10000);
+        loadKlaviyoConnection();
+        return;
+      }
+      if (!out?.success) {
+        setStatus('Klaviyo refused the credential: ' + (out?.error || 'unknown error'), 'neg', 15000);
+        loadKlaviyoConnection();
+        return;
+      }
+      _klaviyoMetrics = Array.isArray(out.metrics) ? out.metrics : [];
+      const notes = Array.isArray(out.notes) && out.notes.length ? ' ' + out.notes.join(' ') : '';
+      setStatus(out.needs_conversion_metric
+        ? `Klaviyo connected.${notes}`
+        : `✓ Klaviyo connected — conversions measured against “${out.conversion_metric?.name || out.conversion_metric?.id}”. Turn sync on when ready.${notes}`,
+        out.needs_conversion_metric ? 'info' : 'pos', 15000);
+      loadKlaviyoConnection();
+    }
+
+    async function removeKlaviyoConnection() {
+      if (!confirm('Remove the Klaviyo connection? The nightly sync stops. Numbers already imported stay where they are.')) return;
+      const { error } = await db.from('klaviyo_connections').delete().eq('company_entity_id', _co.id);
+      if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
+      _klaviyoMetrics = [];
+      setStatus('Klaviyo disconnected.', 'info', 6000);
+      loadKlaviyoConnection();
+    }
+
+    document.getElementById('btn-add-klaviyo').addEventListener('click', () => {
+      document.getElementById('klaviyo-add-form').style.display = 'flex';
+      document.getElementById('klaviyo-api-key').focus();
+    });
+    document.getElementById('btn-cancel-klaviyo').addEventListener('click', () => {
+      document.getElementById('klaviyo-api-key').value = '';
+      document.getElementById('klaviyo-add-form').style.display = 'none';
+    });
+
+    document.getElementById('btn-save-klaviyo').addEventListener('click', async () => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      const input = document.getElementById('klaviyo-api-key');
+      const key = String(input.value || '').trim();
+      if (!key) { setStatus('Paste a Klaviyo private key first', 'neg', 5000); return; }
+      // Said rather than silently accepted: a public key (the 6-character
+      // company id) is the one people reach for by mistake, and it would fail
+      // every call with a confusing 401.
+      if (!key.startsWith('pk_')) {
+        setStatus('That does not look like a Klaviyo PRIVATE key — those start with “pk_”. The short company ID is the public key and cannot read reports.', 'neg', 12000);
+        return;
+      }
+      const { error } = await db.from('klaviyo_connections').upsert({
+        company_entity_id: _co.id,
+        display_name: 'Klaviyo',
+        auth_mode: 'api_key',
+        api_key: key,
+        is_active: true,
+        sync_enabled: false,
+      }, { onConflict: 'company_entity_id' });
+      if (error) { setStatus('Connect failed: ' + error.message, 'neg', 8000); return; }
+      input.value = '';
+      document.getElementById('klaviyo-add-form').style.display = 'none';
+      // The test is what proves the key and resolves the conversion metric, so
+      // it runs now rather than waiting for somebody to press it.
+      await testKlaviyoConnection();
+    });
+
+    document.getElementById('btn-connect-klaviyo').addEventListener('click', async () => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      const { data: { session } } = await db.auth.getSession();
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/klaviyo-oauth-start`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_entity_id: _co.id }),
+        });
+        const out = await res.json();
+        if (!res.ok || !out?.url) {
+          // The likeliest cause by far, and the one nobody can act on without
+          // being told: the Klaviyo app has not been registered yet.
+          const hint = /KLAVIYO_CLIENT_ID/.test(out?.error || '')
+            ? 'Klaviyo sign-in is not set up for this deployment yet — paste a private API key instead.'
+            : (out?.error || `HTTP ${res.status}`);
+          setStatus('Could not start Klaviyo sign-in: ' + hint, 'neg', 12000);
+          return;
+        }
+        window.location.href = out.url;
+      } catch (err) {
+        setStatus('Could not start Klaviyo sign-in: ' + (err?.message || err), 'neg', 10000);
+      }
     });
 
     // ── QuickBooks Online ──────────────────────────────────────────
