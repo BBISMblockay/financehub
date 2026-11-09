@@ -57,3 +57,19 @@ for(const [source,medium] of [['redo','email'],['facebook','paid']]){
  assert.equal(only.channel,'Unattributed');assert.equal(only.introduced_channel,null);assert.deepEqual(only.assisting_channels,[]);
 }
 assert.equal(classify({...visit('checkout','redo','email'),referrerUrl:'https://paypal.com/checkout'}).channel,null);
+
+// Klaviyo gets its own channel, like Redo and Attentive. Before this it fell
+// through to the generic buckets, so a store's Klaviyo sales were already on
+// the attribution page, labelled "Email — Other" and "SMS — Other".
+assert.equal(classify(visit('k','klaviyo','email','november-drop')).channel,'Klaviyo Email');
+assert.equal(classify(visit('k','klaviyo','sms')).channel,'Klaviyo SMS');
+assert.equal(classify(visit('k','Klaviyo','EMAIL')).channel,'Klaviyo Email');
+assert.equal(allocate(order([meta,visit('k','klaviyo','email','drop','2026-09-21T11:00:00Z')])).channel,'Klaviyo Email');
+// An unmapped provider must still land in the generic bucket, not in Klaviyo's.
+assert.equal(classify(visit('o','mailchimp','email')).channel,'Email — Other');
+// And Klaviyo with a medium that is neither falls through rather than being
+// claimed: a push or a web notification is not email or SMS.
+assert.equal(classify(visit('k','klaviyo','push')).channel,'Other Tagged');
+// The internal and checkout exclusions come first for Klaviyo too.
+assert.equal(classify({...visit('checkout','klaviyo','email'),referrerUrl:'https://paypal.com/checkout'}).channel,null);
+console.log('Klaviyo channel checks passed');

@@ -19589,4 +19589,10 @@ $c$select (select count(*) from v_po_header_summary
 -- deploy of klaviyo-oauth-start, klaviyo-oauth-callback (NO JWT) and
 -- test-klaviyo-connection before the UI's buttons work.
 \i migrations/20261109040000_klaviyo_native_integration.sql
+
+-- 20261109210000: the three Klaviyo SILO reports (Performance, the flows-only
+-- revenue trend, Email vs SMS) and their tie-outs. Data only -- three rows in
+-- silo_chat_saved_reports and three in silo_report_tieouts, idempotent on
+-- re-apply. No deploy. Needs 20261109040000 first, for the views it reads.
+\i migrations/20261109210000_klaviyo_silo_reports.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
