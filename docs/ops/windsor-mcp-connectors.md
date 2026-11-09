@@ -44,10 +44,13 @@ involved. Connection and authorization metadata still live in SILO. Limits:
 Responses identify source, fields, period, fetch time and truncation. They are
 bounded exploratory answers, **not certified complete datasets or totals**.
 There is no upstream pagination or completeness contract in this implementation.
-Generic rollups (`day`, `week`, `month`, `total`) now fail closed with a readable
-error. Numeric types do not establish additivity or row grain, so no generic
-source has an approved summation contract. Use `rollup: "none"`; this does not
-change the direct pillars or existing stored reporting. Responses explicitly
+Rollups (`day`, `week`, `month`, `total`) total only additive fields: counts and
+currency. A numeric type does not by itself establish additivity, so rates,
+ratios, averages, point-in-time balances and distinct counts are refused before
+any data request, judged from the field's own id and name so the rule holds for
+any source. `describe_connection` lists `additive_fields`. A capped source
+response is refused outright rather than returned as a partial total. This does
+not change the direct pillars or existing stored reporting. Responses explicitly
 carry `completeness_status: "unverified"`; empty responses contain no synthetic
 zero rows and explain that the cause (history, range, compatibility) is unknown.
 Field discovery exposes report groups as hints, not compatibility guarantees.

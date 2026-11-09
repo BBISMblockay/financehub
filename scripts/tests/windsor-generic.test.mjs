@@ -5,22 +5,31 @@ import { liveQuery, describeLiveFields } from '../../supabase/functions/mcp/wind
 const connection = { id:'fixture', source:'generic_source', account_id:'own', company_entity_id:'company-a' };
 const catalog = [
   {id:'account_id',type:'TEXT'}, {id:'date',type:'DATE'},
-  ...['rate','average','balance','unique_count','unknown_number'].map(id=>({id,type:'NUMERIC',table:'report'})),
+  ...['rate','average','balance','unique_count','orders'].map(id=>({id,type:'NUMERIC',table:'report'})),
   {id:'subject',type:'TEXT',table:'messages'},
 ];
 function query(rows, extra = {}) {
   return liveQuery({ connection, fields:['account_id','subject','balance'], key:'synthetic',
     fetchImpl:async url=>new Response(JSON.stringify(String(url).endsWith('/fields') ? catalog : rows)), ...extra });
 }
-test('all numeric semantics stay source-shaped and unknown additivity fails closed',async()=>{
-  for (const field of ['rate','average','balance','unique_count','unknown_number']) {
+test('non-additive numerics are refused before any data request; counts still total',async()=>{
+  for (const field of ['rate','average','balance','unique_count']) {
     let dataRequests=0;
     await assert.rejects(query([], {fields:['account_id',field],rollup:'total',fetchImpl:async url=>{
       if (!String(url).endsWith('/fields')) dataRequests++;
       return new Response(JSON.stringify(catalog));
-    }}),/no verified aggregation contract/);
+    }}),/cannot be added up/);
     assert.equal(dataRequests,0);
   }
+  // A plain numeric count keeps its rollup: refusal is about meaning, not about
+  // giving up aggregation for every generic source.
+  const totalled=await query([{account_id:'own',orders:2},{account_id:'own',orders:3}],
+    {fields:['account_id','orders'],rollup:'total'});
+  assert.equal(totalled.rows[0].orders,5); assert.equal(totalled.rollup,'total');
+  assert.equal(totalled.rows[0].source_rows,2); assert.equal(totalled.completeness_status,'unverified');
+  // A blank measure stays blank: blank is not zero.
+  const blank=await query([{account_id:'own',orders:null}],{fields:['account_id','orders'],rollup:'total'});
+  assert.equal(blank.rows[0].orders,null);
   const r=await query([{account_id:'own',subject:'A message',balance:null},{account_id:'own',subject:'Another',balance:0}]);
   assert.equal(r.rows[0].balance,null); assert.equal(r.rows[1].balance,0);
   assert.equal(r.persisted,false); assert.equal(r.completeness_status,'unverified');
@@ -44,7 +53,8 @@ test('foreign and unattributed rows are rejected, including after display cap',a
 test('discovery reports groups as hints, preserves metadata, and never promises additivity',()=>{
   const r=describeLiveFields(catalog);
   assert.deepEqual(r.report_groups,['messages','report']);
-  assert.equal(r.aggregation,'source_rows_only');assert.match(r.compatibility,/not proof/);
+  assert.equal(r.aggregation,'additive_fields_only');assert.match(r.compatibility,/not proof/);
+  assert.deepEqual(r.additive_fields,['orders']);
 });
 
 test('access and field-combination refusals are distinct and contain no vendor details',async()=>{
