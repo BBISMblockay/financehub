@@ -169,6 +169,14 @@ Three doors, all of them the same core:
    365-day chunks, newest first.
 3. **The nightly**, a trailing 60 days (`days_back` on the connection row).
 
+**Two different caps.** A campaign or flow VALUES report takes a year at a
+time, so a backfill is cut into 365-day chunks. A flow SERIES report at
+interval `daily` takes only 60 days -- Klaviyo answers a wider one with
+`400 Cannot pass in an interval longer than 60 days for use with daily
+interval` -- so inside each chunk the flow series fetches itself in <=60-day
+slices and the rows are concatenated. A window's `flow_series_requests` in
+`sync_jobs.result` says how many that took. Nothing else is sliced.
+
 `KLAVIYO_DAYS_BACK` is BLANK when nobody asked. That is deliberate and it is
 load-bearing: `effectiveDaysBack` lets a connection's stored `days_back` win
 over the default but **not** over a depth the caller asked for. Defaulting the

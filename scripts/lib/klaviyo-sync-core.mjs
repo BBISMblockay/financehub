@@ -52,6 +52,14 @@ export const KLAVIYO_REVISION = '2026-10-15';
 // Klaviyo refuses a reporting range longer than a year.
 export const MAX_RANGE_DAYS = 365;
 
+// ...but a series report at interval `daily` refuses anything over 60 days,
+// which is NOT the same cap and is not stated beside it: Klaviyo answers a
+// wider daily range with `400 Cannot pass in an interval longer than 60 days
+// for use with daily interval`. Measured on production 2026-11-09, where a
+// year-long backfill fetched its campaigns happily and then died on the flow
+// series. The flow series is therefore sub-chunked inside each window.
+export const MAX_SERIES_RANGE_DAYS = 60;
+
 // Per-endpoint minimum spacing, in ms, derived from Klaviyo's documented
 // steady limits rather than from 429s. campaign-values is 2/minute.
 export const MIN_INTERVAL_MS = Object.freeze({
@@ -756,13 +764,15 @@ export async function fetchFlowValues({
 }
 
 /**
- * The flow series at interval `daily` -> klaviyo_flow_daily rows.
+ * ONE <= MAX_SERIES_RANGE_DAYS slice of the flow series at interval `daily`
+ * -> klaviyo_flow_daily rows. `fetchFlowSeries` is what callers use; this is
+ * the single request it repeats.
  *
  * Each statistic comes back as an ARRAY over `date_times`, so a statistic
  * whose array is shorter than the dates is read as "not reported" for the days
  * it does not cover -- never as zero, and never shifted onto the wrong day.
  */
-export async function fetchFlowSeries({
+export async function fetchFlowSeriesWindow({
   connection, timeframe, conversionMetricId, companyEntityId, connectionId, syncedAt, syncBatchId, ...rest
 }) {
   const json = await klaviyoRequest({
@@ -810,6 +820,32 @@ export async function fetchFlowSeries({
     });
   }
   return { rows: out, flowForMessage, days };
+}
+
+/**
+ * The whole window's flow series, in <= MAX_SERIES_RANGE_DAYS requests.
+ *
+ * The sub-windows come from the SAME `chunkWindow` the backfill is cut with,
+ * at the series cap instead of the reporting cap, so they are adjacent and
+ * disjoint by the same already-tested arithmetic: a day belongs to exactly one
+ * of them, and two sub-windows can never upsert the same
+ * (message, channel, day) key. Oldest first, so a log of a long backfill reads
+ * forward. Rows are simply concatenated -- a daily row is keyed by its own
+ * day, so there is nothing to stitch and no arithmetic to get wrong at a
+ * boundary.
+ */
+export async function fetchFlowSeries({ startDate, endDate, ...rest }) {
+  const windows = chunkWindow({ startDate, endDate }, MAX_SERIES_RANGE_DAYS).reverse();
+  const rows = [];
+  const flowForMessage = new Map();
+  const days = new Set();
+  for (const window of windows) {
+    const part = await fetchFlowSeriesWindow({ timeframe: reportTimeframe(window), ...rest });
+    rows.push(...part.rows);
+    for (const [messageId, flowId] of part.flowForMessage) flowForMessage.set(messageId, flowId);
+    for (const day of part.days) days.add(day);
+  }
+  return { rows, flowForMessage, days: [...days].sort(), series_windows: windows.length };
 }
 
 /** Flow messages as klaviyo_messages rows, built from what the reports named
@@ -894,8 +930,10 @@ export async function syncKlaviyoWindow({
   const flowValues = await fetchFlowValues({
     connection, timeframe, conversionMetricId, ...stamp, ...http,
   });
+  // Dates, not the window's single timeframe: the daily series is capped at
+  // 60 days and fetches itself in slices.
   const flowSeries = await fetchFlowSeries({
-    connection, timeframe, conversionMetricId, ...stamp, ...http,
+    connection, startDate, endDate, conversionMetricId, ...stamp, ...http,
   });
 
   // Every flow message either report named, with its flow.
@@ -917,6 +955,7 @@ export async function syncKlaviyoWindow({
     messages_upserted: messageRows.length,
     performance_rows_upserted: performanceRows.length,
     flow_daily_rows_upserted: dailyRows.length,
+    flow_series_requests: flowSeries.series_windows,
     flow_message_names_resolved: messageNames.size,
   };
 
