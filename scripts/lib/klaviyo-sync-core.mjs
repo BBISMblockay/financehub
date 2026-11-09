@@ -847,6 +847,7 @@ export async function syncKlaviyoWindow({
   supabase, connection, companyEntityId, connectionId = null,
   startDate, endDate, syncedAt, syncBatchId = null, dryRun = false,
   fetchImpl = fetch, sleep = defaultSleep, log = () => {}, clock = { last: new Map() },
+  now = () => new Date(),
 }) {
   if (daysBetweenInclusive(startDate, endDate) > MAX_RANGE_DAYS) {
     throw new Error(`window ${startDate}..${endDate} exceeds Klaviyo's ${MAX_RANGE_DAYS}-day reporting limit; chunk it`);
@@ -856,7 +857,11 @@ export async function syncKlaviyoWindow({
     throw new Error('klaviyo_connections.conversion_metric_id is not set; every Klaviyo report requires it');
   }
   const timeframe = reportTimeframe({ startDate, endDate });
-  const http = { fetchImpl, sleep, log, clock };
+  // The SAME clock the rest of the sync runs on. klaviyoRequest defaults to
+  // Date.now(), so leaving it out would have spaced requests by wall time
+  // while every stored timestamp came from `now` -- two clocks, and a spacing
+  // guarantee that could only be observed by waiting for real seconds.
+  const http = { fetchImpl, sleep, log, clock, now: () => now().getTime() };
   const stamp = { companyEntityId, connectionId, syncedAt, syncBatchId };
 
   // ── 1. fetch everything ──────────────────────────────────────────────────
@@ -1011,7 +1016,7 @@ export async function syncKlaviyoConnection({
       chunks.push(await syncKlaviyoWindow({
         supabase, connection: live, companyEntityId: co, connectionId: connection.id,
         ...chunk, syncedAt: now().toISOString(), syncBatchId: job.id,
-        dryRun, fetchImpl, sleep, log, clock,
+        dryRun, fetchImpl, sleep, log, clock, now,
       }));
     }
     const result = { window, time_zone: timeZone, dry_run: dryRun, chunks };

@@ -31,6 +31,7 @@
 //   KLAVIYO_SYNC_MUTATION=retry4xx       a 403 is retried, burning the account's quota
 //   KLAVIYO_SYNC_MUTATION=retryafter     a 429 is retried without waiting Retry-After
 //   KLAVIYO_SYNC_MUTATION=ratebudget     the campaign report is not spaced to 2/minute
+//   KLAVIYO_SYNC_MUTATION=nowleak        request spacing reads the wall clock, not this run's
 //   KLAVIYO_SYNC_MUTATION=unreadable     an unreadable report reads as zero rows
 //   KLAVIYO_SYNC_MUTATION=reauth         an uninstalled grant is refreshed again anyway
 //   KLAVIYO_SYNC_MUTATION=dryrun         a dry run writes rows
@@ -72,6 +73,7 @@ async function loadCore() {
   if (MUT === 'retry4xx') sub('    if (res.status === 429 || res.status === 503) {', '    if (res.status === 429 || res.status === 503 || res.status === 403) {');
   if (MUT === 'retryafter') sub('      const waitMs = retryAfter > 0\n        ? (retryAfter * 1000) + Math.floor(random() * 500)', '      const waitMs = retryAfter > 0\n        ? 0');
   if (MUT === 'ratebudget') sub('    if (since < minGap) await sleep(minGap - since);', '');
+  if (MUT === 'nowleak') sub('clock, now: () => now().getTime() };', 'clock };');
   if (MUT === 'unreadable') sub("    throw new KlaviyoApiError('Klaviyo report response had neither results nor data', { status: null, code: 'unreadable_report' });", '    return { rows: [], dateTimes: [] };');
   if (MUT === 'reauth') sub("  if (connection.reauth_required_at) {\n    throw new KlaviyoReauthRequired('Klaviyo OAuth grant was rejected earlier; reconnect the account');\n  }", '');
   if (MUT === 'dryrun') sub("  if (dryRun) {\n    log(", "  if (false) {\n    log(");
@@ -231,6 +233,7 @@ const NOW = new Date('2026-11-03T18:00:00Z');
 async function runSync(core, {
   db = seededDb(), plan = planFor(), daysBack = 2, startDate = '', endDate = '',
   dryRun = false, conn = connection, clientId = 'cid', clientSecret = 'csec',
+  now = () => NOW,
 } = {}) {
   const calls = [];
   const sleeps = [];
@@ -243,7 +246,7 @@ async function runSync(core, {
     dryRun,
     clientId,
     clientSecret,
-    now: () => NOW,
+    now,
     fetchImpl: fakeKlaviyo(plan, calls),
     sleep: async (ms) => { sleeps.push(ms); },
     log: () => {},
@@ -525,8 +528,31 @@ test('the campaign report is spaced to its documented 2 per minute across a back
   const core = await loadCore();
   // Two chunks, so the campaign report is asked for twice in one run.
   const { sleeps } = await runSync(core, { startDate: '2024-06-01', endDate: '2026-11-02' });
-  assert.ok(sleeps.some((ms) => ms >= 30_000),
+  // EXACTLY the documented gap, not "at least": the spacing is measured on the
+  // clock this run was given, so with a frozen clock the wait is the whole
+  // interval. A sleep of 29_999 would mean klaviyoRequest had fallen back to
+  // Date.now() and was spacing by wall time -- which no test could then pin
+  // without actually waiting out the seconds.
+  assert.ok(sleeps.includes(core.MIN_INTERVAL_MS['campaign-values-reports']),
     'two campaign-values calls in one run must be spaced, or the second is thrown away as a 429');
+});
+
+test('the spacing is measured on the clock the run was given, not the wall clock', async () => {
+  const core = await loadCore();
+  // A clock that has already moved a full minute between calls. The documented
+  // gap is therefore ALREADY satisfied and nothing should wait -- which can
+  // only be true if klaviyoRequest reads this clock. Reading Date.now()
+  // instead would see no time passing and wait the whole interval, and that is
+  // the failure this pins: the frozen-clock test above cannot tell a leak from
+  // a run that happened to take under a millisecond.
+  let t = NOW.getTime();
+  const { sleeps } = await runSync(core, {
+    startDate: '2024-06-01',
+    endDate: '2026-11-02',
+    now: () => new Date((t += 60_000)),
+  });
+  assert.ok(!sleeps.some((ms) => ms >= 30_000),
+    'a gap the clock says has already passed must not be waited out again');
 });
 
 test('every request carries the pinned revision and the right scheme', async () => {
