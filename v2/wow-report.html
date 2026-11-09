@@ -1747,27 +1747,41 @@
             ? `top ${intFmt(shown.length)} of ${intFmt(rows.length)} by credited revenue · message × channel`
             : `${intFmt(rows.length)} ${kindLabel} · message × channel`)
         : `no ${kindLabel} in window`;
-      // Counts add across everything; money adds only within one currency, so
-      // each currency gets its own figure. One currency is the normal case and
-      // reads exactly as before.
-      const t = rows.reduce((a, g) => {
+      // What may be added, and what may not. Counts add across rows of the
+      // SAME vendor and the SAME conversion metric; money adds only within one
+      // currency on top of that. Two vendors credit overlapping orders, and two
+      // conversion metrics count different events for the same message, so
+      // pooling either produces a number that describes nothing. One vendor on
+      // one metric -- the normal case -- is a single line that reads exactly as
+      // a single total did.
+      const groups = new Map();
+      for (const g of rows) {
+        const key = `${g.vendor || ''}|${g.metric || ''}`;
+        if (!groups.has(key)) groups.set(key, { vendor:g.vendor || '', metric:g.metric || '',
+          delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
+        const a = groups.get(key);
         a.delivered += g.delivered; a.opens += g.opens; a.clicks += g.clicks;
         a.orders += g.orders;
         const rc = CUR(g.revenue_currency), sc = CUR(g.spend_currency);
         a.revenue[rc] = (a.revenue[rc] || 0) + g.revenue;
         a.spend[sc] = (a.spend[sc] || 0) + g.spend;
-        return a;
-      }, { delivered:0, opens:0, clicks:0, orders:0, revenue:{}, spend:{} });
+      }
       const perCur = (totals, fmt) => Object.entries(totals)
         .sort((a, b) => b[1] - a[1])
         .map(([cur, v]) => fmt(v, cur)).join(' · ') || '—';
+      const lines = [...groups.values()].sort((a, b) =>
+        a.vendor.localeCompare(b.vendor) || a.metric.localeCompare(b.metric));
+      const label = g => lines.length < 2 && !g.metric ? ''
+        : `<span><b>${esc(g.vendor || 'Total')}${g.metric ? ` · ${esc(g.metric)}` : ''}</b></span>`;
       if (tot) tot.innerHTML = rows.length
-        ? `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">`
-          + `<span>Delivered <b>${intFmt(t.delivered)}</b></span>`
-          + `<span>Orders <b>${intFmt(t.orders)}</b></span>`
-          + `<span>Revenue credited by the vendors <b>${perCur(t.revenue, moneyIn)}</b></span>`
-          + `<span>Sending cost <b>${perCur(t.spend, money2In)}</b></span>`
-          + `</span>`
+        ? lines.map(g => `<span style="display:flex;gap:18px;flex-wrap:wrap;text-transform:none;letter-spacing:0">`
+          + label(g)
+          + `<span>Delivered <b>${intFmt(g.delivered)}</b></span>`
+          + `<span>Orders <b>${intFmt(g.orders)}</b></span>`
+          + `<span>Revenue credited by the vendor <b>${perCur(g.revenue, moneyIn)}</b></span>`
+          + `<span>Sending cost <b>${perCur(g.spend, money2In)}</b></span>`
+          + `</span>`).join('')
+          + (lines.length > 1 ? `<span class="dim" style="text-transform:none;letter-spacing:0">Kept apart on purpose: vendors credit overlapping orders, and two conversion metrics count different events for the same message. Adding these lines together would describe nothing.</span>` : '')
         : '';
       body.innerHTML = shown.length ? shown.map(g => {
         const sms = String(g.channel || '').toUpperCase() === 'SMS';
@@ -1785,7 +1799,10 @@
              <td>${rate(g.clicks, g.delivered)}</td><td>${rate(g.orders, g.delivered)}</td>
              <td>${g.delivered > 0 ? money2In(g.revenue / g.delivered, g.revenue_currency) : '<span class="dim">—</span>'}</td>
              <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${rate(g.unsubs, g.delivered)}</td></tr>`
-          : `<tr><td>${esc(name)}${g.metric ? ` <span class="dim" title="Measured against conversion metric ${esc(g.metric)}. Rows under different metrics count different events and must not be added.">· ${esc(g.metric)}</span>` : ''}</td>${chan}
+          // A flow row carries its measurement window in the name cell: this
+          // table has no Sent column, and a 60-day window's sends printed
+          // beside Redo's weekly figures without its bounds is a wrong number.
+          : `<tr><td>${esc(name)}${g.metric ? ` <span class="dim" title="Measured against conversion metric ${esc(g.metric)}. Rows under different metrics count different events and must not be added.">· ${esc(g.metric)}</span>` : ''}${g.measured ? ` <span class="dim" title="Klaviyo measured this over its own window, not the report's. Window totals and date-range totals are not the same number.">· ${esc(g.measured)}</span>` : ''}</td>${chan}
              <td>${intFmt(g.sends)}</td><td>${intFmt(g.delivered)}</td><td>${open}</td>
              <td>${rate(g.clicks, g.delivered)}</td><td>${intFmt(g.orders)}</td>
              <td>${moneyIn(g.revenue, g.revenue_currency)}</td><td>${money2In(g.spend, g.spend_currency)}</td>
@@ -2478,16 +2495,18 @@
     if (REDO) {
       const rd = REDO;
       section('EMAIL / SMS — campaigns');
-      push('Campaign','Vendor','Channel','Sent / measured','Delivered','Opens','Clicks','Orders',
+      push('Campaign','Vendor','Channel','Conversion metric','Sent / measured','Delivered','Opens','Clicks','Orders',
            'Revenue credited by the vendor','Revenue currency','Unsubscribes','Subject');
       (rd.campaigns || []).forEach(g => push(g.name || g.redo_id, g.vendor || '', g.channel,
+        g.metric || '',
         g.measured || (g.sent_at ? String(g.sent_at).slice(0,10) : ''), g.delivered, g.opens,
         g.clicks, g.orders, g.revenue, CUR(g.revenue_currency), g.unsubs, g.subject ?? ''));
       section('EMAIL / SMS — automations & flows');
-      push('Automation / flow','Vendor','Channel','Sends','Delivered','Opens','Clicks','Orders',
+      push('Automation / flow','Vendor','Channel','Conversion metric','Measured','Sends','Delivered','Opens','Clicks','Orders',
            'Revenue credited by the vendor','Revenue currency','Sending cost',
            'Sending cost currency','Unsubscribes');
       (rd.automations || []).forEach(g => push(g.name || g.redo_id, g.vendor || '', g.channel,
+        g.metric || '', g.measured || '',
         g.sends, g.delivered, g.opens, g.clicks, g.orders, g.revenue,
         CUR(g.revenue_currency), g.spend, CUR(g.spend_currency), g.unsubs));
       // Counts, not rates: a rate belongs to a window, and a spreadsheet that

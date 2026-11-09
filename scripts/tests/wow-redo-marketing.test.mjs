@@ -32,6 +32,9 @@
  *   WOW_REDO_MUTATION=no-cap          (the row guard is removed)
  *   WOW_REDO_MUTATION=usd-always      (every figure formatted as USD)
  *   WOW_REDO_MUTATION=stale-company   (_co is not reassigned on a reload)
+ *   WOW_REDO_MUTATION=pool-totals     (one total across vendors and metrics)
+ *   WOW_REDO_MUTATION=flow-no-window  (a flow row borrows the report period)
+ *   WOW_REDO_MUTATION=csv-no-metric   (the export drops the conversion metric)
  *
  * Run:  node scripts/tests/wow-redo-marketing.test.mjs
  */
@@ -43,7 +46,8 @@ const PAGE = new URL('../../v2/wow-report.html', import.meta.url);
 const mutation = process.env.WOW_REDO_MUTATION || '';
 assert.ok(['', 'per-day-rates', 'ignore-channel', 'zero-rate', 'sms-opens', 'no-cap',
   'usd-always', 'stale-company',
-  'klaviyo-widest', 'klaviyo-no-vendor', 'klaviyo-metric-merged'].includes(mutation),
+  'klaviyo-widest', 'klaviyo-no-vendor', 'klaviyo-metric-merged',
+  'pool-totals', 'flow-no-window', 'csv-no-metric'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const pristine = await readFile(PAGE, 'utf8');
@@ -87,6 +91,20 @@ if (mutation === 'ignore-channel') {
   html = html.replace(
     "const key = `${r.klaviyo_id}|${r.channel || ''}|${r.conversion_metric_id || ''}`;",
     "const key = `${r.klaviyo_id}|${r.channel || ''}`;");
+} else if (mutation === 'pool-totals') {
+  // One bucket for everything: two vendors' overlapping attribution added
+  // together, and one message counted once per conversion metric.
+  html = html.replace(
+    "const key = `${g.vendor || ''}|${g.metric || ''}`;",
+    "const key = 'all';");
+} else if (mutation === 'flow-no-window') {
+  // A flow's 60-day window printed as if it were the report's period.
+  html = html.replace(
+    "${g.measured ? ` <span class=\"dim\" title=\"Klaviyo measured this over its own window, not the report's. Window totals and date-range totals are not the same number.\">· ${esc(g.measured)}</span>` : ''}</td>${chan}",
+    "</td>${chan}");
+} else if (mutation === 'csv-no-metric') {
+  html = html.replace("        g.metric || '',\n        g.measured || (g.sent_at",
+    "        g.measured || (g.sent_at");
 } else if (mutation === 'per-day-rates') {
   // Average each day's own rate instead of pooling the counts, which is the
   // mistake the view's own catalog entry warns about.
@@ -235,9 +253,9 @@ assert.equal(grouped.campaigns.map((g) => g.redo_id).join(','), 'c0,c1s,c1',
 
   // Totals and the footnote: credited, never sales.
   const totals = sb.nodes.get('redoCampTotals').innerHTML;
-  // The tables carry two vendors now, so the totals say "the vendors" rather
-  // than naming one -- but they must still say the revenue is CREDITED.
-  assert.match(totals, /credited by the vendors/i, 'the totals must say the revenue is credited, not earned');
+  // The tables carry two vendors now, and each total line is one vendor's --
+  // but it must still say the revenue is CREDITED, never earned.
+  assert.match(totals, /credited by the vendor/i, 'the totals must say the revenue is credited, not earned');
   const note = sb.nodes.get('redoNote');
   assert.equal(note.hidden, false, 'the caveat footnote must be visible');
   assert.match(note.innerHTML, /not incremental/i,
@@ -465,8 +483,11 @@ console.log('wow-redo-marketing: all assertions passed');
     // different events, so a second labelled row and never one sum.
     kRow({ conversion_metric_id: 'MET2', recipients: 400, delivered: 390,
            conversions: 2, conversion_value: 120 }),
+    // A flow measured over 60 days, ending in the period but starting long
+    // before it: 60 days of sends standing beside Redo's week.
     kRow({ kind: 'flow_message', klaviyo_id: 'kf1', message_name: 'Welcome 2',
-           parent_name: 'Welcome flow', channel: 'sms', recipients: 60, delivered: 59,
+           parent_name: 'Welcome flow', channel: 'sms', timeframe_start: '2026-08-27',
+           recipients: 60, delivered: 59,
            clicks_unique: 4, conversions: 3, conversion_value: 80, text_message_spend: 1.5 }),
   ];
   const kb = makeSandbox();
@@ -500,6 +521,74 @@ console.log('wow-redo-marketing: all assertions passed');
   assert.ok(!/99,999|99999/.test(camp), 'the year-long window must never reach the card');
   assert.match(camp, /MET1/, 'the conversion metric is on the row');
   assert.match(auto, /Welcome 2/, 'the Klaviyo flow must be drawn with the automations');
+
+  // A flow row must name its own window too: this table has no Sent column,
+  // and 60 days of sends printed beside Redo's week without bounds is a wrong
+  // number wearing the report's dates.
+  assert.match(auto, /2026-08-27 \u2192 2026-10-25/,
+    'a Klaviyo flow row must show the window it measured, not borrow the report period');
+
+  // ── The totals are the number a person reads first ──────────────────────
+  // Pooling them across vendors would add overlapping attribution, and across
+  // conversion metrics would count the same message's different events as
+  // more of the same thing. k1 alone would read 780 delivered / $620.
+  const totals = kb.nodes.get('redoCampTotals').innerHTML;
+  assert.ok(!/>780</.test(totals), 'two metrics of one campaign must not be added into one delivered count');
+  assert.ok(!/\$620/.test(totals), 'nor their revenue');
+  assert.match(totals, /<b>Klaviyo \u00b7 MET1<\/b>/, 'each line names the vendor and the metric it belongs to');
+  assert.match(totals, /<b>Klaviyo \u00b7 MET2<\/b>/);
+  assert.match(totals, /<b>Redo<\/b>/, "Redo's own line carries no metric");
+  assert.match(totals, /Kept apart on purpose/, 'and the card says why they are not one number');
+  // The MET1 line is that measurement alone: 390 delivered, $500.
+  const met1Line = totals.split('<span style=').find((l) => /MET1/.test(l));
+  assert.match(met1Line, /Delivered <b>390<\/b>/);
+  assert.match(met1Line, /\$500/);
+
+  // ── CSV export, through the page's own exportCsv ────────────────────────
+  // Two rows with the same campaign, vendor, channel and dates and different
+  // numbers are indistinguishable without the metric, so the export carries
+  // it. Driven through the real function, not a copy of it.
+  let csvText = '';
+  Object.assign(kb, {
+    DATA: { window: { start:'2026-10-19', end:'2026-10-25', prev_start:'', prev_end:'', ly_start:'', ly_end:'' },
+            core: { total_sales:0, net_sales:0, orders:0, aov:0, refunds:0 },
+            customers: { returning_pct:0 }, inventory: { units_on_hand:0 },
+            channels: [], categories: [], top_products: [] },
+    DATA_THROUGH: null,
+    // Only the Email / SMS sections are under test; the rest of the report is
+    // stubbed to its empty shape so the real exportCsv runs end to end.
+    KPI: {}, PAID: { meta:[], google:[] }, FUNNEL: { this:{}, prev:{}, ly:null },
+    LANDING: { pages: [] }, CODES: {}, COHORTS: { rows: [], incomplete_months: [] },
+    ORGANIC: null, CREATIVES: null, REALITY: null, GRAIN: 'week',
+    G: () => ({ label:'week', periodPrev:'Previous week', periodLy:'Last year' }),
+    MANUAL_TABLES: [], collectWritten: () => ({ tables:{}, commentary:{}, manual:{} }),
+    CUR: (c) => c || 'USD',
+    Blob: class { constructor(parts) { csvText = String(parts[0]); } },
+    URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    document: { createElement: () => ({ click() {}, style:{}, remove() {} }),
+                body: { append() {}, appendChild() {}, removeChild() {} } },
+    setTimeout: (fn) => fn(), setStatus() {},
+  });
+  vm.runInContext(lift('exportCsv'), kb);
+  vm.runInContext('exportCsv()', kb);
+  assert.ok(csvText, 'the export produced a file');
+  const csvRows = csvText.split('\n').map((l) => l.split(','));
+  if (process.env.WOW_CSV_DUMP) console.log(csvText.split('\n').filter((l) => /Campaign|Automation/.test(l)).join('\n'));
+  // The paid-ads section also has a "Campaign" header, so match on Vendor.
+  const campHead = csvRows.find((r) => r[0] === 'Campaign' && r.includes('Vendor'));
+  assert.ok(campHead, 'the campaigns section is exported');
+  const metricCol = campHead.indexOf('Conversion metric');
+  assert.ok(metricCol > 0, 'with a conversion-metric column');
+  const k1Csv = csvRows.filter((r) => /Klaviyo launch/.test(r[0] || ''));
+  assert.equal(k1Csv.length, 2, 'both measurements export');
+  assert.deepEqual(k1Csv.map((r) => r[metricCol]).sort(), ['MET1', 'MET2'],
+    'and each names the conversion event it measures');
+  const autoHead = csvRows.find((r) => r[0] === 'Automation / flow');
+  assert.ok(autoHead.includes('Conversion metric'), 'flows carry the metric too');
+  const measuredCol = autoHead.indexOf('Measured');
+  assert.ok(measuredCol > 0, 'and their measurement window');
+  const flowCsv = csvRows.find((r) => /Welcome 2/.test(r[0] || ''));
+  assert.match(flowCsv[measuredCol], /2026-08-27/, 'the exported flow keeps its own window bounds');
 
   const note = kb.nodes.get('redoNote');
   assert.match(note.innerHTML, /never add two/i, 'the footnote must forbid adding two vendors together');
