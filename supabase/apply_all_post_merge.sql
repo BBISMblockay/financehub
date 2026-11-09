@@ -19592,7 +19592,13 @@ $c$select (select count(*) from v_po_header_summary
 
 -- 20261109210000: the three Klaviyo SILO reports (Performance, the flows-only
 -- revenue trend, Email vs SMS) and their tie-outs. Data only -- three rows in
--- silo_chat_saved_reports and three in silo_report_tieouts, idempotent on
+-- silo_chat_saved_reports and FOUR in silo_report_tieouts, idempotent on
 -- re-apply. No deploy. Needs 20261109040000 first, for the views it reads.
 \i migrations/20261109210000_klaviyo_silo_reports.sql
+
+-- 20261109220000: deletes a Klaviyo tie-out that was RENAMED by a review fix,
+-- which re-applying the file above cannot do for itself (unique on
+-- report_id, name, so the old row survives as an enabled check against a
+-- definition that no longer exists). Data only, no deploy, order-independent.
+\i migrations/20261109220000_klaviyo_report_tieout_cleanup.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
