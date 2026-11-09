@@ -66,9 +66,9 @@ async function challengeFor(verifier: string): Promise<string> {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
-
-  if (!CLIENT_ID) return json({ error: 'KLAVIYO_CLIENT_ID not configured' }, 500);
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return new Response('Method not allowed', { status: 405 });
+  }
 
   const authHeader = req.headers.get('Authorization') ?? '';
   const supabase = createClient(
@@ -81,11 +81,21 @@ Deno.serve(async (req) => {
   );
   if (authErr || !user) return json({ error: 'Unauthorized' }, 401);
 
+  if (!CLIENT_ID && req.method !== 'GET') return json({ error: 'KLAVIYO_CLIENT_ID not configured' }, 500);
+
   // Third-party tokens (20261020030000): everything below runs with the
   // service role, which the Data API's pre-request hook never sees. This check
   // is pure, so it comes before the network round trip the MFA gate makes.
   const integ = checkIntegrationToken(req.headers.get('Authorization'));
   if (!integ.ok) return json({ error: integ.message, code: integ.code }, integ.status);
+
+  // GET is the availability probe the Integrations page makes on load, so it
+  // can hide a "Connect with Klaviyo" button that cannot work. It answers one
+  // boolean about this DEPLOYMENT's own configuration: it creates no state,
+  // issues no authorize URL and names no company, so it deliberately stops
+  // short of the MFA gate rather than spending a step to learn nothing. A
+  // workspace with no Klaviyo app registered is the normal case, not an error.
+  if (req.method === 'GET') return json({ configured: Boolean(CLIENT_ID) });
 
   // Two-step login: what follows runs with the service role, which the Data
   // API's gate (20261014000000) never sees. mfa-gate.mjs asks as the caller.

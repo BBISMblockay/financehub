@@ -820,8 +820,15 @@
                 <td colspan="6">
                   <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost" id="btn-add-klaviyo">Paste an API key…</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-klaviyo">Connect with Klaviyo</button>
+                    <!-- Hidden until the deployment proves it can work: see
+                         probeKlaviyoOauth(). A workspace with no Klaviyo app
+                         registered is the normal case, and a button that can
+                         only fail is worse than no button. -->
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-connect-klaviyo" hidden>Connect with Klaviyo</button>
                     <button type="button" class="ig-open-btn" data-guide="klaviyo">Klaviyo setup guide</button>
+                  </div>
+                  <div class="form-row" id="klaviyo-oauth-unavailable" style="display:none;padding:0 0 10px;">
+                    <span style="font-size:11px;color:var(--bcn-ink-3);">Signing in with Klaviyo isn’t set up on this workspace — paste a private API key instead.</span>
                   </div>
                   <div class="form-row" id="klaviyo-add-form" style="display:none;gap:12px;align-items:center;flex-wrap:wrap;padding-bottom:10px;">
                     <input class="bcn-field bcn-field--mono" id="klaviyo-api-key" type="password" style="min-width:320px;"
@@ -1161,6 +1168,7 @@
       loadAdConnections();
       loadRedoConnection();
       loadKlaviyoConnection();
+      probeKlaviyoOauth();
       refreshBootstrapJobs();
       loadQboConnection();
       loadStripe();
@@ -3371,7 +3379,13 @@
         return;
       }
       if (!out?.success) {
-        setStatus('Klaviyo refused the credential: ' + (out?.error || 'unknown error'), 'neg', 15000);
+        // The handler's own words, verbatim. It already tells a rejected key
+        // (401) apart from a missing scope (403) and from a request SILO built
+        // wrongly (400), and each needs a different thing done about it. A
+        // fixed "refused the credential" prefix here would overrule all three
+        // and send somebody to replace a key that works -- which is exactly
+        // what happened on the first live test.
+        setStatus(out?.error || 'The Klaviyo test failed and Klaviyo gave no reason.', 'neg', 15000);
         loadKlaviyoConnection();
         return;
       }
@@ -3429,6 +3443,35 @@
       // it runs now rather than waiting for somebody to press it.
       await testKlaviyoConnection();
     });
+
+    // Is "Connect with Klaviyo" worth showing at all?
+    //
+    // OAuth needs a registered Klaviyo app (KLAVIYO_CLIENT_ID) AND the two
+    // OAuth functions deployed. Most workspaces have neither, and the button
+    // then failed with a raw "Failed to fetch" -- the function was not there
+    // to explain itself. So the button starts hidden and is revealed only when
+    // the deployment answers that it is configured. Every other outcome, including
+    // the function not existing, leaves it hidden: the API-key path beside it
+    // always works, so failing closed costs nobody anything.
+    async function probeKlaviyoOauth() {
+      const btn = document.getElementById('btn-connect-klaviyo');
+      const note = document.getElementById('klaviyo-oauth-unavailable');
+      if (!btn) return;
+      let configured = false;
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        const res = await fetch(`${FUNCTIONS_URL}/klaviyo-oauth-start`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        });
+        const out = await res.json();
+        configured = res.ok && out?.configured === true;
+      } catch (_) {
+        configured = false;
+      }
+      btn.hidden = !configured;
+      if (note) note.style.display = configured ? 'none' : '';
+    }
 
     document.getElementById('btn-connect-klaviyo').addEventListener('click', async () => {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
