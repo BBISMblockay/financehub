@@ -18,6 +18,12 @@ const R = createReporter('marketing-launch-links');
       instagram_account_insights_daily: [{id:'iga-1',company_entity_id:'test-company',day_date:today,reach:900}],
       facebook_page_posts: [{company_entity_id:'test-company',post_id:'p1_1',message:'Opening day',permalink:'https://facebook.com/p1_1',posted_at:today,likes:7,comments:2,shares:1}],
       redo_marketing_daily_v: [{company_entity_id:'test-company',kind:'campaign',redo_id:'redo-1',name:'Sonic email',channel:'EMAIL',day_date:today,sends:500,orders:4,revenue:190,revenue_currency:'USD'}],
+      // The same Klaviyo campaign measured against two conversion metrics:
+      // two rows on screen, one message, so ONE launch link covers both.
+      klaviyo_message_performance_v: [
+        {company_entity_id:'test-company',kind:'campaign',klaviyo_id:'kl-1',message_name:'Sonic Klaviyo email',parent_name:null,channel:'email',timeframe_start:today,timeframe_end:today,conversion_metric_id:'MET1',recipients:800,conversions:6,conversion_value:240},
+        {company_entity_id:'test-company',kind:'campaign',klaviyo_id:'kl-1',message_name:'Sonic Klaviyo email',parent_name:null,channel:'email',timeframe_start:today,timeframe_end:today,conversion_metric_id:'MET2',recipients:800,conversions:2,conversion_value:60},
+      ],
       meta_ad_performance_daily: [
         { id:'perf-1', company_entity_id:'test-company', day_date:today, ad_id:'ad-1', ad_name:'Sonic video', campaign_name:'Sonic', spend:100, impressions:1000, clicks:20, conversions:2, conversion_value:200 },
         { id:'perf-2', company_entity_id:'test-company', day_date:today, ad_id:'ad-2', ad_name:'Other ad', campaign_name:'Other', spend:50, impressions:500, clicks:10, conversions:1, conversion_value:60 },
@@ -71,8 +77,24 @@ const R = createReporter('marketing-launch-links');
     await page.selectOption('#creativeInitiativeSelect','init-email');
     await page.click('#creativeLaunchSave');
     await page.waitForFunction(() => !document.getElementById('creativeLaunchDialog').open);
+    R.has(await page.locator('#redoBody').innerText(),'Sonic Klaviyo email');
+    // A Klaviyo message links by its own identity (kind:klaviyo_id), not by the
+    // measurement row, so both conversion-metric rows offer the same control.
+    R.eq(await page.locator('#redoBody [data-link-source="klaviyo_messages"][data-link-id="campaign:kl-1"]').count(),2,
+      'both metric rows of the Klaviyo message offer the same link');
+    await page.locator('[data-link-source="klaviyo_messages"][data-link-id="campaign:kl-1"]').first().click();
+    R.has(await page.textContent('#creativeLaunchTitle'),'Link message to launch');
+    R.eq(await page.locator('#creativeInitiativeSelect option').nth(1).getAttribute('value'),'init-email','Klaviyo email channel first');
+    await page.selectOption('#creativeInitiativeSelect','init-email');
+    await page.click('#creativeLaunchSave');
+    await page.waitForFunction(() => !document.getElementById('creativeLaunchDialog').open);
     const allWrites=await page.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='launch_system_links'&&q._op==='insert').map(q=>q.rows));
-    R.eq(allWrites.length,3,'three source associations written');
+    R.eq(allWrites.length,4,'four source associations written');
+    R.eq(allWrites[3].ref_table,'klaviyo_messages','Klaviyo links to its own message table');
+    R.eq(allWrites[3].ref_id,'campaign:kl-1','the MESSAGE identity, not the measurement row');
+    R.eq(allWrites[3].ref_label,'Sonic Klaviyo email','the link carries the message name');
+    R.eq(allWrites[3].company_entity_id,'test-company','Klaviyo link company scoped');
+    R.eq(allWrites[3].channel_item_id,'init-email','Klaviyo linked to the email initiative');
     R.eq(allWrites[1].ref_id,'campaign-1','campaign ID retained');
     R.eq(allWrites[2].ref_id,'campaign:redo-1','Redo kind and ID retained');
     R.eq(allWrites[2].company_entity_id,'test-company','Redo link company scoped');
@@ -82,18 +104,21 @@ const R = createReporter('marketing-launch-links');
     tables.launch_system_links = [link,
       {id:'link-2',launch_id:'launch-1',company_entity_id:'test-company',channel_item_id:'init-meta',link_type:'campaign',ref_table:'marketing_kpis_daily',ref_id:'campaign-1',ref_label:'Sonic campaign'},
       {id:'link-3',launch_id:'launch-1',company_entity_id:'test-company',channel_item_id:'init-email',link_type:'campaign',ref_table:'redo_marketing_messages',ref_id:'campaign:redo-1',ref_label:'Sonic email'},
+      {id:'link-4',launch_id:'launch-1',company_entity_id:'test-company',channel_item_id:'init-email',link_type:'campaign',ref_table:'klaviyo_messages',ref_id:'campaign:kl-1',ref_label:'Sonic Klaviyo email'},
     ];
     const launch = await suite.open('/v2/launch-calendar.html?launch=launch-1', tables, {
       ready: () => document.getElementById('page-status')?.textContent.includes('Ready.'),
     });
     await launch.waitForSelector('#lc2-summary');
-    R.has(await launch.locator('#lc2-summary').innerText(), 'Linked marketing (3)');
+    R.has(await launch.locator('#lc2-summary').innerText(), 'Linked marketing (4)');
+    R.has(await launch.locator('#lc2-summary').innerText(),'Klaviyo message','the launch names the platform the link points at');
     R.has(await launch.locator('#lc2-summary').innerText(),'Initiative: Paid launch push');
     R.has(await launch.locator('#lc2-summary').innerText(),'Initiative: Launch email');
     R.has(await launch.locator('#lc2-summary').innerText(),'Launch only');
     R.ok('launch links to exact creative', (await launch.locator('#lc2-summary a[href*="ad=ad-1"]').count()) === 1);
     R.ok('launch links to exact campaign',(await launch.locator('#lc2-summary a[href*="campaign=campaign-1"]').count())===1);
     R.ok('launch links to exact Redo message',(await launch.locator('#lc2-summary a[href*="redo=campaign%3Aredo-1"]').count())===1);
+    R.ok('launch links to exact Klaviyo message',(await launch.locator('#lc2-summary a[href*="klaviyo=campaign%3Akl-1"]').count())===1);
     await launch.close();
 
     const focused = await suite.open('/v2/marketing-overview.html?ad=ad-1', tables, { ready });
@@ -119,7 +144,19 @@ const R = createReporter('marketing-launch-links');
     R.has(await focusedMessage.locator('#redoBody').innerText(),'Sonic email');
     await focusedMessage.click('[data-link-source="redo_marketing_messages"][data-link-id="campaign:redo-1"]');
     R.ok('Redo duplicate excluded',await focusedMessage.locator('#creativeLaunchSave').isDisabled());
+    R.not(await focusedMessage.locator('#redoBody').innerText(),'Sonic Klaviyo email','a Redo focus shows no Klaviyo row');
     await focusedMessage.close();
+
+    const focusedKlaviyo=await suite.open('/v2/marketing-overview.html?klaviyo=campaign%3Akl-1',tables,{ready});
+    R.ok('Klaviyo deep link opens Email & SMS',await focusedKlaviyo.locator('[data-panel="redo"]').isVisible());
+    R.has(await focusedKlaviyo.locator('#redoBody').innerText(),'Sonic Klaviyo email');
+    R.not(await focusedKlaviyo.locator('#redoBody').innerText(),'Sonic email','the focus excludes the other vendor\'s message');
+    await focusedKlaviyo.locator('[data-link-source="klaviyo_messages"][data-link-id="campaign:kl-1"]').first().click();
+    R.ok('Klaviyo duplicate excluded',await focusedKlaviyo.locator('#creativeLaunchSave').isDisabled());
+    await focusedKlaviyo.click('#creativeLaunchCancel');
+    await focusedKlaviyo.click('#clearRedoFocus');
+    R.has(await focusedKlaviyo.locator('#redoBody').innerText(),'Sonic email','Show all brings both vendors back');
+    await focusedKlaviyo.close();
 
     // ── Unlink ──────────────────────────────────────────────────────────────
     // A link written by mistake is only visible on this page, so this is where
@@ -141,7 +178,10 @@ const R = createReporter('marketing-launch-links');
     const deletes=await unlinking.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='launch_system_links'&&q._op==='delete'));
     R.eq(deletes.length,1,'one delete, not a bulk clear');
     R.eq(JSON.stringify(deletes[0].filters),JSON.stringify([{op:'eq',col:'id',val:'link-3'}]),'deleted by row id alone');
-    R.not(await unlinking.locator('#redoBody').innerText(),'Sonic launch','the chip leaves the Redo row');
+    // Scoped to the Redo row: the Klaviyo message's own link must survive a
+    // delete aimed at this one, which a whole-table check could not tell apart.
+    R.not(await unlinking.locator('#redoBody tr',{hasText:'Sonic email'}).innerText(),'Sonic launch','the chip leaves the Redo row');
+    R.has(await unlinking.locator('#redoBody tr',{hasText:'Sonic Klaviyo email'}).first().innerText(),'Sonic launch','the Klaviyo message keeps its own link');
     await unlinking.click('[data-tab="creatives"]');
     R.has(await unlinking.locator('#creativeBody').innerText(),'Sonic launch','the creative\'s own link is untouched');
     await unlinking.close();
