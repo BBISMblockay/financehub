@@ -164,6 +164,26 @@ export const INTEGRATION_FEEDS = [
     workflow: 'redo-marketing-sync.yml',
   },
   {
+    // Klaviyo's own API, not the Windsor copy. Judged on the daily flow table
+    // because that is the only Klaviyo feed with a day in it: campaign numbers
+    // are window totals (Klaviyo publishes no campaign series), so they carry
+    // no day to measure lag against.
+    label: 'klaviyo',
+    connTable: 'klaviyo_connections',
+    table: 'klaviyo_flow_daily',
+    match: { connColumn: 'company_entity_id', dataColumn: 'company_entity_id' },
+    dayColumn: 'day_date',
+    // Judged on when the SYNC last ran, not on the newest flow-day, for the
+    // sales_by_day reason above: a company whose flows have been quiet for a
+    // month has a month-old newest day while the nightly runs perfectly. The
+    // data answers "has anything ever arrived"; this stamp answers "is this
+    // connection still being synced".
+    stamp: { on: 'connection', column: 'last_synced_at' },
+    maxLagDays: 2,
+    integration: 'klaviyo',
+    workflow: 'klaviyo-sync.yml',
+  },
+  {
     label: 'banking',
     connTable: 'plaid_connections',
     table: 'plaid_accounts',

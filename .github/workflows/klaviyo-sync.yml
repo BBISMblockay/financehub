@@ -1,0 +1,87 @@
+name: Klaviyo Sync
+
+# Klaviyo campaigns and flows (email + SMS) straight from Klaviyo's own API
+# into klaviyo_messages / klaviyo_message_performance / klaviyo_flow_daily.
+# See scripts/klaviyo-sync.mjs and scripts/lib/klaviyo-sync-core.mjs.
+#
+# Nightly: every klaviyo_connections row that is both is_active and
+# sync_enabled, a trailing 60 days ending yesterday in the ACCOUNT's timezone,
+# overwritten. Klaviyo does not document how far it restates conversions, so
+# the window is Redo's measured answer to the same question and the real figure
+# is an empirical result of the first weeks of runs.
+#
+# Backfill: dispatch with start_date (and optionally end_date). The window is
+# cut into <=365-day chunks (Klaviyo's reporting limit), newest first.
+#
+# Dry run: dispatch with dry_run to see what Klaviyo returns without writing a
+# row -- worth doing on a newly connected account before enabling sync.
+#
+# Credentials live on the connection row, so there is no Klaviyo repo secret
+# for a private-key connection. KLAVIYO_CLIENT_ID / KLAVIYO_CLIENT_SECRET are
+# needed only to refresh an OAuth connection, and only if one exists.
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: Optional company UUID (default every enabled Klaviyo connection)
+        required: false
+      days_back:
+        description: Trailing days ending yesterday (default 60). Ignored when start_date is set
+        required: false
+      start_date:
+        description: Backfill start YYYY-MM-DD (e.g. 2025-01-01)
+        required: false
+      end_date:
+        description: Backfill end YYYY-MM-DD (default yesterday)
+        required: false
+      dry_run:
+        description: Fetch and report counts without writing anything
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    # 11:00 UTC, after the ad platforms (10:30) and Redo (10:45). Pacific
+    # yesterday is complete by then.
+    - cron: "0 11 * * *"
+    # 17:00 UTC catch-up: GitHub drops scheduled runs silently (see
+    # ad-platforms-sync.yml). The sync is an idempotent overwrite of a trailing
+    # window, so a second run after a successful first costs a few requests.
+    - cron: "0 17 * * *"
+
+# One run at a time per repo: two overlapping runs would double every Klaviyo
+# request, and the campaign report allows only 2 a minute and 225 a day. A
+# dropped queued run costs nothing, because the next run re-pulls the same
+# trailing window.
+concurrency:
+  group: klaviyo-sync
+  cancel-in-progress: false
+
+jobs:
+  klaviyo-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Sync Klaviyo
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
+          KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
+          KLAVIYO_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+          KLAVIYO_DAYS_BACK: ${{ github.event.inputs.days_back || '60' }}
+          KLAVIYO_START: ${{ github.event.inputs.start_date || '' }}
+          KLAVIYO_END: ${{ github.event.inputs.end_date || '' }}
+          KLAVIYO_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: node scripts/klaviyo-sync.mjs

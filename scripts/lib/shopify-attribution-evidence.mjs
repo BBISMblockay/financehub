@@ -46,8 +46,44 @@ export function sanitizeDiscountCodes(value) {
   return codes;
 }
 const visitFields = `__typename ... on CustomerVisit { id occurredAt source sourceType landingPage referrerUrl utmParameters { source medium campaign content term } }`;
+// Exported so the batched query below and any probe build the SAME selection. Two
+// spellings of this selection is how the serial and batched paths would quietly drift
+// apart, and a drift here is wrong attribution rather than a crash.
+export const journeyVisitFields = visitFields;
+export const unavailableOrder = id => ({id:'gid://shopify/Order/'+id,name:String(id),createdAt:null,sourceName:null,customerJourneySummary:null,evidence_status:'unavailable'});
+
+/** Turn ONE order payload into the stored evidence shape.
+ *
+ *  The single order fetch and the batched fetch both go through here, so they cannot
+ *  disagree about what an order's journey means. `visits` is the accumulator across
+ *  pages of the same order; it is a Map keyed by visit id, and insertion order is
+ *  [firstVisit, ...moments, lastVisit] because `Map.set` keeps the LAST copy of a
+ *  repeated id and the page model relies on that.
+ *
+ *  Returns { journey, needsMorePages, endCursor }. `needsMorePages` is the caller's cue
+ *  that this order has more moments than the page asked for -- the batched path hands
+ *  such an order to fetchJourney() alone rather than guessing. */
+export function buildJourney(order, visits = new Map()) {
+  if (!order) return {journey:null, needsMorePages:false, endCursor:null};
+  const j = order.customerJourneySummary;
+  if (!j || !j.ready) return {journey:{id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,
+    discountCodes:sanitizeDiscountCodes(order.discountCodes),customerJourneySummary:j ? {ready:false} : null},
+    needsMorePages:false, endCursor:null};
+  const first = sanitizeVisit(j.firstVisit), last = sanitizeVisit(j.lastVisit);
+  for (const v of [first,...(j.moments?.nodes || []).map(sanitizeVisit),last]) if (v) visits.set(v.id,v);
+  const info = j.moments?.pageInfo;
+  if (!info) throw Error('Missing journey pagination');
+  return {
+    journey:{id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,
+      discountCodes:sanitizeDiscountCodes(order.discountCodes),
+      customerJourneySummary:{ready:true,firstVisit:first,lastVisit:last,moments:{nodes:[...visits.values()],pageInfo:{hasNextPage:false}}}},
+    needsMorePages:info.hasNextPage === true,
+    endCursor:info.endCursor ?? null,
+  };
+}
+
 export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {}) {
-  let cursor = null, first = null, last = null, order = null;
+  let cursor = null;
   const visits = new Map(), cursors = new Set();
   for (let page = 0; page < maxPages; page++) {
     const data = await gql(connection, `query AttributionJourney($id: ID!, $after: String) {
@@ -56,24 +92,101 @@ export async function fetchJourney(connection, id, { gql, maxPages = 100 } = {})
         moments(first:50,after:$after) { nodes { ${visitFields} } pageInfo { hasNextPage endCursor } }
       } }
     }`, { id:'gid://shopify/Order/'+id, after:cursor });
-    order = data.order;
-    if (!order) return {id:'gid://shopify/Order/'+id,name:id,createdAt:null,sourceName:null,customerJourneySummary:null,evidence_status:'unavailable'};
-    const j = order.customerJourneySummary;
-    if (!j || !j.ready) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,discountCodes:sanitizeDiscountCodes(order.discountCodes),customerJourneySummary:j ? {ready:false} : null };
-    first = sanitizeVisit(j.firstVisit); last = sanitizeVisit(j.lastVisit);
-    for (const v of [first,...(j.moments?.nodes || []).map(sanitizeVisit),last]) if (v) visits.set(v.id,v);
-    const info = j.moments?.pageInfo;
-    if (!info) throw Error('Missing journey pagination');
-    if (!info.hasNextPage) return { id:order.id,name:order.name,createdAt:order.createdAt,sourceName:order.sourceName,
-      discountCodes:sanitizeDiscountCodes(order.discountCodes),
-      customerJourneySummary:{ready:true,firstVisit:first,lastVisit:last,moments:{nodes:[...visits.values()],pageInfo:{hasNextPage:false}}} };
-    if (!info.endCursor || cursors.has(info.endCursor)) throw Error('Journey cursor did not advance');
-    cursors.add(info.endCursor); cursor = info.endCursor;
+    if (!data.order) return unavailableOrder(id);
+    const {journey,needsMorePages,endCursor} = buildJourney(data.order, visits);
+    if (!needsMorePages) return journey;
+    if (!endCursor || cursors.has(endCursor)) throw Error('Journey cursor did not advance');
+    cursors.add(endCursor); cursor = endCursor;
   }
   throw Error('Journey pagination limit exceeded');
 }
-export function validateDay(day, sales, control) {
-  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= 10000) throw Error('Incomplete ShopifyQL sales: daily capacity is 9999 order/day rows');
+
+/** Many orders' journeys in one request.
+ *
+ *  Why this exists: collecting a day used to be one GraphQL call per order, and a
+ *  4,103-order day measured 32 minutes at a dead-flat 2.13 orders/sec -- pure serial
+ *  round-trip latency, not rate limiting. Asking for many orders at once is the fix.
+ *
+ *  Two deliberate choices:
+ *   - `moments` is paged SHALLOW here (most journeys are a handful of visits), and any
+ *     order that turns out to have more is re-fetched on its own through fetchJourney().
+ *     Deep journeys are rare, so the rare case pays the old cost and the common case
+ *     does not.
+ *   - an id Shopify does not return as an Order is reported `unavailable`, exactly as
+ *     the single fetch does, rather than being skipped. A dropped id would be evidence
+ *     silently lost.
+ *
+ *  Results come back keyed by the numeric id that was asked for, in no particular
+ *  order; the caller keeps ledger order. */
+export async function fetchJourneys(connection, ids, { gql, moments = 10, maxPages = 100, onSplit = null } = {}) {
+  const out = new Map(), deep = [];
+  if (!ids.length) return out;
+  await collectBatch(connection, ids, { gql, moments, onSplit }, out, deep);
+  // Resolved AFTER all the batching, and never inside a splittable region: a deep journey
+  // that genuinely cannot be read must fail once, not be re-attempted by every split.
+  // Rare, and worth a round trip each rather than a deeper page for everybody.
+  for (const id of deep) out.set(id, await fetchJourney(connection, id, { gql, maxPages }));
+  return out;
+}
+
+/** One batched request, halving itself on any failure.
+ *
+ *  Admin GraphQL prices a query by calculated cost, and a batch costs roughly its size
+ *  times its moments page. shopifyGraphql() throws on a GraphQL-level THROTTLED or
+ *  cost-limit answer rather than backing off, so a batch sized for a quiet moment would
+ *  otherwise fail a whole day the first time the bucket runs dry.
+ *
+ *  Halving on failure covers throttling, a cost refusal and an oversized response with
+ *  one rule, and the worst case is the serial path: at size one there is nothing left to
+ *  split, so the error surfaces exactly as it does today. Splitting is reported, because
+ *  a batch quietly degrading to serial would otherwise look like the speedup not
+ *  working. */
+async function collectBatch(connection, ids, opts, out, deep) {
+  const { gql, moments, onSplit } = opts;
+  try {
+    const data = await gql(connection, `query AttributionJourneyBatch($ids: [ID!]!, $after: String) {
+    nodes(ids: $ids) { __typename ... on Order { id name createdAt sourceName discountCodes
+      customerJourneySummary { ready firstVisit { ${visitFields} } lastVisit { ${visitFields} }
+        moments(first:${moments},after:$after) { nodes { ${visitFields} } pageInfo { hasNextPage endCursor } } } } }
+  }`, { ids: ids.map(id => 'gid://shopify/Order/'+id), after: null });
+    const nodes = data?.nodes;
+    // A batch that does not come back one node per id cannot be matched up safely: the
+    // positional contract is all that ties a node to the id asked for.
+    if (!Array.isArray(nodes) || nodes.length !== ids.length) throw Error('Journey batch did not answer every order');
+    const staged = new Map(), stagedDeep = [];
+    for (const [index, node] of nodes.entries()) {
+      const id = ids[index];
+      // null is the answer the single fetch also gets for an order Shopify will not
+      // return, so it means the same thing here: unavailable, recorded, not dropped. A
+      // node that comes back as something OTHER than an Order is not an unavailable
+      // order, it is a wrong id, and recording that as unmeasured would hide the mistake.
+      if (!node) { staged.set(id, unavailableOrder(id)); continue; }
+      if (node.__typename !== 'Order') throw Error('Journey batch returned a non-order node');
+      const {journey,needsMorePages} = buildJourney(node);
+      if (needsMorePages) stagedDeep.push(id); else staged.set(id, journey);
+    }
+    // Merged only once the whole batch has parsed: a batch that throws halfway must leave
+    // nothing behind for the retry to double up on.
+    for (const [id, journey] of staged) out.set(id, journey);
+    deep.push(...stagedDeep);
+  } catch (error) {
+    if (ids.length === 1) throw error;
+    if (onSplit) onSplit({ size: ids.length, reason: error?.message ? String(error.message).slice(0, 200) : 'unknown' });
+    const half = Math.ceil(ids.length / 2);
+    await collectBatch(connection, ids.slice(0, half), opts, out, deep);
+    await collectBatch(connection, ids.slice(half), opts, out, deep);
+  }
+}
+// The collector's own ceiling on how many order rows it will read for one day. It is NOT
+// a Shopify limit: 2025-11-28 (9,916 orders) failed on THIS bound, not on a refusal from
+// ShopifyQL. Raising it is safe by construction rather than by hope, because validateDay()
+// reconciles the per-order rows against the day's own control total to the penny and
+// rejects duplicate order ids -- so a silently capped or shifted OFFSET window cannot
+// publish, it can only fail. Raise it only once deep paging has been measured on a real
+// shop (scripts/shopify-attribution-plan-probe.mjs reports exactly that).
+export const DEFAULT_MAX_DAY_ROWS = 10000;
+export function validateDay(day, sales, control, { maxRows = DEFAULT_MAX_DAY_ROWS } = {}) {
+  if (sales.raw?.table_data_was_null || control.raw?.table_data_was_null || sales.length >= maxRows) throw Error('Incomplete ShopifyQL sales for the day; collector row ceiling is '+maxRows);
   if (control.length !== 1) throw Error('Missing daily control');
   const seen = new Set();
   const ledger = sales.map(r => {
@@ -86,33 +199,162 @@ export function validateDay(day, sales, control) {
   if (ledger.reduce((s,r)=>s+r.net_cents,0) !== net || ledger.reduce((s,r)=>s+r.total_cents,0) !== total) throw Error('Shopify revenue mismatch');
   return {ledger,net,total};
 }
-export async function fetchSalesDay(connection,day,ql) {
+export async function fetchSalesDay(connection,day,ql,{maxRows=DEFAULT_MAX_DAY_ROWS}={}) {
   const rows=[];
   // Stable 500-row pages stay below the shared client's 1,000-row ceiling.
-  for(let offset=0;offset<10000;offset+=500){
+  for(let offset=0;offset<maxRows;offset+=500){
     const page=await ql(connection,`FROM sales SHOW net_sales, total_sales GROUP BY order_id, day SINCE ${day} UNTIL ${day} ORDER BY order_id ASC LIMIT 500 OFFSET ${offset}`);
     if(page.raw?.table_data_was_null||page.length>500)throw Error('Incomplete ShopifyQL sales page');
     rows.push(...page);
     if(page.length<500)return rows;
   }
-  throw Error('Attribution daily row cap reached; no snapshot published');
+  throw Error('Attribution daily row ceiling of '+maxRows+' reached; no snapshot published');
 }
-export async function collectDay(connection, day, { ql, gql, rest, publish, stage=null, finalize=null, decorate=null, commit=false, now=()=>new Date().toISOString(), chunk=500, threshold=5000 }) {
+/** Landing sites for many orders in one REST call.
+ *
+ *  `restBatch` asks Shopify for a list of ids at once; anything it does not return is
+ *  re-asked one at a time through `rest`, which is the call that has always been made
+ *  and which still throws on a bad response. So a batched run can be faster than the
+ *  serial one but never more forgiving: an order whose landing site cannot be read
+ *  fails the day exactly as it does today, instead of publishing with empty evidence.
+ *
+ *  Returns a Map of numeric id -> the order object (or whatever `rest` returns). */
+export async function fetchLandingSites(connection, ids, { rest, restBatch = null, batch = 1 } = {}) {
+  const out = new Map();
+  if (!ids.length) return out;
+  if (!restBatch || batch <= 1) {
+    for (const id of ids) out.set(id, await rest(connection, id));
+    return out;
+  }
+  for (let i = 0; i < ids.length; i += batch) {
+    const slice = ids.slice(i, i + batch);
+    for (const order of await restBatch(connection, slice)) {
+      const id = String(order?.id ?? '');
+      if (id) out.set(id, order);
+    }
+    for (const id of slice) if (!out.has(id)) out.set(id, await rest(connection, id));
+  }
+  return out;
+}
+
+/** May this stored evidence row stand in for fetching the order again?
+ *
+ *  Reuse is for orders whose evidence cannot have changed. Four things must hold, and
+ *  each rules out a case where it could have:
+ *   - the row carries both halves of the evidence a fetch produces (`order` and `raw`),
+ *     so a row written by an older or partial shape is re-fetched rather than trusted;
+ *   - the order was readable and its journey was READY. A not-ready journey is exactly
+ *     the thing a refresh exists to pick up, and an unavailable order may since have
+ *     become readable, so neither is ever reused;
+ *   - `fetched_at` is in the past. An unparseable or missing stamp makes `age` NaN and
+ *     every comparison against it false, so it is refused by the same line -- which is
+ *     why there is no separate parse check here, and both cases are tested;
+ *   - the row is younger than `maxAgeDays`. This is the backstop that does not depend on
+ *     Shopify: whether or not a journey change moves an order's `updatedAt`, every order
+ *     in the refresh window is read again within this many days, so staleness is bounded
+ *     by configuration rather than by an assumption about an upstream field. */
+export function reusableEvidence(row, nowIso, maxAgeDays) {
+  const e = row?.evidence;
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return false;
+  if (!e.order || typeof e.order !== 'object' || !e.raw || typeof e.raw !== 'object') return false;
+  if (e.order.evidence_status === 'unavailable') return false;
+  if (e.order.customerJourneySummary?.ready !== true) return false;
+  const age = Date.parse(nowIso) - Date.parse(row.fetched_at ?? '');
+  return age >= 0 && age <= maxAgeDays * 86400000;
+}
+
+/** Which of a day's orders need fetching at all.
+ *
+ *  The nightly coverage run re-collects the trailing seven days IN FULL, so a store doing
+ *  4,000 orders a day re-read about 28,000 orders every night to learn almost nothing.
+ *  This is what stops the daily cost scaling with store size.
+ *
+ *  It changes only what is FETCHED. The day still publishes its whole ledger with evidence
+ *  for every order in it, because both publish functions refuse a day that is missing any
+ *  ("Missing order evidence"), and that guard is worth keeping exactly as it is. The money
+ *  is re-read from ShopifyQL every time regardless, so the reconciliation is never reusing
+ *  anything.
+ *
+ *  Returns the evidence to reuse, keyed by order id. Anything absent is fetched. */
+export async function planReuse(ids, { storedEvidence, orderChanges, extracted, maxAgeDays, onReuse = null }) {
+  if (!(maxAgeDays > 0) || !storedEvidence || !ids.length) return new Map();
+  try {
+    const stored = await storedEvidence(ids);
+    // Only orders that are reusable on their own terms are worth asking Shopify about,
+    // so a day with nothing stored -- a first collection, or a manual backfill -- costs
+    // no extra request at all.
+    const candidates = ids.filter(id => reusableEvidence(stored.get(id), extracted, maxAgeDays));
+    const changes = candidates.length && orderChanges ? await orderChanges(candidates) : new Map();
+    const reuse = new Map();
+    for (const id of candidates) {
+      const changed = Date.parse(changes.get(id) ?? '');
+      // An order Shopify did not answer for is fetched, never assumed unchanged: not
+      // knowing whether it moved is not the same as knowing it did not.
+      if (!Number.isFinite(changed)) continue;
+      if (changed <= Date.parse(stored.get(id).fetched_at)) reuse.set(id, stored.get(id).evidence);
+    }
+    if (onReuse) onReuse({ orders: ids.length, stored: stored.size, candidates: candidates.length, reused: reuse.size });
+    return reuse;
+  } catch (error) {
+    // Reuse is an optimisation, so losing it must cost speed and nothing else: the day
+    // falls back to collecting every order, which is what it did before this existed.
+    if (onReuse) onReuse({ orders: ids.length, reused: 0, unavailable: error?.message ? String(error.message).slice(0, 200) : 'unknown' });
+    return new Map();
+  }
+}
+
+export async function collectDay(connection, day, { ql, gql, rest, restBatch=null, publish, stage=null, finalize=null, decorate=null, commit=false, now=()=>new Date().toISOString(), chunk=500, threshold=5000, journeyBatch=1, landingBatch=1, journeyMoments=10, maxRows=DEFAULT_MAX_DAY_ROWS, onSplit=null, storedEvidence=null, orderChanges=null, reuseMaxAgeDays=0, onReuse=null }) {
   // Stamp before reads: a slower old extraction cannot overwrite a newer one.
   const extracted = now();
   const shop = (await gql(connection, 'query AttributionShop { shop { currencyCode ianaTimezone primaryDomain { host } } }')).shop;
   if (!shop?.currencyCode || !shop.ianaTimezone) throw Error('Missing Shopify currency/timezone');
-  const sales = await fetchSalesDay(connection,day,ql);
+  const sales = await fetchSalesDay(connection,day,ql,{maxRows});
   const control = await ql(connection, `FROM sales SHOW net_sales, total_sales SINCE ${day} UNTIL ${day}`);
-  const {ledger,net,total} = validateDay(day,sales,control);
+  const {ledger,net,total} = validateDay(day,sales,control,{maxRows});
+  const own_hosts=[connection.shop_domain,shop.primaryDomain?.host,shop.primaryDomain?.host?.replace(/^www\./,''),'www.'+shop.primaryDomain?.host?.replace(/^www\./,'')].filter(h=>h&&!h.includes('undefined'));
+  // One order at a time is two sequential HTTP calls per order, which measured a dead-flat
+  // 2.13 orders/sec on a 4,103-order day -- 32 minutes of pure round-trip latency. Asking
+  // for many orders per call is the whole speedup. Both batch sizes default to 1, which is
+  // byte for byte the serial path that has published every snapshot so far, so turning
+  // this on is a configuration change and turning it off is too.
   const orders=[]; let pending=0;
-  for (const row of ledger) {
-    const order = await fetchJourney(connection,row.order_id,{gql});
-    pending += order.customerJourneySummary?.ready === false ? 1 : 0;
-    const raw = order.evidence_status === 'unavailable' ? null : await rest(connection,row.order_id);
-    const evidence={order,raw:landingEvidence(raw?.landing_site),own_hosts:[connection.shop_domain,shop.primaryDomain?.host,shop.primaryDomain?.host?.replace(/^www\./,''),'www.'+shop.primaryDomain?.host?.replace(/^www\./,'')].filter(h=>h&&!h.includes('undefined'))};
-    if(decorate)evidence.allocations=decorate(evidence);
-    orders.push({order_id:row.order_id,evidence});
+  // Orders whose evidence provably cannot have changed are not fetched again. Off unless
+  // reuseMaxAgeDays is set, and even then only what is FETCHED changes: every order still
+  // goes into the published day.
+  const reuse=await planReuse(ledger.map(r=>r.order_id),{storedEvidence,orderChanges,extracted,maxAgeDays:reuseMaxAgeDays,onReuse});
+  const outer=Math.max(landingBatch,journeyBatch,1);
+  for (let i=0;i<ledger.length;i+=outer) {
+    const slice=ledger.slice(i,i+outer), ids=slice.map(r=>r.order_id).filter(id=>!reuse.has(id));
+    const journeys=new Map();
+    if (journeyBatch>1) {
+      for (let j=0;j<ids.length;j+=journeyBatch) {
+        for (const [id,order] of await fetchJourneys(connection,ids.slice(j,j+journeyBatch),{gql,moments:journeyMoments,onSplit})) journeys.set(id,order);
+      }
+    } else {
+      for (const id of ids) journeys.set(id,await fetchJourney(connection,id,{gql}));
+    }
+    // An order Shopify would not return has no landing site to ask for, and asking would
+    // invent evidence for an order we are explicitly recording as unmeasured.
+    const landings=await fetchLandingSites(connection,ids.filter(id=>journeys.get(id)?.evidence_status!=='unavailable'),{rest,restBatch,batch:landingBatch});
+    for (const row of slice) {
+      const stored=reuse.get(row.order_id);
+      let evidence;
+      if (stored) {
+        // Only the two expensive halves are reused. `own_hosts` is rebuilt from the shop
+        // as it is NOW, and the allocations are re-derived below against today's catalog,
+        // because a refresh is partly how a changed catalog or launch window reaches an
+        // already-collected order.
+        evidence={order:stored.order,raw:stored.raw,own_hosts};
+      } else {
+        const order=journeys.get(row.order_id);
+        if (!order) throw Error('Journey missing for a ledger order');
+        pending += order.customerJourneySummary?.ready === false ? 1 : 0;
+        const raw=order.evidence_status === 'unavailable' ? null : landings.get(row.order_id);
+        evidence={order,raw:landingEvidence(raw?.landing_site),own_hosts};
+      }
+      if(decorate)evidence.allocations=decorate(evidence);
+      orders.push({order_id:row.order_id,evidence});
+    }
   }
   // A day's evidence goes up in one request, which stops being deliverable somewhere
   // above four thousand orders -- 2025-11-27 (8,231) died twice on that call, once as a
@@ -129,7 +371,7 @@ export async function collectDay(connection, day, { ql, gql, rest, publish, stag
       p_ledger:ledger,p_net:net,p_total:total,p_extracted:extracted});
   } else if (commit) await publish({p_connection:connection.id,p_day:day,p_currency:shop.currencyCode,p_timezone:shop.ianaTimezone,
     p_ledger:ledger,p_orders:orders,p_net:net,p_total:total,p_extracted:extracted});
-  return {day,orders:orders.length,pending,net_cents:net,total_cents:total,committed:commit,staged};
+  return {day,orders:orders.length,pending,reused:reuse.size,net_cents:net,total_cents:total,committed:commit,staged};
 }
 export function dayRange(start,end) {
   const valid = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && new Date(v+'T00:00:00Z').toISOString().slice(0,10) === v;

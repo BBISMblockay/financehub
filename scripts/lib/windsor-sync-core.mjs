@@ -848,6 +848,39 @@ export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
   return { rows: [...byHash.values()], foreign, unattributed, outOfWindow, duplicates };
 }
 
+/** Windsor sources SILO ALSO syncs natively, through a per-company connection
+ *  of their own.
+ *
+ *  A company that has turned on the native connector gets its Klaviyo numbers
+ *  from Klaviyo directly, at a grain Windsor's copy does not share (Klaviyo
+ *  publishes no daily series for campaigns), so letting both run would store
+ *  the same sends twice under two different meanings. Windsor yields.
+ *
+ *  This is DATA, not a per-source contract: a map entry, checked per company.
+ *  Every other source, named or auto-placed, is untouched -- and the same
+ *  precedence already exists in this file for Google, Meta and GA4, which are
+ *  routed away from the native tables rather than skipped.
+ */
+export const NATIVE_CONNECTION_TABLES = Object.freeze({
+  klaviyo: { table: 'klaviyo_connections' },
+});
+
+/** Does this company sync this source natively? Throws on a read failure
+ *  rather than assuming "no": guessing wrong writes a second copy of the
+ *  numbers, which is the thing this check exists to prevent. */
+export async function supersededByNative({ supabase, dsId, companyId }) {
+  const native = Object.hasOwn(NATIVE_CONNECTION_TABLES, dsId) ? NATIVE_CONNECTION_TABLES[dsId] : null;
+  if (!native) return false;
+  const { data, error } = await supabase.from(native.table)
+    .select('id')
+    .eq('company_entity_id', companyId)
+    .eq('is_active', true)
+    .eq('sync_enabled', true)
+    .limit(1);
+  if (error) throw new Error(`could not check for a native ${dsId} connection: ${error.message}`);
+  return Array.isArray(data) && data.length > 0;
+}
+
 /**
  * Sync one windsor_linked_accounts row. Never throws for a Windsor or data
  * problem: the outcome is written to the mapping row and returned, so one
@@ -905,6 +938,16 @@ export async function syncAccount({
   if (account.sync_enabled !== true) {
     summary.status = 'paused';
     return summary; // Do not touch history, last sync result, or Windsor while paused.
+  }
+  // The company syncs this source directly, so Windsor's copy would be a
+  // second set of the same numbers. Returns without touching history, the last
+  // sync result or Windsor, for the same reason `paused` does: the native
+  // connector owns these days now, and overwriting the row's last real
+  // outcome would lose it.
+  if (await supersededByNative({ supabase, dsId: account.ds_id, companyId: ctx.companyId })) {
+    summary.status = 'superseded_by_native';
+    log(`[windsor] ${account.ds_id} ${ctx.accountId}: skipped, this company syncs ${account.ds_id} directly`);
+    return summary;
   }
   if (!catalogCache.has(conn.value)) catalogCache.set(conn.value, await fetchFieldCatalog({ fetchImpl, connector: conn.value }));
   const catalog = catalogCache.get(conn.value);

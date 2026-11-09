@@ -65,6 +65,14 @@ const CONNECTION_SOURCES = {
     table: 'redo_connections', by: 'company_entity_id', syncFlag: false,
     select: 'id, is_active, company_entity_id, api_secret',
   },
+  // One row per company, like Redo. syncFlag is true because Klaviyo's own
+  // sync reads only connections with sync_enabled: without it the backfill
+  // would run, find nothing and be recorded `done` having imported nothing.
+  // Enabling sync in Integrations is what queues (or requeues) this job.
+  klaviyo: {
+    table: 'klaviyo_connections', by: 'company_entity_id', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, api_key, access_token, refresh_token',
+  },
 };
 
 /** One job runner bound to a database and a way to run a stage.

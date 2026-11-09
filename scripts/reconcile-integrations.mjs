@@ -62,6 +62,9 @@ const CONN_COLUMNS = {
   ad_platform_connections: 'id, company_entity_id, platform, display_name, is_active, sync_enabled, last_test_status, last_test_success, last_test_error, meta',
   seo_serp_schedules: 'id, company_entity_id, is_active, last_run_on, note',
   redo_connections: 'id, company_entity_id, display_name, is_active, last_event_at, meta',
+  // Deliberately NOT api_key, access_token or refresh_token: this process
+  // only needs to know whether the feed is arriving.
+  klaviyo_connections: 'id, company_entity_id, display_name, is_active, sync_enabled, last_test_success, last_test_error, last_synced_at, reauth_required_at, meta',
   plaid_connections: 'id, company_entity_id, status, institution_name',
   quickbooks_connections: 'id, company_entity_id, company_name, is_active, refresh_token_expires_at, token_expires_at, meta',
 };

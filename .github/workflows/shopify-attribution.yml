@@ -14,6 +14,24 @@ on:
       probe_order_id:
         description: Optional numeric Shopify order ID. Read-only probe; blank dates and commit=false required
         required: false
+      probe_plan_day:
+        description: Optional YYYY-MM-DD. Read-only speed probe (deep sales paging, journey batch cost, landing batch); blank dates and commit=false required
+        required: false
+      journey_batch:
+        description: Optional. Orders per journey request for THIS run only; blank uses the repo variable (default 1 = serial)
+        required: false
+      landing_batch:
+        description: Optional. Orders per landing-site request for THIS run only; blank uses the repo variable (default 1 = serial)
+        required: false
+      journey_moments:
+        description: Optional. Visits per journey page for THIS run only; blank uses the repo variable (default 10)
+        required: false
+      max_day_rows:
+        description: Optional. Order-row ceiling for one day for THIS run only; blank uses the repo variable (default 10000)
+        required: false
+      reuse_max_age_days:
+        description: Optional. Reuse stored evidence younger than this many days for THIS run only; blank uses the repo variable (default 0 = collect every order)
+        required: false
       commit:
         description: Publish verified snapshots (false is read-only)
         type: boolean
@@ -42,6 +60,13 @@ jobs:
       ATTRIBUTION_END: ${{ inputs.end_date }}
       ATTRIBUTION_COMMIT: ${{ inputs.commit }}
       ATTRIBUTION_PROBE_ORDER_ID: ${{ inputs.probe_order_id }}
+      ATTRIBUTION_PROBE_PLAN_DAY: ${{ inputs.probe_plan_day }}
+      ATTRIBUTION_JOURNEY_BATCH: ${{ inputs.journey_batch || vars.ATTRIBUTION_JOURNEY_BATCH }}
+      ATTRIBUTION_JOURNEY_MOMENTS: ${{ inputs.journey_moments || vars.ATTRIBUTION_JOURNEY_MOMENTS }}
+      ATTRIBUTION_LANDING_BATCH: ${{ inputs.landing_batch || vars.ATTRIBUTION_LANDING_BATCH }}
+      ATTRIBUTION_MAX_DAY_ROWS: ${{ inputs.max_day_rows || vars.ATTRIBUTION_MAX_DAY_ROWS }}
+      ATTRIBUTION_REUSE_MAX_AGE_DAYS: ${{ inputs.reuse_max_age_days || vars.ATTRIBUTION_REUSE_MAX_AGE_DAYS }}
+      ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,7 +77,7 @@ jobs:
           node --input-type=module <<'NODE'
           import {dayRange} from './scripts/lib/shopify-attribution-evidence.mjs';
           const env=process.env;
-          if (!env.ATTRIBUTION_PROBE_ORDER_ID && env.ATTRIBUTION_MODE !== 'scheduled') {
+          if (!env.ATTRIBUTION_PROBE_ORDER_ID && !env.ATTRIBUTION_PROBE_PLAN_DAY && env.ATTRIBUTION_MODE !== 'scheduled') {
             dayRange(env.ATTRIBUTION_START,env.ATTRIBUTION_END);
           }
           NODE
@@ -61,6 +86,10 @@ jobs:
         if: inputs.probe_order_id != ''
         timeout-minutes: 10
         run: node scripts/shopify-attribution-probe.mjs
+      - name: Measure collection limits without writes or token refresh
+        if: inputs.probe_plan_day != ''
+        timeout-minutes: 20
+        run: node scripts/shopify-attribution-plan-probe.mjs
       - name: Collect snapshots
-        if: inputs.probe_order_id == ''
+        if: inputs.probe_order_id == '' && inputs.probe_plan_day == ''
         run: node scripts/shopify-attribution-sync.mjs

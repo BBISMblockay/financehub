@@ -93,6 +93,10 @@ for(const [inputs,valid] of [
  [{ATTRIBUTION_PROBE_ORDER_ID:'',ATTRIBUTION_START:'2026-09-01',ATTRIBUTION_END:'2026-09-30'},true],
  [{ATTRIBUTION_PROBE_ORDER_ID:'123'},true],
  [{ATTRIBUTION_PROBE_ORDER_ID:'',ATTRIBUTION_MODE:'scheduled'},true],
+ // The speed probe takes a day of its own and no snapshot range, so the preflight must
+ // let it through with blank dates exactly as the one-order probe is let through.
+ [{ATTRIBUTION_PROBE_ORDER_ID:'',ATTRIBUTION_PROBE_PLAN_DAY:'2025-11-28'},true],
+ [{ATTRIBUTION_PROBE_ORDER_ID:'',ATTRIBUTION_PROBE_PLAN_DAY:''},false],
 ]) {
  const result=spawnSync(process.execPath,['--input-type=module'],{input:preflight,encoding:'utf8',
   cwd:fileURLToPath(new URL('../../',import.meta.url)),env:{...env,...inputs}});
@@ -100,7 +104,30 @@ for(const [inputs,valid] of [
 }
 assert.match(workflow,/ATTRIBUTION_PROBE_ORDER_ID: \$\{\{ inputs.probe_order_id \}\}/);
 assert.match(workflow,/if: inputs.probe_order_id != ''\s+timeout-minutes: 10\s+run: node scripts\/shopify-attribution-probe.mjs/);
-assert.match(workflow,/if: inputs.probe_order_id == ''\s+run: node scripts\/shopify-attribution-sync.mjs/);
+assert.match(workflow,/ATTRIBUTION_PROBE_PLAN_DAY: \$\{\{ inputs.probe_plan_day \}\}/);
+assert.match(workflow,/if: inputs.probe_plan_day != ''\s+timeout-minutes: 20\s+run: node scripts\/shopify-attribution-plan-probe.mjs/);
+// Collecting must be gated on BOTH probes being blank, or a probe dispatch would also
+// collect and write the very day it was meant to measure read-only.
+assert.match(workflow,/if: inputs.probe_order_id == '' && inputs.probe_plan_day == ''\s+run: node scripts\/shopify-attribution-sync.mjs/);
+const coverage=readFileSync(new URL('../../.github/workflows/shopify-attribution-coverage.yml',import.meta.url),'utf8');
+// The batch sizes must reach the job, or the speedup is dead code in production.
+for(const name of ['ATTRIBUTION_JOURNEY_BATCH','ATTRIBUTION_JOURNEY_MOMENTS','ATTRIBUTION_LANDING_BATCH','ATTRIBUTION_MAX_DAY_ROWS','ATTRIBUTION_REUSE_MAX_AGE_DAYS']){
+ // A dispatch input overrides the repo variable, so a size can be timed on ONE day,
+ // read-only, before it is turned on for every run. Without the override the only way to
+ // try a batch size would be to change it for production first.
+ const input=name.replace('ATTRIBUTION_','').toLowerCase();
+ assert.ok(workflow.includes(name+': ${{ inputs.'+input+' || vars.'+name+' }}'),
+  name+' must be overridable per dispatch and otherwise read from the variable');
+ assert.match(workflow,new RegExp('\\n      '+input+':\\n'),input+' must be a dispatch input');
+ // The nightly coverage run is where a large store's cost actually lives, so the same
+ // sizes have to reach that job too or only manual backfills get faster.
+ assert.ok(coverage.includes(name+': ${{ vars.'+name+' }}'),name+' must be passed to the coverage job');
+}
+// The incremental refresh exists for the nightly run above all, so its sizing must reach
+// the coverage job even though it has no dispatch inputs of its own.
+assert.ok(coverage.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
+assert.ok(workflow.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
 const ci=readFileSync(new URL('../../.github/workflows/attribution-tests.yml',import.meta.url),'utf8');
 assert.ok(ci.includes('node scripts/tests/shopify-attribution-probe.test.mjs'));
+assert.ok(ci.includes('node scripts/tests/shopify-attribution-plan-probe.test.mjs'),'the speed probe is covered in CI');
 console.log('Attribution probe: one order, read-only client, no refresh, bounded pages, input guards and redacted failures passed');

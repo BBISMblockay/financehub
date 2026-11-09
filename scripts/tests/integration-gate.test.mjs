@@ -118,6 +118,8 @@ const INLINE = [
   'comp-request-notify', 'google-oauth-start', 'org-invite-send', 'payment-request-submitted-notify',
   'platform-invite-send', 'quickbooks-accounts-sync', 'quickbooks-oauth-start', 'quickbooks-report',
   'review-finish', 'review-send', 'shopify-connect-dev-app', 'shopify-oauth-start', 'tiktok-oauth-start',
+  // Klaviyo: both work only with the service role after getUser.
+  'klaviyo-oauth-start', 'test-klaviyo-connection',
 ];
 // Injected rather than imported, so a test can drive the handler without
 // minting a token. index.ts wires the real module.
