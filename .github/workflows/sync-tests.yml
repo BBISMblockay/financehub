@@ -2437,8 +2437,9 @@ jobs:
       # accepts windsor_sync.
       - name: Windsor live MCP tenant authorization and external response validation
         run: |
+          node --test scripts/tests/windsor-generic.test.mjs
           node scripts/tests/windsor-live-mcp-database.test.mjs
-          for m in identity tail reauthorize scope rls published default client-execute idle-touch idle-predicate resolver-publication verify-activity rollup-cap rollup-percent rollup-blank range-limit; do
+          for m in identity tail reauthorize scope rls published default client-execute idle-touch idle-predicate resolver-publication verify-activity rollup-cap rollup-nonadditive rollup-blank range-limit; do
             if WINDSOR_LIVE_MUTATION="$m" node scripts/tests/windsor-live-mcp-database.test.mjs > /tmp/windsor-live-mutation.log 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi

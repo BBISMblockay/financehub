@@ -17,6 +17,18 @@ export const LIVE_TIMEOUT_MS = 20000;
 export const LIVE_ROLLUP_TIMEOUT_MS = 90000;
 export const ROLLUPS = ['none', 'day', 'week', 'month', 'total'];
 const SUMMABLE_TYPES = ['NUMERIC', 'INTEGER', 'NUMBER', 'FLOAT', 'CURRENCY'];
+// A numeric type says how a value is written, not whether rows may be added.
+// Counts and currency add up; rates, ratios, averages, point-in-time balances
+// and distinct counts do not, whatever type the source gives them. No source
+// is named here: the test is the field's own id and label, so it holds for
+// any connector SILO ever reads.
+const NON_ADDITIVE = /(^|[^a-z])(rate|ratio|percent|pct|share|avg|average|mean|median|balance|unique|uniques|distinct|frequency|score|rank|index|cpc|cpm|cpa|cpi|cpl|cpv|cpe|cpp|ecpm|ecpc|roas|roi|ctr|cvr|cpcv|vtr|aov|rpm|rpc|margin|bid|per)([^a-z]|$)/;
+export function isAdditive(field) {
+  const type = String(field.type || '').toUpperCase();
+  if (!SUMMABLE_TYPES.includes(type)) return false;
+  const label = `${field.id || ''} ${field.name || ''}`.toLowerCase().replace(/[^a-z]+/g, ' ');
+  return !NON_ADDITIVE.test(` ${label} `);
+}
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86400000;
 
@@ -51,12 +63,13 @@ function periodOf(day, rollup) {
   return new Date(t - ((new Date(t).getUTCDay() + 6) % 7) * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** Sum summable measures per period and per text dimension. A blank measure
+/** Sum additive measures per period and per text dimension. A blank measure
  * stays blank (null) when every row in the group is blank: blank is not zero. */
 export function rollupRows(rows, { fields, catalog, rollup }) {
-  const typeOf = new Map(catalog.map(f => [f.id, f.type]));
-  const dims = fields.filter(f => f !== 'date' && !SUMMABLE_TYPES.includes(typeOf.get(f)));
-  const measures = fields.filter(f => SUMMABLE_TYPES.includes(typeOf.get(f)));
+  const byId = new Map(catalog.map(f => [f.id, f]));
+  const additive = f => byId.has(f) && isAdditive(byId.get(f));
+  const dims = fields.filter(f => f !== 'date' && !additive(f));
+  const measures = fields.filter(additive);
   const groups = new Map();
   for (const row of rows) {
     const day = typeof row.date === 'string' ? row.date.slice(0, 10) : null;
@@ -84,9 +97,13 @@ export function rollupRows(rows, { fields, catalog, rollup }) {
 }
 
 async function readJson(fetchImpl, url, timeoutMs = LIVE_TIMEOUT_MS) {
+  let diagnostic = 'The source could not return a bounded response in time. Try fewer fields or a shorter range.';
   try {
     const res = await fetchImpl(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok || Number(res.headers.get('content-length')) > LIVE_BYTE_LIMIT) {
+      if ([401, 403].includes(res.status)) diagnostic = 'Windsor refused access to this source. Check source availability and authorization; a catalog listing does not guarantee access.';
+      if ([400, 422].includes(res.status)) diagnostic = 'The source rejected this request. Check the field/report combination and date range; field discovery does not guarantee compatibility.';
+      if (res.status === 429) diagnostic = 'Windsor rate limited this request. Retry later.';
       await res.body?.cancel();
       throw new Error('Source response unavailable or too large');
     }
@@ -106,7 +123,7 @@ async function readJson(fetchImpl, url, timeoutMs = LIVE_TIMEOUT_MS) {
     } finally { reader.releaseLock(); }
   } catch (_) {
     // Never echo vendor text, URLs, keys, headers or raw transport errors.
-    throw new Error('The source could not return a bounded response in time. Try fewer fields or a shorter range.');
+    throw new Error(diagnostic);
   }
 }
 
@@ -145,10 +162,15 @@ export async function liveQuery({ connection, fields, datePreset, dateFrom, date
   const allowed = new Set(catalog.map(f => f.id));
   if (!parsed.value.every(f => allowed.has(f))) throw new Error('A requested field is not offered by this source. Describe the connection again.');
   if (rolled) {
-    const typeOf = new Map(catalog.map(f => [f.id, f.type]));
-    const unsummable = parsed.value.filter(f => typeOf.get(f) === 'PERCENT');
-    if (unsummable.length) throw new Error(`These fields are rates and cannot be added up: ${unsummable.join(', ')}. Request the underlying counts and divide the totals.`);
-    if (!parsed.value.some(f => SUMMABLE_TYPES.includes(typeOf.get(f)))) throw new Error('A rollup needs at least one numeric field to total.');
+    // Counts and currency may be totalled. Rates, averages, balances and
+    // distinct counts may not, so they are refused before any data request
+    // rather than silently turned into a meaningless sum.
+    const byId = new Map(catalog.map(f => [f.id, f]));
+    const unsummable = parsed.value.filter(f => f !== 'date' && SUMMABLE_TYPES.includes(String(byId.get(f)?.type || '').toUpperCase()) && !isAdditive(byId.get(f)));
+    const percent = parsed.value.filter(f => String(byId.get(f)?.type || '').toUpperCase() === 'PERCENT');
+    const refused = [...new Set([...percent, ...unsummable])];
+    if (refused.length) throw new Error(`These fields are rates, averages, balances or distinct counts and cannot be added up: ${refused.join(', ')}. Request the underlying counts and divide the totals.`);
+    if (!parsed.value.some(f => byId.has(f) && isAdditive(byId.get(f)))) throw new Error('A rollup needs at least one additive numeric field to total.');
   }
   const url = new URL(`${WINDSOR_CONNECTORS}/${source}`);
   const window = range.preset ? { date_preset: range.preset } : { date_from: range.from, date_to: range.to };
@@ -176,11 +198,13 @@ export async function liveQuery({ connection, fields, datePreset, dateFrom, date
     size += chars; output.push(selected);
   }
   const common = { connection_id:connection.id, source:connection.source, fields:parsed.value, ...window,
-    fetched_at:new Date().toISOString(), rows:output, persisted:false };
+    fetched_at:new Date().toISOString(), rows:output, persisted:false, completeness_status:'unverified',
+    result_status: rows.length ? 'rows_returned' : 'empty',
+    diagnostics: rows.length ? [] : ['No rows were returned. This does not mean zero. Check the date range, account history and field/report combination; the source did not identify the cause.'] };
   if (rolled) {
     return { ...common, rollup, source_rows:rows.length, groups:shaped.length, shown:output.length,
       maybe_truncated: output.length < shaped.length,
-      completeness:'Totals cover every row the source returned for this range. A blank (null) measure means the source had no value for it in that period; it is not zero. Rates must be recomputed from totals, never summed. days_with_rows shows partial periods at the edges of the range.' };
+      completeness:'Totals cover every row the source returned for this range. Additivity is judged from the field\'s type and name, not from a per-source contract, so check an unfamiliar field before relying on its total. A blank (null) measure means the source had no value for it in that period; it is not zero. Rates must be recomputed from totals, never summed. days_with_rows shows partial periods at the edges of the range.' };
   }
   return { ...common, rollup:'none', returned:rows.length, shown:output.length,
     maybe_truncated: rows.length >= PREVIEW_MAX_ROWS || output.length < rows.length,
@@ -189,8 +213,12 @@ export async function liveQuery({ connection, fields, datePreset, dateFrom, date
 
 export function describeLiveFields(fields, { search = '', offset = 0 } = {}) {
   const term = search.toLowerCase();
-  const found = fields.filter(f => `${f.id} ${f.name}`.toLowerCase().includes(term));
+  const found = fields.filter(f => `${f.id} ${f.name} ${f.table || ''}`.toLowerCase().includes(term));
   const page = found.slice(offset, offset+100);
-  return { fields:page, total_fields:found.length, next_offset: offset+page.length < found.length ? offset+page.length : null,
+  return { fields:page, aggregation:'additive_fields_only',
+    compatibility:'Report groups are discovery hints, not proof that fields can be combined. Start with one report group and required account identity.',
+    additive_fields:page.filter(isAdditive).map(f => f.id),
+    aggregation_note:'Only the fields listed in additive_fields (of this page) can be rolled up. Rates, averages, balances and distinct counts are refused; recompute them from totals.',
+    report_groups:[...new Set(fields.map(f => f.table).filter(Boolean))].sort(), total_fields:found.length, next_offset: offset+page.length < found.length ? offset+page.length : null,
     suggested_fields:previewDefaults(fields), account_identity:'account_id must match the published account', persisted:false };
 }

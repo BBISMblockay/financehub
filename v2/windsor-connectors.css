@@ -1,0 +1,37 @@
+/* Windsor uses SILO's existing Beacon tokens and controls. */
+.silo-main { gap: 20px; }
+.bcn-header-title { margin: 0 0 6px; }
+.bcn-card-header { gap: 12px; flex-wrap: wrap; }
+.wt-capabilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--bcn-border); }
+.wt-capabilities strong { font-size: 13px; }
+.wt-capabilities p { color: var(--bcn-ink-3); font-size: 13px; line-height: 1.6; margin: 6px 0 0; }
+#sourceList { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; max-height: 310px; padding: 3px; }
+#sourceList button { justify-content: flex-start; min-height: 58px; border: 1px solid var(--bcn-border); border-radius: 8px; text-align: left; white-space: normal; gap: 10px; }
+#sourceList button[aria-pressed="true"] { background: var(--bcn-accent-soft, #eef2ff); outline-offset: -2px; }
+#sourceList button svg, #sourceList button .bcn-pill { flex-shrink: 0; }
+.wt-row .bcn-field-group { flex: 1; }
+.wt-scroll { max-width: 100%; }
+#accounts td { vertical-align: top; overflow-wrap: anywhere; min-width: 120px; }
+#accounts td:last-child { min-width: 180px; }
+#accounts button { margin: 4px 4px 0 0; }
+.wt-access-state { font-size: 12px; margin-bottom: 4px; }
+#fieldList { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); padding: 3px; }
+.wt-field-option { display: flex; gap: 8px; align-items: flex-start; min-width: 0; border: 1px solid var(--bcn-border); border-radius: 8px; padding: 10px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.wt-field-option:focus-within, button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
+.wt-field-option input { margin-top: 3px; flex-shrink: 0; }
+.wt-summary { font-family: inherit; line-height: 1.6; padding: 12px; background: var(--bcn-bg); border-radius: 8px; }
+@media (max-width: 700px) {
+  .wt-capabilities { grid-template-columns: 1fr; gap: 14px; }
+  .wt-row { align-items: stretch; }
+  .wt-row .bcn-field-group { min-width: 100%; }
+  #sourceList { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #sourceList button { font-size: 12px; }
+  #fieldList { grid-template-columns: 1fr; }
+  .bcn-header-actions { margin-top: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+.wt-account-id { color: var(--bcn-ink-3); font-size: 12px; margin-top: 4px; }
+.wt-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+#accounts td:last-child { min-width: 220px; }
+#accounts td:nth-child(4) button { display: block; }

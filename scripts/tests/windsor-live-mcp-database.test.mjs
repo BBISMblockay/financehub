@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 const mutation=process.env.WINDSOR_LIVE_MUTATION || '';
-const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity','rollup-cap','rollup-percent','rollup-blank','range-limit'];
+const mutations=['identity','tail','reauthorize','scope','rls','published','default','client-execute','idle-touch','idle-predicate','resolver-publication','verify-activity','rollup-cap','rollup-nonadditive','rollup-blank','range-limit'];
 assert.ok(!mutation || mutations.includes(mutation),'known mutation');
 function replaceOnce(text,from,to){assert.ok(text.includes(from),'mutation target exists');return text.replace(from,to);}
 const temp=mkdtempSync(`${tmpdir()}/windsor-live-`);
@@ -18,7 +18,7 @@ let provider=readFileSync(`${temp}/mcp/windsor-live.mjs`,'utf8');
 if(mutation==='identity') provider=replaceOnce(provider,'if (foreign || unattributed)','if (false)');
 if(mutation==='tail') provider=replaceOnce(provider,'filterRowsToAccount(rows,','filterRowsToAccount(rows.slice(0, 200),');
 if(mutation==='rollup-cap') provider=replaceOnce(provider,'if (rolled && rows.length >= sourceCap)','if (false)');
-if(mutation==='rollup-percent') provider=replaceOnce(provider,"filter(f => typeOf.get(f) === 'PERCENT')","filter(() => false)");
+if(mutation==='rollup-nonadditive') provider=replaceOnce(provider,'return !NON_ADDITIVE.test(` ${label} `);','return true;');
 if(mutation==='rollup-blank') provider=replaceOnce(provider,'measures.map(m => [m, null])','measures.map(m => [m, 0])');
 if(mutation==='range-limit') provider=replaceOnce(provider,'> LIVE_RANGE_MAX_DAYS)','> 100000)');
 writeFileSync(`${temp}/mcp/windsor-live.mjs`,provider);
@@ -90,7 +90,7 @@ insert into windsor_linked_accounts(id,company_entity_id,link_id,ds_id,account_i
  ('${OFF}','${A}','${CA}','youtube','unpublished','Not published',false);
 `);
 let calls=[], mode='valid', expectedAccount='account-a';
-const fields=[{id:'account_id',type:'TEXT'},{id:'date',type:'DATE'},{id:'subject',name:'Subject',type:'TEXT'},{id:'value',type:'NUMERIC'},{id:'rate',type:'PERCENT'}];
+const fields=[{id:'account_id',type:'TEXT'},{id:'date',type:'DATE'},{id:'subject',name:'Subject',type:'TEXT'},{id:'value',type:'NUMERIC'},{id:'rate',type:'PERCENT'},{id:'unique_users',name:'Unique users',type:'NUMERIC'}];
 async function rpcFetch(url,init) {
   assert.equal(init.headers.Authorization,token,'fixture signature/issuer verification');
   assert.equal(init.headers.apikey,'anon-key');
@@ -133,7 +133,7 @@ async function fetchImpl(url,init) {
   if(mode==='huge-row') rows=[{...rows[0],subject:'x'.repeat(25000)}];
   if(mode==='series'||mode==='series-cap'){
     lastRange={from:u.searchParams.get('date_from'),to:u.searchParams.get('date_to'),preset:u.searchParams.get('date_preset'),max:u.searchParams.get('_max_rows')};
-    const r=(date,subject,value)=>({account_id:expectedAccount,date,subject,value,rate:0.5});
+    const r=(date,subject,value)=>({account_id:expectedAccount,date,subject,value,rate:0.5,unique_users:7});
     rows=[r('2025-10-01','A',1),r('2025-10-15','B',2),r('2025-11-03','A',4),r('2026-09-30','A',null),r('2026-10-02','A',null),r('2026-10-03','B','5')];
     if(mode==='series-cap') rows=Array.from({length:Number(lastRange.max)},()=>r('2025-10-01','A',1));
   }
@@ -181,7 +181,8 @@ await check('a two-year range rolls up by month over every source row, and a bla
  mode='series';calls=[];const r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'month'});
  assert.deepEqual(lastRange,{from:'2025-10-01',to:'2026-10-31',preset:null,max:'20000'});
  assert.deepEqual(r.data.rows.map(g=>[g.period,g.value,g.days_with_rows]),[['2025-10',3,2],['2025-11',4,1],['2026-09',null,1],['2026-10',5,2]]);
- assert.equal(r.data.source_rows,6);assert.equal(r.data.persisted,false);assert.equal(r.data.rollup,'month');mode='valid';
+ assert.equal(r.data.source_rows,6);assert.equal(r.data.persisted,false);assert.equal(r.data.rollup,'month');
+ assert.equal(r.data.completeness_status,'unverified');mode='valid';
 });
 await check('text fields split the totals; week periods start on Monday; total ignores dates',async()=>{
  mode='series';let r=await tool('query_connection',{...yoy,fields:['date','subject','value'],rollup:'total'});
@@ -189,9 +190,13 @@ await check('text fields split the totals; week periods start on Monday; total i
  r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'week'});
  assert.equal(r.data.rows[0].period,'2025-09-29');assert.equal(r.data.rows[0].value,1);mode='valid';
 });
-await check('percent fields cannot be summed: refused before any data request',async()=>{
- mode='series';calls=[];const r=await tool('query_connection',{...yoy,fields:['date','value','rate'],rollup:'month'});
- assert.equal(r.body.result.isError,true);assert.match(r.raw,/rate/);assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')));mode='valid';
+await check('rates and distinct counts cannot be summed, whatever their type: refused before any data request',async()=>{
+ for (const field of ['rate','unique_users']) {
+  mode='series';calls=[];const r=await tool('query_connection',{...yoy,fields:['date','value',field],rollup:'month'});
+  assert.equal(r.body.result.isError,true);assert.match(r.raw,new RegExp(field));
+  assert.match(r.raw,/cannot be added up/);assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')));
+ }
+ mode='valid';
 });
 await check('a capped source response is refused, never returned as a partial total',async()=>{
  mode='series-cap';const r=await tool('query_connection',{...yoy,fields:['date','value'],rollup:'total'});
@@ -201,9 +206,12 @@ for(const [label,extra] of [['preset and range together',{date_preset:'last_7d'}
   ['future end',{date_to:'2099-01-01'}],['over 800 days',{date_from:'2020-01-01'}],['malformed date',{date_from:'2025-13-40'}],
   ['only one end',{date_to:undefined}],['unknown rollup',{rollup:'year'}],['day rollup without date',{fields:['value'],rollup:'day'}]]){
  await check(`invalid window refused with no data request: ${label}`,async()=>{
-  mode='series';calls=[];const args={...yoy,fields:['date','value'],rollup:'month',...extra};
+  // Exercise date guards on the supported raw path. A refused rollup would
+  // mask a missing range guard by failing for an unrelated reason.
+  mode='series';calls=[];const args={...yoy,fields:['date','value'],rollup:'none',...extra};
   for(const k of Object.keys(args)) if(args[k]===undefined) delete args[k];
   const r=await tool('query_connection',args);assert.equal(r.body.result.isError,true);
+  if (label === 'over 800 days') assert.match(r.raw,/at most 800 days/);
   assert.ok(calls.every(c=>c.url.pathname.endsWith('/fields')),'no data call');mode='valid';
  });
 }
