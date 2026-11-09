@@ -27,6 +27,7 @@ export function classify(v, {ownHosts=[]}={}) {
   const result=(channel,reason)=>({channel,reason,source:u.source||v.source||'',medium:u.medium||'',campaign:u.campaign||'',ad:u.content||'',adset:u.term||''});
   if(s==='website'||m==='internal'||ownHosts.has(host)||ignoreHosts.test(host))return result(null,'Internal or checkout referral excluded');
   if(s==='redo'&&/^(email|sms)$/.test(m))return result('Redo '+(m==='email'?'Email':'SMS'),'Explicit Redo source and medium');
+  if(s==='klaviyo'&&/^(email|sms)$/.test(m))return result('Klaviyo '+(m==='email'?'Email':'SMS'),'Explicit Klaviyo source and medium');
   if(s==='attentive'&&/sms/.test(m))return result('Attentive SMS','Explicit Attentive SMS UTM');
   if(s==='attentive'&&/email/.test(m))return result('Attentive Email','Explicit Attentive email UTM');
   if(/^(facebook|fb|instagram|ig|meta)$/.test(s)&&/paid|cpc|ppc/.test(m))return result('Meta Ads','Explicit Meta paid UTM');

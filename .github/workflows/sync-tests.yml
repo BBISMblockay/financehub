@@ -63,6 +63,10 @@ on:
       # The Klaviyo install page (klaviyo-install.test.mjs executes its module).
       - 'v2/klaviyo-install.html'
       - 'v2/klaviyo-install.js'
+      # The Klaviyo SILO reports, and the connector migration they lift their
+      # views from: klaviyo-silo-reports-database.test.mjs reads the REAL view
+      # definitions, so a renamed view column must run this suite too.
+      - 'supabase/migrations/*klaviyo_silo_reports.sql'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -1773,6 +1777,26 @@ jobs:
       # periods blank the comparison -- plus every tie-out. Mutation-tested.
       - name: Execute SEO report regressions
         run: node scripts/tests/seo-silo-report-database.test.mjs
+
+      # 20261109210000: the three Klaviyo SILO reports. Klaviyo stores a
+      # campaign only as a TOTAL over a measurement window and several windows
+      # for the same campaign, so the whole suite is about holding each message
+      # ONCE (summing windows double counts the same sends), SMS having no
+      # opens, a zero denominator staying blank, and the daily trend being
+      # flows only because Klaviyo has no campaign series endpoint. It runs the
+      # deployed report SQL through the REAL views lifted from the connector
+      # migration. Mutation-tested.
+      - name: Execute Klaviyo report regressions
+        run: |
+          set -u
+          node scripts/tests/klaviyo-silo-reports-database.test.mjs
+          for m in sum-windows narrowest-window sms-opens zero-not-blank \
+                   trend-unbounded split-sums-windows no-guard \
+                   metric-mixed trend-mixes-metrics perf-no-recon; do
+            if KLAVIYO_REPORTS_MUTATION="$m" node scripts/tests/klaviyo-silo-reports-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
 
       # 20261030060000 + 20261030080000: work-queue SILO reports (Open work,
       # now with On Deck drafts, Launches next 30 days, Accounting close status). Runs the deployed SQL as a non-owner

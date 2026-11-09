@@ -157,6 +157,58 @@ Sending `page[size]` to `/api/metrics` returns **400** with
 SILO bug, not a bad key, and the connection test says so in those words
 rather than telling an admin to replace a working credential.
 
+## Reports
+
+Three system reports, built from the Redo Email & SMS pair's definitions so the
+columns and the rate rules read the same (`20261109210000`):
+
+| Report | Grain | Notes |
+|---|---|---|
+| Email & SMS Performance (Klaviyo) | message, channel, conversion metric | the WIDEST stored window whose end is in the period, bounds shown |
+| Email & SMS Revenue Trend (Klaviyo flows) | day, conversion metric | flows only -- there is no campaign series endpoint |
+| Email vs SMS (Klaviyo) | channel, conversion metric | the same one-window pick, so it agrees with Performance |
+
+**Per vendor, never merged with Redo's.** Redo credits revenue by its own rules;
+Klaviyo attributes against the account's conversion metric. A combined report
+would sum two vendors' attribution for a company running both and double count
+the same orders.
+
+**Why Performance picks one window instead of summing.** A campaign exists only
+as a total over a measurement window, and SILO stores several for the same
+campaign (the nightly's trailing 60 days, a backfill's year). Adding them double
+counts the same sends, so the report shows one measurement and names its bounds.
+A tie-out asserts one row per message, channel and metric, which is what catches
+a regression back to summing, and a second tie-out reconciles the money a
+different way -- the base tables with a window function, where the report uses
+the view with `DISTINCT ON`. The row count alone would pass a wrong value.
+
+**The conversion metric is part of every grain.** Klaviyo requires a
+`conversion_metric_id` on every report request, and the account can change which
+metric that is. Two measurements under different metrics are counts of DIFFERENT
+events, so a message measured under both is two labelled rows: summing them
+double counts, and picking one arbitrarily drops a real measurement without
+saying so. If a report shows a message twice, look at the metric column before
+calling it a duplicate.
+
+## The attribution page
+
+`/v2/silo-attribution.html` does NOT use Klaviyo's numbers. It classifies visits
+from Shopify journeys by their UTMs, so Klaviyo sends land there through
+`utm_source=klaviyo` -- as their own channels since 2026-11-09, and before that
+in the generic "Email -- Other" / "SMS -- Other" buckets.
+
+**The two pages will not agree, and both are right.** Klaviyo credits an order to
+a send by its conversion metric and lookback; SILO credits it to the last touch
+it observed. Never add them.
+
+**Klaviyo is not in the spend strip**, and cannot be until the account's currency
+is stored: `redo_marketing_daily` carries `spend_currency` per row and
+`klaviyo_flow_daily` carries none, so counting it would mean assuming dollars.
+Klaviyo's account endpoint returns the currency and the sync already reads that
+response for the timezone, so the fix is a column plus a sync change. Also note
+Klaviyo reports SMS sending cost by day for FLOWS only, and charges for email by
+plan rather than per send, so a Klaviyo Email spend row would never exist.
+
 ## The first sync, and how deep it goes
 
 Three doors, all of them the same core:
