@@ -884,8 +884,17 @@ jobs:
       # 303%). Guards the pooling, the campaign that sent before the window
       # (delivered 0, revenue above it), SMS having no opens, and that the
       # card never calls Redo's credited revenue sales.
-      - name: Marketing Report Redo cards
-        run: node scripts/tests/wow-redo-marketing.test.mjs
+      - name: Marketing Report email / SMS cards
+        run: |
+          set -u
+          node scripts/tests/wow-redo-marketing.test.mjs
+          for m in per-day-rates ignore-channel zero-rate sms-opens no-cap \
+                   usd-always stale-company \
+                   klaviyo-widest klaviyo-no-vendor klaviyo-metric-merged; do
+            if WOW_REDO_MUTATION="$m" node scripts/tests/wow-redo-marketing.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
 
       # The backfill that reaches ads the nightly never asks about (it fetches
       # creatives only for ad ids inside its trailing window, which is why 126

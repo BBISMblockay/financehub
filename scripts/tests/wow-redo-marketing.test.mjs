@@ -42,13 +42,16 @@ import vm from 'node:vm';
 const PAGE = new URL('../../v2/wow-report.html', import.meta.url);
 const mutation = process.env.WOW_REDO_MUTATION || '';
 assert.ok(['', 'per-day-rates', 'ignore-channel', 'zero-rate', 'sms-opens', 'no-cap',
-  'usd-always', 'stale-company'].includes(mutation),
+  'usd-always', 'stale-company',
+  'klaviyo-widest', 'klaviyo-no-vendor', 'klaviyo-metric-merged'].includes(mutation),
   `Unknown mutation ${mutation}`);
 
 const pristine = await readFile(PAGE, 'utf8');
 let html = pristine;
 if (mutation === 'ignore-channel') {
-  html = html.replace('const key = `${r.redo_id}|${r.channel}`;', 'const key = `${r.redo_id}`;');
+  html = html.replace(
+    "const key = `${r.redo_id}|${r.channel}|${r.revenue_currency || ''}|${r.spend_currency || ''}`;",
+    "const key = `${r.redo_id}|${r.revenue_currency || ''}|${r.spend_currency || ''}`;");
 } else if (mutation === 'zero-rate') {
   html = html.replace(
     `    const rate = (num, den) => den > 0
@@ -70,6 +73,20 @@ if (mutation === 'ignore-channel') {
   html = html.replace(
     '        _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb) || null;',
     '        await window.__SILO_CONFIG__?.ensureActiveCompany?.(sb);');
+} else if (mutation === 'klaviyo-widest') {
+  // The WIDEST window instead of the narrowest: a year's total read as this
+  // week's. The page wants the measurement closest to the period.
+  html = html.replace(
+    'if (held && !(span(r) < held._span || (span(r) === held._span && day(r.timeframe_end) > held._end))) return;',
+    'if (held && !(span(r) > held._span || (span(r) === held._span && day(r.timeframe_end) > held._end))) return;');
+} else if (mutation === 'klaviyo-no-vendor') {
+  html = html.replace(
+    "const chan = `<td>${esc(g.vendor || '')}</td><td>${esc(g.channel || '')}</td>`;",
+    "const chan = `<td>${esc(g.channel || '')}</td>`;");
+} else if (mutation === 'klaviyo-metric-merged') {
+  html = html.replace(
+    "const key = `${r.klaviyo_id}|${r.channel || ''}|${r.conversion_metric_id || ''}`;",
+    "const key = `${r.klaviyo_id}|${r.channel || ''}`;");
 } else if (mutation === 'per-day-rates') {
   // Average each day's own rate instead of pooling the counts, which is the
   // mistake the view's own catalog entry warns about.
@@ -158,7 +175,7 @@ function makeSandbox() {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  new vm.Script(`${HELPERS}\n${lift('groupRedo')}\n${lift('renderRedo')}\n${lift('fetchRedo')}`)
+  new vm.Script(`${HELPERS}\n${lift('groupRedo')}\n${lift('groupKlaviyo')}\n${lift('renderRedo')}\n${lift('fetchRedo')}`)
     .runInContext(sandbox);
   return sandbox;
 }
@@ -218,7 +235,9 @@ assert.equal(grouped.campaigns.map((g) => g.redo_id).join(','), 'c0,c1s,c1',
 
   // Totals and the footnote: credited, never sales.
   const totals = sb.nodes.get('redoCampTotals').innerHTML;
-  assert.match(totals, /credited by Redo/i, 'the totals must say the revenue is credited by Redo');
+  // The tables carry two vendors now, so the totals say "the vendors" rather
+  // than naming one -- but they must still say the revenue is CREDITED.
+  assert.match(totals, /credited by the vendors/i, 'the totals must say the revenue is credited, not earned');
   const note = sb.nodes.get('redoNote');
   assert.equal(note.hidden, false, 'the caveat footnote must be visible');
   assert.match(note.innerHTML, /not incremental/i,
@@ -389,6 +408,10 @@ assert.equal(grouped.campaigns.map((g) => g.redo_id).join(','), 'c0,c1s,c1',
     REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP, REDO_SHOW,
     _co: { id: 'company-A' },
     groupRedo: () => ({ campaigns: [], automations: [] }),
+    groupKlaviyo: () => ({ campaigns: [], automations: [] }),
+    // Scoping is asserted on the Redo read; the Klaviyo read is scoped by the
+    // same `_co.id` line and is stubbed so a failure here is unambiguous.
+    fetchKlaviyo: async () => ({ data: [], error: null }),
     render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
     async loadEntry() {},
     window: { __SILO_CONFIG__: {
@@ -415,3 +438,72 @@ ${loadSrc}`).runInContext(sandbox);
 }
 
 console.log('wow-redo-marketing: all assertions passed');
+
+// ── The second vendor on the same cards ────────────────────────────────────
+// Klaviyo cannot be cut to a date range: it reports a campaign only as a
+// total over a measurement window, and SILO holds several windows for the
+// same message. This page takes the NARROWEST window ending inside the report
+// period -- the measurement closest to what is being reported on -- and says
+// so in the row, because a year's total read as this week's is the failure
+// that matters here.
+{
+  const kRow = (over) => ({
+    kind: 'campaign', klaviyo_id: 'k1', message_name: 'Klaviyo launch', parent_name: null,
+    channel: 'email', conversion_metric_id: 'MET1',
+    timeframe_start: '2026-10-19', timeframe_end: '2026-10-25',
+    recipients: 0, delivered: 0, opens_unique: 0, clicks_unique: 0,
+    unsubscribe_uniques: 0, conversions: 0, conversion_value: 0, text_message_spend: 0, ...over,
+  });
+  const K_FIXTURE = [
+    // The week, and the SAME campaign inside a year-long backfill window that
+    // also ends in the period. One of them is this week; the other is not.
+    kRow({ recipients: 400, delivered: 390, opens_unique: 150, clicks_unique: 20,
+           conversions: 5, conversion_value: 500, unsubscribe_uniques: 2 }),
+    kRow({ timeframe_start: '2025-10-25', recipients: 9999, delivered: 9999,
+           opens_unique: 9999, clicks_unique: 9999, conversions: 999, conversion_value: 99999 }),
+    // The same campaign measured against a second conversion metric: counts of
+    // different events, so a second labelled row and never one sum.
+    kRow({ conversion_metric_id: 'MET2', recipients: 400, delivered: 390,
+           conversions: 2, conversion_value: 120 }),
+    kRow({ kind: 'flow_message', klaviyo_id: 'kf1', message_name: 'Welcome 2',
+           parent_name: 'Welcome flow', channel: 'sms', recipients: 60, delivered: 59,
+           clicks_unique: 4, conversions: 3, conversion_value: 80, text_message_spend: 1.5 }),
+  ];
+  const kb = makeSandbox();
+  const kGrouped = vm.runInContext('groupKlaviyo(__rows)', Object.assign(kb, { __rows: K_FIXTURE }));
+
+  const camps = kGrouped.campaigns.filter((g) => g.redo_id === 'k1');
+  assert.equal(camps.length, 2, 'two conversion metrics are two rows, never one sum');
+  const met1 = camps.find((g) => g.metric === 'MET1');
+  assert.equal(met1.revenue, 500, 'the narrowest window ending in the period, not the year');
+  assert.equal(met1.delivered, 390);
+  assert.equal(met1.measured, '2026-10-19 \u2192 2026-10-25', 'the row must name the window it measured');
+  assert.equal(met1.vendor, 'Klaviyo');
+  assert.equal(met1.revenue_currency, 'USD', 'Klaviyo reports none; USD is assumed and labelled');
+  const flow = kGrouped.automations.find((g) => g.redo_id === 'kf1');
+  assert.ok(flow, 'a Klaviyo flow message belongs with the automations');
+  assert.equal(flow.spend, 1.5, "SMS sending cost is the vendor's own, not ad spend");
+
+  // Rendered beside Redo's rows, on the same cards.
+  kb.REDO = {
+    campaigns: [...grouped.campaigns, ...kGrouped.campaigns],
+    automations: [...grouped.automations, ...kGrouped.automations],
+  };
+  vm.runInContext('renderRedo()', kb);
+  const camp = kb.nodes.get('redoCampBody').innerHTML;
+  const auto = kb.nodes.get('redoAutoBody').innerHTML;
+  assert.match(camp, /Klaviyo launch/, 'the Klaviyo campaign must be drawn');
+  assert.match(camp, /Email \| Launch/, "and Redo's rows must still be there");
+  assert.match(camp, /<td>Klaviyo<\/td>/, 'every row must carry its vendor');
+  assert.match(camp, /<td>Redo<\/td>/);
+  assert.match(camp, /2026-10-19 \u2192 2026-10-25/, 'a Klaviyo row shows the window it measured');
+  assert.ok(!/99,999|99999/.test(camp), 'the year-long window must never reach the card');
+  assert.match(camp, /MET1/, 'the conversion metric is on the row');
+  assert.match(auto, /Welcome 2/, 'the Klaviyo flow must be drawn with the automations');
+
+  const note = kb.nodes.get('redoNote');
+  assert.match(note.innerHTML, /never add two/i, 'the footnote must forbid adding two vendors together');
+  assert.match(note.innerHTML, /assumed USD/i, 'and must say the Klaviyo currency is assumed');
+}
+
+console.log('wow-redo-marketing: Klaviyo assertions passed');
