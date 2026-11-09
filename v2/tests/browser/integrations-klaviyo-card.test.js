@@ -9,6 +9,7 @@
  * Mutations (each must fail at least one assertion):
  *   KLAVIYO_CARD_MUTATION=no-found     the card stops saying what was synced
  *   KLAVIYO_CARD_MUTATION=hard-count   a failed audience count hides the whole line
+ *   KLAVIYO_CARD_MUTATION=redraw       the counts redraw the whole row, losing what the admin typed
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -17,7 +18,8 @@ const assert = require('node:assert/strict');
 const R = createReporter('integrations-klaviyo-card');
 
 const MUTATIONS = {
-  'no-found': ['if (found) renderKlaviyoConnection(data, found);', ''],
+  'no-found': ['if (found && slot && load === _klaviyoLoad) {', 'if (false) {'],
+  'redraw': ["        const slot = document.querySelector('[data-klaviyo-found]');", "        renderKlaviyoConnection(data);\n        const slot = document.querySelector('[data-klaviyo-found]');"],
   'hard-count': ["count('klaviyo_audiences').catch(() => null),", "count('klaviyo_audiences'),"],
 };
 const MUT = process.env.KLAVIYO_CARD_MUTATION || '';
@@ -70,6 +72,22 @@ const transform = (rel, source) => {
     R.has(bareLine, '2 campaigns', 'one failed count must not hide the others');
     R.not(bareLine, 'lists');
     await bare.close();
+
+    // The counts arrive while an admin is already typing a replacement key.
+    // They go into their own line; the row, and what was typed, survive.
+    const keyed = { ...tables, klaviyo_connections: [{ ...tables.klaviyo_connections[0], auth_mode: 'api_key' }] };
+    const slow = await suite.open('/v2/integrations.html', keyed, { ready, rpc: { is_admin_user: true }, gateTables: ['klaviyo_messages'] });
+    const keyInput = slow.locator('#klaviyo-connections-list input[type="password"]');
+    await keyInput.fill('pk_typed_not_saved_yet');
+    await slow.evaluate(() => { document.querySelector('#klaviyo-connections-list tr').dataset.probe = 'kept'; });
+    R.eq(await slow.evaluate(found), '', 'the counts are still in flight');
+    await slow.evaluate(() => window.__RELEASE_TABLE__('klaviyo_messages'));
+    await slow.waitForFunction(() => !!document.querySelector('[data-klaviyo-found]')?.textContent, null, { timeout: 8000 }).catch(() => {});
+    R.has(await slow.evaluate(found), '2 campaigns');
+    R.eq(await slow.evaluate(() => document.querySelector('#klaviyo-connections-list tr')?.dataset.probe || null), 'kept',
+      'the counts must not redraw the row');
+    R.eq(await keyInput.inputValue(), 'pk_typed_not_saved_yet', 'a key being typed must survive the counts arriving');
+    await slow.close();
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

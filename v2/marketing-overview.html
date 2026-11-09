@@ -1111,13 +1111,17 @@
       return false;
     });
   }
+  // Says only what is known. A missing measurement in THIS window is not
+  // "never sent": a live flow may have been measured in an older window.
+  // Only a campaign Klaviyo reports as a draft, or one with no send time, is
+  // known not to have been sent.
   function unmeasuredLabel(m){
     const st=String(m.status||'').toLowerCase();
     const d=String(m.send_time||'').slice(0,10);
-    if(m.kind==='flow_message')return 'Live · no sends yet';
-    if(!m.send_time||st==='draft')return `${st?st[0].toUpperCase()+st.slice(1):'Not sent'} · no sends yet`;
+    if(m.kind==='flow_message')return 'Live · no measurement in this window';
+    if(!m.send_time||st==='draft')return `${st&&st!=='draft'?st[0].toUpperCase()+st.slice(1)+' · ':'Draft · '}not sent yet`;
     if(st==='scheduled'||st==='queued')return `Scheduled ${d}`;
-    return `Sent ${d} · no sends measured`;
+    return `Sent ${d} · no measurement in this window`;
   }
   function renderRedo(){
     el('redoFocus').hidden=!focusedRedo && !focusedKlaviyo;

@@ -3255,6 +3255,9 @@
     // a stale copy would offer a metric that no longer exists.
     let _klaviyoMetrics = [];
 
+    // Bumped by every load, so a slow count from an older load never writes
+    // into the card a newer load drew.
+    let _klaviyoLoad = 0;
     async function loadKlaviyoConnection() {
       const { data, error } = await db
         .from('klaviyo_connections')
@@ -3273,12 +3276,20 @@
         setStatus('Failed to load the Klaviyo connection: ' + error.message, 'neg');
         return;
       }
+      const load = ++_klaviyoLoad;
       renderKlaviyoConnection(data || null);
       _summaryState.klaviyo = data || null;
       updateSummaryBand();
       if (data?.last_synced_at) {
         const found = await klaviyoSyncedSummary();
-        if (found) renderKlaviyoConnection(data, found);
+        // Only into its own element, never by redrawing the row: an admin may
+        // already be typing a replacement key or changing the metric. And
+        // only if no newer load has redrawn the card since this one began.
+        const slot = document.querySelector('[data-klaviyo-found]');
+        if (found && slot && load === _klaviyoLoad) {
+          slot.textContent = `Synced ${found}`;
+          slot.hidden = false;
+        }
       }
     }
 
@@ -3333,7 +3344,7 @@
         : '<span class="bcn-pill">Tested — sync off</span>';
     }
 
-    function renderKlaviyoConnection(row, found = '') {
+    function renderKlaviyoConnection(row) {
       const tbody = document.getElementById('klaviyo-connections-list');
       const addBtn = document.getElementById('btn-add-klaviyo');
       const oauthBtn = document.getElementById('btn-connect-klaviyo');
@@ -3389,7 +3400,7 @@
           </label>
           <div style="margin-top:6px;">${klaviyoStatusCell(row)}</div>
         </td>
-        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}${found ? `<div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);" data-klaviyo-found>Synced ${escHtml(found)}</div>` : ''}</td>
+        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}<div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);" data-klaviyo-found hidden></div></td>
         <td>
           <button class="int-btn" onclick="testKlaviyoConnection()">Test</button>
           <button class="int-btn int-btn--danger" onclick="removeKlaviyoConnection()">Remove</button>
