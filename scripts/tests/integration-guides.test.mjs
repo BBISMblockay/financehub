@@ -196,7 +196,13 @@ t('Integrations loads the guides and every opener names a real guide', () => {
 });
 
 t('onboarding print document includes every side-drawer guide', () => {
-  assert.equal(G.ONBOARDING_PRINT_ORDER.length, 4);
+  // Derived, not a count: the document's whole job is to be EVERY guide, so a
+  // guide added to the side drawer and forgotten here is the failure to catch.
+  // A hardcoded number only ever says somebody updated the number.
+  assert.deepEqual(
+    [...G.ONBOARDING_PRINT_ORDER.map((o) => o.key)].sort(),
+    [...G.keys()].sort(),
+    'the print document covers every guide, and names no guide that does not exist');
   const html = G.renderOnboardingDocument({}, { generatedOn: '2026-10-05' });
   assert.match(html, /Integration setup guides/);
   assert.ok(html.includes('ig-print-cover'), 'print layout');
