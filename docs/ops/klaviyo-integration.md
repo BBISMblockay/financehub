@@ -190,6 +190,32 @@ double counts, and picking one arbitrarily drops a real measurement without
 saying so. If a report shows a message twice, look at the metric column before
 calling it a duplicate.
 
+### On the Marketing dashboard (20261109230000)
+
+Klaviyo has its own section on the system **Marketing** board, below Redo's:
+four KPI tiles (sends, attributed revenue, attributed orders, delivery rate),
+the flows-only daily revenue line, the message table, and a by-conversion-metric
+table. Redo's section is retitled "Email and SMS (Redo)", because with two
+vendors on one board "Email and SMS" no longer says whose numbers a reader is
+looking at. **Never add the two sections together** -- a company running both has
+two vendors claiming the same orders.
+
+The tiles read a fourth report, **Email & SMS Totals (Klaviyo)**
+(`c9000000-...-004`), which exists because a KPI card must show one number and a
+KPI tile SUMS its report's rows (`chart-adapter.js` `kpiHtml` ->
+`SiloMetrics.aggregate`). Klaviyo measurements are not summable across
+conversion metrics -- different events, and each metric's widest-window pick can
+be a different window, so even the sends differ. So its first query returns one
+row, the most recently measured metric (newest window end, ties by id: a stated
+rule, not an arbitrary pick), with `metrics_in_period` beside it; its second
+query is one row per metric and is what the by-metric tile shows. A tie-out
+asserts the first query is exactly one row whenever anything was measured.
+
+**The tiles live on the Marketing board, not the Executive one.** `20260925120000`
+ends by deleting every widget on the Executive dashboard that is not in its own
+list, so a tile added there by a later migration disappears the next time that
+file is re-applied. The bucket boards carry no such prune.
+
 ## The attribution page
 
 `/v2/silo-attribution.html` does NOT use Klaviyo's numbers. It classifies visits
