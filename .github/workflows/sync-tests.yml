@@ -60,6 +60,9 @@ on:
       # The nightly's own workflow: klaviyo-sync.test.mjs asserts it sends a
       # BLANK depth, which is what lets a connection's days_back still win.
       - '.github/workflows/klaviyo-sync.yml'
+      # The Klaviyo install page (klaviyo-install.test.mjs executes its module).
+      - 'v2/klaviyo-install.html'
+      - 'v2/klaviyo-install.js'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -1141,6 +1144,20 @@ jobs:
                    skip-as-success swallow-core-error skip-message-dropped \
                    no-oauth-env page-no-kick page-own-verdict; do
             if KICK_MUTATION="$m" node scripts/tests/integration-sync-kick.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # The Klaviyo-initiated install page: the URL on SILO's Klaviyo app
+      # listing, so every cold-visitor path (not signed in, no workspace, not
+      # an admin) is the page rather than an edge case.
+      - name: Klaviyo install page (module executed)
+        run: |
+          set -u
+          node scripts/tests/klaviyo-install.test.mjs
+          for m in no-login-next get-active-company auto-redirect client-id-raw \
+                   start-without-company page-no-js; do
+            if KLAVIYO_INSTALL_MUTATION="$m" node scripts/tests/klaviyo-install.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
           done
