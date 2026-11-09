@@ -117,6 +117,9 @@ function runLoad({ reportAttempts, seedFailed = [] }) {
     REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP: 20000,
     async fetchRedo() { calls.push('redo_marketing_daily_v'); return { data: [], error: null }; },
     groupRedo: () => ({ campaigns: [], automations: [] }),
+    // The same cards now carry a second vendor, read in the same batch.
+    async fetchKlaviyo() { calls.push('klaviyo_message_performance_v'); return { data: [], error: null }; },
+    groupKlaviyo: () => ({ campaigns: [], automations: [] }),
     render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
     async loadEntry() {},
     window: { __SILO_CONFIG__: { ensureActiveCompany: async () => ({ id: 'co' }) } },
@@ -234,6 +237,9 @@ function runLoad({ reportAttempts, seedFailed = [] }) {
     REDO: null, REDO_TRUNCATED: false, REDO_ROW_CAP: 20000,
     async fetchRedo() { calls.push('redo_marketing_daily_v'); return { data: [], error: null }; },
     groupRedo: () => ({ campaigns: [], automations: [] }),
+    // The same cards now carry a second vendor, read in the same batch.
+    async fetchKlaviyo() { calls.push('klaviyo_message_performance_v'); return { data: [], error: null }; },
+    groupKlaviyo: () => ({ campaigns: [], automations: [] }),
     render() {}, buildManual() {}, renderCohorts() {}, initCollapse() {},
     async loadEntry() {},
     window: { __SILO_CONFIG__: { ensureActiveCompany: async () => ({ id: 'co' }) } },
