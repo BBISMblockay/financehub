@@ -29,6 +29,9 @@
 //   KLAVIYO_REPORTS_MUTATION=trend-unbounded    the trend ignores its date range
 //   KLAVIYO_REPORTS_MUTATION=split-sums-windows the channel split aggregates every window
 //   KLAVIYO_REPORTS_MUTATION=no-guard           a changed definition no longer blanks its tie-out
+//   KLAVIYO_REPORTS_MUTATION=metric-mixed       two conversion metrics collapse into one row
+//   KLAVIYO_REPORTS_MUTATION=trend-mixes-metrics the trend adds two metrics into one day
+//   KLAVIYO_REPORTS_MUTATION=perf-no-recon      Performance keeps only its row-count sanity check
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/klaviyo-silo-reports-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -39,7 +42,8 @@ import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/inde
 
 const MUT = process.env.KLAVIYO_REPORTS_MUTATION || '';
 assert.ok(['', 'sum-windows', 'narrowest-window', 'sms-opens', 'zero-not-blank',
-  'trend-unbounded', 'split-sums-windows', 'no-guard'].includes(MUT), `Unknown mutation ${MUT}`);
+  'trend-unbounded', 'split-sums-windows', 'no-guard',
+  'metric-mixed', 'trend-mixes-metrics', 'perf-no-recon'].includes(MUT), `Unknown mutation ${MUT}`);
 
 const db = new PGlite();
 const q = async (sql) => (await db.query(sql)).rows;
@@ -117,6 +121,7 @@ await db.exec(`
 -- One email campaign and one SMS flow message.
 insert into klaviyo_messages(kind, klaviyo_id, name, channel, status, parent_id, parent_name, trigger_type)
 values ('campaign', 'camp1', 'October drop', 'email', 'sent', null, null, null),
+       ('campaign', 'camp2', 'November preview', 'email', 'sent', null, null, null),
        ('flow_message', 'fmsg1', 'Welcome SMS', 'sms', 'live', 'flow1', 'Welcome', 'Added to List'),
        ('campaign', 'campQuiet', 'September teaser', 'email', 'sent', null, null, null);
 
@@ -143,6 +148,17 @@ values
  -- 0 with revenue above it. Its rates must be blank, never 0% or a crash.
  ('campaign', 'campQuiet', 'email', '2026-10-12T00:00:00+00:00', '2026-11-08T23:59:59+00:00',
   'MET1', 0, 0, null, null, 2, 50.00, 0, null),
+ -- camp1 AGAIN, 60 days, under a DIFFERENT conversion metric: the account
+ -- switched metric and the nightly measured it against MET2 while the year
+ -- under MET1 survived, because the sweep is scoped to a window. These count
+ -- different events, so they are two labelled rows and are never summed into
+ -- one, and the widest-window pick must not silently prefer one metric's
+ -- measurement as if it were the message's only one.
+ ('campaign', 'camp1', 'email', '2026-09-10T00:00:00+00:00', '2026-11-08T23:59:59+00:00',
+  'MET2', 150, 147, 60, 9, 3, 300.00, 2, null),
+ -- A campaign that exists ONLY under the new metric.
+ ('campaign', 'camp2', 'email', '2026-09-10T00:00:00+00:00', '2026-11-08T23:59:59+00:00',
+  'MET2', 500, 490, 200, 30, 5, 200.00, 3, null),
  -- A window that ends BEFORE the period: out of range entirely.
  ('campaign', 'camp1', 'email', '2026-08-12T00:00:00+00:00', '2026-10-11T23:59:59+00:00',
   'MET1', 7777, 7777, 7777, 7777, 7777, 7777.00, 7777, null);
@@ -153,12 +169,15 @@ insert into klaviyo_flow_daily(klaviyo_id, channel, day_date, conversion_metric_
 values ('fmsg1', 'sms', '2026-11-06', 'MET1', 50, 49, 3, 1, 25.00, 3.00),
        ('fmsg1', 'sms', '2026-11-07', 'MET1', 60, 59, 4, 2, 40.50, 3.50),
        ('fmsg1', 'sms', '2026-11-08', 'MET1', 70, 69, 3, 1, 34.00, 4.00),
+       -- The same day under the new metric: a different event, so a second
+       -- labelled row rather than 44.00 on one.
+       ('fmsg1', 'sms', '2026-11-08', 'MET2', 70, 69, 1, 1, 10.00, 0),
        ('fmsg1', 'sms', '2026-10-01', 'MET1', 999, 999, 999, 999, 9999.00, 99.00);
 `);
 
 // ── the migration under test, with the mutation applied ─────────────────────
 let sql = readFileSync('supabase/migrations/20261109210000_klaviyo_silo_reports.sql', 'utf8');
-const DISTINCT = 'distinct on (kind, klaviyo_id, channel)';
+const DISTINCT = 'distinct on (kind, klaviyo_id, channel, conversion_metric_id)';
 const WIDEST = `((timeframe_end at time zone 'UTC')::date - (timeframe_start at time zone 'UTC')::date) desc,`;
 const replaceNth = (hay, needle, to, n) => {
   let i = -1;
@@ -180,6 +199,21 @@ if (MUT === 'sms-opens') {
 }
 if (MUT === 'zero-not-blank') sub('nullif(delivered, 0)', 'greatest(delivered, 1)');
 if (MUT === 'trend-unbounded') sub(' where day_date between {{date_from}} and {{date_to}}\n', '');
+// The conversion metric is part of the grain: a message measured under two
+// metrics is counts of two different events, so collapsing them picks one
+// arbitrarily and silently loses the other.
+if (MUT === 'metric-mixed') sub(DISTINCT, 'distinct on (kind, klaviyo_id, channel)');
+if (MUT === 'trend-mixes-metrics') {
+  sub(' group by day_date, conversion_metric_id\n', ' group by day_date\n');
+  sub('       conversion_metric_id,\n       round(sum(conversion_value), 2) as attributed_revenue,\n       sum(conversions) as attributed_orders,\n       sum(recipients) as sends,\n       sum(delivered) as delivered,',
+    '       max(conversion_metric_id) as conversion_metric_id,\n       round(sum(conversion_value), 2) as attributed_revenue,\n       sum(conversions) as attributed_orders,\n       sum(recipients) as sends,\n       sum(delivered) as delivered,');
+}
+// Performance with only its row-count sanity check is what verify_v2_schema
+// reports as WEAK: a wrong money value with the row count unchanged passes.
+if (MUT === 'perf-no-recon') {
+  sub(`    'Attributed revenue agrees with the base tables, ranked a different way', 'reconciliation',`,
+    `    'Attributed revenue agrees with the base tables, ranked a different way', 'sanity',`);
+}
 if (MUT === 'no-guard') sub('md5(queries_run::text || parameters::text), id)', "'ignored', id)");
 await db.exec(sql);
 
@@ -217,9 +251,10 @@ await test('every title and description names Klaviyo and warns that revenue is 
 
 await test('Performance holds each message once, for the widest window in the period', async () => {
   const rows = await run(PERF);
-  // camp1, fmsg1 and campQuiet -- three messages, five stored rows.
-  assert.equal(rows.length, 3, 'one row per message and channel, not one per stored window');
-  const camp = rows.find((r) => r.klaviyo_id === 'camp1');
+  // Five measurements: camp1 under two metrics, camp2, campQuiet, fmsg1 --
+  // out of seven stored rows in range.
+  assert.equal(rows.length, 5, 'one row per message, channel and metric, not one per stored window');
+  const camp = rows.find((r) => r.klaviyo_id === 'camp1' && r.conversion_metric_id === 'MET1');
   assert.equal(num(camp.window_days), 365, 'the year-long measurement is the widest, so it is the one shown');
   assert.equal(day(camp.window_from), '2025-11-09');
   assert.equal(day(camp.window_through), '2026-11-08');
@@ -232,7 +267,21 @@ await test('Performance holds each message once, for the widest window in the pe
   assert.equal(num(camp.order_rate), 1.22);
   assert.equal(num(camp.attributed_orders), 12);
   // Ordered by the money, like the Redo report.
-  assert.deepEqual(rows.map((r) => r.klaviyo_id), ['camp1', 'fmsg1', 'campQuiet']);
+  assert.deepEqual(rows.map((r) => `${r.klaviyo_id}/${r.conversion_metric_id}`),
+    ['camp1/MET1', 'camp1/MET2', 'camp2/MET2', 'fmsg1/MET1', 'campQuiet/MET1']);
+});
+
+await test('a message measured under two conversion metrics is two labelled rows', async () => {
+  const rows = (await run(PERF)).filter((r) => r.klaviyo_id === 'camp1');
+  assert.equal(rows.length, 2, 'MET1 and MET2 measure different events: two rows, never one');
+  const byMetric = new Map(rows.map((r) => [r.conversion_metric_id, r]));
+  assert.equal(num(byMetric.get('MET1').attributed_revenue), 1234.56);
+  assert.equal(num(byMetric.get('MET1').window_days), 365);
+  assert.equal(num(byMetric.get('MET2').attributed_revenue), 300);
+  assert.equal(num(byMetric.get('MET2').window_days), 60, 'the widest window WITHIN each metric');
+  // And the older metric's measurement is not dropped: a campaign's best
+  // measurement disappearing without explanation would be worse than two rows.
+  assert.ok(byMetric.has('MET1') && byMetric.has('MET2'));
 });
 
 await test('a window ending before the period is not in it', async () => {
@@ -241,7 +290,7 @@ await test('a window ending before the period is not in it', async () => {
 });
 
 await test('SMS has no open rate, and a flow message carries its flow', async () => {
-  const [flow] = (await run(PERF)).filter((r) => r.klaviyo_id === 'fmsg1');
+  const [flow] = (await run(PERF)).filter((r) => r.klaviyo_id === 'fmsg1' && r.conversion_metric_id === 'MET1');
   assert.equal(flow.open_rate, null, 'Klaviyo reports no opens for SMS: blank, never 0%');
   assert.equal(num(flow.click_rate), 5.1);
   assert.equal(num(flow.order_rate), 2.02);
@@ -252,6 +301,7 @@ await test('SMS has no open rate, and a flow message carries its flow', async ()
 
 await test('a message that delivered nothing in the window has blank rates, not 0%', async () => {
   const [quiet] = (await run(PERF)).filter((r) => r.klaviyo_id === 'campQuiet');
+  assert.equal(quiet.conversion_metric_id, 'MET1');
   assert.equal(num(quiet.delivered), 0);
   assert.equal(quiet.delivery_rate, null);
   assert.equal(quiet.open_rate, null);
@@ -262,9 +312,13 @@ await test('a message that delivered nothing in the window has blank rates, not 
 
 await test('the trend is flows only, by day, inside its own bounds', async () => {
   const rows = await run(TREND);
-  assert.deepEqual(rows.map((r) => day(r.day_date)), ['2026-11-06', '2026-11-07', '2026-11-08']);
-  assert.deepEqual(rows.map((r) => num(r.attributed_revenue)), [25, 40.5, 34]);
-  assert.deepEqual(rows.map((r) => num(r.attributed_orders)), [1, 2, 1]);
+  // 11-08 appears twice, once per conversion metric: 34.00 measured against
+  // MET1 and 10.00 against MET2 are counts of different events, so adding
+  // them into one 44.00 day would be the mistake.
+  assert.deepEqual(rows.map((r) => `${day(r.day_date)}/${r.conversion_metric_id}`),
+    ['2026-11-06/MET1', '2026-11-07/MET1', '2026-11-08/MET1', '2026-11-08/MET2']);
+  assert.deepEqual(rows.map((r) => num(r.attributed_revenue)), [25, 40.5, 34, 10]);
+  assert.deepEqual(rows.map((r) => num(r.attributed_orders)), [1, 2, 1, 1]);
   assert.equal(num(rows[2].sends), 70);
   assert.equal(num(rows[1].sending_cost), 3.5);
   // No campaign can appear: Klaviyo has no campaign series endpoint, so
@@ -274,16 +328,20 @@ await test('the trend is flows only, by day, inside its own bounds', async () =>
 
 await test('a custom window respects its own bounds', async () => {
   const rows = await run(TREND, { date_from: '2026-11-07', date_to: '2026-11-08' });
-  assert.deepEqual(rows.map((r) => day(r.day_date)), ['2026-11-07', '2026-11-08']);
+  assert.deepEqual(rows.map((r) => day(r.day_date)), ['2026-11-07', '2026-11-08', '2026-11-08']);
 });
 
 await test('Email vs SMS splits the same measurements and agrees with Performance', async () => {
   const rows = await run(SPLIT);
-  assert.deepEqual(rows.map((r) => r.channel), ['Email', 'SMS']);
-  const email = rows[0]; const sms = rows[1];
-  assert.equal(num(email.messages), 2, 'camp1 and campQuiet, each once');
+  // Channel AND metric: a metric change must not be summed into one channel.
+  assert.deepEqual(rows.map((r) => `${r.channel}/${r.conversion_metric_id}`),
+    ['Email/MET1', 'Email/MET2', 'SMS/MET1']);
+  const email = rows[0]; const emailNew = rows[1]; const sms = rows[2];
+  assert.equal(num(email.messages), 2, 'camp1 and campQuiet under MET1, each once');
   assert.equal(num(email.sends), 1000);
   assert.equal(num(email.attributed_revenue), 1284.56);
+  assert.equal(num(emailNew.messages), 2, 'camp1 and camp2 under MET2');
+  assert.equal(num(emailNew.attributed_revenue), 500);
   assert.equal(num(sms.messages), 1);
   assert.equal(num(sms.attributed_revenue), 99.5);
   assert.equal(num(sms.sending_cost), 12.34);
@@ -296,11 +354,16 @@ await test('Email vs SMS splits the same measurements and agrees with Performanc
 const checks = await q(`select name, kind, check_sql, tolerance, report_id from silo_report_tieouts
   where report_id in ('${PERF}', '${TREND}', '${SPLIT}') order by report_id`);
 
-await test('every report carries a tie-out, and every tie-out passes', async () => {
-  assert.equal(checks.length, 3);
-  assert.equal(new Set(checks.map((c) => c.report_id)).size, 3, 'one per report');
-  assert.ok(checks.some((c) => c.kind === 'sanity'));
-  assert.ok(checks.filter((c) => c.kind === 'reconciliation').length >= 2);
+await test('every report has its OWN reconciliation, and every tie-out passes', async () => {
+  // verify_v2_schema reports any system report without an enabled
+  // reconciliation as WEAK, per report id -- two reconciliations spread over
+  // three reports is not coverage, so this asserts the rule the verifier
+  // applies rather than a total.
+  for (const id of [PERF, TREND, SPLIT]) {
+    assert.ok(checks.some((c) => c.report_id === id && c.kind === 'reconciliation'),
+      `${id} has no reconciliation of its own, which verify_v2_schema reports as WEAK`);
+  }
+  assert.ok(checks.some((c) => c.kind === 'sanity'), 'the row-count sanity check is still there');
   for (const c of checks) {
     const [r] = await q(c.check_sql);
     assert.notEqual(r.left_value, null, `${c.name}: NO DATA`);
@@ -328,10 +391,22 @@ await test('the trend reconciliation catches a report that drops a day', async (
 });
 
 await test('a changed definition turns its tie-out to NO DATA', async () => {
+  await db.exec(`create temp table saved_defn as
+      select queries_run from silo_chat_saved_reports where id = '${PERF}'`);
   await db.exec(`update silo_chat_saved_reports set queries_run = array['select 2'] where id = '${PERF}'`);
-  const c = checks.find((x) => x.report_id === PERF);
-  const [r] = await q(c.check_sql.replace(/with report as materialized \([\s\S]*?\) select/, 'with report as materialized (select 1) select'));
-  assert.equal(r.left_value, null, 'the md5 guard must blank a tie-out whose report was edited');
+  // The check runs unchanged: its embedded copy of the query still returns
+  // real rows, and the guard is what blanks the answer, which is the point --
+  // a tie-out must not keep reporting PASS against a definition it never saw.
+  for (const c of checks.filter((x) => x.report_id === PERF)) {
+    const [r] = await q(c.check_sql);
+    assert.equal(r.left_value, null, `${c.name}: the md5 guard must blank a tie-out whose report was edited`);
+  }
+  await db.exec(`update silo_chat_saved_reports
+      set queries_run = (select queries_run from saved_defn) where id = '${PERF}'`);
+  for (const c of checks.filter((x) => x.report_id === PERF)) {
+    const [r] = await q(c.check_sql);
+    assert.notEqual(r.left_value, null, `${c.name}: and it reports again once the check is refreshed`);
+  }
 });
 
 console.log(`\n${passed} passed`);

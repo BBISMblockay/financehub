@@ -164,9 +164,9 @@ columns and the rate rules read the same (`20261109210000`):
 
 | Report | Grain | Notes |
 |---|---|---|
-| Email & SMS Performance (Klaviyo) | one row per message | the WIDEST stored window whose end is in the period, bounds shown |
-| Email & SMS Revenue Trend (Klaviyo flows) | day | flows only -- there is no campaign series endpoint |
-| Email vs SMS (Klaviyo) | channel | the same one-window pick, so it agrees with Performance |
+| Email & SMS Performance (Klaviyo) | message, channel, conversion metric | the WIDEST stored window whose end is in the period, bounds shown |
+| Email & SMS Revenue Trend (Klaviyo flows) | day, conversion metric | flows only -- there is no campaign series endpoint |
+| Email vs SMS (Klaviyo) | channel, conversion metric | the same one-window pick, so it agrees with Performance |
 
 **Per vendor, never merged with Redo's.** Redo credits revenue by its own rules;
 Klaviyo attributes against the account's conversion metric. A combined report
@@ -177,8 +177,18 @@ the same orders.
 as a total over a measurement window, and SILO stores several for the same
 campaign (the nightly's trailing 60 days, a backfill's year). Adding them double
 counts the same sends, so the report shows one measurement and names its bounds.
-A tie-out asserts one row per message and channel, which is what catches a
-regression back to summing.
+A tie-out asserts one row per message, channel and metric, which is what catches
+a regression back to summing, and a second tie-out reconciles the money a
+different way -- the base tables with a window function, where the report uses
+the view with `DISTINCT ON`. The row count alone would pass a wrong value.
+
+**The conversion metric is part of every grain.** Klaviyo requires a
+`conversion_metric_id` on every report request, and the account can change which
+metric that is. Two measurements under different metrics are counts of DIFFERENT
+events, so a message measured under both is two labelled rows: summing them
+double counts, and picking one arbitrarily drops a real measurement without
+saying so. If a report shows a message twice, look at the metric column before
+calling it a duplicate.
 
 ## The attribution page
 

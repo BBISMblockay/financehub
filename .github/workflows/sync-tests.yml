@@ -1791,7 +1791,8 @@ jobs:
           set -u
           node scripts/tests/klaviyo-silo-reports-database.test.mjs
           for m in sum-windows narrowest-window sms-opens zero-not-blank \
-                   trend-unbounded split-sums-windows no-guard; do
+                   trend-unbounded split-sums-windows no-guard \
+                   metric-mixed trend-mixes-metrics perf-no-recon; do
             if KLAVIYO_REPORTS_MUTATION="$m" node scripts/tests/klaviyo-silo-reports-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
