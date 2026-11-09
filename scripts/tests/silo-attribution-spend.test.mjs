@@ -85,7 +85,7 @@ function mockDb({fail=false,cap=400,redoTotal=1500,windows=fullWindows,isAdmin=t
       range(a,b){q.range=[a,b];calls.push(q);if(fail&&table==='redo_marketing_daily')return Promise.resolve({data:null,error:Error('denied')});
         // The server caps pages below the 1,000 asked for.
         const all=rows(),n=Math.max(0,Math.min(cap,b-a+1,all.length-a));return Promise.resolve({data:all.slice(a,a+n),error:null,count:all.length});},
-      then(resolve){calls.push(q);resolve(table==='ad_platform_connections'?{data:[{id:'m',platform:'meta_ads'}],error:null}:table==='redo_connections'?{data:[{id:'r'}],error:null}:{data:[],error:null});}};
+      then(resolve){calls.push(q);resolve(table==='ad_platform_connections'?{data:[{id:'m',platform:'meta_ads'}],error:null}:table==='redo_connections'?{data:[{id:'r'}],error:null}:table==='klaviyo_connections'?{data:[{id:'k'}],error:null}:{data:[],error:null});}};
     return chain;}};
   return db;
 }
@@ -95,13 +95,13 @@ test('loader scopes every query to the company, pages past a server cap, reads c
   assert.ok(db.calls.length>0&&db.calls.filter(c=>c.table).every(c=>c.eq.company_entity_id===company));
   const jobs=db.calls.find(c=>c.table==='sync_jobs'&&c.range);
   assert.equal(jobs.eq.status,'success');assert.deepEqual(jobs.filters,[['lte','result->window->>startDate','2026-09-30'],['gte','result->window->>endDate','2026-09-01']]);
-  assert.deepEqual(raw.connections,{ads:[{id:'m',platform:'meta_ads'}],redo:[{id:'r'}]});
+  assert.deepEqual(raw.connections,{ads:[{id:'m',platform:'meta_ads'}],redo:[{id:'r'}],klaviyo:[{id:'k'}]});
   // A non-admin's (RLS-empty) connection read is never trusted, or even made.
   const viewer=mockDb({isAdmin:false}),seen=await loadSpend(viewer,company,'2026-09-01','2026-09-30');
-  assert.deepEqual(seen.connections,{ads:null,redo:null});assert.ok(!viewer.calls.some(c=>/connections$/.test(c.table||'')));
+  assert.deepEqual(seen.connections,{ads:null,redo:null,klaviyo:null});assert.ok(!viewer.calls.some(c=>/connections$/.test(c.table||'')));
   assert.equal(summarizeSpend(seen,period).get('Redo SMS').status,'unverified');
   // If the admin check itself fails, the list is unknown too: fail closed.
-  assert.deepEqual((await loadSpend(mockDb({isAdmin:'error'}),company,'2026-09-01','2026-09-30')).connections,{ads:null,redo:null});
+  assert.deepEqual((await loadSpend(mockDb({isAdmin:'error'}),company,'2026-09-01','2026-09-30')).connections,{ads:null,redo:null,klaviyo:null});
   const out=summarizeSpend(raw,period);assert.equal(out.get('Redo SMS').cents,150000);assert.equal(out.get('Redo SMS').status,'complete');
   await assert.rejects(loadSpend(mockDb({fail:true}),company,'2026-09-01','2026-09-30'),/denied/);
   await assert.rejects(loadSpend(mockDb(),'not-a-company','2026-09-01','2026-09-30'),/Invalid/);
@@ -114,4 +114,38 @@ test('a row count that moves or a read that stops short fails instead of underco
   await assert.rejects(loadSpend(db(a=>({data:Array(400).fill(row),count:a?900:800})),company,'2026-09-01','2026-09-30'),/changed while loading/);
   await assert.rejects(loadSpend(db(a=>({data:a?[]:Array(400).fill(row),count:800})),company,'2026-09-01','2026-09-30'),/ended early/);
   await assert.rejects(loadSpend(db(()=>({data:[row],count:undefined})),company,'2026-09-01','2026-09-30'),/Unexpected/);
+});
+
+// ── Klaviyo: a second vendor's sending cost, with no currency of its own ────
+const klaviyoWindows=[...fullWindows,win('klaviyo','2026-08-31','2026-10-01')];
+const klaviyoAttempted={...attemptedAll,klaviyo:true};
+const klaviyoAdmin={...admin,klaviyo:[{id:'k'}]};
+test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
+  const out=summarizeSpend({klaviyo:[
+    {channel:'sms',day_date:'2026-09-02',text_message_spend:'12.34',connection_id:'k'},
+    {channel:'sms',day_date:'2026-09-03',text_message_spend:0.0075,connection_id:'k'},
+    // Klaviyo charges for email by plan, not per send: an email row carries no
+    // sending cost and must not be counted as a zero-cost SMS day.
+    {channel:'email',day_date:'2026-09-04',text_message_spend:null,connection_id:'k'},
+  ],windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  const k=out.get('Klaviyo SMS');
+  assert.equal(k.status,'complete');
+  assert.equal(k.cents,1235,'fractional sending costs sum before rounding');
+  assert.equal(k.kind,'Sending cost','not ad spend: it never belongs in MER or ROAS');
+  assert.match(spendNote(k),/Assumed USD/,'an assumed currency is never silent');
+  assert.ok(!out.has('Klaviyo Email'),'Klaviyo charges for email by plan, so there is no email cost row');
+});
+test("a store on another currency gets no Klaviyo figure, because Klaviyo reports none",()=>{
+  const out=summarizeSpend({klaviyo:[{channel:'sms',day_date:'2026-09-02',text_message_spend:50,connection_id:'k'}],
+    windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},{...period,currency:'CAD'});
+  const k=out.get('Klaviyo SMS');
+  assert.equal(k.status,'currency');assert.equal(k.cents,null);
+  assert.match(spendNote(k),/Can't confirm the currency/);
+});
+test("Klaviyo with nothing connected is not tracked, and does not make the total incomplete",()=>{
+  const out=summarizeSpend({kpi:[{platform:'meta_ads',day_date:'2026-09-01',spend:10}],
+    windows:fullWindows,attempted:attemptedAll,connections:admin},period);
+  assert.equal(out.get('Klaviyo SMS').status,'none');
+  assert.equal(out.get('Klaviyo SMS').cents,null);
+  assert.equal(spendTotal(out).complete,true,'a vendor nobody uses cannot hold the total open');
 });
