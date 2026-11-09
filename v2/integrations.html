@@ -1035,6 +1035,48 @@
       return { queued: true };
     }
 
+    // The `kick` for the company-scoped pillars (Klaviyo, Redo marketing).
+    // One deployed function runs the SAME sync core the nightly runs over a
+    // short trailing window, so the card fills in seconds instead of waiting
+    // up to a quarter of an hour for the queue to be drained. The queued job
+    // still does the full history; this is its first slice happening now.
+    //
+    // THROWS on failure, deliberately: firstConnectBootstrap catches a kick's
+    // error and says the queued import is still coming, which is true and is
+    // the message that belongs on screen. Returning quietly would leave the
+    // caller's success line claiming numbers that are not there.
+    async function integrationSyncKick(integration) {
+      const { data: { session } } = await db.auth.getSession();
+      const res = await fetch(`${FUNCTIONS_URL}/integration-sync-kick`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration }),
+      });
+      let out = null;
+      try { out = await res.json(); } catch (_) { out = null; }
+      // The handler's own words, verbatim -- it distinguishes a switched-off
+      // sync from a missing credential from a rejected one, and each needs a
+      // different thing done about it. See the Klaviyo test handler for why
+      // this page states no verdict of its own.
+      if (!res.ok || out?.ok !== true) {
+        throw new Error(out?.error || `HTTP ${res.status}`);
+      }
+      return out;
+    }
+
+    // Both halves tolerate a response that names neither, so a handler that
+    // one day stops sending `window` or `queue_only` costs a vaguer sentence
+    // rather than a thrown error the caller would report as "the pull did not
+    // run" about a pull that did.
+    function kickWindowPhrase(out) {
+      const w = out?.window;
+      return w?.startDate && w?.endDate ? `${w.startDate}..${w.endDate}` : 'the last few days';
+    }
+    function kickQueuePhrase(out) {
+      const rest = Array.isArray(out?.queue_only) ? out.queue_only.filter(Boolean) : [];
+      return rest.length ? `; ${rest.join(' and ')} is importing in the background.` : '.';
+    }
+
     function renderBootstrapBand() {
       const el = document.getElementById('int-bootstrap-band');
       if (!el || !window.SiloBootstrap) return;
@@ -3151,7 +3193,20 @@
       // importable at all, so it queues the catch-up that the secret-less
       // connect could only skip. The prior-job check stops a re-paste from
       // re-importing.
-      if (patch.api_secret) await firstConnectBootstrap('redo', null, { requeueAfterSkip: true });
+      // Only on the secret's arrival, and only here: at connect there is no
+      // api_secret, so a kick could report nothing but `not_configured` --
+      // which is the truth and is already on the card, not news worth a
+      // request. The returns history stays queue-only either way.
+      if (patch.api_secret) {
+        await firstConnectBootstrap('redo', null, {
+          requeueAfterSkip: true,
+          kick: async () => {
+            const out = await integrationSyncKick('redo_marketing');
+            setStatus(`✓ Redo secret saved — marketing for ${kickWindowPhrase(out)} is in now${kickQueuePhrase(out)}`,
+              'pos', 12000);
+          },
+        });
+      }
       loadRedoConnection();
     }
 
@@ -3353,7 +3408,21 @@
         // before its key or its conversion metric arrived. NOT requeueTerminal:
         // a finished import must
         // not be paid for again every time somebody toggles the switch.
-        await firstConnectBootstrap('klaviyo', null, { requeueAfterSkip: true });
+        const kick = async () => {
+          const out = await integrationSyncKick('klaviyo');
+          setStatus(`✓ Klaviyo sync on — ${kickWindowPhrase(out)} is in now${kickQueuePhrase(out)}`, 'pos', 12000);
+        };
+        const res = await firstConnectBootstrap('klaviyo', null, { requeueAfterSkip: true, kick });
+        // An account whose history was imported once does not get a second
+        // import -- but switching sync back on should still put numbers on the
+        // card now, which is the whole point of the kick. firstConnectBootstrap
+        // returns before its own kick in that case, so it is run here instead.
+        if (res?.skipped === 'already_queued') {
+          try { await kick(); } catch (err) {
+            setStatus('Klaviyo sync on. Its history is already imported; the catch-up pull did not run ('
+              + (err?.message || err) + ') — the nightly will cover it.', 'info', 10000);
+          }
+        }
         refreshBootstrapJobs();
       } else {
         setStatus('Klaviyo sync off. Nothing will be fetched until it is back on.', 'info', 6000);
