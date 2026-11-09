@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {loadSpend,summarizeSpend,knownSpend,spendTotal,spendNote,reportedCurrency,MIXED_CURRENCY} from '../../v2/silo-attribution-spend.js';
+import {loadSpend,summarizeSpend,knownSpend,spendTotal,spendNote} from '../../v2/silo-attribution-spend.js';
 const company='00000000-0000-0000-0000-000000000001',period={start:'2026-09-01',end:'2026-09-30',currency:'USD'};
 const win=(job_type,startDate,endDate)=>({job_type,window:{startDate,endDate}});
 const allJobs=['meta_ads_kpis','google_ads_kpis','tiktok_ads_kpis','redo_marketing'];
@@ -77,15 +77,15 @@ test('invalid or out-of-period rows fail instead of skewing spend',()=>{
 });
 
 // Minimal PostgREST-shaped mock: every builder is thenable; range() pages; limit() ends.
-function mockDb({fail=false,cap=400,redoTotal=1500,windows=fullWindows,isAdmin=true,klaviyoConnections=[{id:'k'}]}={}){
+function mockDb({fail=false,cap=400,redoTotal=1500,windows=fullWindows,isAdmin=true}={}){
   const calls=[];
   const db={calls,rpc:async name=>(calls.push({rpc:name}),name==='is_admin_user'?(isAdmin==='error'?{data:null,error:{message:'rpc failed'}}:{data:isAdmin,error:null}):{data:null,error:{message:'unexpected rpc'}}),from(table){const q={table,eq:{},filters:[],range:null};const rows=()=>table==='redo_marketing_daily'?Array.from({length:redoTotal},()=>({channel:'SMS',day_date:'2026-09-02',spend:1,spend_currency:'USD',connection_id:'r'})):table==='sync_jobs'?windows:[];
-    const chain={select(cols){q.select=cols;return chain;},eq(k,v){q.eq[k]=v;return chain;},in(){return chain;},gte(k,v){q.filters.push(['gte',k,v]);return chain;},lte(k,v){q.filters.push(['lte',k,v]);return chain;},order(){return chain;},
+    const chain={select(){return chain;},eq(k,v){q.eq[k]=v;return chain;},in(){return chain;},gte(k,v){q.filters.push(['gte',k,v]);return chain;},lte(k,v){q.filters.push(['lte',k,v]);return chain;},order(){return chain;},
       limit(){calls.push(q);return Promise.resolve({data:table==='sync_jobs'?[{id:1}]:[],error:null});},
       range(a,b){q.range=[a,b];calls.push(q);if(fail&&table==='redo_marketing_daily')return Promise.resolve({data:null,error:Error('denied')});
         // The server caps pages below the 1,000 asked for.
         const all=rows(),n=Math.max(0,Math.min(cap,b-a+1,all.length-a));return Promise.resolve({data:all.slice(a,a+n),error:null,count:all.length});},
-      then(resolve){calls.push(q);resolve(table==='ad_platform_connections'?{data:[{id:'m',platform:'meta_ads'}],error:null}:table==='redo_connections'?{data:[{id:'r'}],error:null}:table==='klaviyo_connections'?{data:klaviyoConnections.map(r=>Object.fromEntries(String(q.select).split(',').filter(k=>k in r).map(k=>[k,r[k]]))),error:null}:{data:[],error:null});}};
+      then(resolve){calls.push(q);resolve(table==='ad_platform_connections'?{data:[{id:'m',platform:'meta_ads'}],error:null}:table==='redo_connections'?{data:[{id:'r'}],error:null}:table==='klaviyo_connections'?{data:[{id:'k'}],error:null}:{data:[],error:null});}};
     return chain;}};
   return db;
 }
@@ -126,7 +126,7 @@ test('a row count that moves or a read that stops short fails instead of underco
 const klaviyoWindows=[...fullWindows,win('klaviyo','2026-08-31','2026-10-01')];
 const klaviyoAttempted={...attemptedAll,klaviyo:true};
 const klaviyoAdmin={...admin,klaviyo:[{id:'k'}]};
-test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
+test("Klaviyo SMS sending cost counts, in USD by Klaviyo's own definition",()=>{
   const out=summarizeSpend({klaviyo:[
     {channel:'sms',day_date:'2026-09-02',text_message_spend:'12.34',connection_id:'k'},
     {channel:'sms',day_date:'2026-09-03',text_message_spend:0.0075,connection_id:'k'},
@@ -138,7 +138,9 @@ test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
   assert.equal(k.status,'complete');
   assert.equal(k.cents,1235,'fractional sending costs sum before rounding');
   assert.equal(k.kind,'Sending cost','not ad spend: it never belongs in MER or ROAS');
-  assert.match(spendNote(k),/Assumed USD/,'an assumed currency is never silent');
+  // Klaviyo's Reporting API defines text_message_spend as USD, so there is
+  // nothing to caveat: it is not an assumption any more.
+  assert.equal(spendNote(k),'','USD is stated by Klaviyo, so the figure carries no "assumed" caveat');
   assert.ok(!out.has('Klaviyo Email'),'Klaviyo charges for email by plan, so there is no email cost row');
 });
 test("a store on another currency gets no Klaviyo figure, because Klaviyo reports none",()=>{
@@ -209,73 +211,4 @@ test("an unreported sending cost stays unreported: null is not a free send",()=>
   ],windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
   assert.equal(email.get('Klaviyo SMS (flows)').status,'complete');
   assert.equal(email.get('Klaviyo SMS (flows)').unreported,0);
-});
-
-// ── Klaviyo's own currency, once `accounts:read` is granted ─────────────────
-// Before the scope, the SMS cost was dollars on faith. With it, the currency
-// is Klaviyo's answer, and the three states below have to stay distinct: the
-// vendor said USD, the vendor said something else, and the vendor said
-// nothing. The last one is the one that must keep saying "assumed".
-const klaviyoRow={channel:'sms',day_date:'2026-09-02',text_message_spend:50,connection_id:'k'};
-const klaviyoWith=currency=>({klaviyo:[klaviyoRow],windows:klaviyoWindows,attempted:klaviyoAttempted,
-  connections:{...admin,klaviyo:[{id:'k',account_currency:currency}]},reported:{klaviyo:currency}});
-
-test("a currency Klaviyo reported is stated, not assumed",()=>{
-  const k=summarizeSpend(klaviyoWith('USD'),period).get('Klaviyo SMS (flows)');
-  assert.equal(k.status,'complete');
-  assert.equal(k.cents,5000);
-  assert.equal(k.reportedCurrency,'USD');
-  assert.equal(k.assumed,null,'the assumption is retired once the vendor states a currency');
-  assert.equal(spendNote(k),'','nothing to caveat: Klaviyo said what the figures are in');
-});
-test("a Klaviyo account billed in another currency is not counted as dollars",()=>{
-  const k=summarizeSpend(klaviyoWith('CAD'),period).get('Klaviyo SMS (flows)');
-  assert.equal(k.status,'currency','the page is asking for USD; these are Canadian dollars');
-  assert.equal(k.cents,null,'a figure in the wrong currency is withheld, never converted');
-  assert.match(spendNote(k),/confirm the currency/);
-  // The same account, read on a CAD page, counts normally.
-  const cad=summarizeSpend(klaviyoWith('CAD'),{...period,currency:'CAD'}).get('Klaviyo SMS (flows)');
-  assert.equal(cad.status,'complete');assert.equal(cad.cents,5000);assert.equal(cad.assumed,null);
-});
-test("two Klaviyo accounts on different currencies have no single currency, so no total",()=>{
-  const k=summarizeSpend({klaviyo:[klaviyoRow],windows:klaviyoWindows,attempted:klaviyoAttempted,
-    connections:{...admin,klaviyo:[{id:'k',account_currency:'USD'},{id:'k2',account_currency:'CAD'}]},
-    reported:{klaviyo:reportedCurrency([{account_currency:'USD'},{account_currency:'CAD'}])}},period).get('Klaviyo SMS (flows)');
-  assert.equal(k.status,'currency');
-  assert.equal(k.cents,null,'mixing two currencies into one subtotal would be a wrong number');
-  assert.equal(k.reportedCurrency,MIXED_CURRENCY);
-  assert.ok(!spendNote(k).includes(MIXED_CURRENCY),'the sentinel is internal and never shown as a currency');
-});
-test("no reported currency falls back to the assumption, and says so",()=>{
-  // An older grant without `accounts:read`: the column is null.
-  const unsaid=summarizeSpend({klaviyo:[klaviyoRow],windows:klaviyoWindows,attempted:klaviyoAttempted,
-    connections:{...admin,klaviyo:[{id:'k',account_currency:null}]},
-    reported:{klaviyo:reportedCurrency([{id:'k',account_currency:null}])}},period).get('Klaviyo SMS (flows)');
-  assert.equal(unsaid.status,'complete');assert.equal(unsaid.cents,5000);
-  assert.equal(unsaid.assumed,'USD');assert.match(spendNote(unsaid),/Assumed USD/);
-  // A caller that passes no `reported` at all behaves the same way, so an
-  // older page bundle cannot silently drop the caveat.
-  const absent=summarizeSpend({klaviyo:[klaviyoRow],windows:klaviyoWindows,attempted:klaviyoAttempted,
-    connections:klaviyoAdmin},period).get('Klaviyo SMS (flows)');
-  assert.equal(absent.cents,5000);assert.match(spendNote(absent),/Assumed USD/);
-});
-test("reportedCurrency keeps 'nobody said' apart from 'they disagree'",()=>{
-  assert.equal(reportedCurrency(null),null,'list not visible to this viewer');
-  assert.equal(reportedCurrency([]),null,'no connections');
-  assert.equal(reportedCurrency([{account_currency:null}]),null,'connected, scope not granted');
-  assert.equal(reportedCurrency([{account_currency:'GBP'},{account_currency:'GBP'}]),'GBP','agreement is one answer');
-  assert.equal(reportedCurrency([{account_currency:'GBP'},{account_currency:null}]),'GBP',
-    "one account that has not been tested yet does not erase the other one's answer");
-  assert.equal(reportedCurrency([{account_currency:'GBP'},{account_currency:'EUR'}]),MIXED_CURRENCY);
-});
-
-test("the loader carries Klaviyo's own currency through to the summary",async()=>{
-  // The full path: the connection row, the loader's resolution, the summary.
-  const said=await loadSpend(mockDb({klaviyoConnections:[{id:'k',account_currency:'CAD'}]}),company,'2026-09-01','2026-09-30');
-  assert.deepEqual(said.reported,{klaviyo:'CAD'});
-  // An admin's connection read with no currency yet is "nobody said".
-  assert.deepEqual((await loadSpend(mockDb(),company,'2026-09-01','2026-09-30')).reported,{klaviyo:null});
-  // A non-admin cannot see the connection, so cannot see its currency either.
-  // That must read as unknown, not as USD.
-  assert.deepEqual((await loadSpend(mockDb({isAdmin:false,klaviyoConnections:[{id:'k',account_currency:'CAD'}]}),company,'2026-09-01','2026-09-30')).reported,{klaviyo:null});
 });

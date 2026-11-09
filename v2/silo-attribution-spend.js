@@ -16,18 +16,17 @@ export const SPEND_SOURCES=[
   {channel:'Redo SMS',table:'redo_marketing_daily',rows:'redo',connections:'redo',column:'channel',key:'SMS',job:'redo_marketing',kind:'Sending cost',spendColumn:'spend',currencyColumn:'spend_currency'},
   // Klaviyo's SMS sending cost for FLOWS, by day. Klaviyo charges for email by
   // plan rather than per send, so a Klaviyo Email row would never exist.
-  // Klaviyo reports this cost as a bare number: there is no currency on the
-  // row, so the currency comes from the CONNECTION instead
-  // (`currencyFrom`) -- the account's own preferred_currency, read with
-  // `accounts:read`. When Klaviyo has not said (an older grant without the
-  // scope, or a viewer who cannot see the connection) the source falls back to
-  // `assumed` and labels the figure as assumed wherever it is shown. Campaign SMS cost lives in
+  // Currency: Klaviyo's Reporting API defines text_message_spend as "The total
+  // text message spend in USD" -- whatever the account's preferred currency.
+  // So it is USD by the vendor's own definition, not by assumption, and it is
+  // never re-labelled with klaviyo_connections.account_currency: an account
+  // that prefers CAD is still billed SMS in USD here. Campaign SMS cost lives in
   // klaviyo_message_performance and is a total over a measurement window, not
   // a daily figure, so it cannot be added to a date-range total. It is read
   // anyway, through `uncosted`, so that its existence stops this source from
   // certifying itself complete: a company sending paid SMS campaigns and no
   // flows would otherwise read as a COMPLETE $0, which overstates return.
-  {channel:'Klaviyo SMS (flows)',table:'klaviyo_flow_daily',rows:'klaviyo',connections:'klaviyo',column:'channel',key:'sms',job:'klaviyo',kind:'Sending cost',spendColumn:'text_message_spend',currencyColumn:null,currencyFrom:'klaviyo',assumed:'USD',
+  {channel:'Klaviyo SMS (flows)',table:'klaviyo_flow_daily',rows:'klaviyo',connections:'klaviyo',column:'channel',key:'sms',job:'klaviyo',kind:'Sending cost',spendColumn:'text_message_spend',currencyColumn:null,
    uncosted:{rows:'klaviyoCampaign',why:'campaign sending cost is reported per measurement window, not per day'}},
 ];
 const PAGE=1000,LIMIT=50000,uuid=/^[0-9a-f-]{36}$/i,isoDay=/^\d{4}-\d{2}-\d{2}$/;
@@ -67,27 +66,9 @@ export async function loadSpend(db,companyId,start,end){
     Promise.all(jobs.map(async job=>{const {data,error}=await db.from('sync_jobs').select('id').eq('company_entity_id',companyId).eq('job_type',job).limit(1);if(error)throw error;return [job,!!data?.length];})),
     readable(db.from('ad_platform_connections').select('id,platform').eq('company_entity_id',companyId).eq('is_active',true).in('platform',of('marketing_kpis_daily'))),
     readable(db.from('redo_connections').select('id').eq('company_entity_id',companyId)),
-    readable(db.from('klaviyo_connections').select('id,account_currency').eq('company_entity_id',companyId).eq('is_active',true)),
+    readable(db.from('klaviyo_connections').select('id').eq('company_entity_id',companyId).eq('is_active',true)),
   ]);
-  return {kpi,redo,klaviyo,klaviyoCampaign,windows,attempted:Object.fromEntries(attempted),
-    connections:{ads:adConnections,redo:redoConnections,klaviyo:klaviyoConnections},
-    reported:{klaviyo:reportedCurrency(klaviyoConnections)}};
-}
-
-// The currency a vendor's own connections report, for a source that has no
-// currency column of its own. Three answers, all different:
-//   a code  -- every connection agrees; the figures ARE in that currency
-//   null    -- nobody said (no `accounts:read` grant, or the connection list
-//              is not visible to this viewer), so the source may only assume
-//   MIXED   -- the connections disagree, so no single currency is true of the
-//              rows. It can never equal the page's currency, which is exactly
-//              right: the source then reports status 'currency' and no total.
-export const MIXED_CURRENCY='(mixed)';
-export function reportedCurrency(list){
-  if(!Array.isArray(list))return null;
-  const codes=new Set(list.map(c=>c&&c.account_currency).filter(Boolean));
-  if(codes.size>1)return MIXED_CURRENCY;
-  return codes.size===1?[...codes][0]:null;
+  return {kpi,redo,klaviyo,klaviyoCampaign,windows,attempted:Object.fromEntries(attempted),connections:{ads:adConnections,redo:redoConnections,klaviyo:klaviyoConnections}};
 }
 
 const addDay=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);
@@ -96,7 +77,7 @@ const addDay=(day,n)=>new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOStr
 // than one connection, or the connection list is not visible to this viewer:
 // windows are company-level, not per connection) | none (not tracked) |
 // currency (cannot confirm the currency).
-export function summarizeSpend({kpi=[],redo=[],klaviyo=[],klaviyoCampaign=[],windows=[],attempted={},connections={ads:null,redo:null,klaviyo:null},reported={}},{start,end,currency}){
+export function summarizeSpend({kpi=[],redo=[],klaviyo=[],klaviyoCampaign=[],windows=[],attempted={},connections={ads:null,redo:null,klaviyo:null}},{start,end,currency}){
   const out=new Map(),days=[],rowsByKey={kpi,redo,klaviyo,klaviyoCampaign};
   for(let d=start;d<=end;d=addDay(d,1))days.push(d);
   for(const s of SPEND_SOURCES){
@@ -118,15 +99,7 @@ export function summarizeSpend({kpi=[],redo=[],klaviyo=[],klaviyoCampaign=[],win
     // already refuses any other currency -- and a mutation removing it stays
     // green for exactly that reason. It is kept so the money does not depend
     // on one branch staying correct.
-    // What this source's figures are actually denominated in. A reported
-    // currency wins over the assumption, because it is the vendor's answer
-    // rather than ours; `assumed` only fills the gap when nothing was
-    // reported. Keeping the two apart is the point: the note below must not
-    // call a stated currency assumed, and must not stay silent about an
-    // assumed one.
-    const vendor=s.currencyFrom?reported?.[s.currencyFrom]||null:null;
-    const effective=vendor||s.assumed||'USD';
-    const usable=s.currencyColumn?rows.filter(r=>r[s.currencyColumn]===currency):(currency===effective?rows:[]);
+    const usable=s.currencyColumn?rows.filter(r=>r[s.currencyColumn]===currency):(currency===(s.assumed||'USD')?rows:[]);
     let total=0,unreported=0;
     // null is "not reported", which is NOT zero: this vendor leaves SMS cost
     // null on a contracted plan and before its supported date. Number(null) is
@@ -139,13 +112,11 @@ export function summarizeSpend({kpi=[],redo=[],klaviyo=[],klaviyoCampaign=[],win
       const n=Number(v);if(!Number.isFinite(n))throw Error('Invalid spend value');
       total+=n;
     }
-    const base=!tracked?'none':!s.currencyColumn&&currency!==effective?'currency':connectionCount>1||!listKnown?'unverified':covered===days.length?'complete':covered===0&&!rows.length&&!uncostedRows?'unknown':'partial';
+    const base=!tracked?'none':!s.currencyColumn&&currency!==(s.assumed||'USD')?'currency':connectionCount>1||!listKnown?'unverified':covered===days.length?'complete':covered===0&&!rows.length&&!uncostedRows?'unknown':'partial';
     // Synced days prove the rows arrived, not that they carry a cost. A source
     // whose period is covered but whose cost is part-missing is not complete.
     const status=base==='complete'&&(unreported||uncostedRows)?'incomplete':base;
-    // `assumed` is blanked once the vendor has stated a currency, so every
-    // caveat downstream reads from one field and cannot contradict the status.
-    out.set(s.channel,{...s,assumed:vendor?null:(s.assumed||null),reportedCurrency:vendor,status,days:days.length,covered,connections:connectionCount,listKnown,unreported,uncostedRows,cents:['none','currency','unknown'].includes(status)?null:Math.round(total*100),excluded:rows.length-usable.length});
+    out.set(s.channel,{...s,status,days:days.length,covered,connections:connectionCount,listKnown,unreported,uncostedRows,cents:['none','currency','unknown'].includes(status)?null:Math.round(total*100),excluded:rows.length-usable.length});
   }
   return out;
 }

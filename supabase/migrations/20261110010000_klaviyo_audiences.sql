@@ -89,27 +89,26 @@ create policy klaviyo_audiences_active_select on public.klaviyo_audiences
 
 -- ── the account's own currency ─────────────────────────────────────────────
 -- SILO also now requests `accounts:read`, so GET /api/accounts can be asked
--- for the account's `preferred_currency`. That matters for money: Klaviyo
--- reports SMS sending cost as a bare number with no currency anywhere in the
--- payload, so until now the attribution page took USD on faith and labelled
--- the figure "assumed USD". With this column the currency is Klaviyo's own
--- answer, and a company billed in another currency stops being quietly
--- counted as dollars.
+-- for the account's name, timezone and `preferred_currency`. The currency is
+-- stored as a fact about the account and nothing more.
+--
+-- It is NOT the currency of any Klaviyo money figure SILO stores. Klaviyo's
+-- Reporting API defines text_message_spend as "The total text message spend
+-- in USD", whatever the account prefers, so SMS cost is USD by the vendor's
+-- own definition and must never be relabelled with this column.
 --
 -- Nullable on purpose, and NULL is not "USD": it means Klaviyo did not say.
 -- A connection granted before the scope was requested, or a private API key
 -- made without it, returns 403 from that endpoint -- the connection test
--- records the refusal and leaves this null, and the page goes back to saying
--- the currency is assumed. Klaviyo cannot widen an existing grant, so such a
--- connection fills this in only after a re-consent.
+-- records the refusal and leaves this null. Klaviyo cannot widen an existing
+-- grant, so such a connection fills this in only after a re-consent.
 alter table public.klaviyo_connections
   add column if not exists account_currency text;
 
 comment on column public.klaviyo_connections.account_currency is
   'KLAVIYO: the account''s preferred_currency from GET /api/accounts (needs accounts:read). '
-  'The currency of klaviyo_flow_daily.text_message_spend and klaviyo_message_performance.'
-  'text_message_spend, which Klaviyo reports without one. NULL means Klaviyo did not say '
-  '-- NOT that the account is in USD.';
+  'A fact about the account only: it is NOT the currency of text_message_spend, which '
+  'Klaviyo defines as USD. NULL means Klaviyo did not say -- NOT that the account is in USD.';
 
 -- ── stamp trigger ──────────────────────────────────────────────────────────
 -- The company stamp trigger is the backstop for any write that forgets it.

@@ -543,26 +543,53 @@ export function campaignMessageRows({ campaigns = [], included = [], companyEnti
       if (m?.id) campaignForMessage.set(String(m.id), String(c.id));
     }
   }
-  // The campaign's audience, by campaign. Klaviyo gives each campaign a
-  // related campaign-audience whose definition carries the included and
-  // excluded group ids; the ids are stored as returned, because Klaviyo's docs
-  // do not say whether a given one is a list or a segment.
+  // Each MESSAGE's own audience. A campaign can carry several
+  // campaign-audience resources (one per message, e.g. an A/B test sent to
+  // different lists), so the campaign's first audience is not its messages'
+  // audience. Klaviyo links them both ways -- a campaign-message carries
+  // relationships['campaign-audience'], an audience carries
+  // relationships['campaign-messages'] -- and either is used. Only when
+  // neither link is present AND the campaign has exactly one audience is that
+  // one taken, since then there is nothing else it could be. Otherwise NULL:
+  // a wrong audience under a message's name is worse than none.
+  // The ids are stored as returned, because Klaviyo's docs do not say whether
+  // a given one is a list or a segment.
   const audienceById = new Map();
   for (const item of included) {
     if (item?.type === 'campaign-audience' && item?.id) audienceById.set(String(item.id), item);
   }
-  const audienceForCampaign = new Map();
-  for (const c of campaigns) {
-    const rel = c?.relationships?.['campaign-audiences']?.data;
-    const first = (Array.isArray(rel) ? rel : []).map((a) => audienceById.get(String(a?.id))).find(Boolean);
-    const def = first?.attributes?.definition;
-    if (!def) continue;
-    audienceForCampaign.set(String(c.id), {
-      name: def.name ?? null,
-      included: Array.isArray(def.included) ? def.included.map(String) : [],
-      excluded: Array.isArray(def.excluded) ? def.excluded.map(String) : [],
-    });
+  const relIds = (rel) => (Array.isArray(rel) ? rel : rel ? [rel] : []).map((r) => r?.id).filter(Boolean).map(String);
+  const audienceForMessageVia = new Map();
+  for (const [id, a] of audienceById) {
+    for (const mid of relIds(a?.relationships?.['campaign-messages']?.data)) audienceForMessageVia.set(mid, id);
   }
+  const audiencesOfCampaign = new Map();
+  for (const c of campaigns) {
+    const ids = relIds(c?.relationships?.['campaign-audiences']?.data).filter((id) => audienceById.has(id));
+    audiencesOfCampaign.set(String(c.id), ids);
+  }
+  const audienceValue = (id) => {
+    const attrs = audienceById.get(id)?.attributes || {};
+    // Klaviyo documents two shapes: the schema nests the fields under
+    // `definition`, the overview shows them flat (audience_name/included/
+    // excluded). Both are read; whichever is present wins.
+    const def = attrs.definition && typeof attrs.definition === 'object' ? attrs.definition : attrs;
+    const inc = def.included;
+    const exc = def.excluded;
+    if (!Array.isArray(inc) && !Array.isArray(exc)) return null;
+    return {
+      name: def.name ?? def.audience_name ?? null,
+      included: Array.isArray(inc) ? inc.map(String) : [],
+      excluded: Array.isArray(exc) ? exc.map(String) : [],
+    };
+  };
+  const audienceForMessage = (item, campaignId) => {
+    const own = relIds(item?.relationships?.['campaign-audience']?.data).find((id) => audienceById.has(id))
+      || audienceForMessageVia.get(String(item.id));
+    if (own) return audienceValue(own);
+    const ofCampaign = campaignId ? audiencesOfCampaign.get(campaignId) || [] : [];
+    return ofCampaign.length === 1 ? audienceValue(ofCampaign[0]) : null;
+  };
 
   const rows = [];
   for (const item of included) {
@@ -591,7 +618,7 @@ export function campaignMessageRows({ campaigns = [], included = [], companyEnti
       attributes: { definition: def, campaign: cdef },
       // NULL, not {}, when Klaviyo returned no audience: an empty object would
       // read as "sent to nobody" rather than "not reported".
-      audiences: (campaignId && audienceForCampaign.get(campaignId)) || null,
+      audiences: audienceForMessage(item, campaignId),
       synced_at: syncedAt,
       sync_batch_id: syncBatchId,
     });

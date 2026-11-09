@@ -2316,11 +2316,11 @@ What `lists:read`, `segments:read` and `accounts:read` are used for.
   readers resolve them against `klaviyo_audiences` on id alone, and show an
   unresolved id as itself.
 - **`klaviyo_connections.account_currency`**: the account's `preferred_currency`
-  from `GET /api/accounts`, written by the connection test. It is the currency
-  of `text_message_spend` and `conversion_value`, which Klaviyo reports with no
-  currency of its own. **NULL means Klaviyo did not say, not USD.** That happens
-  for a grant made before `accounts:read` was requested, and the attribution
-  page then labels the figure as assumed USD.
+  from `GET /api/accounts`, written by the connection test, stored as a fact
+  about the account. **It is not the currency of `text_message_spend`**, which
+  Klaviyo's Reporting API defines as USD whatever the account prefers, so SMS
+  cost is never relabelled with it. **NULL means Klaviyo did not say, not
+  USD**: a grant made before `accounts:read` was requested.
 - The audience read is the one fail-soft fetch in the Klaviyo sync. A grant
   without `lists:read` / `segments:read` still syncs every number, and only the
   names are skipped (`audiences_skipped` in the run result).

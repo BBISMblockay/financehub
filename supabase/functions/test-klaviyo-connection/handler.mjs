@@ -16,9 +16,8 @@
 //      requests at install but an older connection (or a private key made
 //      before 2026-11-09) will not carry, so a 403 here is recorded and
 //      ignored: the account id, name, timezone and currency stay null, the
-//      sync falls back to the company's business timezone, and Klaviyo SMS
-//      cost is labelled as an ASSUMED currency wherever it is shown. Failing
-//      the whole test over it would be a worse answer than a partial one.
+//      sync falls back to the company's business timezone. Failing the
+//      whole test over it would be a worse answer than a partial one.
 //      Klaviyo cannot widen an existing grant, so a connection made before
 //      the scope was requested must re-consent before this call can succeed.
 //
@@ -179,9 +178,9 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
       id: first?.id ? String(first.id) : null,
       name: first?.attributes?.contact_information?.organization_name ?? null,
       timezone: first?.attributes?.timezone ?? null,
-      // Klaviyo's own `preferred_currency` (an ISO code, e.g. 'USD'). It is
-      // the currency Klaviyo bills SMS sending in, and the only currency this
-      // integration can state rather than assume.
+      // Klaviyo's own `preferred_currency` (an ISO code, e.g. 'USD'), stored
+      // as a fact about the account. It is NOT the currency of SMS cost:
+      // Klaviyo's Reporting API defines text_message_spend as USD.
       currency: first?.attributes?.preferred_currency ?? null,
       scope_missing: false,
     };
@@ -220,7 +219,7 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
       needs_conversion_metric: !chosen,
       notes: [
         ...(account.scope_missing
-          ? ['Klaviyo would not return account details (no accounts:read scope). Reporting still works; the measurement window is computed in the company\'s business timezone instead of the account\'s, and Klaviyo SMS cost is labelled as an assumed currency. Reconnect to grant the scope.']
+          ? ['Klaviyo would not return account details (no accounts:read scope). Reporting still works; the measurement window is computed in the company\'s business timezone instead of the account\'s. Reconnect to grant the scope.']
           : []),
         ...(!chosen ? ['Choose which Klaviyo metric counts as a conversion (normally "Placed Order"). Every Klaviyo report requires one.'] : []),
       ],

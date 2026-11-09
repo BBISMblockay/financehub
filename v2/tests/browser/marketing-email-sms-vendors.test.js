@@ -14,11 +14,10 @@
  *   EMAIL_SMS_MUTATION=not-linkable  take launch linking off Klaviyo rows
  *   EMAIL_SMS_MUTATION=link-per-row  link the ROW rather than the message
  *   EMAIL_SMS_MUTATION=no-audience   stop showing a campaign's audience
- *   EMAIL_SMS_MUTATION=usd-always    ignore the account's own currency
  *   EMAIL_SMS_MUTATION=hard-context  let a missing audience column fail the read
  *
- * The audience and currency both come from reads the numbers do not need, on
- * columns a migration adds. The last pass serves the page those columns
+ * The audience comes from reads the numbers do not need, on a column a
+ * migration adds. The last pass serves the page those columns
  * MISSING, as an unapplied migration would, and the numbers must still show.
  */
 'use strict';
@@ -37,7 +36,6 @@ const MUTATIONS = {
   'no-vendor': ['<th>Vendor</th>', ''],
   'redo-wording': ['<h2>Email &amp; SMS messages</h2>', '<h2>Redo email &amp; SMS messages</h2>'],
   'no-audience': ['${esc(m.name)}${audienceLine(m.audience)}', '${esc(m.name)}'],
-  'usd-always': ["currency:r._currency||'USD', audience:", "currency:'USD', audience:"],
   'hard-context': [
     "soft('audiences', () => loadPaged(",
     "(async(_l,f)=>f())('audiences', () => loadPaged(",
@@ -110,11 +108,11 @@ const transform = (rel, source) => {
         { company_entity_id:'test-company', kind:'list', klaviyo_id:'L1', name:'Newsletter' },
         { company_entity_id:'test-company', kind:'segment', klaviyo_id:'S2', name:'Unengaged 180d' },
       ],
-      // One account that reported its currency (accounts:read granted) and one
-      // granted before the scope existed, which said nothing.
+      // An account whose preferred currency is EUR. The page must NOT
+      // relabel revenue with it: Klaviyo does not say conversion_value is in
+      // the preferred currency, so the row stays USD, as before.
       klaviyo_connections: [
         { id:'kc-eur', company_entity_id:'test-company', account_currency:'EUR' },
-        { id:'kc-old', company_entity_id:'test-company', account_currency:null },
       ],
     };
     const ready = () => document.getElementById('statusText')?.textContent.includes('rows loaded.');
@@ -172,10 +170,9 @@ const transform = (rel, source) => {
     const flowRow = await page.locator('#redoBody tr', { hasText:'Welcome 2' }).innerText();
     R.not(flowRow, 'To ', 'a flow message has no audience of its own');
 
-    // Money in the currency Klaviyo said the account is in -- and USD, as
-    // before, for the connection that has not said.
-    R.has(klaviyoRow, '€1,234.56');
-    R.not(klaviyoRow, '$1,234.56');
+    // Revenue stays USD whatever the account prefers.
+    R.has(klaviyoRow, '$1,234.56');
+    R.not(klaviyoRow, '€');
     R.has(flowRow, '$99.50');
 
     await page.close();
@@ -184,15 +181,15 @@ const transform = (rel, source) => {
     // Every context column missing, as PostgREST reports it. The numbers
     // still show; only the audience line and the reported currency go.
     const bare = await suite.open('/v2/marketing-overview.html', tables, { ready,
-      missingColumns: { klaviyo_messages: ['audiences'], klaviyo_connections: ['account_currency'] } });
+      missingColumns: { klaviyo_messages: ['audiences'] } });
     await bare.click('[data-tab="redo"]');
     // Counted first, so a context read that takes the rows down with it fails
     // here, on an assertion, rather than as a locator timeout below.
     R.eq(await bare.locator('#redoBody tr').count(), 4, 'a missing context column must not take the Klaviyo rows with it');
     const bareRow = await bare.locator('#redoBody tr', { hasText:'Klaviyo autumn email' }).first().innerText();
-    R.has(bareRow, '1,234.56', 'the numbers do not depend on the audience or currency reads');
+    R.has(bareRow, '1,234.56', 'the numbers do not depend on the audience read');
     R.not(bareRow, 'To Newsletter');
-    R.has(bareRow, '$1,234.56', 'no reported currency: back to USD, exactly as before');
+    R.has(bareRow, '$1,234.56');
     await bare.close();
   } finally {
     await suite.close();

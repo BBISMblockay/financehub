@@ -51,6 +51,8 @@
 //   KLAVIYO_SYNC_MUTATION=audiencescope  a 403 on lists fails the run instead of dropping names
 //   KLAVIYO_SYNC_MUTATION=audiencehard   any lists failure is swallowed, not just a scope refusal
 //   KLAVIYO_SYNC_MUTATION=audiencedrop   a campaign is stored without the audience it was sent to
+//   KLAVIYO_SYNC_MUTATION=audiencefirst  every message takes its campaign's first audience
+//   KLAVIYO_SYNC_MUTATION=audienceflat   the flat audience shape (audience_name/included) is dropped
 //   KLAVIYO_SYNC_MUTATION=unappliedtable  a missing klaviyo_audiences table fails the nightly
 //   KLAVIYO_SYNC_MUTATION=unappliedcolumn a missing audiences column fails the nightly
 //   KLAVIYO_SYNC_MUTATION=unappliedany    every write error is treated as "not applied yet"
@@ -97,7 +99,17 @@ async function loadCore() {
   if (MUT === 'unappliedtable') sub("    if (!isUnappliedSchema(err, 'klaviyo_audiences')) throw err;", '    throw err;');
   if (MUT === 'unappliedcolumn') sub("    if (!isUnappliedSchema(err, 'audiences')) throw err;", '    throw err;');
   if (MUT === 'unappliedany') sub("    && String(e?.message || '').includes(name);", '    || true;');
-  if (MUT === 'audiencedrop') sub('      audiences: (campaignId && audienceForCampaign.get(campaignId)) || null,', '      audiences: null,');
+  if (MUT === 'audiencedrop') sub('      audiences: audienceForMessage(item, campaignId),', '      audiences: null,');
+  // Every message given its campaign's FIRST audience, the bug this replaced:
+  // in an A/B test sent to two lists, message B would read as sent to A's.
+  if (MUT === 'audiencefirst') {
+    sub("    const own = relIds(item?.relationships?.['campaign-audience']?.data).find((id) => audienceById.has(id))\n      || audienceForMessageVia.get(String(item.id));",
+      '    const own = null;');
+    sub('    return ofCampaign.length === 1 ? audienceValue(ofCampaign[0]) : null;', '    return ofCampaign.length ? audienceValue(ofCampaign[0]) : null;');
+  }
+  // Only the nested `definition` shape read, so the flat documented shape
+  // (audience_name / included / excluded) is silently dropped.
+  if (MUT === 'audienceflat') sub("typeof attrs.definition === 'object' ? attrs.definition : attrs;", "typeof attrs.definition === 'object' ? attrs.definition : {};");
   if (MUT === 'retry4xx') sub('    if (res.status === 429 || res.status === 503) {', '    if (res.status === 429 || res.status === 503 || res.status === 403) {');
   if (MUT === 'retryafter') sub('      const waitMs = retryAfter > 0\n        ? (retryAfter * 1000) + Math.floor(random() * 500)', '      const waitMs = retryAfter > 0\n        ? 0');
   if (MUT === 'ratebudget') sub('    if (since < minGap) await sleep(minGap - since);', '');
@@ -1238,4 +1250,50 @@ test('only a missing audience table or column is forgiven: a refused write still
       return out;
     }),
     'permission denied on a table that exists is a real defect, not the audience migration');
+});
+
+// A campaign with TWO audiences and two messages (an A/B test sent to
+// different lists). Each message must carry its own audience, whichever way
+// Klaviyo links them, and in whichever of its two documented shapes.
+test('each campaign message carries its OWN audience, not the campaign\'s first', async () => {
+  const { campaignMessageRows } = await loadCore();
+  const stamp = { companyEntityId: 'co', connectionId: 'kc', syncedAt: 'now', syncBatchId: 'b' };
+  const campaigns = [{
+    id: 'c1', type: 'campaign', attributes: { definition: { name: 'A/B drop' } },
+    relationships: {
+      'campaign-messages': { data: [{ id: 'mA', type: 'campaign-message' }, { id: 'mB', type: 'campaign-message' }, { id: 'mC', type: 'campaign-message' }] },
+      'campaign-audiences': { data: [{ id: 'audA', type: 'campaign-audience' }, { id: 'audB', type: 'campaign-audience' }] },
+    },
+  }];
+  const included = [
+    // mA names its audience itself (singular relationship, as Klaviyo shows it).
+    { id: 'mA', type: 'campaign-message', attributes: { definition: { name: 'A', channel: 'email' } },
+      relationships: { 'campaign-audience': { data: { id: 'audA', type: 'campaign-audience' } } } },
+    // mB does not; its audience names it instead.
+    { id: 'mB', type: 'campaign-message', attributes: { definition: { name: 'B', channel: 'email' } } },
+    // mC is linked from neither side, and the campaign has two audiences:
+    // there is no way to know which, so nothing is guessed.
+    { id: 'mC', type: 'campaign-message', attributes: { definition: { name: 'C', channel: 'email' } } },
+    { id: 'audA', type: 'campaign-audience', attributes: { definition: { name: 'Half A', included: ['L1'], excluded: [] } } },
+    // The flat shape from Klaviyo's overview page.
+    { id: 'audB', type: 'campaign-audience', attributes: { audience_name: 'Half B', included: ['L2'], excluded: ['S9'] },
+      relationships: { 'campaign-messages': { data: [{ id: 'mB', type: 'campaign-message' }] } } },
+  ];
+  const rows = campaignMessageRows({ campaigns, included, ...stamp });
+  const by = Object.fromEntries(rows.map((r) => [r.klaviyo_id, r.audiences]));
+  assert.deepEqual(by.mA, { name: 'Half A', included: ['L1'], excluded: [] });
+  assert.deepEqual(by.mB, { name: 'Half B', included: ['L2'], excluded: ['S9'] }, 'B went to its own list, not A\'s');
+  assert.equal(by.mC, null, 'two candidate audiences and no link: no guess');
+
+  // One audience and no links at all: that audience is the only possibility.
+  const single = campaignMessageRows({
+    campaigns: [{ id: 'c2', attributes: { definition: { name: 'Solo' } }, relationships: {
+      'campaign-messages': { data: [{ id: 'm1' }] }, 'campaign-audiences': { data: [{ id: 'aud1' }] } } }],
+    included: [
+      { id: 'm1', type: 'campaign-message', attributes: { definition: { name: 'Solo', channel: 'sms' } } },
+      { id: 'aud1', type: 'campaign-audience', attributes: { included: ['L3'], excluded: [] } },
+    ],
+    ...stamp,
+  });
+  assert.deepEqual(single[0].audiences, { name: null, included: ['L3'], excluded: [] });
 });
