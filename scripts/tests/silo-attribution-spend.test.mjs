@@ -96,6 +96,12 @@ test('loader scopes every query to the company, pages past a server cap, reads c
   const jobs=db.calls.find(c=>c.table==='sync_jobs'&&c.range);
   assert.equal(jobs.eq.status,'success');assert.deepEqual(jobs.filters,[['lte','result->window->>startDate','2026-09-30'],['gte','result->window->>endDate','2026-09-01']]);
   assert.deepEqual(raw.connections,{ads:[{id:'m',platform:'meta_ads'}],redo:[{id:'r'}],klaviyo:[{id:'k'}]});
+  // Campaign SMS cost is read for the completeness check: campaigns only, SMS
+  // only, and every window that OVERLAPS the period (not only ones inside it).
+  const camp=db.calls.find(c=>c.table==='klaviyo_message_performance'&&c.range);
+  assert.ok(camp,'campaign sending cost is read');
+  assert.equal(camp.eq.kind,'campaign');assert.equal(camp.eq.channel,'sms');
+  assert.deepEqual(camp.filters,[['lte','timeframe_start','2026-09-30T23:59:59Z'],['gte','timeframe_end','2026-09-01T00:00:00Z']]);
   // A non-admin's (RLS-empty) connection read is never trusted, or even made.
   const viewer=mockDb({isAdmin:false}),seen=await loadSpend(viewer,company,'2026-09-01','2026-09-30');
   assert.deepEqual(seen.connections,{ads:null,redo:null,klaviyo:null});assert.ok(!viewer.calls.some(c=>/connections$/.test(c.table||'')));
@@ -128,7 +134,7 @@ test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
     // sending cost and must not be counted as a zero-cost SMS day.
     {channel:'email',day_date:'2026-09-04',text_message_spend:null,connection_id:'k'},
   ],windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
-  const k=out.get('Klaviyo SMS');
+  const k=out.get('Klaviyo SMS (flows)');
   assert.equal(k.status,'complete');
   assert.equal(k.cents,1235,'fractional sending costs sum before rounding');
   assert.equal(k.kind,'Sending cost','not ad spend: it never belongs in MER or ROAS');
@@ -138,14 +144,69 @@ test("Klaviyo SMS sending cost counts, and says the currency is assumed",()=>{
 test("a store on another currency gets no Klaviyo figure, because Klaviyo reports none",()=>{
   const out=summarizeSpend({klaviyo:[{channel:'sms',day_date:'2026-09-02',text_message_spend:50,connection_id:'k'}],
     windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},{...period,currency:'CAD'});
-  const k=out.get('Klaviyo SMS');
+  const k=out.get('Klaviyo SMS (flows)');
   assert.equal(k.status,'currency');assert.equal(k.cents,null);
   assert.match(spendNote(k),/Can't confirm the currency/);
 });
 test("Klaviyo with nothing connected is not tracked, and does not make the total incomplete",()=>{
   const out=summarizeSpend({kpi:[{platform:'meta_ads',day_date:'2026-09-01',spend:10}],
     windows:fullWindows,attempted:attemptedAll,connections:admin},period);
-  assert.equal(out.get('Klaviyo SMS').status,'none');
-  assert.equal(out.get('Klaviyo SMS').cents,null);
+  assert.equal(out.get('Klaviyo SMS (flows)').status,'none');
+  assert.equal(out.get('Klaviyo SMS (flows)').cents,null);
   assert.equal(spendTotal(out).complete,true,'a vendor nobody uses cannot hold the total open');
+});
+
+// ── What this source cannot cost ───────────────────────────────────────────
+// Two ways a synced Klaviyo period can still be missing money, both of which
+// previously read as a COMPLETE total and so as a trustworthy denominator.
+test("campaign sending cost is not daily, so its existence keeps the flow source from reading complete",()=>{
+  // A real case: paid SMS campaigns, no flows at all. Flow rows: none.
+  const out=summarizeSpend({kpi:[{platform:'meta_ads',day_date:'2026-09-01',spend:100}],klaviyo:[],
+    klaviyoCampaign:[{kind:'campaign',channel:'sms',timeframe_start:'2026-09-01T00:00:00Z',timeframe_end:'2026-09-30T00:00:00Z',text_message_spend:75,connection_id:'k'}],
+    windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  const k=out.get('Klaviyo SMS (flows)');
+  assert.notEqual(k.status,'complete','a complete $0 here would overstate return');
+  assert.equal(k.status,'incomplete');
+  assert.equal(k.uncostedRows,1);
+  assert.match(spendNote(k),/campaign cost rows not included/);
+  assert.match(spendNote(k),/per measurement window/);
+  const t=spendTotal(out);
+  assert.equal(t.complete,false,'the marketing-spend denominator cannot be certified');
+  assert.deepEqual(t.gaps.map(g=>g.channel),['Klaviyo SMS (flows)']);
+  // A campaign that genuinely cost nothing hides nothing, so it holds nothing open.
+  const free=summarizeSpend({klaviyo:[],klaviyoCampaign:[{kind:'campaign',channel:'sms',timeframe_start:'2026-09-01T00:00:00Z',timeframe_end:'2026-09-30T00:00:00Z',text_message_spend:0,connection_id:'k'}],
+    windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  assert.equal(free.get('Klaviyo SMS (flows)').status,'complete');
+  // A campaign row reporting NO cost is unknown cost, not free.
+  const silent=summarizeSpend({klaviyo:[],klaviyoCampaign:[{kind:'campaign',channel:'sms',timeframe_start:'2026-09-01T00:00:00Z',timeframe_end:'2026-09-30T00:00:00Z',text_message_spend:null,connection_id:'k'}],
+    windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  assert.equal(silent.get('Klaviyo SMS (flows)').status,'incomplete');
+});
+test("an unreported sending cost stays unreported: null is not a free send",()=>{
+  // Klaviyo leaves text_message_spend null on a contracted plan and before its
+  // supported date. Number(null) is 0 and finite, which is how it used to pass.
+  const nulls=summarizeSpend({klaviyo:[{channel:'sms',day_date:'2026-09-02',text_message_spend:null,recipients:5000,connection_id:'k'}],
+    windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  const only=nulls.get('Klaviyo SMS (flows)');
+  assert.equal(only.status,'incomplete','5,000 texts of unknown cost is not $0 of cost');
+  assert.equal(only.cents,0,'nothing known to add');
+  assert.equal(only.unreported,1);
+  assert.match(spendNote(only),/1 rows report no cost/);
+  assert.equal(spendTotal(nulls).complete,false);
+  // Mixed known and null understates, so it cannot read complete either.
+  const mixed=summarizeSpend({klaviyo:[
+    {channel:'sms',day_date:'2026-09-02',text_message_spend:10,connection_id:'k'},
+    {channel:'sms',day_date:'2026-09-03',text_message_spend:null,connection_id:'k'},
+  ],windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  const m=mixed.get('Klaviyo SMS (flows)');
+  assert.equal(m.status,'incomplete');assert.equal(m.cents,1000,'the known part is still shown');
+  assert.equal(m.unreported,1);
+  // An email row carries no SMS cost by design and is filtered out before this,
+  // so it must not be counted as an unreported SMS cost.
+  const email=summarizeSpend({klaviyo:[
+    {channel:'sms',day_date:'2026-09-02',text_message_spend:10,connection_id:'k'},
+    {channel:'email',day_date:'2026-09-02',text_message_spend:null,connection_id:'k'},
+  ],windows:klaviyoWindows,attempted:klaviyoAttempted,connections:klaviyoAdmin},period);
+  assert.equal(email.get('Klaviyo SMS (flows)').status,'complete');
+  assert.equal(email.get('Klaviyo SMS (flows)').unreported,0);
 });
