@@ -955,8 +955,21 @@ export function flowMessageRows({
 async function upsertChunked(supabase, table, rows, onConflict, size = 500) {
   for (let i = 0; i < rows.length; i += size) {
     const { error } = await supabase.from(table).upsert(rows.slice(i, i + size), { onConflict });
-    if (error) throw new Error(`${table} upsert failed: ${error.message}`);
+    if (error) throw new Error(`${table} upsert failed: ${error.message}`, { cause: error });
   }
+}
+
+/**
+ * True when a write failed ONLY because migration 20261110010000 is not
+ * applied yet: PostgREST names the missing table (PGRST205) or column
+ * (PGRST204), Postgres the same as 42P01 / 42703. The nightly runs from main,
+ * so between a merge and the apply it meets a database without them -- and
+ * the numbers must still land. Anything else is a real failure.
+ */
+export function isUnappliedSchema(err, name) {
+  const e = err?.cause || err;
+  return ['PGRST204', 'PGRST205', '42P01', '42703'].includes(String(e?.code || ''))
+    && String(e?.message || '').includes(name);
 }
 
 /**
@@ -1052,8 +1065,25 @@ export async function syncKlaviyoWindow({
   // Audiences first: a campaign row's ids are worth more once their names are
   // there, and an audience row is never swept -- a list that stops being
   // returned may still be named by an old campaign.
-  await upsertChunked(supabase, 'klaviyo_audiences', audienceRows, 'company_entity_id,kind,klaviyo_id');
-  await upsertChunked(supabase, 'klaviyo_messages', messageRows, 'company_entity_id,kind,klaviyo_id');
+  try {
+    await upsertChunked(supabase, 'klaviyo_audiences', audienceRows, 'company_entity_id,kind,klaviyo_id');
+  } catch (err) {
+    if (!isUnappliedSchema(err, 'klaviyo_audiences')) throw err;
+    counts.audiences_upserted = 0;
+    counts.audiences_skipped = 'migration_not_applied';
+    log('[klaviyo] klaviyo_audiences does not exist yet (20261110010000 not applied); audience names skipped');
+  }
+  try {
+    await upsertChunked(supabase, 'klaviyo_messages', messageRows, 'company_entity_id,kind,klaviyo_id');
+  } catch (err) {
+    if (!isUnappliedSchema(err, 'audiences')) throw err;
+    // Same rows, without the one column the database does not have yet.
+    // Upserts are idempotent, so a retry from the first chunk is safe.
+    log('[klaviyo] klaviyo_messages.audiences does not exist yet (20261110010000 not applied); campaign audiences skipped');
+    counts.audiences_skipped = 'migration_not_applied';
+    await upsertChunked(supabase, 'klaviyo_messages',
+      messageRows.map(({ audiences: _unstored, ...row }) => row), 'company_entity_id,kind,klaviyo_id');
+  }
   await upsertChunked(supabase, 'klaviyo_message_performance', performanceRows,
     'company_entity_id,kind,klaviyo_id,channel,timeframe_start,timeframe_end');
   await upsertChunked(supabase, 'klaviyo_flow_daily', dailyRows,

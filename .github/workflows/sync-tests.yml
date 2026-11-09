@@ -595,7 +595,7 @@ jobs:
       - name: The Klaviyo sync's guards, removed, must break it
         run: |
           set -u
-          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk serieschunk seriesdrop storeddepth workflowdepth native audiencescope audiencehard audiencedrop currencyfield currencyhardfail; do
+          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk serieschunk seriesdrop storeddepth workflowdepth native audiencescope audiencehard audiencedrop currencyfield currencyhardfail unappliedtable unappliedcolumn unappliedany; do
             out="$(KLAVIYO_SYNC_MUTATION="$m" node --test scripts/tests/klaviyo-sync.test.mjs 2>&1)" && rc=0 || rc=$?
             if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

@@ -51,6 +51,11 @@
 //   KLAVIYO_SYNC_MUTATION=audiencescope  a 403 on lists fails the run instead of dropping names
 //   KLAVIYO_SYNC_MUTATION=audiencehard   any lists failure is swallowed, not just a scope refusal
 //   KLAVIYO_SYNC_MUTATION=audiencedrop   a campaign is stored without the audience it was sent to
+//   KLAVIYO_SYNC_MUTATION=unappliedtable  a missing klaviyo_audiences table fails the nightly
+//   KLAVIYO_SYNC_MUTATION=unappliedcolumn a missing audiences column fails the nightly
+//   KLAVIYO_SYNC_MUTATION=unappliedany    every write error is treated as "not applied yet"
+//   KLAVIYO_SYNC_MUTATION=currencyfield   the connection test stops reading the account's currency
+//   KLAVIYO_SYNC_MUTATION=currencyhardfail the connection test's write fails over the missing currency column
 //
 // Run: node --test scripts/tests/klaviyo-sync.test.mjs
 import assert from 'node:assert/strict';
@@ -89,6 +94,9 @@ async function loadCore() {
   // everything.
   if (MUT === 'audiencescope') sub('    if (!isScopeError(err)) throw err;', '    throw err;');
   if (MUT === 'audiencehard') sub('    if (!isScopeError(err)) throw err;', '    if (false) throw err;');
+  if (MUT === 'unappliedtable') sub("    if (!isUnappliedSchema(err, 'klaviyo_audiences')) throw err;", '    throw err;');
+  if (MUT === 'unappliedcolumn') sub("    if (!isUnappliedSchema(err, 'audiences')) throw err;", '    throw err;');
+  if (MUT === 'unappliedany') sub("    && String(e?.message || '').includes(name);", '    || true;');
   if (MUT === 'audiencedrop') sub('      audiences: (campaignId && audienceForCampaign.get(campaignId)) || null,', '      audiences: null,');
   if (MUT === 'retry4xx') sub('    if (res.status === 429 || res.status === 503) {', '    if (res.status === 429 || res.status === 503 || res.status === 403) {');
   if (MUT === 'retryafter') sub('      const waitMs = retryAfter > 0\n        ? (retryAfter * 1000) + Math.floor(random() * 500)', '      const waitMs = retryAfter > 0\n        ? 0');
@@ -1179,4 +1187,55 @@ test('a grant without accounts:read still passes, and says to reconnect', async 
   assert.ok(res.body.notes.some((n) => /accounts:read/.test(n) && /Reconnect/.test(n)));
   const { data: row } = await db.from('klaviyo_connections').select('*').eq('id', CONN).maybeSingle();
   assert.ok(row.account_currency == null, 'no currency is invented for an account that did not say');
+});
+
+
+// ── merged, not applied yet ───────────────────────────────────────────────
+// The nightly runs from main, so between a merge and the apply of
+// 20261110010000 it meets a database with no klaviyo_audiences table and no
+// klaviyo_messages.audiences column. PostgREST refuses those writes outright.
+// Every number must still land; only the audience goes.
+function unappliedDb({ denied = false } = {}) {
+  const db = seededDb();
+  const real = db.from.bind(db);
+  db.from = (table) => {
+    const t = real(table);
+    const upsert = t.upsert.bind(t);
+    t.upsert = (rows, opts) => {
+      const list = Array.isArray(rows) ? rows : [rows];
+      if (table === 'klaviyo_audiences') {
+        // `denied`: the table exists and the write is REFUSED -- a grant gone
+        // wrong, not a migration still to apply. That must stay a failure.
+        return Promise.resolve({ data: null, error: denied
+          ? { code: '42501', message: 'permission denied for table klaviyo_audiences' }
+          : { code: 'PGRST205', message: "Could not find the table 'public.klaviyo_audiences' in the schema cache" } });
+      }
+      if (table === 'klaviyo_messages' && list.some((r) => 'audiences' in r)) {
+        return Promise.resolve({ data: null, error: { code: 'PGRST204', message: "Could not find the 'audiences' column of 'klaviyo_messages' in the schema cache" } });
+      }
+      return upsert(rows, opts);
+    };
+    return t;
+  };
+  return db;
+}
+
+test('before the audience migration is applied, the nightly still writes every number', async () => {
+  const core = await loadCore();
+  const { db, out } = await runSync(core, { db: unappliedDb() });
+  assert.notEqual(out.status, 'failed', 'an unapplied migration is not an outage');
+  const messages = db.rows('klaviyo_messages');
+  assert.ok(messages.length > 0, 'messages still written');
+  assert.ok(messages.every((r) => !('audiences' in r)), 'without the column the database does not have yet');
+  assert.ok(db.rows('klaviyo_message_performance').length > 0, 'performance still written');
+});
+
+test('only a missing audience table or column is forgiven: a refused write still fails the run', async () => {
+  const core = await loadCore();
+  await assert.rejects(
+    () => runSync(core, { db: unappliedDb({ denied: true }) }).then(({ out }) => {
+      if (out.status === 'failed') throw new Error(out.error || 'failed');
+      return out;
+    }),
+    'permission denied on a table that exists is a real defect, not the audience migration');
 });
