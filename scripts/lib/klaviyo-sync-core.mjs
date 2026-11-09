@@ -435,7 +435,11 @@ export async function ensureAccessToken({
   const res = await fetchImpl(KLAVIYO_TOKEN_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+      // btoa, not Buffer: this module is also bundled into an edge function
+      // (integration-sync-kick), and Buffer is a Node global the Deno runtime
+      // is not guaranteed to carry. btoa is in both, and a client id and
+      // secret are ASCII, so the two produce the same header.
+      Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: connection.refresh_token }).toString(),

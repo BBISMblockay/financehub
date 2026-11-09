@@ -38,23 +38,28 @@ const MUTATIONS = {
     'out = { window: null };',
   ],
   'skip-message-dropped': ['return SKIP_MESSAGES[reason] || `Nothing was synced (${reason}).`;', "return 'Nothing was synced.';"],
+  // index.ts
+  'no-oauth-env': ['syncKlaviyoConnection({ ...args, ...klaviyoOauth })', 'syncKlaviyoConnection({ ...args })'],
   // v2/integrations.html
   'page-no-kick': ["          const out = await integrationSyncKick('klaviyo');", ''],
   'page-own-verdict': ['throw new Error(out?.error || `HTTP ${res.status}`);', "throw new Error('The sync was refused.');"],
 };
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
-const PAGE_MUTATIONS = new Set(['page-no-kick', 'page-own-verdict']);
+// Which file each mutation belongs to, so one is never silently applied to the
+// wrong source (or to none, which would make its case pass for free).
+const MUTATION_FILE = {
+  'page-no-kick': 'v2/integrations.html',
+  'page-own-verdict': 'v2/integrations.html',
+  'no-oauth-env': `${FN}/index.ts`,
+};
 
 function mutated(path) {
   let src = read(path);
-  if (MUTATIONS[mutation]) {
+  if (MUTATIONS[mutation] && (MUTATION_FILE[mutation] || `${FN}/handler.mjs`) === path) {
     const [from, to] = MUTATIONS[mutation];
-    const applies = (PAGE_MUTATIONS.has(mutation)) === path.endsWith('.html');
-    if (applies) {
-      assert.ok(src.includes(from), `mutation ${mutation} no longer matches ${path}`);
-      src = src.replace(from, to);
-    }
+    assert.ok(src.includes(from), `mutation ${mutation} no longer matches ${path}`);
+    src = src.replace(from, to);
   }
   return src;
 }
@@ -62,6 +67,7 @@ function mutated(path) {
 const handlerSrc = mutated(`${FN}/handler.mjs`);
 const H = await import('data:text/javascript,' + encodeURIComponent(handlerSrc));
 const pageSrc = mutated('v2/integrations.html');
+const indexSrc = mutated(`${FN}/index.ts`);
 
 let n = 0;
 const test = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${name}`); };
@@ -389,6 +395,60 @@ await run('the real Klaviyo core records a kick-tagged sync_jobs row', async () 
   assert.ok(job, 'the core must open a sync_jobs row');
   assert.equal(job.payload.params?.trigger, 'kick');
   assert.equal(job.payload.params?.integration, 'klaviyo');
+});
+
+// ── OAuth refresh reaches the core ─────────────────────────────────────────
+await run('an expired OAuth token is refreshed, not reported as a failure', async () => {
+  // The nightly passes the OAuth app's credentials; a kick that did not would
+  // 502 on exactly the connection that works on a schedule. The wiring lives
+  // in index.ts, so this case reproduces it from that source rather than
+  // trusting it.
+  assert.match(indexSrc, /KLAVIYO_CLIENT_ID/, 'index.ts must read the OAuth client id');
+  assert.match(indexSrc, /KLAVIYO_CLIENT_SECRET/, 'index.ts must read the OAuth client secret');
+  const wires = /syncKlaviyoConnection\(\{\s*\.\.\.args,\s*\.\.\.klaviyoOauth\s*\}\)/.test(indexSrc);
+
+  const { syncKlaviyoConnection } = await import(join(ROOT, FN, 'lib/klaviyo-sync-core.mjs'));
+  const expired = {
+    ...KLAVIYO_ROW,
+    auth_mode: 'oauth',
+    api_key: null,
+    access_token: 'stale',
+    refresh_token: 'rt-1',
+    token_expires_at: '2026-11-09T11:00:00Z', // before `now`
+  };
+  const db = makeDb({ rows: { klaviyo_connections: [expired] } });
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    const u = String(url);
+    seen.push(u);
+    if (u.includes('/oauth/token')) {
+      assert.match(init.headers.Authorization, /^Basic /, 'the refresh is authenticated with the app credentials');
+      return new Response(JSON.stringify({ access_token: 'fresh', expires_in: 3600 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    const body = u.includes('flow-series-reports')
+      ? { data: { attributes: { results: [], date_times: [] } } }
+      : u.includes('-reports') ? { data: { attributes: { results: [] } } } : { data: [] };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  // The same closure index.ts builds, so the mutation that unwires it lands here.
+  const oauth = { clientId: 'cid', clientSecret: 'csec' };
+  const handle = H.createHandler({
+    service: db.service,
+    userClientFor: () => db.userClient,
+    cores: {
+      syncKlaviyoConnection: (args) => syncKlaviyoConnection({
+        ...args, ...(wires ? oauth : {}), fetchImpl, sleep: async () => {},
+      }),
+      syncRedoMarketingConnection: async () => ({}),
+    },
+    now: () => new Date('2026-11-09T12:00:00Z'),
+  });
+  const res = await handle(post({ integration: 'klaviyo' }));
+  const body = await res.json();
+  assert.equal(res.status, 200, `expected the refresh to carry the sync: ${JSON.stringify(body)}`);
+  assert.equal(body.ok, true);
+  assert.ok(seen.some((u) => u.includes('/oauth/token')), 'the expired token must be refreshed');
 });
 
 // ── the page ───────────────────────────────────────────────────────────────

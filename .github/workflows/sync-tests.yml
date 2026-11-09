@@ -57,6 +57,9 @@ on:
       # both nightly cores -- a change to only a copy would otherwise leave
       # the suite unrun, which is the one thing that notices the drift.
       - 'supabase/functions/integration-sync-kick/**'
+      # The nightly's own workflow: klaviyo-sync.test.mjs asserts it sends a
+      # BLANK depth, which is what lets a connection's days_back still win.
+      - '.github/workflows/klaviyo-sync.yml'
       # Scheduled report email recipients (report-email-recipients-database.test.mjs).
       - 'supabase/migrations/*report_email_*.sql'
       - 'supabase/functions/comp-request-notify/**'
@@ -581,7 +584,7 @@ jobs:
       - name: The Klaviyo sync's guards, removed, must break it
         run: |
           set -u
-          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk storeddepth native; do
+          for m in writeearly sweepstamp sweepwindow nullzero seriesindex emptyday timeframeend conversionstamp scopeerror retry4xx retryafter ratebudget nowleak channelfilter metricspagesize metricsonepage badrequestlabel unreadable reauth dryrun chunk storeddepth workflowdepth native; do
             out="$(KLAVIYO_SYNC_MUTATION="$m" node --test scripts/tests/klaviyo-sync.test.mjs 2>&1)" && rc=0 || rc=$?
             if [ "$rc" = 0 ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
@@ -1136,7 +1139,7 @@ jobs:
           node scripts/tests/integration-sync-kick.test.mjs
           for m in no-rls-check no-flag-check no-clamp no-job-params trust-body-id \
                    skip-as-success swallow-core-error skip-message-dropped \
-                   page-no-kick page-own-verdict; do
+                   no-oauth-env page-no-kick page-own-verdict; do
             if KICK_MUTATION="$m" node scripts/tests/integration-sync-kick.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

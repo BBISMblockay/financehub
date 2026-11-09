@@ -80,7 +80,12 @@ jobs:
           KLAVIYO_CLIENT_ID: ${{ secrets.KLAVIYO_CLIENT_ID }}
           KLAVIYO_CLIENT_SECRET: ${{ secrets.KLAVIYO_CLIENT_SECRET }}
           KLAVIYO_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
-          KLAVIYO_DAYS_BACK: ${{ github.event.inputs.days_back || '60' }}
+          # BLANK on a schedule, and on a dispatch that named no depth. The
+          # script reads a blank as "nobody asked", which is what lets a
+          # connection's own days_back still win; defaulting it to '60' here
+          # made every scheduled run look like an explicit request for 60 and
+          # would have cut a connection configured for 90 down to 60.
+          KLAVIYO_DAYS_BACK: ${{ github.event.inputs.days_back || '' }}
           KLAVIYO_START: ${{ github.event.inputs.start_date || '' }}
           KLAVIYO_END: ${{ github.event.inputs.end_date || '' }}
           KLAVIYO_DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}

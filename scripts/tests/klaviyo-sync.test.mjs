@@ -33,6 +33,7 @@
 //   KLAVIYO_SYNC_MUTATION=ratebudget     the campaign report is not spaced to 2/minute
 //   KLAVIYO_SYNC_MUTATION=nowleak        request spacing reads the wall clock, not this run's
 //   KLAVIYO_SYNC_MUTATION=storeddepth    a stored days_back overrules a requested depth
+//   KLAVIYO_SYNC_MUTATION=workflowdepth  the nightly sends a depth nobody asked for
 //   KLAVIYO_SYNC_MUTATION=channelfilter  campaigns is asked for with a filter the API rejects
 //   KLAVIYO_SYNC_MUTATION=metricspagesize  the metrics read asks for a page size again
 //   KLAVIYO_SYNC_MUTATION=metricsonepage   only the first page of metrics is read
@@ -881,4 +882,22 @@ test('the nightly entry point resolves its depth through that function', async (
     src, /const DAYS_BACK = process\.env\.KLAVIYO_DAYS_BACK \|\| '';/,
     "defaulting the env var to a number here makes the nightly indistinguishable from an explicit request",
   );
+});
+
+test('the nightly sends no depth, so a connection\'s own days_back still wins', async () => {
+  // The precedence is only as good as what the scheduled caller passes. With
+  // `|| '60'` here, every scheduled run looked like an explicit request for 60
+  // and a connection configured for 90 would silently have been cut to 60 --
+  // the regression this change would otherwise have introduced.
+  const { readFileSync } = await import('node:fs');
+  let wf = readFileSync(new URL('../../.github/workflows/klaviyo-sync.yml', import.meta.url), 'utf8');
+  if (MUT === 'workflowdepth') wf = wf.replace("inputs.days_back || '' }}", "inputs.days_back || '60' }}");
+  const line = wf.split('\n').find((l) => l.includes('KLAVIYO_DAYS_BACK:'));
+  assert.ok(line, '.github/workflows/klaviyo-sync.yml must still set KLAVIYO_DAYS_BACK');
+  assert.match(line, /inputs\.days_back \|\| ''/,
+    'a schedule, and a dispatch naming no depth, must send BLANK');
+  // And the end-to-end consequence, not just the string: blank in, stored out.
+  const { effectiveDaysBack } = await loadCore();
+  assert.equal(effectiveDaysBack({ requested: '', connectionDaysBack: 90 }), 90);
+  assert.equal(effectiveDaysBack({ requested: '365', connectionDaysBack: 90 }), '365');
 });
