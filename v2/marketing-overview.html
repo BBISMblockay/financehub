@@ -851,9 +851,14 @@
   let focusedAd = new URLSearchParams(location.search).get('ad');
   let focusedCampaign = new URLSearchParams(location.search).get('campaign');
   let focusedRedo = new URLSearchParams(location.search).get('redo');
+  let focusedKlaviyo = new URLSearchParams(location.search).get('klaviyo');
   const CREATIVE_REF = 'meta_ad_creatives';
   const CAMPAIGN_REF = 'marketing_kpis_daily';
   const REDO_REF = 'redo_marketing_messages';
+  // Klaviyo's own identity table: one row per campaign or flow message,
+  // unique on (company, kind, klaviyo_id), so a link points at the message
+  // rather than at one measurement window or one conversion metric.
+  const KLAVIYO_REF = 'klaviyo_messages';
   const launchCell = (source,id,type) => {
     const linked = _creativeLinks.filter(l=>l.ref_table===source && String(l.ref_id)===String(id))
       .map(l=>({link:l,launch:_launches.find(x=>String(x.id)===String(l.launch_id)),channel_item_id:l.channel_item_id})).filter(x=>x.launch);
@@ -898,7 +903,10 @@
     const launchId=el('creativeLaunchSelect').value;
     const empty=document.createElement('option');empty.value='';empty.textContent='Launch only';select.append(empty);
     const channel=selectedMarketing?.source===REDO_REF
-      ? _redo.find(r=>`${r.kind}:${r.redo_id}`===selectedMarketing.id)?.channel?.toLowerCase() : 'meta';
+      ? _redo.find(r=>`${r.kind}:${r.redo_id}`===selectedMarketing.id)?.channel?.toLowerCase()
+      : selectedMarketing?.source===KLAVIYO_REF
+      ? _klaviyo.find(r=>`${r.kind}:${r.klaviyo_id}`===selectedMarketing.id)?.channel?.toLowerCase()
+      : 'meta';
     const initiatives=_initiatives.filter(c=>String(c.launch_id)===launchId && String(c.company_entity_id)===String(_co?.id));
     const matches=initiatives.filter(c=>channel && String(c.channel).toLowerCase()===channel);
     for(const group of [matches,initiatives.filter(c=>!matches.includes(c))]){
@@ -916,6 +924,8 @@
     if (source===CREATIVE_REF) name=_adPerf.find(a=>String(a.ad_id)===id)?.ad_name;
     else if (source===CAMPAIGN_REF) name=_campaignRows.find(a=>String(a.campaign_id)===id)?.campaign_name;
     else if (source===REDO_REF) name=_redo.find(a=>`${a.kind}:${a.redo_id}`===id)?.name;
+    // Any measurement row of the message carries its name; they all share one identity.
+    else if (source===KLAVIYO_REF) { const r=_klaviyo.find(a=>`${a.kind}:${a.klaviyo_id}`===id); name=r?.message_name||r?.parent_name||r?.klaviyo_id; }
     else return;
     if (!name) return;
     selectedMarketing={source,id,name,type};
@@ -1085,12 +1095,12 @@
 
   let _campaignRows = [];
   function renderRedo(){
-    el('redoFocus').hidden=!focusedRedo;
+    el('redoFocus').hidden=!focusedRedo && !focusedKlaviyo;
     const money=(v,cur)=>new Intl.NumberFormat('en-US',{style:'currency',currency:/^[A-Z]{3}$/.test(cur)?cur:'USD'}).format(v);
     const byMessage=new Map();
     for(const r of _redo){
       const id=`${r.kind}:${r.redo_id}`;
-      if(!byMessage.has(id)) byMessage.set(id,{id,vendor:'Redo',name:r.name||r.redo_id,kind:r.kind,channel:r.channel||'—',currency:r.revenue_currency||'USD',sends:0,orders:0,revenue:0,measured:'Date range',linkable:true});
+      if(!byMessage.has(id)) byMessage.set(id,{id,refId:id,ref:REDO_REF,vendor:'Redo',name:r.name||r.redo_id,kind:r.kind,channel:r.channel||'—',currency:r.revenue_currency||'USD',sends:0,orders:0,revenue:0,measured:'Date range'});
       const m=byMessage.get(id);
       if(m.channel !== (r.channel||'—')) m.channel='Email/SMS';
       m.sends+=Number(r.sends||0);m.orders+=Number(r.orders||0);m.revenue+=Number(r.revenue||0);
@@ -1108,13 +1118,15 @@
     }
     for(const [key,r] of byKlaviyo){
       byMessage.set(`klaviyo:${key}`,{
-        id:`klaviyo:${key}`, vendor:'Klaviyo',
+        // id keys the row; refId keys the MESSAGE, so every metric and channel
+        // row of one message shows the same launch links.
+        id:`klaviyo:${key}`, refId:`${r.kind}:${r.klaviyo_id}`, ref:KLAVIYO_REF, vendor:'Klaviyo',
         name:r.message_name||r.parent_name||r.klaviyo_id,
         kind:r.kind==='flow_message'?'flow message':(r.kind||'—'),
         channel:r.channel||'—', currency:r._currency||'USD', audience:r._audience,
         sends:Number(r.recipients||0), orders:Number(r.conversions||0), revenue:Number(r.conversion_value||0),
         measured:`${day(r.timeframe_start)} → ${day(r.timeframe_end)}`,
-        metric:r.conversion_metric_id||'', linkable:false,
+        metric:r.conversion_metric_id||'',
       });
     }
     let messages=[...byMessage.values()].sort((a,b)=>b.revenue-a.revenue);
@@ -1125,16 +1137,15 @@
       const tip=a.excluded.length?`Sent to: ${a.included.join(', ')}. Excluded: ${a.excluded.join(', ')}.`:`Sent to: ${a.included.join(', ')}.`;
       return `<div class="mo-empty" title="${esc(tip)}">To ${esc(a.included.join(', '))}${a.excluded.length?` · not ${esc(a.excluded.join(', '))}`:''}</div>`;
     };
-    if(focusedRedo) messages=messages.filter(m=>m.id===focusedRedo);
-    // Launch linking is Redo's: the link row's source names Redo's message
-    // table, so a Klaviyo row has nothing to point at. Saying so beats an
-    // inert button.
-    const launch=m=>m.linkable?launchCell(REDO_REF,m.id,'message')
-      :'<span class="mo-empty" title="Launch linking covers Redo messages. A Klaviyo message has no link row to point at yet.">—</span>';
+    if(focusedRedo) messages=messages.filter(m=>m.ref===REDO_REF && m.refId===focusedRedo);
+    if(focusedKlaviyo) messages=messages.filter(m=>m.ref===KLAVIYO_REF && m.refId===focusedKlaviyo);
+    // Both vendors link the same way: the chip hangs off the message identity,
+    // so a Klaviyo message linked once shows that link on each of its rows.
+    const launch=m=>launchCell(m.ref,m.refId,'message');
     el('redoBody').innerHTML=messages.length?messages.map(m=>`<tr><td>${esc(m.name)}${audienceLine(m.audience)}${m.metric?` <span class="mo-empty" title="Klaviyo measured this against conversion metric ${esc(m.metric)}. Rows measured under different metrics count different events and must not be added.">· ${esc(m.metric)}</span>`:''}</td><td>${esc(m.vendor)}</td><td>${esc(m.kind)}</td><td>${esc(m.channel)}</td><td>${esc(m.measured)}</td><td>${numFmt(m.sends)}</td><td>${numFmt(m.orders)}</td><td>${money(m.revenue,m.currency)}</td><td>${launch(m)}</td></tr>`).join('')
-      :`<tr><td class="mo-empty" colspan="9">${focusedRedo?'This linked message has no data in this date window. Try 90d or show all.':'No email or SMS message data in this window. Connect Redo or Klaviyo, or widen the dates.'}</td></tr>`;
+      :`<tr><td class="mo-empty" colspan="9">${(focusedRedo||focusedKlaviyo)?'This linked message has no data in this date window. Try 90d or show all.':'No email or SMS message data in this window. Connect Redo or Klaviyo, or widen the dates.'}</td></tr>`;
   }
-  el('clearRedoFocus').onclick=()=>{focusedRedo=null;const url=new URL(location.href);url.searchParams.delete('redo');history.replaceState(null,'',url);renderRedo();};
+  el('clearRedoFocus').onclick=()=>{focusedRedo=null;focusedKlaviyo=null;const url=new URL(location.href);url.searchParams.delete('redo');url.searchParams.delete('klaviyo');history.replaceState(null,'',url);renderRedo();};
 
   // ── Funnel tab ─────────────────────────────────────────────────
   function renderFunnel(rows){
@@ -1491,7 +1502,7 @@
     }
     if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
     else if (focusedCampaign) document.querySelector('.bcn-tab[data-tab="campaigns"]').click();
-    else if (focusedRedo) document.querySelector('.bcn-tab[data-tab="redo"]').click();
+    else if (focusedRedo||focusedKlaviyo) document.querySelector('.bcn-tab[data-tab="redo"]').click();
     await runLoad();
   }
 
