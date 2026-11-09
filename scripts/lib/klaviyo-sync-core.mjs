@@ -65,6 +65,9 @@ export const MIN_INTERVAL_MS = Object.freeze({
   campaigns: 100,
 });
 
+// Klaviyo's documented MAXIMA, not round numbers: campaigns caps page[size]
+// at 100 and flows at 50, and asking for more is a 400, not a smaller page.
+// /api/metrics takes no page[size] at all.
 const PAGE_SIZE_CAMPAIGNS = 100;
 const PAGE_SIZE_FLOWS = 50;
 const MAX_PAGES = 200;
@@ -475,23 +478,14 @@ export async function fetchCampaignMessages({ connection, log = () => {}, ...res
     include: 'campaign-messages',
     'page[size]': PAGE_SIZE_CAMPAIGNS,
   };
-  try {
-    return await fetchAllPages({ connection, path: 'campaigns', query, log, ...rest });
-  } catch (err) {
-    if (!(err instanceof KlaviyoApiError) || err.status !== 400) throw err;
-    log(`[klaviyo] campaigns refused an unfiltered read (${err.message}); asking per channel`);
-    const data = [];
-    const included = [];
-    for (const channel of ['email', 'sms']) {
-      const page = await fetchAllPages({
-        connection, path: 'campaigns', log, ...rest,
-        query: { ...query, filter: `equals(messages.channel,'${channel}')` },
-      });
-      data.push(...page.data);
-      included.push(...page.included);
-    }
-    return { data, included };
-  }
+  // No channel filter, and no fallback to one. `filter` on /api/campaigns
+  // accepts id, name, archived, builder, created_at and updated_at -- NOT
+  // messages.channel -- so a "fallback" to equals(messages.channel,'email')
+  // could only turn one clear 400 into three, and hide the real message
+  // behind the last one. An unfiltered read returns every channel anyway,
+  // which is what this wants. `page[size]` is right here: campaigns accepts
+  // it, up to 100. Metrics does NOT -- see test-klaviyo-connection.
+  return fetchAllPages({ connection, path: 'campaigns', query, log, ...rest });
 }
 
 /** The campaign messages as klaviyo_messages rows, keyed by Klaviyo's message

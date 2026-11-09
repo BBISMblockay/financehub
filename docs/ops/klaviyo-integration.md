@@ -140,6 +140,23 @@ timestamp (an overlapping newer run is safe), and the performance sweep is
 scoped to the exact timeframe it asked for, because another window's totals are
 a different measurement rather than a stale one.
 
+## Pagination, per endpoint — do not generalise
+
+The first live test failed on this, so it is written down rather than
+inferred:
+
+| Endpoint | `page[size]` | Max | Cursor |
+|---|---|---|---|
+| `GET /api/metrics` | **NOT accepted** | 200/page, fixed | `page[cursor]` |
+| `GET /api/campaigns` | yes | 100 | `page[cursor]` |
+| `GET /api/flows` | yes | 50 | `page[cursor]` |
+| `GET /api/flows/{id}/flow-actions` | yes | 50 | `page[cursor]` |
+
+Sending `page[size]` to `/api/metrics` returns **400** with
+`'page_size' is not a valid field for the resource 'metric'` — which is a
+SILO bug, not a bad key, and the connection test says so in those words
+rather than telling an admin to replace a working credential.
+
 ## Still unverified
 
 - **Nothing has run against a live Klaviyo account.** The contract came from
@@ -147,9 +164,10 @@ a different measurement rather than a stale one.
   shape is read tolerantly (`results`/`groupings`/`statistics` *or*
   `data`/`dimensions`/`measurements`) and a response matching neither fails
   loudly rather than reading as zero rows.
-- Whether `GET /api/campaigns` **requires** a filter on `messages.channel` is
-  not settled by the docs. The unfiltered read is tried once and a 400 falls
-  back to one request per channel.
+- ~~Whether `GET /api/campaigns` **requires** a filter on `messages.channel`~~
+  — settled 2026-11-09: it does not, and `messages.channel` is not even an
+  allowed filter field (`id`, `name`, `archived`, `builder`, `created_at`,
+  `updated_at` are). The read is unfiltered, with no fallback.
 - The path for a flow's message names is not settled either, so names are
   best-effort: the first refusal ends the attempt for the run and names stay
   null. No number depends on one.

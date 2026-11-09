@@ -32,6 +32,10 @@
 //   KLAVIYO_SYNC_MUTATION=retryafter     a 429 is retried without waiting Retry-After
 //   KLAVIYO_SYNC_MUTATION=ratebudget     the campaign report is not spaced to 2/minute
 //   KLAVIYO_SYNC_MUTATION=nowleak        request spacing reads the wall clock, not this run's
+//   KLAVIYO_SYNC_MUTATION=channelfilter  campaigns is asked for with a filter the API rejects
+//   KLAVIYO_SYNC_MUTATION=metricspagesize  the metrics read asks for a page size again
+//   KLAVIYO_SYNC_MUTATION=metricsonepage   only the first page of metrics is read
+//   KLAVIYO_SYNC_MUTATION=badrequestlabel  a 400 is reported as a rejected credential
 //   KLAVIYO_SYNC_MUTATION=unreadable     an unreadable report reads as zero rows
 //   KLAVIYO_SYNC_MUTATION=reauth         an uninstalled grant is refreshed again anyway
 //   KLAVIYO_SYNC_MUTATION=dryrun         a dry run writes rows
@@ -74,6 +78,12 @@ async function loadCore() {
   if (MUT === 'retryafter') sub('      const waitMs = retryAfter > 0\n        ? (retryAfter * 1000) + Math.floor(random() * 500)', '      const waitMs = retryAfter > 0\n        ? 0');
   if (MUT === 'ratebudget') sub('    if (since < minGap) await sleep(minGap - since);', '');
   if (MUT === 'nowleak') sub('clock, now: () => now().getTime() };', 'clock };');
+  if (MUT === 'channelfilter') {
+    sub("  return fetchAllPages({ connection, path: 'campaigns', query, log, ...rest });",
+      "  const first = await fetchAllPages({ connection, path: 'campaigns', query, log, ...rest });\n"
+      + "  await fetchAllPages({ connection, path: 'campaigns', log, ...rest, query: { ...query, filter: \"equals(messages.channel,'email')\" } });\n"
+      + '  return first;');
+  }
   if (MUT === 'unreadable') sub("    throw new KlaviyoApiError('Klaviyo report response had neither results nor data', { status: null, code: 'unreadable_report' });", '    return { rows: [], dateTimes: [] };');
   if (MUT === 'reauth') sub("  if (connection.reauth_required_at) {\n    throw new KlaviyoReauthRequired('Klaviyo OAuth grant was rejected earlier; reconnect the account');\n  }", '');
   if (MUT === 'dryrun') sub("  if (dryRun) {\n    log(", "  if (false) {\n    log(");
@@ -81,6 +91,29 @@ async function loadCore() {
 
   const b64 = Buffer.from(src).toString('base64');
   return import(`data:text/javascript;base64,${b64}`);
+}
+
+const handlerUrl = new URL('../../supabase/functions/test-klaviyo-connection/handler.mjs', import.meta.url);
+
+/** The connection-test handler, optionally with one fix broken. */
+async function loadHandler() {
+  if (!MUT) return import(handlerUrl.href);
+  let src = fs.readFileSync(handlerUrl, 'utf8');
+  const sub = (from, to) => {
+    assert.ok(src.includes(from), `mutation ${MUT}: pattern missing`);
+    src = src.split(from).join(to);
+  };
+  // A real Klaviyo account answered page[size] on /api/metrics with
+  // "'page_size' is not a valid field for the resource 'metric'".
+  if (MUT === 'metricspagesize') {
+    sub("      query: cursor ? { 'page[cursor]': cursor } : {},",
+      "      query: cursor ? { 'page[cursor]': cursor, 'page[size]': 100 } : { 'page[size]': 100 },");
+  }
+  if (MUT === 'metricsonepage') sub('    const next = res.json?.links?.next;', '    const next = null;');
+  if (MUT === 'badrequestlabel') {
+    sub('      : metricsRes.status === 401\n', '      : metricsRes.status === 401 || metricsRes.status === 400\n');
+  }
+  return import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`);
 }
 
 async function loadWindsor() {
@@ -551,7 +584,11 @@ test('the spacing is measured on the clock the run was given, not the wall clock
     endDate: '2026-11-02',
     now: () => new Date((t += 60_000)),
   });
-  assert.ok(!sleeps.some((ms) => ms >= 30_000),
+  // Not ">= 30_000": a leaked wall clock sleeps the interval MINUS however
+  // long the run really took, so 29_999 would slip past that bound -- the
+  // same millisecond sensitivity this whole fix is about. With the clock it
+  // was given, the gap is already 60s and nothing waits at all.
+  assert.deepEqual(sleeps.filter((ms) => ms > 1_000), [],
     'a gap the clock says has already passed must not be waited out again');
 });
 
@@ -582,7 +619,7 @@ test('the flow series asks for a daily interval', async () => {
 
 test('the connection test pins the SAME revision as the sync', async () => {
   const core = await loadCore();
-  const handler = await import('../../supabase/functions/test-klaviyo-connection/handler.mjs');
+  const handler = await loadHandler();
   assert.equal(handler.KLAVIYO_REVISION, core.KLAVIYO_REVISION,
     'testing one Klaviyo revision and syncing another proves nothing about the sync');
   assert.equal(handler.KLAVIYO_API_BASE, core.KLAVIYO_API_BASE);
@@ -614,18 +651,114 @@ test('a dry run reads everything and writes nothing', async () => {
 
 // ── Klaviyo refusing an unfiltered campaign read ──────────────────────────
 
-test('a 400 on the unfiltered campaign read falls back to asking per channel', async () => {
+test('campaigns is read unfiltered, and a 400 is not answered with a filter Klaviyo rejects too', async () => {
   const core = await loadCore();
-  const plan = planFor({
-    '/api/campaigns': (n) => (n === 0
-      ? { status: 400, body: { errors: [{ detail: 'filter on messages.channel is required' }] } }
-      : { body: campaignsBody }),
-  });
-  const { out, calls } = await runSync(core, { plan });
-  assert.equal(out.skipped, undefined, 'a required filter must not fail the sync');
+  const { calls } = await runSync(core);
   const asked = calls.filter((c) => c.url.includes('/api/campaigns'));
-  assert.ok(asked.some((c) => c.url.includes('email')), 'the fallback must ask for email');
-  assert.ok(asked.some((c) => c.url.includes('sms')), 'and for SMS');
+  assert.equal(asked.length, 1, 'one unfiltered read returns every channel');
+  // /api/campaigns filters on id, name, archived, builder, created_at and
+  // updated_at. messages.channel is NOT among them, so retrying a 400 with
+  // one could only produce two more 400s and bury the real message.
+  assert.ok(!asked.some((c) => c.url.includes('filter')), 'no filter at all');
+
+  const plan = planFor({
+    '/api/campaigns': { status: 400, body: { errors: [{ detail: 'nope' }] } },
+  });
+  const second = await runSync(core, { plan }).catch((err) => err);
+  const tried = (second?.calls || []).filter((c) => c.url.includes('/api/campaigns'));
+  assert.ok(!tried.some((c) => c.url.includes('messages.channel')),
+    'a 400 must surface, not trigger a filter the API does not accept');
+});
+
+// ── the live account's first lesson ───────────────────────────────────────
+
+test('the metrics read sends NO page[size], because /api/metrics rejects it', async () => {
+  const handler = await loadHandler();
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ data: [], links: {} }), { status: 200 });
+  };
+  const out = await handler.fetchAllMetrics({ authorization: 'Klaviyo-API-Key pk_x', fetchImpl });
+  assert.equal(out.ok, true);
+  // A real account answered page[size] with
+  //   "'page_size' is not a valid field for the resource 'metric'"
+  // and the whole connection test failed on it.
+  for (const u of urls) {
+    assert.ok(!u.includes('page%5Bsize%5D') && !u.includes('page[size]'),
+      `metrics must not ask for a page size: ${u}`);
+  }
+});
+
+test('every metric is read, not just the first page', async () => {
+  const handler = await loadHandler();
+  let call = 0;
+  const fetchImpl = async () => {
+    call += 1;
+    const body = call === 1
+      ? {
+        data: [{ id: 'm1', attributes: { name: 'Viewed Product' } }],
+        links: { next: 'https://a.klaviyo.com/api/metrics/?page%5Bcursor%5D=CUR2' },
+      }
+      : { data: [{ id: 'm2', attributes: { name: 'Placed Order' } }], links: { next: null } };
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  const out = await handler.fetchAllMetrics({ authorization: 'Klaviyo-API-Key pk_x', fetchImpl });
+  assert.deepEqual(out.metrics.map((m) => m.id), ['m1', 'm2']);
+  // The conversion metric is chosen from this list, so a truncated list can
+  // mean Placed Order is never offered -- on exactly the large accounts that
+  // page.
+  assert.equal(handler.pickConversionMetric(out.metrics)?.name, 'Placed Order');
+});
+
+test('a 400 from Klaviyo is not reported to the admin as a rejected credential', async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({
+    id: CONN, company_entity_id: CO, auth_mode: 'api_key', api_key: 'pk_test',
+  });
+  const fetchImpl = async () => new Response(
+    JSON.stringify({ errors: [{ detail: "'page_size' is not a valid field for the resource 'metric'" }] }),
+    { status: 400 },
+  );
+  const res = await handler.runKlaviyoTest({ supabase: db, companyEntityId: CO, fetchImpl });
+  assert.equal(res.body.success, false);
+  assert.equal(res.body.code, 'bad_request');
+  assert.ok(!/rejected the credential/i.test(res.body.error),
+    'a 400 is SILO asking wrongly; telling the admin their key is bad sends them to replace a good one');
+  assert.ok(/page_size/.test(res.body.error), "and Klaviyo's own words must survive");
+
+  // 401 still means what it says.
+  const fetch401 = async () => new Response(
+    JSON.stringify({ errors: [{ detail: 'invalid key' }] }), { status: 401 },
+  );
+  const bad = await handler.runKlaviyoTest({ supabase: db, companyEntityId: CO, fetchImpl: fetch401 });
+  assert.equal(bad.body.code, 'rejected');
+  assert.ok(/rejected the credential/i.test(bad.body.error));
+});
+
+test('the Connect with Klaviyo button is hidden until the deployment says it works', () => {
+  const page = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+  const btn = page.match(/<button[^>]*id="btn-connect-klaviyo"[^>]*>/);
+  assert.ok(btn, 'the button exists');
+  assert.ok(/\shidden\b/.test(btn[0]),
+    'it must start hidden: OAuth needs a registered Klaviyo app AND the function deployed, '
+    + 'and without them the click produced a raw "Failed to fetch"');
+  assert.ok(page.includes('probeKlaviyoOauth'), 'something has to decide to show it');
+  // Shown ONLY on an explicit yes. Any other answer -- including the function
+  // not being deployed, which throws -- leaves it hidden.
+  assert.match(page, /configured = res\.ok && out\?\.configured === true;/);
+  assert.match(page, /catch \(_\) \{\s*configured = false;/);
+  assert.match(page, /btn\.hidden = !configured;/);
+
+  const fn = fs.readFileSync(
+    new URL('../../supabase/functions/klaviyo-oauth-start/index.ts', import.meta.url), 'utf8');
+  assert.match(fn, /if \(req\.method === 'GET'\) return json\(\{ configured: Boolean\(CLIENT_ID\) \}\);/);
+  // The probe must not be able to mint a grant or spend the MFA gate.
+  const probeAt = fn.indexOf("req.method === 'GET'");
+  assert.ok(probeAt > fn.indexOf('getUser'), 'the probe still requires a signed-in caller');
+  assert.ok(probeAt < fn.indexOf('await checkMfaSession('), 'but creates no state and spends no MFA step');
+  assert.ok(probeAt > fn.indexOf('checkIntegrationToken(req'), 'and a third-party token is refused first');
 });
 
 // ── Windsor must stand down ───────────────────────────────────────────────

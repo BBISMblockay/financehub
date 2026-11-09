@@ -59,6 +59,43 @@ async function klaviyoGet({ path, authorization, fetchImpl, query = {} }) {
   return { ok: res.ok, status: res.status, json, detail: json?.errors?.[0]?.detail || text.slice(0, 300) };
 }
 
+/** Every metric in the account, following Klaviyo's cursor.
+ *
+ * Paged rather than read one page deep: the conversion metric this whole
+ * integration measures against is chosen from this list, so a truncated list
+ * can mean "Placed Order" is simply never offered on a large account. Capped,
+ * so a cursor that never terminates cannot hang the test.
+ */
+const MAX_METRIC_PAGES = 10;
+
+export async function fetchAllMetrics({ authorization, fetchImpl }) {
+  const metrics = [];
+  let cursor = null;
+  for (let page = 0; page < MAX_METRIC_PAGES; page += 1) {
+    const res = await klaviyoGet({
+      path: 'metrics', authorization, fetchImpl,
+      query: cursor ? { 'page[cursor]': cursor } : {},
+    });
+    if (!res.ok) return { ok: false, status: res.status, detail: res.detail, metrics: [] };
+    for (const m of Array.isArray(res.json?.data) ? res.json.data : []) {
+      metrics.push({
+        id: String(m.id),
+        name: m?.attributes?.name ?? null,
+        integration: m?.attributes?.integration?.name ?? null,
+      });
+    }
+    const next = res.json?.links?.next;
+    if (!next) break;
+    try {
+      cursor = new URL(next).searchParams.get('page[cursor]');
+    } catch (_) {
+      cursor = null;
+    }
+    if (!cursor) break;
+  }
+  return { ok: true, status: 200, detail: '', metrics };
+}
+
 /**
  * @returns {{ status: number, body: object }}
  */
@@ -93,26 +130,30 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
   }
 
   // 1. Metrics: the credential test, and the conversion-metric candidates.
-  const metricsRes = await klaviyoGet({
-    path: 'metrics', authorization, fetchImpl, query: { 'page[size]': 100 },
-  });
+  //
+  // NO `page[size]`: unlike campaigns and flows, GET /api/metrics does not
+  // accept it, and sending it earns a 400 reading "'page_size' is not a valid
+  // field for the resource 'metric'" — which is exactly what a real account
+  // returned the first time this ran. Metrics page with `page[cursor]` alone.
+  const metricsRes = await fetchAllMetrics({ authorization, fetchImpl });
   if (!metricsRes.ok) {
     // Klaviyo's own meanings: 403 the key lacks the scope; 400/401 the key is
     // missing or invalid. Said plainly, because the fix differs.
     const error = metricsRes.status === 403
       ? 'The Klaviyo key is valid but lacks the metrics:read scope. Klaviyo cannot add a scope to an existing key — create a new read-only key with campaigns:read, flows:read, metrics:read, segments:read and lists:read.'
-      : metricsRes.status === 401 || metricsRes.status === 400
+      : metricsRes.status === 401
         ? `Klaviyo rejected the credential: ${metricsRes.detail}`
-        : `Klaviyo returned ${metricsRes.status}: ${metricsRes.detail}`;
+        : metricsRes.status === 400
+          ? `Klaviyo refused the request SILO made — the key was not the problem: ${metricsRes.detail}`
+          : `Klaviyo returned ${metricsRes.status}: ${metricsRes.detail}`;
+    const code = metricsRes.status === 403 ? 'insufficient_scope'
+      : metricsRes.status === 400 ? 'bad_request'
+        : 'rejected';
     await record({ last_test_success: false, last_test_error: error });
-    return { status: 200, body: { success: false, error, code: metricsRes.status === 403 ? 'insufficient_scope' : 'rejected' } };
+    return { status: 200, body: { success: false, error, code } };
   }
 
-  const metrics = (Array.isArray(metricsRes.json?.data) ? metricsRes.json.data : []).map((m) => ({
-    id: String(m.id),
-    name: m?.attributes?.name ?? null,
-    integration: m?.attributes?.integration?.name ?? null,
-  }));
+  const metrics = metricsRes.metrics;
 
   // 2. Account details: best effort, see the note at the top of this file.
   let account = { id: null, name: null, timezone: null, scope_missing: false };
