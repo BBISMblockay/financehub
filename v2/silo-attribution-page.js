@@ -82,14 +82,48 @@ async function boot(){
   period.value=matchPeriod(startField.value,endField.value,anchor());
   period.addEventListener('change',()=>{
     const range=periodRange(period.value,anchor());
-    if(!range)return; // 'Custom' changes nothing; it is what the other fields set themselves to.
+    // 'Custom' changes no DATES -- it is what the other fields set themselves to -- but it does
+    // change which controls are shown, so the fields come back before this returns.
+    if(!range){showDates();return;}
     startField.value=range.start;endField.value=range.end;
+    showDates();
     app.refresh();
   });
   // Typing a date is choosing a custom range, unless it happens to land on a preset.
   for(const field of [startField,endField])field.addEventListener('change',()=>{
     period.value=matchPeriod(startField.value,endField.value,anchor());
+    showDates();
   });
+  // The anchor is per store, so switching store has to re-anchor the dates. Leaving them alone
+  // kept the previous store's period against a store collected through a different day, which
+  // loadRows() REFUSES outright ('Some days have not been backfilled') rather than showing less,
+  // while the control still claimed the old preset. An active preset follows the new store; a
+  // custom range is kept as typed and only its label is recomputed, since the same dates can be a
+  // preset for one store and custom for another.
+  root.querySelector('#store').addEventListener('change',()=>{
+    const range=periodRange(period.value,anchor());
+    if(range){startField.value=range.start;endField.value=range.end;}
+    else period.value=matchPeriod(startField.value,endField.value,anchor());
+    showDates();
+  });
+  // From and To repeat what the preset just computed, so the bar stated the same range twice and
+  // read as two competing controls. The fields belong to Custom; for a preset the dates are a
+  // RESULT, shown as a line of text. Nothing is removed: choosing Custom brings the fields back
+  // with the dates the preset left behind, so narrowing a preset is still two clicks.
+  const fromLabel=startField.closest('label'),toLabel=endField.closest('label');
+  const dateLine=document.createElement('p');dateLine.className='attr-context';dateLine.id='daterange';
+  (root.querySelector('#onlystore')||root.querySelector('.attr-controls')).after(dateLine);
+  const pretty=day=>/^\d{4}-\d{2}-\d{2}$/.test(day||'')
+    ? new Date(Date.parse(day)).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric'})
+    : day;
+  function showDates(){
+    const custom=period.value==='custom';
+    if(fromLabel)fromLabel.hidden=!custom;
+    if(toLabel)toLabel.hidden=!custom;
+    dateLine.hidden=custom;
+    dateLine.textContent=custom?'':pretty(startField.value)+' through '+pretty(endField.value);
+  }
+  showDates();
   await app.refresh();
 }
 boot().catch(e=>fail(e.message||String(e)));
