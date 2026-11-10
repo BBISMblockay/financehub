@@ -173,11 +173,34 @@ async function loadProgramData() {
   }
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
   d.prospectById = Object.fromEntries(d.prospects.map((x) => [x.id, x]));
+  d.aiApps = await loadAiApps();
   S.d = d;
   // A research run started earlier (another tab, a reload) is still watched.
   const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
   if (live && S.watching !== live.id) watchResearch(live.id);
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
+}
+
+// Your own AI connections to THIS company, for the Messages tab. A connection
+// covers only the company it was approved in, so this is what tells you
+// whether "send my approved affiliate messages" will find anything. Read
+// fail-soft: null means "could not tell", never "none".
+async function loadAiApps() {
+  try {
+    const { data, error } = await db.from('silo_api_grants')
+      .select('id, client_id, scopes, expires_at, revoked_at')
+      .eq('user_id', me.id).eq('company_entity_id', CO);
+    if (error || !Array.isArray(data)) return null;
+    const live = data.filter((g) => !g.revoked_at && (!g.expires_at || new Date(g.expires_at) > new Date()));
+    const names = {};
+    if (live.length) {
+      try {
+        const r = await db.rpc('silo_api_connection_labels', { p_grant_ids: live.map((g) => g.id) });
+        (Array.isArray(r.data) ? r.data : []).forEach((x) => { if (x.client_name) names[x.grant_id] = x.client_name; });
+      } catch (_) { /* a missing name is cosmetic */ }
+    }
+    return live.map((g) => ({ name: names[g.id] || 'AI app', canSend: (g.scopes || []).includes('outreach:send') }));
+  } catch (_) { return null; }
 }
 
 async function reload() {
@@ -450,8 +473,8 @@ function renderOutreach() {
       { h: '', f: (x) => (MANAGE ? `<div class="af-actions">${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}</div>` : '') },
     ], byState('draft'), 'No drafts. Approve a creator on Find creators to draft one.'), `${byState('draft').length}`),
     card('Approved, ready to send', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
-      <p class="af-muted" id="aiSendHow">Ask your connected AI to “send my approved affiliate messages”. It sends each one from your own email and marks it sent here. Not connected yet? Connect it once and allow “send approved affiliate outreach”.</p>
-      <div class="af-row" style="margin-top:8px;"><a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'ghost', { confirm: true }) : ''}</div>`),
+      ${aiSendBlock(d.aiApps)}
+      <div class="af-row" style="margin-top:8px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn bcn-btn--ghost" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'ghost', { confirm: true }) : ''}</div>`),
     card('Waiting to be marked sent', table([
       { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
@@ -467,6 +490,18 @@ function renderOutreach() {
     ], d.batches, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
     ]),
   ].join('');
+}
+
+// Which of your AI apps can send for this company, in one line.
+function aiSendBlock(apps) {
+  const how = 'Ask it to “send my approved affiliate messages”. It sends each one from your own email and marks it sent here.';
+  if (apps == null) return `<p class="af-muted" id="aiSendHow">${how} Not connected yet? Connect it once and allow “send approved affiliate outreach”.</p>`;
+  const send = apps.filter((a) => a.canSend);
+  const noSend = apps.filter((a) => !a.canSend);
+  const names = (list) => [...new Set(list.map((a) => a.name))].map((n) => pill(n, 'pos')).join(' ');
+  if (send.length) return `<p id="aiSendHow">Connected to this company and allowed to send: ${names(send)}</p><p class="af-muted">${how}</p>`;
+  if (noSend.length) return `<p id="aiSendHow">${[...new Set(noSend.map((a) => esc(a.name)))].join(', ')} is connected to this company but not allowed to send. Connect it again and tick “send approved affiliate outreach”.</p>`;
+  return '<p id="aiSendHow">No AI is connected to this company yet. Connect one while this company is selected and tick “send approved affiliate outreach”. A connection only works for the company it was approved in.</p>';
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
