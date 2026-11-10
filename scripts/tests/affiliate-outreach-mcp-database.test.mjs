@@ -41,6 +41,10 @@
 //   OUTREACH_MCP_MUTATION=followup-by-prospect-only  a follow-up to a known email tries a second record
 //   OUTREACH_MCP_MUTATION=followup-reopen-joined     an ended affiliate who had joined is reopened
 //   OUTREACH_MCP_MUTATION=html-no-text-link          the email has no visible link under the button
+//   OUTREACH_MCP_MUTATION=logo-not-passed            the claim does not pass the company logo to the email
+//   OUTREACH_MCP_MUTATION=logo-any-folder            a stored logo may point at another company's folder
+//   OUTREACH_MCP_MUTATION=logo-upload-any-folder     an owner may upload into another company's logo folder
+//   OUTREACH_MCP_MUTATION=logo-upload-any-member     any member may upload the company logo
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -108,6 +112,18 @@ $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
 create function refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 create table company_settings(company_entity_id uuid primary key, business_timezone text);
+create function is_owner_admin_of_active_company() returns boolean language sql stable security definer as $$
+  select exists (select 1 from public.entity_memberships em
+    where em.user_id = auth.uid() and em.entity_id = public.active_company_id() and em.role = 'owner_admin') $$;
+-- Storage as Supabase has it, for the logo bucket's policies.
+create schema storage;
+grant usage on schema storage to anon, authenticated, service_role;
+create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text);
+alter table storage.objects enable row level security;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
+create function storage.foldername(name text) returns text[] language sql immutable as
+  $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
 create function silo_company_timezone(p uuid) returns text language sql stable security definer as
   $$ select 'America/Los_Angeles' $$;
 create table shopify_orders (
@@ -180,6 +196,7 @@ const files = {
   html: '20261110110000_affiliate_outreach_html.sql',
   followup: '20261110120000_affiliate_followup_outreach.sql',
   button: '20261110130000_affiliate_outreach_email_button.sql',
+  logo: '20261110140000_company_logo.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -188,12 +205,31 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html', 'followup', 'button'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup', 'button', 'logo'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
+  case 'logo-not-passed':
+    mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url', v_logo),",
+      "'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url', null),"); break;
+  case 'logo-any-folder':
+    mutate("|| company_entity_id::text || '/logo-", "|| '[0-9a-f-]{36}' || '/logo-"); break;
+  case 'logo-upload-any-folder':
+    mutate(`  with check (
+    bucket_id = 'company-logos'
+    and (storage.foldername(name))[1] = public.active_company_id()::text
+    and public.is_owner_admin_of_active_company());`, `  with check (
+    bucket_id = 'company-logos'
+    and public.is_owner_admin_of_active_company());`); break;
+  case 'logo-upload-any-member':
+    mutate(`  with check (
+    bucket_id = 'company-logos'
+    and (storage.foldername(name))[1] = public.active_company_id()::text
+    and public.is_owner_admin_of_active_company());`, `  with check (
+    bucket_id = 'company-logos'
+    and (storage.foldername(name))[1] = public.active_company_id()::text);`); break;
   case 'session-company':
     mutate('  v_company := v_grant.company_entity_id;\n',
       '  v_company := coalesce(public.active_company_id(), v_grant.company_entity_id);\n'); break;
@@ -232,8 +268,8 @@ switch (MUT) {
     mutate("  v_esc := replace(replace(replace(replace(v_body, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '\"', '&quot;');",
       '  v_esc := v_body;'); break;
   case 'html-no-button':
-    mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url'),",
-      "'html', public.affiliate_outreach_html(v_brand, v_d.body, ''),"); break;
+    mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url'",
+      "'html', public.affiliate_outreach_html(v_brand, v_d.body, ''"); break;
   case 'followup-by-prospect-only':
     mutate("  if v_aff is null then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted", "  if false then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted"); break;
   case 'followup-reopen-joined':
@@ -242,7 +278,7 @@ switch (MUT) {
     mutate("    || '<p style=\"margin:0 0 18px;font-size:12px;line-height:1.5;color:#77828d\">Or open this link: '\n    || '<a href=\"' || v_url || '\" target=\"_blank\" style=\"color:#2f5fd0;word-break:break-all\">' || v_url || '</a></p>'\n", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -524,11 +560,49 @@ await check('F1 a follow-up to an email the program already has reuses that reco
   await assert.rejects(mint(p2), /ended_affiliate/, 'someone who joined and was ended is not reopened');
 });
 
+await check('B1 the company logo, when its owner set one, replaces the initial badge in the email', async () => {
+  const host = 'https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos';
+  const good = `${host}/${A}/logo-1762758000000.png`;
+  await db.query(`insert into company_settings(company_entity_id, business_timezone) values ($1,'America/Los_Angeles'),($2,'America/Los_Angeles') on conflict do nothing`, [A, B]);
+  for (const bad of [`${host}/${B}/logo-1762758000000.png`, `https://evil.test/storage/v1/object/public/company-logos/${A}/logo-1762758000000.png`,
+    `${host}/${A}/logo-1762758000000.svg`, `http://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${A}/logo-1762758000000.png`]) {
+    await assert.rejects(db.query('update company_settings set logo_url = $1 where company_entity_id = $2', [bad, A]),
+      /company_settings_logo_url_check/, `refused: ${bad}`);
+  }
+  await db.query('update company_settings set logo_url = $1 where company_entity_id = $2', [good, A]);
+  const dl = await draft(A, progA, 'logo@creator.test');
+  const r = await claim([progA, 10, 'logo-key']);
+  const c = r.claimed.find((x) => x.draft_id === dl.d);
+  assert.ok(c, 'the new draft was claimed');
+  assert.ok(c.html.includes(`<img src="${good}" height="36" alt="Brand A"`), 'the logo heads the email, with the name as its alt text');
+  assert.ok(!c.html.includes('bgcolor="#14181d" style="background:#14181d;border-radius:8px;color:#ffffff'), 'and the initial badge is gone');
+  assert.ok(c.html.includes('>Brand A</td>'), 'the name still shows next to it');
+  const x = await one(`select public.affiliate_outreach_html('A', 'Hi', 'https://x.test/j', 'https://evil.test/p.png"onerror="x') as h`);
+  assert.ok(!x.h.includes('<img') && !x.h.includes('evil.test'), 'an address that is not a logo in the bucket is never used');
+  await db.query('update company_settings set logo_url = null where company_entity_id = $1', [A]);
+});
+
+await check('B2 only an owner of the active company uploads its logo, and only into its own folder', async () => {
+  const up = async (uid, name) => {
+    await db.exec(`select set_config('test.uid', '${uid}', false)`);
+    await db.exec('set role authenticated');
+    try { await db.query(`insert into storage.objects(bucket_id, name) values ('company-logos', $1)`, [name]); }
+    finally { await db.exec('reset role'); await db.exec(`select set_config('test.uid', '', false)`); }
+  };
+  await up(U.ownerA, `${A}/logo-1762758000001.png`);
+  await assert.rejects(up(U.ownerA, `${B}/logo-1762758000002.png`), /row-level security/, 'not into another company\'s folder');
+  await assert.rejects(up(U.memberA, `${A}/logo-1762758000003.png`), /row-level security/, 'a member cannot change the logo');
+  const b = await one(`select public, allowed_mime_types from storage.buckets where id = 'company-logos'`);
+  assert.equal(b.public, true, 'public, so email clients and the join page can show it');
+  assert.ok(!b.allowed_mime_types.some((m) => /svg/.test(m)), 'no SVG, which can carry script');
+});
+
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {
   const fns = [
     'silo_api_claim_outreach(uuid, integer, text)', 'silo_api_mark_outreach_sent(uuid, text)',
     'affiliate_can_manage_for(uuid, uuid)', 'silo_api_app_name(text, text)', 'silo_api_outreach_grant()',
-    'affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'affiliate_outreach_html(text, text, text)'];
+    'affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'affiliate_outreach_html(text, text, text)',
+    'affiliate_outreach_html(text, text, text, text)'];
   for (const f of fns) {
     for (const role of ['anon', 'authenticated', 'silo_revoked']) {
       assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);

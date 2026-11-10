@@ -7,6 +7,13 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="workspace-settings.css" />
+  <style>
+    /* Company logo preview: the logo itself, or the initial badge it replaces. */
+    .ws-logo-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .ws-logo-box { width: 160px; height: 64px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); display: grid; place-items: center; overflow: hidden; }
+    .ws-logo-box img { max-width: 140px; max-height: 48px; object-fit: contain; display: block; }
+    .ws-logo-initial { width: 40px; height: 40px; border-radius: 10px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; font-size: 18px; }
+  </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -60,6 +67,26 @@
               <button class="bcn-btn bcn-btn--primary" id="btnSave" disabled>Save changes</button>
               <span class="ws-you" id="saveHint"></span>
             </div>
+          </div>
+        </div>
+
+        <div class="ws-card" id="logoCard">
+          <div class="ws-card-head">
+            <div class="ws-title">Logo</div>
+          </div>
+          <div class="ws-body">
+            <div class="ws-logo-row">
+              <div class="ws-logo-box" id="logoPreview"></div>
+              <div class="ws-actions">
+                <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp" hidden />
+                <button class="bcn-btn bcn-btn--primary" id="btnLogo" disabled>Upload logo</button>
+                <button class="bcn-btn bcn-btn--ghost" id="btnLogoRemove" hidden disabled>Remove</button>
+                <span class="ws-you" id="logoHint"></span>
+              </div>
+            </div>
+            <p class="ws-note" style="margin-top:14px;">
+              Shown on your affiliate emails, signup page and affiliate portal. PNG, JPG or WebP, up to 1 MB; a wide logo on a transparent background works best.
+            </p>
           </div>
         </div>
 
@@ -221,6 +248,11 @@
   // Attribution reporting stores (20261110024500). `_attrLoaded` is the saved
   // selection, sorted, so a comparison does not depend on checkbox order.
   let _attrAvailable = true, _attrStores = [], _attrLoaded = [];
+  // Company logo (20261110140000): the saved address, and whether the column exists yet.
+  let _logoAvailable = true, _logoUrl = null;
+  const LOGO_BUCKET = 'company-logos';
+  const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+  const LOGO_MAX = 1024 * 1024;
   // Document identity columns on company_settings (20260922130000): what the
   // PO Builder's vendor PDF prints. One input per column, keyed by data-col.
   const DOC_COLS = ['legal_name', 'address_line1', 'address_line2', 'city', 'region', 'postal_code', 'country', 'phone', 'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email'];
@@ -246,6 +278,10 @@
   // them (company_settings' own UPDATE policy, is_owner_admin_of_active_company).
   // Disabling the inputs makes that visible before somebody types into them.
   function applyPermission() {
+    el('btnLogo').disabled = !_canEdit || !_logoAvailable;
+    el('btnLogoRemove').disabled = !_canEdit || !_logoAvailable;
+    el('logoHint').textContent = !_logoAvailable ? 'Logo upload is not available yet.'
+      : _canEdit ? '' : 'Only a workspace owner can change the logo.';
     for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) el(id).disabled = !_canEdit;
     for (const n of docInputs()) n.disabled = !_canEdit || !_docsAvailable;
     el('btnSave').disabled = true;
@@ -349,6 +385,85 @@
     }
   }
 
+  function renderLogo() {
+    const box = el('logoPreview');
+    box.textContent = '';
+    if (_logoUrl) {
+      const img = document.createElement('img');
+      img.src = _logoUrl; img.alt = 'Company logo';
+      box.append(img);
+    } else {
+      const b = document.createElement('span');
+      b.className = 'ws-logo-initial';
+      b.textContent = (_loaded?.title || '?').trim().charAt(0).toUpperCase();
+      box.append(b);
+    }
+    el('btnLogo').textContent = _logoUrl ? 'Replace logo' : 'Upload logo';
+    el('btnLogoRemove').hidden = !_logoUrl;
+  }
+
+  // The object path inside the bucket, from a saved public address.
+  function logoPath(url) {
+    const m = /\/storage\/v1\/object\/public\/company-logos\/(.+)$/.exec(String(url || ''));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  async function writeLogoUrl(url) {
+    const { data, error } = await db.from('company_settings')
+      .update({ logo_url: url })
+      .eq('company_entity_id', _co.id)
+      .select('company_entity_id');
+    if (error) throw error;
+    // An RLS refusal on UPDATE is a success with zero rows, not an error.
+    if (!data || !data.length) throw new Error('The logo was not saved — your account may no longer have owner access here.');
+  }
+
+  async function uploadLogo(file) {
+    if (!_canEdit || !_logoAvailable || !file) return;
+    const ext = LOGO_TYPES[file.type];
+    if (!ext) { setStatus('Use a PNG, JPG or WebP image.', 'neg', 8000); return; }
+    if (file.size > LOGO_MAX) { setStatus('That image is over 1 MB. Use a smaller one.', 'neg', 8000); return; }
+    el('btnLogo').disabled = true; el('btnLogoRemove').disabled = true;
+    setStatus('Uploading logo…', 'info');
+    // A new name each time, so email clients and browsers never show a cached old logo.
+    const path = `${_co.id}/logo-${Date.now()}.${ext}`;
+    const old = logoPath(_logoUrl);
+    try {
+      const up = await db.storage.from(LOGO_BUCKET).upload(path, file, { contentType: file.type, upsert: false });
+      if (up.error) throw up.error;
+      const url = db.storage.from(LOGO_BUCKET).getPublicUrl(path).data.publicUrl;
+      try { await writeLogoUrl(url); }
+      catch (e) { await db.storage.from(LOGO_BUCKET).remove([path]).catch(() => {}); throw e; }
+      _logoUrl = url;
+      // The old file is no longer referenced; removing it is tidy-up only.
+      if (old && old !== path) await db.storage.from(LOGO_BUCKET).remove([old]).catch(() => {});
+      renderLogo();
+      setStatus('Logo saved.', 'pos', 5000);
+    } catch (e) {
+      setStatus(e?.message || String(e), 'neg', 15000);
+    } finally {
+      el('logoFile').value = '';
+      applyPermission();
+    }
+  }
+
+  async function removeLogo() {
+    if (!_canEdit || !_logoAvailable || !_logoUrl) return;
+    el('btnLogo').disabled = true; el('btnLogoRemove').disabled = true;
+    const old = logoPath(_logoUrl);
+    try {
+      await writeLogoUrl(null);
+      _logoUrl = null;
+      if (old) await db.storage.from(LOGO_BUCKET).remove([old]).catch(() => {});
+      renderLogo();
+      setStatus('Logo removed.', 'pos', 5000);
+    } catch (e) {
+      setStatus(e?.message || String(e), 'neg', 15000);
+    } finally {
+      applyPermission();
+    }
+  }
+
   async function load() {
     // Feature-detect the document columns (20260922130000): a 42703 means the
     // migration is not applied yet, so read the base row and say the Documents
@@ -414,6 +529,13 @@
     };
     el('billPayProvider').value = _billPayLoaded.provider;
     el('billPayEmail').value = _billPayLoaded.email;
+
+    // The company logo (20261110140000), feature-detected the same way.
+    const logoRead = await db.from('company_settings').select('logo_url')
+      .eq('company_entity_id', _co.id).maybeSingle();
+    _logoAvailable = logoRead.error?.code !== '42703';
+    _logoUrl = logoRead.error ? null : (logoRead.data?.logo_url || null);
+    renderLogo();
 
     // Attribution reporting stores. Feature-detected the same way: until
     // 20261110024500 is applied the card says so rather than looking broken.
@@ -559,6 +681,9 @@
     }
     el('btnSaveBillPay').addEventListener('click', saveBillPay);
     el('btnSaveAttrStores').addEventListener('click', saveAttrStores);
+    el('btnLogo').addEventListener('click', () => el('logoFile').click());
+    el('logoFile').addEventListener('change', () => uploadLogo(el('logoFile').files?.[0]));
+    el('btnLogoRemove').addEventListener('click', removeLogo);
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

@@ -25,6 +25,8 @@
  *                                     so a program switch mid-claim mislabels it
  *   AFFILIATE_UI_MUTATION=periodtotal a period total is summed from the 300
  *                                     ledger lines the page holds
+ *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
+ *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -39,6 +41,8 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
+  logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
+  logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -243,12 +247,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         if (body.action === 'renew') return reply(200, { status: 'sent_if_eligible', message: 'If this link belongs to an active affiliate, a new one is on its way to the address on file.' });
         return reply(404, { error: 'This link has expired or is no longer valid.', code: 'invalid_link' });
       }
-      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') ? 'portal' : 'signup', brand: 'Brand A', program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
+      // A join link gets a real logo address; a portal link gets one outside the bucket, which must not be shown.
+      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
     });
+    const LOGO = `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${PROG}/logo-1762758000000.png`;
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    await suite.context.route('**/company-logos/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await suite.context.route('https://evil.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     const join = await suite.open('/v2/affiliates/join.html?t=' + 'S'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
     join.on('pageerror', (e) => errors.push(e.message));
     R.ok('the token is removed from the address bar', !(await join.evaluate(() => location.search.includes('t='))))
@@ -258,6 +267,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const hero = await text(join, '#hero');
     R.ok('the invitation names the brand and leads with the offer', /Join the .+ affiliate program/.test(hero) && /\S/.test(await text(join, '.af-offer-num')));
     R.has(hero, 'Accept the terms', 'the three steps say what happens next');
+    R.eq(await join.evaluate(() => document.querySelector('#hero .af-brand img.af-logo')?.getAttribute('src')), LOGO, 'the company logo heads the invitation');
+    R.eq(await join.evaluate(() => document.querySelector('#hero img.af-logo')?.alt), 'Brand A', 'with the brand name as its text');
     await join.fill('#signed', 'Pat Trails');
     await join.check('#agree');
     await join.click('#go');
@@ -271,12 +282,37 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const portal = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
     R.has(await text(portal, '#kpis'), '$12.50', 'the portal shows earnings in the program currency');
     R.has(await text(portal, '#body'), 'PAT10', 'the portal lists the affiliate code');
+    R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
     await portal.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });
     await expiredPortal.click('#renew');
     await expiredPortal.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
     R.has(await text(expiredPortal, '#status'), 'If this link belongs to an active affiliate', 'renewal never confirms whose link it was');
     await expiredPortal.close();
+
+    // ── company logo upload (Settings -> Company) ─────────────────────────
+    const coTables = {
+      entities: [{ id: CO, title: 'Brand A', entity_key: 'brand-a', created_at: now }],
+      company_settings: [{ company_entity_id: CO, business_timezone: 'America/Los_Angeles', default_currency: 'USD', logo_url: null }],
+      entity_memberships: [{ entity_id: CO, user_id: 'test-user', role: 'owner_admin' }],
+      supported_business_timezones: [{ tz_name: 'America/Los_Angeles', is_supported: true }],
+    };
+    const settings = await suite.open('/v2/settings-company.html', coTables, { ready: () => !document.getElementById('btnLogo').disabled });
+    R.eq(await text(settings, '#logoPreview .ws-logo-initial'), 'B', 'without a logo the initial shows, as on the affiliate pages');
+    await settings.setInputFiles('#logoFile', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+    await settings.waitForFunction(() => !!document.querySelector('#logoPreview img'), null, { timeout: 5000 });
+    const lastLogo = (page) => page.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_settings' && q._op === 'update' && 'logo_url' in (q.patch || {})).pop()?.patch.logo_url);
+    const saved = await lastLogo(settings);
+    R.ok('the logo is saved under this company\'s own folder, with a fresh name', new RegExp(`#${CO}/logo-[0-9]{13}\\.png$`).test(String(saved)));
+    R.ok('a replace and a remove are offered once a logo is set', (await text(settings, '#btnLogo')) === 'Replace logo' && !(await settings.$eval('#btnLogoRemove', (b) => b.hidden)));
+    await settings.click('#btnLogoRemove');
+    await settings.waitForFunction(() => !document.querySelector('#logoPreview img'), null, { timeout: 5000 });
+    R.eq(await lastLogo(settings), null, 'remove clears the saved logo');
+    await settings.close();
+    const viewer = await suite.open('/v2/settings-company.html', { ...coTables, entity_memberships: [{ entity_id: CO, user_id: 'test-user', role: 'admin' }] },
+      { ready: () => /Only a workspace owner can change the logo/.test(document.getElementById('logoHint').textContent) });
+    R.ok('only an owner is offered the upload', await viewer.$eval('#btnLogo', (b) => b.disabled));
+    await viewer.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

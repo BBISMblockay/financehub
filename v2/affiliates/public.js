@@ -44,3 +44,25 @@ export function termsHtml(text) {
   const paras = String(text || '').trim().split(/\n\s*\n/).filter(Boolean);
   return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('') : '<p>The brand has not written terms for this program yet.</p>';
 }
+
+// The brand's mark: its logo when the company uploaded one (Settings ->
+// Company), otherwise its initial in a badge. A logo that fails to load
+// falls back to the initial too, so a page never shows a broken image.
+const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/company-logos\/[0-9a-f-]{36}\/logo-[0-9]{10,16}\.(png|jpg|jpeg|webp)$/;
+export function brandMark(brand, logo) {
+  const name = String(brand || 'Affiliate program');
+  const initial = esc(name.trim().charAt(0).toUpperCase());
+  if (typeof logo === 'string' && LOGO_RE.test(logo)) {
+    return `<img class="af-logo" src="${esc(logo)}" alt="${esc(name)}" data-initial="${initial}">`;
+  }
+  return `<span class="af-badge" aria-hidden="true">${initial}</span>`;
+}
+export function wireBrandMark(root = document) {
+  for (const img of root.querySelectorAll('img.af-logo')) {
+    img.addEventListener('error', () => {
+      const s = document.createElement('span');
+      s.className = 'af-badge'; s.setAttribute('aria-hidden', 'true'); s.textContent = img.dataset.initial || '';
+      img.replaceWith(s);
+    }, { once: true });
+  }
+}

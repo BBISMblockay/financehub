@@ -24,6 +24,7 @@
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
 //   AFFILIATE_EDGE_MUTATION=draftnews     a draft payout is announced
 //   AFFILIATE_EDGE_MUTATION=byprospectonly a follow-up to a known email tries a second record
+//   AFFILIATE_EDGE_MUTATION=anylogo       the portal hands the page any stored logo address
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,6 +43,7 @@ async function load(fn, file) {
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
+    anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
   };
   const m = muts[MUT];
@@ -54,7 +56,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(path).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -147,6 +149,18 @@ await test('portal: an unknown or expired link is a 404 and nothing is written',
   const res = await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }));
   assert.equal(res.status, 404);
   assert.ok(!svc.log.some((c) => c.name === 'affiliate_portal_accept_terms' || c.op === 'insert'));
+});
+
+await test('portal: resolve carries the company logo, only when it is one in the logo bucket', async () => {
+  const good = `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${CO}/logo-1762758000000.png`;
+  const mk = (logo) => fakeService({ rpc: { affiliate_portal_resolve: { data: [resolvedRow()], error: null } },
+    tables: { company_settings: logo === undefined ? null : { logo_url: logo } } });
+  const resolve = async (svc) => (await (await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'resolve', token: TOKEN }))).json());
+  const svc = mk(good);
+  assert.equal((await resolve(svc)).brand_logo, good);
+  assert.ok(svc.log.some((c) => c.table === 'company_settings' && c.filters.company_entity_id === CO), 'read for the link\'s own company');
+  assert.equal((await resolve(mk(undefined))).brand_logo, null, 'no logo: the page shows the initial');
+  assert.equal((await resolve(mk('https://evil.test/pixel.png'))).brand_logo, null, 'an address outside the logo bucket is never handed to the page');
 });
 
 await test('portal: resolve exposes no internal ids', async () => {

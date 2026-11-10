@@ -23,9 +23,10 @@
     .af-form { display: flex; flex-direction: column; gap: 10px; }
     .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
     .af-scroll { overflow-x: auto; }
-    /* Invitation hero: the brand's initial and name, the offer as one number. */
+    /* Invitation hero: the brand's logo (or initial) and name, the offer as one number. */
     .af-hero { display: flex; flex-direction: column; gap: 14px; padding: 26px 24px; border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); }
     .af-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; color: var(--bcn-ink); }
+    .af-logo { height: 40px; width: auto; max-width: 200px; object-fit: contain; border-radius: 8px; display: block; }
     .af-badge { width: 34px; height: 34px; border-radius: 9px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; }
     .af-kicker { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--bcn-ink-3); }
     .af-hero h1 { margin: 0; font-size: 26px; line-height: 1.2; color: var(--bcn-ink); }
@@ -52,7 +53,7 @@
   <p class="af-muted">Run by the brand that invited you, powered by SILO. Your link is personal; please do not share it.</p>
 </main>
 <script type="module">
-import { $, esc, call, setStatus, takeToken, termsHtml } from './public.js';
+import { $, esc, call, setStatus, takeToken, termsHtml, brandMark, wireBrandMark } from './public.js';
 import { describeCommission } from './studio-core.js';
 const token = takeToken('silo_affiliate_signup');
 const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
@@ -75,7 +76,7 @@ async function load() {
   const big = /^[\d$€£¥%.,]|^[A-Z]{3}\b/.test(offer) ? (offer.match(/^\S+/)?.[0] || '') : '';
   const brand = String(r.brand || 'Affiliate program');
   $('body').innerHTML = `<section class="af-hero" id="hero">
-      <div class="af-brand"><span class="af-badge" aria-hidden="true">${esc(brand.trim().charAt(0).toUpperCase())}</span><span>${esc(brand)}</span></div>
+      <div class="af-brand">${brandMark(brand, r.brand_logo)}<span>${esc(brand)}</span></div>
       <div><div class="af-kicker">You're invited</div><h1>Join the ${esc(brand)} affiliate program</h1></div>
       <div class="af-offer"><span class="af-offer-num">${esc(big)}</span><span class="af-offer-txt">${esc(offer.slice(big.length).trim())}, paid in <span class="af-num">${esc(p.currency)}</span></span></div>
       <ol class="af-steps">
@@ -90,6 +91,7 @@ async function load() {
         <label class="af-check"><input type="checkbox" id="agree" required /> <span>I have read and accept version ${p.terms_version} of the terms above.</span></label>
         <button class="bcn-btn bcn-btn--primary" type="submit" id="go">Accept and join</button>
       </form>`);
+  wireBrandMark($('body'));
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     if (!$('agree').checked || !$('signed').value.trim()) { setStatus('Type your name and tick the box to accept.', 'neg'); return; }
