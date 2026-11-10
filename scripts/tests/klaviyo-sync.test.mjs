@@ -160,6 +160,11 @@ async function loadHandler() {
   if (MUT === 'badrequestlabel') {
     sub('      : metricsRes.status === 401\n', '      : metricsRes.status === 401 || metricsRes.status === 400\n');
   }
+  // Remove's revoke (Klaviyo app review: removing SILO must remove it from
+  // the Klaviyo account too).
+  if (MUT === 'revoketoken') sub("token: connection.refresh_token }", "token: '' }");
+  if (MUT === 'revokealready') sub("  if (res.status === 400 && /invalid_grant/.test(text))", '  if (false)');
+  if (MUT === 'revokeapikey') sub("  if (connection.auth_mode !== 'oauth') return done(false, 'api_key');\n", '');
   return import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`);
 }
 
@@ -1296,4 +1301,64 @@ test('each campaign message carries its OWN audience, not the campaign\'s first'
     ...stamp,
   });
   assert.deepEqual(single[0].audiences, { name: null, included: ['L3'], excluded: [] });
+});
+
+test('Remove revokes the OAuth grant in Klaviyo with the refresh token, and never touches the row', async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({
+    id: CONN, company_entity_id: CO, auth_mode: 'oauth', access_token: 'at_live', refresh_token: 'rt_live',
+  });
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, init }); return new Response('', { status: 200 }); };
+  const res = await handler.revokeKlaviyoGrant({
+    supabase: db, companyEntityId: CO, clientId: 'cid', clientSecret: 'csec', fetchImpl,
+  });
+  assert.deepEqual(res, { status: 200, body: { revoked: true, code: 'revoked' } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://a.klaviyo.com/oauth/revoke');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers.Authorization, `Basic ${Buffer.from('cid:csec').toString('base64')}`);
+  const form = new URLSearchParams(calls[0].init.body);
+  assert.equal(form.get('token'), 'rt_live', 'the grant is revoked through its refresh token');
+  assert.equal(form.get('token_type_hint'), 'refresh_token');
+  assert.ok(!JSON.stringify(res).includes('rt_live'), 'a token never goes back to the browser');
+  // The page deletes the row itself, after this answers.
+  const { data: still } = await db.from('klaviyo_connections').select('id, refresh_token').eq('company_entity_id', CO).maybeSingle();
+  assert.equal(still?.refresh_token, 'rt_live');
+});
+
+test('a grant the customer already removed in Klaviyo counts as revoked; other failures are said, not thrown', async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'oauth', refresh_token: 'rt_dead' });
+  const args = { supabase: db, companyEntityId: CO, clientId: 'cid', clientSecret: 'csec' };
+  const gone = await handler.revokeKlaviyoGrant({
+    ...args, fetchImpl: async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 }),
+  });
+  assert.deepEqual(gone.body, { revoked: true, code: 'already_revoked' });
+  const other = await handler.revokeKlaviyoGrant({
+    ...args, fetchImpl: async () => new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 }),
+  });
+  assert.deepEqual(other.body, { revoked: false, code: 'klaviyo_error', klaviyo_status: 401 });
+  const down = await handler.revokeKlaviyoGrant({ ...args, fetchImpl: async () => { throw new Error('network'); } });
+  assert.deepEqual(down.body, { revoked: false, code: 'unreachable' });
+  assert.equal(down.status, 200, 'never an error status: the removal goes ahead whatever this says');
+});
+
+test('a private API key, or an app with no client credentials, is not sent to Klaviyo at all', async () => {
+  const handler = await loadHandler();
+  const db = createFakeSupabase();
+  db.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'api_key', api_key: 'pk_x', refresh_token: 'rt_stale' });
+  let called = 0;
+  const fetchImpl = async () => { called += 1; return new Response('', { status: 200 }); };
+  const key = await handler.revokeKlaviyoGrant({ supabase: db, companyEntityId: CO, clientId: 'cid', clientSecret: 'csec', fetchImpl });
+  assert.deepEqual(key.body, { revoked: false, code: 'api_key' }, "only the customer can delete their own key in Klaviyo");
+  const db2 = createFakeSupabase();
+  db2.from('klaviyo_connections').insert({ id: CONN, company_entity_id: CO, auth_mode: 'oauth', refresh_token: 'rt_live' });
+  const unset = await handler.revokeKlaviyoGrant({ supabase: db2, companyEntityId: CO, clientId: '', clientSecret: '', fetchImpl });
+  assert.deepEqual(unset.body, { revoked: false, code: 'not_configured' });
+  const none = await handler.revokeKlaviyoGrant({ supabase: createFakeSupabase(), companyEntityId: CO, clientId: 'cid', clientSecret: 'csec', fetchImpl });
+  assert.deepEqual(none.body, { revoked: false, code: 'no_connection' });
+  assert.equal(called, 0);
 });

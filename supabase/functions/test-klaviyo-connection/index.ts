@@ -1,10 +1,11 @@
 // Thin wrapper: identify the caller, establish their company, then run
-// handler.mjs. See that file for what the test actually does.
+// handler.mjs -- the connection test, or (action 'revoke') Remove's revoke of
+// the grant in Klaviyo. See that file for what each actually does.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { checkMfaSession } from './mfa-gate.mjs';
 import { checkIntegrationToken } from './integration-gate.mjs';
-import { runKlaviyoTest } from './handler.mjs';
+import { revokeKlaviyoGrant, runKlaviyoTest } from './handler.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -66,6 +67,20 @@ Deno.serve(async (req) => {
     ? ['owner_admin', 'admin'].includes(String(membership.role))
     : ['owner', 'admin', 'executive'].includes(String(profile.role));
   if (!isAdmin) return json({ error: 'Admin access required' }, 403);
+
+  // `{ action: 'revoke' }` is Remove's first step: withdraw the grant in
+  // Klaviyo before the page deletes the row that holds its refresh token.
+  // Anything else is the connection test, as it always was.
+  const request = await req.json().catch(() => ({}));
+  if (request?.action === 'revoke') {
+    const { status, body } = await revokeKlaviyoGrant({
+      supabase,
+      companyEntityId,
+      clientId: Deno.env.get('KLAVIYO_CLIENT_ID') ?? '',
+      clientSecret: Deno.env.get('KLAVIYO_CLIENT_SECRET') ?? '',
+    });
+    return json(body, status);
+  }
 
   const { status, body } = await runKlaviyoTest({ supabase, companyEntityId });
   return json(body, status);
