@@ -58,6 +58,10 @@
         <div class="bcn-card-header"><span>Browse the connector catalog</span></div>
         <div class="bcn-card-body">
           <p class="wt-muted">Explore Windsor’s catalog and connect an account to this company. Availability depends on the source and your Windsor access; a catalog listing does not guarantee setup or live queries.</p>
+          <div class="wt-explainer">
+            <div><strong>SILO integrations</strong><p>Shopify, ad platforms, Klaviyo, QuickBooks and the rest of the <a href="integrations.html">Integrations</a> page. SILO stores their data, so they are what its dashboards, KPIs and built-in reports are built on.</p></div>
+            <div><strong>Connected sources</strong><p>Everything else below. Use them to talk to your other accounts: Ask SILO and approved AI clients can query them live, and you can save a query as a report. They do not feed SILO’s built-in reporting.</p></div>
+          </div>
           <div class="wt-row">
             <div class="bcn-field-group"><label class="bcn-label" for="sourceSearch">Find an integration</label>
               <input class="bcn-field" id="sourceSearch" type="search" placeholder="Search integrations" autocomplete="off" /></div>
@@ -65,7 +69,12 @@
             <button class="bcn-btn bcn-btn--primary" id="mintBtn" disabled>Create connect link</button>
           </div>
           <p class="wt-muted" id="sourceStatus" role="status">Loading integrations…</p>
-          <div class="wt-picker" id="sourceList" role="group" aria-label="Integrations"></div>
+          <div class="wt-picker" id="sourceList" role="group" aria-label="Connected sources"></div>
+          <details class="wt-native" id="nativeGroup" hidden>
+            <summary>Also a SILO integration (<span id="nativeCount">0</span>)</summary>
+            <p class="wt-muted">SILO connects these directly, which is how its built-in reporting gets their data. Connect one here only if you want live queries on an account SILO is not integrated with — it will not appear in SILO’s own reports. <a href="integrations.html">Open Integrations</a></p>
+            <div class="wt-picker" id="nativeList" role="group" aria-label="Sources SILO also integrates directly"></div>
+          </details>
           <div id="linkBox" hidden>
             <div class="wt-link" id="linkText"></div>
             <div class="wt-row" style="margin-top:8px">
@@ -212,6 +221,7 @@
   let integrations = [];
   const integrationName = (id) => integrations.find((x) => x.id === id)?.name || id;
   const sourcePicker = WindsorPicker.integrationPicker({ search: $('sourceSearch'), list: $('sourceList'), status: $('sourceStatus'),
+    nativeGroup: $('nativeGroup'), nativeList: $('nativeList'), nativeCount: $('nativeCount'),
     onSelect(item) { source = item; $('mintBtn').disabled = !item; $('linkBox').hidden = true; } });
   async function loadIntegrations() {
     sourcePicker.setItems([]);

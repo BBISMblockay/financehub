@@ -21,7 +21,7 @@ const { startSuite } = require('../lib/harness');
     const body = route.request().postDataJSON(); calls.push(body);
     let status = 200; let data;
     if (body.action === 'status') data = { configured: true };
-    if (body.action === 'connector_catalog') data = { connectors: [{ id: 'youtube', name: 'YouTube' }, { id: 'new_source', name: 'New Source' }] };
+    if (body.action === 'connector_catalog') data = { connectors: [{ id: 'youtube', name: 'YouTube' }, { id: 'new_source', name: 'New Source' }, { id: 'klaviyo', name: 'Klaviyo' }] };
     if (body.action === 'connector_catalog' && legacyConnector) { status = 400; data = { error: 'Unknown action' }; }
     if (body.action === 'mint_link') data = { source: body.source, url: 'https://onboard.windsor.ai/?token=fixture' };
     if (body.action === 'field_catalog') {
@@ -77,6 +77,24 @@ const { startSuite } = require('../lib/harness');
     assert.equal(await page.getByRole('heading',{name:'Windsor connectors'}).count(),1);
     assert.match(await page.locator('#accounts').innerText(),/Not published/);
     assert.equal(await page.locator('#mintBtn').isDisabled(), true);
+    // The difference between a SILO integration and a connected source is
+    // stated once, above the list.
+    assert.match(await page.locator('.wt-explainer').innerText(), /SILO integrations/);
+    assert.match(await page.locator('.wt-explainer').innerText(), /Connected sources/);
+    // A source SILO integrates itself is not offered first; it is in the
+    // group, still connectable, and counted there.
+    assert.equal(await page.locator('#sourceList button').count(), 2);
+    assert.equal(await page.locator('#nativeList button').count(), 1);
+    assert.match(await page.locator('#nativeList').evaluate((el) => el.textContent), /Klaviyo/);
+    assert.doesNotMatch(await page.locator('#sourceList').innerText(), /Klaviyo/);
+    assert.equal(await page.locator('#nativeCount').innerText(), '1');
+    assert.equal(await page.locator('#nativeGroup').isVisible(), true);
+    assert.equal(await page.locator('#nativeList button').isVisible(), false, 'the group starts closed');
+    await page.locator('#nativeGroup summary').click();
+    assert.match(await page.locator('#nativeGroup').innerText(), /Open Integrations/);
+    await page.getByRole('button', { name: 'Klaviyo', exact: true }).click();
+    assert.equal(await page.locator('#nativeList button[aria-pressed="true"]').count(), 1, 'a grouped source can still be selected');
+    assert.equal(await page.locator('#mintBtn').isDisabled(), false);
     await page.locator('#sourceSearch').fill('You');
     assert.equal(await page.locator('#sourceList button').count(), 1);
     await page.getByRole('button', { name: 'YouTube', exact: true }).click();
