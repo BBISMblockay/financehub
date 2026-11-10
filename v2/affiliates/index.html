@@ -77,6 +77,21 @@
     .af-board-empty { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 4px; }
     .af-codes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .af-code-pill { font-family: var(--bcn-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--bcn-border); background: var(--bcn-bg); }
+    .af-item-more { margin-top: 6px; }
+    .af-item-more > summary { cursor: pointer; font-size: 12px; color: var(--bcn-ink-3); list-style: none; }
+    .af-item-more > summary::-webkit-details-marker { display: none; }
+    .af-item-more[open] > summary { margin-bottom: 6px; }
+    .af-kpis-off { display: none !important; }
+    #tabs.af-tabs--workflow { margin: 0 18px 10px; flex-wrap: wrap; }
+    #tabs.af-tabs--workflow .bcn-tab { font-size: 12px; padding: 6px 12px; }
+    .af-ai-hub { margin: 0 18px 12px; }
+    .af-ai-hub[hidden] { display: none; }
+    .af-ai-steps { margin: 0 0 10px 18px; padding: 0; font-size: 13px; color: var(--bcn-ink-2); line-height: 1.5; }
+    .af-ai-steps li { margin-bottom: 4px; }
+    .af-ai-prompts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 10px; }
+    .af-ai-prompt { padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); display: flex; flex-direction: column; gap: 8px; }
+    .af-ai-prompt-txt { font-size: 11px; line-height: 1.45; color: var(--bcn-ink-2); font-family: var(--bcn-mono); }
+    .af-stack { gap: 16px; }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
   </style>
@@ -107,7 +122,9 @@
 
     <div class="af-pipeline" id="afPipeline" hidden aria-label="Affiliate workflow"></div>
 
-    <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
+    <div class="af-ai-hub" id="afAiHub" hidden aria-label="Use your AI with SILO MCP"></div>
+
+    <nav class="bcn-tabs af-tabs--workflow" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
