@@ -171,9 +171,39 @@ export function scoreProspect({ item, profile, program, terms }) {
   return { confidence: score, confidence_basis: `Fit to the search query, not creator quality. ${parts.join('; ')}.`, email };
 }
 
+// The social platforms a search can be pinned to, as Google site: filters.
+export const PLATFORM_SITES = {
+  instagram: ['instagram.com'], tiktok: ['tiktok.com'], youtube: ['youtube.com'],
+  twitch: ['twitch.tv'], x: ['x.com', 'twitter.com'], pinterest: ['pinterest.com'],
+};
+
+/**
+ * The words actually sent to the search engine. A search looks for CREATORS:
+ * unless the operator wrote their own site: filter, the query is pinned to the
+ * search's Platform, else to the program's ticked social platforms, else to all
+ * of them. Only a search whose Platform is "blog" (or a program that ticked
+ * only blog/web) runs unpinned, to find personal websites.
+ */
+export function searchKeyword(source, program) {
+  const q = String(source?.query || '').replace(/\s+/g, ' ').trim();
+  if (/\bsite:/i.test(q)) return q.slice(0, 700);
+  const hint = String(source?.platform_hint || '').toLowerCase();
+  let wanted;
+  if (hint) wanted = [hint];
+  else {
+    const ticked = (program?.platforms || []).map((p) => String(p).toLowerCase());
+    wanted = ticked.filter((p) => PLATFORM_SITES[p]);
+    if (!wanted.length && !ticked.some((p) => ['blog', 'web'].includes(p))) wanted = Object.keys(PLATFORM_SITES);
+  }
+  const sites = [...new Set(wanted.flatMap((p) => PLATFORM_SITES[p] || []))];
+  if (!sites.length) return q.slice(0, 700);
+  const filter = sites.length === 1 ? `site:${sites[0]}` : `(${sites.map((s) => `site:${s}`).join(' OR ')})`;
+  return `${q.slice(0, 700 - filter.length - 1)} ${filter}`;
+}
+
 /** DataForSEO live/advanced task for one source. */
-export function buildSerpTask(source) {
-  const task = { keyword: String(source.query).trim().slice(0, 700), depth: Math.min(Math.max(Number(source.max_results) || 20, 10), 100) };
+export function buildSerpTask(source, program) {
+  const task = { keyword: searchKeyword(source, program), depth: Math.min(Math.max(Number(source.max_results) || 20, 10), 100) };
   if (source.location_code) task.location_code = Number(source.location_code);
   else task.location_name = 'United States';
   task.language_code = source.language_code || 'en';
@@ -377,7 +407,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
       summary.sources += 1;
       const started = now().toISOString();
       if (dryRun) {
-        log(`[affiliate-discovery] DRY RUN ${program.name}: would query "${source.query}" (max ${source.max_results}, cap $${cap.toFixed(2)})`);
+        log(`[affiliate-discovery] DRY RUN ${program.name}: would query "${searchKeyword(source, program)}" (max ${source.max_results}, cap $${cap.toFixed(2)})`);
         continue;
       }
 
@@ -404,7 +434,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
       }
 
       try {
-        const { items, cost } = await fetchSerp(buildSerpTask(source));
+        const { items, cost } = await fetchSerp(buildSerpTask(source, program));
         spent += Number(cost || 0);
         const { candidates, stats } = candidatesFromResults({ items, program, source, collectedAt: now().toISOString() });
         const wrote = await upsertCandidates({ supabase, program, source, candidates, runId });

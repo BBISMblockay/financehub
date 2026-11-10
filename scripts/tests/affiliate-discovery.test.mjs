@@ -24,6 +24,7 @@
 //   AFFILIATE_DISCOVERY_MUTATION=dryrun     a dry run still calls the provider
 //   AFFILIATE_DISCOVERY_MUTATION=ceiling    the score may reach 1.0
 //   AFFILIATE_DISCOVERY_MUTATION=noretry    a transient provider error is not retried
+//   AFFILIATE_DISCOVERY_MUTATION=unpinned   a search is not pinned to creator platforms
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,6 +43,7 @@ async function loadCore() {
   else if (MUT === 'suppress') swap("    if (prior?.status === 'suppressed' || !(await canContact(supabase, program, c))) {", "    if (prior?.status === 'suppressed') {");
   else if (MUT === 'cap') swap('      if (spent >= cap) {', '      if (false) {');
   else if (MUT === 'dryrun') swap("      if (dryRun) {\n        log(", "      if (dryRun && false) {\n        log(");
+  else if (MUT === 'unpinned') swap('  if (!sites.length) return q.slice(0, 700);', '  return q.slice(0, 700);')
   else if (MUT === 'noretry') swap('      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;', '      throw err;');
   else if (MUT === 'ceiling') swap('  score = Math.min(0.95, Math.round(score * 1000) / 1000);', '  score = Math.min(1, Math.round(score * 1000) / 1000 + 0.5);');
   else throw new Error(`unknown mutation ${MUT}`);
@@ -51,7 +53,7 @@ async function loadCore() {
   return import(pathToFileURL(file).href);
 }
 const core = await loadCore();
-const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask, fetchSerpLive } = core;
+const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask, fetchSerpLive, searchKeyword } = core;
 
 let passed = 0;
 async function test(name, fn) {
@@ -191,7 +193,20 @@ await test('one result set becomes de-duplicated candidates with full provenance
 await test('the SERP task is bounded', () => {
   const t = buildSerpTask(SOURCE('s', '  baseball  ', { max_results: 500 }));
   assert.equal(t.depth, 100);
-  assert.equal(t.keyword, 'baseball');
+  assert.equal(t.keyword, 'baseball (site:instagram.com OR site:tiktok.com OR site:youtube.com OR site:twitch.tv OR site:x.com OR site:twitter.com OR site:pinterest.com)', 'no program: every creator platform');
+  assert.ok(buildSerpTask(SOURCE('s', 'y'.repeat(900)), PROGRAM).keyword.length <= 700);
+});
+
+await test('every search is pinned to creator platforms', () => {
+  const q = (query, extra, program) => searchKeyword(SOURCE('s', query, extra), program);
+  assert.equal(q('baseball drills', {}, PROGRAM), 'baseball drills (site:youtube.com OR site:instagram.com)', 'the program\u2019s ticked platforms');
+  assert.equal(q('baseball drills', { platform_hint: 'tiktok' }, PROGRAM), 'baseball drills site:tiktok.com', 'the search\u2019s own Platform wins');
+  assert.equal(q('baseball drills', { platform_hint: 'x' }, PROGRAM), 'baseball drills (site:x.com OR site:twitter.com)');
+  assert.equal(q('baseball drills', { platform_hint: 'blog' }, PROGRAM), 'baseball drills', 'Platform blog searches websites, unpinned');
+  assert.equal(q('baseball drills', {}, { ...PROGRAM, platforms: ['blog', 'web'] }), 'baseball drills', 'a websites-only program is unpinned');
+  assert.equal(q('baseball drills', {}, { ...PROGRAM, platforms: ['blog', 'youtube'] }), 'baseball drills site:youtube.com', 'social ticks pin even with blog ticked');
+  assert.match(q('baseball drills', {}, { ...PROGRAM, platforms: [] }), /site:youtube\.com OR .*site:pinterest\.com\)$/, 'nothing ticked: every creator platform');
+  assert.equal(q('drills site:youtube.com/@', {}, PROGRAM), 'drills site:youtube.com/@', 'an operator\u2019s own site: filter is left alone');
   assert.equal(buildSerpTask(SOURCE('s', 'x', { max_results: 1 })).depth, 10);
 });
 
@@ -262,7 +277,7 @@ await test('a dry run calls no provider and writes nothing', async () => {
 await test('one failing query is recorded and does not lose the others', async () => {
   const sb = fakeSupabase({ affiliate_programs: [PROGRAM], affiliate_prospect_sources: [SOURCE('s1', 'bad'), SOURCE('s2', 'good')] });
   const summary = await runDiscovery({ supabase: sb, now: clock, uuid, fetchSerp: async (t) => {
-    if (t.keyword === 'bad') throw new Error('SERP provider refused the task: 40501 Invalid Field');
+    if (t.keyword.startsWith('bad ')) throw new Error('SERP provider refused the task: 40501 Invalid Field');
     return { items: ITEMS.slice(0, 1), cost: 0.001 };
   } });
   assert.equal(summary.failed, 1);

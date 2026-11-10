@@ -51,6 +51,11 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    again, at most once a minute. The **Affiliate discovery** workflow still
    refreshes every active program on Mondays 14:40 UTC; dispatch it with
    `dry_run: true` to print the plan without calling the provider.
+   Every search is pinned to creator profiles: the words are sent with Google
+   `site:` filters for the search's Platform, else the program's ticked social
+   platforms, else all of them (`searchKeyword()` in the core). Platform
+   "websites" (or a program that ticked only blog/web) runs unpinned, and a
+   query that already has its own `site:` filter is sent as written.
 
 ## Daily use
 
