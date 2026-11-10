@@ -76,6 +76,13 @@ async function updateRows(table, patch, match) {
   if (!rows?.length) throw new Error('Nothing was changed: the row was not found, or you do not have permission to change it.');
   return rows;
 }
+// What a search found, in words. Counts only.
+function searchSummary(r = {}) {
+  if (!r.ran && !r.failed) return 'Nothing to search yet: add a search, or resume a paused one.';
+  const found = `${num(r.prospects_new || 0)} new prospect(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
+  return r.failed ? `Searched with ${num(r.failed)} error(s); ${found} See Recent discovery runs.` : `Searched. ${found}`;
+}
+
 async function invoke(fn, body) {
   const { data: { session: s } } = await db.auth.getSession();
   const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${fn}`, {
@@ -358,13 +365,14 @@ function renderProspects() {
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email (only one they published or gave you)', input('mpEmail', 'type="email"'))}${field('Where you found them (URL)', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
-    card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week.</p>
+    card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week, and right away when you add a search or press Search now.</p>
       ${table([
         { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
         { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(s.last_error)}</div>` : ''}` },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
+      ${MANAGE && d.sources.some((s) => s.enabled) ? `<div class="af-row" style="margin-top:8px;">${btn('Search now', 'discovery-run', {}, 'primary')}</div>` : ''}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">any</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'].map((x) => `<option>${x}</option>`).join('')}</select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
@@ -592,8 +600,11 @@ const A = {
       company_entity_id: CO, program_id: S.programId, kind: 'serp_query', query: val('srcQuery'), platform_hint: val('srcPlat') || null,
       location_code: Number(val('srcLoc')) || null, language_code: val('srcLang') || null, max_results: Number(val('srcMax')) || 30, created_by: me.id,
     }));
-    return 'Search added. It runs with the next discovery run.';
+    setStatus('Search added. Searching…', 'info');
+    try { return `Search added. ${searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId }))}`; }
+    catch (e) { return `Search added. It will run with the weekly refresh (${e.message})`; }
   },
+  'discovery-run': async () => { setStatus('Searching…', 'info'); return searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId })); },
   'source-toggle': async ({ id, on }) => { await updateRows('affiliate_prospect_sources', { enabled: on === '1' }, { id }); return on === '1' ? 'Search resumed.' : 'Search paused.'; },
   'suppression-add': async () => {
     if (!val('supVal')) throw new Error('Type the address, domain, handle or URL.');

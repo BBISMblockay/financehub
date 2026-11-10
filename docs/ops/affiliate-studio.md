@@ -46,9 +46,11 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 6. Make the program **active** when it should recruit. Discovery, approving
    outreach, joining and applying all skip or refuse a program that is not
    active.
-7. Run **Affiliate discovery** from Actions with `dry_run: true` first (no
-   calls, no writes, prints the plan), then `dry_run: false`. It also runs
-   Mondays 14:40 UTC.
+7. Adding a search runs it immediately (the `affiliate-discovery-run`
+   function), and **Search now** runs every enabled search for the program
+   again, at most once a minute. The **Affiliate discovery** workflow still
+   refreshes every active program on Mondays 14:40 UTC; dispatch it with
+   `dry_run: true` to print the plan without calling the provider.
 
 ## Daily use
 
@@ -196,6 +198,7 @@ non-manual payout as paid until it is built and verified in test mode.
 | `scripts/tests/affiliate-studio-database.test.mjs` | Real PostgreSQL (PGlite), all four migrations applied twice under Supabase's default grants; tenant isolation, both gates, attribution, refunds, duplicates, ledger, periods, payouts, tokens, terms, and the verify block. 32 mutations |
 | `scripts/tests/shopify-order-discount-codes.test.mjs` | The sync core's code and refund capture, its column fallback, and the pinned copy. 5 mutations |
 | `scripts/tests/affiliate-discovery.test.mjs` | Discovery against a fake provider: URL recognition, cost cap, dry run, suppression, no status or contact overwrite. 7 mutations |
+| `scripts/tests/affiliate-discovery-run-edge.test.mjs` | Search now: gate first, company from the caller, other-company and inactive programs refused, once a minute, counts not cost, the pinned core copy. 4 mutations |
 | `scripts/tests/affiliate-edge.test.mjs` | Both edge functions: hash-only tokens, gates before service role, company from the caller, no prospect email, no draft payout news. 6 mutations |
 | `scripts/tests/affiliate-studio-ui.test.mjs` | Page logic: money, form validation, CSV formula guard, fingerprints, labels. 3 mutations |
 | `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim) and database period totals. 7 mutations |

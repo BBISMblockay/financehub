@@ -182,7 +182,9 @@ export function buildSerpTask(source) {
 
 /** POST one live task; returns { items, cost }. Errors carry the provider's own message. */
 export async function fetchSerpLive({ credentials, task, fetchImpl = fetch }) {
-  const auth = 'Basic ' + Buffer.from(`${credentials.login}:${credentials.password}`).toString('base64');
+  // btoa, not Buffer: this module also ships verbatim in an edge function
+  // (Deno), where Buffer is not a global.
+  const auth = 'Basic ' + btoa(`${credentials.login}:${credentials.password}`);
   const res = await fetchImpl(`${DATAFORSEO_BASE}/v3/serp/google/organic/live/advanced`, {
     method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify([task]),
   });
