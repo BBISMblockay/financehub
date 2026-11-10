@@ -63,6 +63,12 @@
 //   OUTREACH_MCP_MUTATION=codes-no-scope             the codes tools do not require codes:create
 //   OUTREACH_MCP_MUTATION=feed-images-any-folder     a feed image may be written into another company's folder
 //   OUTREACH_MCP_MUTATION=feed-images-any-member     any member may write feed images
+//   OUTREACH_MCP_MUTATION=signin-no-limit            email sign-in ignores a portal email just sent from Studio
+//   OUTREACH_MCP_MUTATION=signin-no-reserve          two sign-ins for one address both get links (no reservation)
+//   OUTREACH_MCP_MUTATION=signin-any-status          email sign-in mails an ended or invited affiliate
+//   OUTREACH_MCP_MUTATION=signin-anon                the browser can look up affiliates by email
+//   OUTREACH_MCP_MUTATION=sales-ledger-basis         sales read a stale ledger base, not the order's current one
+//   OUTREACH_MCP_MUTATION=sales-other-affiliate      sales include another affiliate's orders
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -219,6 +225,7 @@ const files = {
   logo: '20261110140000_company_logo.sql',
   feed: '20261110150000_affiliate_portal_feed.sql',
   codes: '20261110160000_affiliate_codes_via_ai.sql',
+  signin: '20261110170000_affiliate_portal_signin.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -227,12 +234,25 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html', 'followup', 'button', 'logo', 'feed', 'codes'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup', 'button', 'logo', 'feed', 'codes', 'signin'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
+  case 'signin-no-limit':
+    mutate("                and n.created_at > now() - interval '10 minutes') then", "                and false) then"); break;
+  case 'signin-no-reserve':
+    mutate("    where t.sent_at <= now() - interval '10 minutes';", "    where true;"); break;
+  case 'signin-any-status':
+    mutate("     where lower(btrim(a.contact_email)) = v_email\n       and a.status in ('active','paused')\n", "     where lower(btrim(a.contact_email)) = v_email\n");
+    mutate("                  where lower(btrim(a.contact_email)) = v_email\n                    and a.status in ('active','paused')) then", "                  where lower(btrim(a.contact_email)) = v_email) then"); break;
+  case 'signin-anon':
+    mutate("grant execute on function public.affiliate_portal_signin_subjects(text) to service_role;", "grant execute on function public.affiliate_portal_signin_subjects(text) to service_role, anon;"); break;
+  case 'sales-ledger-basis':
+    mutate("          select sum(at.commissionable_cents)", "          select sum(coalesce((select l3.basis_cents from public.affiliate_commission_ledger l3 where l3.attribution_id = at.id order by l3.created_at limit 1), at.commissionable_cents))"); break;
+  case 'sales-other-affiliate':
+    mutate("                              and l2.affiliate_id = v_tok.affiliate_id\n", ''); break;
   case 'codes-not-offered':
     mutate("'outreach:send', 'codes:create'];", "'outreach:send'];"); break;
   case 'codes-no-path':
@@ -352,7 +372,7 @@ switch (MUT) {
     mutate("    || '<p style=\"margin:0 0 18px;font-size:12px;line-height:1.5;color:#77828d\">Or open this link: '\n    || '<a href=\"' || v_url || '\" target=\"_blank\" style=\"color:#2f5fd0;word-break:break-all\">' || v_url || '</a></p>'\n", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo', 'feed', 'codes']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo', 'feed', 'codes', 'signin']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -877,6 +897,84 @@ await check('K10 the cap holds at the write itself, whichever tool writes', asyn
   } finally { await db.exec(`select set_config('test.cap', '', false)`); }
   const human = await db.query(`insert into silo_api_writes (company_entity_id, grant_id, user_id, via, kind) values ($1, null, $2, 'app', 'task') returning id`, [A, U.mgrA]);
   await db.query('delete from silo_api_writes where id = $1', [human.rows[0].id]);
+});
+
+// ── P: portal sign-in by email, and sales on the statement ───────────────
+const clearThrottle = () => db.query('delete from affiliate_portal_signin_throttle');
+await check('P1 email sign-in finds active and paused affiliates by address on file, any case', async () => {
+  await db.query(`update affiliates set status = 'paused' where id = $1`, [kAff2]);
+  await clearThrottle();
+  const r = await all('select affiliate_id from public.affiliate_portal_signin_subjects($1)', ['  CODES@creator.TEST ']);
+  assert.deepEqual(r.map((x) => x.affiliate_id), [kAff]);
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['sam@creator.test'])).length, 1, 'paused may still sign in');
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['bpat@creator.test'])).length, 0, 'an invited affiliate has no portal');
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['nobody@creator.test'])).length, 0);
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', [''])).length, 0);
+  assert.ok(!(await all('select email_hash from affiliate_portal_signin_throttle')).some((x) => /@/.test(x.email_hash)), 'the throttle holds no address');
+  await db.query(`update affiliates set status = 'active' where id = $1`, [kAff2]);
+});
+
+await check('P2 the address is reserved before anything is returned: a second request in 10 minutes gets nothing', async () => {
+  // The two-requests-at-once race serializes on the reservation row; PGlite
+  // has one session, so the second request is run after the first, before
+  // either mail would have been recorded -- the state a concurrent pair sees.
+  await clearThrottle();
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['codes@creator.test'])).length, 1, 'first: the affiliate');
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['CODES@creator.test'])).length, 0, 'second, no mail recorded yet: nothing');
+  await db.query(`update affiliate_portal_signin_throttle set sent_at = now() - interval '11 minutes'`);
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['codes@creator.test'])).length, 1, 'after 10 minutes: again');
+});
+
+await check('P3 a portal email sent from Studio also counts toward the 10 minutes', async () => {
+  await clearThrottle();
+  const n = (await one(`insert into affiliate_notifications(company_entity_id, program_id, affiliate_id, kind, to_email, subject, status)
+    values ($1,$2,$3,'portal_link','Codes@Creator.test','x','sent') returning id`, [A, progA, kAff])).id;
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['codes@creator.test'])).length, 0, 'just mailed: nothing');
+  await db.query(`update affiliate_notifications set created_at = now() - interval '11 minutes' where id = $1`, [n]);
+  assert.equal((await all('select * from public.affiliate_portal_signin_subjects($1)', ['codes@creator.test'])).length, 1, 'after 10 minutes: again');
+});
+
+await check('P4 no browser or anonymous role can look affiliates up by email or read the throttle', async () => {
+  for (const role of ['anon', 'authenticated', 'silo_integration', 'silo_revoked']) {
+    assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_portal_signin_subjects(text)', 'execute') as v`)).v, false, role);
+    assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_portal_statement(text)', 'execute') as v`)).v, false, role);
+  }
+  for (const role of ['anon', 'authenticated']) {
+    assert.equal((await one(`select has_table_privilege('${role}', 'public.affiliate_portal_signin_throttle', 'select') as v`)).v, false, role);
+  }
+});
+
+await check('P6 statement sales: each credited order at its CURRENT base, only this affiliate\'s; none known is null', async () => {
+  const h = sha(`s6-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, kAff2, h]);
+  const st = async () => (await one('select public.affiliate_portal_statement($1) as s', [h])).s.totals;
+  await db.query(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)
+    values ($1,$2,$3,'manual_adjustment', 500, 'USD', 'manual', 'bonus')`, [A, progA, kAff2]);
+  assert.equal((await st()).sales_cents, null, 'only a manual adjustment: sales unknown');
+  const attr = async (aff, order, basis = 'single_affiliate_code') => (await one(`insert into affiliate_attributions(company_entity_id, program_id, affiliate_id, shop_domain, order_id, order_day, codes_on_order, basis, commissionable_cents)
+    values ($1,$2,$3,'brand-a.myshopify.com',$4, current_date, 1, $5, 10000) returning id`, [A, progA, aff, order, basis])).id;
+  const led = (aff, a, amt, order) => db.query(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, attribution_id, kind, amount_cents, currency, rate_kind, rate_value, basis_cents, order_id, order_day)
+    values ($1,$2,$3,$4,'accrual',$5,'USD','fixed_per_order',1000,10000,$6,current_date)`, [A, progA, aff, a, amt, order]);
+  const a1 = await attr(kAff2, 'S6-1'); const a2 = await attr(kAff2, 'S6-2');
+  await led(kAff2, a1, 1000, 'S6-1'); await led(kAff2, a2, 1000, 'S6-2');
+  await attr(kAff2, 'S6-3');                                          // attributed, never credited (no ledger row)
+  const other = await attr(kAff, 'S6-4'); await led(kAff, other, 1000, 'S6-4');  // another affiliate's order
+  assert.equal(Number((await st()).sales_cents), 20000);
+  // A $40 partial refund on a fixed-fee order: commission is unchanged, so the
+  // accrual appends NO ledger row -- only the attribution's base moves.
+  await db.query('update affiliate_attributions set commissionable_cents = 6000 where id = $1', [a1]);
+  const t = await st();
+  assert.equal(Number(t.sales_cents), 16000, 'order 1 at its refunded base (6000) + order 2 (10000)');
+  assert.equal(Number(t.earned_cents), 500 + 1000 + 1000);
+  assert.match(String(t.today), /^\d{4}-\d{2}-\d{2}$/, 'the company\'s own day comes with the statement');
+});
+
+await check('P5 the verify check for the sign-in migration reads ok once it is applied', async () => {
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate portal sign-in'");
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
 });
 
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {

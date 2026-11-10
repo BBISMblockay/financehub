@@ -3240,6 +3240,21 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
+
+Apply after `20261110160000`, then deploy `affiliate-portal`. Adds
+`affiliate_portal_signin_subjects(email)` (service role only): the active or
+paused affiliates whose address on file is that email. It first reserves the
+address for 10 minutes in `affiliate_portal_signin_throttle` (a hash, no
+address; RLS on, no client access), so two requests at once mail once, and
+returns nothing while reserved or after any portal email to it in the last 10
+minutes. The portal's sign-in box calls it through `affiliate-portal`
+(`signin`), which mails each one a fresh portal link at the address on file and
+answers the same whether or not any was sent. `affiliate_portal_statement`
+totals gain `sales_cents` (each credited order once, at its attribution's
+current commissionable base; NULL when none is known) and `today`, the
+company's own calendar day.
+
 ## Affiliate codes via the person's AI — `20261110160000_affiliate_codes_via_ai.sql`
 
 Apply after `20261110150000`, then deploy `mcp`, `affiliate-portal` and

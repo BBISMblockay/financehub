@@ -28,8 +28,10 @@
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
+ *   AFFILIATE_UI_MUTATION=calpast     the calendar keeps drops whose date has passed
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
+ *   AFFILIATE_UI_MUTATION=codestate   code badges judge dates by UTC, not the company's own day
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -44,10 +46,12 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
-  feedhtml: ['/affiliates/portal.html', '<div class="af-item-title">${esc(i.title)}</div>', '<div class="af-item-title">${i.title}</div>'],
+  feedhtml: ['/affiliates/portal.html', '<div class="af-cal-title">${esc(i.title)}</div>', '<div class="af-cal-title">${i.title}</div>'],
+  calpast: ['/affiliates/portal.html', "    .filter((i) => !today || day(i.event_on) >= today)\n", ''],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
+  codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
@@ -313,6 +317,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const body = JSON.parse(route.request().postData() || '{}');
       calls.push(body);
       const reply = (status, json) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
+      if (body.action === 'signin') return reply(200, { status: 'sent_if_eligible', message: 'If that email belongs to an affiliate, a sign-in link is on its way.' });
       if (body.token === 'E'.repeat(43)) {
         if (body.action === 'renew') return reply(200, { status: 'sent_if_eligible', message: 'If this link belongs to an active affiliate, a new one is on its way to the address on file.' });
         return reply(404, { error: 'This link has expired or is no longer valid.', code: 'invalid_link' });
@@ -322,8 +327,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
+        { kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold' },
+        { kind: 'launch', title: 'Holiday cap', event_on: '2026-11-12', note: 'Limited run.', image_url: 'https://cdn.invalid/cap.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fcap' },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
-        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }],
+        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
@@ -331,6 +338,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const LOGO = `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${PROG}/logo-1762758000000.png`;
     const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     await suite.context.route('**/company-logos/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await suite.context.route('https://cdn.invalid/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     await suite.context.route('https://evil.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     const join = await suite.open('/v2/affiliates/join.html?t=' + 'S'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
     join.on('pageerror', (e) => errors.push(e.message));
@@ -358,24 +366,47 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const portal = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
     R.has(await text(portal, '#kpis'), '$12.50', 'the portal shows earnings in the program currency');
     R.has(await text(portal, '#body'), 'PAT10', 'the portal lists the affiliate code');
+    const kp = await text(portal, '#kpis');
+    R.has(kp, 'Sales you drove', 'the portal shows the sales the rep drove');
+    R.has(kp, '$125.00', 'in the program currency');
+    R.has(kp, '10% of each order', 'Earned says what it is a share of');
+    const states = await portal.$$eval('.af-chip', (cs) => Object.fromEntries(cs.map((c) => [c.querySelector('.af-chip-code').textContent, c.querySelector('[data-code-state]')?.textContent])));
+    // The company's day is Nov 9 (its evening is already Nov 10 in UTC): a code
+    // ending Nov 9 still works and one starting Nov 10 has not started.
+    R.eq(states, { PAT10: 'Active', PATNEXT: 'Starts 2026-11-10', PATOLD: 'Ended' }, 'each code says whether it works at checkout, on the company\'s own day');
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
     R.ok('no element is built from a shared title', !(await portal.$('#body b')));
-    const copies = await portal.$$eval('#body [data-copy]', (b) => b.map((x) => x.dataset.copy));
-    R.eq(copies.length, 5, 'a copy button for the store link, each shared item, and the ad\'s caption');
+    if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
+    const copies = await portal.$$eval('#hero [data-copy], #body [data-copy]', (b) => b.map((x) => x.dataset.copy));
+    R.eq(copies.length, 6, 'a copy button for the store link, each upcoming drop and shared item, and the ad\'s caption');
+    const cal = await portal.$$eval('#calendar [data-cal-date]', (rows) => rows.map((r) => r.dataset.cal_date || r.getAttribute('data-cal-date')));
+    R.eq(cal, ['2026-11-12', '2099-03-01'], 'the calendar lists upcoming drops soonest first, past ones left off (company day)');
+    R.ok('a drop within a week is marked', !!(await portal.$('#calendar [data-cal-date="2026-11-12"].is-soon')) && !(await portal.$('#calendar [data-cal-date="2099-03-01"].is-soon')));
+    R.ok('drops sit in the calendar, not the tile grid', !(await portal.$('#feed [data-kind="launch"]')));
     R.ok('an ad\'s caption can be copied to repost', copies.includes('Grip that holds.'));
     R.has(fb, 'Ads to repost', 'shared ads have their own section');
     R.ok('a shared ad shows its picture, with a way to save it', !!(await portal.$('#body .af-media img[src="https://cdn.invalid/mud.jpg"]')) && !!(await portal.$('#body a[href="https://cdn.invalid/mud.jpg"][download]')));
     R.has(fb, 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', 'a link to a store page is the code link');
-    R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(fb));
+    R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(await text(portal, '#hero')));
+    R.has(await text(portal, '#hero'), 'Hi Pat', 'the portal greets the affiliate');
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
     await portal.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });
     await expiredPortal.click('#renew');
     await expiredPortal.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
     R.has(await text(expiredPortal, '#status'), 'If this link belongs to an active affiliate', 'renewal never confirms whose link it was');
+    R.ok('an expired link also offers email sign-in', !!(await expiredPortal.$('#signin #siEmail')));
     await expiredPortal.close();
+    const signin = await suite.open('/v2/affiliates/portal.html', {}, { ready: () => !!document.getElementById('signin') });
+    signin.on('pageerror', (e) => errors.push(e.message));
+    await signin.fill('#siEmail', 'pat@creator.invalid');
+    await signin.click('#siGo');
+    await signin.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
+    R.eq(calls.filter((c) => c.action === 'signin').pop()?.email, 'pat@creator.invalid', 'a rep without a link signs in with their email');
+    R.has(await text(signin, '#status'), 'If that email belongs to an affiliate', 'sign-in never confirms whose email it is');
+    await signin.close();
 
     // ── company logo upload (Settings -> Company) ─────────────────────────
     const coTables = {
