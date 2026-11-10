@@ -64,6 +64,7 @@
     'reports:read': 'Read your reports',
     'data:read': 'Read your company\'s SILO data and live sources explicitly enabled by a company admin, read-only; never logins or connection secrets',
     'work:write': 'Open a task in this company, marked as this application \u2014 it can create one, and cannot change, complete or delete anything that already exists',
+    'outreach:send': 'Take affiliate outreach a person already approved in Affiliate Studio, so it can send it from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot approve or write outreach',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -144,6 +145,11 @@
      given reading cannot end up with writing because the page listed it. */
   const WRITE_SCOPE = 'work:write';
 
+  /* Its own box on the consent screen, like WRITE_SCOPE and never implied by
+     it: handing approved affiliate outreach to the person's AI so it can send
+     it from their own mailbox (20261110093000). */
+  const OUTREACH_SCOPE = 'outreach:send';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -155,7 +161,7 @@
   }
 
   const api = {
-    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, STATUS_COPY, SCOPE_COPY,
+    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
   };

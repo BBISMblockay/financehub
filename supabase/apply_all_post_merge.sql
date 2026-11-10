@@ -19634,4 +19634,9 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261110084000_affiliate_studio.sql
 \i migrations/20261110085000_affiliate_studio_ledger.sql
 \i migrations/20261110086000_affiliate_portal.sql
+-- outreach:send (20261110093000): an opt-in developer-platform scope that lets
+-- a person's own AI claim APPROVED affiliate outreach drafts, send them from
+-- that person's own mailbox, and mark each sent with evidence. Needs the four
+-- Affiliate Studio migrations above. Deploy the mcp function for the tools.
+\i migrations/20261110093000_affiliate_outreach_send_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

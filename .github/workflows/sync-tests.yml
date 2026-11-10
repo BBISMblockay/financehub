@@ -2570,6 +2570,22 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # The opt-in outreach:send scope: a user's own AI claims approved
+      # drafts (one active program, capped, idempotent) and marks only the
+      # drafts its own connection claimed as sent.
+      - name: Affiliate outreach via MCP database (real PostgreSQL)
+        run: node scripts/tests/affiliate-outreach-mcp-database.test.mjs
+      - name: The outreach:send guards, removed, must break it
+        run: |
+          set -u
+          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program; do
+            if OUTREACH_MCP_MUTATION="$m" node scripts/tests/affiliate-outreach-mcp-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
   # The reconcile pass end to end: the real script and the real Supabase
   # client against a PostgREST stand-in, so a forgotten column, a probe that
   # drops its company filter or a queue row in the wrong shape fails here

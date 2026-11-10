@@ -7645,6 +7645,9 @@ select 'developer API boundary' as check_name, case
         -- (20261104234500). Both are on silo_api_path_allowed(), which is
         -- what makes them the API surface rather than an extra grant.
         'silo_api_create_task', 'silo_api_scopes',
+        -- outreach:send since 20261110093000: claiming approved affiliate
+        -- outreach and recording a send. Both on silo_api_path_allowed().
+        'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -7661,6 +7664,8 @@ select 'developer API boundary' as check_name, case
               and p.proname not in (
                 'silo_api_run_report', 'silo_api_list_reports',
                 'silo_api_query', 'silo_api_describe_tables',
+                'silo_api_create_task', 'silo_api_scopes',
+                'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -9028,5 +9033,53 @@ select 'Affiliate Studio' as check_name,
       and not exists (select 1 from pg_constraint where conrelid = 'public.sync_jobs'::regclass
                        and conname = 'sync_jobs_job_type_check' and pg_get_constraintdef(oid) ~ 'affiliate_discovery')
       then 'MISSING — sync_jobs does not accept the affiliate_discovery job type'
+    else 'ok'
+  end as status;
+
+-- outreach:send (20261110093000): a connection takes affiliate outreach a
+-- person approved and records each send; SILO sends nothing. What must stay
+-- true: only the integration role can call the two tools, their helpers
+-- (which trust their arguments) are callable by nobody, both paths are on the
+-- allowlist, consent offers the scope, the tools are VOLATILE, the ledger
+-- accepts the claim kind, and one key claims one batch.
+select 'outreach:send tools' as check_name,
+  case
+    when to_regprocedure('public.silo_api_claim_outreach(uuid, integer, text)') is null
+      or to_regprocedure('public.silo_api_mark_outreach_sent(uuid, text)') is null
+      or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                      and table_name = 'affiliate_outreach_batches' and column_name = 'created_by_grant_id')
+      or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                      and table_name = 'affiliate_outreach_drafts' and column_name = 'sent_via_app')
+      then 'MISSING — run 20261110093000_affiliate_outreach_send_scope.sql'
+    when exists (select 1 from pg_proc
+                  where oid in (to_regprocedure('public.silo_api_claim_outreach(uuid, integer, text)'),
+                                to_regprocedure('public.silo_api_mark_outreach_sent(uuid, text)'))
+                    and provolatile <> 'v')
+      then 'BROKEN — an outreach tool is not VOLATILE, so PostgREST runs it read-only'
+    when not has_function_privilege('silo_integration', 'public.silo_api_claim_outreach(uuid, integer, text)', 'execute')
+      or not has_function_privilege('silo_integration', 'public.silo_api_mark_outreach_sent(uuid, text)', 'execute')
+      then 'BROKEN — the integration role cannot call the outreach tools'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_revoked']) r(role),
+                  unnest(array['public.silo_api_claim_outreach(uuid, integer, text)',
+                               'public.silo_api_mark_outreach_sent(uuid, text)']) f(fn)
+                  where has_function_privilege(r.role, f.fn, 'execute'))
+      then 'CRITICAL — a browser role can call an outreach tool, which acts for a grant without one'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role),
+                  unnest(array['public.affiliate_can_manage_for(uuid, uuid)',
+                               'public.silo_api_app_name(text, text)',
+                               'public.silo_api_outreach_grant()',
+                               'public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)']) f(fn)
+                  where to_regprocedure(f.fn) is not null and has_function_privilege(r.role, f.fn, 'execute'))
+      then 'CRITICAL — an outreach helper that trusts its arguments is callable by a client role'
+    when position('/rpc/silo_api_claim_outreach' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      or position('/rpc/silo_api_mark_outreach_sent' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — an outreach path is not on the allowlist, so silo_check_request() refuses every call'
+    when position('outreach:send' in pg_get_functiondef('public.silo_api_consent(text, text[])'::regprocedure)) = 0
+      then 'BROKEN — outreach:send is not an offerable scope, so nobody can grant it'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.silo_api_writes'::regclass
+                      and conname = 'silo_api_writes_kind_check' and pg_get_constraintdef(oid) like '%outreach_claim%')
+      then 'BROKEN — the write ledger refuses the outreach_claim kind, so every claim fails'
+    when to_regclass('public.affiliate_outreach_batches_claim_once') is null
+      then 'BROKEN — affiliate_outreach_batches_claim_once is missing, so a retried claim takes more outreach'
     else 'ok'
   end as status;
