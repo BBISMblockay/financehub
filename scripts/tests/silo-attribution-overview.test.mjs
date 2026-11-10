@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {allocate} from '../../v2/silo-attribution-model.js';
 import {analyzeJourneys,observedJourney,splitCents,touchWeights,loadJourneyRecords} from '../../v2/silo-attribution-overview.js';
 import {channelTeamwork,findings,pathRevenue} from '../../v2/silo-attribution-together.js';
+import {buildJourneyStudioData,renderJourneyStudio} from '../../v2/silo-attribution-journey-studio.js';
 const company='00000000-0000-0000-0000-000000000001',store='00000000-0000-0000-0000-000000000002';
 export function fixture(){
   const sources=[['facebook','paid'],['facebook','paid'],['redo','sms'],['google','cpc'],['direct','']];
@@ -95,6 +96,13 @@ test('loader enforces tenant/store scope and asks only for the fields the rollup
   await assert.rejects(loadJourneyRecords(db,company,store,[{...row,order_id:"1' or '1"}]),/Unexpected order identifier/);
   // A response at the engine's 1000-row page cap would be a truncated page, not an answer.
   await assert.rejects(loadJourneyRecords({rpc:()=>Promise.resolve({data:Array.from({length:2},()=>served(record))})},company,store,[row]),/Unexpected journey response/);
+});
+test('journey studio builds swim-lanes from observed paths',()=>{
+  const {report,record}=fixture(),analysis=analyzeJourneys(report,[record]),rows=channelTeamwork(report,analysis,null);
+  const studio=buildJourneyStudioData(report,analysis,rows,pathRevenue(report,analysis.paths));
+  assert.equal(studio.multiShare,100);assert.equal(studio.lanes[0].path.join('→'),'Meta Ads→Redo SMS→Google Ads');
+  const html=renderJourneyStudio(studio,{money:n=>`$${(n/100).toFixed(0)}`,medianDays:'2.0 days'});
+  assert.match(html,/attr-journey-studio/);assert.match(html,/attr-studio-path/);assert.match(html,/Discover/);
 });
 test('batches run several at a time and return every order exactly once',async()=>{
   const {row,record}=fixture(),calls=[];
