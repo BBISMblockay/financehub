@@ -258,6 +258,35 @@ export async function fetchSerpLive({ credentials, task, fetchImpl = fetch, slee
 }
 
 /**
+ * The page a result points at. Since late October 2026 Google serves many
+ * organic results through an opaque https://google.com/goto?url=CAES... link
+ * (the token cannot be decoded), and the SERP provider then reports the
+ * result's url AND domain as google.com. The real page survives only in the
+ * breadcrumb, which for a profile reads "https://www.tiktok.com › @name".
+ * Returns the url unchanged when it is not a goto link, the page rebuilt from
+ * the breadcrumb when it is, and null when neither names a real page. A
+ * breadcrumb segment Google shortened ("..." or "…") is dropped with
+ * everything after it, so a guessed path is never stored.
+ */
+const GOTO_RE = /(^|[/.=])google\.[a-z.]+\/(goto|url)\?/i;
+export function resolveResultUrl(item) {
+  const url = String(item?.url || '');
+  if (!GOTO_RE.test(url)) return url || null;
+  const crumb = String(item?.breadcrumb || '').trim();
+  const parts = crumb.split(/\s*›\s*/).map((x) => x.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  let origin;
+  try { origin = new URL(/^https?:\/\//i.test(parts[0] || '') ? parts[0] : `https://${parts[0]}`); } catch { return null; }
+  if (!/^https?:$/.test(origin.protocol) || /(^|\.)google\./i.test(origin.hostname)) return null;
+  const path = [];
+  for (const seg of parts.slice(1)) {
+    if (/(\.\.\.|…)/.test(seg)) break;
+    path.push(encodeURIComponent(seg).replace(/%40/g, '@'));
+  }
+  return `${origin.origin}${origin.pathname.replace(/\/+$/, '')}${path.length ? `/${path.join('/')}` : ''}`;
+}
+
+/**
  * Turn one result set into prospect candidates. Pure.
  * Returns { candidates, stats } where stats.results_returned counts every
  * organic result and stats.profiles_recognized the ones kept.
@@ -267,7 +296,9 @@ export function candidatesFromResults({ items, program, source, collectedAt }) {
   const webLane = (program?.platforms || []).some((p) => ['blog', 'web'].includes(String(p).toLowerCase()));
   const seen = new Map();
   const unrecognized = [];
-  for (const item of items || []) {
+  for (const raw of items || []) {
+    const resolved = resolveResultUrl(raw);
+    const item = resolved && resolved !== raw.url ? { ...raw, url: resolved, goto_url: raw.url } : raw;
     const profile = classifyProfileUrl(item.url) || (webLane ? classifyWebsite(item.url) : null);
     if (!profile) { if (unrecognized.length < 10) unrecognized.push(String(item.url).slice(0, 200)); continue; }
     const key = profile.profile_url.toLowerCase();
@@ -290,6 +321,7 @@ export function candidatesFromResults({ items, program, source, collectedAt }) {
         rank: item.rank_absolute ?? null,
         domain: item.domain ?? null,
         result_url: item.url,
+        ...(item.goto_url ? { google_redirect_url: String(item.goto_url).slice(0, 500), resolved_from: 'breadcrumb' } : {}),
       },
     });
   }
