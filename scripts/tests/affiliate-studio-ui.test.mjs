@@ -127,4 +127,10 @@ await t('labels follow the data and never claim what was not observed', () => {
   assert.equal(byStage({ codesSeen: 2 })['Code tracking'], 'verified');
 });
 
+await t('beacon tabs: button tabs reset the UA chrome so they read as page tabs', async () => {
+  const css = await readFile(new URL('../../v2/beacon.css', import.meta.url), 'utf8');
+  assert.match(css, /\.bcn-tabs button\.bcn-tab\s*\{[\s\S]*?background:\s*none/);
+  assert.match(css, /appearance:\s*none/);
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);
