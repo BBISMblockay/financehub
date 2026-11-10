@@ -54,9 +54,13 @@ const ICON_DATA_URI = 'data:image/png;base64,' + ICON_PNG_BASE64;
 
 const INSTRUCTIONS = [
   'SILO is an operations platform. This connection reads ONE company\'s SILO data as the person who',
-  'connected it, and -- only where they granted work:write -- can open a task with create_task. Nothing',
+  'connected it, and -- only where they granted work:write -- can open a task with create_task. Where they',
+  'granted outreach:send, claim_outreach_to_send hands over affiliate outreach a person already approved in SILO,',
+  'for YOU to send from the person\'s own mailbox, and mark_outreach_sent records each one you sent. Where they',
+  'granted codes:create, affiliate_codes_to_create lists affiliate discount codes a person asked for in SILO, for',
+  'YOU to create in the person\'s own Shopify (with a Shopify tool), and mark_affiliate_code_created records each one. Nothing',
   'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
-  'nothing sent outside SILO. Asked for one of those, say what you would do and give the person the SILO link.',
+  'and SILO itself sends nothing. Asked for one of those, say what you would do and give the person the SILO link.',
   'Reading, in order of use:',
   'who connected it. For live sources, list_connections shows only accounts explicitly published by this company.',
   'Use describe_connection, then query_connection; these are read-only and do not store source rows. Respect truncation.',
@@ -229,13 +233,100 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'claim_outreach_to_send',
+    title: 'Take approved affiliate outreach to send',
+    description: 'Hands you up to 25 affiliate outreach emails that a person ALREADY APPROVED in SILO\'s Affiliate '
+      + 'Studio, for one active program, each with its own signup link filled in. SILO does not send them: you '
+      + 'send each one from the person\'s own mailbox (for example with a Gmail tool), exactly as written, to the '
+      + '"to" address only -- no extra recipients, no BCC, no rewording into something else, no follow-ups -- and '
+      + 'then call mark_outreach_sent for each one you actually sent. You cannot approve or write outreach here; '
+      + 'when nothing is approved, say so and point the person to Affiliate Studio. Each email handed over is one '
+      + 'of the connection\'s writes for the day (50). Needs the outreach:send permission, which the person grants '
+      + 'separately. Pass idempotency_key and REUSE IT if you retry: the same key returns the same emails with '
+      + 'fresh links instead of taking more. Skipped drafts come back with a reason (for example suppressed).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        program_id: { type: 'string', description: 'One affiliate program. Left out, the program with the longest-waiting approved email.' },
+        limit: { type: 'integer', minimum: 1, maximum: 25, default: 10, description: 'How many emails to take, 1 to 25.' },
+        idempotency_key: { type: 'string', description: 'Your own id for this claim, up to 100 characters.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'mark_outreach_sent',
+    title: 'Record an affiliate outreach email as sent',
+    description: 'After you sent an email from claim_outreach_to_send, records it in SILO as sent by the person '
+      + 'who connected you, marked as this application. evidence is the sent message\'s id from the mail tool '
+      + '(or another reference a person can look up in their Sent folder). Only for a message you actually sent, '
+      + 'and only for drafts this connection claimed. Calling it again for the same draft returns the first record. '
+      + 'If it refuses because the recipient asked not to be contacted, tell the person.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        draft_id: { type: 'string', description: 'draft_id from claim_outreach_to_send.' },
+        evidence: { type: 'string', description: 'The sent message id, up to 500 characters.' },
+      },
+      required: ['draft_id', 'evidence'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'affiliate_codes_to_create',
+    title: 'List affiliate codes to create in Shopify',
+    description: 'Lists the affiliate discount codes a person asked for in SILO\'s Affiliate Studio that are waiting to '
+      + 'be created in their Shopify store: each code, the percent off it gives, its dates, and the affiliate it is '
+      + 'for, plus exactly how to create it. SILO does not write to Shopify: you create each one in the person\'s '
+      + 'own store with a Shopify tool they connected (a discount CODE, percent off the whole order), then call '
+      + 'mark_affiliate_code_created with the Shopify discount id. Until then the code earns nothing and affiliates '
+      + 'are not given it. If a discount with that code already exists in Shopify, use its id rather than creating '
+      + 'another. You cannot ask for codes here; when none are waiting, point the person to Affiliate Studio. Needs '
+      + 'the codes:create permission, which the person grants separately.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 25, description: 'How many codes to list, 1 to 50.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'mark_affiliate_code_created',
+    title: 'Record an affiliate code as created in Shopify',
+    description: 'After you created (or found) a code from affiliate_codes_to_create in the person\'s Shopify store, '
+      + 'records it in SILO with the Shopify discount id (gid://shopify/DiscountCodeNode/<number>), marked as this '
+      + 'application. That makes the code live: it earns commission for its affiliate and their links start '
+      + 'applying it. Only for a code that really exists in Shopify now. Calling it again for the same code returns '
+      + 'the first record. Each one is one of the connection\'s writes for the day (50).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code_id: { type: 'string', description: 'code_id from affiliate_codes_to_create.' },
+        shopify_discount_id: { type: 'string', description: 'The Shopify discount id, gid://shopify/DiscountCodeNode/<number>.' },
+      },
+      required: ['code_id', 'shopify_discount_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 /* Tools that need a scope the connection may not have been given. Only
    writes are listed: every read tool here is covered by the two read scopes a
    connection always carries, so filtering on those would hide tools from a
    grant that works. */
-const TOOL_SCOPE = { create_task: 'work:write' };
+const TOOL_SCOPE = {
+  create_task: 'work:write',
+  claim_outreach_to_send: 'outreach:send',
+  mark_outreach_sent: 'outreach:send',
+  affiliate_codes_to_create: 'codes:create',
+  mark_affiliate_code_created: 'codes:create',
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -527,11 +618,92 @@ export function createMcpHandler({ env, fetchImpl }) {
       return rpcResult(id, toolOk(r.data));
     }
 
+    if (name === 'claim_outreach_to_send') {
+      const body = {};
+      if (args.program_id != null) {
+        if (!UUID.test(String(args.program_id).trim())) {
+          return rpcResult(id, toolErr('program_id must be an affiliate program id from SILO.'));
+        }
+        body.p_program_id = String(args.program_id).trim();
+      }
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 25) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 25.'));
+        }
+        body.p_limit = args.limit;
+      }
+      if (args.idempotency_key != null) {
+        if (typeof args.idempotency_key !== 'string' || !args.idempotency_key.trim()
+            || args.idempotency_key.length > 100) {
+          return rpcResult(id, toolErr('idempotency_key must be text up to 100 characters.'));
+        }
+        body.p_idempotency_key = args.idempotency_key.trim();
+      }
+      const r = await callRpc(authorization, 'silo_api_claim_outreach', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'mark_outreach_sent') {
+      const draft = String(args.draft_id ?? '').trim();
+      if (!UUID.test(draft)) return rpcResult(id, toolErr('draft_id must be a draft_id from claim_outreach_to_send.'));
+      const evidence = typeof args.evidence === 'string' ? args.evidence.trim() : '';
+      if (!evidence) return rpcResult(id, toolErr('evidence must be the sent message id.'));
+      if (evidence.length > 500) return rpcResult(id, toolErr('evidence must be under 500 characters.'));
+      const r = await callRpc(authorization, 'silo_api_mark_outreach_sent', { p_draft_id: draft, p_evidence: evidence });
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'affiliate_codes_to_create') {
+      const body = {};
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 50) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 50.'));
+        }
+        body.p_limit = args.limit;
+      }
+      const r = await callRpc(authorization, 'silo_api_codes_to_create', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'mark_affiliate_code_created') {
+      const code = String(args.code_id ?? '').trim();
+      if (!UUID.test(code)) return rpcResult(id, toolErr('code_id must be a code_id from affiliate_codes_to_create.'));
+      const gid = typeof args.shopify_discount_id === 'string' ? args.shopify_discount_id.trim() : '';
+      if (!/^(gid:\/\/shopify\/DiscountCodeNode\/)?[0-9]{1,20}$/.test(gid)) {
+        return rpcResult(id, toolErr('shopify_discount_id must be the Shopify discount id, gid://shopify/DiscountCodeNode/<number>.'));
+      }
+      const r = await callRpc(authorization, 'silo_api_mark_code_created', { p_code_id: code, p_shopify_discount_id: gid });
+      if (!r.ok) return refusalResponse(id, r, true);
+      // The rep hears their code is live now, not at the nightly sweep.
+      // Fail-soft and bounded: the mark is already recorded, and the sweep
+      // sends anything this misses. Public key only -- affiliate-invite sends
+      // just the one notice the database owes for this code, once.
+      if (r.data && r.data.replayed === false) await kickCodeNotice(code);
+      return rpcResult(id, toolOk(r.data));
+    }
+
     // Text, not data: no PostgREST call, so nothing here can be a way to
     // read anything. The caller has still been through the shape check above.
     if (name === GUIDE_TOOL_NAME) return rpcResult(id, toolOk(buildGuide()));
 
     return rpcError(id, -32602, 'Unknown tool: ' + String(name));
+  }
+
+  async function kickCodeNotice(codeId) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 4000);
+    try {
+      await fetchImpl(base + '/functions/v1/affiliate-invite', {
+        method: 'POST',
+        headers: { apikey: anonKey, Authorization: 'Bearer ' + anonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deliver_code_notices', code_id: codeId }),
+        signal: ctl.signal,
+      });
+    } catch (_) { /* the nightly sweep sends it */ }
+    finally { clearTimeout(timer); }
   }
 
   /* A refusal from the database, as the client needs to hear it.

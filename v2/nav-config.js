@@ -370,6 +370,15 @@
     // (the person who may switch tracking on must be able to find it). Nav is
     // discovery only; every read is RLS, every approver write re-checked.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
+    // Affiliate Studio (2026-11-10): one destination, tabs inside the page.
+    // Same gate shape as SEO: execs, or an affiliate_program_managers grant.
+    // Nav is discovery only -- RLS and can_manage_affiliate_programs() decide
+    // every write. The affiliate-facing pages (join/portal/apply) are not in
+    // the nav at all: affiliates are never SILO users.
+    // Hidden from the sidebar for now (Blake, 2026-11-10): the page stays
+    // live at /v2/affiliates/index.html by URL, gated in the database as
+    // before. To bring it back, restore this row:
+    // { roles: EXEC_ROLES, grantTable: 'affiliate_program_managers', id: 'marketing/affiliates', section: 'Marketing', label: 'Affiliates', href: '/v2/affiliates/index.html', profiles: ['grandfathered', 'standard'] },
 
     // Both profiles discover shared reports and dashboards through Reports.
     // Standard workspaces discover Reports as admin-and-up (admins added

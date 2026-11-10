@@ -5374,6 +5374,30 @@ select 'Launch products-unknown flag' as check_name,
    then 'MISSING: launch_calendar_products_unknown_consistent'
  else 'ok' end as status;
 
+select 'Attribution reporting stores' as check_name,
+ case
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids')
+   then 'MISSING: attribution reporting stores migration 20261110024500'
+ -- Defaulting this to anything but empty would pick stores for every existing
+ -- workspace on its behalf. Empty means "not configured", which is what keeps
+ -- the Attribution page on its previous behaviour until someone chooses.
+ when coalesce((select column_default from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids'), '') not like '%{}%'
+   then 'CRITICAL: attribution reporting stores do not default to empty'
+ when (select is_nullable from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids') <> 'NO'
+   then 'MISSING: attribution_store_ids should be NOT NULL (null is a third state the page does not read)'
+ -- A reporting preference must never have become a collection gate: the sync
+ -- reads the coverage allowlist and shopify_attribution_coverage, never this.
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and pg_get_functiondef(p.oid) like '%attribution_store_ids%')
+   then 'CRITICAL: a database function reads attribution_store_ids; it is a reporting preference, not a collection gate'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null
@@ -7621,6 +7645,9 @@ select 'developer API boundary' as check_name, case
         -- (20261104234500). Both are on silo_api_path_allowed(), which is
         -- what makes them the API surface rather than an extra grant.
         'silo_api_create_task', 'silo_api_scopes',
+        -- outreach:send since 20261110093000: claiming approved affiliate
+        -- outreach and recording a send. Both on silo_api_path_allowed().
+        'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -7637,6 +7664,8 @@ select 'developer API boundary' as check_name, case
               and p.proname not in (
                 'silo_api_run_report', 'silo_api_list_reports',
                 'silo_api_query', 'silo_api_describe_tables',
+                'silo_api_create_task', 'silo_api_scopes',
+                'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -8861,5 +8890,428 @@ select 'Klaviyo audiences and account currency' as check_name,
                                join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
                             = array['company_entity_id', 'kind', 'klaviyo_id'])
       then 'MISSING — the klaviyo_audiences identity is not unique, so each sync would add every list again'
+    else 'ok'
+  end as status;
+
+-- Shopify order discount codes and refunds (20261110083000): the per-order
+-- codes and refunded merchandise subtotal Affiliate Studio credits from. NULL
+-- in either column means "not captured yet", never "none"; the view keeps that.
+select 'Shopify order discount codes' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'shopify_orders' and column_name = 'discount_codes')
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'shopify_orders' and column_name = 'refunded_subtotal')
+      or to_regclass('public.shopify_order_discount_codes_v') is null
+      then 'MISSING — run 20261110083000_shopify_order_discount_codes.sql'
+    when coalesce((select option_value from pg_options_to_table(c.reloptions) where option_name = 'security_invoker'), 'false') <> 'true'
+      then 'CRITICAL — shopify_order_discount_codes_v is not security_invoker, so order RLS does not apply through it'
+    when has_table_privilege('anon', 'public.shopify_order_discount_codes_v', 'select')
+      then 'CRITICAL — shopify_order_discount_codes_v is readable by anon'
+    else 'ok'
+  end as status
+from pg_class c where c.oid = coalesce(to_regclass('public.shopify_order_discount_codes_v'), 'public.shopify_orders'::regclass);
+
+-- Affiliate Studio (20261110084000, 085000, 086000). The money rules are in
+-- the database, not the page, so each one is checked here by structure:
+-- client roles cannot write what only a resolver, a gated function or the
+-- service role may write; approving money uses the journal-entry gate, not
+-- the manager gate; the ledger is append-only; an order is credited once
+-- across programs; a ledger line is claimed by one payout; portal functions
+-- and token hashes are unreachable from any client role.
+select 'Affiliate Studio' as check_name,
+  case
+    when exists (select 1 from unnest(array[
+                   'affiliate_program_managers','affiliate_programs','affiliate_prospect_sources','affiliate_discovery_runs',
+                   'affiliate_prospects','affiliate_prospect_observations','affiliate_suppressions','affiliates',
+                   'affiliate_access_tokens','affiliate_codes','affiliate_links','affiliate_outreach_batches',
+                   'affiliate_outreach_drafts','affiliate_attributions','affiliate_commission_periods',
+                   'affiliate_commission_ledger','affiliate_payout_accounts','affiliate_payouts','affiliate_payout_items',
+                   'affiliate_notifications']) t(n) where to_regclass('public.' || t.n) is null)
+      or to_regprocedure('public.affiliate_portal_accept_terms(text,text,integer,jsonb,text,text)') is null
+      then 'MISSING — run 20261110084000_affiliate_studio.sql, 20261110085000_affiliate_studio_ledger.sql and 20261110086000_affiliate_portal.sql, in that order'
+    when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
+                  where s.nspname = 'public' and c.relkind = 'r' and c.relname like 'affiliate%' and not c.relrowsecurity)
+      then 'CRITICAL — RLS is off on an affiliate table'
+    when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
+                  where s.nspname = 'public' and c.relkind in ('r','v') and c.relname like 'affiliate%'
+                    and has_table_privilege('anon', c.oid, 'select'))
+      then 'CRITICAL — anon can read an affiliate table or view'
+    when has_table_privilege('authenticated', 'public.affiliate_access_tokens', 'select')
+      or exists (select 1 from information_schema.column_privileges
+                  where table_schema = 'public' and table_name = 'affiliate_access_tokens' and column_name = 'token_hash'
+                    and grantee in ('authenticated','anon'))
+      then 'CRITICAL — a client role can read affiliate access token hashes'
+    when exists (select 1 from unnest(array['affiliate_attributions','affiliate_payouts','affiliate_payout_items',
+                                            'affiliate_payout_accounts','affiliate_discovery_runs','affiliate_access_tokens',
+                                            'affiliate_notifications']) t(n)
+                  where has_table_privilege('authenticated', 'public.' || t.n, 'insert')
+                     or has_table_privilege('authenticated', 'public.' || t.n, 'update')
+                     or has_table_privilege('authenticated', 'public.' || t.n, 'delete'))
+      then 'CRITICAL — a client role can write an affiliate table that only a gated function or the service role may write'
+    when has_table_privilege('authenticated', 'public.affiliate_commission_ledger', 'update')
+      or has_table_privilege('authenticated', 'public.affiliate_commission_ledger', 'delete')
+      or not exists (select 1 from pg_trigger where tgrelid = 'public.affiliate_commission_ledger'::regclass
+                      and tgname = 'affiliate_ledger_append_only_trg' and tgenabled <> 'D')
+      then 'CRITICAL — the affiliate commission ledger is not append-only'
+    when exists (select 1 from unnest(array[
+                   'public.affiliate_approve_period(uuid,text)','public.affiliate_approve_payout(uuid)',
+                   'public.affiliate_mark_payout_paid(uuid,text,text)','public.affiliate_void_payout(uuid,text)']) f(sig)
+                  where pg_get_functiondef(to_regprocedure(f.sig)) not like '%can_approve_affiliate_commissions()%')
+      or pg_get_functiondef('public.can_approve_affiliate_commissions()'::regprocedure) like '%is_admin_user()%'
+      then 'CRITICAL — approving affiliate money does not use the journal-entry gate'
+    when pg_get_functiondef('public.affiliate_mark_payout_paid(uuid,text,text)'::regprocedure) not like '%0A000%'
+      then 'CRITICAL — a non-manual (unbuilt) payout method can be recorded as paid'
+    when exists (select 1 from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+                  where s.nspname = 'public' and p.proname like 'affiliate_portal%'
+                    and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')))
+      or has_function_privilege('authenticated', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      then 'CRITICAL — a client role can execute an affiliate portal or token function'
+    when not exists (select 1 from pg_index i where i.indrelid = 'public.affiliate_attributions'::regclass and i.indisunique
+                       and (select array_agg(a.attname::text order by k.ord)
+                              from unnest(i.indkey) with ordinality as k(attnum, ord)
+                              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+                           = array['company_entity_id','shop_domain','order_id'])
+      then 'CRITICAL — an order can be credited by more than one affiliate program'
+    when not exists (select 1 from pg_index i where i.indrelid = 'public.affiliate_payout_items'::regclass and i.indisunique
+                       and (select array_agg(a.attname::text order by k.ord)
+                              from unnest(i.indkey) with ordinality as k(attnum, ord)
+                              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+                           = array['ledger_entry_id'])
+      then 'CRITICAL — one commission line can be claimed by two payouts'
+    when exists (select 1 from unnest(array[
+                   'affiliate_commission_periods:affiliate_periods_guard_trg','affiliate_codes:affiliate_codes_guard_trg',
+                   'affiliate_outreach_drafts:affiliate_outreach_drafts_guard_trg','affiliate_programs:affiliate_programs_terms_guard_trg',
+                   'affiliate_suppressions:affiliate_suppressions_normalize_trg']) g(x)
+                  where not exists (select 1 from pg_trigger
+                                     where tgrelid = ('public.' || split_part(g.x, ':', 1))::regclass
+                                       and tgname = split_part(g.x, ':', 2) and tgenabled <> 'D'))
+      then 'CRITICAL — an affiliate guard trigger is missing (period approval, code overlap, outreach suppression, terms version or opt-out normalisation)'
+    when exists (select 1 from pg_class c
+                  where c.relname in ('affiliate_balances_v','affiliate_performance_v','affiliate_program_health_v')
+                    and c.relkind = 'v'
+                    and coalesce((select option_value from pg_options_to_table(c.reloptions)
+                                   where option_name = 'security_invoker'), 'false') <> 'true')
+      then 'CRITICAL — an affiliate view is not security_invoker, so RLS does not apply through it'
+    when pg_get_viewdef('public.affiliate_access_token_state_v'::regclass) not like '%active_company_id()%'
+      or exists (select 1 from information_schema.columns where table_schema = 'public'
+                  and table_name = 'affiliate_access_token_state_v' and column_name = 'token_hash')
+      then 'CRITICAL — the token state view (definer) lost its company filter or exposes the hash'
+    -- Review cycle 1 of #1177: these held only by construction, so they are
+    -- checked by structure here.
+    when exists (select 1 from pg_constraint c
+                  join pg_class cl on cl.oid = c.conrelid join pg_namespace n on n.oid = cl.relnamespace
+                  join pg_class pl on pl.oid = c.confrelid
+                  join pg_attribute pa on pa.attrelid = c.confrelid and pa.attnum = c.confkey[1]
+                  join pg_attribute ca on ca.attrelid = c.conrelid and ca.attnum = c.conkey[1]
+                 where c.contype = 'f' and n.nspname = 'public' and array_length(c.conkey, 1) = 1 and pa.attname = 'id'
+                   and (cl.relname = 'affiliates' or cl.relname like 'affiliate\_%')
+                   and (pl.relname = 'affiliates' or pl.relname like 'affiliate\_%')
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.conrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and not exists (select 1 from pg_constraint t
+                                    where t.contype = 'f' and t.conrelid = c.conrelid and t.confrelid = c.confrelid
+                                      and array_length(t.conkey, 1) = 2 and t.conkey[1] = c.conkey[1]))
+      then 'CRITICAL — an affiliate reference has no same-company twin, so a row can point at another company''s program or affiliate'
+    when exists (select 1 from unnest(array['public.affiliate_accrue_commissions(uuid,date,date,uuid)',
+                                            'public.affiliate_build_payout(uuid,date)',
+                                            'public.affiliate_approve_payout(uuid)']) f(sig)
+                  where pg_get_functiondef(to_regprocedure(f.sig)) not like '%affiliate_lock_program_money(%')
+      then 'CRITICAL — accrual or a payout step no longer takes the program money lock, so overlapping runs can double-count'
+    when pg_get_functiondef('public.affiliate_periods_guard()'::regprocedure) not like '%tg_op = ''INSERT''%'
+      then 'CRITICAL — a commission period can be inserted already approved, skipping the money gate'
+    when to_regprocedure('public.affiliate_managed_company()') is null
+      or to_regprocedure('public.affiliate_claim_payout_export(uuid,uuid[],uuid)') is null
+      or to_regclass('public.affiliate_period_totals_v') is null
+      then 'MISSING — re-run 20261110084000 and 20261110085000 (review cycle 1 fixes)'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select reloptions from pg_class where oid = 'public.affiliate_period_totals_v'::regclass))
+                   where option_name = 'security_invoker'), 'false') <> 'true'
+      then 'CRITICAL — affiliate_period_totals_v is not security_invoker, so ledger RLS does not apply through it'
+    when to_regclass('public.sync_jobs') is not null
+      and not exists (select 1 from pg_constraint where conrelid = 'public.sync_jobs'::regclass
+                       and conname = 'sync_jobs_job_type_check' and pg_get_constraintdef(oid) ~ 'affiliate_discovery')
+      then 'MISSING — sync_jobs does not accept the affiliate_discovery job type'
+    else 'ok'
+  end as status;
+
+-- outreach:send (20261110093000): a connection takes affiliate outreach a
+-- person approved and records each send; SILO sends nothing. What must stay
+-- true: only the integration role can call the two tools, their helpers
+-- (which trust their arguments) are callable by nobody, both paths are on the
+-- allowlist, consent offers the scope, the tools are VOLATILE, the ledger
+-- accepts the claim kind, and one key claims one batch.
+select 'outreach:send tools' as check_name,
+  case
+    when to_regprocedure('public.silo_api_claim_outreach(uuid, integer, text)') is null
+      or to_regprocedure('public.silo_api_mark_outreach_sent(uuid, text)') is null
+      or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                      and table_name = 'affiliate_outreach_batches' and column_name = 'created_by_grant_id')
+      or not exists (select 1 from information_schema.columns where table_schema = 'public'
+                      and table_name = 'affiliate_outreach_drafts' and column_name = 'sent_via_app')
+      then 'MISSING — run 20261110093000_affiliate_outreach_send_scope.sql'
+    when exists (select 1 from pg_proc
+                  where oid in (to_regprocedure('public.silo_api_claim_outreach(uuid, integer, text)'),
+                                to_regprocedure('public.silo_api_mark_outreach_sent(uuid, text)'))
+                    and provolatile <> 'v')
+      then 'BROKEN — an outreach tool is not VOLATILE, so PostgREST runs it read-only'
+    when not has_function_privilege('silo_integration', 'public.silo_api_claim_outreach(uuid, integer, text)', 'execute')
+      or not has_function_privilege('silo_integration', 'public.silo_api_mark_outreach_sent(uuid, text)', 'execute')
+      then 'BROKEN — the integration role cannot call the outreach tools'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_revoked']) r(role),
+                  unnest(array['public.silo_api_claim_outreach(uuid, integer, text)',
+                               'public.silo_api_mark_outreach_sent(uuid, text)']) f(fn)
+                  where has_function_privilege(r.role, f.fn, 'execute'))
+      then 'CRITICAL — a browser role can call an outreach tool, which acts for a grant without one'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role),
+                  unnest(array['public.affiliate_can_manage_for(uuid, uuid)',
+                               'public.silo_api_app_name(text, text)',
+                               'public.silo_api_outreach_grant()',
+                               'public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)']) f(fn)
+                  where to_regprocedure(f.fn) is not null and has_function_privilege(r.role, f.fn, 'execute'))
+      then 'CRITICAL — an outreach helper that trusts its arguments is callable by a client role'
+    when position('/rpc/silo_api_claim_outreach' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      or position('/rpc/silo_api_mark_outreach_sent' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — an outreach path is not on the allowlist, so silo_check_request() refuses every call'
+    when position('outreach:send' in pg_get_functiondef('public.silo_api_consent(text, text[])'::regprocedure)) = 0
+      then 'BROKEN — outreach:send is not an offerable scope, so nobody can grant it'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.silo_api_writes'::regclass
+                      and conname = 'silo_api_writes_kind_check' and pg_get_constraintdef(oid) like '%outreach_claim%')
+      then 'BROKEN — the write ledger refuses the outreach_claim kind, so every claim fails'
+    when to_regclass('public.affiliate_outreach_batches_claim_once') is null
+      then 'BROKEN — affiliate_outreach_batches_claim_once is missing, so a retried claim takes more outreach'
+    else 'ok'
+  end as status;
+
+-- Affiliate outreach HTML (20261110110000): each claimed message also comes as
+-- branded HTML with the signup link as a button. The builder escapes the
+-- person's draft and is callable by no client role.
+select 'Affiliate outreach HTML' as check_name,
+  case
+    when to_regprocedure('public.affiliate_outreach_html(text, text, text)') is null
+      or position('affiliate_outreach_html' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110110000_affiliate_outreach_html.sql'
+    when position('Or open this link:' in public.affiliate_outreach_html('x', 'y', 'https://get-silo.com/v2/affiliates/join.html?t=a')) = 0
+      then 'MISSING — run 20261110130000_affiliate_outreach_email_button.sql (the email has no visible link under the button)'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_outreach_html'
+    when position('<script>' in public.affiliate_outreach_html('x', '<script>{signup_link}', 'https://get-silo.com/v2/affiliates/join.html?t=a')) > 0
+      then 'CRITICAL — affiliate_outreach_html does not escape the draft'
+    else 'ok'
+  end as status;
+
+-- Affiliate portal feed (20261110150000): brands share launches, products and
+-- ads with affiliates; the portal reads them only through a valid portal link.
+select 'Affiliate portal feed' as check_name,
+  case
+    when to_regclass('public.affiliate_feed_items') is null
+      or to_regprocedure('public.affiliate_portal_feed(text)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'store_url')
+      then 'MISSING — run 20261110150000_affiliate_portal_feed.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_feed_items'::regclass)
+      then 'BROKEN — affiliate_feed_items has RLS off'
+    when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_feed_items'::regclass
+                      and polname = 'affiliate_feed_items_write'
+                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — sharing with affiliates is not limited to people who manage affiliate programs'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_feed_items_path')
+      then 'BROKEN — a shared item may point off the brand''s store'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_feed(text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_portal_feed'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
+      then 'BROKEN — the feed is readable with a signup link'
+    else 'ok'
+  end as status;
+
+-- Affiliate portal sign-in by email (20261110170000): the lookup is service
+-- role only and reserves each address for 10 minutes before mailing; the
+-- statement reads each credited order's current base from its attribution.
+select 'Affiliate portal sign-in' as check_name,
+  case
+    when to_regprocedure('public.affiliate_portal_signin_subjects(text)') is null
+      or to_regclass('public.affiliate_portal_signin_throttle') is null
+      or position('sales_cents' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110170000_affiliate_portal_signin.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_signin_subjects(text)', 'execute'))
+      then 'BROKEN — a client role can look affiliates up by email'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_table_privilege(r.role, 'public.affiliate_portal_signin_throttle', 'select'))
+      or not (select relrowsecurity from pg_class where oid = 'public.affiliate_portal_signin_throttle'::regclass)
+      then 'BROKEN — a client role can read the sign-in throttle'
+    when position('affiliate_portal_signin_throttle' in pg_get_functiondef('public.affiliate_portal_signin_subjects(text)'::regprocedure)) = 0
+      then 'BROKEN — email sign-in does not reserve the address before mailing'
+    when position('affiliate_attributions' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
+      then 'BROKEN — statement sales read a ledger base that a refund may not have updated'
+    else 'ok'
+  end as status;
+
+-- Affiliate portal brand switcher (20261110190000): the sibling list and the
+-- switch are service role only, answer only for a token BOUND to the address
+-- it was mailed to (not a staff-issued link, nor the one signup acceptance
+-- returns, which their requester holds), and identify the rep by that bound
+-- recipient rather than by contact_email, which a manager of the company may
+-- edit after the link was sent.
+select 'Affiliate portal brands' as check_name,
+  case
+    when to_regprocedure('public.affiliate_portal_brands(text)') is null
+      or to_regprocedure('public.affiliate_contact_key(text)') is null
+      or to_regprocedure('public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz,text)') is null
+      or to_regprocedure('public.affiliate_portal_switch_token(text,uuid,text,timestamptz)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_access_tokens'
+                        and column_name = 'mailed_to_hash')
+      then 'MISSING — run 20261110190000_affiliate_portal_brands.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role),
+                             unnest(array['public.affiliate_portal_brands(text)',
+                                          'public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz,text)',
+                                          'public.affiliate_portal_switch_token(text,uuid,text,timestamptz)']) f(fn)
+                  where has_function_privilege(r.role, f.fn, 'execute'))
+      then 'BROKEN — a client role can list, mint or switch affiliate portal sessions'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — a signup link can switch brands'
+    when (select count(*) from unnest(array['public.affiliate_portal_brands(text)',
+                                            'public.affiliate_portal_switch_token(text,uuid,text,timestamptz)']) f(fn)
+           where position('t.mailed_to_hash is not null' in pg_get_functiondef(f.fn::regprocedure)) > 0
+             and position('affiliate_contact_key(a.contact_email) = t.mailed_to_hash'
+                          in pg_get_functiondef(f.fn::regprocedure)) > 0) < 2
+      then 'BROKEN — a portal link its requester holds, or one whose address was changed after it was sent, can reach another company'
+    else 'ok'
+  end as status;
+
+-- Affiliate loop (20261110180000): joining queues a code for the company's AI,
+-- a code going live owes the rep one email (claimed once, service role only),
+-- and the nightly run may calculate commissions as the service role while
+-- every person keeps the company + manager gate.
+select 'Affiliate loop' as check_name,
+  case
+    when to_regprocedure('public.affiliate_claim_code_notices(uuid, integer)') is null
+      or to_regprocedure('public.affiliate_suggest_code(uuid, text, integer)') is null
+      or not exists (select 1 from pg_trigger where tgname = 'affiliates_queue_first_code' and tgrelid = 'public.affiliates'::regclass)
+      or not exists (select 1 from pg_trigger where tgname = 'affiliate_codes_stamp_live' and tgrelid = 'public.affiliate_codes'::regclass)
+      or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'default_discount_percent')
+      or position('service_role' in pg_get_functiondef('public.affiliate_accrue_commissions(uuid, date, date, uuid)'::regprocedure)) = 0
+      or position('service_role' in pg_get_functiondef('public.affiliate_resolve_attributions(uuid, date, date)'::regprocedure)) = 0
+      or position('affiliate_commissions' in pg_get_constraintdef((select oid from pg_constraint where conname = 'sync_jobs_job_type_check' and conrelid = 'public.sync_jobs'::regclass))) = 0
+      then 'MISSING — run 20261110180000_affiliate_loop.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_claim_code_notices(uuid, integer)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_suggest_code(uuid, text, integer)', 'execute'))
+      then 'BROKEN — a client role can claim code notices or call the code helper'
+    when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_accrue_commissions(uuid, date, date, uuid)'::regprocedure)) = 0
+      or position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_resolve_attributions(uuid, date, date)'::regprocedure)) = 0
+      then 'BROKEN — commission calculation lost its manager gate'
+    when position('live_noticed_at is null' in pg_get_functiondef('public.affiliate_claim_code_notices(uuid, integer)'::regprocedure)) = 0
+      then 'BROKEN — a live-code notice can be claimed twice'
+    else 'ok'
+  end as status;
+
+-- Affiliate codes created by the person's own AI (20261110160000): pending
+-- codes earn nothing and are handed out nowhere; the codes:create tools sit on
+-- the outreach fence; links never guess among several Shopify stores; ad
+-- pictures shared with affiliates go to a public bucket only managers write.
+select 'Affiliate codes via AI' as check_name,
+  case
+    when to_regprocedure('public.silo_api_codes_to_create(integer)') is null
+      or to_regprocedure('public.silo_api_mark_code_created(uuid,text)') is null
+      or to_regprocedure('public.affiliate_program_store_url(uuid,uuid)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_discount_id')
+      then 'MISSING — run 20261110160000_affiliate_codes_via_ai.sql'
+    when position('codes:create' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
+      then 'BROKEN — the consent screen cannot grant codes:create'
+    when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_code_created(uuid,text)'))) = 0
+      then 'BROKEN — two calls may both take a connection''s last free write'
+    when not exists (select 1 from pg_trigger where tgrelid = 'public.silo_api_writes'::regclass
+                      and tgname = 'silo_api_writes_cap_guard' and tgenabled <> 'D')
+      then 'BROKEN — the write cap is checked only inside each tool, so two tools at once can pass it'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_codes_pending_has_discount')
+      then 'BROKEN — a code waiting for Shopify may lack its discount'
+    when position('affiliate_program_store_url' in pg_get_functiondef(to_regprocedure('public.affiliate_portal_feed(text)'))) = 0
+      then 'BROKEN — the portal feed picks its own store instead of affiliate_program_store_url'
+    when position('count(*) = 1' in pg_get_functiondef(to_regprocedure('public.affiliate_program_store_url(uuid,uuid)'))) = 0
+      then 'BROKEN — affiliate links may guess among several Shopify stores'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, to_regprocedure('public.silo_api_mark_code_created(uuid,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_api_codes_to_create(integer)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.affiliate_program_store_url(uuid,uuid)'), 'execute'))
+      then 'BROKEN — a browser role can call the codes tools'
+    when not exists (select 1 from storage.buckets where id = 'affiliate-feed-images' and public)
+      then 'MISSING — the affiliate-feed-images bucket'
+    when not exists (select 1 from pg_policy where polrelid = 'storage.objects'::regclass
+                      and polname = 'affiliate feed images written by program managers'
+                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0
+                      and position('active_company_id' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — feed pictures are not limited to managers writing their own company''s folder'
+    else 'ok'
+  end as status;
+
+-- Company logo (20261110140000): owners upload a logo in Settings -> Company;
+-- the stored address is held to this company's folder of a public
+-- company-logos bucket on a Supabase host, and the outreach email uses it.
+select 'Company logo' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'company_settings' and column_name = 'logo_url')
+      or not exists (select 1 from storage.buckets where id = 'company-logos')
+      or to_regprocedure('public.affiliate_outreach_html(text, text, text, text)') is null
+      then 'MISSING — run 20261110140000_company_logo.sql'
+    when not exists (select 1 from pg_constraint where conname = 'company_settings_logo_url_check')
+      then 'BROKEN — company_settings.logo_url has no address check'
+    when exists (select 1 from storage.buckets where id = 'company-logos'
+                  and (not public or 'image/svg+xml' = any(coalesce(allowed_mime_types, array[]::text[])) or allowed_mime_types is null))
+      then 'BROKEN — the company-logos bucket is not public, or accepts SVG or any type'
+    when (select count(*) from pg_policy where polrelid = 'storage.objects'::regclass
+           and polname in ('company_logos_owner_insert', 'company_logos_owner_update', 'company_logos_owner_delete')
+           and position('is_owner_admin_of_active_company' in coalesce(pg_get_expr(polwithcheck, polrelid), pg_get_expr(polqual, polrelid))) > 0
+           and position('active_company_id' in coalesce(pg_get_expr(polwithcheck, polrelid), pg_get_expr(polqual, polrelid))) > 0) <> 3
+      then 'BROKEN — company-logos writes are not limited to owners of the active company, in its own folder'
+    when position('v_logo' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110140000_company_logo.sql (outreach does not pass the logo)'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text, text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_outreach_html'
+    when position('<img' in public.affiliate_outreach_html('x', 'y', 'https://a.test/j', 'https://evil.test/p.png')) > 0
+      then 'CRITICAL — the outreach email accepts a logo from any address'
+    else 'ok'
+  end as status;
+
+-- Follow-up outreach (20261110120000): a second approved message to an email
+-- the program already has reuses that affiliate record instead of failing on
+-- affiliates_identity.
+select 'Affiliate follow-up outreach' as check_name,
+  case
+    when position('lower(btrim(a.contact_email)) = lower(btrim(p_email))' in
+           pg_get_functiondef('public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)'::regprocedure)) = 0
+      then 'MISSING — run 20261110120000_affiliate_followup_outreach.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'execute'))
+      then 'CRITICAL — a client role can call affiliate_outreach_mint_signup'
+    else 'ok'
+  end as status;
+
+-- Affiliate AI research (20261110100000): the affiliate-research function
+-- holds AI credit under feature 'affiliate_research' and writes prospects with
+-- source 'ai_research'; either value refused means every research run fails.
+select 'Affiliate AI research' as check_name,
+  case
+    when not exists (select 1 from pg_constraint where conrelid = 'public.ai_credit_reservations'::regclass
+                      and conname = 'ai_credit_reservations_feature_check'
+                      and pg_get_constraintdef(oid) like '%affiliate_research%')
+      or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_prospects'::regclass
+                      and conname = 'affiliate_prospects_source_check'
+                      and pg_get_constraintdef(oid) like '%ai_research%')
+      then 'MISSING — run 20261110100000_affiliate_ai_research.sql'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.ai_credit_reservations'::regclass
+                      and conname = 'ai_credit_reservations_feature_check'
+                      and pg_get_constraintdef(oid) like '%ask_silo%' and pg_get_constraintdef(oid) like '%payment_request_extract%')
+      or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_prospects'::regclass
+                      and conname = 'affiliate_prospects_source_check'
+                      and pg_get_constraintdef(oid) like '%csv_import%' and pg_get_constraintdef(oid) like '%applied%')
+      then 'BROKEN — a re-added check lost an existing value, so an older feature or prospect source is refused'
     else 'ok'
   end as status;

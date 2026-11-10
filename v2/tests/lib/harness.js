@@ -409,10 +409,18 @@ window.__QUERIES__ = [];
         // TypeError that aborts the handler mid-way -- the drawer opens with
         // half its fields filled, which looks like a page bug.
         storage: {
-          from: function () {
+          from: function (bucket) {
             return {
               list: function () { return Promise.resolve({ data: [], error: null }); },
-              upload: function () { return Promise.resolve({ data: null, error: null }); },
+              // Recorded, so a suite can assert WHICH bucket and path a page wrote.
+              upload: function (p) {
+                (window.__UPLOADS__ = window.__UPLOADS__ || []).push({ bucket: bucket, path: p });
+                return Promise.resolve({ data: null, error: null });
+              },
+              download: function (p) {
+                (window.__DOWNLOADS__ = window.__DOWNLOADS__ || []).push({ bucket: bucket, path: p });
+                return Promise.resolve({ data: new Blob(['fixture'], { type: 'image/jpeg' }), error: null });
+              },
               remove: function () { return Promise.resolve({ data: null, error: null }); },
               getPublicUrl: function (p) { return { data: { publicUrl: 'about:blank#' + p } }; },
               // Deterministic signed links, so a suite can assert WHICH object

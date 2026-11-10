@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO · Affiliate Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="../beacon.css" />
+  <link rel="stylesheet" href="../silo-brand.css" />
+  <script src="/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    /* Affiliate Studio (af-) layout only; every colour and font is a Beacon token. */
+    .af-panel[hidden] { display: none; }
+    .af-share-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--bcn-border); }
+    .af-share-row:first-of-type { border-top: 0; }
+    .af-share-row img, .af-share-noimg { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
+    .af-share-txt .af-muted { overflow: hidden; text-overflow: ellipsis; }
+    /* "What your affiliates see": the shared items as the portal shows them. */
+    .af-seen { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .af-seen-item { border: 1px solid var(--bcn-border); border-radius: 10px; overflow: hidden; background: var(--bcn-surface); display: flex; flex-direction: column; }
+    .af-seen-item img, .af-seen-none { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: var(--bcn-bg); }
+    .af-seen-none { display: grid; place-items: center; padding: 12px; text-align: center; font-weight: 700; color: var(--bcn-ink-2); }
+    .af-seen-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .af-seen-body .bcn-btn { margin-top: auto; align-self: flex-start; }
+    .af-share-txt { flex: 1; min-width: 0; }
+    .af-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .af-grid--wide { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .af-grid--settings { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 640px) { .af-grid--settings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (min-width: 960px) { .af-grid--settings { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    .af-grid--settings .af-span-full { grid-column: 1 / -1; }
+    .af-settings-block { margin-bottom: 18px; }
+    .af-settings-block:last-child { margin-bottom: 0; }
+    .af-settings-title { margin: 0 0 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-2); font-family: var(--bcn-mono); }
+    .af-settings-sub { margin: 12px 0 8px; font-size: 11px; color: var(--bcn-ink-3); }
+    .af-settings-sub:first-child { margin-top: 0; }
+    .af-settings-save { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 4px 0 16px; margin-bottom: 4px; border-bottom: 1px solid var(--bcn-border); }
+    .af-checks--boxed { padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); }
+    .af-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+    .af-row > .bcn-field-group { min-width: 140px; flex: 1; }
+    .bcn-field-group[hidden] { display: none; }
+    .af-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .af-panel > .af-stack { gap: 16px; }
+    .af-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .af-filter-bar .bcn-btn { font-size: 12px; padding: 5px 10px; }
+    .af-kv-line { font-size: 12px; color: var(--bcn-ink-2); margin-top: 4px; line-height: 1.45; }
+    .af-scroll { overflow-x: auto; }
+    .af-scroll table.bcn-table { table-layout: auto; min-width: 720px; }
+    table.bcn-table td.af-num, table.bcn-table th.af-num { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-mono { font-family: var(--bcn-mono); font-size: 12px; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-evidence { max-width: 360px; white-space: normal; color: var(--bcn-ink-2); font-size: 12px; }
+    .af-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .af-label-verified { color: var(--bcn-pos); }
+    .af-label-unconfigured, .af-label-not-measured { color: var(--bcn-neg); }
+    .af-label-manual, .af-label-simulated { color: var(--bcn-ink-2); }
+    .af-stage { font-family: var(--bcn-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+    .af-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+    .af-copy { word-break: break-all; }
+    .af-next { margin: 12px 18px 0; padding: 0; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); overflow: hidden; font-size: 13px; }
+    .af-next[hidden] { display: none; }
+    .af-todo-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-bg); }
+    .af-todo-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--bcn-ink); flex: 1; }
+    .af-todo { list-style: none; margin: 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .af-todo-item { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); }
+    .af-todo-text { flex: 1; min-width: 0; line-height: 1.45; color: var(--bcn-ink); }
+    .af-todo-acts { display: flex; gap: 6px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .af-todo-none { margin: 0; padding: 14px; }
+    .af-todo-how { margin: 0; border-top: 1px solid var(--bcn-border); }
+    .af-todo-how > summary {
+      list-style: none; cursor: pointer; padding: 10px 14px; font-size: 12px; font-weight: 500; color: var(--bcn-ink-2);
+      background: var(--bcn-bg);
+    }
+    .af-todo-how > summary::-webkit-details-marker { display: none; }
+    .af-todo-how[open] > summary { border-bottom: 1px solid var(--bcn-border); }
+    .af-todo-how-body { margin: 0; padding: 10px 14px 12px; font-size: 11px; line-height: 1.5; color: var(--bcn-ink-3); }
+    .af-more > summary { cursor: pointer; font-size: 13px; color: var(--bcn-ink-2); padding: 6px 0; list-style: revert; }
+  /* Workflow rail: five steps map to the tabs, with counts when something needs you. */
+    .af-pipeline { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 18px 12px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
+    .af-pipeline[hidden] { display: none; }
+    .af-pipe-step { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 120px; padding: 8px 10px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); cursor: pointer; font: inherit; text-align: left; transition: border-color .12s, background .12s; }
+    .af-pipe-step:hover { border-color: var(--bcn-accent); }
+    .af-pipe-step--on { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); box-shadow: inset 3px 0 0 var(--bcn-accent); }
+    .af-pipe-n { font-family: var(--bcn-mono); font-size: 10px; font-weight: 700; color: var(--bcn-ink-3); width: 1.4em; flex: none; }
+    .af-pipe-step--on .af-pipe-n { color: var(--bcn-accent); }
+    .af-pipe-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--bcn-ink); min-width: 0; }
+    .af-pipe-count { font-family: var(--bcn-mono); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--bcn-accent); color: #fff; flex: none; }
+    .af-pipe-count--muted { background: var(--bcn-band); color: rgba(255, 255, 255, .85); }
+    /* Card lists replace wide tables on workflow tabs. */
+    .af-items { display: flex; flex-direction: column; gap: 8px; }
+    .af-item { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
+    .af-item--compact { padding: 10px 12px; }
+    .af-item-head { font-size: 14px; font-weight: 600; line-height: 1.35; }
+    .af-item-stats { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-2); margin-top: 4px; }
+    .af-item-detail { font-size: 12px; color: var(--bcn-ink-2); margin-top: 8px; line-height: 1.45; max-width: 52rem; }
+    .af-item-detail .af-evidence { max-width: none; }
+    .af-item-foot { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+    .af-item-pay .af-item-stats { font-size: 18px; font-weight: 700; color: var(--bcn-ink); }
+    .af-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+    @media (max-width: 900px) { .af-board { grid-template-columns: 1fr; } }
+    .af-board-col { border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-bg); padding: 10px; min-height: 80px; }
+    .af-board-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--bcn-border); }
+    .af-board-head h3 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-2); font-family: var(--bcn-mono); }
+    .af-board-cards { display: flex; flex-direction: column; gap: 8px; }
+    .af-board-empty { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 4px; }
+    .af-codes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .af-code-pill { font-family: var(--bcn-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--bcn-border); background: var(--bcn-bg); }
+    .af-item-more { margin-top: 6px; }
+    .af-item-more > summary { cursor: pointer; font-size: 12px; color: var(--bcn-ink-3); list-style: none; }
+    .af-item-more > summary::-webkit-details-marker { display: none; }
+    .af-item-more[open] > summary { margin-bottom: 6px; }
+    .af-kpis-off { display: none !important; }
+    #tabs.af-tabs--workflow { margin: 0 18px 10px; flex-wrap: wrap; }
+    #tabs.af-tabs--workflow .bcn-tab { font-size: 12px; padding: 6px 12px; }
+    .af-ai-hub { margin: 0 18px 12px; }
+    .af-ai-hub[hidden] { display: none; }
+    .af-ai-status { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+    .af-ai-status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; color: var(--bcn-ink); }
+    .af-ai-status-row .af-wait { font-size: 12px; color: var(--bcn-ink-3); }
+    .af-ai-note { margin: 8px 0 0; font-size: 11px; line-height: 1.45; }
+    .af-ai-foot { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bcn-border); }
+    .af-ai-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .af-ai-actions--tight { margin-top: 6px; }
+    .af-ai-hint { margin: 0; font-size: 13px; }
+    .af-ai-hint > summary {
+      list-style: none; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 6px 11px; border-radius: var(--bcn-radius);
+      font-family: var(--bcn-font); font-size: 12.5px; font-weight: 500;
+      color: var(--bcn-ink-2); background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border-strong);
+      transition: background .12s ease, color .12s ease;
+    }
+    .af-ai-hint > summary:hover { background: var(--bcn-sunken); color: var(--bcn-ink); }
+    .af-ai-hint > summary::-webkit-details-marker { display: none; }
+    .af-ai-hint[open] { flex: 1 1 100%; }
+    .af-ai-hint[open] > summary { margin-bottom: 8px; }
+    .af-ai-hint-body { padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); }
+    .af-ai-hint-body p { margin: 0 0 6px; }
+    .af-ai-hint-body p:last-child { margin-bottom: 0; }
+    .af-ai-hint-body .af-ai-actions { margin-top: 8px; }
+    .af-ai-tab-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+    .af-stack { gap: 16px; }
+    .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
+    .silo-main > .af-panel { padding: 16px 18px 32px; }
+  </style>
+  <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2-mobile.css" />
+  <script src="../v2-shell.js" defer></script>
+</head>
+<body class="silo-brand">
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title"><h1>Affiliate Studio</h1></div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">Find creators, invite them, track their codes and pay their commission.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;"></select>
+        <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="program" id="btnSettings">Settings</button>
+        <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="bcn-kpi-band" id="kpis"></div>
+
+    <div class="af-next" id="nextStep" hidden></div>
+
+    <div class="af-pipeline" id="afPipeline" hidden aria-label="Affiliate workflow"></div>
+
+    <div class="af-ai-hub" id="afAiHub" hidden aria-label="Use your AI with SILO MCP"></div>
+
+    <nav class="bcn-tabs af-tabs--workflow" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Payouts</button>
+    </nav>
+
+    <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
+    <section class="af-panel" data-panel="prospects"><div class="af-stack" id="prospectsBody"></div></section>
+    <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
+    <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
+    <section class="af-panel" data-panel="share" hidden><div class="af-stack" id="shareBody"></div></section>
+    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="payoutsBody"></div></section>
+    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="commissionsBody"></div></section>
+  </main>
+</div>
+
+<script src="../nav-config.js"></script>
+<script src="../avatar.js"></script>
+<script src="../silo-chrome.js"></script>
+<script type="module" src="studio.js"></script>
+</body>
+</html>

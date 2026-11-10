@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {allocate} from '../../v2/silo-attribution-model.js';
 import {analyzeJourneys,observedJourney,splitCents,touchWeights,loadJourneyRecords} from '../../v2/silo-attribution-overview.js';
 import {channelTeamwork,findings,pathRevenue} from '../../v2/silo-attribution-together.js';
+import {renderPathSpotlight,spotlightStage} from '../../v2/silo-attribution-journey-spotlight.js';
 const company='00000000-0000-0000-0000-000000000001',store='00000000-0000-0000-0000-000000000002';
 export function fixture(){
   const sources=[['facebook','paid'],['facebook','paid'],['redo','sms'],['google','cpc'],['direct','']];
@@ -95,6 +96,14 @@ test('loader enforces tenant/store scope and asks only for the fields the rollup
   await assert.rejects(loadJourneyRecords(db,company,store,[{...row,order_id:"1' or '1"}]),/Unexpected order identifier/);
   // A response at the engine's 1000-row page cap would be a truncated page, not an answer.
   await assert.rejects(loadJourneyRecords({rpc:()=>Promise.resolve({data:Array.from({length:2},()=>served(record))})},company,store,[row]),/Unexpected journey response/);
+});
+test('path spotlight labels first visit and last click',()=>{
+  const {report,record}=fixture(),analysis=analyzeJourneys(report,[record]);
+  const paths=pathRevenue(report,analysis.paths);
+  const html=renderPathSpotlight(paths,{money:n=>`$${n}`,days:()=>'2d',multiPct:100,orderTotal:1});
+  assert.match(html,/attr-path-spotlight/);
+  const stage=spotlightStage(paths[0],0,n=>`$${n}`,()=>'2d',()=>'1 hr');
+  assert.match(stage,/First visit/);assert.match(stage,/Last click/);assert.match(stage,/In between/);
 });
 test('batches run several at a time and return every order exactly once',async()=>{
   const {row,record}=fixture(),calls=[];

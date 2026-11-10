@@ -2,6 +2,7 @@ import {analyzeJourneys} from './silo-attribution-overview.js';
 import {channelTeamwork,findings,pathRevenue,ratio,days,GAPS} from './silo-attribution-together.js';
 import {spendTotal,spendNote} from './silo-attribution-spend.js';
 import {platformMark} from './silo-attribution-visuals.js';
+import {renderPathSpotlight,wirePathSpotlight} from './silo-attribution-journey-spotlight.js';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const duration=ms=>ms==null?'Unavailable':ms<3600000?`${Math.round(ms/60000)} min`:ms<86400000?`${(ms/3600000).toFixed(1)} hr`:`${(ms/86400000).toFixed(1)} days`;
 
@@ -30,8 +31,9 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
   const pathSteps=p=>`<ol class="attr-overview-path" aria-label="Observed channel sequence">${p.path.map((c,j)=>`<li>${platformMark(c)}<strong>${esc(c)}</strong><small>${esc(duration(p.steps[j].medianMs))} to ${j===p.path.length-1?'purchase':'next step'} · ${p.steps[j].count.toLocaleString()} order${p.steps[j].count===1?'':'s'}</small></li>`).join('')}<li>${platformMark('Shopify')}<strong>Purchase</strong></li></ol>`;
   const gapCents=rows.filter(r=>GAPS.includes(r.channel)).reduce((s,r)=>s+r.net_cents,0);
   const total=spendTotal(spend);
-
-  root.innerHTML=`<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
+  const spotlight=analysis&&paths.length?renderPathSpotlight(paths,{money,days,multiPct:pct,orderTotal:share.total}):'';
+  const morePaths=analysis&&paths.length>1;
+  root.innerHTML=`${spotlight}<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
    <h2>${share.any?`${pct}% of orders touched more than one channel before purchase`:'No identified channel journeys in this period'}</h2>${share.any?`<p class="attr-context">${share.multi.toLocaleString()} of ${share.total.toLocaleString()} orders. ${(share.total-share.any).toLocaleString()} had no channel we could identify.</p>`:''}
    <p><strong>Last click</strong> gives each sale to the last channel before purchase. <strong>Shared</strong> splits it evenly across every channel the customer came through.${journeyError?` <strong>Shared credit and journeys aren't available right now: ${esc(journeyError)}</strong>`:''}</p>
    <div class="attr-findings">${items.map((f,i)=>`<article class="attr-finding"><h3>${esc(f.title)}</h3><p>${esc(f.text)}</p>${f.orderIds.length?`<button class="bcn-btn" data-support="${i}">See ${f.orderIds.length.toLocaleString()} orders</button>`:''}</article>`).join('')||'<p class="attr-context">Not enough data yet to point out a pattern.</p>'}</div></div></section>
@@ -41,8 +43,8 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
    </tbody><tfoot><tr><th>Total</th><td class="bcn-mono">${!spend?'—':total.complete?money(total.cents):total.anyKnown?`${money(total.cents)} so far`:'Unknown'}</td><td class="bcn-mono">${money(report.net)}</td><td class="bcn-mono">${ratio(total.complete&&total.cents>0?report.net/total.cents:null)}</td><td class="bcn-mono">${analysis?money(report.net):'—'}</td><td colspan="4"></td></tr></tfoot></table></div></div></section>
   <section class="bcn-card"><div class="bcn-card-header"><h2>Last click vs shared</h2></div><div class="bcn-card-body"><p class="attr-context">Both add up to the same total sales. If a channel's shared bar is longer, it's helping more than last click shows.${gapCents?` ${esc(money(gapCents))} with no identified channel isn't shown.`:''}</p>
    <div class="attr-pairs">${bars.map(r=>`<button class="attr-pair" data-channel="${esc(r.channel)}" data-role="any"><span class="attr-pair-channel">${platformMark(r.channel)} ${esc(r.channel)}</span>${bar('Last click',r.net_cents)}${analysis?bar('Shared',r.shared_cents||0):''}</button>`).join('')||'<p>No channel sales in this period.</p>'}</div></div></section>
-  <section class="bcn-card"><div class="bcn-card-header"><h2>Most common journeys</h2></div><div class="bcn-card-body"><p class="attr-context">The channels customers came through, in order, and the typical time between steps.</p>
-   ${analysis?`<div class="attr-journey-paths">${paths.slice(0,6).map((p,i)=>`<article class="attr-journey-path"><div class="attr-journey-meta"><span><strong>${p.count.toLocaleString()} order${p.count===1?'':'s'}</strong> · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase</span><button class="bcn-btn" data-path="${i}">See orders</button></div>${pathSteps(p)}</article>`).join('')||'<p class="attr-context">No complete journeys in this period.</p>'}</div>`:`<p>${esc(journeyError||'Journeys aren\'t available right now.')}</p>`}</div></section>
+  ${morePaths?`<section class="bcn-card"><div class="bcn-card-header"><h2>More journey patterns</h2></div><div class="bcn-card-body"><p class="attr-context">Other paths customers took, in order, with typical time between steps.</p>
+   <div class="attr-journey-paths">${paths.slice(1,6).map((p,i)=>`<article class="attr-journey-path"><div class="attr-journey-meta"><span><strong>${p.count.toLocaleString()} order${p.count===1?'':'s'}</strong> · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase</span><button class="bcn-btn" data-path="${i+1}">See orders</button></div>${pathSteps(p)}</article>`).join('')}</div></div></section>`:analysis&&!paths.length?`<section class="bcn-card"><div class="bcn-card-header"><h2>Journey patterns</h2></div><div class="bcn-card-body"><p class="attr-context">No complete journeys in this period.</p></div></section>`:''}
   <dialog class="attr-dialog" id="path-detail" aria-labelledby="path-title"><header><h2 id="path-title">Orders</h2><button class="bcn-btn" data-close="path-detail">Close</button></header><div id="path-content"></div></dialog>`;
 
   const sources=[...(spend?.values()||[])];
@@ -58,6 +60,8 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
     $('compare-models').onclick=()=>{try{analysis={...analyzeJourneys(report,records,{halfLifeDays:Number($('decay-days').value),roles:[0,1,2].map(i=>Number($('role-'+i).value))}),paths:analysis.paths};drawModels();$('model-error').textContent='';}catch(e){$('model-error').textContent=e.message;}};
   }
   const orderList=ids=>`<p class="attr-context">Showing up to 50 orders. Open one to see its full journey; the Journeys tab has all of them.</p><div class="attr-order-links">${ids.slice(0,50).map(id=>`<button class="bcn-btn" data-order="${esc(id)}">${esc(report.orders.find(r=>r.order_id===id)?.order_name||id)}</button>`).join('')}</div>`;
+  const openPath=i=>{const p=paths[i];if(!p)return;$('path-title').textContent=p.path.join(' → ')+' → Purchase';$('path-content').innerHTML=pathSteps(p)+`<p>${p.count.toLocaleString()} orders · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase.</p>`+orderList(p.orderIds);$('path-detail').showModal();};
+  wirePathSpotlight(root.querySelector('.attr-path-spotlight'),paths,{money,days,duration,onPath:openPath});
   root.onclick=event=>{
     const close=event.target.closest('[data-close]');if(close)$(close.dataset.close).close();
     const path=event.target.closest('[data-path]');if(path){const p=paths[Number(path.dataset.path)];$('path-title').textContent=p.path.join(' → ')+' → Purchase';$('path-content').innerHTML=pathSteps(p)+`<p>${p.count.toLocaleString()} orders · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase.</p>`+orderList(p.orderIds);$('path-detail').showModal();}

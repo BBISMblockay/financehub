@@ -3172,3 +3172,230 @@ members can insert/update. No delete privilege, billing or entitlement behavior.
 The Silo Modules tab saves one switch at a time and verifies the returned row.
 Apply separately before enabling edits; a missing table preserves existing menus
 and shows an unavailable message in settings. No migration was applied by this task.
+
+## Attribution reporting stores — `20261110024500_attribution_reporting_stores.sql`
+
+Adds `company_settings.attribution_store_ids` (`uuid[]`, `not null default '{}'`):
+the Shopify connections offered on `/v2/silo-attribution.html`, chosen on the
+Company tab of Workspace Settings.
+
+- **Empty means "not configured"**, never "no stores". The page then keeps its
+  previous behaviour of offering every store with collected sales, so an
+  unconfigured workspace does not get a blank report. That is also why the
+  column is `not null`: a third, null state would be one more branch readers
+  could get wrong.
+- **Reporting only. It never gates collection.** The sync chooses what to
+  collect from the `ATTRIBUTION_COVERAGE_COMPANIES` repo variable and
+  `shopify_attribution_coverage`, and reads this column nowhere. Clearing a
+  store here must not stop its history being gathered — past Shopify's 60-day
+  order-access limit those days cannot be recovered. `verify_v2_schema.sql`
+  fails CRITICAL if any database function starts reading this column.
+- No new policies: `company_settings` already carries RLS, with SELECT scoped
+  to the active company and UPDATE additionally requiring
+  `is_owner_admin_of_active_company()`. A new column inherits both, so changing
+  which stores feed Attribution is an owner/admin action.
+- It replaces a heuristic, not a blank: the picker used to offer any store with
+  money on any collected day (PR #1016), which keeps a store that sold once
+  months ago and says nothing about which store matters.
+- Apply separately. Until it is applied the settings card feature-detects the
+  missing column (`42703`) and says it is unavailable, and the Attribution page
+  falls back to its previous behaviour.
+
+## Shopify order discount codes — `20261110083000_shopify_order_discount_codes.sql`
+
+- **`shopify_orders.discount_codes`** (jsonb array, upper-cased, de-duplicated)
+  and **`shopify_orders.refunded_subtotal`** (refunded merchandise, tax
+  excluded). NULL means not captured yet. Written by the Shopify sync core and
+  its pinned copy in `ad-platform-sync-run`; a database without the columns
+  makes the sync retry without both (`discount_codes_skipped`).
+- **`shopify_order_discount_codes_v`** (security_invoker): one row per order x
+  code with the company's business day and `net_subtotal`.
+
+## Affiliate Studio — `20261110084000_affiliate_studio.sql`, `20261110085000_affiliate_studio_ledger.sql`, `20261110086000_affiliate_portal.sql`
+
+Apply in that order, after `20261110083000`. Runbook and architecture:
+`docs/ops/affiliate-studio.md`.
+
+- **084000**: `affiliate_program_managers` + `can_manage_affiliate_programs()`,
+  `affiliate_programs` (terms version bumps when the text changes),
+  `affiliate_prospect_sources`, `affiliate_discovery_runs` (service-role
+  writes), `affiliate_prospects` + `affiliate_prospect_observations`
+  (append-only provenance), `affiliate_suppressions` (normalized on insert) +
+  `affiliate_outreach_can_contact()`, `affiliates`, `affiliate_access_tokens`
+  (hashes only, no client privileges) + `affiliate_access_token_state_v`
+  (definer, company-filtered, no hash), `affiliate_codes` (no overlapping
+  windows across affiliates), `affiliate_links`, `affiliate_outreach_batches`,
+  `affiliate_outreach_drafts` (suppression checked on approval; sent needs a
+  marker and evidence). Appends `affiliate_discovery` to `sync_jobs.job_type`.
+- **085000**: `can_approve_affiliate_commissions()`, `affiliate_attributions`
+  (unique per order per company), `affiliate_commission_periods` (approval
+  only through `affiliate_approve_period()`), `affiliate_commission_ledger`
+  (append-only), `affiliate_payout_accounts`, `affiliate_payouts`,
+  `affiliate_payout_items` (one claim per ledger line), the resolver, accrual,
+  period and payout functions, and `affiliate_balances_v`,
+  `affiliate_performance_v`, `affiliate_program_health_v`.
+- **086000**: `affiliate_notifications` and the service-role-only portal
+  functions (`affiliate_issue_access_token`, `affiliate_portal_*`).
+- No affiliate table grants anything to `anon`. Verify:
+  `verify_v2_schema.sql` checks "Shopify order discount codes" and
+  "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
+
+## Affiliate loop — `20261110180000_affiliate_loop.sql`
+
+Apply after `20261110170000`, then deploy `affiliate-invite` and `mcp`.
+`affiliate_programs.default_discount_percent` (default 10; NULL = off): when an
+affiliate becomes active with no live or waiting code, a trigger queues a
+pending code (first name + percent, numbered when taken, via
+`affiliate_suggest_code`) for the company's AI to create (`codes:create`); a
+refusal never stops the join. A pending code going active is stamped
+`live_notice_at`; `affiliate_claim_code_notices(code?, limit)` (service role
+only) claims each stamp once, and `affiliate-invite` `deliver_code_notices`
+emails the rep their code and link (kicked by `mcp` right after the mark,
+swept nightly). `affiliate_resolve_attributions` / `affiliate_accrue_commissions`
+accept the service role for the nightly `affiliate-commissions.yml` run; every
+person keeps the company + manager gate. `sync_jobs.job_type` gains
+`affiliate_commissions`.
+
+## Affiliate portal brand switcher — `20261110190000_affiliate_portal_brands.sql`
+
+Apply after `20261110180000` and **before** deploying `affiliate-portal` (it
+adds a column). A rep who reps two brands has two affiliate records, one per
+company, because a program and its ledger belong to a company; that does not
+change. What changes is the way in: the portal shows a brand menu instead of
+sending the rep back to their inbox.
+
+Adds `affiliate_contact_key(email)` (one spelling of address identity:
+SHA-256 of the lowercased, trimmed address) and
+`affiliate_access_tokens.mailed_to_hash`, which holds that key for the
+recipient a portal token's raw value was mailed to — and nothing else. It is
+set only by `affiliate_portal_issue_mailed_token(...)`, which mints through
+`affiliate_issue_access_token` (keeping its revoke and ownership checks),
+refuses unless the recipient passed is still the affiliate's own address, and
+then records it. The portal uses that path for sign-in
+(`20261110170000`), renewal and a switch. It is **not** used by
+`affiliate-invite`'s staff `portal_link`, whose raw URL goes to a manager
+(mailing it is optional), nor by the one `affiliate-portal`'s `accept`
+returns, which whoever finished a signup link holds.
+
+`affiliate_portal_brands(token_hash)` and
+`affiliate_portal_switch_token(token_hash, affiliate_id, new_hash, expires)`
+(both service role only) then require a token that is bound **and** whose
+affiliate still carries that address, and match other records on the bound
+recipient rather than on today's `contact_email`. Both guards are load-bearing
+and neither is sufficient alone:
+
+- without the binding, a manager of company A could take a rep's A link and
+  open their company B portal;
+- without the re-check, a manager could take a genuinely mailed link for an
+  affiliate whose address they control and then edit that affiliate's address
+  to a victim's, walking the old token into the victim's other company —
+  `contact_email` is writable by `affiliates_write`.
+
+The switch mints a fresh portal token for the one record chosen, binds it to
+the same recipient, and mails nothing; every later read still goes through
+`affiliate_portal_resolve` / `_statement` / `_feed` on that token alone, so no
+session ever sees two brands. Its refusals are worded identically, so the menu
+stays the only way to learn what exists on an address.
+
+## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
+
+Apply after `20261110160000`, then deploy `affiliate-portal`. Adds
+`affiliate_portal_signin_subjects(email)` (service role only): the active or
+paused affiliates whose address on file is that email. It first reserves the
+address for 10 minutes in `affiliate_portal_signin_throttle` (a hash, no
+address; RLS on, no client access), so two requests at once mail once, and
+returns nothing while reserved or after any portal email to it in the last 10
+minutes. The portal's sign-in box calls it through `affiliate-portal`
+(`signin`), which mails each one a fresh portal link at the address on file and
+answers the same whether or not any was sent. `affiliate_portal_statement`
+totals gain `sales_cents` (each credited order once, at its attribution's
+current commissionable base; NULL when none is known) and `today`, the
+company's own calendar day.
+
+## Affiliate codes via the person's AI — `20261110160000_affiliate_codes_via_ai.sql`
+
+Apply after `20261110150000`, then deploy `mcp`, `affiliate-portal` and
+`affiliate-invite`. Adds `affiliate_codes.status = 'pending'` (asked for in
+Affiliate Studio, waiting to be created in Shopify; earns nothing and is handed
+out nowhere) with `discount_percent`, and the Shopify discount id, time and app
+once created. New developer-platform scope `codes:create` (its own box on the
+consent screen) with `silo_api_codes_to_create` and `silo_api_mark_code_created`:
+the person's OWN AI, signed in to their own Shopify, creates each code there and
+records it, which makes it active (one write against the cap). SILO writes
+nothing to Shopify. `affiliate_program_store_url(company, program)` is the one
+rule for where affiliate links open: the program's store address, else the
+company's Shopify domain only when it has exactly one active store. A public
+`affiliate-feed-images` bucket holds Ad Studio pictures a manager shared with
+affiliates (same content-addressed path; written only into the active company's
+folder by someone who manages affiliate programs).
+
+## Affiliate portal feed — `20261110150000_affiliate_portal_feed.sql`
+
+Apply after `20261110140000`, then deploy `affiliate-portal`. Adds
+`affiliate_programs.store_url` and `affiliate_feed_items`: launches, products
+and Ad Studio campaigns a brand shares with its affiliates (Affiliate Studio →
+Share). Each row is a snapshot of only what an affiliate may see; written only
+by someone who may manage affiliate programs. `affiliate_portal_feed(token
+hash)` (service role only) returns a portal link's feed, the store address
+and the affiliate's codes in effect today; the function builds each link as
+`<store>/discount/<CODE>?redirect=<path with UTMs>`, so the code is applied
+at checkout and commission still comes only from the code.
+
+## Company logo — `20261110140000_company_logo.sql`
+
+Apply after `20261110130000`, then deploy `affiliate-portal`. Adds
+`company_settings.logo_url` and a public `company-logos` bucket (PNG, JPEG,
+WebP; 1 MB). Owners upload in Settings → Company; writes are limited to an
+owner of the active company, in that company's own folder, and a CHECK holds
+the stored address to that folder. The outreach email (`affiliate_outreach_html`,
+now with a 4th logo argument) and the affiliate join and portal pages show the
+logo in place of the initial badge; without one, nothing changes.
+
+## Affiliate outreach email button — `20261110130000_affiliate_outreach_email_button.sql`
+
+Apply after `20261110110000`. No deploy. Re-states `affiliate_outreach_html()`:
+table-based layout, the join button as an email-safe table cell, and the link
+always shown as text under it (Gmail dropped the first button).
+
+## Affiliate follow-up outreach — `20261110120000_affiliate_followup_outreach.sql`
+
+Apply after `20261110093000`, then deploy `affiliate-invite`. A second approved
+message to an email the program already has reuses that affiliate record
+(fresh link) instead of failing on `affiliates_identity`; an ended invite is
+reopened; an active, paused, or joined-then-ended affiliate is skipped with a
+readable reason.
+
+## Affiliate outreach HTML — `20261110110000_affiliate_outreach_html.sql`
+
+Apply after `20261110093000`. No deploy. `silo_api_claim_outreach` now returns
+`html` next to `body` for each message: the company's name, the approved text
+(escaped), and the signup link as a "See the program and join" button.
+`affiliate_outreach_html()` builds it and is callable by no client role.
+
+## Affiliate outreach via the user's own AI — `20261110093000_affiliate_outreach_send_scope.sql`
+
+Apply after the four Affiliate Studio migrations, then deploy `mcp`.
+
+- Adds the opt-in `outreach:send` scope to `silo_api_consent()` and the two RPCs
+  to `silo_api_path_allowed()`; `silo_api_writes.kind` gains `outreach_claim`.
+- `silo_api_claim_outreach(program, limit, idempotency_key)`: one ACTIVE
+  program, approved drafts only, suppressed recipients skipped with a reason,
+  at most 25 and never past the 50/day write cap; a replay with the same key
+  returns the same drafts (fresh signup links) and spends nothing. The caller
+  must still be an Affiliate Studio manager of the grant's company.
+- `silo_api_mark_outreach_sent(draft, evidence)`: only drafts THIS grant
+  claimed; idempotent. Drafts and batches record the app ("Via <app>").
+- SILO still sends nothing: the person's AI sends from their own mailbox.
+  Verify: `verify_v2_schema.sql` check "outreach:send tools". Tests:
+  `scripts/tests/affiliate-outreach-mcp-database.test.mjs`.
+
+## Affiliate AI research and list import — `20261110100000_affiliate_ai_research.sql`
+
+Apply after the Affiliate Studio migrations, then deploy `affiliate-research`.
+
+- `ai_credit_reservations.feature` accepts `affiliate_research` (one credit hold
+  per research run, charged only when at least one creator is kept).
+- `affiliate_prospects.source` accepts `ai_research`. Imported lists keep using
+  the existing `csv_import`.
+- No new table, policy or function. Verify: `verify_v2_schema.sql` check
+  "Affiliate AI research". Tests: `scripts/tests/affiliate-research-edge.test.mjs`.

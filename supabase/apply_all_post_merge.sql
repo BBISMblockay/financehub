@@ -19609,4 +19609,71 @@ $c$select (select count(*) from v_po_header_summary
 -- tiles on the Marketing system dashboard. Data only, no deploy. Needs
 -- 20261109210000 (the reports the tiles read) and 20260925193000 (the board).
 \i migrations/20261109230000_klaviyo_dashboard_tiles.sql
+-- 20261110024500: which Shopify stores feed Attribution reporting, chosen in
+-- Workspace Settings. One additive column on company_settings. Reporting only:
+-- it never gates collection. No deploy.
+\i migrations/20261110024500_attribution_reporting_stores.sql
+
+-- 20261110083000: Shopify order discount codes and refunds -- shopify_orders
+-- gains discount_codes (jsonb, the codes on the order) and refunded_subtotal
+-- (merchandise refunded, tax excluded), plus shopify_order_discount_codes_v.
+-- Both columns start NULL (not captured) and fill on the next order sync; no
+-- new Shopify scope. Deploy ad-platform-sync-run, whose pinned copy of the
+-- sync core writes them; the nightly GitHub Actions sync needs no deploy.
+\i migrations/20261110083000_shopify_order_discount_codes.sql
+
+-- 20261110084000, 085000, 086000: Affiliate Studio -- programs, discovery,
+-- prospects and the do-not-contact list, affiliates, codes, links and
+-- outreach (084000); attribution, the append-only commission ledger, review
+-- periods and manual payouts (085000); the affiliate portal's service-role
+-- functions and transactional mail log (086000). Apply in this order, after
+-- 20261110083000. Applying them turns nothing on: no program exists, and
+-- discovery runs only for an active program with an enabled search. Deploy
+-- affiliate-portal and affiliate-invite for the signup, portal and invite
+-- buttons to work.
+\i migrations/20261110084000_affiliate_studio.sql
+\i migrations/20261110085000_affiliate_studio_ledger.sql
+\i migrations/20261110086000_affiliate_portal.sql
+-- outreach:send (20261110093000): an opt-in developer-platform scope that lets
+-- a person's own AI claim APPROVED affiliate outreach drafts, send them from
+-- that person's own mailbox, and mark each sent with evidence. Needs the four
+-- Affiliate Studio migrations above. Deploy the mcp function for the tools.
+\i migrations/20261110093000_affiliate_outreach_send_scope.sql
+-- Affiliate AI research (20261110100000): the AI credit feature check learns
+-- 'affiliate_research' and the prospect source check learns 'ai_research'.
+-- Needs the Affiliate Studio migrations above. Deploy affiliate-research after.
+\i migrations/20261110100000_affiliate_ai_research.sql
+-- Affiliate outreach HTML (20261110110000): each message a connection claims
+-- also comes as branded HTML with the signup link as a button. Needs
+-- 20261110093000. No deploy.
+\i migrations/20261110110000_affiliate_outreach_html.sql
+-- Follow-up outreach (20261110120000): a second approved message to an email
+-- the program already has reuses that affiliate record. Needs 20261110093000.
+-- Deploy affiliate-invite for the export path.
+\i migrations/20261110120000_affiliate_followup_outreach.sql
+-- Outreach email button (20261110130000): the join button is an email-safe
+-- table cell with the link also shown as text under it. No deploy.
+\i migrations/20261110130000_affiliate_outreach_email_button.sql
+-- Company logo (20261110140000): logo upload in Settings -> Company, shown in
+-- affiliate outreach email. Deploy affiliate-portal for the join and portal pages.
+\i migrations/20261110140000_company_logo.sql
+-- Affiliate portal feed (20261110150000): Share tab in Affiliate Studio, feed
+-- and code-carrying links in the portal. Deploy affiliate-portal.
+\i migrations/20261110150000_affiliate_portal_feed.sql
+-- Affiliate codes created by the person's own AI (20261110160000): codes:create
+-- scope and tools, one store rule for affiliate links, ad pictures in the feed.
+-- Deploy mcp, affiliate-portal and affiliate-invite.
+\i migrations/20261110160000_affiliate_codes_via_ai.sql
+-- Affiliate portal sign-in by email (20261110170000): a rep types their email
+-- and is mailed a fresh portal link; statement gains sales_cents.
+-- Deploy affiliate-portal.
+\i migrations/20261110170000_affiliate_portal_signin.sql
+-- Affiliate loop (20261110180000): joining queues a code for the company's AI,
+-- a code going live emails the rep, commissions update nightly.
+-- Deploy affiliate-invite and mcp.
+\i migrations/20261110180000_affiliate_loop.sql
+
+-- Affiliate portal brand switcher (20261110190000): a rep who reps several
+-- brands switches in the page instead of going back to their inbox.
+\i migrations/20261110190000_affiliate_portal_brands.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
