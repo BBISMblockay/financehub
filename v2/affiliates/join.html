@@ -55,6 +55,8 @@
 <script type="module">
 import { $, esc, call, setStatus, takeToken, termsHtml, brandMark, wireBrandMark } from './public.js';
 import { describeCommission } from './studio-core.js';
+// Matches /legal/affiliate-terms.html and the affiliate-portal function.
+const PLATFORM_TERMS_VERSION = 1;
 const token = takeToken('silo_affiliate_signup');
 const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
 
@@ -85,10 +87,10 @@ async function load() {
         <li><strong>Earn on sales</strong>Orders that use your code earn commission, paid after a refund hold.</li>
       </ol>
     </section>`
-    + card(`${p.name} · terms, version ${p.terms_version}`, `<div class="af-terms">${termsHtml(p.terms_markdown)}</div><p class="af-muted" style="margin-top:8px;">This page never asks for bank details.</p>`)
+    + card(`${p.name} · terms, version ${p.terms_version}`, `<div class="af-terms">${termsHtml(p.terms_markdown)}</div><p class="af-muted" style="margin-top:8px;">Together with these, you accept the <a href="/legal/affiliate-terms.html" target="_blank" rel="noopener">affiliate platform terms</a> (version ${PLATFORM_TERMS_VERSION}): disclosure, how you earn, payments and your information. This page never asks for bank details.</p>`)
     + card('Accept and join', `<form class="af-form af-accept" id="form">
         <div class="bcn-field-group"><label class="bcn-label" for="signed">Your full name (this is your signature)</label><input class="bcn-field" id="signed" autocomplete="name" required maxlength="120" /></div>
-        <label class="af-check"><input type="checkbox" id="agree" required /> <span>I have read and accept version ${p.terms_version} of the terms above.</span></label>
+        <label class="af-check"><input type="checkbox" id="agree" required /> <span>I have read and accept version ${p.terms_version} of the program terms above and the affiliate platform terms.</span></label>
         <button class="bcn-btn bcn-btn--primary" type="submit" id="go">Accept and join</button>
       </form>`);
   wireBrandMark($('body'));
@@ -97,7 +99,7 @@ async function load() {
     if (!$('agree').checked || !$('signed').value.trim()) { setStatus('Type your name and tick the box to accept.', 'neg'); return; }
     $('go').disabled = true; setStatus('');
     try {
-      const out = await call('accept', { token, signed_name: $('signed').value.trim(), terms_version: p.terms_version });
+      const out = await call('accept', { token, signed_name: $('signed').value.trim(), terms_version: p.terms_version, platform_terms_version: PLATFORM_TERMS_VERSION });
       try { sessionStorage.removeItem('silo_affiliate_signup'); } catch {}
       $('body').innerHTML = card('You are in', `<p>Thanks for joining. ${out.confirmation_email === 'sent' ? 'We emailed you a confirmation with your portal link.' : 'Keep the portal link below: a confirmation email could not be sent.'}</p>
         ${out.portal_url ? `<p><a class="bcn-btn bcn-btn--primary" href="${esc(out.portal_url)}">Open my affiliate portal</a></p>` : '<p>The brand will send you your portal link.</p>'}

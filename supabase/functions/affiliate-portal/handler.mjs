@@ -17,7 +17,7 @@
 //
 // Actions:
 //   resolve   { token }                       -> brand, program terms, rate, status
-//   accept    { token, signed_name, terms_version, contact_name? }
+//   accept    { token, signed_name, terms_version, platform_terms_version?, contact_name? }
 //                                             -> activates; mails a portal link
 //   statement { token }                       -> earnings summary, codes, links, payouts
 //   renew     { token }                       -> expired portal link: mail a new one
@@ -33,6 +33,10 @@ export const corsHeaders = {
 };
 
 export const PORTAL_LINK_DAYS = 90;
+// The SILO platform terms every affiliate accepts with the brand's program
+// terms (/legal/affiliate-terms.html, whose meta tag carries the same number;
+// scripts/tests/affiliate-edge.test.mjs pins the two). Bump both together.
+export const PLATFORM_TERMS_VERSION = 1;
 const MAX_BODY = 16 * 1024;
 const TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -206,7 +210,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       if (t.purpose !== 'signup') return reply({ error: 'This link is for the portal, not for signing up.' }, 400);
       const signed = clip(body.signed_name, 120);
       if (!signed) return reply({ error: 'Type your full name to accept.' }, 400);
+      // A page that showed the platform terms sends their version; one that
+      // showed an older version is asked to reload. A page from before the
+      // platform terms existed sends none, and the record says so (null).
+      const platformVersion = body.platform_terms_version == null ? null : Number(body.platform_terms_version);
+      if (platformVersion !== null && platformVersion !== PLATFORM_TERMS_VERSION) {
+        return reply({ error: 'The platform terms were updated. Reload the page to read the current version.', code: 'terms_changed' }, 409);
+      }
       const acceptance = {
+        platform_terms_version: platformVersion,
         ip: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
         user_agent: clip(req.headers.get('user-agent'), 300),
         // The exact text that was on screen, so "which terms did they accept"
