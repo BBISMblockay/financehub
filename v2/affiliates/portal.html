@@ -15,51 +15,87 @@
   <style>
     /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only. */
     body { background: var(--bcn-bg); }
-    .af-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
+    .af-wrap { max-width: 1160px; margin: 0 auto; padding: 24px 20px 64px; display: flex; flex-direction: column; gap: 18px; }
     .af-terms { max-height: 420px; overflow-y: auto; border: 1px solid var(--bcn-border); padding: 12px 14px; background: var(--bcn-surface); font-size: 14px; line-height: 1.55; }
     .af-num { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
-    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 13px; }
     .af-copy { word-break: break-all; font-family: var(--bcn-mono); font-size: 12px; }
     .af-form { display: flex; flex-direction: column; gap: 10px; }
     .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-    .af-scroll { overflow-x: auto; }
     .af-brand { display: flex; align-items: center; gap: 12px; }
-    .af-logo { height: 36px; width: auto; max-width: 180px; object-fit: contain; border-radius: 8px; display: block; }
+    .af-logo { height: 40px; width: auto; max-width: 200px; object-fit: contain; border-radius: 8px; display: block; }
+    .af-badge { width: 40px; height: 40px; border-radius: 10px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; font-size: 18px; flex: none; }
+    .af-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .af-top h1 { font-size: 20px; margin: 0; }
+
+    /* Dashboard: a hero, the numbers, then the feed beside the account. */
+    .af-dash { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+    .af-dash > .af-span { grid-column: 1 / -1; }
+    .af-main, .af-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    @media (max-width: 900px) { .af-dash { grid-template-columns: 1fr; } }
+    .af-panel { background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 16px; padding: 20px; box-shadow: var(--bcn-shadow); }
+    .af-panel h2 { font-size: 17px; margin: 0 0 14px; color: var(--bcn-ink); }
+    .af-hero { background: var(--bcn-band); color: var(--bcn-band-ink); border-radius: 18px; padding: 24px 26px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+    @media (max-width: 700px) { .af-hero { grid-template-columns: 1fr; } }
+    .af-hero h2 { margin: 0 0 6px; font-size: 24px; color: var(--bcn-band-ink); }
+    .af-hero .af-sub { color: var(--bcn-band-ink-2); font-size: 14px; }
+    .af-hero .af-copy { color: var(--bcn-band-ink-2); }
+    .af-hero-link { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 0; max-width: 460px; }
+    .af-code { font-family: var(--bcn-mono); font-weight: 600; border: 1px dashed currentColor; border-radius: 8px; padding: 2px 10px; }
+    .af-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    @media (max-width: 700px) { .af-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .af-stat { background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 16px; padding: 16px 18px; box-shadow: var(--bcn-shadow); }
+    .af-stat-label { color: var(--bcn-ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+    .af-stat-value { font-family: var(--bcn-mono); font-size: 26px; font-weight: 600; color: var(--bcn-ink); margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .af-stat--pos .af-stat-value { color: var(--bcn-pos); }
+
     /* The feed: what the brand shared, each with the affiliate's own link. */
-    .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
-    .af-item { border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-surface); overflow: hidden; display: flex; flex-direction: column; }
-    .af-media { position: relative; aspect-ratio: 1 / 1; background: var(--bcn-bg); }
+    .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+    .af-item { border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--bcn-shadow); }
+    .af-media { position: relative; aspect-ratio: 1 / 1; background: var(--bcn-sunken); }
     .af-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .af-media-none { width: 100%; height: 100%; display: grid; place-items: center; padding: 16px; text-align: center; font-weight: 700; font-size: 18px; line-height: 1.3; color: var(--bcn-ink-2); }
-    .af-tag { position: absolute; top: 8px; left: 8px; background: var(--bcn-ink); color: var(--bcn-surface); font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
-    .af-item-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-    .af-item-title { font-weight: 700; color: var(--bcn-ink); font-size: 14px; line-height: 1.35; }
-    .af-item-note { color: var(--bcn-ink-2); font-size: 13px; line-height: 1.45; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-    .af-item-date { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-3); }
-    .af-item-acts { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
-    .af-mylink { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .af-mylink .af-copy { flex: 1; min-width: 200px; }
-    .af-code { font-family: var(--bcn-mono); font-weight: 600; border: 1px dashed var(--bcn-border); border-radius: 8px; padding: 2px 8px; color: var(--bcn-ink); }
-    .af-feed-head { font-weight: 700; color: var(--bcn-ink); margin: 18px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
-    .af-badge { width: 32px; height: 32px; border-radius: 8px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; flex: none; }
+    .af-media-none { width: 100%; height: 100%; display: flex; align-items: flex-end; padding: 18px; font-weight: 700; font-size: 20px; line-height: 1.25; color: var(--bcn-band-ink); background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
+    .af-tag { position: absolute; top: 10px; left: 10px; background: var(--bcn-surface); color: var(--bcn-ink); font-family: var(--bcn-mono); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; box-shadow: var(--bcn-shadow); }
+    .af-item-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .af-item-title { font-weight: 700; color: var(--bcn-ink); font-size: 15px; line-height: 1.35; }
+    .af-item-note { color: var(--bcn-ink-2); font-size: 13px; line-height: 1.45; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .af-item-date { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-accent); font-weight: 600; }
+    .af-item-acts { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; }
+    .af-feed-head { font-weight: 700; color: var(--bcn-ink); margin: 6px 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
+    .af-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .af-filter { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .af-filter.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
+    .af-item[hidden] { display: none; }
+
+    /* Account side: codes as chips, earnings as bars, payouts as rows. */
+    .af-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .af-chip { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+    .af-chip-code { font-family: var(--bcn-mono); font-size: 15px; color: var(--bcn-ink); }
+    .af-bars { display: flex; flex-direction: column; gap: 10px; }
+    .af-bar-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+    .af-bar { height: 10px; border-radius: 999px; background: var(--bcn-sunken); overflow: hidden; }
+    .af-bar > span { display: block; height: 100%; background: var(--bcn-accent); border-radius: 999px; }
+    .af-rows { display: flex; flex-direction: column; }
+    .af-rows > div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--bcn-border); font-size: 13px; }
+    .af-rows > div:last-child { border-bottom: 0; }
+    .af-links { display: flex; flex-direction: column; gap: 8px; }
   </style>
 </head>
 <body class="silo-brand">
 <main class="af-wrap">
-  <header class="bcn-header"><div class="bcn-header-title af-brand"><span id="mark"></span><h1 id="title">Affiliate portal</h1></div></header>
+  <header class="af-top"><div class="af-brand"><span id="mark"></span><h1 id="title">Affiliate portal</h1></div><span class="af-muted" id="who"></span></header>
   <div class="bcn-status" id="status" hidden></div>
-  <div class="bcn-kpi-band" id="kpis" hidden></div>
-  <div id="body"><div class="bcn-card"><div class="bcn-card-body">Loading…</div></div></div>
+  <div id="hero"></div>
+  <div class="af-stats" id="kpis" hidden></div>
+  <div id="body"><div class="af-panel">Loading…</div></div>
   <p class="af-muted">Run by the brand using SILO. This page is personal to you.</p>
 </main>
 <script type="module">
 import { $, esc, call, setStatus, takeToken, brandMark, wireBrandMark } from './public.js';
 import { formatMoney } from './studio-core.js';
 const token = takeToken('silo_affiliate_portal');
-const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
-const table = (head, rows, emptyText) => rows.length
-  ? `<div class="af-scroll"><table class="bcn-table"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
-  : `<div class="bcn-empty">${esc(emptyText)}</div>`;
+const card = (title, html) => `<div class="af-panel"><h2>${esc(title)}</h2>${html}</div>`;
+const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 const day = (s) => (s ? String(s).slice(0, 10) : '');
 
 function expired() {
@@ -84,43 +120,71 @@ async function load() {
   const st = await call('statement', { token });
   const s = st.statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
-  const kpi = (l, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(l)}</div><div class="bcn-kpi-value">${v}</div></div>`;
-  $('kpis').innerHTML = kpi('Earned', m(t.earned_cents)) + kpi('Paid', m(t.paid_cents)) + kpi('Not yet paid', m(t.unclaimed_cents)) + kpi('Orders', esc(t.orders ?? 0));
+  const kpi = (l, v, cls = '') => `<div class="af-stat ${cls}"><div class="af-stat-label">${esc(l)}</div><div class="af-stat-value">${v}</div></div>`;
+  $('kpis').innerHTML = kpi('Earned', m(t.earned_cents), 'af-stat--pos') + kpi('Paid to you', m(t.paid_cents)) + kpi('Coming to you', m(t.unclaimed_cents)) + kpi('Orders', esc(t.orders ?? 0));
   $('kpis').hidden = false;
-  $('body').innerHTML = [
-    s.affiliate?.status === 'paused' ? card('Paused', '<p>New orders are not credited until the brand resumes your account.</p>') : '',
-    feedCard(st.feed),
-    card('Your codes', table(['Code', 'From', 'Until', 'Status'], (s.codes || []).map((c) => [`<span class="af-num">${esc(c.code)}</span>`, esc(day(c.starts_on)), esc(day(c.ends_on) || 'open'), esc(c.status)]), 'No code yet. The brand will send one.')),
-    (s.links || []).length ? card('Your links', table(['Link', 'From', 'Status'], (s.links || []).map((l) => { let u = l.link || l.destination_url; if (!l.link) { try { const x = new URL(l.destination_url); for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k]) x.searchParams.set(k, l[k]); u = x.toString(); } catch {} } return [`<span class="af-copy">${esc(u)}</span>`, esc(day(l.starts_on)), esc(l.status)]; }), 'No links yet.')) : '',
-    card('Earnings by month', table(['Month', 'Orders', 'Commission'], (s.monthly || []).map((x) => [esc(x.month), `<span class="af-num">${esc(x.orders)}</span>`, `<span class="af-num">${m(x.amount_cents)}</span>`]), 'No earnings yet.')),
-    card('Payouts', table(['Amount', 'Status', 'Paid', 'Reference'], (s.payouts || []).map((p) => [`<span class="af-num">${m(p.amount_cents)}</span>`, esc(p.status === 'marked_paid' ? 'paid' : p.status), esc(day(p.marked_paid_at)), esc(p.reference || '')]), 'No payouts yet.')),
-    card('Terms', `<p>You accepted version ${esc(s.affiliate?.terms_version_accepted ?? '—')} on ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`),
+  const name = String(s.affiliate?.display_name || r.affiliate?.display_name || '').split(' ')[0];
+  $('who').textContent = name ? `Signed in as ${s.affiliate?.display_name || r.affiliate?.display_name}` : '';
+  $('hero').innerHTML = heroCard(st.feed, name, r.brand, s.affiliate?.status);
+
+  const codes = s.codes || [];
+  const links = (s.links || []).map((l) => { let u = l.link || l.destination_url; if (!l.link) { try { const x = new URL(l.destination_url); for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k]) x.searchParams.set(k, l[k]); u = x.toString(); } catch {} } return u; });
+  const monthly = s.monthly || [];
+  const top = Math.max(1, ...monthly.map((x) => Math.abs(Number(x.amount_cents) || 0)));
+  const side = [
+    card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span><span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}${c.status === 'active' ? '' : ` · ${esc(c.status)}`}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
+    links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<span class="af-copy">${esc(u)}</span>`).join('')}</div>`) : '',
+    card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
+    card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
+    `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
+  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
 }
+
+// The top of the page: who this is for, and their own link to share.
+function heroCard(feed, name, brand, status) {
+  const link = feed?.store_link;
+  return `<section class="af-hero">
+    <div><h2>${esc(name ? `Hi ${name}` : 'Welcome')}</h2>
+      <div class="af-sub">${status === 'paused' ? 'Your account is paused. New orders are not credited until the brand resumes it.' : `You earn on every order that uses your ${esc(brand)} code.`}</div></div>
+    <div class="af-hero-link">${link
+      ? `<span class="af-copy" id="storeLink">${esc(link)}</span>
+         <div class="af-brand">${copyBtn(link, 'Copy my link', 'primary')}<span class="af-sub">Your code <span class="af-code">${esc(feed.code || '')}</span> is applied at checkout.</span></div>`
+      : '<span class="af-sub">Your link appears once you have a code.</span>'}</div>
+  </section>`;
+}
+const copyBtn = (text, label, kind = 'ghost') => (text ? `<button class="bcn-btn bcn-btn--${kind}" type="button" data-copy="${esc(text)}" data-what="${esc(label)}">${esc(label)}</button>` : '');
+
 // What the brand shared, each with this affiliate's own link: the link opens
 // the brand's store with the affiliate's code applied, and the code is what
 // earns commission. Ads come with their picture and copy, to repost.
 function feedCard(feed) {
   if (!feed) return '';
   const items = Array.isArray(feed.items) ? feed.items : [];
-  if (!items.length && !feed.store_link) return '';
-  const copyBtn = (text, label, kind = 'ghost') => (text ? `<button class="bcn-btn bcn-btn--${kind}" type="button" data-copy="${esc(text)}" data-what="${esc(label)}">${esc(label)}</button>` : '');
+  if (!items.length) return card('Share and earn', empty('Nothing shared yet. New drops, ads and products show up here.'));
   const tag = { launch: 'Coming up', product: 'Product', ad: 'Ad' };
-  const item = (i) => `<div class="af-item">
+  const item = (i) => `<div class="af-item" data-kind="${esc(i.kind)}">
     <div class="af-media">${i.image_url ? `<img src="${esc(i.image_url)}" alt="${esc(i.title)}" loading="lazy">` : `<div class="af-media-none">${esc(i.title)}</div>`}<span class="af-tag">${esc(tag[i.kind] || '')}</span></div>
-    <div class="af-item-body"><div class="af-item-title">${esc(i.title)}</div>
+    <div class="af-item-body">${i.image_url ? `<div class="af-item-title">${esc(i.title)}</div>` : ''}
     ${i.event_on ? `<div class="af-item-date">${esc(i.kind === 'launch' ? `Drops ${day(i.event_on)}` : day(i.event_on))}</div>` : ''}
     ${i.note ? `<div class="af-item-note">${esc(i.note)}</div>` : ''}
     <div class="af-item-acts">${copyBtn(i.link, 'Copy my link', 'primary')}${i.kind === 'ad' ? copyBtn(i.note, 'Copy caption') : ''}${i.image_url ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(i.image_url)}" target="_blank" rel="noopener" download>Save image</a>` : ''}</div></div></div>`;
-  const group = (kind, head) => { const g = items.filter((i) => i.kind === kind); return g.length ? `<div class="af-feed-head">${esc(head)}</div><div class="af-feed">${g.map(item).join('')}</div>` : ''; };
-  const mine = feed.store_link
-    ? `<div class="af-mylink"><span class="af-copy" id="storeLink">${esc(feed.store_link)}</span>${copyBtn(feed.store_link, 'Copy my link', 'primary')}</div>
-       <p class="af-muted">Your code <span class="af-code">${esc(feed.code || '')}</span> is applied at checkout.</p>`
-    : '<p class="af-muted">Your links appear once you have a code.</p>';
-  return card('Share and earn', mine + group('launch', 'Coming up') + group('ad', 'Ads to repost') + group('product', 'Products'));
+  // One grid, newest drops first, with a filter per kind that has items.
+  const order = { launch: 0, ad: 1, product: 2 };
+  const sorted = [...items].sort((a, b) => (order[a.kind] ?? 3) - (order[b.kind] ?? 3));
+  const kinds = [['launch', 'Coming up'], ['ad', 'Ads to repost'], ['product', 'Products']].filter(([k]) => items.some((i) => i.kind === k));
+  const filters = kinds.length > 1 ? `<div class="af-filters">${[['', 'All'], ...kinds].map(([k, l]) => `<button type="button" class="af-filter${k ? '' : ' is-on'}" data-filter="${k}">${esc(l)}</button>`).join('')}</div>`
+    : `<div class="af-feed-head">${esc(kinds[0]?.[1] || '')}</div>`;
+  return card('Share and earn', filters + `<div class="af-feed" id="feed">${sorted.map(item).join('')}</div>`);
 }
 
 document.addEventListener('click', async (ev) => {
+  const f = ev.target.closest('[data-filter]');
+  if (f) {
+    document.querySelectorAll('[data-filter]').forEach((x) => x.classList.toggle('is-on', x === f));
+    document.querySelectorAll('#feed .af-item').forEach((x) => { x.hidden = !!f.dataset.filter && x.dataset.kind !== f.dataset.filter; });
+    return;
+  }
   const b = ev.target.closest('[data-copy]');
   if (!b) return;
   try { await navigator.clipboard.writeText(b.dataset.copy); setStatus(b.dataset.what === 'Copy caption' ? 'Caption copied.' : 'Link copied.', 'pos'); }
