@@ -9084,6 +9084,22 @@ select 'outreach:send tools' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate outreach HTML (20261110110000): each claimed message also comes as
+-- branded HTML with the signup link as a button. The builder escapes the
+-- person's draft and is callable by no client role.
+select 'Affiliate outreach HTML' as check_name,
+  case
+    when to_regprocedure('public.affiliate_outreach_html(text, text, text)') is null
+      or position('affiliate_outreach_html' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110110000_affiliate_outreach_html.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_outreach_html'
+    when position('<script>' in public.affiliate_outreach_html('x', '<script>{signup_link}', 'https://get-silo.com/v2/affiliates/join.html?t=a')) > 0
+      then 'CRITICAL — affiliate_outreach_html does not escape the draft'
+    else 'ok'
+  end as status;
+
 -- Affiliate AI research (20261110100000): the affiliate-research function
 -- holds AI credit under feature 'affiliate_research' and writes prospects with
 -- source 'ai_research'; either value refused means every research run fails.

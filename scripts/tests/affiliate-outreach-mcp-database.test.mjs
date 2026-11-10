@@ -36,6 +36,8 @@
 //   OUTREACH_MCP_MUTATION=plain-token      the raw link is stored, not its hash
 //   OUTREACH_MCP_MUTATION=authenticated    a signed-in browser may claim
 //   OUTREACH_MCP_MUTATION=active-program   a paused program's drafts are claimed
+//   OUTREACH_MCP_MUTATION=html-unescaped   the HTML version does not escape the draft
+//   OUTREACH_MCP_MUTATION=html-no-button   the HTML button does not carry the signup link
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -172,14 +174,18 @@ const files = {
   ledger: '20261110085000_affiliate_studio_ledger.sql',
   portal: '20261110086000_affiliate_portal.sql',
   send: '20261110093000_affiliate_outreach_send_scope.sql',
+  html: '20261110110000_affiliate_outreach_html.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
   sql[k] = await readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8');
 }
 function mutate(from, to) {
-  assert.ok(sql.send.includes(from), `mutation ${MUT}: pattern not found`);
-  sql.send = sql.send.split(from).join(to);
+  // The claim tool is re-stated in the html migration (the live version), so
+  // a guard is mutated wherever it appears.
+  const hit = ['send', 'html'].filter((k) => sql[k].includes(from));
+  assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
+  for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
@@ -217,9 +223,15 @@ switch (MUT) {
   case 'active-program':
     mutate("         and pr.status = 'active'\n       order by d.approved_at", '       order by d.approved_at');
     mutate("       and d.program_id = v_program\n", "       and (d.program_id = v_program or true)\n"); break;
+  case 'html-unescaped':
+    mutate("  v_esc := replace(replace(replace(replace(v_body, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'), '\"', '&quot;');",
+      '  v_esc := v_body;'); break;
+  case 'html-no-button':
+    mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url'),",
+      "'html', public.affiliate_outreach_html(v_brand, v_d.body, ''),"); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -373,6 +385,24 @@ await check('C2 each message carries a working personal link, and only its hash 
   assert.equal(raw.n, 0, 'the raw token is stored nowhere');
 });
 
+await check('C2b each message also comes as branded HTML with the link as a button', async () => {
+  const c1 = first.claimed.find((c) => c.draft_id === d1.d);
+  assert.ok(c1.html.includes('>Brand A</div>'), 'the company name heads the email');
+  const btn = `<a href="${c1.signup_url}"`;
+  assert.equal(c1.html.split(btn).length - 1, 1, 'exactly one button, pointing at this person\'s own link');
+  assert.ok(c1.html.includes('See the program and join</a>'));
+  assert.ok(c1.html.includes('Hi, join here: </p>') && c1.html.includes('>Thanks</p>'), 'the approved words, around the button');
+  assert.ok(!c1.html.includes('{signup_link}'));
+  const c2 = first.claimed.find((c) => c.draft_id === d2.d);
+  assert.equal(c2.html.split(`<a href="${c2.signup_url}"`).length - 1, 1, 'a template without the placeholder gets the button at the end');
+  assert.ok(/body/.test(first.next_step) && /html/.test(first.next_step), 'next_step says to send both versions');
+  const x = await one(`select public.affiliate_outreach_html('A & <B>', $1, 'https://get-silo.com/v2/affiliates/join.html?t=ab') as h`,
+    ['Hi <script>alert(1)</script> "x" & y\n\nJoin: {signup_link}']);
+  assert.ok(!x.h.includes('<script>') && x.h.includes('&lt;script&gt;alert(1)&lt;/script&gt; &quot;x&quot; &amp; y'),
+    'the draft is escaped, so a message can never inject markup');
+  assert.ok(x.h.includes('>A &amp; &lt;B&gt;</div>'), 'the company name is escaped too');
+});
+
 await check('C3 the rows say which connection, and the invited affiliate exists', async () => {
   const b = await one('select created_by_grant_id, created_by_app, row_count, exported_by, idempotency_key from affiliate_outreach_batches where id = $1', [first.batch_id]);
   assert.deepEqual(b, { created_by_grant_id: G.send, created_by_app: 'Claude', row_count: 2, exported_by: U.mgrA, idempotency_key: 'run-1' });
@@ -465,7 +495,7 @@ await check('G1 no browser or anonymous role can call the tools or their helpers
   const fns = [
     'silo_api_claim_outreach(uuid, integer, text)', 'silo_api_mark_outreach_sent(uuid, text)',
     'affiliate_can_manage_for(uuid, uuid)', 'silo_api_app_name(text, text)', 'silo_api_outreach_grant()',
-    'affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)'];
+    'affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'affiliate_outreach_html(text, text, text)'];
   for (const f of fns) {
     for (const role of ['anon', 'authenticated', 'silo_revoked']) {
       assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);
