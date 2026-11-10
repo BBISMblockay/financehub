@@ -369,11 +369,14 @@ function renderAiHub() {
     !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
     connectPrimary ? '<p class="af-muted">Connect while this company is selected and allow outreach + Shopify codes.</p>' : '',
     !workSend && !workCodes && (canSend || canCode)
-      ? `<div class="af-row">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
+      ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
       : '',
   ].filter(Boolean).join('');
   const hintSummary = 'Agent prompts';
-  const hints = hintLines ? `<details class="af-ai-hint"><summary>${hintSummary}</summary>${hintLines}</details>` : '';
+  const hints = hintLines
+    ? `<details class="af-ai-hint"><summary>${hintSummary}</summary><div class="af-ai-hint-body">${hintLines}</div></details>`
+    : '';
+  const manageKind = connectPrimary ? 'primary' : '';
   el.hidden = false;
   el.innerHTML = card('Your AI', `
     <p class="af-muted" style="margin:0;">Approve here. Your AI runs mail and Shopify (SILO MCP).</p>
@@ -381,10 +384,13 @@ function renderAiHub() {
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
       ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
     </div>
-    <div class="af-row" style="margin-top:4px;">
-      ${copyBtns}
-      <a class="bcn-btn bcn-btn--${connectPrimary ? 'primary' : 'ghost'}" href="../settings-connect-ai.html">${connectPrimary ? 'Connect your AI' : 'Manage connections'}</a>
-    </div>${hints}`, 'SILO MCP');
+    <div class="af-ai-foot">
+      <div class="af-ai-actions">
+        ${copyBtns}
+        <a class="bcn-btn${manageKind ? ` bcn-btn--${manageKind}` : ''}" href="../settings-connect-ai.html">${connectPrimary ? 'Connect your AI' : 'Manage connections'}</a>
+        ${hints}
+      </div>
+    </div>`, 'SILO MCP');
 }
 function stageCard() {
   const d = S.d;
@@ -603,13 +609,13 @@ const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; ma
 const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
-  if (can.length) return `<p class="af-muted" id="aiCodesHow">${esc(can[0].name)} creates codes in Shopify. ${btn('Copy prompt', 'copy-codes-prompt', {}, 'ghost')}</p>`;
+  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">${esc(can[0].name)} creates codes in Shopify.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
 function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
-  if (send.length) return `<p class="af-muted" id="aiSendHow">${esc(send[0].name)} sends approved messages from your email. ${btn('Copy prompt', 'copy-send-prompt', {}, 'ghost')}</p>`;
+  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages from your email.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach”.</p>';
 }
 
