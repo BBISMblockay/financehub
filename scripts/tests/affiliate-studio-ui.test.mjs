@@ -127,4 +127,10 @@ await t('labels follow the data and never claim what was not observed', () => {
   assert.equal(byStage({ codesSeen: 2 })['Code tracking'], 'verified');
 });
 
+await t('a failed search is described without the provider name or codes', () => {
+  const m = C.friendlySearchError('SERP provider refused the task: 40101 Internal SE Server Error.');
+  assert.ok(m && !/SERP|40101|provider|DataForSEO/i.test(m), m);
+  assert.equal(C.friendlySearchError(''), '');
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);

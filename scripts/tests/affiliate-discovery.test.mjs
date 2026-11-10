@@ -23,6 +23,7 @@
 //   AFFILIATE_DISCOVERY_MUTATION=cap        the cost cap is never checked
 //   AFFILIATE_DISCOVERY_MUTATION=dryrun     a dry run still calls the provider
 //   AFFILIATE_DISCOVERY_MUTATION=ceiling    the score may reach 1.0
+//   AFFILIATE_DISCOVERY_MUTATION=noretry    a transient provider error is not retried
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,6 +42,7 @@ async function loadCore() {
   else if (MUT === 'suppress') swap("    if (prior?.status === 'suppressed' || !(await canContact(supabase, program, c))) {", "    if (prior?.status === 'suppressed') {");
   else if (MUT === 'cap') swap('      if (spent >= cap) {', '      if (false) {');
   else if (MUT === 'dryrun') swap("      if (dryRun) {\n        log(", "      if (dryRun && false) {\n        log(");
+  else if (MUT === 'noretry') swap('      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;', '      throw err;');
   else if (MUT === 'ceiling') swap('  score = Math.min(0.95, Math.round(score * 1000) / 1000);', '  score = Math.min(1, Math.round(score * 1000) / 1000 + 0.5);');
   else throw new Error(`unknown mutation ${MUT}`);
   const dir = await mkdtemp(join(tmpdir(), 'affdisc-'));
@@ -49,7 +51,7 @@ async function loadCore() {
   return import(pathToFileURL(file).href);
 }
 const core = await loadCore();
-const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask } = core;
+const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask, fetchSerpLive } = core;
 
 let passed = 0;
 async function test(name, fn) {
@@ -269,6 +271,24 @@ await test('one failing query is recorded and does not lose the others', async (
   assert.match(sb.tables.affiliate_prospect_sources.find((s) => s.id === 's1').last_error, /40501/);
   assert.equal(sb.tables.affiliate_prospects.length, 1);
   assert.equal(sb.tables.sync_jobs[0].status, 'error');
+});
+
+await test('a transient provider error is retried; a real refusal is not', async () => {
+  const answer = (code, items = []) => ({ ok: true, status: 200, json: async () => ({ tasks: [{ status_code: code, status_message: 'x', cost: 0.002, result: [{ items }] }] }) });
+  const creds = { login: 'l', password: 'p' };
+  const sleeps = [];
+  let n = 0;
+  const flaky = async () => (++n === 1 ? answer(40101) : answer(20000, [{ type: 'organic', url: 'https://www.youtube.com/@a' }]));
+  const ok = await fetchSerpLive({ credentials: creds, task: { keyword: 'q' }, fetchImpl: flaky, sleep: async (ms) => sleeps.push(ms) });
+  assert.equal(n, 2, 'one retry after the search engine error');
+  assert.equal(ok.items.length, 1);
+  assert.equal(sleeps.length, 1);
+  let m = 0;
+  await assert.rejects(fetchSerpLive({ credentials: creds, task: { keyword: 'q' }, fetchImpl: async () => { m += 1; return answer(40101); }, sleep: async () => {} }), /40101/);
+  assert.equal(m, 3, 'three attempts, then it is recorded as an error');
+  let k = 0;
+  await assert.rejects(fetchSerpLive({ credentials: creds, task: { keyword: 'q' }, fetchImpl: async () => { k += 1; return answer(40501); }, sleep: async () => {} }), /40501/);
+  assert.equal(k, 1, 'an invalid request is not retried');
 });
 
 console.log(`\naffiliate-discovery: ${passed} passed`);

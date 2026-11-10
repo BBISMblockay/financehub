@@ -180,8 +180,17 @@ export function buildSerpTask(source) {
   return task;
 }
 
-/** POST one live task; returns { items, cost }. Errors carry the provider's own message. */
-export async function fetchSerpLive({ credentials, task, fetchImpl = fetch }) {
+// Provider answers that mean "try again", not "this request is wrong":
+// 40101 is the search engine's own internal error (seen on production
+// 2026-11-10 on a plain US/English query), 5xxxx are the provider's.
+export const RETRYABLE_SERP_CODES = new Set([40101, 50000, 50301]);
+export const SERP_ATTEMPTS = 3;
+
+export class SerpError extends Error {
+  constructor(message, { code = null, retryable = false } = {}) { super(message); this.code = code; this.retryable = retryable; }
+}
+
+async function fetchSerpOnce({ credentials, task, fetchImpl }) {
   // btoa, not Buffer: this module also ships verbatim in an edge function
   // (Deno), where Buffer is not a global.
   const auth = 'Basic ' + btoa(`${credentials.login}:${credentials.password}`);
@@ -189,13 +198,30 @@ export async function fetchSerpLive({ credentials, task, fetchImpl = fetch }) {
     method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify([task]),
   });
   const body = await res.json().catch(() => null);
-  if (!res.ok || !body) throw new Error(`SERP provider HTTP ${res.status}`);
+  if (!res.ok || !body) throw new SerpError(`SERP provider HTTP ${res.status}`, { code: res.status, retryable: res.status >= 500 || res.status === 429 });
   const t = body.tasks?.[0];
   if (!t || (t.status_code && t.status_code >= 40000)) {
-    throw new Error(`SERP provider refused the task: ${t?.status_code ?? '?'} ${t?.status_message ?? body.status_message ?? ''}`.trim());
+    const code = t?.status_code ?? null;
+    throw new SerpError(`SERP provider refused the task: ${code ?? '?'} ${t?.status_message ?? body.status_message ?? ''}`.trim(), { code, retryable: RETRYABLE_SERP_CODES.has(code) });
   }
   const items = (t.result?.[0]?.items || []).filter((i) => i && i.type === 'organic' && i.url);
   return { items, cost: Number.isFinite(Number(t.cost)) ? Number(t.cost) : null };
+}
+
+/**
+ * POST one live task; returns { items, cost }. A transient provider error is
+ * retried (SERP_ATTEMPTS in all, with a short backoff); anything else, or the
+ * last attempt, throws with the provider's own message for the run record.
+ */
+export async function fetchSerpLive({ credentials, task, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetchSerpOnce({ credentials, task, fetchImpl });
+    } catch (err) {
+      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;
+      await sleep(1500 * attempt);
+    }
+  }
 }
 
 /**
