@@ -248,7 +248,7 @@ function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'st
   const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
   return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
 }
-function personAvatar(person, size = 'md') {
+function personAvatar(person, size = 'lg') {
   const g = globalThis.SiloAvatar;
   if (g?.html) return g.html(person, size, 'af-item-avatar');
   const n = String(person?.name || person?.display_name || '').trim();
@@ -576,7 +576,7 @@ function renderProspects() {
   const filters = [['new', 'To review'], ['approved', 'Approved'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
   const prospectCard = (x) => `<article class="af-item af-item--tile" role="listitem">
-      <div class="af-item-top">${personAvatar({ name: x.display_name, email: x.contact_email })}
+      <div class="af-item-top"><div class="af-item-avatar-wrap">${personAvatar({ name: x.display_name, email: x.contact_email }, 'lg')}<span class="af-platform-tag">${esc(x.platform || 'creator')}</span></div>
         <div class="af-item-main"><div class="af-item-head">${who(x)}</div></div>
       </div>
       <div class="af-item-metric">${followers(x)}</div>
@@ -586,7 +586,7 @@ function renderProspects() {
   $('prospectsBody').innerHTML = [
     MANAGE ? card('Find creators', `
       <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`, '', 'af-card-hero') : '',
-    card('Creators', `<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn${f === filter ? ' bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
+    card('Creators', `<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
       ${itemList(list, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     more('More options', [
@@ -687,7 +687,7 @@ function renderAffiliates() {
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
     const linksBlock = linkRows.length ? `<details class="af-item-more"><summary>${num(linkRows.length)} link(s)</summary>${linkRows.map((u) => `<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(u)}</div>`).join('')}</details>` : '';
     return `<article class="af-item af-item--tile" role="listitem">
-      <div class="af-item-top">${personAvatar({ name: a.display_name, email: a.contact_email })}
+      <div class="af-item-top"><div class="af-item-avatar-wrap">${personAvatar({ name: a.display_name, email: a.contact_email }, 'lg')}<span class="af-platform-tag">affiliate</span></div>
         <div class="af-item-main"><div class="af-item-head">${esc(a.display_name)} ${statusPill(a.status)}</div><div class="af-muted">${esc(a.contact_email)}</div><div class="af-muted">${esc(terms)}</div></div>
       </div>
       <div class="af-codes" style="margin:0 14px 4px;">${codesHtml}</div>
