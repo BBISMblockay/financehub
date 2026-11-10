@@ -344,16 +344,17 @@ function renderPipeline() {
   }).join('');
 }
 function aiEnabledRow(label, apps, enabled, waiting) {
-  const state = apps === null ? pill('Unknown', '') : enabled ? pill('Enabled', 'pos') : pill('Not enabled', '');
+  const state = apps === null ? pill('Unknown', '') : enabled ? pill('Allowed', 'pos') : pill('Not allowed', '');
   const wait = waiting ? `<span class="af-wait">${num(waiting)} waiting</span>` : '';
   return `<div class="af-ai-status-row"><span>${esc(label)}</span>${state}${wait}</div>`;
 }
 function aiHubIntro(canSend, canCode) {
   if (canSend && canCode) {
-    return 'Both capabilities are on. Approve in Studio, then run agent prompts in your AI app—your agent finishes mail and Shopify.';
+    return 'Approve in Studio, then run agent prompts in your AI app. SILO can hand off work your connection allows.';
   }
-  return 'Connect SILO MCP in your AI app. When send and Shopify codes both show Enabled below, approving here lets your agent finish the workflow.';
+  return 'Connect SILO MCP for this company and allow send outreach and Shopify codes on that connection.';
 }
+const AI_HUB_SCOPE_NOTE = 'Allowed = you ticked it on your SILO connection. SILO does not see Shopify, Gmail, or other MCPs in your agent.';
 function renderAiHub() {
   const el = $('afAiHub');
   if (!el) return;
@@ -390,6 +391,7 @@ function renderAiHub() {
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
       ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
     </div>
+    <p class="af-muted af-ai-note">${esc(AI_HUB_SCOPE_NOTE)}</p>
     <div class="af-ai-foot">
       <div class="af-ai-actions">
         ${copyBtns}
@@ -615,13 +617,13 @@ const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; ma
 const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
-  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">${esc(can[0].name)} creates codes in Shopify.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
+  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">${esc(can[0].name)} may create Shopify codes when your agent can reach Shopify—SILO only sees codes allowed on your connection.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
 function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
-  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages from your email.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
+  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages when your agent has mail access—SILO only sees send allowed on your connection.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
 }
 
