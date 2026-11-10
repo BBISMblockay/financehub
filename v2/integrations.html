@@ -114,6 +114,7 @@
        the square glyph tiles, same height. */
     .int-card-icon--klaviyo { background: #fff; border: 1px solid var(--bcn-border); width: auto; padding: 0 9px; }
     .int-card-icon--klaviyo img { display: block; height: 16px; width: auto; }
+    .int-card-icon--tiktok  { background: #000; }
     .int-card-icon--qbo     { background: #2ca01c; }
     .int-card-icon--stripe  { background: #635bff; }
     /* white-space: normal is required, not cosmetic -- .int-table td sets
@@ -720,7 +721,6 @@
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--google-ads" id="btn-connect-google-ads">Connect Google Ads →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--ga4" id="btn-connect-ga4">Connect GA4 →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--search-console" id="btn-connect-search-console">Connect Search Console →</button>
-                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-add-meta">Add Meta Ads token…</button>
                     <button type="button" class="ig-open-btn" data-guide="meta_ads">Meta setup guide</button>
                   </div>
@@ -741,6 +741,58 @@
                       <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-meta">Cancel</button>
                       <button class="bcn-btn bcn-btn--primary" id="btn-save-meta">Save Meta connection</button>
                     </div>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+          </div>
+        </section>
+
+        <!-- TikTok Ads is stored in ad_platform_connections like every other
+             ad platform, and syncs through the same nightly core. It gets its
+             own card rather than a row in the table above because connecting
+             it is a TikTok sign-in, not an ID to paste, and because a native
+             pillar is what a customer looks for when they come here to add
+             TikTok. renderAdConnections() therefore filters tiktok_ads out of
+             the table above, so one connection is never drawn twice. -->
+        <section class="int-card">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--tiktok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>TikTok Ads</h2>
+              <p>Daily campaign performance — spend, impressions, clicks and purchases — read straight from your TikTok ad account.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="tiktok" aria-label="Collapse TikTok Ads">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Advertiser</th>
+                <th>Nightly sync</th>
+                <th>Last test</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tiktok-connections-list">
+              <tr><td colspan="5"><div class="empty-state" id="tiktok-empty"><strong>Not connected</strong>Connect your TikTok ad account below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="5">
+                  <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
+                  </div>
+                  <div class="int-muted" style="padding-bottom:10px;">
+                    Signing in sends you to TikTok, where you pick which ad account SILO may read. SILO reads
+                    reporting only — it never creates, edits, pauses or spends anything in your TikTok account.
+                    After you choose the advertiser, SILO imports the last 90 days and then syncs nightly.
                   </div>
                 </td>
               </tr>
@@ -1152,7 +1204,7 @@
       if (session) _session = session;
       return session?.access_token || '';
     }
-    let _navProfile = 'standard';
+
 
     // Whether to draw the Integrations controls. The database's answer wins;
     // only when it cannot be asked (an RPC error) does the profile role decide,
@@ -1203,11 +1255,6 @@
       // login.html (sessionStorage empty on deep links / reopened tabs) by
       // reading the server-side profiles.active_company_id.
       _co = await window.__SILO_CONFIG__?.ensureActiveCompany?.(db) || null;
-      _navProfile = window.SiloNav?.resolveNavProfile?.(_co) || 'standard';
-      if (_navProfile === 'standard') {
-        const tiktokButton = document.getElementById('btn-connect-tiktok');
-        if (tiktokButton) tiktokButton.hidden = true;
-      }
 
       loadConnections();
       loadAdConnections();
@@ -2664,6 +2711,7 @@
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       _adRows = data || [];
       renderAdConnections(data || []);
+      renderTiktokConnections(data || []);
       _summaryState.ad = data || [];
       updateSummaryBand();
     }
@@ -2674,7 +2722,10 @@
 
     function renderAdConnections(rows) {
       const tbody = document.getElementById('ad-connections-list');
-      if (_navProfile === 'standard') rows = rows.filter((row) => row.platform !== 'tiktok_ads');
+      // TikTok has its own card below. It is stored here like every other ad
+      // platform, so it must be filtered OUT of this table or one connection
+      // would be drawn, and editable, in two places.
+      rows = rows.filter((row) => row.platform !== 'tiktok_ads');
       if (!rows.length) {
         tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>';
         return;
@@ -2749,6 +2800,61 @@
           </td>
         </tr>`;
         return mainRow + organicRow;
+      }).join('');
+    }
+
+    /** The TikTok Ads card: the same ad_platform_connections rows the table
+     *  above holds, drawn as a pillar of its own.
+     *
+     *  Every control reuses the ad-platform functions (updateAdConnection,
+     *  openAccountPicker, testAdConnection, syncAdConnection,
+     *  removeAdConnection) rather than reimplementing them, so there is one
+     *  code path per action and the card cannot drift from the table.
+     *  _adRows still holds these rows, which is what lets those functions
+     *  find them by id. */
+    function renderTiktokConnections(rows) {
+      const tbody = document.getElementById('tiktok-connections-list');
+      if (!tbody) return;
+      const tiktok = (rows || []).filter((row) => row.platform === 'tiktok_ads');
+      if (!tiktok.length) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect your TikTok ad account below</div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = tiktok.map((row) => {
+        const advertiser = row.tiktok_advertiser_id || '';
+        const test = row.last_tested_at
+          ? (row.last_test_success
+              ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
+              : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
+          : '<span class="bcn-pill">Untested</span>';
+        // Connected but with no advertiser chosen is the one state that needs
+        // saying out loud: nothing syncs until the choice is made, and the row
+        // otherwise looks finished.
+        const needsChoice = !advertiser
+          ? '<div class="int-muted">Choose which advertiser SILO reads — nothing syncs until you do.</div>'
+          : '';
+        return `<tr>
+          <td><input class="bcn-field" style="min-width:150px;" value="${escAttr(row.display_name)}"
+            onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
+          <td><div class="int-acct">
+            <input class="bcn-field bcn-field--mono" style="min-width:170px;" value="${escAttr(advertiser)}"
+              placeholder="7012345678901234567"
+              onchange="updateAdConnection('${row.id}', { tiktok_advertiser_id: this.value.trim() || null })" />
+            <button class="int-btn ${advertiser ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${advertiser ? 'Change' : 'Choose…'}</button>
+          </div>${needsChoice}</td>
+          <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"
+              title="Nightly: this advertiser's daily campaign totals — spend, impressions, clicks, purchases and purchase value — into marketing_kpis_daily">
+            <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
+              onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
+            ${row.sync_enabled ? 'On' : 'Off'}</label></td>
+          <td>${test}</td>
+          <td style="white-space:nowrap;">
+            <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+            ${SYNC_NOW_PLATFORMS.includes('tiktok_ads') ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)"
+              title="Pull this advertiser's recent daily campaign totals from TikTok now (read-only), the same sync the nightly runs">Sync now</button>` : ''}
+            <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
+          </td>
+        </tr>`;
       }).join('');
     }
 
@@ -2876,7 +2982,10 @@
     // a rollup, which does not fit an interactive request.
     // Meta's Sync now pulls the daily campaign totals; ad-level rows, images
     // and Page posts stay with the nightly (ad-platform-sync-run/handler.mjs).
-    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4', 'meta_ads'];
+    // TikTok joined on 2026-11-10, when its Marketing API app was approved:
+    // ad-platform-sync-run runs the same core for it, chunked to TikTok's
+    // 30-day reporting cap (SYNC_RUN_PLATFORMS in that function's handler).
+    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'];
 
     // Runs the nightly's own sync for ONE connection (ad-platform-sync-run),
     // so connecting an account and seeing its numbers are no longer hours
@@ -3016,9 +3125,9 @@
       // rather than leaving it to tomorrow's nightly.
       await firstConnectBootstrap(row.platform, row.id, {
         // ad-platform-sync-run is deployed and takes one connection id: the
-        // same call the row's Sync now button makes. Platforms it does not
-        // cover (Search Console's own backfill, TikTok) wait for the queued
-        // job, which is the only executor for them.
+        // same call the row's Sync now button makes. Search Console is the
+        // one platform it does not cover: its own backfill is the only
+        // executor for it, so it waits for the queued job.
         kick: SYNC_NOW_PLATFORMS.includes(row.platform)
           ? () => syncAdConnection(row.id)
           : null,

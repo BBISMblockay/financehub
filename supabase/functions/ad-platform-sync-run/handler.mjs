@@ -1,5 +1,5 @@
-// ad-platform-sync-run -- "Sync now" for ONE Google Ads, GA4 or Meta Ads
-// connection, from /v2/integrations.html.
+// ad-platform-sync-run -- "Sync now" for ONE Google Ads, GA4, Meta Ads or
+// TikTok Ads connection, from /v2/integrations.html.
 //
 // Until this existed, Google data reached SILO only through the scheduled
 // ad-platforms-sync workflow, so connecting an account and seeing its numbers
@@ -28,10 +28,18 @@
 // page by page and refreshes a materialized view, which does not fit an
 // interactive request. It stays nightly.
 
-export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads'];
-export const JOB_TYPES = { google_ads: 'google_ads_kpis', ga4: 'ga4_kpis', meta_ads: 'meta_ads_kpis' };
-const ACCOUNT_FIELD = { google_ads: 'google_customer_id', ga4: 'ga4_property_id', meta_ads: 'meta_ad_account_id' };
-const ACCOUNT_NOUN = { google_ads: 'Google Ads account', ga4: 'GA4 property', meta_ads: 'Meta ad account' };
+export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'];
+export const JOB_TYPES = {
+  google_ads: 'google_ads_kpis', ga4: 'ga4_kpis', meta_ads: 'meta_ads_kpis', tiktok_ads: 'tiktok_ads_kpis',
+};
+const ACCOUNT_FIELD = {
+  google_ads: 'google_customer_id', ga4: 'ga4_property_id', meta_ads: 'meta_ad_account_id',
+  tiktok_ads: 'tiktok_advertiser_id',
+};
+const ACCOUNT_NOUN = {
+  google_ads: 'Google Ads account', ga4: 'GA4 property', meta_ads: 'Meta ad account',
+  tiktok_ads: 'TikTok advertiser',
+};
 const GOOGLE_PLATFORMS = ['google_ads', 'ga4'];
 
 /** Meta's Graph API addresses an ad account as act_<id>; the sync core uses
@@ -60,7 +68,7 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 export function planSyncRun(conn) {
   if (!conn) return { ok: false, status: 404, error: 'Connection not found' };
   if (!SYNC_RUN_PLATFORMS.includes(conn.platform)) {
-    return { ok: false, status: 400, error: 'Sync now is available for Google Ads, GA4 and Meta Ads connections' };
+    return { ok: false, status: 400, error: 'Sync now is available for Google Ads, GA4, Meta Ads and TikTok Ads connections' };
   }
   if (conn.is_active !== true) return { ok: false, status: 409, error: 'This connection is inactive' };
   if (GOOGLE_PLATFORMS.includes(conn.platform) && !conn.refresh_token) {
@@ -68,6 +76,13 @@ export function planSyncRun(conn) {
   }
   if (conn.platform === 'meta_ads' && !conn.access_token) {
     return { ok: false, status: 409, error: 'No Meta token stored. Click Replace token on this row.' };
+  }
+  // TikTok's grant is the only credential its reporting call takes: the
+  // Marketing API issues a long-lived Access-Token and no refresh token, so
+  // an empty one means the authorization was never completed or was revoked
+  // in TikTok Business Center, and the only fix is to connect again.
+  if (conn.platform === 'tiktok_ads' && !conn.access_token) {
+    return { ok: false, status: 409, error: 'No TikTok authorization stored. Connect TikTok again on this card.' };
   }
   if (!conn[ACCOUNT_FIELD[conn.platform]]) {
     return { ok: false, status: 409, error: `Choose a ${ACCOUNT_NOUN[conn.platform]} on this row first` };

@@ -56,6 +56,17 @@
       })).filter((o) => o.value);
     }
     if (platform === 'tiktok_ads') {
+      // `advertisers` carries names (/oauth2/advertiser/get/); advertiser_ids
+      // is the nameless fallback from the grant itself. Nineteen digits tell
+      // nobody which account is theirs, so the name leads when there is one.
+      if (Array.isArray(d.advertisers) && d.advertisers.length) {
+        return d.advertisers.map((a) => ({
+          value: str(a && a.advertiser_id),
+          label: str(a && a.advertiser_name) || str(a && a.advertiser_id),
+          sub: str(a && a.advertiser_name) ? str(a && a.advertiser_id) : 'TikTok advertiser',
+          disabled: false,
+        })).filter((o) => o.value);
+      }
       return (d.advertiser_ids || []).map((id) => ({ value: str(id), label: str(id), sub: 'TikTok advertiser', disabled: false }))
         .filter((o) => o.value);
     }

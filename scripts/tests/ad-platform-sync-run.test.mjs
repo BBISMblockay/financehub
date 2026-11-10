@@ -181,8 +181,10 @@ await test('no or bad token is 401', async () => {
 
 await test('refusals name what to do, and record no job', async () => {
   const cases = [
-    [adsConn({ platform: 'search_console' }), 400, /Google Ads, GA4 and Meta Ads/],
-    [adsConn({ platform: 'tiktok_ads' }), 400, /Google Ads, GA4 and Meta Ads/],
+    [adsConn({ platform: 'search_console' }), 400, /Google Ads, GA4, Meta Ads and TikTok Ads/],
+    [adsConn({ platform: 'tiktok_ads', refresh_token: null, access_token: null }), 409, /Connect TikTok again/],
+    [adsConn({ platform: 'tiktok_ads', refresh_token: null, access_token: 'tt', tiktok_advertiser_id: null }), 409,
+      /Choose a TikTok advertiser/],
     [metaConn({ access_token: null }), 409, /Replace token/],
     [metaConn({ meta_ad_account_id: null }), 409, /Choose a Meta ad account/],
     [adsConn({ is_active: false }), 409, /inactive/],
@@ -214,6 +216,19 @@ await test('a wide configured window is clamped to fit the request', () => {
   assert.equal(H.planSyncRun(adsConn({ days_back: 7 })).daysBack, 7);
   assert.equal(H.planSyncRun(adsConn({ days_back: 0 })).daysBack, H.DEFAULT_DAYS_BACK);
   assert.equal(H.planSyncRun(adsConn({ days_back: 'x' })).daysBack, H.DEFAULT_DAYS_BACK);
+});
+
+await test('a fully configured TikTok connection is sync-now eligible, and records tiktok_ads_kpis', () => {
+  const tiktok = adsConn({
+    id: 'c-tt', platform: 'tiktok_ads', refresh_token: null,
+    access_token: 'tt-token', google_customer_id: null, tiktok_advertiser_id: '7012345678901234567',
+  });
+  const plan = H.planSyncRun(tiktok);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.daysBack, H.DEFAULT_DAYS_BACK);
+  // TikTok has no refresh token by design, so the Google branch must not
+  // demand one of it: that is what used to make this connection unsyncable.
+  assert.equal(H.JOB_TYPES.tiktok_ads, 'tiktok_ads_kpis');
 });
 
 await test('a Google refusal marks the job failed and says why', async () => {
@@ -337,11 +352,20 @@ await test('Meta: a refusal marks the job failed and says why', async () => {
   assert.equal(db.tables.sync_jobs[0].status, 'error');
 });
 
-await test('Integrations offers Sync now on Google Ads, GA4 and Meta rows, calling this function', () => {
+await test('Integrations offers Sync now on every platform this function runs, calling this function', () => {
   const page = read('v2/integrations.html');
-  assert.match(page, /const SYNC_NOW_PLATFORMS = \['google_ads', 'ga4', 'meta_ads'\];/);
+  assert.match(page, /const SYNC_NOW_PLATFORMS = \['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'\];/);
   assert.match(page, /SYNC_NOW_PLATFORMS\.includes\(row\.platform\) \? `<button[^`]*syncAdConnection\('\$\{row\.id\}', this\)/);
   assert.match(page, /\$\{FUNCTIONS_URL\}\/ad-platform-sync-run`/);
+  // The page's list and the function's must stay equal: a platform offered
+  // here that the handler refuses is a button that can only fail, and one the
+  // handler runs but the page hides is a connection that waits for the
+  // nightly for no reason. TikTok's own card calls syncAdConnection directly,
+  // so it is checked by name.
+  const inPage = page.match(/const SYNC_NOW_PLATFORMS = \[([^\]]*)\]/)[1]
+    .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean);
+  assert.deepEqual(inPage, H.SYNC_RUN_PLATFORMS);
+  assert.match(page, /SYNC_NOW_PLATFORMS\.includes\('tiktok_ads'\) \? `<button[^`]*syncAdConnection/);
 });
 
 console.log(`\n${n} passed`);

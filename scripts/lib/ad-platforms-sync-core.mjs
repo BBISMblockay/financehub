@@ -2074,58 +2074,79 @@ export async function runMetaOrganicSync(supabase, connection, {
 
 // ── TikTok Ads ──────────────────────────────────────────────────────────────
 
-export async function fetchTiktokAdsRows(connection, window) {
+/** TikTok daily campaign rows, chunked and paged.
+ *
+ * chunkDays is 30 because that is TikTok's own hard cap: a synchronous
+ * integrated report whose `dimensions` include `stat_time_day` refuses a date
+ * range wider than 30 days (365 is the cap only WITHOUT the day dimension).
+ * The nightly asks for 30 and so never met it, but the first-connect
+ * bootstrap asks for 90 (BOOTSTRAP_DEFAULTS.adsDaysBack) -- that request
+ * would have come back as a TikTok error and imported nothing, so a new
+ * customer's TikTok card would have sat empty with no row to explain why.
+ * Chunking also keeps each page under the 20,000-ad synchronous-report limit.
+ */
+export async function fetchTiktokAdsRows(connection, window, { chunkDays = 30 } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.tiktok_advertiser_id) throw new Error('tiktok_advertiser_id not configured on connection');
 
   const advertiserId = String(connection.tiktok_advertiser_id);
   const rows = [];
-  let page = 1;
-  let totalPages = 1;
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
 
-  while (page <= totalPages) {
-    const params = new URLSearchParams({
-      advertiser_id: advertiserId,
-      report_type: 'BASIC',
-      data_level: 'AUCTION_CAMPAIGN',
-      dimensions: JSON.stringify(['campaign_id', 'stat_time_day']),
-      metrics: JSON.stringify([
-        'campaign_name', 'impressions', 'clicks', 'spend',
-        'complete_payment', 'total_complete_payment_rate',
-      ]),
-      start_date: window.startDate,
-      end_date: window.endDate,
-      page: String(page),
-      page_size: '1000',
-    });
-    const data = await fetchJsonOrThrow(
-      `${TIKTOK_API_BASE}/report/integrated/get/?${params}`,
-      { headers: { 'Access-Token': token } },
-      'TikTok report',
-    );
-    if (data.code !== 0) throw new Error(`TikTok report: ${data.message}`);
-    for (const r of data.data?.list ?? []) {
-      const d = r.dimensions ?? {};
-      const m = r.metrics ?? {};
-      rows.push({
-        accountId: advertiserId,
-        accountName: connection.display_name ?? null,
-        day: String(d.stat_time_day ?? '').slice(0, 10),
-        campaignId: d.campaign_id,
-        campaignName: m.campaign_name,
-        impressions: m.impressions,
-        clicks: m.clicks,
-        spend: m.spend,
-        // complete_payment = purchase count; total_complete_payment_rate is
-        // TikTok's name for total purchase VALUE (not a rate).
-        conversions: m.complete_payment,
-        conversionValue: m.total_complete_payment_rate,
+  for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
+    const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    let page = 1;
+    let totalPages = 1;
+
+    while (page <= totalPages) {
+      const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        report_type: 'BASIC',
+        data_level: 'AUCTION_CAMPAIGN',
+        dimensions: JSON.stringify(['campaign_id', 'stat_time_day']),
+        metrics: JSON.stringify([
+          'campaign_name', 'impressions', 'clicks', 'spend',
+          'complete_payment', 'total_complete_payment_rate',
+        ]),
+        start_date: isoDateOnly(s),
+        end_date: isoDateOnly(e),
+        page: String(page),
+        page_size: '1000',
       });
+      const data = await fetchJsonOrThrow(
+        `${TIKTOK_API_BASE}/report/integrated/get/?${params}`,
+        { headers: { 'Access-Token': token } },
+        'TikTok report',
+      );
+      if (data.code !== 0) throw new Error(`TikTok report: ${data.message}`);
+      for (const r of data.data?.list ?? []) {
+        const d = r.dimensions ?? {};
+        const m = r.metrics ?? {};
+        rows.push({
+          accountId: advertiserId,
+          accountName: connection.display_name ?? null,
+          day: String(d.stat_time_day ?? '').slice(0, 10),
+          campaignId: d.campaign_id,
+          campaignName: m.campaign_name,
+          impressions: m.impressions,
+          clicks: m.clicks,
+          spend: m.spend,
+          // complete_payment = website purchase COUNT. total_complete_payment_rate
+          // is TikTok's (badly named) metric for website purchase VALUE in the ad
+          // account's currency -- not a rate and not a ROAS, which are
+          // complete_payment_rate and complete_payment_roas. Confirmed against
+          // TikTok's v1.3 supported-metrics table ("Purchase value (website)").
+          // Never divide it by anything.
+          conversions: m.complete_payment,
+          conversionValue: m.total_complete_payment_rate,
+        });
+      }
+      const pageInfo = data.data?.page_info ?? {};
+      totalPages = Number(pageInfo.total_page ?? 1);
+      page += 1;
     }
-    const pageInfo = data.data?.page_info ?? {};
-    totalPages = Number(pageInfo.total_page ?? 1);
-    page += 1;
+    s = new Date(e.getTime() + 86400000);
   }
   return rows;
 }

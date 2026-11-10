@@ -14,9 +14,10 @@
 //
 // What it writes:
 //   tiktok  -> marketing_kpis_daily (platform tiktok_ads, source 'windsor').
-//              Same row identity as the direct TikTok sync, so if SILO's own
-//              TikTok app replaces Windsor later the rows are updated in
-//              place rather than counted twice.
+//              Same row identity as the direct TikTok sync, so the rows are
+//              updated in place rather than counted twice. A company that has
+//              connected TikTok natively is skipped outright
+//              (NATIVE_CONNECTION_TABLES), so only one writer owns its days.
 //   klaviyo -> klaviyo_performance_daily, three reports (account, campaign,
 //              flow message).
 //   any other source -> mapped from Windsor's own field list (autoDataset):
@@ -863,6 +864,11 @@ export function prepareRows(rows, { accountId, from, to, dataset, ctx }) {
  */
 export const NATIVE_CONNECTION_TABLES = Object.freeze({
   klaviyo: { table: 'klaviyo_connections' },
+  // TikTok's native connector (2026-11-10) shares ad_platform_connections
+  // with every other ad platform, so the entry carries the filter that
+  // selects it. `match` is generic: any future native source states the
+  // columns that identify its row, and nothing here is per-source logic.
+  tiktok: { table: 'ad_platform_connections', match: { platform: 'tiktok_ads' } },
 });
 
 /** Does this company sync this source natively? Throws on a read failure
@@ -871,12 +877,13 @@ export const NATIVE_CONNECTION_TABLES = Object.freeze({
 export async function supersededByNative({ supabase, dsId, companyId }) {
   const native = Object.hasOwn(NATIVE_CONNECTION_TABLES, dsId) ? NATIVE_CONNECTION_TABLES[dsId] : null;
   if (!native) return false;
-  const { data, error } = await supabase.from(native.table)
+  let query = supabase.from(native.table)
     .select('id')
     .eq('company_entity_id', companyId)
     .eq('is_active', true)
-    .eq('sync_enabled', true)
-    .limit(1);
+    .eq('sync_enabled', true);
+  for (const [column, value] of Object.entries(native.match || {})) query = query.eq(column, value);
+  const { data, error } = await query.limit(1);
   if (error) throw new Error(`could not check for a native ${dsId} connection: ${error.message}`);
   return Array.isArray(data) && data.length > 0;
 }
