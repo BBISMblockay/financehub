@@ -132,7 +132,24 @@ by hand is the secondary button.
   sends nothing to prospects.
 - **Affiliates**: appear when an invitee opens their link. They become
   **active** only by accepting the current terms version on `join.html`. Give
-  each one an existing Shopify code with dates, and optionally a UTM link.
+  each one a code (Affiliate, Code, Add; dates, "In Shopify" and percent off
+  sit under Options, percent defaults to 10). Either it already exists in
+  Shopify ("I made it"), or **"My AI makes it"** (the default when a
+  connection with `codes:create` exists): the code is saved as `pending`,
+  which earns nothing and is handed out nowhere, until the person's own AI
+  (`affiliate_codes_to_create`, then `mark_affiliate_code_created` with the
+  Shopify discount id) creates it in their store. That makes it active, shown
+  as "created via <app>". SILO holds no Shopify write access.
+- **Store address (Share tab)**: every affiliate link is
+  `<store>/discount/CODE?redirect=<page with utm>`, which applies the code at
+  checkout. `affiliate_program_store_url()` picks the store: the program's
+  address, else the one Shopify domain when the company has exactly one
+  active store, else none (a company with several stores types its website
+  once; links stay off until then, never a guessed location store).
+- **Share tab**: pick launches, products and recent ads (`ad_studio_ads(60)`,
+  ads with a picture, catalog templates excluded) to show in the portal.
+  Sharing an ad copies its picture from the private `ad-creative-images`
+  bucket to the public `affiliate-feed-images` bucket at the same path.
 - **Commissions**: after an order sync, run *1. Match orders* then
   *2. Calculate commissions* for a date range (re-running is safe). Open a
   review period, submit it, and have someone with journal-entry approval

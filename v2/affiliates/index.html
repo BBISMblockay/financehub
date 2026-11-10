@@ -16,7 +16,15 @@
     .af-panel[hidden] { display: none; }
     .af-share-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--bcn-border); }
     .af-share-row:first-of-type { border-top: 0; }
-    .af-share-row img, .af-share-noimg { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
+    .af-share-row img, .af-share-noimg { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
+    .af-share-txt .af-muted { overflow: hidden; text-overflow: ellipsis; }
+    /* "What your affiliates see": the shared items as the portal shows them. */
+    .af-seen { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .af-seen-item { border: 1px solid var(--bcn-border); border-radius: 10px; overflow: hidden; background: var(--bcn-surface); display: flex; flex-direction: column; }
+    .af-seen-item img, .af-seen-none { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: var(--bcn-bg); }
+    .af-seen-none { display: grid; place-items: center; padding: 12px; text-align: center; font-weight: 700; color: var(--bcn-ink-2); }
+    .af-seen-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .af-seen-body .bcn-btn { margin-top: auto; align-self: flex-start; }
     .af-share-txt { flex: 1; min-width: 0; }
     .af-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .af-grid--wide { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }

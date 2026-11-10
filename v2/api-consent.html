@@ -143,6 +143,14 @@
             cannot approve or write outreach. Off unless you tick it, and pausing writing pauses this too.</span>
         </label>
 
+        <label class="cs-opt" for="optCodes">
+          <input type="checkbox" id="optCodes" />
+          <span><strong>Also let it create affiliate codes in your Shopify store.</strong> It can see the codes
+            someone asked for in Affiliate Studio, create them in your Shopify store (through the Shopify tool you
+            connected it to), and record each one as created. SILO writes nothing to Shopify. Off unless you tick
+            it, and pausing writing pauses this too.</span>
+        </label>
+
         <p class="cs-label">It will not be able to</p>
         <ul class="cs-list cs-cannot">
           <li id="cannotChange">Change, add or delete anything</li>
@@ -364,13 +372,15 @@
      the permission that had just been ticked. */
   const WRITE = (K && K.WRITE_SCOPE) || 'work:write';
   const OUTREACH = (K && K.OUTREACH_SCOPE) || 'outreach:send';
+  const CODES = (K && K.CODES_SCOPE) || 'codes:create';
   const READS = (K && Array.isArray(K.SILO_SCOPES) && K.SILO_SCOPES.length)
     ? K.SILO_SCOPES : ['reports:read', 'data:read'];
 
   function chosenScopes() {
     const on = !!(el('optWrite') && el('optWrite').checked);
     const send = !!(el('optOutreach') && el('optOutreach').checked);
-    return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : []).filter(Boolean);
+    const codes = !!(el('optCodes') && el('optCodes').checked);
+    return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : [], codes ? [CODES] : []).filter(Boolean);
   }
 
   async function writeGrant(clientId) {
@@ -387,7 +397,7 @@
        the write. Anything unreadable here is NOT treated as a failure: the
        grant exists either way, and blocking the connection over a failed
        verification read would be a worse bug than the one it guards. */
-    const extras = [WRITE, OUTREACH].filter((s) => wanted.includes(s));
+    const extras = [WRITE, OUTREACH, CODES].filter((s) => wanted.includes(s));
     if (!extras.length) return;
     try {
       const { data } = await db
@@ -401,7 +411,7 @@
       const missing = Array.isArray(stored) ? extras.filter((s) => !stored.includes(s)) : [];
       if (missing.length) {
         throw new Error('SILO approved the connection but did not record permission to '
-          + (missing.includes(WRITE) ? 'open tasks' : 'send approved outreach')
+          + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach' : 'create affiliate codes')
           + '. Reload this page and approve again.');
       }
     } catch (e) {
@@ -501,13 +511,15 @@
       /* With writing on, "change, add or delete anything" would be a lie about
          the "add" -- and the thing people need to know is that nothing which
          already exists can be touched. */
-      const writes = el('optWrite').checked || !!(el('optOutreach') && el('optOutreach').checked);
+      const writes = el('optWrite').checked || !!(el('optOutreach') && el('optOutreach').checked)
+        || !!(el('optCodes') && el('optCodes').checked);
       el('cannotChange').textContent = writes
         ? 'Change, complete or delete anything that already exists'
         : 'Change, add or delete anything';
     };
     el('optWrite').addEventListener('change', paintScopes);
     if (el('optOutreach')) el('optOutreach').addEventListener('change', paintScopes);
+    if (el('optCodes')) el('optCodes').addEventListener('change', paintScopes);
     paintScopes();
 
     const sel = el('coSelect');

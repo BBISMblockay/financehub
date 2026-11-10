@@ -9127,6 +9127,41 @@ select 'Affiliate portal feed' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate codes created by the person's own AI (20261110160000): pending
+-- codes earn nothing and are handed out nowhere; the codes:create tools sit on
+-- the outreach fence; links never guess among several Shopify stores; ad
+-- pictures shared with affiliates go to a public bucket only managers write.
+select 'Affiliate codes via AI' as check_name,
+  case
+    when to_regprocedure('public.silo_api_codes_to_create(integer)') is null
+      or to_regprocedure('public.silo_api_mark_code_created(uuid,text)') is null
+      or to_regprocedure('public.affiliate_program_store_url(uuid,uuid)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_discount_id')
+      then 'MISSING — run 20261110160000_affiliate_codes_via_ai.sql'
+    when position('codes:create' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
+      then 'BROKEN — the consent screen cannot grant codes:create'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_codes_pending_has_discount')
+      then 'BROKEN — a code waiting for Shopify may lack its discount'
+    when position('affiliate_program_store_url' in pg_get_functiondef(to_regprocedure('public.affiliate_portal_feed(text)'))) = 0
+      then 'BROKEN — the portal feed picks its own store instead of affiliate_program_store_url'
+    when position('count(*) = 1' in pg_get_functiondef(to_regprocedure('public.affiliate_program_store_url(uuid,uuid)'))) = 0
+      then 'BROKEN — affiliate links may guess among several Shopify stores'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, to_regprocedure('public.silo_api_mark_code_created(uuid,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_api_codes_to_create(integer)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.affiliate_program_store_url(uuid,uuid)'), 'execute'))
+      then 'BROKEN — a browser role can call the codes tools'
+    when not exists (select 1 from storage.buckets where id = 'affiliate-feed-images' and public)
+      then 'MISSING — the affiliate-feed-images bucket'
+    when not exists (select 1 from pg_policy where polrelid = 'storage.objects'::regclass
+                      and polname = 'affiliate feed images written by program managers'
+                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0
+                      and position('active_company_id' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — feed pictures are not limited to managers writing their own company''s folder'
+    else 'ok'
+  end as status;
+
 -- Company logo (20261110140000): owners upload a logo in Settings -> Company;
 -- the stored address is held to this company's folder of a public
 -- company-logos bucket on a Supabase host, and the outreach email uses it.

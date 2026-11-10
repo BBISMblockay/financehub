@@ -56,7 +56,9 @@ const INSTRUCTIONS = [
   'SILO is an operations platform. This connection reads ONE company\'s SILO data as the person who',
   'connected it, and -- only where they granted work:write -- can open a task with create_task. Where they',
   'granted outreach:send, claim_outreach_to_send hands over affiliate outreach a person already approved in SILO,',
-  'for YOU to send from the person\'s own mailbox, and mark_outreach_sent records each one you sent. Nothing',
+  'for YOU to send from the person\'s own mailbox, and mark_outreach_sent records each one you sent. Where they',
+  'granted codes:create, affiliate_codes_to_create lists affiliate discount codes a person asked for in SILO, for',
+  'YOU to create in the person\'s own Shopify (with a Shopify tool), and mark_affiliate_code_created records each one. Nothing',
   'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
   'and SILO itself sends nothing. Asked for one of those, say what you would do and give the person the SILO link.',
   'Reading, in order of use:',
@@ -273,6 +275,45 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'affiliate_codes_to_create',
+    title: 'List affiliate codes to create in Shopify',
+    description: 'Lists the affiliate discount codes a person asked for in SILO\'s Affiliate Studio that are waiting to '
+      + 'be created in their Shopify store: each code, the percent off it gives, its dates, and the affiliate it is '
+      + 'for, plus exactly how to create it. SILO does not write to Shopify: you create each one in the person\'s '
+      + 'own store with a Shopify tool they connected (a discount CODE, percent off the whole order), then call '
+      + 'mark_affiliate_code_created with the Shopify discount id. Until then the code earns nothing and affiliates '
+      + 'are not given it. If a discount with that code already exists in Shopify, use its id rather than creating '
+      + 'another. You cannot ask for codes here; when none are waiting, point the person to Affiliate Studio. Needs '
+      + 'the codes:create permission, which the person grants separately.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 25, description: 'How many codes to list, 1 to 50.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'mark_affiliate_code_created',
+    title: 'Record an affiliate code as created in Shopify',
+    description: 'After you created (or found) a code from affiliate_codes_to_create in the person\'s Shopify store, '
+      + 'records it in SILO with the Shopify discount id (gid://shopify/DiscountCodeNode/<number>), marked as this '
+      + 'application. That makes the code live: it earns commission for its affiliate and their links start '
+      + 'applying it. Only for a code that really exists in Shopify now. Calling it again for the same code returns '
+      + 'the first record. Each one is one of the connection\'s writes for the day (50).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code_id: { type: 'string', description: 'code_id from affiliate_codes_to_create.' },
+        shopify_discount_id: { type: 'string', description: 'The Shopify discount id, gid://shopify/DiscountCodeNode/<number>.' },
+      },
+      required: ['code_id', 'shopify_discount_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 /* Tools that need a scope the connection may not have been given. Only
@@ -283,6 +324,8 @@ const TOOL_SCOPE = {
   create_task: 'work:write',
   claim_outreach_to_send: 'outreach:send',
   mark_outreach_sent: 'outreach:send',
+  affiliate_codes_to_create: 'codes:create',
+  mark_affiliate_code_created: 'codes:create',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -608,6 +651,31 @@ export function createMcpHandler({ env, fetchImpl }) {
       if (!evidence) return rpcResult(id, toolErr('evidence must be the sent message id.'));
       if (evidence.length > 500) return rpcResult(id, toolErr('evidence must be under 500 characters.'));
       const r = await callRpc(authorization, 'silo_api_mark_outreach_sent', { p_draft_id: draft, p_evidence: evidence });
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'affiliate_codes_to_create') {
+      const body = {};
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 50) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 50.'));
+        }
+        body.p_limit = args.limit;
+      }
+      const r = await callRpc(authorization, 'silo_api_codes_to_create', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'mark_affiliate_code_created') {
+      const code = String(args.code_id ?? '').trim();
+      if (!UUID.test(code)) return rpcResult(id, toolErr('code_id must be a code_id from affiliate_codes_to_create.'));
+      const gid = typeof args.shopify_discount_id === 'string' ? args.shopify_discount_id.trim() : '';
+      if (!/^(gid:\/\/shopify\/DiscountCodeNode\/)?[0-9]{1,20}$/.test(gid)) {
+        return rpcResult(id, toolErr('shopify_discount_id must be the Shopify discount id, gid://shopify/DiscountCodeNode/<number>.'));
+      }
+      const r = await callRpc(authorization, 'silo_api_mark_code_created', { p_code_id: code, p_shopify_discount_id: gid });
       if (!r.ok) return refusalResponse(id, r, true);
       return rpcResult(id, toolOk(r.data));
     }

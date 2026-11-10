@@ -136,3 +136,30 @@ ${cta ? `<p style="margin:18px 0 4px"><a href="${escapeHtml(cta.url)}" style="ba
   const text = [heading, '', ...paragraphs.map(strip), ...(cta ? ['', `${cta.label}: ${cta.url}`] : []), '', strip(footer)].join('\n');
   return { html, text };
 }
+
+// ── Affiliate links ───────────────────────────────────────────────────────
+// The brand's own store, through Shopify's /discount/CODE address so the
+// affiliate's code is applied at checkout, then on to the page. The UTMs ride
+// inside the redirect so they reach the landing page. Commission still comes
+// only from the code on the order, so a click on a link can never credit an
+// order twice. (20261110150000; shared with affiliate-invite 20261110160000.)
+export const STORE_RE = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const PATH_RE = /^\/[A-Za-z0-9/_.~%-]*$/;
+export function affiliateLink(store, code, path = '/') {
+  if (!STORE_RE.test(String(store || '')) || !code) return null;
+  const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';
+  const q = new URLSearchParams({ utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: String(code) });
+  return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;
+}
+
+// A page someone typed as a full address, turned into the affiliate's link
+// when it is on the brand's own store (www. or not); null otherwise, so the
+// caller keeps the plain address rather than sending it through the store.
+export function storeLinkFor(store, code, url) {
+  if (!STORE_RE.test(String(store || '')) || !code) return null;
+  let u;
+  try { u = new URL(String(url || '')); } catch { return null; }
+  const bare = (h) => String(h).toLowerCase().replace(/^www\./, '');
+  if (u.protocol !== 'https:' || bare(u.hostname) !== bare(new URL(store).hostname)) return null;
+  return affiliateLink(store, code, u.pathname || '/');
+}

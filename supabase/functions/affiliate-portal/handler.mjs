@@ -24,7 +24,7 @@
 //                                                to the address ON FILE
 //   apply     { company_id, program, email, name, platform?, handle?, profile_url?, pitch?, website? }
 //                                             -> open intake: creates a PROSPECT
-import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney } from './affiliate-mail.mjs';
+import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -63,20 +63,10 @@ const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null)
 // an image in a Supabase company-logos bucket.
 const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/company-logos\/[0-9a-f-]{36}\/logo-[0-9]{10,16}\.(png|jpg|jpeg|webp)$/;
 
-// Affiliate links (20261110150000): the brand's own store, through Shopify's
-// /discount/CODE address so the affiliate's code is applied at checkout, then
-// on to the page. The UTMs ride inside the redirect so they reach the landing
-// page. Commission still comes only from the code on the order, so a click on
-// a link can never credit an order twice.
-const STORE_RE = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
-const PATH_RE = /^\/[A-Za-z0-9/_.~%-]*$/;
+// Affiliate links: affiliateLink / storeLinkFor live in affiliate-mail.mjs so the
+// codes email (affiliate-invite) builds exactly the same links.
 const IMAGE_RE = /^https:\/\/[^\s"'<>]+$/;
-export function affiliateLink(store, code, path = '/') {
-  if (!STORE_RE.test(String(store || '')) || !code) return null;
-  const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';
-  const q = new URLSearchParams({ utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: String(code) });
-  return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;
-}
+export { affiliateLink };
 
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
@@ -114,6 +104,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       const store = STORE_RE.test(String(data.store_url || '')) ? data.store_url : null;
       return {
         code,
+        store,
         store_link: affiliateLink(store, code, '/'),
         items: (Array.isArray(data.items) ? data.items : []).map((i) => ({
           kind: i.kind, title: i.title, note: i.note ?? null, event_on: i.event_on ?? null,
@@ -263,8 +254,18 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       if (t.purpose !== 'portal') return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
       if (error) return dbError(error);
+      const feed = await portalFeed(hash);
+      if (data && typeof data === 'object') {
+        // A code still waiting to be created in Shopify is not the
+        // affiliate's yet (20261110160000).
+        if (Array.isArray(data.codes)) data.codes = data.codes.filter((c) => c?.status !== 'pending');
+        // A link to a page of the brand's store applies the affiliate's code,
+        // like every link in the feed. One on another site stays as it is.
+        if (Array.isArray(data.links)) data.links = data.links.map((l) => ({ ...l, link: storeLinkFor(feed?.store, feed?.code, l.destination_url) }));
+      }
+      if (feed) delete feed.store;
       return reply({ brand: t.company_title, brand_logo: await brandLogo(t.company_entity_id), program: t.program_name, statement: data,
-        feed: await portalFeed(hash),
+        feed,
         formatted: { earned: formatMoney(data?.totals?.earned_cents, data?.currency) } });
     }
 

@@ -51,6 +51,16 @@
 //   OUTREACH_MCP_MUTATION=feed-other-program-items   the feed shows another program's items
 //   OUTREACH_MCP_MUTATION=feed-expired-codes         the feed offers a code that has ended
 //   OUTREACH_MCP_MUTATION=feed-offsite-path          a shared item may point at another site
+//   OUTREACH_MCP_MUTATION=codes-not-offered          consent does not offer codes:create
+//   OUTREACH_MCP_MUTATION=codes-no-path              the codes tool is not on the path allowlist
+//   OUTREACH_MCP_MUTATION=codes-any-status           any code (not only a pending one) may be marked created
+//   OUTREACH_MCP_MUTATION=codes-no-cap               marking codes created ignores the daily write cap
+//   OUTREACH_MCP_MUTATION=codes-pending-earns        the portal hands out a code still waiting for Shopify
+//   OUTREACH_MCP_MUTATION=codes-pending-no-reserve   a pending code does not reserve its dates
+//   OUTREACH_MCP_MUTATION=codes-store-oldest         with several Shopify stores the oldest one is guessed
+//   OUTREACH_MCP_MUTATION=codes-no-scope             the codes tools do not require codes:create
+//   OUTREACH_MCP_MUTATION=feed-images-any-folder     a feed image may be written into another company's folder
+//   OUTREACH_MCP_MUTATION=feed-images-any-member     any member may write feed images
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -206,6 +216,7 @@ const files = {
   button: '20261110130000_affiliate_outreach_email_button.sql',
   logo: '20261110140000_company_logo.sql',
   feed: '20261110150000_affiliate_portal_feed.sql',
+  codes: '20261110160000_affiliate_codes_via_ai.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -214,12 +225,38 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html', 'followup', 'button', 'logo', 'feed'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup', 'button', 'logo', 'feed', 'codes'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
+  case 'codes-not-offered':
+    mutate("'outreach:send', 'codes:create'];", "'outreach:send'];"); break;
+  case 'codes-no-path':
+    mutate("    '/rpc/silo_api_codes_to_create',\n", ''); break;
+  case 'codes-any-status':
+    mutate("  if v_c.status <> 'pending' then", '  if false then'); break;
+  case 'codes-no-cap':
+    mutate('  if v_used >= public.silo_api_write_cap() then', '  if false then'); break;
+  case 'codes-pending-earns':
+    mutate("         and c.status = 'active'\n         and c.starts_on <= v_today", "         and c.status in ('active', 'pending')\n         and c.starts_on <= v_today"); break;
+  case 'codes-pending-no-reserve':
+    mutate("      and c.status in ('active', 'pending')\n      and c.id is distinct from new.id", "      and c.status = 'active'\n      and c.id is distinct from new.id"); break;
+  case 'codes-store-oldest':
+    mutate("(select case when count(*) = 1 then", "(select case when count(*) >= 1 then"); break;
+  case 'codes-no-scope':
+    mutate("  perform public.silo_api_require_scope('codes:create');", ''); break;
+  case 'feed-images-any-folder':
+    mutate(`    bucket_id = 'affiliate-feed-images'
+    and (storage.foldername(name))[1] = public.active_company_id()::text
+    and public.can_manage_affiliate_programs());`, `    bucket_id = 'affiliate-feed-images'
+    and public.can_manage_affiliate_programs());`); break;
+  case 'feed-images-any-member':
+    mutate(`    bucket_id = 'affiliate-feed-images'
+    and (storage.foldername(name))[1] = public.active_company_id()::text
+    and public.can_manage_affiliate_programs());`, `    bucket_id = 'affiliate-feed-images'
+    and (storage.foldername(name))[1] = public.active_company_id()::text);`); break;
   case 'feed-any-member':
     mutate(`  with check (
     company_entity_id = public.active_company_id()
@@ -307,7 +344,7 @@ switch (MUT) {
     mutate("    || '<p style=\"margin:0 0 18px;font-size:12px;line-height:1.5;color:#77828d\">Or open this link: '\n    || '<a href=\"' || v_url || '\" target=\"_blank\" style=\"color:#2f5fd0;word-break:break-all\">' || v_url || '</a></p>'\n", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo', 'feed']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo', 'feed', 'codes']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -678,12 +715,153 @@ await check('P2 a portal link reads its own program\'s feed, the store address, 
   }
 });
 
+// ── K: affiliate codes the person's own AI creates in Shopify ─────────────
+const GK = {
+  codes:  '30000000-0000-0000-0000-000000000011',  // mgrA, codes:create
+  member: '30000000-0000-0000-0000-000000000012',  // memberA, codes:create, not a manager
+  send:   G.send,                                   // mgrA, outreach:send only
+};
+await db.query(`insert into silo_api_grants(id, client_id, app_key, user_id, company_entity_id, scopes) values
+  ($1, $3, 'claude|', $4, $6, array['codes:create']), ($2, $3, 'claude|', $5, $6, array['codes:create'])`,
+  [GK.codes, GK.member, CLIENT, U.mgrA, U.memberA, A]);
+const kAff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_accepted_at, terms_version_accepted)
+  values ($1,$2,'Code Pat','codes@creator.test','active', now(), 1) returning id`, [A, progA])).id;
+const kAff2 = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_accepted_at, terms_version_accepted)
+  values ($1,$2,'Code Sam','sam@creator.test','active', now(), 1) returning id`, [A, progA])).id;
+const bAff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status)
+  values ($1,$2,'B Pat','bpat@creator.test','invited') returning id`, [B, progB])).id;
+const pendingCode = async (company, program, aff, code, pct = 15) => (await one(
+  `insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on, status, discount_percent)
+   values ($1,$2,$3,$4, current_date - 2, 'pending', $5) returning id`, [company, program, aff, code, pct])).id;
+const toCreate = (o) => tool('silo_api_codes_to_create', [null], o);
+const created = (args, o) => tool('silo_api_mark_code_created', args, o);
+
+await check('K1 consent offers codes:create, and its two paths are on the allowlist', async () => {
+  await db.exec(`select set_config('test.uid', '${U.mgrA}', false),
+    set_config('test.claims', '{"aal":"aal2"}', false), set_config('test.integration', 'off', false)`);
+  await db.query('update profiles set active_company_id = $1 where id = $2', [A, U.mgrA]);
+  const id = (await one(`select public.silo_api_consent('codes-consent-client', array['reports:read','codes:create']) as id`)).id;
+  assert.deepEqual([...(await one('select scopes from silo_api_grants where id = $1', [id])).scopes].sort(), ['codes:create', 'reports:read']);
+  await assert.rejects(db.query(`select public.silo_api_consent('codes-consent-client', array['codes:delete'])`), /unknown_scope/);
+  await db.query('update profiles set active_company_id = $1 where id = $2', [B, U.mgrA]);
+  await db.exec(`select set_config('test.uid', '', false), set_config('test.claims', '', false)`);
+  for (const path of ['/rpc/silo_api_codes_to_create', '/rpc/silo_api_mark_code_created', '/rpc/silo_api_claim_outreach']) {
+    await db.exec(`select set_config('request.path', '${path}', false)`);
+    assert.equal((await one('select public.silo_api_path_allowed() as v')).v, true, path);
+  }
+  for (const path of ['/rpc/silo_api_codes_grant', '/rpc/affiliate_program_store_url']) {
+    await db.exec(`select set_config('request.path', '${path}', false)`);
+    assert.equal((await one('select public.silo_api_path_allowed() as v')).v, false, path);
+  }
+});
+
+await check('K2 a code waiting for Shopify says what it gives, earns nothing, and is in no portal', async () => {
+  await assert.rejects(db.query(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on, status)
+    values ($1,$2,$3,'NOPCT', current_date, 'pending')`, [A, progA, kAff]), /affiliate_codes_pending_has_discount/);
+  await assert.rejects(db.query(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on, status, discount_percent)
+    values ($1,$2,$3,'TOOMUCH', current_date, 'pending', 150)`, [A, progA, kAff]), /affiliate_codes_discount_percent/);
+  await pendingCode(A, progA, kAff, 'pat15');
+  const h = sha(`k2-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, kAff, h]);
+  const f = (await one('select public.affiliate_portal_feed($1) as f', [h])).f;
+  assert.deepEqual(f.codes, [], 'a pending code is never handed out');
+});
+
+await check('K3 the AI reads the pending codes of the GRANT\'s company, only with codes:create, only for a manager', async () => {
+  await pendingCode(B, progB, bAff, 'BONLY');
+  const r = await toCreate({ grant: GK.codes });
+  const codes = r.codes.map((c) => c.code);
+  assert.deepEqual(codes, ['PAT15'], 'company A only, folded to upper case');
+  assert.equal(Number(r.codes[0].percent_off), 15);
+  assert.equal(r.codes[0].affiliate, 'Code Pat');
+  assert.match(r.how_to_create, /discount CODE/);
+  await assert.rejects(toCreate({ grant: GK.send }), /insufficient_scope/, 'outreach:send is not codes:create');
+  await assert.rejects(toCreate({ grant: GK.member, uid: U.memberA }), /not_an_affiliate_manager/);
+  await db.query('update silo_api_grants set writes_paused_at = now() where id = $1', [GK.codes]);
+  await assert.rejects(toCreate({ grant: GK.codes }), /writes_paused/);
+  await db.query('update silo_api_grants set writes_paused_at = null where id = $1', [GK.codes]);
+});
+
+await check('K4 marking a code created activates it, as the approver, via the app, once, against the cap', async () => {
+  const id = (await one(`select id from affiliate_codes where code = 'PAT15'`)).id;
+  await assert.rejects(created([id, 'not-an-id'], { grant: GK.codes }), /invalid_discount_id/);
+  const before = Number((await one(`select count(*) n from silo_api_writes where grant_id = $1`, [GK.codes])).n);
+  const r = await created([id, '1631384698950'], { grant: GK.codes });
+  assert.equal(r.status, 'active');
+  assert.equal(r.shopify_discount_id, 'gid://shopify/DiscountCodeNode/1631384698950', 'a bare number is stored as the gid');
+  const row = await one('select status, shopify_created_via_app, shopify_created_by_grant_id, changed_by from affiliate_codes where id = $1', [id]);
+  assert.deepEqual([row.status, row.shopify_created_via_app, row.shopify_created_by_grant_id, row.changed_by], ['active', 'Claude', GK.codes, U.mgrA]);
+  assert.equal(Number((await one(`select count(*) n from silo_api_writes where grant_id = $1 and kind = 'code_created'`, [GK.codes])).n), before + 1);
+  const again = await created([id, 'gid://shopify/DiscountCodeNode/1631384698950'], { grant: GK.codes });
+  assert.equal(again.replayed, true);
+  assert.equal(Number((await one(`select count(*) n from silo_api_writes where grant_id = $1`, [GK.codes])).n), before + 1, 'a replay spends nothing');
+  const live = (await one(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on) values ($1,$2,$3,'MADEBYHAND', current_date) returning id`, [A, progA, kAff])).id;
+  await assert.rejects(created([live, '5'], { grant: GK.codes }), /not_pending/, 'a code a person made in Shopify is not the AI\'s to record');
+  const bId = (await one(`select id from affiliate_codes where code = 'BONLY'`)).id;
+  await assert.rejects(created([bId, '6'], { grant: GK.codes }), /unknown_code/, 'never another company\'s code');
+  const capped = await pendingCode(A, progA, kAff, 'CAPPED');
+  await db.exec(`select set_config('test.cap', '${before + 1}', false)`);
+  try { await assert.rejects(created([capped, '7'], { grant: GK.codes }), /write_cap_reached/); }
+  finally { await db.exec(`select set_config('test.cap', '', false)`); }
+});
+
+await check('K5 a pending code reserves its dates: another affiliate cannot take it meanwhile', async () => {
+  await pendingCode(A, progA, kAff, 'RESERVED');
+  await assert.rejects(db.query(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on) values ($1,$2,$3,'reserved', current_date)`,
+    [A, progA, kAff2]), /already assigned to another affiliate/);
+});
+
+await check('K6 with several Shopify stores and no store address, links wait for the brand to name its store', async () => {
+  await db.query(`update affiliate_programs set store_url = null where id = $1`, [progA]);
+  const h = sha(`k6-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, kAff, h]);
+  assert.equal((await one('select public.affiliate_portal_feed($1) as f', [h])).f.store_url, 'https://brand-a.myshopify.com', 'one store: its domain');
+  await db.query(`insert into shopify_connections(company_entity_id, shop_domain) values ($1,'brand-a-retail.myshopify.com')`, [A]);
+  assert.equal((await one('select public.affiliate_portal_feed($1) as f', [h])).f.store_url, null, 'two stores: no guess');
+  await db.query(`update affiliate_programs set store_url = 'https://shop.brand-a.test' where id = $1`, [progA]);
+  assert.equal((await one('select public.affiliate_portal_feed($1) as f', [h])).f.store_url, 'https://shop.brand-a.test');
+});
+
+await check('K7 feed images: public, written only by an affiliate manager, only into their own company\'s folder', async () => {
+  const up = async (uid, name) => {
+    await db.exec(`select set_config('test.uid', '${uid}', false)`);
+    await db.exec('set role authenticated');
+    try { await db.query(`insert into storage.objects(bucket_id, name) values ('affiliate-feed-images', $1)`, [name]); }
+    finally { await db.exec('reset role'); await db.exec(`select set_config('test.uid', '', false)`); }
+  };
+  await up(U.ownerA, `${A}/${'a'.repeat(64)}.jpg`);
+  await assert.rejects(up(U.ownerA, `${B}/${'b'.repeat(64)}.jpg`), /row-level security/, 'not into another company\'s folder');
+  await assert.rejects(up(U.memberA, `${A}/${'c'.repeat(64)}.jpg`), /row-level security/, 'a member cannot');
+  const b = await one(`select public, allowed_mime_types from storage.buckets where id = 'affiliate-feed-images'`);
+  assert.equal(b.public, true, 'public, so an affiliate\'s portal can show it');
+  assert.ok(!b.allowed_mime_types.some((m) => /svg/.test(m)), 'no SVG, which can carry script');
+});
+
+await check('K8 the verify check for this migration reads ok once it is applied', async () => {
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate codes via AI'");
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
+});
+
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {
   const fns = [
     'silo_api_claim_outreach(uuid, integer, text)', 'silo_api_mark_outreach_sent(uuid, text)',
     'affiliate_can_manage_for(uuid, uuid)', 'silo_api_app_name(text, text)', 'silo_api_outreach_grant()',
     'affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'affiliate_outreach_html(text, text, text)',
     'affiliate_outreach_html(text, text, text, text)'];
+  const codeFns = ['silo_api_codes_to_create(integer)', 'silo_api_mark_code_created(uuid, text)'];
+  for (const f of [...codeFns, 'silo_api_codes_grant()', 'affiliate_program_store_url(uuid, uuid)']) {
+    for (const role of ['anon', 'authenticated', 'silo_revoked']) {
+      assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);
+    }
+  }
+  for (const f of codeFns) assert.equal((await one(`select has_function_privilege('silo_integration', 'public.${f}', 'execute') as v`)).v, true, f);
+  for (const f of ['silo_api_codes_grant()', 'affiliate_program_store_url(uuid, uuid)']) {
+    assert.equal((await one(`select has_function_privilege('silo_integration', 'public.${f}', 'execute') as v`)).v, false, f);
+  }
   for (const f of fns) {
     for (const role of ['anon', 'authenticated', 'silo_revoked']) {
       assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);
@@ -699,8 +877,8 @@ await check('G1 no browser or anonymous role can call the tools or their helpers
 });
 
 await check('G2 the tools are VOLATILE, or PostgREST runs them read-only', async () => {
-  const r = await all(`select proname, provolatile from pg_proc where proname in ('silo_api_claim_outreach','silo_api_mark_outreach_sent') order by 1`);
-  assert.deepEqual(r.map((x) => x.provolatile), ['v', 'v']);
+  const r = await all(`select proname, provolatile from pg_proc where proname in ('silo_api_claim_outreach','silo_api_mark_outreach_sent','silo_api_codes_to_create','silo_api_mark_code_created') order by 1`);
+  assert.deepEqual(r.map((x) => x.provolatile), ['v', 'v', 'v', 'v']);
 });
 
 console.log(`\n${passed} checks passed${MUT ? ` (mutation ${MUT} did not fail -- the suite is not testing it)` : ''}`);

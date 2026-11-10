@@ -28,6 +28,8 @@
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
+ *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
+ *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -45,6 +47,8 @@ const MUTATIONS = {
   feedhtml: ['/affiliates/portal.html', '<div class="af-item-title">${esc(i.title)}</div>', '<div class="af-item-title">${i.title}</div>'],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
+  adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
+  pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -92,7 +96,7 @@ const tables = {
   affiliate_notifications: [],
   affiliate_feed_items: [{ id: 'f1', company_entity_id: CO, program_id: PROG, kind: 'product', source_id: 'trail-hat', title: 'Trail Hat', image_url: null, product_path: '/products/trail-hat', shared_at: now }],
   launch_calendar: [{ id: 'lc1', company_entity_id: CO, title: 'Spring Drop', launch_date: '2099-03-01', launch_image_url: 'https://cdn.invalid/spring.png', landing_page_url: 'https://brand.invalid/collections/spring', status: 'planned' }],
-  ad_ideas: [{ id: 'ad1', company_entity_id: CO, title: 'Mud season', hook: 'Built for mud', body_draft: 'Grip that holds.', destination_url: 'https://brand.invalid/products/mud-shoe', status: 'live', updated_at: now }],
+  shopify_connections: [{ company_entity_id: CO, shop_domain: 'brand-a.myshopify.com', is_active: true }, { company_entity_id: CO, shop_domain: 'brand-a-retail.myshopify.com', is_active: true }],
   products_master: [{ company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: null, shopify_handle: 'trail-hat' }],
   entity_memberships: [{ entity_id: CO, user_id: 'u1' }],
 };
@@ -105,7 +109,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
   const errors = [];
   try {
     // ── staff page, as a manager ──────────────────────────────────────────
-    const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    const AD_IMG = `${CO}/${'ab12'.repeat(16)}.jpg`;
+    const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+      ad_studio_ads: () => [
+        { ad_id: 'ad1', ad_name: 'Mud season v2', title: 'Mud season', body: 'Grip that holds.', link_path: '/products/mud-shoe', image_path: `test-company/${'ab12'.repeat(16)}.jpg`, image_shared_by: 1, recent_spend: 50, last_day: '2026-11-08', effective_status: 'ACTIVE' },
+        { ad_id: 'ad2', ad_name: 'Catalog', title: 'All releases', body: 'x', image_path: `test-company/${'cd34'.repeat(16)}.jpg`, image_shared_by: 9, recent_spend: 90, last_day: '2026-11-08' },
+        { ad_id: 'ad3', ad_name: 'No picture', title: 'Text only', body: 'y', image_path: null, recent_spend: 10, last_day: '2026-11-08' }] } });
     page.on('pageerror', (e) => errors.push(e.message));
     // Simple page: five tabs (Share added for the portal feed), Find creators first, one next-step line.
     R.ok('the page has five tabs', (await page.$$('#tabs [data-tab]')).length === 5);
@@ -125,11 +134,31 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });
     }
+    // ── Affiliates: a code the person's own AI creates in Shopify ─────────
+    await page.click('#tabs [data-tab="affiliates"]');
+    R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
+    const ab = await text(page, '#affiliatesBody');
+    R.has(ab, 'Connect your AI', 'with no AI that can make codes, Affiliates offers to connect one');
+    R.eq(await page.inputValue('#cPct'), '10', 'percent off defaults to 10');
+    R.eq(await page.inputValue('#cHow'), 'exists', 'with no AI that can make codes, the code is one you made');
+    await page.fill('#cCode', 'pat15');
+    await openMore(page);
+    await page.selectOption('#cHow', 'ai');
+    await page.fill('#cPct', '');
+    await page.click('#affiliatesBody [data-act="code-add"]');
+    await page.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
+    R.has(await text(page, '#status'), 'percent off', 'a code for the AI needs the percent off');
+    await page.fill('#cPct', '15');
+    await page.click('#affiliatesBody [data-act="code-add"]');
+    await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_codes' && q._op === 'insert'), null, { timeout: 5000 });
+    const codeRow = await page.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_codes' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+    R.eq(codeRow?.status, 'pending', 'a code for the AI waits for Shopify');
+    R.eq(codeRow?.discount_percent, 15);
     await page.click('#tabs [data-tab="outreach"]');
     const ob = await text(page, '#outreachBody');
-    R.has(ob, 'your own AI sends it', 'Messages leads with sending through your own AI');
+    R.has(ob, 'Your own AI sends approved messages', 'Messages leads with sending through your own AI');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
-    R.has(ob, 'No AI is connected to this company yet', 'with no connection, Messages says so for this company');
+    R.has(ob, 'while this company is selected', 'with no connection, Messages says to connect for this company');
     await page.click('#tabs [data-tab="prospects"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
@@ -166,13 +195,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(cm, '—', 'an unknown base renders as a dash');
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
-    R.has(await text(page, '#payoutsBody'), 'pay it from your bank or payment tool', 'the payout tab says where money moves');
+    R.has(await text(page, '#payoutsBody'), 'Pay from your bank or payment tool', 'the payout tab says where money moves');
     // ── Share tab: the brand picks what affiliates see ──────────────────
     await page.click('#tabs [data-tab="share"]');
     await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     const sb = await text(page, '#shareBody');
     R.has(sb, 'Trail Hat', 'what is already shared is listed first');
-    R.has(sb, 'Mud season', 'live Ad Studio campaigns can be shared');
+    R.has(sb, 'Mud season', 'recent ads can be shared');
+    R.not(sb, 'All releases', 'a catalog template image is not offered as an ad');
+    R.not(sb, 'Text only', 'an ad with no picture is not offered');
+    R.ok('each recent ad shows its picture', await page.evaluate((p) => [...document.querySelectorAll('#shareBody img')].some((i) => i.getAttribute('src') === 'https://fixture.local/signed/' + p), AD_IMG));
+    R.ok('with several Shopify stores and no store address, Studio asks for the address', !!(await page.$('#shareBody #storeNeeded')));
     await page.click('#shareBody [data-act="feed-add"][data-kind="launch"]');
     await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_items' && q._op === 'insert'), null, { timeout: 5000 });
     const shared = await page.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').pop().rows);
@@ -181,6 +214,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(row?.product_path, '/collections/spring', 'a launch shares its store page as a path, never another site');
     R.eq(row?.event_on, '2099-03-01');
     R.ok('only the snapshot fields are shared', row && Object.keys(row).sort().join() === 'company_entity_id,event_on,image_url,kind,note,product_path,program_id,source_id,title');
+    await page.waitForFunction(() => document.querySelector('#shareBody [data-act="feed-add"][data-kind="ad"]'), null, { timeout: 5000 });
+    await page.click('#shareBody [data-act="feed-add"][data-kind="ad"]');
+    await page.waitForFunction(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').length >= 2, null, { timeout: 5000 });
+    const adRow = await page.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+    const ups = await page.evaluate(() => window.__UPLOADS__ || []);
+    R.ok('sharing an ad publishes exactly its picture to the public feed bucket', ups.some((u) => u.bucket === 'affiliate-feed-images' && u.path === `test-company/${'ab12'.repeat(16)}.jpg`));
+    R.eq(adRow?.image_url, `about:blank#test-company/${'ab12'.repeat(16)}.jpg`, 'and the shared ad carries that public picture');
+    R.eq(adRow?.note, 'Grip that holds.', 'with its copy, to repost');
+    R.eq(adRow?.product_path, '/products/mud-shoe');
     await page.click('#btnSettings');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     await page.close();
@@ -228,7 +270,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── staff page, as a member who cannot manage ─────────────────────────
     // Connected AI apps for this company are listed by name on Messages.
     const withAi = { ...tables, silo_api_grants: [
-      { id: 'g1', user_id: 'test-user', company_entity_id: CO, client_id: 'c-claude', scopes: ['data:read', 'outreach:send'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
+      { id: 'g1', user_id: 'test-user', company_entity_id: CO, client_id: 'c-claude', scopes: ['data:read', 'outreach:send', 'codes:create'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
       { id: 'g2', user_id: 'test-user', company_entity_id: CO, client_id: 'c-gpt', scopes: ['data:read'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
       { id: 'g3', user_id: 'test-user', company_entity_id: CO, client_id: 'c-old', scopes: ['outreach:send'], expires_at: '2099-01-01T00:00:00Z', revoked_at: '2026-11-01T00:00:00Z' },
     ] };
@@ -239,11 +281,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ai.click('#tabs [data-tab="outreach"]');
     await ai.waitForFunction(() => !!document.querySelector('#outreachBody .bcn-card'), null, { timeout: 5000 });
     const how = await text(ai, '#aiSendHow');
-    R.has(how, 'allowed to send', 'a connected app that may send is named');
+    R.has(how, 'sends approved messages', 'a connected app that may send is named');
     R.has(how, 'Claude', 'by its own name');
     R.not(how, 'ChatGPT', 'an app without the send permission is not listed as able to send');
     R.not(how, 'Old Bot', 'a removed connection is not listed');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn--ghost[href="../settings-connect-ai.html"]')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
+    await ai.click('#tabs [data-tab="affiliates"]');
+    await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
+    R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
+    R.has(await text(ai, '#aiCodesHow'), 'Claude', 'the AI that makes codes is named');
     await ai.close();
 
     const member = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: false, can_approve_affiliate_commissions: false } });
@@ -272,7 +318,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
-        { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
+        { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
+        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }],
+        links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
     });
@@ -309,8 +357,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
-    R.eq(await portal.$$eval('#body [data-copy]', (b) => b.map((x) => x.dataset.copy)).then((a) => a.length), 3, 'a copy button for the store link and each shared item');
-    R.has(fb, 'applies your code PAT10', 'the portal says the link carries the code');
+    R.ok('no element is built from a shared title', !(await portal.$('#body b')));
+    const copies = await portal.$$eval('#body [data-copy]', (b) => b.map((x) => x.dataset.copy));
+    R.eq(copies.length, 5, 'a copy button for the store link, each shared item, and the ad\'s caption');
+    R.ok('an ad\'s caption can be copied to repost', copies.includes('Grip that holds.'));
+    R.has(fb, 'Ads to repost', 'shared ads have their own section');
+    R.ok('a shared ad shows its picture, with a way to save it', !!(await portal.$('#body .af-media img[src="https://cdn.invalid/mud.jpg"]')) && !!(await portal.$('#body a[href="https://cdn.invalid/mud.jpg"][download]')));
+    R.has(fb, 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', 'a link to a store page is the code link');
+    R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(fb));
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
     await portal.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });
