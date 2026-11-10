@@ -17,6 +17,7 @@
 //   AFFILIATE_SEARCH_MUTATION=bodycompany  the company is taken from the request
 //   AFFILIATE_SEARCH_MUTATION=cooldown     the once-a-minute guard is skipped
 //   AFFILIATE_SEARCH_MUTATION=inactive     an inactive program is searched
+//   AFFILIATE_SEARCH_MUTATION=sourcescope  a new search is blocked by another search's run
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,6 +32,7 @@ const MUTS = {
   bodycompany: ["      .select('id, status').eq('id', programId).eq('company_entity_id', company).maybeSingle();", "      .select('id, status').eq('id', programId).eq('company_entity_id', body.company_entity_id || company).maybeSingle();"],
   cooldown: ['    if (lastAt && now().getTime() - lastAt < COOLDOWN_MS) {', '    if (false) {'],
   inactive: ["    if (program.status !== 'active') return", "    if (false) return"],
+  sourcescope: ["    if (sourceId) lq = lq.eq('source_id', sourceId);\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
 async function load() {
@@ -101,7 +103,7 @@ const seed = () => ({
     { id: PPAUSED, company_entity_id: CO_A, name: 'Paused', status: 'paused', niche: 'x', platforms: [], discovery_max_cost_usd: 0.5 },
   ],
   affiliate_prospect_sources: [
-    { id: 's1', company_entity_id: CO_A, program_id: PA, kind: 'serp_query', enabled: true, query: 'baseball drills youtube', max_results: 20 },
+    { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', company_entity_id: CO_A, program_id: PA, kind: 'serp_query', enabled: true, query: 'baseball drills youtube', max_results: 20 },
     { id: 's2', company_entity_id: CO_B, program_id: PB, kind: 'serp_query', enabled: true, query: 'golf', max_results: 20 },
     { id: 's3', company_entity_id: CO_A, program_id: PPAUSED, kind: 'serp_query', enabled: true, query: 'x', max_results: 20 },
   ],
@@ -173,6 +175,21 @@ await test('a second search within a minute is refused', async () => {
   assert.equal(s.searches.length, 1, 'a double click does not pay twice');
   t += COOLDOWN_MS;
   assert.equal((await s.call({ program_id: PA })).status, 200);
+});
+
+await test('a different search runs right away; the same one is refused as a double click', async () => {
+  let t = new Date('2026-11-10T12:00:00Z').getTime();
+  const s = setup({ clock: () => new Date(t) });
+  const S4 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  s.service.tables.affiliate_prospect_sources.push({ id: S4, company_entity_id: CO_A, program_id: PA, kind: 'serp_query', enabled: true, query: 'baseball mom', max_results: 20 });
+  assert.equal((await s.call({ program_id: PA, source_id: S4 })).status, 200);
+  assert.equal(s.searches.length, 1, 'only the new search ran');
+  assert.equal(s.searches[0].keyword.startsWith('baseball mom'), true);
+  t += 1_000;
+  const s1 = s.service.tables.affiliate_prospect_sources.find((x) => x.query === 'baseball drills youtube').id;
+  assert.equal((await s.call({ program_id: PA, source_id: s1 })).status, 200, 'another search is not blocked');
+  t += 1_000;
+  assert.equal((await s.call({ program_id: PA, source_id: S4 })).status, 429, 'the same search twice is a double click');
 });
 
 await test('without search credentials it answers 503 and searches nothing', async () => {

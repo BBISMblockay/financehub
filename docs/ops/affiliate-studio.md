@@ -48,7 +48,8 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    active.
 7. Adding a search runs it immediately (the `affiliate-discovery-run`
    function), and **Search now** runs every enabled search for the program
-   again, at most once a minute. The **Affiliate discovery** workflow still
+   again. Adding a search runs only that search; the same search (or the
+   same program's Search now) is refused again within 20 seconds, a double click. The **Affiliate discovery** workflow still
    refreshes every active program on Mondays 14:40 UTC; dispatch it with
    `dry_run: true` to print the plan without calling the provider.
    Every search is pinned to creator profiles: the words are sent with Google

@@ -4,6 +4,7 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 
 | When | Area | What was fixed |
 |------|------|----------------|
+| 2026-11-10 | Affiliate Studio | Adding a second search within a minute was refused ("A search just ran"). Adding a search now runs only that search, and only the same search again within 20 seconds is refused (double click). |
 | 2026-11-10 | Affiliate Studio | YouTube searches returned only video links (30 results, 0 creators): YouTube and TikTok searches are now pinned to profile pages (`/@handle`). |
 | 2026-11-10 | Affiliate Studio | Searches returned company sites instead of creators: the per-search Platform and the program's ticked platforms never reached the query. Each search is now pinned to creator platforms with `site:` filters; an empty result says so in plain words. |
 | 2026-11-10 | Marketing | **Affiliate Studio: Search now** (`supabase/functions/affiliate-discovery-run/`, `v2/affiliates/studio.js`, `scripts/lib/affiliate-discovery-core.mjs`; **1 function to deploy, 2 secrets to add**: `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` as Supabase function secrets). Adding a discovery search runs it right away, and a Search now button reruns the program's searches, instead of waiting for the Monday refresh. Same code and cost cap as the weekly run (verbatim copy of the core, pinned), gated as the caller's own Affiliate Studio company, once per program per minute. The core now uses `btoa` instead of `Buffer` so it runs in Deno. |
