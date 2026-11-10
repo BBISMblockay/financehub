@@ -297,6 +297,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await join.waitForFunction(() => /You are in/.test(document.body.textContent), null, { timeout: 5000 });
     const acc = calls.find((c) => c.action === 'accept');
     R.eq(acc?.terms_version, 3, 'acceptance sends the version that was on screen');
+    R.eq(acc?.platform_terms_version, 1, 'and the platform terms version');
+    R.ok('the platform terms are linked next to the program terms', !!(await join.$('a[href="/legal/affiliate-terms.html"]')));
     R.eq(acc?.signed_name, 'Pat Trails');
     await join.close();
 

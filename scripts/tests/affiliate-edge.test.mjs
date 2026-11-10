@@ -27,6 +27,7 @@
 //   AFFILIATE_EDGE_MUTATION=anylogo       the portal hands the page any stored logo address
 //   AFFILIATE_EDGE_MUTATION=nocodelink    an affiliate link does not carry the affiliate's code
 //   AFFILIATE_EDGE_MUTATION=offsitelink   an affiliate link may open a page on another site
+//   AFFILIATE_EDGE_MUTATION=oldplatform   an acceptance of an older platform terms version is recorded
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -47,6 +48,7 @@ async function load(fn, file) {
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
     nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;", "return `${store}${p}?${q}`;"],
     offsitelink: ['affiliate-portal', "const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';", "const p = path || '/';"],
+    oldplatform: ['affiliate-portal', "if (platformVersion !== null && platformVersion !== PLATFORM_TERMS_VERSION) {", 'if (false) {'],
     anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
   };
@@ -60,9 +62,9 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(path).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
-const { createPortalHandler, affiliateLink } = await load('affiliate-portal', 'handler.mjs');
+const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
 const { sha256hex } = await import(new URL('supabase/functions/affiliate-portal/affiliate-mail.mjs', ROOT));
 
@@ -246,6 +248,25 @@ await test('portal: no mail key still activates, and the skip is recorded', asyn
   assert.equal(body.status, 'active');
   assert.equal(body.confirmation_email, 'skipped');
   assert.match(svc.log.find((c) => c.table === 'affiliate_notifications').payload.reason, /RESEND_API_KEY/);
+});
+
+await test('portal: the platform terms version is recorded, an older one is refused, and the page and function agree on it', async () => {
+  const mk = () => fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_resolve: { data: [resolvedRow()], error: null },
+    affiliate_portal_accept_terms: { data: { status: 'active', terms_version: 2 }, error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } } });
+  const ok = mk();
+  await createPortalHandler({ service: ok, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, platform_terms_version: PLATFORM_TERMS_VERSION }));
+  assert.equal(ok.log.find((c) => c.name === 'affiliate_portal_accept_terms').args.p_acceptance.platform_terms_version, PLATFORM_TERMS_VERSION);
+  const old = mk();
+  const res = await createPortalHandler({ service: old, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, platform_terms_version: PLATFORM_TERMS_VERSION - 1 }));
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).code, 'terms_changed');
+  assert.ok(!old.log.some((c) => c.name === 'affiliate_portal_accept_terms'), 'nothing is accepted');
+  const page = await readFile(new URL('legal/affiliate-terms.html', ROOT), 'utf8');
+  assert.equal(Number(/name="silo-affiliate-platform-terms-version" content="(\d+)"/.exec(page)?.[1]), PLATFORM_TERMS_VERSION, 'the terms page carries the version the function records');
+  const join = await readFile(new URL('v2/affiliates/join.html', ROOT), 'utf8');
+  assert.equal(Number(/const PLATFORM_TERMS_VERSION = (\d+);/.exec(join)?.[1]), PLATFORM_TERMS_VERSION, 'the join page sends the same version');
 });
 
 await test('portal: changed terms are a 409 the page can act on', async () => {
