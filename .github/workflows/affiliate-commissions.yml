@@ -1,0 +1,41 @@
+name: Affiliate commissions
+
+# Affiliate Studio, nightly: for every active program, match the last 45 days
+# of orders to affiliates and accrue their commissions (the two idempotent
+# database steps behind Studio's "Update commissions"), then email any rep
+# whose code went live and has not heard yet. Logic:
+# scripts/lib/affiliate-commissions-core.mjs.
+#
+# No concurrency group: both steps are idempotent and each notice is claimed
+# once in the database, so an overlap costs nothing, while a dropped run
+# would leave commissions a day stale.
+#
+# 14:00 UTC: after the Shopify sync has landed the previous day's orders.
+# Nothing here moves money; payouts stay with a person in Studio.
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      program_id:
+        description: 'Only this affiliate_programs.id (blank = every active program)'
+        required: false
+        default: ''
+
+jobs:
+  commissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Update commissions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AFFILIATE_PROGRAM_ID: ${{ inputs.program_id || '' }}
+        run: node scripts/affiliate-commissions.mjs

@@ -9150,6 +9150,33 @@ select 'Affiliate portal sign-in' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate loop (20261110180000): joining queues a code for the company's AI,
+-- a code going live owes the rep one email (claimed once, service role only),
+-- and the nightly run may calculate commissions as the service role while
+-- every person keeps the company + manager gate.
+select 'Affiliate loop' as check_name,
+  case
+    when to_regprocedure('public.affiliate_claim_code_notices(uuid, integer)') is null
+      or to_regprocedure('public.affiliate_suggest_code(uuid, text, integer)') is null
+      or not exists (select 1 from pg_trigger where tgname = 'affiliates_queue_first_code' and tgrelid = 'public.affiliates'::regclass)
+      or not exists (select 1 from pg_trigger where tgname = 'affiliate_codes_stamp_live' and tgrelid = 'public.affiliate_codes'::regclass)
+      or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'default_discount_percent')
+      or position('service_role' in pg_get_functiondef('public.affiliate_accrue_commissions(uuid, date, date, uuid)'::regprocedure)) = 0
+      or position('service_role' in pg_get_functiondef('public.affiliate_resolve_attributions(uuid, date, date)'::regprocedure)) = 0
+      or position('affiliate_commissions' in pg_get_constraintdef((select oid from pg_constraint where conname = 'sync_jobs_job_type_check' and conrelid = 'public.sync_jobs'::regclass))) = 0
+      then 'MISSING — run 20261110180000_affiliate_loop.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_claim_code_notices(uuid, integer)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_suggest_code(uuid, text, integer)', 'execute'))
+      then 'BROKEN — a client role can claim code notices or call the code helper'
+    when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_accrue_commissions(uuid, date, date, uuid)'::regprocedure)) = 0
+      or position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_resolve_attributions(uuid, date, date)'::regprocedure)) = 0
+      then 'BROKEN — commission calculation lost its manager gate'
+    when position('live_noticed_at is null' in pg_get_functiondef('public.affiliate_claim_code_notices(uuid, integer)'::regprocedure)) = 0
+      then 'BROKEN — a live-code notice can be claimed twice'
+    else 'ok'
+  end as status;
+
 -- Affiliate codes created by the person's own AI (20261110160000): pending
 -- codes earn nothing and are handed out nowhere; the codes:create tools sit on
 -- the outreach fence; links never guess among several Shopify stores; ad

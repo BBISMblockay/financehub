@@ -69,6 +69,15 @@
 //   OUTREACH_MCP_MUTATION=signin-anon                the browser can look up affiliates by email
 //   OUTREACH_MCP_MUTATION=sales-ledger-basis         sales read a stale ledger base, not the order's current one
 //   OUTREACH_MCP_MUTATION=sales-other-affiliate      sales include another affiliate's orders
+//   OUTREACH_MCP_MUTATION=loop-no-service            the nightly run (service role) is refused by the gate
+//   OUTREACH_MCP_MUTATION=loop-service-for-all       the gate lets anyone calculate commissions
+//   OUTREACH_MCP_MUTATION=loop-requeue               an affiliate who already has a code gets another
+//   OUTREACH_MCP_MUTATION=loop-join-fails            a refused code insert stops the join
+//   OUTREACH_MCP_MUTATION=loop-claim-twice           a live notice can be claimed (sent) twice
+//   OUTREACH_MCP_MUTATION=loop-claim-public          a signed-in browser can claim live notices
+//   OUTREACH_MCP_MUTATION=loop-no-stamp              a code going live owes the rep nothing
+//   L  the loop (20261110180000): joining queues a code, going live owes one
+//      email claimed once, the nightly run may calculate as the service role
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -118,6 +127,8 @@ grant usage on schema auth to anon, authenticated, service_role, silo_integratio
 create table auth.users(id uuid primary key);
 create function auth.uid() returns uuid language sql stable as
   $$ select nullif(current_setting('test.uid', true), '')::uuid $$;
+create function auth.role() returns text language sql stable as
+  $$ select nullif(current_setting('test.role', true), '') $$;
 create table auth.oauth_clients(id uuid primary key, client_name text, deleted_at timestamptz);
 create function gen_random_uuid() returns uuid language sql as
   $$ select md5(random()::text || clock_timestamp()::text)::uuid $$;
@@ -226,6 +237,7 @@ const files = {
   feed: '20261110150000_affiliate_portal_feed.sql',
   codes: '20261110160000_affiliate_codes_via_ai.sql',
   signin: '20261110170000_affiliate_portal_signin.sql',
+  loop: '20261110180000_affiliate_loop.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -238,8 +250,23 @@ function mutate(from, to) {
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
+const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
 switch (MUT) {
   case '': break;
+  case 'loop-no-service':
+    loopMut("  if coalesce(auth.role()::text, '') <> 'service_role'\n     and (", '  if true and ('); break;
+  case 'loop-service-for-all':
+    loopMut("  if coalesce(auth.role()::text, '') <> 'service_role'\n     and (", '  if false and ('); break;
+  case 'loop-requeue':
+    loopMut("                and c.status in ('active', 'pending')) then\n    return null;", "                and false) then\n    return null;"); break;
+  case 'loop-join-fails':
+    loopMut('  exception when others then\n    raise warning', '  exception when division_by_zero then\n    raise warning'); break;
+  case 'loop-claim-twice':
+    loopMut('       and c.live_noticed_at is null\n', ''); break;
+  case 'loop-claim-public':
+    loopMut('grant execute on function public.affiliate_claim_code_notices(uuid, integer) to service_role;', 'grant execute on function public.affiliate_claim_code_notices(uuid, integer) to service_role, authenticated;'); break;
+  case 'loop-no-stamp':
+    loopMut("    new.live_notice_at := now();", '    null;'); break;
   case 'signin-no-limit':
     mutate("                and n.created_at > now() - interval '10 minutes') then", "                and false) then"); break;
   case 'signin-no-reserve':
@@ -1010,6 +1037,113 @@ await check('G1 no browser or anonymous role can call the tools or their helpers
 await check('G2 the tools are VOLATILE, or PostgREST runs them read-only', async () => {
   const r = await all(`select proname, provolatile from pg_proc where proname in ('silo_api_claim_outreach','silo_api_mark_outreach_sent','silo_api_codes_to_create','silo_api_mark_code_created') order by 1`);
   assert.deepEqual(r.map((x) => x.provolatile), ['v', 'v', 'v', 'v']);
+});
+
+// ── L: the loop (20261110180000), applied onto the data above ────────────
+await db.exec(`alter table sync_jobs drop constraint sync_jobs_job_type_check;
+  alter table sync_jobs add constraint sync_jobs_job_type_check check (job_type = any (array['shopify'::text, 'klaviyo'::text, 'affiliate_discovery'::text, 'windsor_sync'::text]));`);
+await db.exec(sql.loop);
+await db.exec(sql.loop);
+const loopAff = async (name, status = 'active', program = progA) => (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_accepted_at, terms_version_accepted)
+  values ($1,$2,$3,$4,$5, now(), 1) returning id`, [A, program, name, `${name.replace(/\W/g, '').toLowerCase()}${Math.random().toString(36).slice(2, 6)}@loop.test`, status])).id;
+const codesOf = (aff) => all('select code, status, discount_percent, starts_on::text as starts_on from affiliate_codes where affiliate_id = $1 order by created_at', [aff]);
+
+await check('L1 joining queues one code for the AI: first name + the program\'s % off, numbered when taken; never a second', async () => {
+  const pat = await loopAff('Pat Lee');
+  const c = await codesOf(pat);
+  assert.equal(c.length, 1);
+  assert.deepEqual([c[0].code, c[0].status, Number(c[0].discount_percent)], ['PAT10', 'pending', 10]);
+  const today = (await one(`select ((now() at time zone 'America/Los_Angeles')::date)::text as d`)).d;
+  assert.equal(c[0].starts_on, today, 'starts on the company\'s own day');
+  const pat2 = await loopAff('pat o\'brien');
+  assert.equal((await codesOf(pat2))[0].code, 'PAT10-2', 'the same first name gets a number, any case');
+  const inv = await loopAff('Quinn', 'invited');
+  assert.equal((await codesOf(inv)).length, 0, 'an invite has no code yet');
+  await db.query(`update affiliates set status = 'active' where id = $1`, [inv]);
+  assert.equal((await codesOf(inv))[0].code, 'QUINN10', 'accepting the terms queues it');
+  await db.query(`update affiliates set status = 'paused' where id = $1`, [inv]);
+  await db.query(`update affiliates set status = 'active' where id = $1`, [inv]);
+  assert.equal((await codesOf(inv)).length, 1, 'coming back from a pause queues no second code');
+  await db.query('update affiliate_programs set default_discount_percent = null where id = $1', [progA]);
+  const off = await loopAff('Robin');
+  assert.equal((await codesOf(off)).length, 0, 'blank % off: no automatic code');
+  await db.query('update affiliate_programs set default_discount_percent = 15 where id = $1', [progA]);
+  const bang = await loopAff('!!');
+  assert.equal((await codesOf(bang))[0]?.code, 'PARTNER15', 'a name with no letters still gets a code');
+  await db.query('update affiliate_programs set default_discount_percent = 10 where id = $1', [progA]);
+});
+
+await check('L2 a code that cannot be queued never stops the join', async () => {
+  await db.exec(`create function pg_temp_refuse() returns trigger language plpgsql as $$ begin raise exception 'refused'; end $$;
+    create trigger zz_refuse before insert on affiliate_codes for each row execute function pg_temp_refuse();`);
+  try {
+    const a = await loopAff('Sky');
+    assert.equal((await one('select status from affiliates where id = $1', [a])).status, 'active');
+    assert.equal((await codesOf(a)).length, 0);
+  } finally { await db.exec('drop trigger zz_refuse on affiliate_codes; drop function pg_temp_refuse();'); }
+});
+
+await check('L3 a code going live owes the rep one email, claimed exactly once, only while code and rep are live', async () => {
+  const claim = (code = null) => all('select code_id, code from public.affiliate_claim_code_notices($1)', [code]);
+  await claim();                                           // clear anything earlier checks made due
+  const a = await loopAff('Tess');
+  const [{ id }] = await all('select id from affiliate_codes where affiliate_id = $1', [a]);
+  assert.equal((await claim()).length, 0, 'pending: nothing owed yet');
+  await db.query(`update affiliate_codes set status = 'active' where id = $1`, [id]);
+  assert.ok((await one('select live_notice_at from affiliate_codes where id = $1', [id])).live_notice_at, 'going live stamps it');
+  const other = await loopAff('Uma');
+  const [{ id: id2 }] = await all('select id from affiliate_codes where affiliate_id = $1', [other]);
+  await db.query(`update affiliate_codes set status = 'active' where id = $1`, [id2]);
+  assert.deepEqual((await claim(id)).map((x) => x.code), ['TESS10'], 'scoped to the one code');
+  assert.equal((await claim(id)).length, 0, 'a second claim sends nothing');
+  await db.query(`update affiliates set status = 'paused' where id = $1`, [other]);
+  assert.equal((await claim()).length, 0, 'a paused rep is not mailed');
+  const direct = await one(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on, status)
+    values ($1,$2,$3,'HANDMADE1', current_date, 'active') returning live_notice_at`, [A, progA, kAff]);
+  assert.equal(direct.live_notice_at, null, 'a code a person typed in owes no automatic email');
+});
+
+await check('L4 the nightly run calculates as the service role; a person still needs the company and manager gate', async () => {
+  const run = async (fn) => db.query(`select public.${fn}($1, current_date - 45, current_date + 1) as r`, [progA]);
+  await db.exec(`select set_config('test.role', 'service_role', false), set_config('test.uid', '', false)`);
+  try {
+    assert.ok((await run('affiliate_resolve_attributions')).rows[0].r, 'service role resolves');
+    assert.ok((await run('affiliate_accrue_commissions')).rows[0].r, 'service role accrues');
+  } finally { await db.exec(`select set_config('test.role', '', false)`); }
+  await db.exec(`select set_config('test.role', 'authenticated', false), set_config('test.uid', '${U.memberA}', false)`);
+  try {
+    await assert.rejects(run('affiliate_accrue_commissions'), /not permitted/, 'a member is refused');
+    await assert.rejects(run('affiliate_resolve_attributions'), /not permitted/, 'a member is refused');
+  } finally { await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`); }
+  await assert.rejects(run('affiliate_accrue_commissions'), /not permitted/, 'no role and no person is refused');
+  await db.exec(`select set_config('test.role', 'authenticated', false), set_config('test.uid', '${U.ownerA}', false)`);
+  try { assert.ok((await run('affiliate_accrue_commissions')).rows[0].r, 'the owner in their own company still runs it'); }
+  finally { await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`); }
+});
+
+await check('L5 only the service role can claim notices; the helpers are no one\'s to call', async () => {
+  for (const role of ['anon', 'authenticated', 'silo_integration', 'silo_revoked']) {
+    for (const f of ['affiliate_claim_code_notices(uuid, integer)', 'affiliate_suggest_code(uuid, text, integer)', 'affiliate_queue_first_code()']) {
+      assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);
+    }
+  }
+  assert.equal((await one(`select has_function_privilege('service_role', 'public.affiliate_claim_code_notices(uuid, integer)', 'execute') as v`)).v, true);
+  assert.equal((await one(`select provolatile from pg_proc where proname = 'affiliate_claim_code_notices'`)).provolatile, 'v');
+});
+
+await check('L6 the nightly run can record itself, and every live sync type is kept (appended, not retyped)', async () => {
+  for (const t of ['affiliate_commissions', 'klaviyo', 'affiliate_discovery', 'windsor_sync']) {
+    await db.query(`insert into sync_jobs(company_entity_id, job_type, status) values ($1, $2, 'success')`, [A, t]);
+  }
+  await assert.rejects(db.query(`insert into sync_jobs(company_entity_id, job_type) values ($1, 'nope')`, [A]));
+});
+
+await check('L7 the verify check for the loop migration reads ok once it is applied', async () => {
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate loop'");
+  assert.ok(i > 0, 'verify_v2_schema has the check');
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
 });
 
 console.log(`\n${passed} checks passed${MUT ? ` (mutation ${MUT} did not fail -- the suite is not testing it)` : ''}`);

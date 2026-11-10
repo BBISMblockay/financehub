@@ -293,31 +293,47 @@ function renderKpis() {
   el.innerHTML = k('Programs', num(S.programs.length));
 }
 
-// ── Next step ────────────────────────────────────────────────────────────
-// One line under the header: the most useful thing to do now.
-function nextSteps() {
+// ── To do ────────────────────────────────────────────────────────────────
+// Everything waiting on a person, in one list. What runs by itself is said
+// once, under it: joining queues a code, your AI creates it, the rep is
+// emailed when it goes live, and commissions update every night.
+const HOW_IT_WORKS = 'You approve creators and messages. Your AI sends them and creates codes. Reps get their code by email when it goes live, and commissions update every night. You approve payouts.';
+function todoItems() {
   const d = S.d; const p = prog(); if (!d || !p) return [];
   const h = d.health || {};
-  const steps = [];
-  if (p.status !== 'active') steps.push({ text: `The program is ${p.status}. Set it to active in Settings to start finding and recruiting creators.`, tab: 'program' });
-  if (!p.terms_markdown) steps.push({ text: 'Write your program terms in Settings. Affiliates accept them to join.', tab: 'program' });
-  if (h.prospects_new) steps.push({ text: `${num(h.prospects_new)} creator(s) waiting for your review.`, tab: 'prospects' });
-  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, tab: 'outreach' });
-  if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
-  if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
+  const items = [];
+  const add = (n, text, tab, extra = '') => { if (n) items.push({ text, tab, extra }); };
+  add(p.status !== 'active', `The program is ${p.status}. Set it to active in Settings to start recruiting.`, 'program');
+  add(!p.terms_markdown, 'Write your program terms in Settings. Affiliates accept them to join.', 'program');
+  add(Number(h.prospects_new || 0), `${num(h.prospects_new)} creator(s) waiting for your review.`, 'prospects');
+  const drafts = d.drafts.filter((x) => x.state === 'draft').length;
+  add(drafts, `${num(drafts)} message(s) to approve.`, 'outreach');
+  add(Number(h.outreach_approved || 0), `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'ghost') : '');
+  add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
+  const pending = d.codes.filter((c) => c.status === 'pending').length;
+  add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'ghost') : '');
+  const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
+  const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
+  add(codeless, `${num(codeless)} affiliate(s) without a code. Add one.`, 'affiliates');
+  add(Number(h.codes_never_seen || 0), `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, 'affiliates');
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
-  if (unattributed) steps.push({ text: `${num(unattributed)} order(s) with an affiliate code were not credited. Open Pay → Commissions and orders.`, tab: 'payouts' });
-  if (!steps.length && !d.prospects.length) steps.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects' });
-  return steps;
+  add(unattributed, `${num(unattributed)} order(s) with an affiliate code were not credited. Open Pay → Commissions and orders.`, 'payouts');
+  const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
+  add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts');
+  const toApprove = d.payouts.filter((x) => x.status === 'draft').length;
+  add(MONEY && toApprove, `${num(toApprove)} payout(s) to approve.`, 'payouts');
+  if (!items.length && !d.prospects.length) items.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects', extra: '' });
+  return items;
 }
 function renderNextStep() {
   const el = $('nextStep'); if (!el) return;
-  const steps = nextSteps();
-  el.hidden = !steps.length;
-  if (!steps.length) return;
-  const head = steps.slice(0, 2);
-  const [first] = head;
-  el.innerHTML = `<strong>Next:</strong> ${esc(head.map((x) => x.text).join(' · '))}${first.tab !== S.tab ? ` <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="${first.tab}">Go</button>` : ''}`;
+  if (!S.d || !prog()) { el.hidden = true; return; }
+  const items = todoItems();
+  el.hidden = false;
+  const rows = items.map((x) => `<li class="af-todo-item"><span>${esc(x.text)}</span>${x.extra}${x.tab !== S.tab ? btn('Go', 'go-tab', { t: x.tab }, 'ghost') : ''}</li>`).join('');
+  el.innerHTML = `<div class="af-todo-head"><strong>To do</strong>${items.length ? ` <span class="af-muted">${num(items.length)}</span>` : ''}</div>`
+    + (rows ? `<ul class="af-todo">${rows}</ul>` : '<p class="af-muted af-todo-none">Nothing waiting on you.</p>')
+    + `<p class="af-muted af-todo-how">${esc(HOW_IT_WORKS)}</p>`;
 }
 function renderPipeline() {
   const el = $('afPipeline');
@@ -421,6 +437,9 @@ async function ensureProfiles() {
   if (!S.profiles.length) S.profiles = (await db.from('profiles').select('id, name, email').eq('is_active', true).order('name')).data || [];
 }
 
+// The automatic first code exists once 20261110180000 is applied (the
+// program rows then carry the column).
+const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));
 function renderProgram(isNew = S.creating) {
   const p = isNew ? {} : (prog() || {});
   const dis = MANAGE ? '' : 'disabled';
@@ -439,6 +458,7 @@ function renderProgram(isNew = S.creating) {
       ${field('Commission type', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of net order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed per order', p.commission_kind)}</select>`)}
       ${field('Percent', input('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`))}
       ${field('Fixed amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
+      ${hasAutoCode() ? field('Code % off for new affiliates (blank: no automatic code)', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
     </div>
     ${field(`Program terms${p.terms_version ? ` (version ${p.terms_version}; editing makes a new version)` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="6" ${dis} placeholder="What the affiliate agrees to: commission, how orders are credited, refunds, when and how you pay, what they may not do.">${esc(p.terms_markdown || '')}</textarea>`)}
     ${more('Advanced settings', [`<div class="af-grid">
@@ -485,6 +505,7 @@ function readProgramForm() {
     intake_mode: val('pIntake'), commission_kind: val('pKind'), commission_percent: val('pPct'), commission_fixed: val('pFixed'),
     currency: val('pCur'), default_code_starts_on: val('pStart'), default_code_ends_on: val('pEnd'),
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
+    ...(hasAutoCode() ? { default_discount_percent: val('pAutoPct') } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });
 }
@@ -754,7 +775,7 @@ function renderCommissions() {
   const openPeriods = d.periods.filter((x) => x.status === 'open');
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
   const commInner = [
-    card('Run', `${MANAGE ? `<div class="af-row">${btn('Update commissions', 'update-commissions', {}, 'primary')}</div>` : ''}<div id="runOut"></div>`),
+    card('Run', `<p class="af-muted">Commissions update every night.</p>${MANAGE ? more('Update now', [`<div class="af-row">${btn('Update commissions', 'update-commissions', {}, 'ghost')}</div>`]) : ''}<div id="runOut"></div>`),
     card('Dates and period', `<div class="af-row">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
       ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">the open period that contains each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
       ${MANAGE ? btn('Match orders only', 'resolve') + btn('Calculate only', 'accrue') : ''}</div>`),

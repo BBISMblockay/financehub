@@ -120,6 +120,16 @@ export function validateProgram(f) {
     owner_user_id: f.owner_user_id || null,
     terms_markdown: String(f.terms_markdown || '').trim() || null,
   };
+  // Percent off on the code queued when someone joins (blank = off). Only
+  // sent when the form carries it, so a database without the column
+  // (before 20261110180000) still saves.
+  if (f.default_discount_percent !== undefined) {
+    const d = String(f.default_discount_percent ?? '').trim();
+    row.default_discount_percent = d === '' ? null : Number(d);
+    if (row.default_discount_percent !== null && (!Number.isInteger(row.default_discount_percent) || row.default_discount_percent < 1 || row.default_discount_percent > 100)) {
+      errors.push('Code % off must be a whole number from 1 to 100, or blank for no automatic code.');
+    }
+  }
   if (!row.name) errors.push('Give the program a name.');
   if (!SLUG_RE.test(row.slug)) errors.push('The short name (slug) must be 3–40 lowercase letters, digits or dashes.');
   if (!/^[A-Z]{3}$/.test(currency)) errors.push('Currency must be a three-letter code such as USD.');
