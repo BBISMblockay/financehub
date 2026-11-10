@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createHandler } from './handler.mjs';
 import { runConnectionSync, syncOutcome } from './lib/ad-platforms-sync-core.mjs';
+import { clientSideReason } from './lib/ad-sync-client-errors.mjs';
 
 const url = Deno.env.get('SUPABASE_URL')!;
 const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
@@ -20,4 +21,5 @@ Deno.serve(createHandler({
   },
   runConnectionSync,
   syncOutcome,
+  clientSideReason,
 }));

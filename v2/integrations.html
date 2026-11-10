@@ -3147,6 +3147,10 @@
     async function syncAdConnection(id, btn) {
       const row = _adRows.find((r) => r.id === id);
       const label = AD_PLATFORM_LABELS[row?.platform] || 'connection';
+      // Restored, not assumed: this runs from the row's "Sync now" AND from
+      // "Retry sync now" on a failed-sync line, and hardcoding either label
+      // renames the other button.
+      const was = btn?.textContent;
       if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
       setStatus(`Syncing ${label}…`, 'info');
       try {
@@ -3169,7 +3173,13 @@
       } catch (err) {
         setStatus('✗ Sync failed: ' + err.message, 'neg', 8000);
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+      if (btn) { btn.disabled = false; btn.textContent = was || 'Sync now'; }
+      // Re-read the connection, whichever way it went: the run just rewrote
+      // meta.last_sync, and the failure line, the test pill and the Needs
+      // attention count are all drawn from it. Without this a retry that
+      // SUCCEEDS leaves "Last sync failed" on screen until a reload, which
+      // is the one moment the admin is watching the card.
+      await loadAdConnections();
     }
 
     // A failed test says what to DO where the answer is known.

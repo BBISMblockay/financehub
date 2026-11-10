@@ -98,8 +98,11 @@ export function planSyncRun(conn) {
  * @param deps.googleEnv      { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN }
  * @param deps.runConnectionSync  the shared sync core's function
  * @param deps.syncOutcome    the shared sync core's meta.last_sync builder
+ * @param deps.clientSideReason  the shared allowlist of failures the CLIENT owns
  */
-export function createHandler({ service, userClientFor, googleEnv, runConnectionSync, syncOutcome, now = () => new Date() }) {
+export function createHandler({
+  service, userClientFor, googleEnv, runConnectionSync, syncOutcome, clientSideReason, now = () => new Date(),
+}) {
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -194,7 +197,15 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
       });
     } catch (err) {
       const message = String(err?.message ?? err).slice(0, 500);
-      await stampOutcome({ last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message }) });
+      // The SAME allowlist the nightly uses (lib/ad-sync-client-errors.mjs, a
+      // verbatim copy). Without it a manual attempt stores an unclassified
+      // failure, the card offers Retry for an account that was cancelled or
+      // whose access was revoked -- a button that can only fail again -- and
+      // a manual run can downgrade a nightly failure that WAS classified.
+      const clientBlock = clientSideReason?.(message) ?? null;
+      await stampOutcome({
+        last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message, clientBlock }),
+      });
       return fail(message, 502);
     }
 

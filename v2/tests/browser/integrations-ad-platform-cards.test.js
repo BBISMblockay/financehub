@@ -28,6 +28,7 @@
  *   AD_CARDS_MUTATION=no-retry      the failure is shown with no way to run the sync again
  *   AD_CARDS_MUTATION=retry-blocked a failure only the client can fix is offered a retry anyway
  *   AD_CARDS_MUTATION=no-error-text the line says a sync failed but not what the provider said
+ *   AD_CARDS_MUTATION=no-reload     a retry that succeeds leaves the failure on screen
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -54,6 +55,7 @@ const MUTATIONS = {
   'no-retry': [['      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;', '      const canRetrySync = false;']],
   'retry-blocked': [['      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;', '      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform);']],
   'no-error-text': [["${escHtml(lastSync.error || 'No reason recorded.')}", '']],
+  'no-reload': [['      await loadAdConnections();\n    }\n\n    // A failed test says what to DO', '    }\n\n    // A failed test says what to DO']],
   'no-organic': [["      const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>", '      const organicRow = true ? \'\' : `<tr>']],
 };
 const MUT = process.env.AD_CARDS_MUTATION || '';
@@ -194,6 +196,29 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
     R.has(await bad.evaluate(() => document.querySelector('#tiktok_ads-connections-list')?.textContent || ''), 'Retry sync now');
     R.eq(await bad.evaluate(() => document.querySelectorAll('#tiktok_ads-connections-list tr[data-sync-failed]').length), 1);
     await bad.close();
+
+    // Retry, and the server says it worked: the warning has to go NOW. This
+    // is the one moment the admin is watching the card, and a line that
+    // outlives the failure teaches them to ignore it.
+    const retry = await suite.open('/v2/integrations.html', failing, { ready, rpc: { is_admin_user: true } });
+    await retry.route('**/functions/v1/ad-platform-sync-run', async (route) => {
+      // The server has just cleared the failure; the page must re-read it.
+      await retry.evaluate(() => {
+        window.__FIXTURE_TABLES__.ad_platform_connections[0].meta = { last_sync: { at: '2026-11-10T12:00:00Z', ok: true } };
+      });
+      await route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ ok: true, platform: 'tiktok_ads', kpi_rows_upserted: 12, window: { startDate: '2026-10-11', endDate: '2026-11-10' } }),
+      });
+    });
+    await retry.locator('#tiktok_ads-connections-list button', { hasText: 'Retry sync now' }).click();
+    await retry.waitForFunction(
+      () => !(document.querySelector('#tiktok_ads-connections-list')?.textContent || '').includes('Last sync failed'),
+      null, { timeout: 8000 },
+    ).catch(() => {});
+    R.not(await retry.evaluate(htmlOf, 'tiktok_ads'), 'Last sync failed',
+      'a retry that works clears the warning without a page reload');
+    await retry.close();
 
     // A failure the client owns: retrying cannot fix it, so it is not offered.
     const blocked = {
