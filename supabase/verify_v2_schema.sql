@@ -9143,6 +9143,9 @@ select 'Affiliate codes via AI' as check_name,
       then 'BROKEN — the consent screen cannot grant codes:create'
     when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_code_created(uuid,text)'))) = 0
       then 'BROKEN — two calls may both take a connection''s last free write'
+    when not exists (select 1 from pg_trigger where tgrelid = 'public.silo_api_writes'::regclass
+                      and tgname = 'silo_api_writes_cap_guard' and tgenabled <> 'D')
+      then 'BROKEN — the write cap is checked only inside each tool, so two tools at once can pass it'
     when not exists (select 1 from pg_constraint where conname = 'affiliate_codes_pending_has_discount')
       then 'BROKEN — a code waiting for Shopify may lack its discount'
     when position('affiliate_program_store_url' in pg_get_functiondef(to_regprocedure('public.affiliate_portal_feed(text)'))) = 0

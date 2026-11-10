@@ -56,6 +56,7 @@
 //   OUTREACH_MCP_MUTATION=codes-any-status           any code (not only a pending one) may be marked created
 //   OUTREACH_MCP_MUTATION=codes-no-cap               marking codes created ignores the daily write cap
 //   OUTREACH_MCP_MUTATION=codes-no-cap-lock          two calls may both take the last free write
+//   OUTREACH_MCP_MUTATION=cap-no-trigger             the cap is checked only inside each tool, not at the write
 //   OUTREACH_MCP_MUTATION=codes-pending-earns        the portal hands out a code still waiting for Shopify
 //   OUTREACH_MCP_MUTATION=codes-pending-no-reserve   a pending code does not reserve its dates
 //   OUTREACH_MCP_MUTATION=codes-store-oldest         with several Shopify stores the oldest one is guessed
@@ -240,6 +241,8 @@ switch (MUT) {
     mutate("  if v_c.status <> 'pending' then", '  if false then'); break;
   case 'codes-no-cap-lock':
     mutate("  perform pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || v_grant.id::text, 0));\n", ''); break;
+  case 'cap-no-trigger':
+    mutate("create trigger silo_api_writes_cap_guard\n  before insert on public.silo_api_writes\n  for each row execute function public.silo_api_writes_cap_guard();", 'select 1;'); break;
   case 'codes-no-cap':
     mutate('  if v_used >= public.silo_api_write_cap() then', '  if false then'); break;
   case 'codes-pending-earns':
@@ -324,7 +327,9 @@ switch (MUT) {
   case 'no-path':
     mutate("    '/rpc/silo_api_claim_outreach',\n", ''); break;
   case 'not-offered':
-    mutate("array['reports:read', 'data:read', 'work:write', 'outreach:send']", "array['reports:read', 'data:read', 'work:write']"); break;
+    mutate("array['reports:read', 'data:read', 'work:write', 'outreach:send']", "array['reports:read', 'data:read', 'work:write']");
+    // codes:create re-states the consent (the live version); drop it there too.
+    mutate("array['reports:read', 'data:read', 'work:write', 'outreach:send', 'codes:create']", "array['reports:read', 'data:read', 'work:write', 'codes:create']"); break;
   case 'plain-token':
     mutate("    encode(sha256(convert_to(v_raw, 'UTF8')), 'hex'),", '    v_raw,'); break;
   case 'authenticated':
@@ -856,6 +861,22 @@ await check('K9 marking a code created takes the connection\'s write lock before
   const lock = def.indexOf("pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || v_grant.id::text, 0))");
   assert.ok(lock > 0, 'the write lock is taken');
   assert.ok(lock < def.indexOf('from public.silo_api_writes w'), 'before the writes are counted');
+});
+
+await check('K10 the cap holds at the write itself, whichever tool writes', async () => {
+  // A second tool that counted before the first one wrote (the mixed-tool
+  // race) arrives here with its insert; the guard recounts under the lock.
+  const used = (await one('select count(*)::int as n from silo_api_writes where grant_id = $1', [G.send])).n;
+  const ins = () => db.query(`insert into silo_api_writes (company_entity_id, grant_id, user_id, via, kind) values ($1, $2, $3, 'app', 'task') returning id`, [A, G.send, U.mgrA]);
+  try {
+    await db.exec(`select set_config('test.cap', '${used}', false)`);
+    await assert.rejects(ins(), /write_cap_reached/, 'the write past the cap is refused');
+    await db.exec(`select set_config('test.cap', '${used + 1}', false)`);
+    const r = await ins();
+    await db.query('delete from silo_api_writes where id = $1', [r.rows[0].id]);
+  } finally { await db.exec(`select set_config('test.cap', '', false)`); }
+  const human = await db.query(`insert into silo_api_writes (company_entity_id, grant_id, user_id, via, kind) values ($1, null, $2, 'app', 'task') returning id`, [A, U.mgrA]);
+  await db.query('delete from silo_api_writes where id = $1', [human.rows[0].id]);
 });
 
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {

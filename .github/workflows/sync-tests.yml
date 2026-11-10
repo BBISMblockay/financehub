@@ -2581,7 +2581,7 @@ jobs:
       - name: The outreach:send guards, removed, must break it
         run: |
           set -u
-          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link logo-not-passed logo-any-folder logo-upload-any-folder logo-upload-any-member feed-any-member feed-other-program feed-signup-link feed-other-program-items feed-expired-codes feed-offsite-path codes-not-offered codes-no-path codes-any-status codes-no-cap codes-no-cap-lock codes-pending-earns codes-pending-no-reserve codes-store-oldest codes-no-scope feed-images-any-folder feed-images-any-member; do
+          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link logo-not-passed logo-any-folder logo-upload-any-folder logo-upload-any-member feed-any-member feed-other-program feed-signup-link feed-other-program-items feed-expired-codes feed-offsite-path codes-not-offered codes-no-path codes-any-status codes-no-cap codes-no-cap-lock cap-no-trigger codes-pending-earns codes-pending-no-reserve codes-store-oldest codes-no-scope feed-images-any-folder feed-images-any-member; do
             if OUTREACH_MCP_MUTATION="$m" node scripts/tests/affiliate-outreach-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

@@ -592,6 +592,48 @@ revoke all on function public.silo_api_mark_code_created(uuid, text)
   from public, anon, authenticated, silo_revoked;
 grant execute on function public.silo_api_mark_code_created(uuid, text) to silo_integration;
 
+-- ── 5b. One cap for every writer ──────────────────────────────────────────
+-- create_task, claim_outreach and mark_code_created each count the rolling
+-- day's writes before they write. Two of them running at once for the same
+-- connection could both see the last free write. This trigger is the one
+-- place they all pass through: it takes the connection's write lock (the same
+-- key mark_code_created takes) and recounts, so the cap holds whichever tools
+-- race. Writers keep their own early check for a friendly refusal.
+create or replace function public.silo_api_writes_cap_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_used integer;
+begin
+  if new.grant_id is null then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || new.grant_id::text, 0));
+  select count(*) into v_used
+    from public.silo_api_writes w
+   where w.grant_id = new.grant_id
+     and w.created_at > now() - interval '1 day';
+  if v_used >= public.silo_api_write_cap() then
+    raise exception 'write_cap_reached: this connection has used its % writes for today', public.silo_api_write_cap()
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+comment on function public.silo_api_writes_cap_guard() is
+  'BEFORE INSERT on silo_api_writes: serializes one connection''s writes on its write lock and refuses a write past silo_api_write_cap() in the rolling day, whichever tool (task, outreach claim, code created) writes it. 20261110160000.';
+
+revoke all on function public.silo_api_writes_cap_guard() from public, anon, authenticated, silo_integration, silo_revoked;
+
+drop trigger if exists silo_api_writes_cap_guard on public.silo_api_writes;
+create trigger silo_api_writes_cap_guard
+  before insert on public.silo_api_writes
+  for each row execute function public.silo_api_writes_cap_guard();
+
 -- ── 6. Images an affiliate may see ────────────────────────────────────────
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('affiliate-feed-images', 'affiliate-feed-images', true, 5242880,
