@@ -256,6 +256,16 @@ function personAvatar(person, size = 'lg') {
   const ch = (n ? n[0] : e ? e[0] : '?').toUpperCase();
   return `<span class="af-avatar" aria-hidden="true">${esc(ch)}</span>`;
 }
+function evidenceSummary(x, max = 160) {
+  const e = x?.evidence || {};
+  const t = String(e.snippet || e.note || e.pitch || e.title || '').trim().replace(/\s+/g, ' ');
+  if (!t) return 'No fit notes yet.';
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+function catalogStatBar(pct) {
+  const w = Math.max(8, Math.min(100, Number(pct) || 0));
+  return `<span class="af-catalog-bar" aria-hidden="true"><span class="af-catalog-bar-fill" style="width:${w}%"></span></span>`;
+}
 const btn = (label, act, data = {}, kind = 'surface', opts = {}) => {
   const mod = kind === 'surface' ? '' : ` bcn-btn--${kind}`;
   return `<button class="bcn-btn${mod}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}>${esc(label)}</button>`;
@@ -551,7 +561,7 @@ function renderProspects() {
     if (x.status === 'rejected') b.push(pill('rejected'));
     if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
     if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(btn('Signup link', 'signup-link', { id: x.id }));
-    if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'ghost', { confirm: true }));
+    if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const who = (x) => {
@@ -575,14 +585,41 @@ function renderProspects() {
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
   const filters = [['new', 'To review'], ['approved', 'Approved'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
-  const prospectCard = (x) => `<article class="af-item af-item--tile" role="listitem">
-      <div class="af-item-top"><div class="af-item-avatar-wrap">${personAvatar({ name: x.display_name, email: x.contact_email }, 'lg')}<span class="af-platform-tag">${esc(x.platform || 'creator')}</span></div>
-        <div class="af-item-main"><div class="af-item-head">${who(x)}</div></div>
+  const prospectCard = (x) => {
+    const f = followersFrom(x.evidence);
+    const followersVal = f ? num(f.count) : '—';
+    const reach = x.contact_email ? 92 : 18;
+    const title = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator');
+    const sub = `${x.platform || 'creator'}${x.handle ? ` · ${x.handle}` : ''}`;
+    const meta = x.contact_email ? esc(x.contact_email) : 'No public email yet';
+    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
+      <header class="af-catalog-head">
+        <div class="af-catalog-thumb">${personAvatar({ name: x.display_name, email: x.contact_email }, 'lg')}</div>
+        <div class="af-catalog-title">
+          <div class="af-catalog-name">${title}</div>
+          <div class="af-catalog-sub">${esc(sub)}</div>
+          <div class="af-catalog-meta">${meta}</div>
+        </div>
+        ${statusPill(x.status)}
+      </header>
+      <section class="af-catalog-summary">
+        <h3 class="af-catalog-summary-h">Summary</h3>
+        <p class="af-catalog-summary-p">${esc(evidenceSummary(x))}</p>
+      </section>
+      <div class="af-catalog-stats">
+        <div class="af-catalog-stat">
+          <span class="af-catalog-stat-lbl">Followers</span>
+          <span class="af-catalog-stat-val${f ? ' af-catalog-stat-val--up' : ''}">${f ? '<span class="af-catalog-up" aria-hidden="true">↑</span> ' : ''}${followersVal}</span>
+        </div>
+        <div class="af-catalog-stat af-catalog-stat--bar">
+          <span class="af-catalog-stat-lbl">Reach</span>
+          <span class="af-catalog-stat-barwrap">${catalogStatBar(reach)}<span class="af-catalog-stat-num">${x.contact_email ? 'Has email' : 'No email'}</span></span>
+        </div>
       </div>
-      <div class="af-item-metric">${followers(x)}</div>
-      <details class="af-item-more"><summary>Why they fit</summary><div class="af-item-detail">${provenance(x)}</div></details>
-      <div class="af-item-foot">${actions(x)}</div>
+      <details class="af-item-more af-catalog-more"><summary>Source details</summary><div class="af-item-detail">${provenance(x)}</div></details>
+      <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
+  };
   $('prospectsBody').innerHTML = [
     MANAGE ? card('Find creators', `
       <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`, '', 'af-card-hero') : '',
@@ -686,13 +723,33 @@ function renderAffiliates() {
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
     const linksBlock = linkRows.length ? `<details class="af-item-more"><summary>${num(linkRows.length)} link(s)</summary>${linkRows.map((u) => `<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(u)}</div>`).join('')}</details>` : '';
-    return `<article class="af-item af-item--tile" role="listitem">
-      <div class="af-item-top"><div class="af-item-avatar-wrap">${personAvatar({ name: a.display_name, email: a.contact_email }, 'lg')}<span class="af-platform-tag">affiliate</span></div>
-        <div class="af-item-main"><div class="af-item-head">${esc(a.display_name)} ${statusPill(a.status)}</div><div class="af-muted">${esc(a.contact_email)}</div><div class="af-muted">${esc(terms)}</div></div>
+    const codeCount = codesOf(a).filter((c) => c.status !== 'retired').length;
+    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
+      <header class="af-catalog-head">
+        <div class="af-catalog-thumb">${personAvatar({ name: a.display_name, email: a.contact_email }, 'lg')}</div>
+        <div class="af-catalog-title">
+          <div class="af-catalog-name">${esc(a.display_name)}</div>
+          <div class="af-catalog-sub">${esc(a.contact_email)}</div>
+          <div class="af-catalog-meta">${esc(terms)}</div>
+        </div>
+        ${statusPill(a.status)}
+      </header>
+      <section class="af-catalog-summary">
+        <h3 class="af-catalog-summary-h">Codes</h3>
+        <div class="af-codes">${codesHtml}</div>
+      </section>
+      <div class="af-catalog-stats">
+        <div class="af-catalog-stat">
+          <span class="af-catalog-stat-lbl">Live codes</span>
+          <span class="af-catalog-stat-val${codeCount ? ' af-catalog-stat-val--up' : ''}">${codeCount ? '<span class="af-catalog-up" aria-hidden="true">↑</span> ' : ''}${num(codeCount)}</span>
+        </div>
+        <div class="af-catalog-stat af-catalog-stat--bar">
+          <span class="af-catalog-stat-lbl">Links</span>
+          <span class="af-catalog-stat-barwrap">${catalogStatBar(linkRows.length ? 85 : 20)}<span class="af-catalog-stat-num">${num(linkRows.length)} link(s)</span></span>
+        </div>
       </div>
-      <div class="af-codes" style="margin:0 14px 4px;">${codesHtml}</div>
-      ${linksBlock ? `<div style="margin:0 14px;">${linksBlock}</div>` : ''}
-      <div class="af-item-foot">${actions(a)}</div>
+      ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
+      <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
     </article>`;
   };
   $('affiliatesBody').innerHTML = [
