@@ -2581,7 +2581,7 @@ jobs:
       - name: The outreach:send guards, removed, must break it
         run: |
           set -u
-          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined; do
+          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link; do
             if OUTREACH_MCP_MUTATION="$m" node scripts/tests/affiliate-outreach-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

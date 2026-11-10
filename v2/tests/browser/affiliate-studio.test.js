@@ -255,6 +255,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('terms are rendered as text: no element from the brand text', !(await join.evaluate(() => document.querySelector('.af-terms img'))))
     R.ok('nothing in the terms runs', !(await join.evaluate(() => window.__pwned)))
     R.ok('the affiliate page carries no SILO navigation', !(await join.$('.silo-sidebar, nav.silo-nav, #silo-app')))
+    const hero = await text(join, '#hero');
+    R.ok('the invitation names the brand and leads with the offer', /Join the .+ affiliate program/.test(hero) && /\S/.test(await text(join, '.af-offer-num')));
+    R.has(hero, 'Accept the terms', 'the three steps say what happens next');
     await join.fill('#signed', 'Pat Trails');
     await join.check('#agree');
     await join.click('#go');

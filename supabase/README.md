@@ -3240,6 +3240,12 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate outreach email button — `20261110130000_affiliate_outreach_email_button.sql`
+
+Apply after `20261110110000`. No deploy. Re-states `affiliate_outreach_html()`:
+table-based layout, the join button as an email-safe table cell, and the link
+always shown as text under it (Gmail dropped the first button).
+
 ## Affiliate follow-up outreach — `20261110120000_affiliate_followup_outreach.sql`
 
 Apply after `20261110093000`, then deploy `affiliate-invite`. A second approved
