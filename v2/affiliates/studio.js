@@ -525,9 +525,11 @@ async function publishAdImage(path) {
 }
 
 // Which of your AI apps can create codes in Shopify for this company.
+// What the person pastes into their own AI (or sets as a daily task there).
+const CODES_PROMPT = 'Using SILO, create every affiliate code waiting for Shopify in my Shopify store, then mark each one created in SILO.';
 function aiCodesBlock(apps) {
   const can = [...new Set((apps || []).filter((a) => a.canCode).map((a) => a.name))];
-  if (can.length) return `<p class="af-muted" id="aiCodesHow">${can.map((n) => pill(n, 'pos')).join(' ')} creates new codes in Shopify for you. Ask it to “create my SILO affiliate codes”.</p>`;
+  if (can.length) return `<div class="af-row" id="aiCodesHow"><span class="af-muted">${can.map((n) => pill(n, 'pos')).join(' ')} makes your codes in Shopify.</span>${btn('Copy prompt for your AI', 'copy-codes-prompt')}</div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
@@ -940,6 +942,10 @@ const A = {
     const seen = new Set();
     S.share.products = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle)).slice(0, 30);
     renderShare();
+  },
+  'copy-codes-prompt': async () => {
+    try { await navigator.clipboard.writeText(CODES_PROMPT); } catch { setStatus(CODES_PROMPT, 'info'); return null; }
+    return 'Copied. Paste it into your AI, or set it as a daily task there.';
   },
   'code-retire': async ({ id }) => { const was = S.d.codes.find((c) => c.id === id)?.status; await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id }); return was === 'pending' ? 'Code cancelled.' : 'Code retired.'; },
   'link-add': async () => {

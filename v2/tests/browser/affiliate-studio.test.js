@@ -290,6 +290,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
     R.has(await text(ai, '#aiCodesHow'), 'Claude', 'the AI that makes codes is named');
+    await ai.evaluate(() => { window.__COPIED__ = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__COPIED__ = t; } } }); });
+    await ai.click('#aiCodesHow [data-act="copy-codes-prompt"]');
+    await ai.waitForFunction(() => window.__COPIED__ !== null, null, { timeout: 5000 });
+    R.has(await ai.evaluate(() => window.__COPIED__), 'mark each one created in SILO', 'one click copies the prompt for their AI');
     await ai.close();
 
     const member = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: false, can_approve_affiliate_commissions: false } });
