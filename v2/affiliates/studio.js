@@ -311,10 +311,10 @@ function todoItems() {
   add(Number(h.prospects_new || 0), `${num(h.prospects_new)} creator(s) waiting for your review.`, 'prospects');
   const drafts = d.drafts.filter((x) => x.state === 'draft').length;
   add(drafts, `${num(drafts)} message(s) to approve.`, 'outreach');
-  add(Number(h.outreach_approved || 0), `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'ghost') : '');
+  add(Number(h.outreach_approved || 0), `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'surface') : '');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
-  add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'ghost') : '');
+  add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
   const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
   const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
   add(codeless, `${num(codeless)} affiliate(s) without a code. Add one.`, 'affiliates');
@@ -333,10 +333,14 @@ function renderNextStep() {
   if (!S.d || !prog()) { el.hidden = true; return; }
   const items = todoItems();
   el.hidden = false;
-  const rows = items.map((x) => `<li class="af-todo-item"><span>${esc(x.text)}</span>${x.extra}${x.tab !== S.tab ? btn('Go', 'go-tab', { t: x.tab }, 'ghost') : ''}</li>`).join('');
-  el.innerHTML = `<div class="af-todo-head"><strong>To do</strong>${items.length ? ` <span class="af-muted">${num(items.length)}</span>` : ''}</div>`
+  const tabLabel = { program: 'Settings', prospects: 'Find', outreach: 'Messages', affiliates: 'Affiliates', share: 'Share', payouts: 'Pay' };
+  const rows = items.map((x, i) => {
+    const go = x.tab !== S.tab ? btn(`Go to ${tabLabel[x.tab] || x.tab}`, 'go-tab', { t: x.tab }, i === 0 ? 'primary' : 'surface') : '';
+    return `<li class="af-todo-item"><span class="af-todo-text">${esc(x.text)}</span><div class="af-todo-acts">${x.extra || ''}${go}</div></li>`;
+  }).join('');
+  el.innerHTML = `<header class="af-todo-head"><h2 class="af-todo-title">To do</h2>${items.length ? pill(String(items.length), 'accent') : ''}</header>`
     + (rows ? `<ul class="af-todo">${rows}</ul>` : '<p class="af-muted af-todo-none">Nothing waiting on you.</p>')
-    + `<p class="af-muted af-todo-how">${esc(HOW_IT_WORKS)}</p>`;
+    + `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
 }
 function renderPipeline() {
   const el = $('afPipeline');
