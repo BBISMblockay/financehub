@@ -6,7 +6,7 @@
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
-  linkUrl, applyUrl, stageLabels, safeHref,
+  linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -204,7 +204,7 @@ function renderOverview() {
   const steps = [];
   if (p.status !== 'active') steps.push(`The program is <strong>${esc(p.status)}</strong>. Discovery, approving outreach, joining and applying all wait until it is active.`);
   if (!p.terms_markdown) steps.push('Write the program terms on the Program tab. Affiliates read and accept them to join.');
-  if (!d.sources.length) steps.push('Add a search on the Prospects tab so the weekly discovery run has something to look for.');
+  if (!d.sources.length) steps.push('Add a search on the Prospects tab so SILO knows what kind of creators to look for.');
   if (h.prospects_new) steps.push(`${num(h.prospects_new)} new prospect(s) are waiting for review on the Prospects tab.`);
   if (h.outreach_approved) steps.push(`${num(h.outreach_approved)} approved message(s) are ready to export on the Outreach tab.`);
   if (h.outreach_exported) steps.push(`${num(h.outreach_exported)} exported message(s) have not been marked sent.`);
@@ -274,10 +274,9 @@ function renderProgram(isNew = S.creating) {
       ${field('Several codes on one order', `<select class="bcn-field" id="pPrec" ${dis}>${o('first_affiliate_code', 'Credit the one affiliate code', p.code_precedence ?? 'first_affiliate_code')}${o('single_code_only', 'Do not credit', p.code_precedence)}</select>`)}
       ${field('Refund hold (days)', input('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`))}
       ${field('Payout minimum', input('pMin', `${dis} inputmode="decimal" value="${esc(major(p.payout_minimum_cents))}"`))}
-      ${field('Discovery spend cap per run (USD)', input('pCap', `${dis} type="number" step="0.01" min="0" max="25" value="${esc(p.discovery_max_cost_usd ?? 0.5)}"`))}
     </div>
     ${field(`Program terms${p.terms_version ? ` (version ${p.terms_version}; editing the text makes a new version)` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="10" ${dis} placeholder="What the affiliate agrees to: commission, how orders are credited, refunds, when and how you pay, what they may not do.">${esc(p.terms_markdown || '')}</textarea>`)}
-    <p class="af-muted">Payouts are made by hand: SILO builds and approves them and you pay in your own system. Stripe Connect payouts are not built yet.</p>
+    <p class="af-muted">You pay affiliates from your own bank or payment tool, then record the payment here.</p>
     ${MANAGE ? `<div class="af-row">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new') : ''}</div>` : ''}`;
   let extra = '';
   if (!isNew && p.id) {
@@ -310,7 +309,7 @@ function readProgramForm() {
     intake_mode: val('pIntake'), commission_kind: val('pKind'), commission_percent: val('pPct'), commission_fixed: val('pFixed'),
     currency: val('pCur'), default_code_starts_on: val('pStart'), default_code_ends_on: val('pEnd'),
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
-    payout_minimum: val('pMin'), discovery_max_cost_usd: val('pCap'), terms_markdown: $('pTerms').value,
+    payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });
 }
 
@@ -352,32 +351,30 @@ function renderProspects() {
         { h: 'Fit', num: true, f: (x) => (x.confidence === null ? '—' : `${Math.round(x.confidence * 100)}%<div class="af-muted" style="text-align:right;max-width:200px;white-space:normal;">${esc(x.confidence_basis)}</div>`) },
         { h: 'Status', f: (x) => statusPill(x.status) }, { h: '', f: actions },
       ], list, 'No prospects in this state.')}
-      <p class="af-muted">Fit is a score from the search result alone (platform, niche words, a stated contact). SILO does not read follower counts or engagement, so it never shows them.</p>
+      <p class="af-muted">Fit is scored from the search result: platform, niche words and a published contact.</p>
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     MANAGE ? card('Add a prospect by hand', `<div class="af-grid">
       ${field('Name', input('mpName'))}${field('Platform', `<select class="bcn-field" id="mpPlat">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select>`)}
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email (only one they published or gave you)', input('mpEmail', 'type="email"'))}${field('Where you found them (URL)', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
-    card('Discovery searches', `<p class="af-muted">Runs weekly (Mondays) and on demand from GitHub Actions. Each search is one paid public-search request, capped at ${formatMoney(Math.round(Number(p.discovery_max_cost_usd) * 100), 'USD')} per run for this program. Only search results are read; SILO does not visit or scrape the profiles.</p>
+    card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week.</p>
       ${table([
-        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · location ${esc(s.location_code ?? '—')} · ${esc(s.language_code || '—')}</div>` },
+        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
         { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(s.last_error)}</div>` : ''}` },
-        { h: 'Last cost', num: true, f: (s) => (s.last_run_cost === null ? '—' : `$${Number(s.last_run_cost).toFixed(4)}`) },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">any</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'].map((x) => `<option>${x}</option>`).join('')}</select>`)}${field('Location code', input('srcLoc', 'type="number" value="2840" title="DataForSEO location code; 2840 is the United States"'))}${field('Language', input('srcLang', 'value="en" maxlength="5"'))}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">any</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'].map((x) => `<option>${x}</option>`).join('')}</select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
       { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill('live', 'accent')) },
       { h: 'Results', num: true, f: (r) => num(r.results_returned) }, { h: 'Profiles', num: true, f: (r) => num(r.profiles_recognized) },
       { h: 'New', num: true, f: (r) => num(r.prospects_new) }, { h: 'Emails stated', num: true, f: (r) => num(r.emails_found) },
       { h: 'Skipped (opted out)', num: true, f: (r) => num(r.suppressed_skipped) },
-      { h: 'Cost', num: true, f: (r) => (r.cost_usd === null ? '—' : `$${Number(r.cost_usd).toFixed(4)}`) },
       { h: 'Result', f: (r) => `${statusPill(r.status)}${r.error ? `<div class="af-muted">${esc(r.error)}</div>` : ''}` },
-    ], runs, 'Discovery has not run for this program yet.'), 'cost is what the search provider reported'),
-    card('Do-not-contact list', `<p class="af-muted">Applies to every program in this company. Anyone can add to it; only Affiliate Studio managers can remove an entry. Nobody on it can be approved for outreach, invited, or apply.</p>
+    ], runs, 'Discovery has not run for this program yet.')),
+    card('Do-not-contact list', `<p class="af-muted">People on this list are never contacted, invited or accepted, in any program.</p>
       ${table([{ h: 'Type', f: (s) => esc(s.kind) }, { h: 'Value', f: (s) => `<span class="af-mono">${esc(s.value_normalized)}</span>` }, { h: 'Reason', f: (s) => esc(s.reason) }, { h: 'Added', f: (s) => fmtDate(s.created_at) }, { h: '', f: (s) => (MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'ghost', { confirm: true }) : '') }], d.suppressions, 'Nobody is on the list.')}
       <div class="af-row" style="margin-top:8px;">${field('Type', '<select class="bcn-field" id="supKind"><option>email</option><option>domain</option><option>handle</option><option value="profile_url">profile URL</option></select>')}${field('Value', input('supVal'))}${field('Reason', '<select class="bcn-field" id="supReason"><option value="opted_out">asked not to be contacted</option><option value="bounced">bounced</option><option value="complained">complained</option><option value="competitor">competitor</option><option value="do_not_contact">do not contact</option><option value="manual">other</option></select>')}${btn('Add', 'suppression-add')}</div>`),
   ].join('');
@@ -391,14 +388,14 @@ function renderOutreach() {
   const msg = (x) => `<div class="af-evidence"><strong>${esc(x.subject)}</strong><br>${esc(String(x.body || '').slice(0, 220))}${String(x.body || '').length > 220 ? '…' : ''}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
   $('outreachBody').innerHTML = [
-    card('How outreach works', '<p>SILO never emails a prospect. You approve each message, export the approved ones with their personal signup links, send them from your own inbox or DMs, then mark each one sent and say where (a sent-folder link or a screenshot reference). Approved, exported and sent are recorded separately, by name.</p>'),
+    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p>'),
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     card('Drafts', table([
       { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
       { h: '', f: (x) => (MANAGE ? `<div class="af-actions">${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}</div>` : '') },
     ], byState('draft'), 'No drafts. Approve prospects, then use “Draft message”.'), `${byState('draft').length}`),
     card('Approved, not yet exported', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
-      ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each export creates a personal signup link (valid 14 days) per person with an email address and downloads a spreadsheet. The links are only in that file; if it is lost, make a new link from the Prospects tab.</p>` : ''}`),
+      ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each person gets a personal signup link, valid for 14 days. Lost the file? Make a new link from the Prospects tab.</p>` : ''}`),
     card('Exported, waiting to be marked sent', table([
       { h: 'To', f: who }, { h: 'Exported', f: (x) => fmtTime(x.exported_at) },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
@@ -438,10 +435,10 @@ function renderAffiliates() {
       { h: 'Links', f: (a) => linksOf(a).map((l) => `<span class="af-mono af-copy">${esc(linkUrl(l) || l.destination_url)}</span>`).join('<br>') || '—' },
       { h: '', f: actions },
     ], d.affiliates, 'No affiliates yet. They appear here when someone you invite opens their signup link.')}<div id="affOut"></div>`),
-    MANAGE ? card('Give an affiliate a code', `<p class="af-muted">The code must already exist in Shopify as a discount code; SILO does not create or change discounts. Orders are credited when the code appears on them, between these dates (plus ${num(p.attribution_window_days)} grace days).</p>
+    MANAGE ? card('Give an affiliate a code', `<p class="af-muted">Use a discount code that already exists in Shopify. Orders with the code between these dates are credited.</p>
       <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}${field('Code (exactly as in Shopify)', input('cCode', 'class="bcn-field bcn-field--mono"'))}${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends (blank = open)', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${btn('Add code', 'code-add', {}, 'primary')}</div>
       ${table([{ h: 'Code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` }, { h: 'Affiliate', f: (c) => esc(d.affById[c.affiliate_id]?.display_name) }, { h: 'Dates', f: (c) => `${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}` }, { h: 'First seen', f: (c) => (c.verified_at ? `${fmtDate(c.verified_at)}<div class="af-muted">order ${esc(c.first_seen_order_id)}</div>` : '<span class="af-muted">never</span>') }, { h: '', f: (c) => (c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : pill('retired')) }], d.codes, 'No codes yet.')}`) : '',
-    MANAGE ? card('Give an affiliate a link', `<p class="af-muted">A link is a page on your site with UTM tags, so visits show up in your analytics. SILO does not count clicks and does not pay on links: commission comes from codes on orders.</p>
+    MANAGE ? card('Give an affiliate a link', `<p class="af-muted">A tagged link to your site, so visits show up in your analytics. Commission comes from codes.</p>
       <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="lAff">${affOpts}</select>`)}${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}</div>`) : '',
   ].join('');
 }
@@ -454,7 +451,7 @@ function renderCommissions() {
   const openPeriods = d.periods.filter((x) => x.status === 'open');
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
   $('commissionsBody').innerHTML = [
-    card('Match orders and calculate', `<p class="af-muted">Step 1 reads synced Shopify orders for the dates and records, per order, whether an affiliate code earns and why not if not. Step 2 writes the commission for each earning order into the ledger, and later corrections (a refund, a changed rate) as new lines; nothing is ever overwritten. Run both after each order sync; re-running is safe.</p>
+    card('Match orders and calculate', `<p class="af-muted">Step 1 finds orders with affiliate codes. Step 2 calculates commission. Refunds are corrected automatically. Safe to run again.</p>
       <div class="af-row">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
       ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">the open period that contains each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
       ${MANAGE ? btn('1. Match orders', 'resolve') + btn('2. Calculate commissions', 'accrue', {}, 'primary') : ''}</div><div id="runOut"></div>`),
@@ -473,7 +470,7 @@ function renderCommissions() {
       { h: 'Decision', f: (r) => (BASIS_LABELS[r.basis]?.earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))) },
       { h: 'Base', num: true, f: (r) => formatMoney(r.commissionable_cents, r.order_currency) },
     ], d.attributions, 'No orders matched yet. Run step 1.'), 'latest 300'),
-    card('Review periods', `<p class="af-muted">A period groups commission lines for review. Lines in a period cannot be paid until someone who can approve journal entries approves it.</p>
+    card('Review periods', `<p class="af-muted">Group commissions for review. They can be paid once the period is approved.</p>
       ${table([
         { h: 'Period', f: (x) => `${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}` }, { h: 'Status', f: (x) => statusPill(x.status) },
         // From the database, not the 300 newest ledger lines the page holds.
@@ -509,8 +506,7 @@ function renderPayouts() {
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
   $('payoutsBody').innerHTML = [
-    card('How payouts work', `<p><strong>SILO moves no money.</strong> Build a payout from what an affiliate has earned, have someone who can approve journal entries approve it, export it, pay it in your bank or payment tool, then record the payment reference here. Earnings wait ${num(p.refund_hold_days)} days after the order (the refund hold) before they can be paid. A refund found after a payout shows as a negative balance and comes off the next one.</p>
-      <p class="af-muted">Stripe Connect payouts to affiliates are designed but not built: it needs a decision on which account funds transfers and how tax forms are handled. Until then, every payout is a manual handoff.</p>`),
+    card('How payouts work', `<p>Build a payout, get it approved, export it, pay it from your bank or payment tool, then record the payment reference. Earnings become payable ${num(p.refund_hold_days)} days after the order.</p>`),
     card('Balances', table([
       { h: 'Affiliate', f: (r) => esc(r.a?.display_name || '—') }, { h: 'Currency', f: (r) => `<span class="af-mono">${esc(r.currency)}</span>` },
       { h: 'Earned', num: true, f: (r) => formatMoney(r.earned_cents, r.currency) }, { h: 'Refund corrections', num: true, f: (r) => formatMoney(r.refund_adjustment_cents, r.currency) },
@@ -627,7 +623,7 @@ const A = {
   'draft-approve': async ({ id }) => { await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id, state: 'draft' }); return 'Approved.'; },
   'draft-sent': async ({ id }) => {
     const ev = val(`ev-${id}`);
-    if (!ev) throw new Error('Say where it was sent from (a sent-folder link, or a DM screenshot reference). SILO did not send it, so this is the record.');
+    if (!ev) throw new Error('Say where it was sent from, such as a sent-folder link.');
     await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: ev }, { id, state: 'exported' });
     return 'Marked sent.';
   },
