@@ -19654,4 +19654,7 @@ $c$select (select count(*) from v_po_header_summary
 -- Outreach email button (20261110130000): the join button is an email-safe
 -- table cell with the link also shown as text under it. No deploy.
 \i migrations/20261110130000_affiliate_outreach_email_button.sql
+-- Company logo (20261110140000): logo upload in Settings -> Company, shown in
+-- affiliate outreach email. Deploy affiliate-portal for the join and portal pages.
+\i migrations/20261110140000_company_logo.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

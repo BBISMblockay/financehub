@@ -3240,6 +3240,16 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Company logo — `20261110140000_company_logo.sql`
+
+Apply after `20261110130000`, then deploy `affiliate-portal`. Adds
+`company_settings.logo_url` and a public `company-logos` bucket (PNG, JPEG,
+WebP; 1 MB). Owners upload in Settings → Company; writes are limited to an
+owner of the active company, in that company's own folder, and a CHECK holds
+the stored address to that folder. The outreach email (`affiliate_outreach_html`,
+now with a 4th logo argument) and the affiliate join and portal pages show the
+logo in place of the initial badge; without one, nothing changes.
+
 ## Affiliate outreach email button — `20261110130000_affiliate_outreach_email_button.sql`
 
 Apply after `20261110110000`. No deploy. Re-states `affiliate_outreach_html()`:

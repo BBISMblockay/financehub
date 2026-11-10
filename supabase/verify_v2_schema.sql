@@ -9092,13 +9092,43 @@ select 'Affiliate outreach HTML' as check_name,
     when to_regprocedure('public.affiliate_outreach_html(text, text, text)') is null
       or position('affiliate_outreach_html' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
       then 'MISSING — run 20261110110000_affiliate_outreach_html.sql'
-    when position('Or open this link:' in pg_get_functiondef('public.affiliate_outreach_html(text, text, text)'::regprocedure)) = 0
+    when position('Or open this link:' in public.affiliate_outreach_html('x', 'y', 'https://get-silo.com/v2/affiliates/join.html?t=a')) = 0
       then 'MISSING — run 20261110130000_affiliate_outreach_email_button.sql (the email has no visible link under the button)'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text)', 'execute'))
       then 'BROKEN — a client role can call affiliate_outreach_html'
     when position('<script>' in public.affiliate_outreach_html('x', '<script>{signup_link}', 'https://get-silo.com/v2/affiliates/join.html?t=a')) > 0
       then 'CRITICAL — affiliate_outreach_html does not escape the draft'
+    else 'ok'
+  end as status;
+
+-- Company logo (20261110140000): owners upload a logo in Settings -> Company;
+-- the stored address is held to this company's folder of a public
+-- company-logos bucket on a Supabase host, and the outreach email uses it.
+select 'Company logo' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'company_settings' and column_name = 'logo_url')
+      or not exists (select 1 from storage.buckets where id = 'company-logos')
+      or to_regprocedure('public.affiliate_outreach_html(text, text, text, text)') is null
+      then 'MISSING — run 20261110140000_company_logo.sql'
+    when not exists (select 1 from pg_constraint where conname = 'company_settings_logo_url_check')
+      then 'BROKEN — company_settings.logo_url has no address check'
+    when exists (select 1 from storage.buckets where id = 'company-logos'
+                  and (not public or 'image/svg+xml' = any(coalesce(allowed_mime_types, array[]::text[])) or allowed_mime_types is null))
+      then 'BROKEN — the company-logos bucket is not public, or accepts SVG or any type'
+    when (select count(*) from pg_policy where polrelid = 'storage.objects'::regclass
+           and polname in ('company_logos_owner_insert', 'company_logos_owner_update', 'company_logos_owner_delete')
+           and position('is_owner_admin_of_active_company' in coalesce(pg_get_expr(polwithcheck, polrelid), pg_get_expr(polqual, polrelid))) > 0
+           and position('active_company_id' in coalesce(pg_get_expr(polwithcheck, polrelid), pg_get_expr(polqual, polrelid))) > 0) <> 3
+      then 'BROKEN — company-logos writes are not limited to owners of the active company, in its own folder'
+    when position('v_logo' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110140000_company_logo.sql (outreach does not pass the logo)'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text, text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_outreach_html'
+    when position('<img' in public.affiliate_outreach_html('x', 'y', 'https://a.test/j', 'https://evil.test/p.png')) > 0
+      then 'CRITICAL — the outreach email accepts a logo from any address'
     else 'ok'
   end as status;
 

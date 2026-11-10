@@ -23,18 +23,21 @@
     .af-form { display: flex; flex-direction: column; gap: 10px; }
     .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
     .af-scroll { overflow-x: auto; }
+    .af-brand { display: flex; align-items: center; gap: 12px; }
+    .af-logo { height: 36px; width: auto; max-width: 180px; object-fit: contain; border-radius: 8px; display: block; }
+    .af-badge { width: 32px; height: 32px; border-radius: 8px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; flex: none; }
   </style>
 </head>
 <body class="silo-brand">
 <main class="af-wrap">
-  <header class="bcn-header"><div class="bcn-header-title"><h1 id="title">Affiliate portal</h1></div></header>
+  <header class="bcn-header"><div class="bcn-header-title af-brand"><span id="mark"></span><h1 id="title">Affiliate portal</h1></div></header>
   <div class="bcn-status" id="status" hidden></div>
   <div class="bcn-kpi-band" id="kpis" hidden></div>
   <div id="body"><div class="bcn-card"><div class="bcn-card-body">Loading…</div></div></div>
   <p class="af-muted">Earnings are from orders that used your code, net of discounts and refunds, excluding tax and shipping. Run by the brand using SILO. Your link is personal; please do not share it.</p>
 </main>
 <script type="module">
-import { $, esc, call, setStatus, takeToken } from './public.js';
+import { $, esc, call, setStatus, takeToken, brandMark, wireBrandMark } from './public.js';
 import { formatMoney } from './studio-core.js';
 const token = takeToken('silo_affiliate_portal');
 const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
@@ -60,6 +63,8 @@ async function load() {
   catch (e) { if (e.status === 404) return expired(); $('body').innerHTML = card('Something went wrong', `<p>${esc(e.message)}</p>`); return; }
   if (r.purpose === 'signup') { location.replace(`join.html?t=${encodeURIComponent(token)}`); return; }
   $('title').textContent = `${r.brand} affiliate portal`;
+  $('mark').innerHTML = brandMark(r.brand, r.brand_logo);
+  wireBrandMark($('mark'));
   const s = (await call('statement', { token })).statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
   const kpi = (l, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(l)}</div><div class="bcn-kpi-value">${v}</div></div>`;

@@ -54,6 +54,11 @@ function dbError(error) {
 
 const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null);
 
+// The company's logo (Settings -> Company, 20261110140000): the same shape the
+// company_settings CHECK enforces, re-checked here so the page only ever gets
+// an image in a Supabase company-logos bucket.
+const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/company-logos\/[0-9a-f-]{36}\/logo-[0-9]{10,16}\.(png|jpg|jpeg|webp)$/;
+
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
@@ -67,6 +72,17 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     });
     if (error) throw Object.assign(new Error(error.message), { db: error });
     return { url: portalUrl(raw), expires_at: expires };
+  }
+
+  // Fail-soft: no logo, an unapplied migration or a read error all mean the
+  // page shows the initial badge, never an error.
+  async function brandLogo(companyId) {
+    try {
+      const { data, error } = await service.from('company_settings').select('logo_url')
+        .eq('company_entity_id', companyId).maybeSingle();
+      const u = error ? null : data?.logo_url;
+      return typeof u === 'string' && LOGO_RE.test(u) ? u : null;
+    } catch { return null; }
   }
 
   return async function handle(req) {
@@ -141,6 +157,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       return reply({
         purpose: t.purpose,
         brand: t.company_title,
+        brand_logo: await brandLogo(t.company_entity_id),
         program: { name: t.program_name, status: t.program_status, terms_markdown: t.terms_markdown,
           terms_version: t.terms_version, currency: t.currency,
           commission: { kind: t.commission_kind, percent: t.commission_percent, fixed_cents: t.commission_fixed_cents } },
@@ -199,7 +216,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       if (t.purpose !== 'portal') return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
       if (error) return dbError(error);
-      return reply({ brand: t.company_title, program: t.program_name, statement: data,
+      return reply({ brand: t.company_title, brand_logo: await brandLogo(t.company_entity_id), program: t.program_name, statement: data,
         formatted: { earned: formatMoney(data?.totals?.earned_cents, data?.currency) } });
     }
 
