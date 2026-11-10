@@ -212,7 +212,16 @@ UTC (7am PT) is the last look before the morning check-in.
    - Scopes: Ad Account Management (read) + Reporting.
    - Submit for approval (usually ~1–2 business days).
 2. Copy the **App ID** and **Secret** → set `TIKTOK_APP_ID` / `TIKTOK_APP_SECRET` as Supabase edge-function secrets.
-3. **Connect in SILO**: `/v2/integrations.html` → *Connect TikTok Ads* → authorize with the account that manages the advertiser. The callback captures the authorized advertiser IDs automatically (first one becomes the connection's advertiser ID — change it in the account field if needed). Test, enable sync.
+3. **Connect in SILO**: `/v2/integrations.html` → the **TikTok Ads** card → *Connect TikTok Ads* → authorize with the account that manages the advertiser. The callback asks TikTok for the advertisers the grant can read (`/oauth2/advertiser/get/`, names included) and stores them on the connection. One advertiser is selected automatically; two or more open the account picker, and choosing one switches the nightly sync on, queues the 90-day backfill and pulls the first window straight away.
+
+### What TikTok's API does and does not give back
+
+- The Marketing API's long-term access token **does not expire** and there is no refresh token — the only way it goes invalid is the advertiser cancelling the authorization (or `/oauth2/revoke_token/`). Do not build a refresh path for it.
+- The token goes in an **`Access-Token` header**, never `Authorization: Bearer`.
+- `/oauth2/access_token/` takes `app_id`, `secret` and `auth_code` and **no `grant_type`** (that belongs to the separate `/oauth/token/` endpoint).
+- A report whose `dimensions` include `stat_time_day` is **capped at 30 days per request**, so any longer window must be chunked — `fetchTiktokAdsRows` does this at 30 days, which is what makes the 90-day first-connect backfill work.
+- `total_complete_payment_rate` is TikTok's name for website purchase **value** in account currency, not a rate and not a ROAS (`complete_payment_rate` and `complete_payment_roas` are those). Never divide it.
+- A company that connects TikTok natively is skipped by the Windsor sync for TikTok (`NATIVE_CONNECTION_TABLES`), so one writer owns its days.
 
 ## After connecting
 

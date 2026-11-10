@@ -184,6 +184,18 @@ jobs:
             fi
           done
 
+      # TikTok rows share ad_platform_connections with every other ad platform,
+      # so the card and the table above read the same rows: drawn in both, one
+      # connection would be editable in two places.
+      - name: TikTok card guards (mutations)
+        run: |
+          set -u
+          for m in no-filter no-card silent-choice no-sync-now; do
+            if TIKTOK_CARD_MUTATION="$m" node v2/tests/browser/integrations-tiktok-card.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
       - name: Underwriting synthetic browser flow
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs

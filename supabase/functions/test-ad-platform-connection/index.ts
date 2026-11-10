@@ -206,13 +206,54 @@ async function testMetaAds(conn: Record<string, unknown>) {
   return { account_id: data.id, account_name: data.name, currency: data.currency, ...pagesExtra };
 }
 
+/** The ad accounts this grant can read, with their names.
+ *
+ * TikTok's token response carries bare ids, so the picker used to offer 19
+ * digits and nothing else. /oauth2/advertiser/get/ is the list TikTok's own
+ * docs call authoritative: the token goes in the Access-Token HEADER while
+ * app_id and secret are query parameters. Returns null when the app's
+ * credentials are not configured or TikTok refuses, so the caller can fall
+ * back to the ids captured at OAuth time rather than show nothing.
+ */
+async function tiktokAdvertisers(token: string) {
+  const appId = Deno.env.get('TIKTOK_APP_ID') ?? '';
+  const secret = Deno.env.get('TIKTOK_APP_SECRET') ?? '';
+  if (!appId || !secret) return null;
+  try {
+    const res = await fetch(
+      'https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?'
+        + new URLSearchParams({ app_id: appId, secret }),
+      { headers: { 'Access-Token': token } },
+    );
+    const json = await res.json();
+    if (json?.code !== 0 || !Array.isArray(json?.data?.list)) return null;
+    return json.data.list
+      .map((a: Record<string, unknown>) => ({
+        advertiser_id: String(a.advertiser_id ?? ''),
+        advertiser_name: a.advertiser_name == null ? null : String(a.advertiser_name),
+      }))
+      .filter((a: { advertiser_id: string }) => a.advertiser_id);
+  } catch (_err) {
+    return null;
+  }
+}
+
 async function testTiktokAds(conn: Record<string, unknown>) {
   const token = String(conn.access_token || '');
   if (!token) throw new Error('No access token stored — reconnect via OAuth');
   if (!conn.tiktok_advertiser_id) {
-    // advertiser ids were captured at OAuth time into meta.advertiser_ids
-    const ids = (conn.meta as Record<string, unknown>)?.advertiser_ids ?? [];
-    return { advertiser_ids: ids, note: 'set tiktok_advertiser_id to one of these' };
+    const live = await tiktokAdvertisers(token);
+    if (live && live.length) {
+      return { advertisers: live, advertiser_ids: live.map((a: { advertiser_id: string }) => a.advertiser_id),
+        note: 'choose the advertiser this company advertises from' };
+    }
+    // Falls back to what the grant named at OAuth time: a list with no names
+    // still beats asking somebody to find the id in TikTok Ads Manager.
+    const meta = (conn.meta ?? {}) as Record<string, unknown>;
+    const stored = Array.isArray(meta.advertisers) ? meta.advertisers : null;
+    const ids = meta.advertiser_ids ?? [];
+    return { ...(stored ? { advertisers: stored } : {}), advertiser_ids: ids,
+      note: 'set tiktok_advertiser_id to one of these' };
   }
   const res = await fetch(
     `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?` +

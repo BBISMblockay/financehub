@@ -1137,6 +1137,31 @@ jobs:
             echo "::error::the suite passes when the token guide omits read_all_orders"; exit 1
           fi
 
+      # TikTok reporting: a report carrying stat_time_day is capped at 30 days
+      # by TikTok, so the 90-day first-connect backfill only works chunked --
+      # and `total_complete_payment_rate` is purchase VALUE despite its name.
+      - name: TikTok ads reporting fetch
+        run: |
+          set -u
+          node --test scripts/tests/tiktok-ads-sync.test.mjs
+          for m in chunk gap paging valuemetric; do
+            if TIKTOK_SYNC_MUTATION="$m" node --test scripts/tests/tiktok-ads-sync.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Windsor stands down for a company that syncs a source natively, so one
+      # writer owns its days.
+      - name: Windsor native-connector precedence
+        run: |
+          set -u
+          node --test scripts/tests/windsor-native-precedence.test.mjs
+          for m in match guess notiktok; do
+            if WINDSOR_NATIVE_MUTATION="$m" node --test scripts/tests/windsor-native-precedence.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
       # Sync now: one Google Ads / GA4 / Meta connection through the nightly's
       # own core, authorized by the caller's RLS read of the row.
       - name: Ad-platform Sync now (handler over the real sync core)
