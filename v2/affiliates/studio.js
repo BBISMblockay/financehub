@@ -236,16 +236,25 @@ async function reload() {
 }
 
 // ── Rendering helpers ────────────────────────────────────────────────────
-const card = (title, body, meta = '') => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`;
+const card = (title, body, meta = '', extraClass = '') => `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`;
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 function table(cols, rows, emptyText = 'Nothing here yet.') {
   if (!rows.length) return empty(emptyText);
   return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
-function itemList(rows, renderRow, emptyText = 'Nothing here yet.') {
+function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
   if (!rows.length) return empty(emptyText);
-  return `<div class="af-items" role="list">${rows.map(renderRow).join('')}</div>`;
+  const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
+  return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
+}
+function personAvatar(person, size = 'md') {
+  const g = globalThis.SiloAvatar;
+  if (g?.html) return g.html(person, size, 'af-item-avatar');
+  const n = String(person?.name || person?.display_name || '').trim();
+  const e = String(person?.email || person?.contact_email || '').trim();
+  const ch = (n ? n[0] : e ? e[0] : '?').toUpperCase();
+  return `<span class="af-avatar" aria-hidden="true">${esc(ch)}</span>`;
 }
 const btn = (label, act, data = {}, kind = 'ghost', opts = {}) => {
   const mod = kind === 'surface' ? '' : ` bcn-btn--${kind}`;
@@ -566,11 +575,19 @@ function renderProspects() {
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
   const filters = [['new', 'To review'], ['approved', 'Approved'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
+  const prospectCard = (x) => `<article class="af-item af-item--tile" role="listitem">
+      <div class="af-item-top">${personAvatar({ name: x.display_name, email: x.contact_email })}
+        <div class="af-item-main"><div class="af-item-head">${who(x)}</div></div>
+      </div>
+      <div class="af-item-metric">${followers(x)}</div>
+      <details class="af-item-more"><summary>Why they fit</summary><div class="af-item-detail">${provenance(x)}</div></details>
+      <div class="af-item-foot">${actions(x)}</div>
+    </article>`;
   $('prospectsBody').innerHTML = [
     MANAGE ? card('Find creators', `
-      <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
+      <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`, '', 'af-card-hero') : '',
     card('Creators', `<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn${f === filter ? ' bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
-      ${itemList(list, (x) => `<article class="af-item" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-stats">${followers(x)}</div><details class="af-item-more"><summary>Why they fit</summary><div class="af-item-detail">${provenance(x)}</div></details></div><div class="af-item-foot">${actions(x)}</div></article>`, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')}
+      ${itemList(list, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     more('More options', [
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
@@ -669,10 +686,17 @@ function renderAffiliates() {
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
     const linksBlock = linkRows.length ? `<details class="af-item-more"><summary>${num(linkRows.length)} link(s)</summary>${linkRows.map((u) => `<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(u)}</div>`).join('')}</details>` : '';
-    return `<article class="af-item" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(a.display_name)} ${statusPill(a.status)}</div><div class="af-muted">${esc(a.contact_email)} · ${esc(terms)}</div><div class="af-codes">${codesHtml}</div>${linksBlock}</div><div class="af-item-foot">${actions(a)}</div></article>`;
+    return `<article class="af-item af-item--tile" role="listitem">
+      <div class="af-item-top">${personAvatar({ name: a.display_name, email: a.contact_email })}
+        <div class="af-item-main"><div class="af-item-head">${esc(a.display_name)} ${statusPill(a.status)}</div><div class="af-muted">${esc(a.contact_email)}</div><div class="af-muted">${esc(terms)}</div></div>
+      </div>
+      <div class="af-codes" style="margin:0 14px 4px;">${codesHtml}</div>
+      ${linksBlock ? `<div style="margin:0 14px;">${linksBlock}</div>` : ''}
+      <div class="af-item-foot">${actions(a)}</div>
+    </article>`;
   };
   $('affiliatesBody').innerHTML = [
-    card('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.')}<div id="affOut"></div>`),
+    card('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on the Share tab to turn on affiliate links.</div>` : '',
     MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
       ${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}
@@ -736,8 +760,9 @@ function shareItem(kind, srcId, title, sub, img, payload) {
   const action = !MANAGE ? (shared ? pill('shared', 'pos') : '')
     : shared ? btn('Stop sharing', 'feed-remove', { id: shared.id })
     : btn('Share', 'feed-add', { kind, src: srcId, p: JSON.stringify(payload) }, 'primary');
-  return `<div class="af-share-row">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}</div>${action}</div>`;
+  return `<article class="af-share-card">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}</div><div class="af-item-foot" style="padding:0;border:0;background:transparent;margin-top:auto;">${action}</div></article>`;
 }
+function shareGrid(rows) { return rows.length ? `<div class="af-share-grid">${rows.join('')}</div>` : ''; }
 
 async function renderShare() {
   const p = prog();
@@ -761,9 +786,9 @@ async function renderShare() {
     card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
       `${d.feed.length} shared`),
     storeCard,
-    card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${launches.join('')}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${ads.join('')}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
+    card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(launches)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(ads)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
     more('Add products', [
-      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? products.join('') : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
+      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? shareGrid(products) : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
       sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
     ]),
   ].join('');
@@ -824,7 +849,7 @@ function renderPayouts() {
   const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[x.affiliate_id]?.display_name || '—')} ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div></div><div class="af-item-foot">${act(x)}</div></article>`;
   $('payoutsBody').innerHTML = [
     `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
-    card('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.'), `${bal.length} affiliate(s)`),
+    card('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
     card('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
     ${MANAGE && approved.length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, 'primary', { confirm: true })}</div>` : ''}`),
     more('Balance detail', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
