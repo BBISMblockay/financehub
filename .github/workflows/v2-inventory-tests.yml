@@ -36,6 +36,7 @@ on:
       - 'v2/*.css'
       - 'v2/tests/**'
       - 'v2/underwriting/**'
+      - 'v2/affiliates/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -61,6 +62,7 @@ on:
       - 'v2/*.css'
       - 'v2/tests/**'
       - 'v2/underwriting/**'
+      - 'v2/affiliates/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -182,6 +184,18 @@ jobs:
           set -u
           for m in no-found hard-count redraw no-revoke revoke-hard delete-first trust-any raw-deny no-deadline mismatch-goes no-target; do
             if KLAVIYO_CARD_MUTATION="$m" node v2/tests/browser/integrations-klaviyo-card.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Affiliate Studio's staff and affiliate-facing pages: unknown money is a
+      # dash, brand terms render as text, the token leaves the address bar, a
+      # member is not offered manager buttons.
+      - name: Affiliate Studio page guards (mutations)
+        run: |
+          set -u
+          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal; do
+            if AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
           done

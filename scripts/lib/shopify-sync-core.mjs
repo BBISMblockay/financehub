@@ -189,6 +189,62 @@ function sumTaxForLine(li) {
   );
 }
 
+/**
+ * The discount codes the customer actually typed on this order, folded to
+ * upper case and de-duplicated.
+ *
+ * Shopify matches a code case-insensitively, so `TEAM50` and `team50` are one
+ * code and must not become two rows in an affiliate's statement. Folding here
+ * rather than at read time means the stored value is already the comparison
+ * key -- the one place the fold happens.
+ *
+ * Returns [] when Shopify returned the field and no code was used, and null
+ * when the field is absent from the payload entirely: NULL is "not measured",
+ * and writing [] for an order Shopify never told us about would record a
+ * measurement nobody took. The REST order object carries discount_codes on
+ * the same fetch the sales rows already use -- no extra call, no extra scope.
+ */
+export function orderDiscountCodes(order) {
+  if (!order || typeof order !== 'object') return null;
+  if (!Object.prototype.hasOwnProperty.call(order, 'discount_codes')) return null;
+  const raw = order.discount_codes;
+  if (!Array.isArray(raw)) return null;
+  const seen = new Set();
+  for (const entry of raw) {
+    const code = typeof entry === 'string' ? entry : entry?.code;
+    const folded = String(code ?? '').trim().toUpperCase();
+    // 128 chars is well past any real Shopify code; the cap is there so a
+    // hostile or broken payload cannot write an unbounded string.
+    if (folded) seen.add(folded.slice(0, 128));
+    if (seen.size >= 20) break;
+  }
+  return [...seen];
+}
+
+/**
+ * What has been refunded off this order's MERCHANDISE subtotal: after line
+ * discounts, before tax and shipping. That is exactly the base Affiliate
+ * Studio commissions on, which is why tax and shipping refunds are excluded
+ * rather than netted in.
+ *
+ * null when the order carries no refunds array at all (not measured); 0 when
+ * it carries one and nothing was refunded. Refunds are immutable in Shopify
+ * and the order row is rewritten with current state on every sync, so this
+ * self-corrects as refunds appear.
+ */
+export function orderRefundedSubtotal(order) {
+  if (!order || typeof order !== 'object') return null;
+  if (!Array.isArray(order.refunds)) return null;
+  let total = 0;
+  for (const refund of order.refunds) {
+    for (const rli of refund?.refund_line_items || []) {
+      const amount = Number(rli?.subtotal ?? 0);
+      if (Number.isFinite(amount)) total += amount;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}
+
 function moneyAmount(priceSet) {
   return Number(priceSet?.shop_money?.amount || 0);
 }
@@ -1243,6 +1299,9 @@ export function orderPaymentTerms(order) {
  * which orders were looked at.
  */
 export const PAID_DATE_KEYS = ['paid_at', 'paid_at_checked_at'];
+
+/** The shopify_orders columns 20261110083000 adds (Affiliate Studio). */
+export const AFFILIATE_ORDER_KEYS = ['discount_codes', 'refunded_subtotal'];
 const SETTLED_FINANCIAL_STATUSES = new Set(['paid', 'partially_refunded', 'refunded']);
 
 export function orderNeedsPaidDate(order) {
@@ -1357,6 +1416,11 @@ export function ordersToOrderRows({ orders, connection, skuMeta, syncedAt, batch
       shopify_created_at: order.created_at || null,
       shopify_processed_at: order.processed_at || null,
       shopify_updated_at: order.updated_at || null,
+      // Affiliate Studio's order-grain foundation (20261110083000). Both are
+      // null when Shopify did not return the field, which the column means as
+      // NOT MEASURED -- never as "no code" or "nothing refunded".
+      discount_codes: orderDiscountCodes(order),
+      refunded_subtotal: orderRefundedSubtotal(order),
       ...orderPaymentTerms(order),
       // Only when looked up: an absent key leaves the stored paid_at alone.
       ...(paidDates?.has(String(order.id)) ? paidDates.get(String(order.id)) : {}),
@@ -1429,29 +1493,47 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
   // payment-terms columns, and that refusal must not stop the order (and so
   // the sales) sync: the rows are written again without them and the job
   // records that terms were skipped.
-  let ordersUpserted;
   let termsSkipped = null;
   let paidSkipped = null;
-  try {
-    ordersUpserted = await upsertOrderRows(supabase, orderRows);
-  } catch (err) {
-    const message = err?.message || '';
-    if (PAID_DATE_COLUMN_ERROR.test(message)) {
-      // 20261005130000 not applied yet: write everything else.
-      paidSkipped = 'shopify_orders has no paid_at columns yet: apply 20261005130000_shopify_order_paid_at.sql';
-      try {
-        ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, PAID_DATE_KEYS));
-      } catch (err2) {
-        if (!PAYMENT_TERMS_COLUMN_ERROR.test(err2?.message || '')) throw err2;
-        termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
-        ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
+  let codesSkipped = null;
+
+  const writeOrders = async (rows) => {
+    try {
+      return await upsertOrderRows(supabase, rows);
+    } catch (err) {
+      const message = err?.message || '';
+      if (PAID_DATE_COLUMN_ERROR.test(message)) {
+        // 20261005130000 not applied yet: write everything else.
+        paidSkipped = 'shopify_orders has no paid_at columns yet: apply 20261005130000_shopify_order_paid_at.sql';
+        try {
+          return await upsertOrderRows(supabase, stripKeys(rows, PAID_DATE_KEYS));
+        } catch (err2) {
+          if (!PAYMENT_TERMS_COLUMN_ERROR.test(err2?.message || '')) throw err2;
+          termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
+          return await upsertOrderRows(supabase, stripKeys(rows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
+        }
       }
-    } else if (PAYMENT_TERMS_COLUMN_ERROR.test(message)) {
-      termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
-      ordersUpserted = await upsertOrderRows(supabase, stripKeys(orderRows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
-    } else {
+      if (PAYMENT_TERMS_COLUMN_ERROR.test(message)) {
+        termsSkipped = 'shopify_orders has no payment-terms columns yet: apply 20260930150000_shopify_order_payment_terms.sql';
+        return await upsertOrderRows(supabase, stripKeys(rows, [...PAID_DATE_KEYS, ...PAYMENT_TERMS_KEYS]));
+      }
       throw err;
     }
+  };
+
+  // Same shape, one layer out, for the two Affiliate Studio columns
+  // (20261110083000). Stripped as a PAIR: they are one migration, so a
+  // database that refuses one refuses both, and writing only one of them
+  // would leave an order whose codes were measured and whose refunds were
+  // not, which reads as a commissionable order with nothing refunded.
+  let ordersUpserted;
+  try {
+    ordersUpserted = await writeOrders(orderRows);
+  } catch (err) {
+    if (!AFFILIATE_COLUMN_ERROR.test(err?.message || '')) throw err;
+    codesSkipped = 'shopify_orders has no discount_codes / refunded_subtotal columns yet: '
+      + 'apply 20261110083000_shopify_order_discount_codes.sql';
+    ordersUpserted = await writeOrders(stripKeys(orderRows, AFFILIATE_ORDER_KEYS));
   }
   const linesUpserted = await upsertOrderFact(upsertInChunks, supabase, 'shopify_order_lines', lineRows);
 
@@ -1465,6 +1547,7 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
     orders_upserted: ordersUpserted, order_lines_upserted: linesUpserted,
     payment_terms: termsSkipped ? null : terms,
     ...(termsSkipped ? { payment_terms_skipped: termsSkipped } : {}),
+    ...(codesSkipped ? { discount_codes_skipped: codesSkipped } : {}),
     ...(paidLookup ? { paid_dates: paidSkipped ? null : paidLookup.stats } : {}),
     ...(paidSkipped ? { paid_dates_skipped: paidSkipped } : {}),
   };
@@ -1472,6 +1555,9 @@ export async function upsertOrderFacts(supabase, connection, { orders, skuMeta, 
 
 const PAID_DATE_COLUMN_ERROR = new RegExp(
   `(${PAID_DATE_KEYS.join('|')}).*(schema cache|does not exist)|(schema cache|does not exist).*(${PAID_DATE_KEYS.join('|')})`);
+
+const AFFILIATE_COLUMN_ERROR = new RegExp(
+  `(${AFFILIATE_ORDER_KEYS.join('|')}).*(schema cache|does not exist)|(schema cache|does not exist).*(${AFFILIATE_ORDER_KEYS.join('|')})`);
 
 function stripKeys(rows, keys) {
   return rows.map((r) => {

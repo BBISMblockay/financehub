@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO · Affiliate Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="../beacon.css" />
+  <link rel="stylesheet" href="../silo-brand.css" />
+  <script src="/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    /* Affiliate Studio (af-) layout only; every colour and font is a Beacon token. */
+    .af-panel[hidden] { display: none; }
+    .af-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .af-grid--wide { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .af-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+    .af-row > .bcn-field-group { min-width: 140px; flex: 1; }
+    .af-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .af-scroll { overflow-x: auto; }
+    .af-scroll table.bcn-table { table-layout: auto; min-width: 720px; }
+    table.bcn-table td.af-num, table.bcn-table th.af-num { text-align: right; font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-mono { font-family: var(--bcn-mono); font-size: 12px; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-evidence { max-width: 360px; white-space: normal; color: var(--bcn-ink-2); font-size: 12px; }
+    .af-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .af-label-verified { color: var(--bcn-pos); }
+    .af-label-unconfigured, .af-label-not-measured { color: var(--bcn-neg); }
+    .af-label-manual, .af-label-simulated { color: var(--bcn-ink-2); }
+    .af-stage { font-family: var(--bcn-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+    .af-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+    .af-copy { word-break: break-all; }
+  </style>
+  <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2-mobile.css" />
+  <script src="../v2-shell.js" defer></script>
+</head>
+<body class="silo-brand">
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title"><h1>Affiliate Studio</h1></div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">Find creators, recruit them with your own outreach, track their codes, and pay commissions by hand from an auditable ledger.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;"></select>
+        <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="bcn-kpi-band" id="kpis"></div>
+
+    <div class="bcn-tabs" id="tabs" role="tablist" style="margin-top:12px;">
+      <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
+      <button class="bcn-tab" data-tab="program">Program</button>
+      <button class="bcn-tab" data-tab="prospects">Prospects</button>
+      <button class="bcn-tab" data-tab="outreach">Outreach</button>
+      <button class="bcn-tab" data-tab="affiliates">Affiliates</button>
+      <button class="bcn-tab" data-tab="commissions">Commissions</button>
+      <button class="bcn-tab" data-tab="payouts">Payouts</button>
+    </div>
+
+    <section class="af-panel" data-panel="overview"><div class="af-stack" id="overviewBody"></div></section>
+    <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
+    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack" id="prospectsBody"></div></section>
+    <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
+    <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
+    <section class="af-panel" data-panel="commissions" hidden><div class="af-stack" id="commissionsBody"></div></section>
+    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="payoutsBody"></div></section>
+  </main>
+</div>
+
+<script src="../nav-config.js"></script>
+<script src="../avatar.js"></script>
+<script src="../silo-chrome.js"></script>
+<script type="module" src="studio.js"></script>
+</body>
+</html>

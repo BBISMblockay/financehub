@@ -8887,3 +8887,146 @@ select 'Klaviyo audiences and account currency' as check_name,
       then 'MISSING — the klaviyo_audiences identity is not unique, so each sync would add every list again'
     else 'ok'
   end as status;
+
+-- Shopify order discount codes and refunds (20261110083000): the per-order
+-- codes and refunded merchandise subtotal Affiliate Studio credits from. NULL
+-- in either column means "not captured yet", never "none"; the view keeps that.
+select 'Shopify order discount codes' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'shopify_orders' and column_name = 'discount_codes')
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'shopify_orders' and column_name = 'refunded_subtotal')
+      or to_regclass('public.shopify_order_discount_codes_v') is null
+      then 'MISSING — run 20261110083000_shopify_order_discount_codes.sql'
+    when coalesce((select option_value from pg_options_to_table(c.reloptions) where option_name = 'security_invoker'), 'false') <> 'true'
+      then 'CRITICAL — shopify_order_discount_codes_v is not security_invoker, so order RLS does not apply through it'
+    when has_table_privilege('anon', 'public.shopify_order_discount_codes_v', 'select')
+      then 'CRITICAL — shopify_order_discount_codes_v is readable by anon'
+    else 'ok'
+  end as status
+from pg_class c where c.oid = coalesce(to_regclass('public.shopify_order_discount_codes_v'), 'public.shopify_orders'::regclass);
+
+-- Affiliate Studio (20261110084000, 085000, 086000). The money rules are in
+-- the database, not the page, so each one is checked here by structure:
+-- client roles cannot write what only a resolver, a gated function or the
+-- service role may write; approving money uses the journal-entry gate, not
+-- the manager gate; the ledger is append-only; an order is credited once
+-- across programs; a ledger line is claimed by one payout; portal functions
+-- and token hashes are unreachable from any client role.
+select 'Affiliate Studio' as check_name,
+  case
+    when exists (select 1 from unnest(array[
+                   'affiliate_program_managers','affiliate_programs','affiliate_prospect_sources','affiliate_discovery_runs',
+                   'affiliate_prospects','affiliate_prospect_observations','affiliate_suppressions','affiliates',
+                   'affiliate_access_tokens','affiliate_codes','affiliate_links','affiliate_outreach_batches',
+                   'affiliate_outreach_drafts','affiliate_attributions','affiliate_commission_periods',
+                   'affiliate_commission_ledger','affiliate_payout_accounts','affiliate_payouts','affiliate_payout_items',
+                   'affiliate_notifications']) t(n) where to_regclass('public.' || t.n) is null)
+      or to_regprocedure('public.affiliate_portal_accept_terms(text,text,integer,jsonb,text,text)') is null
+      then 'MISSING — run 20261110084000_affiliate_studio.sql, 20261110085000_affiliate_studio_ledger.sql and 20261110086000_affiliate_portal.sql, in that order'
+    when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
+                  where s.nspname = 'public' and c.relkind = 'r' and c.relname like 'affiliate%' and not c.relrowsecurity)
+      then 'CRITICAL — RLS is off on an affiliate table'
+    when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
+                  where s.nspname = 'public' and c.relkind in ('r','v') and c.relname like 'affiliate%'
+                    and has_table_privilege('anon', c.oid, 'select'))
+      then 'CRITICAL — anon can read an affiliate table or view'
+    when has_table_privilege('authenticated', 'public.affiliate_access_tokens', 'select')
+      or exists (select 1 from information_schema.column_privileges
+                  where table_schema = 'public' and table_name = 'affiliate_access_tokens' and column_name = 'token_hash'
+                    and grantee in ('authenticated','anon'))
+      then 'CRITICAL — a client role can read affiliate access token hashes'
+    when exists (select 1 from unnest(array['affiliate_attributions','affiliate_payouts','affiliate_payout_items',
+                                            'affiliate_payout_accounts','affiliate_discovery_runs','affiliate_access_tokens',
+                                            'affiliate_notifications']) t(n)
+                  where has_table_privilege('authenticated', 'public.' || t.n, 'insert')
+                     or has_table_privilege('authenticated', 'public.' || t.n, 'update')
+                     or has_table_privilege('authenticated', 'public.' || t.n, 'delete'))
+      then 'CRITICAL — a client role can write an affiliate table that only a gated function or the service role may write'
+    when has_table_privilege('authenticated', 'public.affiliate_commission_ledger', 'update')
+      or has_table_privilege('authenticated', 'public.affiliate_commission_ledger', 'delete')
+      or not exists (select 1 from pg_trigger where tgrelid = 'public.affiliate_commission_ledger'::regclass
+                      and tgname = 'affiliate_ledger_append_only_trg' and tgenabled <> 'D')
+      then 'CRITICAL — the affiliate commission ledger is not append-only'
+    when exists (select 1 from unnest(array[
+                   'public.affiliate_approve_period(uuid,text)','public.affiliate_approve_payout(uuid)',
+                   'public.affiliate_mark_payout_paid(uuid,text,text)','public.affiliate_void_payout(uuid,text)']) f(sig)
+                  where pg_get_functiondef(to_regprocedure(f.sig)) not like '%can_approve_affiliate_commissions()%')
+      or pg_get_functiondef('public.can_approve_affiliate_commissions()'::regprocedure) like '%is_admin_user()%'
+      then 'CRITICAL — approving affiliate money does not use the journal-entry gate'
+    when pg_get_functiondef('public.affiliate_mark_payout_paid(uuid,text,text)'::regprocedure) not like '%0A000%'
+      then 'CRITICAL — a non-manual (unbuilt) payout method can be recorded as paid'
+    when exists (select 1 from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+                  where s.nspname = 'public' and p.proname like 'affiliate_portal%'
+                    and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')))
+      or has_function_privilege('authenticated', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      or has_function_privilege('anon', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      then 'CRITICAL — a client role can execute an affiliate portal or token function'
+    when not exists (select 1 from pg_index i where i.indrelid = 'public.affiliate_attributions'::regclass and i.indisunique
+                       and (select array_agg(a.attname::text order by k.ord)
+                              from unnest(i.indkey) with ordinality as k(attnum, ord)
+                              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+                           = array['company_entity_id','shop_domain','order_id'])
+      then 'CRITICAL — an order can be credited by more than one affiliate program'
+    when not exists (select 1 from pg_index i where i.indrelid = 'public.affiliate_payout_items'::regclass and i.indisunique
+                       and (select array_agg(a.attname::text order by k.ord)
+                              from unnest(i.indkey) with ordinality as k(attnum, ord)
+                              join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+                           = array['ledger_entry_id'])
+      then 'CRITICAL — one commission line can be claimed by two payouts'
+    when exists (select 1 from unnest(array[
+                   'affiliate_commission_periods:affiliate_periods_guard_trg','affiliate_codes:affiliate_codes_guard_trg',
+                   'affiliate_outreach_drafts:affiliate_outreach_drafts_guard_trg','affiliate_programs:affiliate_programs_terms_guard_trg',
+                   'affiliate_suppressions:affiliate_suppressions_normalize_trg']) g(x)
+                  where not exists (select 1 from pg_trigger
+                                     where tgrelid = ('public.' || split_part(g.x, ':', 1))::regclass
+                                       and tgname = split_part(g.x, ':', 2) and tgenabled <> 'D'))
+      then 'CRITICAL — an affiliate guard trigger is missing (period approval, code overlap, outreach suppression, terms version or opt-out normalisation)'
+    when exists (select 1 from pg_class c
+                  where c.relname in ('affiliate_balances_v','affiliate_performance_v','affiliate_program_health_v')
+                    and c.relkind = 'v'
+                    and coalesce((select option_value from pg_options_to_table(c.reloptions)
+                                   where option_name = 'security_invoker'), 'false') <> 'true')
+      then 'CRITICAL — an affiliate view is not security_invoker, so RLS does not apply through it'
+    when pg_get_viewdef('public.affiliate_access_token_state_v'::regclass) not like '%active_company_id()%'
+      or exists (select 1 from information_schema.columns where table_schema = 'public'
+                  and table_name = 'affiliate_access_token_state_v' and column_name = 'token_hash')
+      then 'CRITICAL — the token state view (definer) lost its company filter or exposes the hash'
+    -- Review cycle 1 of #1177: these held only by construction, so they are
+    -- checked by structure here.
+    when exists (select 1 from pg_constraint c
+                  join pg_class cl on cl.oid = c.conrelid join pg_namespace n on n.oid = cl.relnamespace
+                  join pg_class pl on pl.oid = c.confrelid
+                  join pg_attribute pa on pa.attrelid = c.confrelid and pa.attnum = c.confkey[1]
+                  join pg_attribute ca on ca.attrelid = c.conrelid and ca.attnum = c.conkey[1]
+                 where c.contype = 'f' and n.nspname = 'public' and array_length(c.conkey, 1) = 1 and pa.attname = 'id'
+                   and (cl.relname = 'affiliates' or cl.relname like 'affiliate\_%')
+                   and (pl.relname = 'affiliates' or pl.relname like 'affiliate\_%')
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.conrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and not exists (select 1 from pg_constraint t
+                                    where t.contype = 'f' and t.conrelid = c.conrelid and t.confrelid = c.confrelid
+                                      and array_length(t.conkey, 1) = 2 and t.conkey[1] = c.conkey[1]))
+      then 'CRITICAL — an affiliate reference has no same-company twin, so a row can point at another company''s program or affiliate'
+    when exists (select 1 from unnest(array['public.affiliate_accrue_commissions(uuid,date,date,uuid)',
+                                            'public.affiliate_build_payout(uuid,date)',
+                                            'public.affiliate_approve_payout(uuid)']) f(sig)
+                  where pg_get_functiondef(to_regprocedure(f.sig)) not like '%affiliate_lock_program_money(%')
+      then 'CRITICAL — accrual or a payout step no longer takes the program money lock, so overlapping runs can double-count'
+    when pg_get_functiondef('public.affiliate_periods_guard()'::regprocedure) not like '%tg_op = ''INSERT''%'
+      then 'CRITICAL — a commission period can be inserted already approved, skipping the money gate'
+    when to_regprocedure('public.affiliate_managed_company()') is null
+      or to_regprocedure('public.affiliate_claim_payout_export(uuid,uuid[],uuid)') is null
+      or to_regclass('public.affiliate_period_totals_v') is null
+      then 'MISSING — re-run 20261110084000 and 20261110085000 (review cycle 1 fixes)'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select reloptions from pg_class where oid = 'public.affiliate_period_totals_v'::regclass))
+                   where option_name = 'security_invoker'), 'false') <> 'true'
+      then 'CRITICAL — affiliate_period_totals_v is not security_invoker, so ledger RLS does not apply through it'
+    when to_regclass('public.sync_jobs') is not null
+      and not exists (select 1 from pg_constraint where conrelid = 'public.sync_jobs'::regclass
+                       and conname = 'sync_jobs_job_type_check' and pg_get_constraintdef(oid) ~ 'affiliate_discovery')
+      then 'MISSING — sync_jobs does not accept the affiliate_discovery job type'
+    else 'ok'
+  end as status;

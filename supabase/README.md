@@ -3200,3 +3200,42 @@ Company tab of Workspace Settings.
 - Apply separately. Until it is applied the settings card feature-detects the
   missing column (`42703`) and says it is unavailable, and the Attribution page
   falls back to its previous behaviour.
+
+## Shopify order discount codes — `20261110083000_shopify_order_discount_codes.sql`
+
+- **`shopify_orders.discount_codes`** (jsonb array, upper-cased, de-duplicated)
+  and **`shopify_orders.refunded_subtotal`** (refunded merchandise, tax
+  excluded). NULL means not captured yet. Written by the Shopify sync core and
+  its pinned copy in `ad-platform-sync-run`; a database without the columns
+  makes the sync retry without both (`discount_codes_skipped`).
+- **`shopify_order_discount_codes_v`** (security_invoker): one row per order x
+  code with the company's business day and `net_subtotal`.
+
+## Affiliate Studio — `20261110084000_affiliate_studio.sql`, `20261110085000_affiliate_studio_ledger.sql`, `20261110086000_affiliate_portal.sql`
+
+Apply in that order, after `20261110083000`. Runbook and architecture:
+`docs/ops/affiliate-studio.md`.
+
+- **084000**: `affiliate_program_managers` + `can_manage_affiliate_programs()`,
+  `affiliate_programs` (terms version bumps when the text changes),
+  `affiliate_prospect_sources`, `affiliate_discovery_runs` (service-role
+  writes), `affiliate_prospects` + `affiliate_prospect_observations`
+  (append-only provenance), `affiliate_suppressions` (normalized on insert) +
+  `affiliate_outreach_can_contact()`, `affiliates`, `affiliate_access_tokens`
+  (hashes only, no client privileges) + `affiliate_access_token_state_v`
+  (definer, company-filtered, no hash), `affiliate_codes` (no overlapping
+  windows across affiliates), `affiliate_links`, `affiliate_outreach_batches`,
+  `affiliate_outreach_drafts` (suppression checked on approval; sent needs a
+  marker and evidence). Appends `affiliate_discovery` to `sync_jobs.job_type`.
+- **085000**: `can_approve_affiliate_commissions()`, `affiliate_attributions`
+  (unique per order per company), `affiliate_commission_periods` (approval
+  only through `affiliate_approve_period()`), `affiliate_commission_ledger`
+  (append-only), `affiliate_payout_accounts`, `affiliate_payouts`,
+  `affiliate_payout_items` (one claim per ledger line), the resolver, accrual,
+  period and payout functions, and `affiliate_balances_v`,
+  `affiliate_performance_v`, `affiliate_program_health_v`.
+- **086000**: `affiliate_notifications` and the service-role-only portal
+  functions (`affiliate_issue_access_token`, `affiliate_portal_*`).
+- No affiliate table grants anything to `anon`. Verify:
+  `verify_v2_schema.sql` checks "Shopify order discount codes" and
+  "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.

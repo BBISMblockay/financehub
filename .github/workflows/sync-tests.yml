@@ -423,6 +423,14 @@ on:
       # inert endpoint; an edit to either must re-run it.
       - 'supabase/migrations/*pause_legacy_slack_notifications.sql'
       - 'supabase/functions/notify-slack/**'
+      # Affiliate Studio: migrations, both edge functions, and the page logic
+      # (affiliate-*.test.mjs, shopify-order-discount-codes.test.mjs).
+      - 'supabase/migrations/*affiliate_*.sql'
+      - 'supabase/migrations/*shopify_order_discount_codes.sql'
+      - 'supabase/functions/affiliate-portal/**'
+      - 'supabase/functions/affiliate-invite/**'
+      - 'supabase/functions/ad-platform-sync-run/lib/**'
+      - 'v2/affiliates/**'
       - '.github/workflows/sync-tests.yml'
   pull_request:
     paths: *sync_paths
@@ -1221,6 +1229,33 @@ jobs:
       # (report-email-deliver-core.mjs), no network.
       - name: Report email deliver core
         run: node scripts/tests/report-email-deliver.test.mjs
+
+      # Affiliate Studio, no database: order discount codes and refunds from
+      # the Shopify sync (and its pinned copy in ad-platform-sync-run), native
+      # discovery, the two edge functions, and the page logic. Each suite
+      # serves itself a deliberately broken copy and must fail on each break.
+      - name: Affiliate Studio (sync, discovery, edge functions, page logic)
+        run: |
+          node scripts/tests/shopify-order-discount-codes.test.mjs
+          node scripts/tests/affiliate-discovery.test.mjs
+          node scripts/tests/affiliate-edge.test.mjs
+          node scripts/tests/affiliate-studio-ui.test.mjs
+      - name: The Affiliate Studio guards, removed, must break it
+        run: |
+          set -u
+          run() { # env-var suite mutations...
+            local var="$1" suite="$2"; shift 2
+            for m in "$@"; do
+              if env "$var=$m" node "$suite" >/dev/null 2>&1; then
+                echo "::error::$var=$m did not fail $suite -- the guard it removes is untested"; exit 1
+              fi
+              echo "$var=$m failed the suite, as it must"
+            done
+          }
+          run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
+          run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews
+          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href
 
   plaid-typecheck:
     name: Plaid Edge Function typecheck
@@ -2509,6 +2544,23 @@ jobs:
           set -u
           for m in rls company writes anyrls anycompany anywrites mapcompany mapadmin rewind mapgen consentdefault consentbackfill consentreplay; do
             if WINDSOR_SYNC_DB_MUTATION="$m" node scripts/tests/windsor-sync-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Affiliate Studio's four migrations, applied twice, against real
+      # PostgreSQL: tenant isolation, both gates, one credit per order across
+      # programs, the append-only ledger, refund hold, payout claims, portal
+      # tokens and terms versions.
+      - name: Affiliate Studio database (real PostgreSQL)
+        run: node scripts/tests/affiliate-studio-database.test.mjs
+      - name: The Affiliate Studio database guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock; do
+            if AFFILIATE_DB_MUTATION="$m" node scripts/tests/affiliate-studio-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

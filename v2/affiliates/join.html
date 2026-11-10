@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Join the affiliate program</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../beacon.css" />
+  <link rel="stylesheet" href="../silo-brand.css" />
+  <script src="/pages/config.js"></script>
+  <style>
+    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only. */
+    body { background: var(--bcn-bg); }
+    .af-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
+    .af-terms { max-height: 420px; overflow-y: auto; border: 1px solid var(--bcn-border); padding: 12px 14px; background: var(--bcn-surface); font-size: 14px; line-height: 1.55; }
+    .af-num { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-copy { word-break: break-all; font-family: var(--bcn-mono); font-size: 12px; }
+    .af-form { display: flex; flex-direction: column; gap: 10px; }
+    .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    .af-scroll { overflow-x: auto; }
+  </style>
+</head>
+<body class="silo-brand">
+<main class="af-wrap">
+  <header class="bcn-header"><div class="bcn-header-title"><h1 id="title">Join the affiliate program</h1></div></header>
+  <div class="bcn-status" id="status" hidden></div>
+  <div id="body"><div class="bcn-card"><div class="bcn-card-body">Checking your link…</div></div></div>
+  <p class="af-muted">This page is run by the brand that invited you, using SILO. Your link is personal; please do not share it.</p>
+</main>
+<script type="module">
+import { $, esc, call, setStatus, takeToken, termsHtml } from './public.js';
+import { describeCommission } from './studio-core.js';
+const token = takeToken('silo_affiliate_signup');
+const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
+
+async function load() {
+  if (!token) { $('body').innerHTML = card('This link is incomplete', '<p>Open the link exactly as it was sent to you, or ask the brand for a new one.</p>'); return; }
+  let r;
+  try { r = await call('resolve', { token }); }
+  catch (e) {
+    $('body').innerHTML = card('This link has expired', `<p>${esc(e.status === 404 ? 'Signup links work for a limited time. Ask the person who invited you for a new one.' : e.message)}</p>`);
+    return;
+  }
+  if (r.purpose === 'portal') { location.replace(`portal.html?t=${encodeURIComponent(token)}`); return; }
+  $('title').textContent = `Join ${r.brand}'s affiliate program`;
+  if (r.affiliate?.status === 'active') { $('body').innerHTML = card('You are already in', '<p>You accepted the terms already. Check your email for your portal link.</p>'); return; }
+  const p = r.program;
+  if (p.status !== 'active') { $('body').innerHTML = card('Not open right now', '<p>This program is not accepting new affiliates at the moment. The brand can tell you more.</p>'); return; }
+  $('body').innerHTML = card(p.name, `
+      <p><strong>Commission:</strong> ${esc(describeCommission({ kind: p.commission.kind, percent: p.commission.percent, fixed_cents: p.commission.fixed_cents, currency: p.currency }))}. Paid in <span class="af-num">${esc(p.currency)}</span>.</p>
+      <p class="af-muted">Sales are credited when your code is used at checkout. Payouts are made by the brand after a refund hold; this page never asks for bank details.</p>`)
+    + card(`Program terms, version ${p.terms_version}`, `<div class="af-terms">${termsHtml(p.terms_markdown)}</div>`)
+    + card('Accept and join', `<form class="af-form" id="form">
+        <div class="bcn-field-group"><label class="bcn-label" for="signed">Your full name (this is your signature)</label><input class="bcn-field" id="signed" autocomplete="name" required maxlength="120" /></div>
+        <label><input type="checkbox" id="agree" required /> I have read and accept version ${p.terms_version} of the terms above.</label>
+        <div><button class="bcn-btn bcn-btn--primary" type="submit" id="go">Accept and join</button></div>
+      </form>`);
+  $('form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!$('agree').checked || !$('signed').value.trim()) { setStatus('Type your name and tick the box to accept.', 'neg'); return; }
+    $('go').disabled = true; setStatus('');
+    try {
+      const out = await call('accept', { token, signed_name: $('signed').value.trim(), terms_version: p.terms_version });
+      try { sessionStorage.removeItem('silo_affiliate_signup'); } catch {}
+      $('body').innerHTML = card('You are in', `<p>Thanks for joining. ${out.confirmation_email === 'sent' ? 'We emailed you a confirmation with your portal link.' : 'Keep the portal link below: a confirmation email could not be sent.'}</p>
+        ${out.portal_url ? `<p><a class="bcn-btn bcn-btn--primary" href="${esc(out.portal_url)}">Open my affiliate portal</a></p>` : '<p>The brand will send you your portal link.</p>'}
+        <p class="af-muted">The brand will send your discount code and links once they are set up.</p>`);
+    } catch (e) {
+      if (e.code === 'terms_changed') { setStatus('The terms were just updated. Please read the new version.', 'neg'); await load(); return; }
+      setStatus(e.message, 'neg'); $('go').disabled = false;
+    }
+  });
+}
+load();
+</script>
+</body>
+</html>
