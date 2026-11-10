@@ -15,6 +15,9 @@
  *   KLAVIYO_CARD_MUTATION=delete-first the row (and its refresh token) is deleted before the revoke
  *   KLAVIYO_CARD_MUTATION=trust-any    any answer, even an undeployed function's, reads as revoked
  *   KLAVIYO_CARD_MUTATION=raw-deny     declining on Klaviyo's screen shows a raw error code
+ *   KLAVIYO_CARD_MUTATION=no-deadline  a revoke that never answers holds Remove forever
+ *   KLAVIYO_CARD_MUTATION=mismatch-goes the server found a different connection, and the row is deleted anyway
+ *   KLAVIYO_CARD_MUTATION=no-target    the revoke does not say which connection was confirmed
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -22,14 +25,17 @@ const { createReporter } = require('../lib/assert');
 const assert = require('node:assert/strict');
 const R = createReporter('integrations-klaviyo-card');
 
-const REVOKE_CALL = '      const revoke = await revokeKlaviyoGrant();\n';
+const REVOKE_CALL = '      const revoke = await revokeKlaviyoGrant(targetId);\n';
 const MUTATIONS = {
   'no-found': [['if (found && slot && load === _klaviyoLoad) {', 'if (false) {']],
   'redraw': [["        const slot = document.querySelector('[data-klaviyo-found]');", "        renderKlaviyoConnection(data);\n        const slot = document.querySelector('[data-klaviyo-found]');"]],
   'hard-count': [["count('klaviyo_audiences').catch(() => null),", "count('klaviyo_audiences'),"]],
   'no-revoke': [[REVOKE_CALL, '      const revoke = null;\n']],
   'revoke-hard': [[REVOKE_CALL, REVOKE_CALL + "      if (!revoke?.revoked) { setStatus('Could not revoke.', 'neg'); return; }\n"]],
-  'delete-first': [[REVOKE_CALL, ''], ['      _klaviyoMetrics = [];\n      const { msg, type }', '      const revoke = await revokeKlaviyoGrant();\n      _klaviyoMetrics = [];\n      const { msg, type }']],
+  'delete-first': [[REVOKE_CALL, '      const revoke = null;\n'], ['      _klaviyoMetrics = [];\n      const { msg, type }', '      await revokeKlaviyoGrant(targetId);\n      _klaviyoMetrics = [];\n      const { msg, type }']],
+  'no-deadline': [['          signal: ctl.signal,\n', '']],
+  'mismatch-goes': [["      if (revoke?.code === 'target_mismatch') {", '      if (false) {']],
+  'no-target': [["body: JSON.stringify({ action: 'revoke', connection_id: connectionId }),", "body: JSON.stringify({ action: 'revoke' }),"]],
   'trust-any': [["return res.ok && out && typeof out.revoked === 'boolean' ? out : null;", 'return res.ok && out ? { revoked: true, ...out } : null;']],
   'raw-deny': [["if (code === 'klaviyo_access_denied') {", 'if (false) {']],
 };
@@ -106,16 +112,22 @@ const transform = (rel, source) => {
     // depends on the revoke. Klaviyo's app review checks that removing SILO
     // here also removes it from the Klaviyo account.
     const status = () => document.getElementById('status')?.textContent || '';
-    const removeWith = async (answer) => {
+    const removeWith = async (answer, waitMs = 8000) => {
       const p = await suite.open('/v2/integrations.html', tables, { ready, rpc: { is_admin_user: true }, dialogAction: 'accept' });
       const seen = [];
       await p.route('**/functions/v1/test-klaviyo-connection', async (route) => {
         const deletedAlready = await p.evaluate(() => (window.__QUERIES__ || []).some((q) => q._op === 'delete' && q.table === 'klaviyo_connections'));
         seen.push({ body: route.request().postDataJSON(), deletedAlready });
+        if (answer === 'stall') {
+          // Never answers in time; fulfilled late only so nothing leaks.
+          await new Promise((r) => setTimeout(r, 12000));
+          await route.fulfill({ status: 200, contentType: 'application/json', body: '{"revoked":true}' }).catch(() => {});
+          return;
+        }
         await route.fulfill(answer);
       });
       await p.locator('#klaviyo-connections-list button', { hasText: 'Remove' }).click();
-      await p.waitForFunction(() => /Klaviyo disconnected|Could not revoke|Nothing was removed|failed/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
+      await p.waitForFunction(() => /Klaviyo disconnected|Could not revoke|Nothing was removed|failed|workspace changed/.test(document.getElementById('status')?.textContent || ''), null, { timeout: waitMs }).catch(() => {});
       const out = {
         seen,
         status: await p.evaluate(status),
@@ -126,7 +138,7 @@ const transform = (rel, source) => {
     };
     const ok = await removeWith({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: true, code: 'revoked' }) });
     R.eq(ok.seen.length, 1, 'Remove asks the server to revoke the grant');
-    R.eq(ok.seen[0]?.body, { action: 'revoke' });
+    R.eq(ok.seen[0]?.body, { action: 'revoke', connection_id: 'kc1' }, 'the revoke names the connection the admin confirmed');
     R.eq(ok.seen[0]?.deletedAlready, false, 'the revoke goes first: the refresh token it needs is on the row being deleted');
     R.eq(ok.deleted, true);
     R.has(ok.status, 'withdrawn in Klaviyo', 'the admin is told the access is gone in Klaviyo too');
@@ -141,6 +153,18 @@ const transform = (rel, source) => {
     const stale = await removeWith({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
     R.eq(stale.deleted, true);
     R.has(stale.status, 'did not confirm', 'an answer without `revoked` is not a revoke');
+
+    // The server found a different connection than the one on screen (the
+    // workspace was switched in another tab mid-request): remove nothing.
+    const moved = await removeWith({ status: 200, contentType: 'application/json', body: JSON.stringify({ revoked: false, code: 'target_mismatch' }) });
+    R.eq(moved.deleted, false, 'a mismatch stops the removal');
+    R.has(moved.status, 'workspace changed');
+
+    // A revoke that never answers must not hold Remove: past the page's own
+    // deadline it counts as unconfirmed and the row is deleted.
+    const stalled = await removeWith('stall', 14000);
+    R.eq(stalled.deleted, true, 'Remove finishes even when the revoke never answers');
+    R.has(stalled.status, 'did not confirm');
 
     // ── Declined on Klaviyo's consent screen: said plainly, with the way back.
     const denied = await suite.open('/v2/integrations.html?oauth_error=klaviyo_access_denied', tables, { ready, rpc: { is_admin_user: true } });

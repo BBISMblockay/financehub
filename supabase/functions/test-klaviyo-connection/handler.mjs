@@ -242,9 +242,19 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
 //
 // A private API key has nothing to revoke here -- the customer made it and
 // only they can delete it in Klaviyo -- so `api_key` is said, not attempted.
+//
+// The company comes from the caller's active_company_id, which another tab
+// can change while this request is in flight. So the page also sends the id
+// of the connection the admin confirmed, and nothing is revoked unless the
+// row found here IS that connection: a workspace switch mid-request must not
+// revoke another company's grant.
+//
+// Bounded: Klaviyo gets REVOKE_TIMEOUT_MS, shorter than the page's own
+// deadline, so a stalled upstream ends as `unreachable` and Remove finishes.
 export const KLAVIYO_REVOKE_URL = 'https://a.klaviyo.com/oauth/revoke';
+export const REVOKE_TIMEOUT_MS = 5000;
 
-export async function revokeKlaviyoGrant({ supabase, companyEntityId, clientId, clientSecret, fetchImpl = fetch }) {
+export async function revokeKlaviyoGrant({ supabase, companyEntityId, expectedConnectionId, clientId, clientSecret, fetchImpl = fetch }) {
   const done = (revoked, code, extra = {}) => ({ status: 200, body: { revoked, code, ...extra } });
   const { data: connection, error } = await supabase
     .from('klaviyo_connections')
@@ -253,6 +263,7 @@ export async function revokeKlaviyoGrant({ supabase, companyEntityId, clientId, 
     .maybeSingle();
   if (error) return done(false, 'unreadable');
   if (!connection) return done(false, 'no_connection');
+  if (!expectedConnectionId || String(connection.id) !== String(expectedConnectionId)) return done(false, 'target_mismatch');
   if (connection.auth_mode !== 'oauth') return done(false, 'api_key');
   if (!connection.refresh_token) return done(false, 'no_token');
   if (!clientId || !clientSecret) return done(false, 'not_configured');
@@ -266,6 +277,7 @@ export async function revokeKlaviyoGrant({ supabase, companyEntityId, clientId, 
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({ token_type_hint: 'refresh_token', token: connection.refresh_token }).toString(),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
     });
   } catch (_) {
     return done(false, 'unreachable');

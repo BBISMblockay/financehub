@@ -76,6 +76,9 @@ Deno.serve(async (req) => {
     const { status, body } = await revokeKlaviyoGrant({
       supabase,
       companyEntityId,
+      // The connection the admin confirmed on screen. The company is still the
+      // caller's own (never from the body); this only refuses a mismatch.
+      expectedConnectionId: typeof request?.connection_id === 'string' ? request.connection_id : null,
       clientId: Deno.env.get('KLAVIYO_CLIENT_ID') ?? '',
       clientSecret: Deno.env.get('KLAVIYO_CLIENT_SECRET') ?? '',
     });

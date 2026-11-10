@@ -3536,20 +3536,29 @@
     // SILO also disappears from the customer's Klaviyo account (Klaviyo's app
     // review requires it). Only the server holds the app's client secret.
     // Fail-soft by construction: any failure here, including a function not
-    // yet deployed (which answers with a test result, not `revoked`), is
-    // "not confirmed", and the local removal goes ahead regardless.
-    async function revokeKlaviyoGrant() {
+    // yet deployed (which answers with a test result, not `revoked`) or no
+    // answer within KLAVIYO_REVOKE_WAIT_MS, is "not confirmed", and the local
+    // removal goes ahead regardless. The one exception is `target_mismatch`:
+    // the server found a different connection than the one confirmed here
+    // (the workspace changed in another tab), so nothing is removed at all.
+    const KLAVIYO_REVOKE_WAIT_MS = 8000;
+    async function revokeKlaviyoGrant(connectionId) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), KLAVIYO_REVOKE_WAIT_MS);
       try {
         const { data: { session } } = await db.auth.getSession();
         const res = await fetch(`${FUNCTIONS_URL}/test-klaviyo-connection`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'revoke' }),
+          body: JSON.stringify({ action: 'revoke', connection_id: connectionId }),
+          signal: ctl.signal,
         });
         const out = await res.json().catch(() => null);
         return res.ok && out && typeof out.revoked === 'boolean' ? out : null;
       } catch (_) {
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     }
 
@@ -3562,13 +3571,21 @@
     }
 
     async function removeKlaviyoConnection() {
+      // The connection on screen when Remove was clicked: the revoke and the
+      // delete both target exactly this row.
+      const targetId = _summaryState.klaviyo?.id;
+      if (!targetId) { setStatus('No Klaviyo connection to remove.', 'info', 6000); return; }
       if (!confirm('Remove the Klaviyo connection? SILO\u2019s access is withdrawn in Klaviyo too, and the nightly sync stops. Numbers already imported stay where they are.')) return;
       setStatus('Removing the Klaviyo connection\u2026', 'info', 4000);
       // Before the delete: the refresh token the revoke needs is on this row.
-      const revoke = await revokeKlaviyoGrant();
+      const revoke = await revokeKlaviyoGrant(targetId);
+      if (revoke?.code === 'target_mismatch') {
+        setStatus('The workspace changed while removing Klaviyo, so nothing was removed. Reload the page and try again.', 'neg', 15000);
+        return;
+      }
       // .select() so a refusal (RLS) comes back as zero rows rather than a
       // silent success that would report a removal that never happened.
-      const { data: gone, error } = await db.from('klaviyo_connections').delete().eq('company_entity_id', _co.id).select('id');
+      const { data: gone, error } = await db.from('klaviyo_connections').delete().eq('id', targetId).select('id');
       if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
       if (!gone || !gone.length) {
         setStatus('Nothing was removed. The connection may already be gone, or you may not have permission to change it.', 'neg', 12000);
