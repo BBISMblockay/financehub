@@ -22,6 +22,9 @@
 //   AFFILIATE_RESEARCH_MUTATION=importminor  a row marked minor in a file is kept
 //   AFFILIATE_RESEARCH_MUTATION=followers    a follower count without a seen source is kept
 //   AFFILIATE_RESEARCH_MUTATION=doublerun    a second research starts while one runs
+//   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
+//   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
+//   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
 //   AFFILIATE_RESEARCH_MUTATION=freecharge   a run that kept nobody is charged
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -41,6 +44,9 @@ const MUTS = {
   importminor: [CORE, "    if (truthy(pick(row, ['minor', 'likely_minor', 'is_minor']))) { stats.minors += 1; continue; }\n", ''],
   followers: [CORE, 'c.followers >= 0 && seenUrl(evidence, c.followers_source_url)', 'c.followers >= 0'],
   doublerun: ['handler.mjs', "    if (prev?.status === 'running' &&", '    if (false &&'],
+  oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
+  partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
+  onesource: [CORE, '{ stats.over_source += 1; continue; }', '{ stats.over_source += 0; }'],
   freecharge: ['handler.mjs', "outcome = stats.kept > 0 ? 'succeeded' : 'failed';", "outcome = 'succeeded';"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -165,6 +171,7 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
       calls.push(JSON.parse(init.body));
       if (modelStatus !== 200) return { ok: false, status: modelStatus, json: async () => ({}) };
       const next = script.shift();
+      if (next === 'fail') return { ok: false, status: 529, json: async () => ({}) };
       return { ok: true, status: 200, json: async () => next };
     },
     background: (p) => { bg.push(p); },
@@ -197,7 +204,7 @@ await test('no manager rights means 403; another company\'s program is not found
 
 await test('research keeps only creators the web results showed, and never a minor', async () => {
   const s = setup();
-  const r = await s.call({ action: 'research', program_id: PA, focus: 'baseball moms', count: 25 });
+  const r = await s.call({ action: 'research', program_id: PA, focus: 'baseball moms', count: 5 });
   assert.equal(r.status, 202);
   const { run_id } = await r.json();
   const ps = s.service.tables.affiliate_prospects;
@@ -206,6 +213,7 @@ await test('research keeps only creators the web results showed, and never a min
   const jenna = ps.find((p) => p.handle === '@jenna.and.her.gents');
   assert.equal(jenna.evidence.followers, 993200);
   assert.equal(jenna.evidence.followers_source_url, 'https://www.tiktok.com/@jenna.and.her.gents');
+  assert.equal(jenna.evidence.followers_source_kind, 'profile', 'a count read on the creator\'s own profile says so');
   const dm = ps.find((p) => p.handle === '@diamondmama');
   assert.equal(dm.evidence.followers, null, 'a count whose source no web result returned is not stored');
   assert.equal(dm.contact_email, null, 'nor is an email');
@@ -214,13 +222,66 @@ await test('research keeps only creators the web results showed, and never a min
   assert.equal(run.provider, 'anthropic');
   assert.equal(run.profiles_recognized, 2);
   assert.match(run.error, /^skipped: 1 likely minors, 1 not found/);
+  assert.match(run.error, /found 2 of 5$/, 'a short run says how many of the number asked for it found');
   const open = s.rpcs.find((x) => x.name === 'ai_credit_open');
   assert.equal(open.args.p_feature, 'affiliate_research');
   assert.equal(open.args.p_company, CO_A);
   assert.ok(s.rpcs.some((x) => x.name === 'ai_credit_step'), 'the hold is grown before the second model call');
   assert.equal(s.rpcs.find((x) => x.name === 'ai_credit_settle').args.p_outcome, 'succeeded');
-  assert.equal(s.calls.length, 2, 'pause_turn is continued');
+  assert.equal(s.calls.length, 3, 'pause_turn is continued, then one more round is asked for');
   assert.equal(s.calls[0].model, 'claude-sonnet-5-5');
+});
+
+await test('a run keeps searching until it has the number asked for, never repeating', async () => {
+  const more = {
+    type: 'web_search_tool_result', tool_use_id: 'srv2',
+    content: [
+      { type: 'web_search_result', url: 'https://www.youtube.com/@CoachPat', title: 'Coach Pat (@CoachPat) - YouTube' },
+      { type: 'web_search_result', url: 'https://www.youtube.com/@DugoutDad', title: 'Dugout Dad - YouTube' },
+      { type: 'web_search_result', url: 'https://www.youtube.com/@CageWork', title: 'Cage Work - YouTube' },
+    ],
+  };
+  const s = setup({ script: [
+    ...SCRIPT(),
+    msg([{ type: 'server_tool_use', id: 'srv2', name: 'web_search', input: { query: 'more' } }, more,
+      { type: 'tool_use', id: 't2', name: 'record_creators', input: { creators: ['CoachPat', 'DugoutDad', 'CageWork'].map((h) => creator({ name: h, platform: 'youtube', handle: `@${h}`, profile_url: `https://www.youtube.com/@${h}` })) } }], 'tool_use'),
+  ] });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  assert.equal(s.calls.length, 3, 'two rounds, then it stops at the number asked for');
+  const ask = s.calls[2].messages.at(-1);
+  assert.equal(ask.role, 'user');
+  assert.equal(ask.content[0].type, 'tool_result');
+  assert.equal(ask.content[0].tool_use_id, 't1');
+  assert.match(ask.content[0].content, /2 of 5 confirmed/);
+  assert.match(ask.content[0].content, /@jenna\.and\.her\.gents/, 'the creators already found are listed so they are not repeated');
+  assert.equal(s.service.tables.affiliate_prospects.length, 5);
+  assert.equal(s.service.tables.affiliate_discovery_runs[0].error, 'skipped: 1 likely minors, 1 not found on a page read, 0 not a profile link');
+});
+
+await test('a later round that fails keeps the creators already found', async () => {
+  const s = setup({ script: [...SCRIPT(), 'fail'] });
+  await s.call({ action: 'research', program_id: PA, count: 10 });
+  assert.equal(s.calls.length, 3, 'the extra round was tried');
+  const run = s.service.tables.affiliate_discovery_runs[0];
+  assert.equal(run.status, 'ok', 'the first round is saved, not thrown away');
+  assert.match(run.error, /found 2 of 10$/);
+  assert.equal(s.service.tables.affiliate_prospects.length, 2);
+  assert.equal(s.rpcs.find((x) => x.name === 'ai_credit_settle').args.p_outcome, 'succeeded');
+});
+
+await test('no single outside page supplies more than five creators', async () => {
+  const handles = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'];
+  const list = {
+    type: 'web_fetch_tool_result', tool_use_id: 'srv3',
+    content: { type: 'web_fetch_result', url: 'https://www.listicle.example/best-creators', content: { type: 'document', source: { type: 'text', data: handles.map((h) => `@${h} 10K followers`).join('\n') } } },
+  };
+  const s = setup({ script: [msg([{ type: 'server_tool_use', id: 'srv3', name: 'web_fetch', input: { url: 'https://www.listicle.example/best-creators' } }, list,
+    { type: 'tool_use', id: 't3', name: 'record_creators', input: { creators: handles.map((h) => creator({ name: h, handle: `@${h}`, profile_url: `https://www.tiktok.com/@${h}`, followers: 10000, followers_source_url: 'https://www.listicle.example/best-creators', found_on_url: 'https://www.listicle.example/best-creators' })) } }], 'tool_use')] });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  const ps = s.service.tables.affiliate_prospects;
+  assert.equal(ps.length, 5);
+  assert.ok(ps.every((p) => p.evidence.followers_source_kind === 'other_page'), 'a count from a list article is labelled as such');
+  assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 over the per-source limit/);
 });
 
 await test('a run that keeps nobody is free, and a model failure is recorded', async () => {

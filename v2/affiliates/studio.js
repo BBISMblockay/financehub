@@ -388,7 +388,7 @@ function renderProspects() {
   const followers = (x) => {
     const f = followersFrom(x.evidence);
     if (!f) return '<span class="af-muted">—</span>';
-    const where = f.source_url ? `${ext(f.source_url, 'where it was stated')}${f.as_of ? ` · ${fmtDate(f.as_of)}` : ''}` : (x.source === 'csv_import' ? 'from your list' : '');
+    const where = f.source_url ? `${ext(f.source_url, f.kind === 'profile' ? 'on their profile' : f.kind === 'other_page' ? 'from another page' : 'where it was stated')}${f.as_of ? ` · ${fmtDate(f.as_of)}` : ''}` : (x.source === 'csv_import' ? 'from your list' : '');
     return `${num(f.count)}${where ? `<div class="af-muted">${where}</div>` : ''}`;
   };
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
@@ -405,7 +405,7 @@ function renderProspects() {
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     MANAGE ? card('Find creators with AI', `<p class="af-muted">AI reads public pages for creators who fit this program and keeps only the ones it found there. Uses AI credit and takes a few minutes.</p>
       ${field('What to look for (optional)', `<textarea class="bcn-field" id="rsFocus" rows="2" maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} parents and coaches on TikTok` : 'e.g. youth baseball coaches with drill videos')}"></textarea>`)}
-      <div class="af-row" style="margin-top:8px;">${field('How many', `<select class="bcn-field" id="rsCount">${[10, 25, 50].map((n) => `<option${n === 25 ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
+      <div class="af-row" style="margin-top:8px;">${field('How many (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">Upload a CSV with one creator per row and a profile link column. Rows marked as minors are skipped.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
     MANAGE ? card('Add a prospect by hand', `<div class="af-grid">

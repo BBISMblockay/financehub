@@ -74,7 +74,13 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
   its profile URL, its `@handle` or its address; the model's own words never
   count. Follower counts and emails are kept only with a source URL those
   results returned (`evidence.followers_source_url`), else stored as null.
-  Likely minors are refused. One research per program at a time; it runs in
+  Likely minors are refused. A run keeps searching in further rounds until
+  it has the number asked for (5 to 50), or until it is within 75 seconds of
+  its time budget; a round that fails keeps what earlier rounds found. No
+  single outside page supplies more than 5 creators, and follower counts
+  come from the creator's own profile where it shows one
+  (`evidence.followers_source_kind` = `profile` or `other_page`, shown on the
+  page as "on their profile" / "from another page"). One research per program at a time; it runs in
   the background (a few minutes) and the page watches the run row
   (`affiliate_discovery_runs.provider = 'anthropic'`). Skipped counts are in
   that row's `error` text (`skipped: …`). AI credit feature

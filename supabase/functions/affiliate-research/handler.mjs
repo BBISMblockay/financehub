@@ -25,7 +25,7 @@
 // one creator survived the checks, free otherwise.
 import { upsertCandidates } from './lib/affiliate-discovery-core.mjs';
 import {
-  buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates,
+  buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
   RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
@@ -41,6 +41,9 @@ export const STALE_RUN_MS = 10 * 60_000; // a "running" row older than this is a
 // run is far larger than the request. Deliberately high: a hold that is too
 // big is released; one that is too small is absorbed by SILO.
 export const HOLD_INPUT_TOKENS = 400_000;
+// A further search round starts only with this much of the budget left, so a
+// round is not cut off mid-way and the creators already found are saved.
+export const ROUND_MIN_MS = 75_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
@@ -109,10 +112,14 @@ export function createResearchHandler({
         };
         const beforeNextCall = async (u, next) => {
           usages = u;
+          if (RUN_BUDGET_MS - (now().getTime() - startedAt) < ROUND_MIN_MS) return false;
           const s = await meter.step({ usage: addUsage(u.map(usageFromResponse)), estInput: estimateInputTokens(next) + HOLD_INPUT_TOKENS, maxOutput: MAX_OUTPUT_TOKENS, maxWeb: WEB_SEARCH_USES });
           return s.ok !== false;
         };
-        const out = await runResearchConversation({ request, callModel, beforeNextCall });
+        const wanted = clampCount(body?.count);
+        const collectedAt = now().toISOString();
+        const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt }).stats.kept;
+        const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept });
         usages = out.usages;
         const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString() });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates, runId,
@@ -122,8 +129,8 @@ export function createResearchHandler({
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
-          error: stats.minors || stats.unverified || stats.not_profile
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link`
+          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.kept < wanted
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}`
             : null,
         });
       } catch (err) {
