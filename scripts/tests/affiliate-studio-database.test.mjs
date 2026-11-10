@@ -28,6 +28,7 @@
 //
 // Mutations (CI runs each and requires the suite to FAIL):
 //   AFFILIATE_DB_MUTATION=anyemail      the brand menu matches records on any email, not the one on file
+//   AFFILIATE_DB_MUTATION=mailedonly    the brand menu answers a portal token its requester holds
 //   AFFILIATE_DB_MUTATION=rls           RLS left off affiliate_attributions
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
@@ -216,6 +217,8 @@ switch (MUT) {
     mutate('core', `  if new.status = 'active' and exists (`, `  if false and exists (`); break;
   case 'staleterms':
     mutate('portal', '  if p_terms_version is distinct from v_prog.terms_version then', '  if false then'); break;
+  case 'mailedonly':
+    mutate('brands', '       and t.mailed_only\n', ''); break;
   case 'anyemail':
     mutate('brands', 'on lower(btrim(a.contact_email)) = me.email', 'on true'); break;
   case 'portalgrant':
@@ -807,29 +810,59 @@ await check('K9 the brand menu is this email\'s records only, and a signup link 
   const progB = (await one(`insert into affiliate_programs(company_entity_id,name,slug,status,commission_percent)
                             values ($1,'Creators','creators-b','active',10) returning id`, [B])).id;
   const patB = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
-                           values ($1,$2,'Pat','  PAT@Coach.test ','active',1,now()) returning id`, [B, progB])).id;
+                           values ($1,$2,'Sam','  SAM@Creator.test ','active',1,now()) returning id`, [B, progB])).id;
   // Terminated, and in a program of its own because one address can hold only
   // one record per program.
   const progBOld = (await one(`insert into affiliate_programs(company_entity_id,name,slug,status,commission_percent)
                                values ($1,'Retired','retired-b','active',10) returning id`, [B])).id;
   const gone = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status)
-                           values ($1,$2,'Pat Old','pat@coach.test','terminated') returning id`, [B, progBOld])).id;
+                           values ($1,$2,'Sam Old','sam@creator.test','terminated') returning id`, [B, progBOld])).id;
   await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
-                  values ($1,$2,'Someone Else','pat@coach.test.evil','active',1,now())`, [B, progBOld]);
+                  values ($1,$2,'Someone Else','sam@creator.test.evil','active',1,now())`, [B, progBOld]);
+  // The rep's own session: minted the way sign-in mints, so the database
+  // knows the raw token went only to the address on file.
+  await db.query(`select public.affiliate_portal_issue_mailed_token($1,$2,$3,'hash-sam-portal', now() + interval '1 day')`, [A, progA, affSam]);
+  // Opened, so the next mint for this affiliate cannot revoke it: a refusal
+  // below must come from mailed_only, never from a revoked link.
+  await db.query(`update affiliate_access_tokens set first_used_at = now() where token_hash = 'hash-sam-portal'`);
   await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
-                  values ($1,$2,$3,'portal','hash-pat-portal', now() + interval '1 day'),
-                         ($1,$2,$3,'signup','hash-pat-signup', now() + interval '1 day')`, [A, progA, affPat]);
+                  values ($1,$2,$3,'signup','hash-sam-signup', now() + interval '1 day')`, [A, progA, affSam]);
 
-  const rows = await all(`select * from public.affiliate_portal_brands('hash-pat-portal')`);
-  assert.deepEqual(rows.map((r) => r.affiliate_id).sort(), [affPat, patB].sort());
-  assert.equal(rows.find((r) => r.affiliate_id === affPat).is_current, true);
+  const rows = await all(`select * from public.affiliate_portal_brands('hash-sam-portal')`);
+  assert.deepEqual(rows.map((r) => r.affiliate_id).sort(), [affSam, patB].sort());
+  assert.equal(rows.find((r) => r.affiliate_id === affSam).is_current, true);
   assert.equal(rows.find((r) => r.affiliate_id === patB).is_current, false);
   assert.ok(!rows.some((r) => r.affiliate_id === gone), 'a terminated record is not a brand to switch to');
   assert.ok(!rows.some((r) => String(r.contact_email).includes('evil')), 'a look-alike address is not the same address');
 
   // A signup link is part-way through accepting ONE brand: no session, no menu.
-  assert.equal((await all(`select * from public.affiliate_portal_brands('hash-pat-signup')`)).length, 0);
+  assert.equal((await all(`select * from public.affiliate_portal_brands('hash-sam-signup')`)).length, 0);
   assert.equal((await all(`select * from public.affiliate_portal_brands('nope')`)).length, 0);
+});
+
+await check('K9b a portal token its requester holds, not the mailbox, gets no brands', async () => {
+  await asSuper();
+  // Exactly what affiliate-invite's staff `portal_link` mints: a manager of
+  // THIS company holds the raw URL (mailing it is optional), and what signup
+  // acceptance hands back has the same shape. Either would otherwise carry a
+  // manager of one company into another company's portal.
+  await db.query(`select public.affiliate_issue_access_token($1,$2,'portal','hash-staff-issued', now() + interval '1 day',$3,null,$4)`,
+    [A, progA, affSam, U.mgrA]);
+  await db.query(`update affiliate_access_tokens set first_used_at = now() where token_hash = 'hash-staff-issued'`);
+  await db.query(`select public.affiliate_issue_access_token($1,$2,'portal','hash-accept-returned', now() + interval '1 day',$3)`,
+    [A, progA, affSam]);
+  for (const h of ['hash-staff-issued', 'hash-accept-returned']) {
+    assert.equal((await all(`select * from public.affiliate_portal_brands($1)`, [h])).length, 0,
+      `${h} must not enumerate another company`);
+  }
+  // mailed_only is the whole difference, and nothing grants it by default.
+  assert.deepEqual(await all(`select token_hash, mailed_only from affiliate_access_tokens
+                               where token_hash in ('hash-sam-portal','hash-staff-issued','hash-accept-returned')
+                               order by token_hash`), [
+    { token_hash: 'hash-accept-returned', mailed_only: false },
+    { token_hash: 'hash-sam-portal', mailed_only: true },
+    { token_hash: 'hash-staff-issued', mailed_only: false },
+  ]);
 });
 
 await check('K10 the brand menu is service-role only', async () => {
@@ -838,8 +871,11 @@ await check('K10 the brand menu is service-role only', async () => {
   // Said once more as a privilege, because the signed-in role above is only
   // one of the two client roles the browser can reach the database as.
   await asSuper();
-  const granted = await all(`select r as role from unnest(array['anon','authenticated']) r
-                              where has_function_privilege(r, 'public.affiliate_portal_brands(text)', 'execute')`);
+  const granted = await all(`select r as role, f as fn
+                               from unnest(array['anon','authenticated']) r,
+                                    unnest(array['public.affiliate_portal_brands(text)',
+                                                 'public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz)']) f
+                              where has_function_privilege(r, f, 'execute')`);
   assert.deepEqual(granted, []);
 });
 

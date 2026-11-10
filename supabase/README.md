@@ -3258,18 +3258,29 @@ person keeps the company + manager gate. `sync_jobs.job_type` gains
 
 ## Affiliate portal brand switcher — `20261110190000_affiliate_portal_brands.sql`
 
-Apply after `20261110180000`, then deploy `affiliate-portal`. Adds
-`affiliate_portal_brands(token_hash)` (service role only): every active or
-paused affiliate record whose address ON FILE matches the one on the record
-this PORTAL token belongs to, the token's own record first. A rep who reps two
-brands has two affiliate records, one per company, because a program and its
-ledger belong to a company; that does not change. What changes is the way in:
-the portal shows a brand menu instead of sending the rep back to their inbox.
+Apply after `20261110180000`, then deploy `affiliate-portal`. A rep who reps
+two brands has two affiliate records, one per company, because a program and
+its ledger belong to a company; that does not change. What changes is the way
+in: the portal shows a brand menu instead of sending the rep back to their
+inbox.
 
-A sibling's own link would be mailed to the same address, by sign-in
-(`20261110170000`) or renewal, so handing the holder that session grants
-nothing new -- the match is on the STORED addresses, normalized, never on
-anything in the request. A signup token gets no menu. The switch
+Adds `affiliate_access_tokens.mailed_only` (default FALSE) and
+`affiliate_portal_issue_mailed_token(...)` (service role only), which mints
+through `affiliate_issue_access_token` -- keeping its revoke and its ownership
+checks -- and marks the result. TRUE means the raw token went ONLY to the
+address on file and was never returned to whoever asked: sign-in
+(`20261110170000`), renewal, and a switch descending from such a session.
+**Not** `affiliate-invite`'s staff `portal_link`, whose raw URL goes to a
+manager (mailing it is optional), and **not** the one `affiliate-portal`'s
+`accept` returns, which whoever finished a signup link holds.
+
+`affiliate_portal_brands(token_hash)` (service role only) then returns, for a
+`mailed_only` PORTAL token and nothing else, every active or paused record
+whose address ON FILE matches that token's record, its own first. Without that
+gate a manager of company A could take a rep's A link and open their company B
+portal. A sibling's own link would be mailed to the same address anyway, so a
+rep who got there by email is given nothing new -- the match is on the STORED
+addresses, normalized, never on anything in the request. The switch
 (`affiliate-portal`, `switch`) mints a fresh portal token for the one record
 chosen and mails nothing; every later read still goes through
 `affiliate_portal_resolve` / `_statement` / `_feed` on that token alone, so no

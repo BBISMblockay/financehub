@@ -21,6 +21,7 @@
 //   AFFILIATE_EDGE_MUTATION=bodyaddress   renewal mails an address taken from the request
 //   AFFILIATE_EDGE_MUTATION=signinleak    email sign-in answers differently when the address is an affiliate's
 //   AFFILIATE_EDGE_MUTATION=switchany     a brand switch trusts the id in the request instead of the sibling list
+//   AFFILIATE_EDGE_MUTATION=mailedmint    a portal link handed to its requester is marked as having gone to the mailbox
 //   AFFILIATE_EDGE_MUTATION=gateorder     the staff function reads with the service role before the gate
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
@@ -53,6 +54,7 @@ async function load(fn, file) {
   const muts = {
     rawtoken: ['affiliate-portal', "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: hash });", "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: token });"],
     bodyaddress: ['affiliate-portal', "        kind, to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,", "        kind, to: globalThis.__bodyEmail || subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,"],
+    mailedmint: ['affiliate-portal', "  async function mintPortalLink(subject, { mailed = false } = {}) {", "  async function mintPortalLink(subject, { mailed = true } = {}) {"],
     switchany: ['affiliate-portal', "      const target = rows.find((b) => b.affiliate_id === wanted && b.is_current !== true);", "      const target = rows.find((b) => b.affiliate_id === wanted && b.is_current !== true) || { company_entity_id: t.company_entity_id, program_id: t.program_id, affiliate_id: wanted, display_name: t.affiliate_display_name, contact_email: t.affiliate_contact_email };"],
     signinleak: ['affiliate-portal', "      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {", "      if (Array.isArray(data) && data.length) return reply({ status: 'sent' });\n      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {"],
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
@@ -84,7 +86,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -327,6 +329,7 @@ await test('portal: renewal answers the same either way, and mails only the addr
   const none = fakeService({ rpc: { affiliate_portal_renew_subject: { data: [], error: null } } });
   const known = fakeService({ rpc: { ...noSuppression,
     affiliate_portal_renew_subject: { data: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, contact_email: 'pat@onfile.invalid', display_name: 'Pat', affiliate_status: 'active' }], error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
     affiliate_issue_access_token: { data: 'id', error: null } }, tables: { entities: { title: 'Brand A' } } });
   globalThis.__bodyEmail = 'attacker@evil.invalid';
   const a = await (await createPortalHandler({ service: none, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'renew', token: TOKEN, email: 'attacker@evil.invalid' }))).json();
@@ -346,6 +349,7 @@ await test('portal: the brand menu lists only this email\'s records, and a switc
     affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
     affiliate_portal_touch_token: { data: null, error: null },
     affiliate_portal_brands: { data: rows, error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
     affiliate_issue_access_token: { data: 'id', error: null } } });
   const mk = (service) => createPortalHandler({ service, siteUrl: 'https://app.test', resendKey: 're_x' });
 
@@ -376,6 +380,50 @@ await test('portal: the brand menu lists only this email\'s records, and a switc
     assert.equal(r.status, 404);
   }
   assert.equal((await mk(svc())(post({ action: 'switch', token: TOKEN, affiliate_id: 'not-a-uuid' }))).status, 400);
+
+  // A portal token the database does not call mailed_only -- a staff-issued
+  // link (affiliate-invite portal_link) or the one signup acceptance returns,
+  // both held by their requester rather than by the mailbox -- gets no
+  // siblings back, so it can neither enumerate nor reach another company.
+  const staff = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
+    affiliate_portal_touch_token: { data: null, error: null },
+    affiliate_portal_brands: { data: [], error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } } });
+  assert.deepEqual(await (await mk(staff)(post({ action: 'brands', token: TOKEN }))).json(), { brands: [] });
+  const denied = await mk(staff)(post({ action: 'switch', token: TOKEN, affiliate_id: AFF2 }));
+  assert.equal(denied.status, 404);
+  assert.equal(staff.log.some((l) => String(l.name).includes('issue')), false, 'a refused switch mints nothing');
+});
+
+await test('portal: only the links that go to the address on file are minted as mailed_only', async () => {
+  const mail = fakeResend();
+  const svc = fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_signin_subjects: { data: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, contact_email: 'pat@onfile.invalid', display_name: 'Pat' }], error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } },
+    tables: { entities: { title: 'Brand A' } } });
+  await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'signin', email: 'pat@onfile.invalid' }));
+  // Sign-in mails the link and returns nothing, so it is mailbox proof.
+  assert.equal(svc.log.filter((l) => l.name === 'affiliate_portal_issue_mailed_token').length, 1);
+  assert.equal(svc.log.filter((l) => l.name === 'affiliate_issue_access_token').length, 0);
+
+  // Signup acceptance hands the portal URL back to whoever finished the
+  // signup link -- a manager can hold one -- so it is NOT.
+  const acc = fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'signup', affiliate_status: 'pending_terms' })], error: null },
+    affiliate_portal_touch_token: { data: null, error: null },
+    affiliate_portal_accept_terms: { data: { status: 'active', terms_version: 2 }, error: null },
+    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } },
+    tables: { entities: { title: 'Brand A' } } });
+  const r = await (await createPortalHandler({ service: acc, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: fakeResend().fetchImpl })(
+    post({ action: 'accept', token: TOKEN, signed_name: 'Pat Coach', terms_version: 2, platform_terms_version: 1 }))).json();
+  assert.ok(r.portal_url, 'acceptance still returns the portal link');
+  assert.equal(acc.log.filter((l) => l.name === 'affiliate_portal_issue_mailed_token').length, 0);
+  assert.equal(acc.log.filter((l) => l.name === 'affiliate_issue_access_token').length, 1);
 });
 
 await test('portal: email sign-in answers the same either way, mails each record on file, needs no token', async () => {
@@ -391,9 +439,12 @@ await test('portal: email sign-in answers the same either way, mails each record
   assert.equal(mail.sent.length, 2, 'one link per affiliate record on file');
   assert.ok(mail.sent.every((m) => m.body.to[0] === 'Pat@OnFile.invalid'));
   assert.ok(mail.sent.every((m) => /portal\.html\?t=/.test(m.body.html)), 'the mail carries a portal link');
-  const issued = known.log.filter((e) => e.name === 'affiliate_issue_access_token');
+  // Sign-in mints through the mailed path, so each link is mailbox proof and
+  // may later switch brands (20261110190000).
+  const issued = known.log.filter((e) => e.name === 'affiliate_portal_issue_mailed_token');
   assert.equal(issued.length, 2);
-  assert.ok(issued.every((e) => e.args.p_purpose === 'portal' && e.args.p_token_hash.length === 64));
+  assert.ok(issued.every((e) => e.args.p_token_hash.length === 64 && e.args.p_affiliate_id));
+  assert.equal(known.log.filter((e) => e.name === 'affiliate_issue_access_token').length, 0);
   // A lookup error is the same answer too, and a missing address is refused before any lookup.
   const broken = fakeService({ rpc: { affiliate_portal_signin_subjects: { data: null, error: { message: 'boom' } } } });
   assert.deepEqual(await (await createPortalHandler({ service: broken, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'signin', email: 'x@y.invalid' }))).json(), a);

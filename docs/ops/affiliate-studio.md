@@ -179,10 +179,16 @@ by hand is the secondary button.
   `affiliate_portal_brands(token_hash)` (service role only, 20261110190000)
   returns every active or paused record whose contact email ON FILE equals the
   one on this PORTAL token's record, normalized, and the portal shows them as a
-  menu. A sibling's own link would be mailed to that same address by sign-in or
-  renewal, so handing the holder that session grants nothing they could not
-  already get from their inbox; the equality is checked on the stored
-  addresses, never on anything in the request, and a signup token gets no menu.
+  menu. **Only for a `mailed_only` token**: one whose raw value went solely to
+  the address on file -- sign-in, renewal, or a switch descending from such a
+  session. A staff `portal_link` (affiliate-invite) hands its raw URL to a
+  manager, and `accept` returns one to whoever finished a signup link; treating
+  either as mailbox proof would let a manager of company A open a rep's company
+  B portal and read B's earnings, so neither is marked and neither gets a menu.
+  For a rep who did arrive by email, a sibling's own link would be mailed to
+  that same address anyway, so the menu grants nothing they could not already
+  get from their inbox. The equality is checked on the stored addresses, never
+  on anything in the request.
   Switching mints a fresh portal token for the one record chosen (mailing
   nothing) and the page reloads onto it, so every read after it still goes
   through `affiliate_portal_resolve` / `_statement` / `_feed` on that token

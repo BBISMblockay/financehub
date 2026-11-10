@@ -9151,8 +9151,11 @@ select 'Affiliate portal sign-in' as check_name,
   end as status;
 
 -- Affiliate portal brand switcher (20261110190000): the sibling list is
--- service role only and matches on the STORED contact email, so a token can
--- only reach records that would be mailed their own link at that address.
+-- service role only, answers only for a token that went to the address on
+-- file (mailed_only -- NOT a staff-issued link or the one signup acceptance
+-- returns, which their requester holds), and matches on the STORED contact
+-- email, so it can only reach records that would be mailed their own link
+-- at that address.
 select 'Affiliate portal brands' as check_name,
   case
     when to_regprocedure('public.affiliate_portal_brands(text)') is null
@@ -9160,8 +9163,18 @@ select 'Affiliate portal brands' as check_name,
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_portal_brands(text)', 'execute'))
       then 'BROKEN — a client role can list an affiliate''s other brands'
+    when to_regprocedure('public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_access_tokens'
+                        and column_name = 'mailed_only')
+      then 'MISSING — run 20261110190000_affiliate_portal_brands.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz)', 'execute'))
+      then 'BROKEN — a client role can mint a portal link that may switch brands'
     when position('''portal''' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
       then 'BROKEN — a signup link can switch brands'
+    when position('t.mailed_only' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — a portal link its requester holds (staff-issued, or returned by signup) can reach another company'
     when position('lower(btrim(a.contact_email)) = me.email'
                   in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
       then 'BROKEN — siblings are not matched on the stored contact email'

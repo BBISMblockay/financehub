@@ -74,14 +74,25 @@ export { affiliateLink };
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
-  async function mintPortalLink(subject) {
+  // `mailed` says the raw token will go ONLY to the address on file and is
+  // never returned to whoever asked -- true for sign-in, renewal and a brand
+  // switch descending from such a session. The database records that
+  // (mailed_only, 20261110190000) and it is the only thing that may list or
+  // switch brands, because a staff-issued portal link and the one signup
+  // acceptance returns are held by their requester, not by the mailbox.
+  async function mintPortalLink(subject, { mailed = false } = {}) {
     const raw = makeToken();
     const expires = new Date(now().getTime() + PORTAL_LINK_DAYS * 86400000).toISOString();
-    const { error } = await service.rpc('affiliate_issue_access_token', {
-      p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
-      p_purpose: 'portal', p_token_hash: await sha256hex(raw), p_expires_at: expires,
-      p_affiliate_id: subject.affiliate_id, p_prospect_id: null, p_created_by: null,
-    });
+    const { error } = mailed
+      ? await service.rpc('affiliate_portal_issue_mailed_token', {
+        p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
+        p_affiliate_id: subject.affiliate_id, p_token_hash: await sha256hex(raw), p_expires_at: expires,
+      })
+      : await service.rpc('affiliate_issue_access_token', {
+        p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
+        p_purpose: 'portal', p_token_hash: await sha256hex(raw), p_expires_at: expires,
+        p_affiliate_id: subject.affiliate_id, p_prospect_id: null, p_created_by: null,
+      });
     if (error) throw Object.assign(new Error(error.message), { db: error });
     return { url: portalUrl(raw), raw, expires_at: expires };
   }
@@ -91,7 +102,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
   // same either way.
   async function mailPortalLink(subject, kind, footer) {
     try {
-      const link = await mintPortalLink(subject);
+      const link = await mintPortalLink(subject, { mailed: true });
       const { data: co } = await service.from('entities').select('title').eq('id', subject.company_entity_id).maybeSingle();
       const brand = co?.title || 'Affiliate program';
       const { html, text } = renderMail({
@@ -226,9 +237,11 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
 
     // ── one rep, several brands ──────────────────────────────────────────
     // The menu, and the switch. Both read the sibling list from the database
-    // (20261110190000), which matches on the contact email STORED on each
-    // record -- never on anything in the request -- so a token can only ever
-    // reach records that would be mailed their own link at the same address.
+    // (20261110190000), which answers at all only for a mailed_only token and
+    // then matches on the contact email STORED on each record -- never on
+    // anything in the request. A staff-issued portal link and the one signup
+    // acceptance returns are held by their requester rather than the mailbox,
+    // so they get an empty list and stay inside their one company.
     if (action === 'brands' || action === 'switch') {
       if (t.purpose !== 'portal') return reply({ brands: [] });
       const { data, error } = await service.rpc('affiliate_portal_brands', { p_token_hash: hash });
@@ -254,12 +267,14 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       // The same answer for "not yours" and "not a brand": the menu is the
       // only way to learn which records exist on this address.
       if (!target) return reply({ error: 'That brand is not on this account.' }, 404);
-      // Mints WITHOUT mailing: the holder already proved they receive mail at
-      // this address. affiliate_issue_access_token revokes only that
-      // affiliate's own unused links, so an unopened portal email for this
-      // brand is replaced by the session being opened now -- the same "one
-      // live link per subject" rule every other path follows.
-      const link = await mintPortalLink(target);
+      // Mints without mailing, and inherits mailed_only: the session this
+      // descends from reached the mailbox (the database refused above
+      // otherwise), and the same person is switching inside it, so a second
+      // switch must work too. The mint revokes only that affiliate's own
+      // unused links, so an unopened portal email for this brand is replaced
+      // by the session being opened now -- the "one live link per subject"
+      // rule every other path follows.
+      const link = await mintPortalLink(target, { mailed: true });
       return reply({ token: link.raw, expires_at: link.expires_at });
     }
 
