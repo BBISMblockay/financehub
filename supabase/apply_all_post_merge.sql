@@ -19657,4 +19657,7 @@ $c$select (select count(*) from v_po_header_summary
 -- Company logo (20261110140000): logo upload in Settings -> Company, shown in
 -- affiliate outreach email. Deploy affiliate-portal for the join and portal pages.
 \i migrations/20261110140000_company_logo.sql
+-- Affiliate portal feed (20261110150000): Share tab in Affiliate Studio, feed
+-- and code-carrying links in the portal. Deploy affiliate-portal.
+\i migrations/20261110150000_affiliate_portal_feed.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -3240,6 +3240,18 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate portal feed — `20261110150000_affiliate_portal_feed.sql`
+
+Apply after `20261110140000`, then deploy `affiliate-portal`. Adds
+`affiliate_programs.store_url` and `affiliate_feed_items`: launches, products
+and Ad Studio campaigns a brand shares with its affiliates (Affiliate Studio →
+Share). Each row is a snapshot of only what an affiliate may see; written only
+by someone who may manage affiliate programs. `affiliate_portal_feed(token
+hash)` (service role only) returns a portal link's feed, the store address
+and the affiliate's codes in effect today; the function builds each link as
+`<store>/discount/<CODE>?redirect=<path with UTMs>`, so the code is applied
+at checkout and commission still comes only from the code.
+
 ## Company logo — `20261110140000_company_logo.sql`
 
 Apply after `20261110130000`, then deploy `affiliate-portal`. Adds

@@ -249,7 +249,7 @@
   // selection, sorted, so a comparison does not depend on checkbox order.
   let _attrAvailable = true, _attrStores = [], _attrLoaded = [];
   // Company logo (20261110140000): the saved address, and whether the column exists yet.
-  let _logoAvailable = true, _logoUrl = null;
+  let _logoAvailable = true, _logoUrl = null, _hasSettings = true;
   const LOGO_BUCKET = 'company-logos';
   const LOGO_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
   const LOGO_MAX = 1024 * 1024;
@@ -278,9 +278,10 @@
   // them (company_settings' own UPDATE policy, is_owner_admin_of_active_company).
   // Disabling the inputs makes that visible before somebody types into them.
   function applyPermission() {
-    el('btnLogo').disabled = !_canEdit || !_logoAvailable;
-    el('btnLogoRemove').disabled = !_canEdit || !_logoAvailable;
+    el('btnLogo').disabled = !_canEdit || !_logoAvailable || !_hasSettings;
+    el('btnLogoRemove').disabled = !_canEdit || !_logoAvailable || !_hasSettings;
     el('logoHint').textContent = !_logoAvailable ? 'Logo upload is not available yet.'
+      : !_hasSettings ? 'This workspace has no company settings yet, so a logo cannot be saved.'
       : _canEdit ? '' : 'Only a workspace owner can change the logo.';
     for (const id of ['fldName', 'fldTimezone', 'fldCurrency']) el(id).disabled = !_canEdit;
     for (const n of docInputs()) n.disabled = !_canEdit || !_docsAvailable;
@@ -415,7 +416,11 @@
       .select('company_entity_id');
     if (error) throw error;
     // An RLS refusal on UPDATE is a success with zero rows, not an error.
-    if (!data || !data.length) throw new Error('The logo was not saved — your account may no longer have owner access here.');
+    if (!data || !data.length) {
+      throw new Error(_hasSettings
+        ? 'The logo was not saved — your account may no longer have owner access here.'
+        : 'The logo was not saved: this workspace has no company settings yet. Contact SILO support to set them up.');
+    }
   }
 
   async function uploadLogo(file) {
@@ -516,6 +521,7 @@
       sel.append(o);
     }
     sel.value = _loaded.business_timezone;
+    _hasSettings = !!settings;
     if (!settings) setStatus('This workspace has no settings row yet.', 'info');
 
     const billPayRead = await db.from('company_settings')

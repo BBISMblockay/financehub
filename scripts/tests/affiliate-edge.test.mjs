@@ -25,6 +25,8 @@
 //   AFFILIATE_EDGE_MUTATION=draftnews     a draft payout is announced
 //   AFFILIATE_EDGE_MUTATION=byprospectonly a follow-up to a known email tries a second record
 //   AFFILIATE_EDGE_MUTATION=anylogo       the portal hands the page any stored logo address
+//   AFFILIATE_EDGE_MUTATION=nocodelink    an affiliate link does not carry the affiliate's code
+//   AFFILIATE_EDGE_MUTATION=offsitelink   an affiliate link may open a page on another site
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -43,6 +45,8 @@ async function load(fn, file) {
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
+    nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;", "return `${store}${p}?${q}`;"],
+    offsitelink: ['affiliate-portal', "const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';", "const p = path || '/';"],
     anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
   };
@@ -56,9 +60,9 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(path).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
-const { createPortalHandler } = await load('affiliate-portal', 'handler.mjs');
+const { createPortalHandler, affiliateLink } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
 const { sha256hex } = await import(new URL('supabase/functions/affiliate-portal/affiliate-mail.mjs', ROOT));
 
@@ -161,6 +165,38 @@ await test('portal: resolve carries the company logo, only when it is one in the
   assert.ok(svc.log.some((c) => c.table === 'company_settings' && c.filters.company_entity_id === CO), 'read for the link\'s own company');
   assert.equal((await resolve(mk(undefined))).brand_logo, null, 'no logo: the page shows the initial');
   assert.equal((await resolve(mk('https://evil.test/pixel.png'))).brand_logo, null, 'an address outside the logo bucket is never handed to the page');
+});
+
+await test('portal: the feed gives each shared item a link on the brand\'s store that applies the affiliate\'s code', async () => {
+  const svc = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
+    affiliate_portal_statement: { data: { currency: 'USD', totals: {} }, error: null },
+    affiliate_portal_feed: { data: { store_url: 'https://shop.brand.test', codes: ['PAT 10'], items: [
+      { kind: 'product', title: 'Hat', product_path: '/products/hat', image_url: 'https://cdn.test/h.png' },
+      { kind: 'ad', title: 'Spring', note: 'Say spring', product_path: '//evil.test/x', image_url: 'javascript:x' },
+      { kind: 'launch', title: 'Drop', event_on: '2026-11-20', product_path: null }] }, error: null },
+  } });
+  const h = createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' });
+  const out = await (await h(post({ action: 'statement', token: TOKEN }))).json();
+  const hat = out.feed.items.find((i) => i.title === 'Hat');
+  const u = new URL(hat.link);
+  assert.equal(u.origin, 'https://shop.brand.test');
+  assert.equal(u.pathname, '/discount/PAT%2010', 'the code is applied at checkout');
+  const r = new URL(u.searchParams.get('redirect'), 'https://shop.brand.test');
+  assert.equal(r.pathname, '/products/hat');
+  assert.equal(r.searchParams.get('utm_source'), 'affiliate');
+  assert.equal(r.searchParams.get('utm_campaign'), 'PAT 10');
+  const ad = out.feed.items.find((i) => i.title === 'Spring');
+  assert.equal(new URL(ad.link).searchParams.get('redirect').split('?')[0], '/', 'a path that leaves the store becomes the home page');
+  assert.equal(ad.image_url, null, 'only https images');
+  assert.equal(out.feed.items.find((i) => i.title === 'Drop').link, null, 'nothing to link: no link');
+  assert.ok(out.feed.store_link.startsWith('https://shop.brand.test/discount/PAT%2010?redirect=%2F%3F'));
+  assert.equal(affiliateLink('https://shop.brand.test', null, '/x'), null, 'no code yet: no link');
+  assert.equal(affiliateLink('http://shop.brand.test', 'A', '/x'), null, 'only an https store');
+  const noFeed = fakeService({ rpc: { affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
+    affiliate_portal_statement: { data: {}, error: null }, affiliate_portal_feed: { data: null, error: { message: 'missing', code: '42883' } } } });
+  const o2 = await (await createPortalHandler({ service: noFeed, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'statement', token: TOKEN }))).json();
+  assert.equal(o2.feed, null, 'before the migration, the statement still works with no feed');
 });
 
 await test('portal: resolve exposes no internal ids', async () => {

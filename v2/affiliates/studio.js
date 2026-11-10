@@ -159,6 +159,7 @@ async function loadProgramData() {
     periodTotals: by('affiliate_period_totals_v'),
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
     notifications: by('affiliate_notifications').order('created_at', { ascending: false }).limit(50),
+    feed: by('affiliate_feed_items').order('shared_at', { ascending: false }).limit(200),
   };
   const keys = Object.keys(q);
   const res = await Promise.all(Object.values(q));
@@ -243,7 +244,7 @@ function render() {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
   }
-  ({ program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
+  ({ program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
 }
 
 function renderKpis() {
@@ -536,6 +537,57 @@ function renderAffiliates() {
   ].join('');
 }
 
+// ── Share: what affiliates see in their portal ───────────────────────────
+// The brand picks each item (Blake, 2026-11-10). Sharing stores a snapshot of
+// only what an affiliate may see; the portal gives each affiliate their own
+// link to it, which applies their code at checkout.
+const pathOf = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? (x.pathname || '/') : null; } catch { return null; } };
+const httpsOr = (u) => (/^https:\/\/[^\s"'<>]+$/.test(String(u || '')) ? u : null);
+
+async function loadShareSources() {
+  const t = today();
+  const [l, a] = await Promise.all([
+    db.from('launch_calendar').select('id, title, launch_date, launch_image_url, landing_page_url, status')
+      .eq('company_entity_id', CO).gte('launch_date', t).order('launch_date').limit(50),
+    db.from('ad_ideas').select('id, title, hook, body_draft, destination_url, status, updated_at')
+      .eq('company_entity_id', CO).in('status', ['approved', 'live']).order('updated_at', { ascending: false }).limit(50),
+  ]);
+  S.share = { launches: l.data || [], ads: a.data || [], products: S.share?.products || [], q: S.share?.q || '',
+    failed: [l.error && 'launches', a.error && 'ads'].filter(Boolean) };
+}
+
+function shareItem(kind, srcId, title, sub, img, payload) {
+  const shared = S.d.feed.find((f) => f.kind === kind && f.source_id === String(srcId));
+  const action = !MANAGE ? (shared ? pill('shared', 'pos') : '')
+    : shared ? btn('Stop sharing', 'feed-remove', { id: shared.id })
+    : btn('Share', 'feed-add', { kind, src: srcId, p: JSON.stringify(payload) }, 'primary');
+  return `<div class="af-share-row">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}</div>${action}</div>`;
+}
+
+async function renderShare() {
+  const p = prog();
+  $('shareBody').innerHTML = card('Share with affiliates', '<p class="af-muted">Loading…</p>');
+  if (!S.share || S.share.programId !== p.id) { await loadShareSources(); S.share.programId = p.id; }
+  const sh = S.share; const d = S.d;
+  const launches = sh.launches.map((x) => shareItem('launch', x.id, x.title || 'Launch', fmtDate(x.launch_date), httpsOr(x.launch_image_url),
+    { title: x.title || 'Launch', event_on: x.launch_date, image_url: httpsOr(x.launch_image_url), product_path: x.landing_page_url ? pathOf(x.landing_page_url) : null }));
+  const products = sh.products.map((x) => shareItem('product', x.shopify_handle, x.product_title, x.product_type || '', httpsOr(x.image_url),
+    { title: x.product_title, image_url: httpsOr(x.image_url), product_path: `/products/${x.shopify_handle}` }));
+  const ads = sh.ads.map((x) => shareItem('ad', x.id, x.title || x.hook || 'Ad', x.hook && x.title ? x.hook : '', null,
+    { title: x.title || x.hook || 'Ad', note: [x.title ? x.hook : null, x.body_draft].filter(Boolean).join('\n\n').slice(0, 1000) || null, product_path: x.destination_url ? pathOf(x.destination_url) : null }));
+  const sharedRows = d.feed.map((f) => `<div class="af-share-row">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Campaign' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}</div></div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div>`);
+  $('shareBody').innerHTML = [
+    card('What your affiliates see', `<p class="af-muted">Shared items appear in each affiliate's portal with their own link, which applies their code at checkout.</p>${sharedRows.length ? sharedRows.join('') : empty('Nothing shared yet. Pick launches, products or campaigns below.')}`,
+      `${d.feed.length} shared`),
+    MANAGE ? card('Store address', `<div class="af-row">${field('Links open', input('storeUrl', `placeholder="https://yourstore.com" value="${esc(p.store_url || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>
+      <p class="af-muted">Leave blank to use your Shopify store's address.</p>`) : '',
+    card('Upcoming launches', launches.length ? launches.join('') : empty('No upcoming launches on the launch calendar.')),
+    card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? products.join('') : (sh.q ? empty('No products match.') : '')}`),
+    card('Campaigns from Ad Studio', ads.length ? ads.join('') : empty('No approved or live ads yet.')),
+    sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
+  ].join('');
+}
+
 // ── Commissions ──────────────────────────────────────────────────────────
 function renderCommissions() {
   const d = S.d; const p = prog();
@@ -788,6 +840,36 @@ const A = {
     if (!val('cAff') || !val('cCode')) throw new Error('Pick an affiliate and type the code.');
     must(await db.from('affiliate_codes').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: val('cAff'), code: val('cCode'), starts_on: val('cStart') || today(), ends_on: val('cEnd') || null, created_by: me.id }));
     return 'Code added. It is credited from the next “Match orders” run.';
+  },
+  'feed-add': async ({ kind, src, p }) => {
+    const x = JSON.parse(p || '{}');
+    must(await db.from('affiliate_feed_items').insert({ company_entity_id: CO, program_id: S.programId, kind, source_id: String(src),
+      title: String(x.title || '').slice(0, 200), note: x.note || null, image_url: x.image_url || null, product_path: x.product_path || null, event_on: x.event_on || null }));
+    return 'Shared. It shows in your affiliates\' portal now.';
+  },
+  'feed-remove': async ({ id }) => {
+    const { data, error } = await db.from('affiliate_feed_items').delete().eq('id', id).select();
+    if (error) throw error;
+    if (!data?.length) throw new Error('Not removed: your account may no longer manage this program.');
+    return 'No longer shared.';
+  },
+  'store-save': async () => {
+    const v = val('storeUrl').toLowerCase().replace(/\/+$/, '');
+    if (v && !/^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v)) throw new Error('Use your store address only, like https://yourstore.com');
+    await updateRows('affiliate_programs', { store_url: v || null, changed_by: me.id }, { id: S.programId });
+    return 'Store address saved.';
+  },
+  'prod-search': async () => {
+    const q = val('prodQ');
+    S.share.q = q;
+    if (!q) { S.share.products = []; renderShare(); return; }
+    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const { data, error } = await db.from('products_master').select('product_title, product_type, image_url, shopify_handle')
+      .eq('company_entity_id', CO).ilike('product_title', like).not('shopify_handle', 'is', null).limit(120);
+    if (error) throw error;
+    const seen = new Set();
+    S.share.products = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle)).slice(0, 30);
+    renderShare();
   },
   'code-retire': async ({ id }) => { await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id }); return 'Code retired.'; },
   'link-add': async () => {

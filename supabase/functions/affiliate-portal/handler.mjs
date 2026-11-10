@@ -59,6 +59,21 @@ const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null)
 // an image in a Supabase company-logos bucket.
 const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/company-logos\/[0-9a-f-]{36}\/logo-[0-9]{10,16}\.(png|jpg|jpeg|webp)$/;
 
+// Affiliate links (20261110150000): the brand's own store, through Shopify's
+// /discount/CODE address so the affiliate's code is applied at checkout, then
+// on to the page. The UTMs ride inside the redirect so they reach the landing
+// page. Commission still comes only from the code on the order, so a click on
+// a link can never credit an order twice.
+const STORE_RE = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const PATH_RE = /^\/[A-Za-z0-9/_.~%-]*$/;
+const IMAGE_RE = /^https:\/\/[^\s"'<>]+$/;
+export function affiliateLink(store, code, path = '/') {
+  if (!STORE_RE.test(String(store || '')) || !code) return null;
+  const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';
+  const q = new URLSearchParams({ utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: String(code) });
+  return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;
+}
+
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
@@ -82,6 +97,26 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         .eq('company_entity_id', companyId).maybeSingle();
       const u = error ? null : data?.logo_url;
       return typeof u === 'string' && LOGO_RE.test(u) ? u : null;
+    } catch { return null; }
+  }
+
+  // The portal feed: what the program shared, each with this affiliate's own
+  // link. Fail-soft: an unapplied migration or a read error is "no feed".
+  async function portalFeed(hash) {
+    try {
+      const { data, error } = await service.rpc('affiliate_portal_feed', { p_token_hash: hash });
+      if (error || !data || typeof data !== 'object') return null;
+      const code = Array.isArray(data.codes) && data.codes.length ? String(data.codes[0]) : null;
+      const store = STORE_RE.test(String(data.store_url || '')) ? data.store_url : null;
+      return {
+        code,
+        store_link: affiliateLink(store, code, '/'),
+        items: (Array.isArray(data.items) ? data.items : []).map((i) => ({
+          kind: i.kind, title: i.title, note: i.note ?? null, event_on: i.event_on ?? null,
+          image_url: IMAGE_RE.test(String(i.image_url || '')) ? i.image_url : null,
+          link: i.product_path ? affiliateLink(store, code, i.product_path) : null,
+        })),
+      };
     } catch { return null; }
   }
 
@@ -217,6 +252,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
       if (error) return dbError(error);
       return reply({ brand: t.company_title, brand_logo: await brandLogo(t.company_entity_id), program: t.program_name, statement: data,
+        feed: await portalFeed(hash),
         formatted: { earned: formatMoney(data?.totals?.earned_cents, data?.currency) } });
     }
 

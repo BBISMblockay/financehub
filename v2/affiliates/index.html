@@ -14,6 +14,10 @@
   <style>
     /* Affiliate Studio (af-) layout only; every colour and font is a Beacon token. */
     .af-panel[hidden] { display: none; }
+    .af-share-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--bcn-border); }
+    .af-share-row:first-of-type { border-top: 0; }
+    .af-share-row img, .af-share-noimg { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
+    .af-share-txt { flex: 1; min-width: 0; }
     .af-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .af-grid--wide { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
     .af-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
@@ -67,6 +71,7 @@
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Payouts</button>
     </nav>
 
@@ -74,6 +79,7 @@
     <section class="af-panel" data-panel="prospects"><div class="af-stack" id="prospectsBody"></div></section>
     <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
     <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
+    <section class="af-panel" data-panel="share" hidden><div class="af-stack" id="shareBody"></div></section>
     <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="payoutsBody"></div></section>
     <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="commissionsBody"></div></section>
   </main>
