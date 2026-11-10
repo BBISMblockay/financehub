@@ -21,6 +21,7 @@
 //                                             -> activates; mails a portal link
 //   statement { token }                       -> earnings summary, codes, links, payouts
 //   renew     { token }                       -> expired portal link: mail a new one
+//   signin    { email }                       -> mail a portal link to that address if it is an affiliate's
 //                                                to the address ON FILE
 //   apply     { company_id, program, email, name, platform?, handle?, profile_url?, pitch?, website? }
 //                                             -> open intake: creates a PROSPECT
@@ -81,6 +82,29 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     });
     if (error) throw Object.assign(new Error(error.message), { db: error });
     return { url: portalUrl(raw), expires_at: expires };
+  }
+
+  // Mails a fresh portal link to the affiliate's address ON FILE, never one
+  // from the request. Failures are logged, not returned: callers answer the
+  // same either way.
+  async function mailPortalLink(subject, kind, footer) {
+    try {
+      const link = await mintPortalLink(subject);
+      const { data: co } = await service.from('entities').select('title').eq('id', subject.company_entity_id).maybeSingle();
+      const brand = co?.title || 'Affiliate program';
+      const { html, text } = renderMail({
+        brand, heading: 'Your affiliate portal link',
+        paragraphs: [`Hi ${escapeHtml(subject.display_name)}, here is your link to the ${escapeHtml(brand)} affiliate portal. It works for ${PORTAL_LINK_DAYS} days.`],
+        cta: { url: link.url, label: 'Open my portal' },
+        footer,
+      });
+      await sendAffiliateMail({ service, resendKey, fetchImpl }, {
+        companyId: subject.company_entity_id, programId: subject.program_id, affiliateId: subject.affiliate_id,
+        kind, to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,
+      });
+    } catch (err) {
+      console.error(`[affiliate-portal] ${kind} failed`, err?.message);
+    }
   }
 
   // Fail-soft: no logo, an unapplied migration or a read error all mean the
@@ -145,6 +169,23 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       return reply({ status: data?.status || 'received' });
     }
 
+    // ── sign in by email: no token ───────────────────────────────────────
+    // The link always goes to the address on file, which is the address
+    // typed, so a stranger can only make an affiliate's own inbox receive
+    // their own link -- at most once per 10 minutes (the database decides).
+    // The answer never says whether the address belongs to an affiliate.
+    if (action === 'signin') {
+      const generic = reply({ status: 'sent_if_eligible', message: 'If that email belongs to an affiliate, a sign-in link is on its way.' });
+      const email = String(clip(body?.email, 254) || '').toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reply({ error: 'Enter the email you signed up with.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_signin_subjects', { p_email: email });
+      if (error) { console.error('[affiliate-portal] signin lookup failed', error.message); return generic; }
+      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {
+        await mailPortalLink(subject, 'portal_link', 'Someone asked to sign in to this portal with your email. If it was not you, you can ignore this email.');
+      }
+      return generic;
+    }
+
     const token = String(body?.token || '');
     if (!TOKEN_RE.test(token)) return reply({ error: 'This link is not valid.' }, 400);
     const hash = await sha256hex(token);
@@ -157,23 +198,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       // must not confirm which old links belong to real affiliates.
       const generic = reply({ status: 'sent_if_eligible', message: 'If this link belongs to an active affiliate, a new one is on its way to the address on file.' });
       if (!subject) return generic;
-      try {
-        const link = await mintPortalLink(subject);
-        const { data: co } = await service.from('entities').select('title').eq('id', subject.company_entity_id).maybeSingle();
-        const brand = co?.title || 'Affiliate program';
-        const { html, text } = renderMail({
-          brand, heading: 'Your new affiliate portal link',
-          paragraphs: [`Hi ${escapeHtml(subject.display_name)}, here is a fresh link to your ${escapeHtml(brand)} affiliate portal. It works for ${PORTAL_LINK_DAYS} days.`],
-          cta: { url: link.url, label: 'Open my portal' },
-          footer: 'You asked for this because an older link had expired. If you did not, you can ignore this email.',
-        });
-        await sendAffiliateMail({ service, resendKey, fetchImpl }, {
-          companyId: subject.company_entity_id, programId: subject.program_id, affiliateId: subject.affiliate_id,
-          kind: 'link_renewal', to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,
-        });
-      } catch (err) {
-        console.error('[affiliate-portal] renew failed', err?.message);
-      }
+      await mailPortalLink(subject, 'link_renewal', 'You asked for this because an older link had expired. If you did not, you can ignore this email.');
       return generic;
     }
 

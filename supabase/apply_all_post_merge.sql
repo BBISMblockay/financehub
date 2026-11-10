@@ -19664,4 +19664,8 @@ $c$select (select count(*) from v_po_header_summary
 -- scope and tools, one store rule for affiliate links, ad pictures in the feed.
 -- Deploy mcp, affiliate-portal and affiliate-invite.
 \i migrations/20261110160000_affiliate_codes_via_ai.sql
+-- Affiliate portal sign-in by email (20261110170000): a rep types their email
+-- and is mailed a fresh portal link; statement gains sales_cents.
+-- Deploy affiliate-portal.
+\i migrations/20261110170000_affiliate_portal_signin.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
