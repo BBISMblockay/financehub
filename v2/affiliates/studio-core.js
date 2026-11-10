@@ -212,11 +212,14 @@ export function linkUrl(l) {
 // affiliate gets.
 const STORE_RE = /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 const PATH_RE = /^\/[A-Za-z0-9/_.~%-]*$/;
-export function affiliateLink(store, code, path = '/') {
+export function affiliateLink(store, code, path = '/', query = '', hash = '') {
   if (!STORE_RE.test(String(store || '')) || !code) return null;
   const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';
-  const q = new URLSearchParams({ utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: String(code) });
-  return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;
+  // The page's own query (a variant, a search) is kept; the UTMs are merged in.
+  const q = new URLSearchParams(String(query || ''));
+  for (const [k, v] of [['utm_source', 'affiliate'], ['utm_medium', 'affiliate'], ['utm_campaign', String(code)]]) q.set(k, v);
+  const h = /^#[A-Za-z0-9_.~%=&-]*$/.test(String(hash || '')) ? hash : '';
+  return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}${h}`)}`;
 }
 export function storeLinkFor(store, code, url) {
   if (!STORE_RE.test(String(store || '')) || !code) return null;
@@ -224,7 +227,7 @@ export function storeLinkFor(store, code, url) {
   try { u = new URL(String(url || '')); } catch { return null; }
   const bare = (h) => String(h).toLowerCase().replace(/^www\./, '');
   if (u.protocol !== 'https:' || bare(u.hostname) !== bare(new URL(store).hostname)) return null;
-  return affiliateLink(store, code, u.pathname || '/');
+  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);
 }
 
 export function applyUrl(origin, companyId, slug) {

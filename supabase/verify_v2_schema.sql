@@ -9141,6 +9141,8 @@ select 'Affiliate codes via AI' as check_name,
       then 'MISSING — run 20261110160000_affiliate_codes_via_ai.sql'
     when position('codes:create' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
       then 'BROKEN — the consent screen cannot grant codes:create'
+    when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_mark_code_created(uuid,text)'))) = 0
+      then 'BROKEN — two calls may both take a connection''s last free write'
     when not exists (select 1 from pg_constraint where conname = 'affiliate_codes_pending_has_discount')
       then 'BROKEN — a code waiting for Shopify may lack its discount'
     when position('affiliate_program_store_url' in pg_get_functiondef(to_regprocedure('public.affiliate_portal_feed(text)'))) = 0

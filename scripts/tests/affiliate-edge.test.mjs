@@ -31,6 +31,8 @@
 //   AFFILIATE_EDGE_MUTATION=anyhostlink   a link to another site is sent through the store with the code
 //   AFFILIATE_EDGE_MUTATION=pendingcode   a code still waiting for Shopify is shown to the affiliate
 //   AFFILIATE_EDGE_MUTATION=plainmaillink the codes email sends plain links that do not apply the code
+//   AFFILIATE_EDGE_MUTATION=linkquery     a store page's own query (variant, search) is dropped from the link
+//   AFFILIATE_EDGE_MUTATION=utcday        the codes email picks today's code by the UTC date
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -49,7 +51,9 @@ async function load(fn, file) {
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
-    nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}`)}`;", "return `${store}${p}?${q}`;", 'affiliate-mail.mjs'],
+    nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}${h}`)}`;", "return `${store}${p}?${q}`;", 'affiliate-mail.mjs'],
+    linkquery: ['affiliate-portal', "  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);", "  return affiliateLink(store, code, u.pathname || '/');", 'affiliate-mail.mjs'],
+    utcday: ['affiliate-invite', "          const today = localDay(now(), tz);", "          const today = now().toISOString().slice(0, 10);"],
     offsitelink: ['affiliate-portal', "const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';", "const p = path || '/';", 'affiliate-mail.mjs'],
     anyhostlink: ['affiliate-portal', "  if (u.protocol !== 'https:' || bare(u.hostname) !== bare(new URL(store).hostname)) return null;", "  if (u.protocol !== 'https:') return null;", 'affiliate-mail.mjs'],
     pendingcode: ['affiliate-portal', "data.codes = data.codes.filter((c) => c?.status !== 'pending');", 'data.codes = data.codes;'],
@@ -68,7 +72,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -464,6 +468,36 @@ await test('invite: the codes email gives links that apply the code, on the stor
   assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'the store home with the code');
   assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2Fproducts%2Fhat'), 'the store page with the code');
   assert.ok(svc.log.some((c) => c.name === 'affiliate_program_store_url' && c.args.p_company === CO && c.args.p_program === PROG));
+});
+
+await test('a store page keeps its own query and anchor inside the code link', async () => {
+  const { storeLinkFor } = await load('affiliate-portal', 'affiliate-mail.mjs');
+  const target = (u) => new URL(u).searchParams.get('redirect');
+  const v = target(storeLinkFor('https://shop.brand.test', 'PAT10', 'https://shop.brand.test/products/hat?variant=123#reviews'));
+  assert.ok(v.startsWith('/products/hat?variant=123&utm_source=affiliate'), v);
+  assert.ok(v.endsWith('utm_campaign=PAT10#reviews'), v);
+  const q = target(storeLinkFor('https://shop.brand.test', 'PAT10', 'https://shop.brand.test/search?q=caps&utm_campaign=old'));
+  assert.equal(q, '/search?q=caps&utm_campaign=PAT10&utm_source=affiliate&utm_medium=affiliate');
+});
+
+await test('invite: the codes email picks the code in effect on the company\'s own day, not UTC\'s', async () => {
+  // 18:00 in Los Angeles on Nov 10 is already Nov 11 in UTC.
+  const at = new Date('2026-11-11T02:00:00Z');
+  const send = async (codes) => {
+    const mail = fakeResend();
+    const svc = fakeService({ rpc: { ...noSuppression, affiliate_program_store_url: { data: 'https://shop.brand.test', error: null }, silo_company_timezone: { data: 'America/Los_Angeles', error: null } }, tables: {
+      affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
+      entities: { title: 'Brand A' }, affiliate_codes: codes, affiliate_links: [],
+    } });
+    const res = await createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl, now: () => at })(
+      authed({ action: 'notify', affiliate_id: AFF, kind: 'codes_and_links' }));
+    assert.equal(res.status, 200);
+    return mail.sent[0].body.html;
+  };
+  const ending = await send([{ code: 'ENDSTODAY', starts_on: '2026-11-01', ends_on: '2026-11-10', status: 'active' }]);
+  assert.ok(ending.includes('/discount/ENDSTODAY?'), 'a code valid through the local today still gets its link');
+  const starting = await send([{ code: 'TOMORROW', starts_on: '2026-11-11', ends_on: null, status: 'active' }]);
+  assert.ok(!starting.includes('/discount/TOMORROW?'), 'a code that starts tomorrow, local time, is not linked yet');
 });
 
 await test('the mail module ships byte-identical in both functions', async () => {

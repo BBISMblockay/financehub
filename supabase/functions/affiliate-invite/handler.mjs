@@ -31,6 +31,12 @@ export const corsHeaders = {
 export const SIGNUP_LINK_DAYS = 14;
 export const PORTAL_LINK_DAYS = 90;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A date (YYYY-MM-DD) as the company's own calendar day; UTC when the zone
+// is missing or unknown.
+export function localDay(at, tz) {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at); }
+  catch { return at.toISOString().slice(0, 10); }
+}
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
 export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
@@ -171,7 +177,10 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           // Links apply the affiliate's code (20261110160000): the store the
           // brand named, or its only Shopify store -- never a guess among several.
           const { data: store } = await service.rpc('affiliate_program_store_url', { p_company: company, p_program: a.program_id });
-          const today = new Date().toISOString().slice(0, 10);
+          // The company's own calendar day, as the portal feed and the Shopify
+          // instructions use, not UTC's.
+          const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: company });
+          const today = localDay(now(), tz);
           const current = (codes || []).find((c) => c.starts_on <= today && (!c.ends_on || c.ends_on >= today));
           const shopLink = current ? affiliateLink(store, current.code, '/') : null;
           const paras = [`Hi ${escapeHtml(a.display_name)}, here are your current ${escapeHtml(brand)} affiliate details.`];

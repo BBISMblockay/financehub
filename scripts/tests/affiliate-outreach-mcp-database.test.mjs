@@ -55,6 +55,7 @@
 //   OUTREACH_MCP_MUTATION=codes-no-path              the codes tool is not on the path allowlist
 //   OUTREACH_MCP_MUTATION=codes-any-status           any code (not only a pending one) may be marked created
 //   OUTREACH_MCP_MUTATION=codes-no-cap               marking codes created ignores the daily write cap
+//   OUTREACH_MCP_MUTATION=codes-no-cap-lock          two calls may both take the last free write
 //   OUTREACH_MCP_MUTATION=codes-pending-earns        the portal hands out a code still waiting for Shopify
 //   OUTREACH_MCP_MUTATION=codes-pending-no-reserve   a pending code does not reserve its dates
 //   OUTREACH_MCP_MUTATION=codes-store-oldest         with several Shopify stores the oldest one is guessed
@@ -237,6 +238,8 @@ switch (MUT) {
     mutate("    '/rpc/silo_api_codes_to_create',\n", ''); break;
   case 'codes-any-status':
     mutate("  if v_c.status <> 'pending' then", '  if false then'); break;
+  case 'codes-no-cap-lock':
+    mutate("  perform pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || v_grant.id::text, 0));\n", ''); break;
   case 'codes-no-cap':
     mutate('  if v_used >= public.silo_api_write_cap() then', '  if false then'); break;
   case 'codes-pending-earns':
@@ -844,6 +847,15 @@ await check('K8 the verify check for this migration reads ok once it is applied'
   const i = v.indexOf("select 'Affiliate codes via AI'");
   const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
   assert.equal((await one(q)).status, 'ok');
+});
+
+await check('K9 marking a code created takes the connection\'s write lock before it counts the cap', async () => {
+  // PGlite has one session, so the race itself cannot run here; the lock that
+  // prevents it is asserted where it must be: before the count.
+  const def = (await one("select pg_get_functiondef('public.silo_api_mark_code_created(uuid,text)'::regprocedure) d")).d;
+  const lock = def.indexOf("pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || v_grant.id::text, 0))");
+  assert.ok(lock > 0, 'the write lock is taken');
+  assert.ok(lock < def.indexOf('from public.silo_api_writes w'), 'before the writes are counted');
 });
 
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {

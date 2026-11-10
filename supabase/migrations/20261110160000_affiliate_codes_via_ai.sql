@@ -557,6 +557,9 @@ begin
       using errcode = 'check_violation';
   end if;
 
+  -- One connection's writes are counted one call at a time: two calls for
+  -- different codes cannot both see the last free write.
+  perform pg_advisory_xact_lock(hashtextextended('silo_api_writes:' || v_grant.id::text, 0));
   select count(*) into v_used
     from public.silo_api_writes w
    where w.grant_id = v_grant.id
