@@ -9,7 +9,7 @@
 //   * the portal response exposes no internal ids;
 //   * acceptance survives a missing mail key, and the mail goes to the address
 //     ON FILE, never one in the request;
-//   * renewal answers identically whether or not the link was renewable;
+//   * renewal and email sign-in answer identically whether or not anything was sent;
 //   * the staff function asks the database, AS THE CALLER, before any
 //     service-role call, and takes the company from the caller, never the body;
 //   * a signup link for a prospect is RETURNED, never emailed;
@@ -19,6 +19,7 @@
 // Mutations (CI runs each and requires a failure):
 //   AFFILIATE_EDGE_MUTATION=rawtoken      the portal hands the raw token to the database
 //   AFFILIATE_EDGE_MUTATION=bodyaddress   renewal mails an address taken from the request
+//   AFFILIATE_EDGE_MUTATION=signinleak    email sign-in answers differently when the address is an affiliate's
 //   AFFILIATE_EDGE_MUTATION=gateorder     the staff function reads with the service role before the gate
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
@@ -46,7 +47,8 @@ async function load(fn, file) {
   const dir = new URL(`supabase/functions/${fn}/`, ROOT);
   const muts = {
     rawtoken: ['affiliate-portal', "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: hash });", "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: token });"],
-    bodyaddress: ['affiliate-portal', "kind: 'link_renewal', to: subject.contact_email,", "kind: 'link_renewal', to: body.email || subject.contact_email,"],
+    bodyaddress: ['affiliate-portal', "        kind, to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,", "        kind, to: globalThis.__bodyEmail || subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,"],
+    signinleak: ['affiliate-portal', "      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {", "      if (Array.isArray(data) && data.length) return reply({ status: 'sent' });\n      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {"],
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
@@ -72,7 +74,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -315,11 +317,37 @@ await test('portal: renewal answers the same either way, and mails only the addr
   const known = fakeService({ rpc: { ...noSuppression,
     affiliate_portal_renew_subject: { data: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, contact_email: 'pat@onfile.invalid', display_name: 'Pat', affiliate_status: 'active' }], error: null },
     affiliate_issue_access_token: { data: 'id', error: null } }, tables: { entities: { title: 'Brand A' } } });
+  globalThis.__bodyEmail = 'attacker@evil.invalid';
   const a = await (await createPortalHandler({ service: none, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'renew', token: TOKEN, email: 'attacker@evil.invalid' }))).json();
   const b = await (await createPortalHandler({ service: known, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'renew', token: TOKEN, email: 'attacker@evil.invalid' }))).json();
   assert.deepEqual(a, b);
   assert.equal(mail.sent.length, 1);
   assert.deepEqual(mail.sent[0].body.to, ['pat@onfile.invalid']);
+  delete globalThis.__bodyEmail;
+});
+
+await test('portal: email sign-in answers the same either way, mails each record on file, needs no token', async () => {
+  const mail = fakeResend();
+  const subj = (id, co) => ({ company_entity_id: co, program_id: PROG, affiliate_id: id, contact_email: 'Pat@OnFile.invalid', display_name: 'Pat' });
+  const none = fakeService({ rpc: { affiliate_portal_signin_subjects: { data: [], error: null } } });
+  const known = fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_signin_subjects: (args) => ({ data: args.p_email === 'pat@onfile.invalid' ? [subj(AFF, CO), subj('aff-2', 'co-2')] : [], error: null }),
+    affiliate_issue_access_token: { data: 'id', error: null } }, tables: { entities: { title: 'Brand A' } } });
+  const a = await (await createPortalHandler({ service: none, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'signin', email: 'pat@onfile.invalid' }))).json();
+  const b = await (await createPortalHandler({ service: known, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'signin', email: '  PAT@onfile.invalid ' }))).json();
+  assert.deepEqual(a, b, 'a known address gets the same answer as an unknown one');
+  assert.equal(mail.sent.length, 2, 'one link per affiliate record on file');
+  assert.ok(mail.sent.every((m) => m.body.to[0] === 'Pat@OnFile.invalid'));
+  assert.ok(mail.sent.every((m) => /portal\.html\?t=/.test(m.body.html)), 'the mail carries a portal link');
+  const issued = known.log.filter((e) => e.name === 'affiliate_issue_access_token');
+  assert.equal(issued.length, 2);
+  assert.ok(issued.every((e) => e.args.p_purpose === 'portal' && e.args.p_token_hash.length === 64));
+  // A lookup error is the same answer too, and a missing address is refused before any lookup.
+  const broken = fakeService({ rpc: { affiliate_portal_signin_subjects: { data: null, error: { message: 'boom' } } } });
+  assert.deepEqual(await (await createPortalHandler({ service: broken, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'signin', email: 'x@y.invalid' }))).json(), a);
+  const empty = fakeService();
+  assert.equal((await createPortalHandler({ service: empty, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'signin', email: 'nope' }))).status, 400);
+  assert.equal(empty.log.length, 0);
 });
 
 await test('portal: the application honeypot writes nothing; a bad company id is refused', async () => {

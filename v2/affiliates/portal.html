@@ -48,6 +48,8 @@
     .af-stat-label { color: var(--bcn-ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
     .af-stat-value { font-family: var(--bcn-mono); font-size: 26px; font-weight: 600; color: var(--bcn-ink); margin-top: 6px; font-variant-numeric: tabular-nums; }
     .af-stat--pos .af-stat-value { color: var(--bcn-pos); }
+    .af-stat-sub { color: var(--bcn-ink-3); font-size: 12px; margin-top: 4px; }
+    .af-chip .bcn-pill { align-self: flex-start; }
 
     /* The feed: what the brand shared, each with the affiliate's own link. */
     .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
@@ -98,9 +100,30 @@ const card = (title, html) => `<div class="af-panel"><h2>${esc(title)}</h2>${htm
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 const day = (s) => (s ? String(s).slice(0, 10) : '');
 
+// No password: a rep signs in with the email the brand has on file and gets
+// a fresh link there. The answer never says whether the email is known.
+const signInForm = () => `<form class="af-form" id="signin" novalidate>
+    <div class="bcn-field-group"><label class="bcn-label" for="siEmail">Your email</label>
+    <input class="bcn-field" id="siEmail" type="email" autocomplete="email" required maxlength="254" /></div>
+    <button class="bcn-btn bcn-btn--primary" type="submit" id="siGo">Email me a sign-in link</button></form>`;
+function wireSignIn() {
+  $('signin').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    $('siGo').disabled = true;
+    try { const r = await call('signin', { email: $('siEmail').value }); setStatus(r.message, 'pos'); }
+    catch (e) { setStatus(e.message, 'neg'); $('siGo').disabled = false; }
+  });
+}
+function signIn() {
+  $('body').innerHTML = card('Sign in', `<p>Enter the email you joined with. We'll send you a link.</p>${signInForm()}`);
+  wireSignIn();
+}
+
 function expired() {
   $('body').innerHTML = card('This link has expired', `<p>We can email you a new one.</p>
-    <button class="bcn-btn bcn-btn--primary" id="renew">Email me a new link</button>`);
+    <button class="bcn-btn bcn-btn--primary" id="renew">Email me a new link</button>
+    <p class="af-muted">Or sign in with your email.</p>${signInForm()}`);
+  wireSignIn();
   $('renew').addEventListener('click', async () => {
     $('renew').disabled = true;
     try { const r = await call('renew', { token }); setStatus(r.message, 'pos'); }
@@ -109,7 +132,7 @@ function expired() {
 }
 
 async function load() {
-  if (!token) { $('body').innerHTML = card('This link is incomplete', '<p>Open the link exactly as it was emailed to you.</p>'); return; }
+  if (!token) return signIn();
   let r;
   try { r = await call('resolve', { token }); }
   catch (e) { if (e.status === 404) return expired(); $('body').innerHTML = card('Something went wrong', `<p>${esc(e.message)}</p>`); return; }
@@ -120,8 +143,10 @@ async function load() {
   const st = await call('statement', { token });
   const s = st.statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
-  const kpi = (l, v, cls = '') => `<div class="af-stat ${cls}"><div class="af-stat-label">${esc(l)}</div><div class="af-stat-value">${v}</div></div>`;
-  $('kpis').innerHTML = kpi('Earned', m(t.earned_cents), 'af-stat--pos') + kpi('Paid to you', m(t.paid_cents)) + kpi('Coming to you', m(t.unclaimed_cents)) + kpi('Orders', esc(t.orders ?? 0));
+  const kpi = (l, v, cls = '', sub = '') => `<div class="af-stat ${cls}"><div class="af-stat-label">${esc(l)}</div><div class="af-stat-value">${v}</div>${sub ? `<div class="af-stat-sub">${esc(sub)}</div>` : ''}</div>`;
+  const known = (v) => v !== null && v !== undefined;
+  $('kpis').innerHTML = (known(t.sales_cents) ? kpi('Sales you drove', m(t.sales_cents), '', `${esc(t.orders ?? 0)} orders`) : kpi('Orders', esc(t.orders ?? 0)))
+    + kpi('Earned', m(t.earned_cents), 'af-stat--pos', rateText(r.program?.commission, cur)) + kpi('Paid to you', m(t.paid_cents)) + kpi('Coming to you', m(t.unclaimed_cents));
   $('kpis').hidden = false;
   const name = String(s.affiliate?.display_name || r.affiliate?.display_name || '').split(' ')[0];
   $('who').textContent = name ? `Signed in as ${s.affiliate?.display_name || r.affiliate?.display_name}` : '';
@@ -132,13 +157,30 @@ async function load() {
   const monthly = s.monthly || [];
   const top = Math.max(1, ...monthly.map((x) => Math.abs(Number(x.amount_cents) || 0)));
   const side = [
-    card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span><span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}${c.status === 'active' ? '' : ` · ${esc(c.status)}`}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
+    card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
     links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<span class="af-copy">${esc(u)}</span>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
   $('body').innerHTML = `<div class="af-dash"><div class="af-main">${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
+}
+
+// Earned is the commission itself; this says what it is a share of.
+function rateText(c, cur) {
+  if (!c) return '';
+  if (c.kind === 'percent_of_net' && c.percent != null) return `${Number(c.percent)}% of each order`;
+  if (c.kind === 'fixed_per_order' && c.fixed_cents != null) return `${formatMoney(c.fixed_cents, cur)} per order`;
+  return '';
+}
+
+// Whether a code works at checkout today, by the dates and its status.
+function codeState(c, today = new Date().toISOString().slice(0, 10)) {
+  const pill = (label, kind = '') => `<span class="bcn-pill${kind ? ` bcn-pill--${kind}` : ''}" data-code-state>${esc(label)}</span>`;
+  if (c.status === 'pending') return pill('Waiting for setup');
+  if (c.status !== 'active' || (c.ends_on && day(c.ends_on) < today)) return pill('Ended');
+  if (c.starts_on && day(c.starts_on) > today) return pill(`Starts ${day(c.starts_on)}`, 'accent');
+  return pill('Active', 'pos');
 }
 
 // The top of the page: who this is for, and their own link to share.

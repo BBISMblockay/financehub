@@ -30,6 +30,7 @@
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
+ *   AFFILIATE_UI_MUTATION=codestate   a code still waiting for setup is shown to the rep as Active
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -48,6 +49,7 @@ const MUTATIONS = {
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
+  codestate: ['/affiliates/portal.html', "  if (c.status === 'pending') return pill('Waiting for setup');\n", ''],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
@@ -313,6 +315,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const body = JSON.parse(route.request().postData() || '{}');
       calls.push(body);
       const reply = (status, json) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
+      if (body.action === 'signin') return reply(200, { status: 'sent_if_eligible', message: 'If that email belongs to an affiliate, a sign-in link is on its way.' });
       if (body.token === 'E'.repeat(43)) {
         if (body.action === 'renew') return reply(200, { status: 'sent_if_eligible', message: 'If this link belongs to an active affiliate, a new one is on its way to the address on file.' });
         return reply(404, { error: 'This link has expired or is no longer valid.', code: 'invalid_link' });
@@ -323,7 +326,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
-        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }],
+        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }, { code: 'PATNEW', starts_on: '2026-11-01', ends_on: null, status: 'pending' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'active' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
@@ -359,6 +362,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const portal = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
     R.has(await text(portal, '#kpis'), '$12.50', 'the portal shows earnings in the program currency');
     R.has(await text(portal, '#body'), 'PAT10', 'the portal lists the affiliate code');
+    const kp = await text(portal, '#kpis');
+    R.has(kp, 'Sales you drove', 'the portal shows the sales the rep drove');
+    R.has(kp, '$125.00', 'in the program currency');
+    R.has(kp, '10% of each order', 'Earned says what it is a share of');
+    const states = await portal.$$eval('.af-chip', (cs) => Object.fromEntries(cs.map((c) => [c.querySelector('.af-chip-code').textContent, c.querySelector('[data-code-state]')?.textContent])));
+    R.eq(states, { PAT10: 'Active', PATNEW: 'Waiting for setup', PATOLD: 'Ended' }, 'each code says whether it works at checkout');
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
@@ -378,7 +387,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await expiredPortal.click('#renew');
     await expiredPortal.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
     R.has(await text(expiredPortal, '#status'), 'If this link belongs to an active affiliate', 'renewal never confirms whose link it was');
+    R.ok('an expired link also offers email sign-in', !!(await expiredPortal.$('#signin #siEmail')));
     await expiredPortal.close();
+    const signin = await suite.open('/v2/affiliates/portal.html', {}, { ready: () => !!document.getElementById('signin') });
+    signin.on('pageerror', (e) => errors.push(e.message));
+    await signin.fill('#siEmail', 'pat@creator.invalid');
+    await signin.click('#siGo');
+    await signin.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
+    R.eq(calls.filter((c) => c.action === 'signin').pop()?.email, 'pat@creator.invalid', 'a rep without a link signs in with their email');
+    R.has(await text(signin, '#status'), 'If that email belongs to an affiliate', 'sign-in never confirms whose email it is');
+    await signin.close();
 
     // ── company logo upload (Settings -> Company) ─────────────────────────
     const coTables = {

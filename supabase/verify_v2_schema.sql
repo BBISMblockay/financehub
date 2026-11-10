@@ -9127,6 +9127,24 @@ select 'Affiliate portal feed' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate portal sign-in by email (20261110170000): the lookup is service
+-- role only and rate-limited per address; the statement counts each order's
+-- sales once.
+select 'Affiliate portal sign-in' as check_name,
+  case
+    when to_regprocedure('public.affiliate_portal_signin_subjects(text)') is null
+      or position('sales_cents' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110170000_affiliate_portal_signin.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_signin_subjects(text)', 'execute'))
+      then 'BROKEN — a client role can look affiliates up by email'
+    when position('10 minutes' in pg_get_functiondef('public.affiliate_portal_signin_subjects(text)'::regprocedure)) = 0
+      then 'BROKEN — email sign-in has no per-address limit'
+    when position('distinct on (l2.attribution_id)' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
+      then 'BROKEN — statement sales count an order again after each refund'
+    else 'ok'
+  end as status;
+
 -- Affiliate codes created by the person's own AI (20261110160000): pending
 -- codes earn nothing and are handed out nowhere; the codes:create tools sit on
 -- the outreach fence; links never guess among several Shopify stores; ad
