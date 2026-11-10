@@ -160,7 +160,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(codeRow?.discount_percent, 15);
     await page.click('#tabs [data-tab="outreach"]');
     const ob = await text(page, '#outreachBody');
-    R.has(ob, 'Your own AI sends approved messages', 'Messages leads with sending through your own AI');
+    R.has(ob, 'Your own MCP client sends approved messages', 'Messages leads with sending through a connected MCP client');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     R.has(ob, 'while this company is selected', 'with no connection, Messages says to connect for this company');
     await page.click('#tabs [data-tab="prospects"]');
@@ -272,7 +272,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await pay.close();
 
     // ── staff page, as a member who cannot manage ─────────────────────────
-    // Connected AI apps for this company are listed by name on Messages.
+    // Send/code allowed on a SILO grant; tab copy stays vendor-neutral (no app name).
     const withAi = { ...tables, silo_api_grants: [
       { id: 'g1', user_id: 'test-user', company_entity_id: CO, client_id: 'c-claude', scopes: ['data:read', 'outreach:send', 'codes:create'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
       { id: 'g2', user_id: 'test-user', company_entity_id: CO, client_id: 'c-gpt', scopes: ['data:read'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
@@ -285,15 +285,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ai.click('#tabs [data-tab="outreach"]');
     await ai.waitForFunction(() => !!document.querySelector('#outreachBody .bcn-card'), null, { timeout: 5000 });
     const how = await text(ai, '#aiSendHow');
-    R.has(how, 'sends approved messages', 'a connected app that may send is named');
-    R.has(how, 'Claude', 'by its own name');
-    R.not(how, 'ChatGPT', 'an app without the send permission is not listed as able to send');
-    R.not(how, 'Old Bot', 'a removed connection is not listed');
+    R.has(how, 'send approved messages', 'Messages explains send via a connected MCP client');
+    R.has(how, 'send allowed', 'Messages ties copy to SILO connection permission');
+    R.not(how, 'Claude', 'tab copy does not hardcode an app vendor name');
+    R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn--ghost[href="../settings-connect-ai.html"]')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await ai.click('#tabs [data-tab="affiliates"]');
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
-    R.has(await text(ai, '#aiCodesHow'), 'Claude', 'the AI that makes codes is named');
+    R.has(await text(ai, '#aiCodesHow'), 'Shopify codes', 'Affiliates explains codes via MCP without naming an app');
     await ai.evaluate(() => { window.__COPIED__ = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__COPIED__ = t; } } }); });
     await ai.click('#aiCodesHow [data-act="copy-codes-prompt"]');
     await ai.waitForFunction(() => window.__COPIED__ !== null, null, { timeout: 5000 });
