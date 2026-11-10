@@ -176,11 +176,13 @@ jobs:
           done
 
       # The Klaviyo card says what the sync stored, so an account with no
-      # sends yet does not read as a sync that did nothing.
+      # sends yet does not read as a sync that did nothing. Remove withdraws
+      # SILO's access in Klaviyo first and never depends on it, and declining
+      # on Klaviyo's consent screen is said plainly (Klaviyo app review).
       - name: Klaviyo card guards (mutations)
         run: |
           set -u
-          for m in no-found hard-count redraw; do
+          for m in no-found hard-count redraw no-revoke revoke-hard delete-first trust-any raw-deny no-deadline mismatch-goes no-target; do
             if KLAVIYO_CARD_MUTATION="$m" node v2/tests/browser/integrations-klaviyo-card.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

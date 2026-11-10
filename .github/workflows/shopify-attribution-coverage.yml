@@ -30,6 +30,7 @@ jobs:
       ATTRIBUTION_COVERAGE_COMPANIES: ${{ vars.ATTRIBUTION_COVERAGE_COMPANIES }}
       ATTRIBUTION_EXCLUDED_CONNECTIONS: ${{ vars.ATTRIBUTION_EXCLUDED_CONNECTIONS }}
       ATTRIBUTION_INITIAL_DAYS: ${{ vars.ATTRIBUTION_INITIAL_DAYS }}
+      ATTRIBUTION_GAP_DAYS: ${{ vars.ATTRIBUTION_GAP_DAYS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
