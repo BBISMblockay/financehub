@@ -302,7 +302,7 @@ function nextSteps() {
   if (p.status !== 'active') steps.push({ text: `The program is ${p.status}. Set it to active in Settings to start finding and recruiting creators.`, tab: 'program' });
   if (!p.terms_markdown) steps.push({ text: 'Write your program terms in Settings. Affiliates accept them to join.', tab: 'program' });
   if (h.prospects_new) steps.push({ text: `${num(h.prospects_new)} creator(s) waiting for your review.`, tab: 'prospects' });
-  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) ready for your AI to send.`, tab: 'outreach' });
+  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, tab: 'outreach' });
   if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
   if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
@@ -344,10 +344,17 @@ function renderPipeline() {
   }).join('');
 }
 function aiEnabledRow(label, apps, enabled, waiting) {
-  const state = apps === null ? pill('Unknown', '') : enabled ? pill('Enabled', 'pos') : pill('Not enabled', '');
+  const state = apps === null ? pill('Unknown', '') : enabled ? pill('Allowed', 'pos') : pill('Not allowed', '');
   const wait = waiting ? `<span class="af-wait">${num(waiting)} waiting</span>` : '';
   return `<div class="af-ai-status-row"><span>${esc(label)}</span>${state}${wait}</div>`;
 }
+function aiHubIntro(canSend, canCode) {
+  if (canSend && canCode) {
+    return 'Approve in Studio, then run agent prompts in whatever MCP client you use. SILO can hand off work your connection allows.';
+  }
+  return 'Connect SILO MCP for this company and allow send outreach and Shopify codes on that connection.';
+}
+const AI_HUB_SCOPE_NOTE = 'Allowed = you ticked it on your SILO connection. SILO does not see Shopify, Gmail, or other MCPs in your agent.';
 function renderAiHub() {
   const el = $('afAiHub');
   if (!el) return;
@@ -367,7 +374,7 @@ function renderAiHub() {
   const hintLines = [
     !workSend ? `<p class="af-muted"><strong>Send:</strong> ${esc(SEND_PROMPT_HINT)}</p>` : '',
     !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
-    connectPrimary ? '<p class="af-muted">Connect while this company is selected and allow outreach + Shopify codes.</p>' : '',
+    connectPrimary ? '<p class="af-muted">Pick this company in the workspace, then allow send outreach and create Shopify codes on the connection.</p>' : '',
     !workSend && !workCodes && (canSend || canCode)
       ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
       : '',
@@ -379,11 +386,12 @@ function renderAiHub() {
   const manageKind = connectPrimary ? 'primary' : '';
   el.hidden = false;
   el.innerHTML = card('Your AI', `
-    <p class="af-muted" style="margin:0;">Approve here. Your AI runs mail and Shopify (SILO MCP).</p>
+    <p class="af-muted" style="margin:0;">${esc(aiHubIntro(canSend, canCode))}</p>
     <div class="af-ai-status">
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
       ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
     </div>
+    <p class="af-muted af-ai-note">${esc(AI_HUB_SCOPE_NOTE)}</p>
     <div class="af-ai-foot">
       <div class="af-ai-actions">
         ${copyBtns}
@@ -609,14 +617,14 @@ const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; ma
 const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
-  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">${esc(can[0].name)} creates codes in Shopify.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
+  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">A connected MCP client with codes allowed may create Shopify codes when it can reach Shopify—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
 function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
-  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages from your email.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
-  return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach”.</p>';
+  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">A connected MCP client with send allowed may send approved messages when it has mail access—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
+  return '<p class="af-muted" id="aiSendHow">Your own MCP client sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
