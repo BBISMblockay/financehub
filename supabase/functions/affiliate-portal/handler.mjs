@@ -25,6 +25,8 @@
 //                                                to the address ON FILE
 //   apply     { company_id, program, email, name, platform?, handle?, profile_url?, pitch?, website? }
 //                                             -> open intake: creates a PROSPECT
+//   brands    { token }                       -> the other brands this rep's email reps, for the menu
+//   switch    { token, affiliate_id }         -> a fresh portal token for one of them
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -72,16 +74,31 @@ export { affiliateLink };
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
-  async function mintPortalLink(subject) {
+  // `mailed` says the raw token will go ONLY to the address this mints it for
+  // and is never returned to whoever asked -- true for sign-in and renewal.
+  // The database then binds the token to that recipient (mailed_to_hash,
+  // 20261110190000), and only a bound token may list or switch brands: a
+  // staff-issued portal link and the one signup acceptance returns are held
+  // by their requester, not by the mailbox. The address passed is the one
+  // this function is about to mail to, and the database refuses if it is no
+  // longer the affiliate's, so an edit racing the mint aborts it rather than
+  // binding a token to an address the mail did not reach.
+  async function mintPortalLink(subject, { mailed = false } = {}) {
     const raw = makeToken();
     const expires = new Date(now().getTime() + PORTAL_LINK_DAYS * 86400000).toISOString();
-    const { error } = await service.rpc('affiliate_issue_access_token', {
-      p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
-      p_purpose: 'portal', p_token_hash: await sha256hex(raw), p_expires_at: expires,
-      p_affiliate_id: subject.affiliate_id, p_prospect_id: null, p_created_by: null,
-    });
+    const { error } = mailed
+      ? await service.rpc('affiliate_portal_issue_mailed_token', {
+        p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
+        p_affiliate_id: subject.affiliate_id, p_token_hash: await sha256hex(raw), p_expires_at: expires,
+        p_mailed_to: subject.contact_email,
+      })
+      : await service.rpc('affiliate_issue_access_token', {
+        p_company_entity_id: subject.company_entity_id, p_program_id: subject.program_id,
+        p_purpose: 'portal', p_token_hash: await sha256hex(raw), p_expires_at: expires,
+        p_affiliate_id: subject.affiliate_id, p_prospect_id: null, p_created_by: null,
+      });
     if (error) throw Object.assign(new Error(error.message), { db: error });
-    return { url: portalUrl(raw), expires_at: expires };
+    return { url: portalUrl(raw), raw, expires_at: expires };
   }
 
   // Mails a fresh portal link to the affiliate's address ON FILE, never one
@@ -89,7 +106,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
   // same either way.
   async function mailPortalLink(subject, kind, footer) {
     try {
-      const link = await mintPortalLink(subject);
+      const link = await mintPortalLink(subject, { mailed: true });
       const { data: co } = await service.from('entities').select('title').eq('id', subject.company_entity_id).maybeSingle();
       const brand = co?.title || 'Affiliate program';
       const { html, text } = renderMail({
@@ -220,6 +237,50 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           terms_version_accepted: t.terms_version_accepted, terms_accepted_at: t.terms_accepted_at } : null,
         expires_at: t.expires_at,
       });
+    }
+
+    // ── one rep, several brands ──────────────────────────────────────────
+    // Neither action decides anything here. The database (20261110190000)
+    // answers only for a token bound to the address it was mailed to whose
+    // affiliate STILL carries that address, and matches records on that bound
+    // recipient rather than on today's contact_email, which a manager of a
+    // company may edit. A staff-issued portal link and the one signup
+    // acceptance returns are never bound, so they stay inside their one
+    // company.
+    if (action === 'brands' || action === 'switch') {
+      if (t.purpose !== 'portal') return reply({ brands: [] });
+
+      if (action === 'brands') {
+        const { data, error } = await service.rpc('affiliate_portal_brands', { p_token_hash: hash });
+        if (error) return dbError(error);
+        // Names for a menu. Nothing of another brand's data travels with it.
+        return reply({
+          brands: await Promise.all((Array.isArray(data) ? data : []).map(async (b) => ({
+            affiliate_id: b.affiliate_id,
+            brand: b.company_title,
+            brand_logo: await brandLogo(b.company_entity_id),
+            program: b.program_name,
+            is_current: b.is_current === true,
+          }))),
+        });
+      }
+
+      const wanted = String(body?.affiliate_id || '');
+      if (!UUID_RE.test(wanted)) return reply({ error: 'Pick a brand from the list.' }, 400);
+      // Mints without mailing, inheriting the binding: the session this
+      // descends from reached the mailbox and the same person is switching
+      // inside it, so a second switch must work too. The mint revokes only
+      // that affiliate's own unused links, so an unopened portal email for
+      // this brand is replaced by the session being opened now -- the "one
+      // live link per subject" rule every other path follows.
+      const raw = makeToken();
+      const expires = new Date(now().getTime() + PORTAL_LINK_DAYS * 86400000).toISOString();
+      const { error } = await service.rpc('affiliate_portal_switch_token', {
+        p_token_hash: hash, p_affiliate_id: wanted,
+        p_new_token_hash: await sha256hex(raw), p_expires_at: expires,
+      });
+      if (error) return dbError(error);
+      return reply({ token: raw, expires_at: expires });
     }
 
     if (action === 'accept') {

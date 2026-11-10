@@ -9150,6 +9150,39 @@ select 'Affiliate portal sign-in' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate portal brand switcher (20261110190000): the sibling list and the
+-- switch are service role only, answer only for a token BOUND to the address
+-- it was mailed to (not a staff-issued link, nor the one signup acceptance
+-- returns, which their requester holds), and identify the rep by that bound
+-- recipient rather than by contact_email, which a manager of the company may
+-- edit after the link was sent.
+select 'Affiliate portal brands' as check_name,
+  case
+    when to_regprocedure('public.affiliate_portal_brands(text)') is null
+      or to_regprocedure('public.affiliate_contact_key(text)') is null
+      or to_regprocedure('public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz,text)') is null
+      or to_regprocedure('public.affiliate_portal_switch_token(text,uuid,text,timestamptz)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_access_tokens'
+                        and column_name = 'mailed_to_hash')
+      then 'MISSING — run 20261110190000_affiliate_portal_brands.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role),
+                             unnest(array['public.affiliate_portal_brands(text)',
+                                          'public.affiliate_portal_issue_mailed_token(uuid,uuid,uuid,text,timestamptz,text)',
+                                          'public.affiliate_portal_switch_token(text,uuid,text,timestamptz)']) f(fn)
+                  where has_function_privilege(r.role, f.fn, 'execute'))
+      then 'BROKEN — a client role can list, mint or switch affiliate portal sessions'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — a signup link can switch brands'
+    when (select count(*) from unnest(array['public.affiliate_portal_brands(text)',
+                                            'public.affiliate_portal_switch_token(text,uuid,text,timestamptz)']) f(fn)
+           where position('t.mailed_to_hash is not null' in pg_get_functiondef(f.fn::regprocedure)) > 0
+             and position('affiliate_contact_key(a.contact_email) = t.mailed_to_hash'
+                          in pg_get_functiondef(f.fn::regprocedure)) > 0) < 2
+      then 'BROKEN — a portal link its requester holds, or one whose address was changed after it was sent, can reach another company'
+    else 'ok'
+  end as status;
+
 -- Affiliate loop (20261110180000): joining queues a code for the company's AI,
 -- a code going live owes the rep one email (claimed once, service role only),
 -- and the nightly run may calculate commissions as the service role while

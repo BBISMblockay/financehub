@@ -19672,4 +19672,8 @@ $c$select (select count(*) from v_po_header_summary
 -- a code going live emails the rep, commissions update nightly.
 -- Deploy affiliate-invite and mcp.
 \i migrations/20261110180000_affiliate_loop.sql
+
+-- Affiliate portal brand switcher (20261110190000): a rep who reps several
+-- brands switches in the page instead of going back to their inbox.
+\i migrations/20261110190000_affiliate_portal_brands.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
