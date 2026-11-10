@@ -119,6 +119,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const ob = await text(page, '#outreachBody');
     R.has(ob, 'your own AI sends it', 'Messages leads with sending through your own AI');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
+    R.has(ob, 'No AI is connected to this company yet', 'with no connection, Messages says so for this company');
     await page.click('#tabs [data-tab="prospects"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
@@ -201,6 +202,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await pay.close();
 
     // ── staff page, as a member who cannot manage ─────────────────────────
+    // Connected AI apps for this company are listed by name on Messages.
+    const withAi = { ...tables, silo_api_grants: [
+      { id: 'g1', user_id: 'test-user', company_entity_id: CO, client_id: 'c-claude', scopes: ['data:read', 'outreach:send'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
+      { id: 'g2', user_id: 'test-user', company_entity_id: CO, client_id: 'c-gpt', scopes: ['data:read'], expires_at: '2099-01-01T00:00:00Z', revoked_at: null },
+      { id: 'g3', user_id: 'test-user', company_entity_id: CO, client_id: 'c-old', scopes: ['outreach:send'], expires_at: '2099-01-01T00:00:00Z', revoked_at: '2026-11-01T00:00:00Z' },
+    ] };
+    const ai = await suite.open('/v2/affiliates/index.html', withAi, { ready, rpc: {
+      can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+      silo_api_connection_labels: `function () { return [{ grant_id: 'g1', client_name: 'Claude' }, { grant_id: 'g2', client_name: 'ChatGPT' }, { grant_id: 'g3', client_name: 'Old Bot' }]; }`,
+    } });
+    await ai.click('#tabs [data-tab="outreach"]');
+    await ai.waitForFunction(() => !!document.querySelector('#outreachBody .bcn-card'), null, { timeout: 5000 });
+    const how = await text(ai, '#aiSendHow');
+    R.has(how, 'allowed to send', 'a connected app that may send is named');
+    R.has(how, 'Claude', 'by its own name');
+    R.not(how, 'ChatGPT', 'an app without the send permission is not listed as able to send');
+    R.not(how, 'Old Bot', 'a removed connection is not listed');
+    R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn--ghost[href="../settings-connect-ai.html"]')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
+    await ai.close();
+
     const member = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: false, can_approve_affiliate_commissions: false } });
     member.on('pageerror', (e) => errors.push(e.message));
     await member.click('#tabs [data-tab="prospects"]');
