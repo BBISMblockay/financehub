@@ -103,7 +103,7 @@ test('journey map aggregates start-to-close flows from teamwork rows',()=>{
   assert.equal(map.multiShare,100);
   assert.deepEqual(map.flows[0],{from:'Meta Ads',to:'Google Ads',count:1,net_cents:10001});
   const html=renderJourneyMap(map,{money:n=>`$${(n/100).toFixed(0)}`,medianDays:'2.0 days'});
-  assert.match(html,/attr-journey-map/);assert.match(html,/data-map-from="Meta Ads"/);assert.match(html,/First touch/);
+  assert.match(html,/attr-journey-map-card/);assert.match(html,/data-map-from="Meta Ads"/);assert.match(html,/Assisted/);
 });
 test('batches run several at a time and return every order exactly once',async()=>{
   const {row,record}=fixture(),calls=[];

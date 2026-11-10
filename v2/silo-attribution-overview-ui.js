@@ -33,11 +33,10 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
   const total=spendTotal(spend);
   const mapData=buildJourneyMapData(report,analysis,rows);
   const topPath=analysis?.paths?.[0];
-  const journeyMap=renderJourneyMap(mapData,{money,medianDays:topPath?.medianMs!=null?days(topPath.medianMs):null});
+  const journeyMap=renderJourneyMap(mapData,{money,medianDays:topPath?.medianMs!=null?days(topPath.medianMs):null,topPath:topPath?.path});
 
-  root.innerHTML=`<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
+  root.innerHTML=`${journeyMap}<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
    <h2>${share.any?`${pct}% of orders touched more than one channel before purchase`:'No identified channel journeys in this period'}</h2>${share.any?`<p class="attr-context">${share.multi.toLocaleString()} of ${share.total.toLocaleString()} orders. ${(share.total-share.any).toLocaleString()} had no channel we could identify.</p>`:''}
-   ${journeyMap}
    <p><strong>Last click</strong> gives each sale to the last channel before purchase. <strong>Shared</strong> splits it evenly across every channel the customer came through.${journeyError?` <strong>Shared credit and journeys aren't available right now: ${esc(journeyError)}</strong>`:''}</p>
    <div class="attr-findings">${items.map((f,i)=>`<article class="attr-finding"><h3>${esc(f.title)}</h3><p>${esc(f.text)}</p>${f.orderIds.length?`<button class="bcn-btn" data-support="${i}">See ${f.orderIds.length.toLocaleString()} orders</button>`:''}</article>`).join('')||'<p class="attr-context">Not enough data yet to point out a pattern.</p>'}</div></div></section>
   <section class="bcn-card"><div class="bcn-card-header"><h2>Channel scorecard</h2></div><div class="bcn-card-body"><p class="attr-context">Return = sales ÷ spend, shown only when spend is complete for the whole period. Spend is for the whole company; sales are for this store. Click a channel to see its orders.${spendError?` <strong>Spend isn't available right now: ${esc(spendError)}</strong>`:''}</p>
@@ -63,14 +62,14 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
     $('compare-models').onclick=()=>{try{analysis={...analyzeJourneys(report,records,{halfLifeDays:Number($('decay-days').value),roles:[0,1,2].map(i=>Number($('role-'+i).value))}),paths:analysis.paths};drawModels();$('model-error').textContent='';}catch(e){$('model-error').textContent=e.message;}};
   }
   const orderList=ids=>`<p class="attr-context">Showing up to 50 orders. Open one to see its full journey; the Journeys tab has all of them.</p><div class="attr-order-links">${ids.slice(0,50).map(id=>`<button class="bcn-btn" data-order="${esc(id)}">${esc(report.orders.find(r=>r.order_id===id)?.order_name||id)}</button>`).join('')}</div>`;
-  const map=root.querySelector('.attr-journey-map');
+  const map=root.querySelector('.attr-journey-map-card .attr-journey-map');
   const mapFocus=channel=>{
     if(!map||!channel)return;
-    map.querySelectorAll('.attr-map-flow,.attr-map-node').forEach(el=>el.classList.remove('attr-map-flow--on','attr-map-node--on'));
+    map.querySelectorAll('.attr-map-ribbon,.attr-map-spine,.attr-map-hop,.attr-map-node').forEach(el=>el.classList.remove('attr-map-ribbon--on','attr-map-spine--on','attr-map-hop--on','attr-map-node--on'));
     if(!channel){map.classList.remove('attr-journey-map--focus');return;}
     map.classList.add('attr-journey-map--focus');
     map.querySelectorAll(`[data-map-channel="${CSS.escape(channel)}"]`).forEach(el=>el.classList.add('attr-map-node--on'));
-    map.querySelectorAll('.attr-map-flow').forEach(el=>{if(el.dataset.mapFrom===channel||el.dataset.mapTo===channel)el.classList.add('attr-map-flow--on');});
+    map.querySelectorAll('.attr-map-ribbon,.attr-map-spine,.attr-map-hop').forEach(el=>{if(el.dataset.mapFrom===channel||el.dataset.mapTo===channel)el.classList.add(el.classList.contains('attr-map-ribbon')?'attr-map-ribbon--on':el.classList.contains('attr-map-hop')?'attr-map-hop--on':'attr-map-spine--on');});
   };
   map?.addEventListener('pointerleave',()=>mapFocus(null));
   map?.addEventListener('pointerover',event=>{
