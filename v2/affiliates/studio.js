@@ -372,7 +372,7 @@ function renderAiHub() {
       ? `<div class="af-row">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
       : '',
   ].filter(Boolean).join('');
-  const hintSummary = workSend || workCodes ? 'More prompt examples' : 'Example prompts';
+  const hintSummary = 'Agent prompts';
   const hints = hintLines ? `<details class="af-ai-hint"><summary>${hintSummary}</summary>${hintLines}</details>` : '';
   el.hidden = false;
   el.innerHTML = card('Your AI', `
@@ -599,8 +599,8 @@ async function publishAdImage(path) {
 // What the person pastes into their own AI (or sets as a daily task there).
 const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach from my own mailbox, then mark each one sent with where I sent it from.';
 const CODES_PROMPT = 'Using SILO, create every affiliate code waiting for Shopify in my Shopify store, then mark each one created in SILO.';
-const SEND_PROMPT_HINT = 'Send approved outreach from my mailbox; mark each one sent.';
-const CODES_PROMPT_HINT = 'Create waiting affiliate codes in Shopify; mark each in SILO.';
+const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; mark each one sent.';
+const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
   if (can.length) return `<p class="af-muted" id="aiCodesHow">${esc(can[0].name)} creates codes in Shopify. ${btn('Copy prompt', 'copy-codes-prompt', {}, 'ghost')}</p>`;
