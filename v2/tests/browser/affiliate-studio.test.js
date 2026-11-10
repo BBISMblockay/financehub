@@ -115,6 +115,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });
     }
+    await page.click('#tabs [data-tab="outreach"]');
+    const ob = await text(page, '#outreachBody');
+    R.has(ob, 'your own AI sends it', 'Messages leads with sending through your own AI');
+    R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await page.click('#tabs [data-tab="prospects"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');

@@ -110,6 +110,9 @@ run history, do-not-contact, date ranges, periods, the ledger, advanced
 program settings) is under a closed **More options** on its tab. A one-line
 **Next** bar under the KPIs names the most useful thing to do now. Approving
 a creator drafts their message.
+On Messages, sending through the company's own connected AI (scope
+`outreach:send`, from their own mailbox) is the main path; exporting to send
+by hand is the secondary button.
 
 - **Prospects**: review each prospect against the search result it came from
   (title, snippet, URL, date). Approve, reject, or put them on the

@@ -243,7 +243,7 @@ function nextSteps() {
   if (p.status !== 'active') steps.push({ text: `The program is ${p.status}. Set it to active in Settings to start finding and recruiting creators.`, tab: 'program' });
   if (!p.terms_markdown) steps.push({ text: 'Write your program terms in Settings. Affiliates accept them to join.', tab: 'program' });
   if (h.prospects_new) steps.push({ text: `${num(h.prospects_new)} creator(s) waiting for your review.`, tab: 'prospects' });
-  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) ready to send.`, tab: 'outreach' });
+  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) ready for your AI to send.`, tab: 'outreach' });
   if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
   if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
@@ -443,20 +443,20 @@ function renderOutreach() {
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
   $('outreachBody').innerHTML = [
-    '<p class="af-muted">Approve each message, export them with personal signup links, send them from your own inbox, then mark each one sent.</p>',
+    '<p class="af-muted">Approve each message and your own AI sends it from your mailbox, with a personal signup link.</p>',
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     card('Drafts', table([
       { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
       { h: '', f: (x) => (MANAGE ? `<div class="af-actions">${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}</div>` : '') },
     ], byState('draft'), 'No drafts. Approve a creator on Find creators to draft one.'), `${byState('draft').length}`),
-    card('Approved, not yet exported', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
-      ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each person gets a personal signup link, valid for 14 days. Lost the file? Make a new link from the Prospects tab.</p>` : ''}`),
-    card('Exported, waiting to be marked sent', table([
+    card('Approved, ready to send', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
+      <p class="af-muted" id="aiSendHow">Ask your connected AI to “send my approved affiliate messages”. It sends each one from your own email and marks it sent here. Not connected yet? Connect it once and allow “send approved affiliate outreach”.</p>
+      <div class="af-row" style="margin-top:8px;"><a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'ghost', { confirm: true }) : ''}</div>`),
+    card('Waiting to be marked sent', table([
       { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
     ], byState('exported'), 'Nothing is waiting.')),
     more('More options', [
-    card('Send with your own AI', '<p class="af-muted">Let your own AI send approved messages from your mailbox: connect it in Settings → Connect AI and tick “send approved affiliate outreach”.</p>'),
     card('Sent and outcomes', table([
       { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>${x.sent_via_app ? `<div class="af-muted">Via ${esc(x.sent_via_app)}</div>` : ''}` },
       { h: '', f: (x) => (MANAGE && x.state === 'sent' ? `<div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' })}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' })}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' })}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div>` : '') },
