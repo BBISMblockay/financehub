@@ -52,14 +52,14 @@
     .af-chip .bcn-pill { align-self: flex-start; }
 
     /* The feed: what the brand shared, each with the affiliate's own link. */
-    .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+    .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
     .af-item { border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--bcn-shadow); }
-    .af-media { position: relative; aspect-ratio: 1 / 1; background: var(--bcn-sunken); }
+    .af-media { position: relative; aspect-ratio: 4 / 3; background: var(--bcn-sunken); }
     .af-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .af-media-none { width: 100%; height: 100%; display: flex; align-items: flex-end; padding: 18px; font-weight: 700; font-size: 20px; line-height: 1.25; color: var(--bcn-band-ink); background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
+    .af-media-none { width: 100%; height: 100%; display: flex; align-items: flex-end; padding: 12px; font-weight: 700; font-size: 15px; line-height: 1.25; color: var(--bcn-band-ink); background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
     .af-tag { position: absolute; top: 10px; left: 10px; background: var(--bcn-surface); color: var(--bcn-ink); font-family: var(--bcn-mono); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; box-shadow: var(--bcn-shadow); }
-    .af-item-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
-    .af-item-title { font-weight: 700; color: var(--bcn-ink); font-size: 15px; line-height: 1.35; }
+    .af-item-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .af-item-title { font-weight: 700; color: var(--bcn-ink); font-size: 14px; line-height: 1.35; }
     .af-item-note { color: var(--bcn-ink-2); font-size: 13px; line-height: 1.45; white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .af-item-date { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-accent); font-weight: 600; }
     .af-item-acts { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; }
@@ -68,6 +68,23 @@
     .af-filter { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
     .af-filter.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
     .af-item[hidden] { display: none; }
+
+    /* Calendar: what drops when, soonest first, each with the rep's link. */
+    .af-cal { display: flex; flex-direction: column; }
+    .af-cal-month { font-family: var(--bcn-mono); font-size: 12px; font-weight: 600; color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
+    .af-cal-month:first-child { margin-top: 0; }
+    .af-cal-row { display: grid; grid-template-columns: 54px 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--bcn-border); }
+    .af-cal-row:last-child { border-bottom: 0; }
+    .af-cal-date { border: 1px solid var(--bcn-border); border-radius: 10px; text-align: center; padding: 4px 0; font-family: var(--bcn-mono); line-height: 1.1; }
+    .af-cal-date .af-cal-day { display: block; font-size: 20px; font-weight: 600; color: var(--bcn-ink); text-transform: none; }
+    .af-cal-date > span:first-child { font-size: 11px; color: var(--bcn-accent); font-weight: 600; text-transform: uppercase; }
+    .af-cal-row.is-soon .af-cal-date { border-color: var(--bcn-accent); }
+    .af-cal-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; display: block; background: var(--bcn-sunken); }
+    .af-cal-thumb-none { width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
+    .af-cal-text { min-width: 0; }
+    .af-cal-title { font-weight: 700; color: var(--bcn-ink); font-size: 14px; }
+    .af-cal-note { color: var(--bcn-ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 560px) { .af-cal-row { grid-template-columns: 54px minmax(0, 1fr); } .af-cal-thumb, .af-cal-thumb-none { display: none; } .af-cal-row .bcn-btn { grid-column: 2; justify-self: start; } }
 
     /* Account side: codes as chips, earnings as bars, payouts as rows. */
     .af-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -163,7 +180,7 @@ async function load() {
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
-  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
+  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
 }
 
 // Earned is the commission itself; this says what it is a share of.
@@ -199,24 +216,54 @@ function heroCard(feed, name, brand, status) {
 }
 const copyBtn = (text, label, kind = 'ghost') => (text ? `<button class="bcn-btn bcn-btn--${kind}" type="button" data-copy="${esc(text)}" data-what="${esc(label)}">${esc(label)}</button>` : '');
 
-// What the brand shared, each with this affiliate's own link: the link opens
-// the brand's store with the affiliate's code applied, and the code is what
-// earns commission. Ads come with their picture and copy, to repost.
+// Launches as a calendar: soonest first, grouped by month, each with the
+// rep's own link. Dates are the brand's calendar days, compared with the
+// company's own today; past drops are left off.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function calendarCard(feed, today) {
+  const items = Array.isArray(feed?.items) ? feed.items : [];
+  const launches = items.filter((i) => i.kind === 'launch' && /^\d{4}-\d{2}-\d{2}/.test(String(i.event_on || '')))
+    .filter((i) => !today || day(i.event_on) >= today)
+    .sort((a, b) => day(a.event_on).localeCompare(day(b.event_on)));
+  if (!launches.length) return '';
+  const soon = (d) => {
+    if (!today) return false;
+    const diff = (Date.parse(`${d}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000;
+    return diff >= 0 && diff <= 7;
+  };
+  let month = '';
+  const rows = launches.map((i) => {
+    const d = day(i.event_on); const [y, mo, dd] = d.split('-');
+    const head = `${y}-${mo}` !== month ? `<div class="af-cal-month">${esc(MONTH_NAMES[Number(mo) - 1])} ${esc(y)}</div>` : '';
+    month = `${y}-${mo}`;
+    return `${head}<div class="af-cal-row${soon(d) ? ' is-soon' : ''}" data-cal-date="${esc(d)}">
+      <div class="af-cal-date"><span>${esc(MONTHS[Number(mo) - 1])}</span><span class="af-cal-day">${esc(String(Number(dd)))}</span></div>
+      ${i.image_url ? `<img class="af-cal-thumb" src="${esc(i.image_url)}" alt="">` : '<div class="af-cal-thumb-none"></div>'}
+      <div class="af-cal-text"><div class="af-cal-title">${esc(i.title)}</div>${i.note ? `<div class="af-cal-note">${esc(i.note)}</div>` : ''}</div>
+      ${copyBtn(i.link, 'Copy my link', 'ghost')}</div>`;
+  }).join('');
+  return card('Coming up', `<div class="af-cal" id="calendar">${rows}</div>`);
+}
+
+// What the brand shared to post, each with this affiliate's own link: the
+// link opens the brand's store with the affiliate's code applied, and the
+// code is what earns commission. Ads come with their picture and copy.
 function feedCard(feed) {
   if (!feed) return '';
-  const items = Array.isArray(feed.items) ? feed.items : [];
-  if (!items.length) return card('Share and earn', empty('Nothing shared yet. New drops, ads and products show up here.'));
-  const tag = { launch: 'Coming up', product: 'Product', ad: 'Ad' };
+  const all = Array.isArray(feed.items) ? feed.items : [];
+  const items = all.filter((i) => i.kind !== 'launch');
+  if (!items.length) return all.length ? '' : card('Share and earn', empty('Nothing shared yet. New drops, ads and products show up here.'));
+  const tag = { product: 'Product', ad: 'Ad' };
   const item = (i) => `<div class="af-item" data-kind="${esc(i.kind)}">
     <div class="af-media">${i.image_url ? `<img src="${esc(i.image_url)}" alt="${esc(i.title)}" loading="lazy">` : `<div class="af-media-none">${esc(i.title)}</div>`}<span class="af-tag">${esc(tag[i.kind] || '')}</span></div>
     <div class="af-item-body">${i.image_url ? `<div class="af-item-title">${esc(i.title)}</div>` : ''}
-    ${i.event_on ? `<div class="af-item-date">${esc(i.kind === 'launch' ? `Drops ${day(i.event_on)}` : day(i.event_on))}</div>` : ''}
     ${i.note ? `<div class="af-item-note">${esc(i.note)}</div>` : ''}
     <div class="af-item-acts">${copyBtn(i.link, 'Copy my link', 'primary')}${i.kind === 'ad' ? copyBtn(i.note, 'Copy caption') : ''}${i.image_url ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(i.image_url)}" target="_blank" rel="noopener" download>Save image</a>` : ''}</div></div></div>`;
-  // One grid, newest drops first, with a filter per kind that has items.
-  const order = { launch: 0, ad: 1, product: 2 };
-  const sorted = [...items].sort((a, b) => (order[a.kind] ?? 3) - (order[b.kind] ?? 3));
-  const kinds = [['launch', 'Coming up'], ['ad', 'Ads to repost'], ['product', 'Products']].filter(([k]) => items.some((i) => i.kind === k));
+  // One grid, ads first, with a filter per kind when there are both.
+  const order = { ad: 0, product: 1 };
+  const sorted = [...items].sort((a, b) => (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
+  const kinds = [['ad', 'Ads to repost'], ['product', 'Products']].filter(([k]) => items.some((i) => i.kind === k));
   const filters = kinds.length > 1 ? `<div class="af-filters">${[['', 'All'], ...kinds].map(([k, l]) => `<button type="button" class="af-filter${k ? '' : ' is-on'}" data-filter="${k}">${esc(l)}</button>`).join('')}</div>`
     : `<div class="af-feed-head">${esc(kinds[0]?.[1] || '')}</div>`;
   return card('Share and earn', filters + `<div class="af-feed" id="feed">${sorted.map(item).join('')}</div>`);
