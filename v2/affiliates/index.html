@@ -184,9 +184,23 @@
       box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 4px 12px rgba(15, 23, 42, .05);
       color: var(--bcn-ink);
     }
-    .af-studio .af-filter-bar { gap: 8px; margin-bottom: 14px; padding: 4px; border-radius: 12px; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
-    .af-studio .af-filter-bar .bcn-btn { border-radius: 999px; border: none; background: transparent; box-shadow: none; }
-    .af-studio .af-filter-bar .bcn-btn.bcn-btn--primary { box-shadow: 0 2px 8px color-mix(in srgb, var(--bcn-accent) 28%, transparent); }
+    .af-studio .af-filter-bar {
+      gap: 8px; margin-bottom: 14px; padding: 6px;
+      border-radius: 12px; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
+    }
+    .af-studio .af-filter-chip {
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-weight: 600;
+      border: 1px solid var(--bcn-border-strong);
+      background: var(--bcn-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+    .af-studio .af-filter-chip:hover { background: var(--bcn-sunken); }
+    .af-studio .af-filter-chip--on {
+      border-color: var(--bcn-accent);
+      box-shadow: 0 2px 10px color-mix(in srgb, var(--bcn-accent) 24%, transparent);
+    }
     .af-items--grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
@@ -199,7 +213,23 @@
       transition: transform .14s ease, box-shadow .14s ease;
     }
     .af-studio .af-item--tile:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(15, 23, 42, .06), 0 14px 28px rgba(15, 23, 42, .07); }
-    .af-item-top { display: flex; gap: 12px; align-items: flex-start; padding: 14px 14px 10px; }
+    .af-item-top {
+      display: flex; gap: 14px; align-items: center;
+      padding: 14px 14px 12px;
+      background: color-mix(in srgb, var(--bcn-accent-soft) 35%, var(--bcn-surface));
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .af-item-avatar-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; min-width: 56px; }
+    .af-item-top .bcn-avatar.bcn-avatar--lg,
+    .af-item-top .af-avatar {
+      width: 56px; height: 56px; font-size: 18px; font-weight: 700;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, .1);
+    }
+    .af-platform-tag {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--bcn-accent); font-family: var(--bcn-mono);
+    }
     .af-item-main { flex: 1; min-width: 0; }
     .af-item-metric {
       margin: 0 14px; padding: 10px 12px; border-radius: 10px;
