@@ -19609,4 +19609,24 @@ $c$select (select count(*) from v_po_header_summary
 -- tiles on the Marketing system dashboard. Data only, no deploy. Needs
 -- 20261109210000 (the reports the tiles read) and 20260925193000 (the board).
 \i migrations/20261109230000_klaviyo_dashboard_tiles.sql
+-- 20261110083000: Shopify order discount codes and refunds -- shopify_orders
+-- gains discount_codes (jsonb, the codes on the order) and refunded_subtotal
+-- (merchandise refunded, tax excluded), plus shopify_order_discount_codes_v.
+-- Both columns start NULL (not captured) and fill on the next order sync; no
+-- new Shopify scope. Deploy ad-platform-sync-run, whose pinned copy of the
+-- sync core writes them; the nightly GitHub Actions sync needs no deploy.
+\i migrations/20261110083000_shopify_order_discount_codes.sql
+
+-- 20261110084000, 085000, 086000: Affiliate Studio -- programs, discovery,
+-- prospects and the do-not-contact list, affiliates, codes, links and
+-- outreach (084000); attribution, the append-only commission ledger, review
+-- periods and manual payouts (085000); the affiliate portal's service-role
+-- functions and transactional mail log (086000). Apply in this order, after
+-- 20261110083000. Applying them turns nothing on: no program exists, and
+-- discovery runs only for an active program with an enabled search. Deploy
+-- affiliate-portal and affiliate-invite for the signup, portal and invite
+-- buttons to work.
+\i migrations/20261110084000_affiliate_studio.sql
+\i migrations/20261110085000_affiliate_studio_ledger.sql
+\i migrations/20261110086000_affiliate_portal.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

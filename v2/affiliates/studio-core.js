@@ -1,0 +1,213 @@
+// Affiliate Studio -- the page logic that has no DOM in it, so Node can test
+// it (scripts/tests/affiliate-studio-ui.test.mjs). Imported by studio.js and
+// by the three affiliate-facing pages. Nothing in here is company-specific:
+// every name, rate and date comes from the program row.
+
+// Mirrors public.affiliate_currency_minor_units(). A currency not listed is
+// two-decimal, the same default the database uses.
+export const ZERO_DECIMAL = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
+export const minorUnits = (currency) => (ZERO_DECIMAL.has(String(currency || '').toUpperCase()) ? 1 : 100);
+
+// NULL is "not measured" and renders as a dash, never as $0.
+export function formatMoney(minor, currency = 'USD') {
+  if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';
+  const cur = String(currency || 'USD').toUpperCase();
+  const units = minorUnits(cur);
+  const digits = units === 1 ? 0 : 2;
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(minor) / units);
+  } catch {
+    return `${(Number(minor) / units).toFixed(digits)} ${cur}`;
+  }
+}
+
+// "12.50" -> 1250 (USD), "500" -> 500 (JPY). Refuses more decimals than the
+// currency has instead of rounding someone's money.
+export function parseMajorToMinor(text, currency = 'USD') {
+  const s = String(text ?? '').trim().replace(/[,\s]/g, '');
+  if (!s) return null;
+  const units = minorUnits(currency);
+  const re = units === 1 ? /^-?\d+$/ : /^-?\d+(\.\d{1,2})?$/;
+  if (!re.test(s)) return NaN;
+  const neg = s.startsWith('-');
+  const [whole, frac = ''] = s.replace('-', '').split('.');
+  const v = Number(whole) * units + (units === 1 ? 0 : Number(frac.padEnd(2, '0')));
+  return neg ? -v : v;
+}
+
+export function describeCommission({ kind, percent, fixed_cents: fixed, currency }) {
+  if (kind === 'percent_of_net' && percent !== null && percent !== undefined) {
+    return `${Number(percent)}% of each order's merchandise subtotal, after discounts and refunds, excluding tax and shipping`;
+  }
+  if (kind === 'fixed_per_order' && fixed !== null && fixed !== undefined) {
+    return `${formatMoney(fixed, currency)} per attributed order`;
+  }
+  return 'Commission not configured';
+}
+
+export const BASIS_LABELS = {
+  single_affiliate_code: { label: 'Earns: only code on order', earns: true },
+  first_affiliate_code: { label: 'Earns: the one affiliate code among several', earns: true },
+  ambiguous_multiple_affiliate_codes: { label: 'Not credited: two affiliates’ codes', earns: false },
+  multiple_codes_refused: { label: 'Not credited: program allows one code per order', earns: false },
+  code_outside_window: { label: 'Not credited: outside the code’s dates', earns: false },
+  currency_mismatch: { label: 'Not credited: order in another currency', earns: false },
+  refunds_not_measured: { label: 'Held: refunds not measured yet', earns: false },
+};
+export const basisLabel = (b) => BASIS_LABELS[b]?.label || b;
+
+export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+export function slugify(name) {
+  return String(name || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+}
+
+const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'];
+const intOr = (v, d) => (v === '' || v === null || v === undefined ? d : Number(v));
+
+// The program form -> a row the table's CHECKs will accept, or the reasons
+// it would not. The database re-checks every one of these.
+export function validateProgram(f) {
+  const errors = [];
+  const currency = String(f.currency || 'USD').trim().toUpperCase();
+  const row = {
+    name: String(f.name || '').trim(),
+    slug: String(f.slug || slugify(f.name)).trim(),
+    status: f.status || 'draft',
+    niche: String(f.niche || '').trim() || null,
+    audience_notes: String(f.audience_notes || '').trim() || null,
+    geographies: String(f.geographies || '').split(',').map((s) => s.trim()).filter(Boolean),
+    platforms: (Array.isArray(f.platforms) ? f.platforms : String(f.platforms || '').split(',')).map((s) => String(s).trim()).filter(Boolean),
+    intake_mode: f.intake_mode === 'open' ? 'open' : 'invite_only',
+    commission_kind: f.commission_kind === 'fixed_per_order' ? 'fixed_per_order' : 'percent_of_net',
+    commission_percent: null,
+    commission_fixed_cents: null,
+    currency,
+    attribution_window_days: intOr(f.attribution_window_days, 0),
+    code_precedence: f.code_precedence === 'single_code_only' ? 'single_code_only' : 'first_affiliate_code',
+    refund_hold_days: intOr(f.refund_hold_days, 30),
+    payout_minimum_cents: 0,
+    payout_method: 'manual',
+    discovery_max_cost_usd: f.discovery_max_cost_usd === '' || f.discovery_max_cost_usd === undefined ? 0.5 : Number(f.discovery_max_cost_usd),
+    default_code_starts_on: f.default_code_starts_on || null,
+    default_code_ends_on: f.default_code_ends_on || null,
+    owner_user_id: f.owner_user_id || null,
+    terms_markdown: String(f.terms_markdown || '').trim() || null,
+  };
+  if (!row.name) errors.push('Give the program a name.');
+  if (!SLUG_RE.test(row.slug)) errors.push('The short name (slug) must be 3–40 lowercase letters, digits or dashes.');
+  if (!/^[A-Z]{3}$/.test(currency)) errors.push('Currency must be a three-letter code such as USD.');
+  if (row.commission_kind === 'percent_of_net') {
+    const p = Number(f.commission_percent);
+    if (f.commission_percent === '' || f.commission_percent === undefined || !Number.isFinite(p) || p < 0 || p > 100) errors.push('Commission percent must be between 0 and 100.');
+    else row.commission_percent = p;
+  } else {
+    const c = parseMajorToMinor(f.commission_fixed, currency);
+    if (c === null || Number.isNaN(c) || c < 0) errors.push('Enter the fixed commission per order.');
+    else row.commission_fixed_cents = c;
+  }
+  const min = parseMajorToMinor(f.payout_minimum, currency);
+  if (Number.isNaN(min) || (min !== null && min < 0)) errors.push('Payout minimum must be a positive amount.');
+  else row.payout_minimum_cents = min ?? 0;
+  for (const [k, lo, hi, what] of [['attribution_window_days', 0, 365, 'Grace days'], ['refund_hold_days', 0, 365, 'Refund hold']]) {
+    if (!Number.isInteger(row[k]) || row[k] < lo || row[k] > hi) errors.push(`${what} must be a whole number from ${lo} to ${hi}.`);
+  }
+  if (!Number.isFinite(row.discovery_max_cost_usd) || row.discovery_max_cost_usd < 0 || row.discovery_max_cost_usd > 25) errors.push('Discovery cost cap must be between $0 and $25 per run.');
+  if (row.default_code_starts_on && row.default_code_ends_on && row.default_code_ends_on < row.default_code_starts_on) errors.push('Default code end date is before its start date.');
+  const bad = row.platforms.filter((p) => !PLATFORMS.includes(p));
+  if (bad.length) errors.push(`Unknown platform: ${bad.join(', ')}.`);
+  if (row.status === 'active' && !row.terms_markdown) errors.push('Write the program terms before making it active; affiliates accept them to join.');
+  return { row, errors };
+}
+
+// ── Outreach export ──────────────────────────────────────────────────────
+// Spreadsheet software executes a cell that starts with = + - @ (or a tab /
+// carriage return). A creator's display name is untrusted text, so every
+// such cell is neutralised with a leading apostrophe.
+export function csvCell(v) {
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+export const toCsv = (header, rows) => [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+export function fillTemplate(text, vars) {
+  return String(text || '').replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : m));
+}
+
+export const DEFAULT_OUTREACH = {
+  subject: 'Partnering with {brand}',
+  body: 'Hi {name},\n\nWe found your {platform} through {source} and think your audience would like {brand}. We run an affiliate program: {commission}.\n\nIf you are interested, this link has the terms and lets you join: {signup_link}\n\nIf you would rather not hear from us again, just reply and say so.\n\n{sender}',
+};
+
+export const OUTREACH_HEADER = ['recipient_email', 'recipient_handle', 'channel', 'subject', 'message', 'signup_link', 'signup_link_expires', 'note'];
+export function outreachRows(drafts, links) {
+  return drafts.map((d) => {
+    const l = links[d.id] || {};
+    const msg = fillTemplate(d.body, { signup_link: l.url || '(no signup link: see note)' });
+    return [d.recipient_email || '', d.recipient_handle || '', d.channel, d.subject || '', msg, l.url || '', l.expires_at || '', l.error || ''];
+  });
+}
+
+export async function sha256Hex(text) {
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Payout handoff ───────────────────────────────────────────────────────
+export const PAYOUT_HEADER = ['payout_id', 'payee', 'payee_email', 'amount', 'currency', 'amount_minor_units', 'entries', 'approved_at', 'note'];
+export function payoutRows(payouts, affiliatesById) {
+  return payouts.map((p) => {
+    const a = affiliatesById[p.affiliate_id] || {};
+    return [p.id, a.display_name || '', a.contact_email || '', (Number(p.amount_cents) / minorUnits(p.currency)).toFixed(minorUnits(p.currency) === 1 ? 0 : 2), p.currency, p.amount_cents, p.item_count ?? '', p.approved_at || '', 'SILO did not pay this. Pay it in your own system, then record the reference in SILO.'];
+  });
+}
+
+// An href from stored data: http(s) only. The database refuses anything else
+// on the prospect and affiliate URL columns; this is the second lock.
+export function safeHref(u) {
+  try { const x = new URL(String(u || '').trim()); return x.protocol === 'https:' || x.protocol === 'http:' ? x.toString() : null; } catch { return null; }
+}
+
+// ── Trackable link ───────────────────────────────────────────────────────
+export function linkUrl(l) {
+  try {
+    const u = new URL(l.destination_url);
+    if (u.protocol !== 'https:') return null;
+    for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k]) u.searchParams.set(k, l[k]);
+    return u.toString();
+  } catch { return null; }
+}
+
+export function applyUrl(origin, companyId, slug) {
+  return `${String(origin).replace(/\/$/, '')}/v2/affiliates/apply.html?c=${encodeURIComponent(companyId)}&p=${encodeURIComponent(slug)}`;
+}
+
+// ── How each part works, stated from what the data shows ─────────────────
+// verified: SILO has observed it working for this company.
+// manual: a person does it outside SILO and records it.
+// simulated: only dry runs so far.
+// unconfigured: not set up for this company yet.
+// not measured: SILO does not and cannot claim it.
+export function stageLabels(f = {}) {
+  const runs = f.discoveryRuns || [];
+  const liveOk = runs.some((r) => !r.dry_run && r.status === 'success');
+  const dryOnly = runs.length > 0 && runs.every((r) => r.dry_run);
+  const notes = f.notifications || [];
+  const mailSent = notes.some((n) => n.status === 'sent');
+  const mailSkipped = notes.some((n) => n.status === 'skipped' && /RESEND/i.test(n.reason || ''));
+  return [
+    { stage: 'Discovery', label: liveOk ? 'verified' : dryOnly ? 'simulated' : f.sources ? 'unconfigured' : 'unconfigured',
+      detail: liveOk ? 'Search runs have completed for this company; each prospect cites the result it came from.' : dryOnly ? 'Only dry runs so far: no searches were paid for and nothing was written.' : 'Add a search source. The weekly run (or a manual run) searches public results only.' },
+    { stage: 'Outreach to prospects', label: 'manual', detail: 'SILO drafts, approves and exports. You send from your own inbox and mark each one sent with evidence. SILO never emails a prospect.' },
+    { stage: 'Affiliate emails', label: mailSent ? 'verified' : mailSkipped ? 'unconfigured' : 'unconfigured',
+      detail: mailSent ? 'Signup confirmations and portal links have been delivered by the mail provider.' : mailSkipped ? 'Mail was skipped because the mail key is not set on the server.' : 'No affiliate email has been sent yet.' },
+    { stage: 'Code tracking', label: f.codesSeen > 0 ? 'verified' : 'unconfigured',
+      detail: f.codesSeen > 0 ? `${f.codesSeen} code(s) have been seen on real orders.` : 'No affiliate code has been seen on an order yet. Codes must already exist in Shopify; SILO does not create them.' },
+    { stage: 'Trackable links', label: 'manual', detail: 'Links are UTM-tagged destinations you hand out. SILO does not count clicks and pays nothing on a link.' },
+    { stage: 'Commissions', label: f.ledgerEntries > 0 ? 'verified' : 'unconfigured', detail: 'Computed from synced orders net of discounts and refunds, excluding tax and shipping, into an append-only ledger.' },
+    { stage: 'Payouts', label: 'manual', detail: 'SILO builds and approves the payout and exports it. A person pays it elsewhere and records the reference. SILO moves no money.' },
+    { stage: 'Stripe Connect payouts', label: 'unconfigured', detail: 'Designed, not built. Needs a decision on who funds transfers and on tax forms before it can be turned on.' },
+    { stage: 'Incremental sales', label: 'not measured', detail: 'A sale with an affiliate’s code is credited to them. That is not proof the affiliate caused it.' },
+  ];
+}

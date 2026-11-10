@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Apply to an affiliate program</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../beacon.css" />
+  <link rel="stylesheet" href="../silo-brand.css" />
+  <script src="/pages/config.js"></script>
+  <style>
+    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only. */
+    body { background: var(--bcn-bg); }
+    .af-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
+    .af-terms { max-height: 420px; overflow-y: auto; border: 1px solid var(--bcn-border); padding: 12px 14px; background: var(--bcn-surface); font-size: 14px; line-height: 1.55; }
+    .af-num { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-copy { word-break: break-all; font-family: var(--bcn-mono); font-size: 12px; }
+    .af-form { display: flex; flex-direction: column; gap: 10px; }
+    .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    .af-scroll { overflow-x: auto; }
+  </style>
+</head>
+<body class="silo-brand">
+<main class="af-wrap">
+  <header class="bcn-header"><div class="bcn-header-title"><h1>Apply to the affiliate program</h1></div></header>
+  <div class="bcn-status" id="status" hidden></div>
+  <div id="body"></div>
+  <p class="af-muted">The brand reviews every application. Applying does not make you an affiliate; if you are accepted you will get a link to read and accept the program terms. Run by the brand using SILO.</p>
+</main>
+<script type="module">
+import { $, esc, call, setStatus } from './public.js';
+const qp = new URLSearchParams(location.search);
+const company = qp.get('c') || ''; const program = qp.get('p') || '';
+const f = (id, label, attrs = '') => `<div class="bcn-field-group"><label class="bcn-label" for="${id}">${esc(label)}</label><input class="bcn-field" id="${id}" ${attrs} /></div>`;
+if (!company || !program) {
+  $('body').innerHTML = '<div class="bcn-card"><div class="bcn-card-body"><p>This application link is incomplete. Ask the brand for their link.</p></div></div>';
+} else {
+  $('body').innerHTML = `<div class="bcn-card"><div class="bcn-card-body"><form class="af-form" id="form">
+    ${f('name', 'Your name or channel name', 'required maxlength="120" autocomplete="name"')}
+    ${f('email', 'Email', 'type="email" required maxlength="254" autocomplete="email"')}
+    <div class="bcn-field-group"><label class="bcn-label" for="platform">Main platform</label><select class="bcn-field" id="platform">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select></div>
+    ${f('handle', 'Handle', 'maxlength="80" placeholder="@yourname"')}
+    ${f('profile_url', 'Link to your profile or site', 'type="url" maxlength="500" placeholder="https://"')}
+    <div class="bcn-field-group"><label class="bcn-label" for="pitch">Tell the brand about your audience</label><textarea class="bcn-field" id="pitch" rows="5" maxlength="2000"></textarea></div>
+    <div class="af-hp" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off" /></div>
+    <div><button class="bcn-btn bcn-btn--primary" type="submit" id="go">Send application</button></div>
+  </form></div></div>`;
+  $('form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!$('handle').value.trim() && !$('profile_url').value.trim()) { setStatus('Add your handle or a link to your profile so the brand can find you.', 'neg'); return; }
+    $('go').disabled = true; setStatus('');
+    try {
+      await call('apply', { company_id: company, program, name: $('name').value.trim(), email: $('email').value.trim(), platform: $('platform').value, handle: $('handle').value.trim(), profile_url: $('profile_url').value.trim(), pitch: $('pitch').value.trim(), website: $('website').value });
+      $('body').innerHTML = '<div class="bcn-card"><div class="bcn-card-body"><p><strong>Thanks, your application was received.</strong> If the brand accepts it, you will get an email with a link to the program terms.</p></div></div>';
+    } catch (e) { setStatus(e.message, 'neg'); $('go').disabled = false; }
+  });
+}
+</script>
+</body>
+</html>

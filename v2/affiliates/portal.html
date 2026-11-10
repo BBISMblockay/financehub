@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Affiliate portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../beacon.css" />
+  <link rel="stylesheet" href="../silo-brand.css" />
+  <script src="/pages/config.js"></script>
+  <style>
+    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only. */
+    body { background: var(--bcn-bg); }
+    .af-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
+    .af-terms { max-height: 420px; overflow-y: auto; border: 1px solid var(--bcn-border); padding: 12px 14px; background: var(--bcn-surface); font-size: 14px; line-height: 1.55; }
+    .af-num { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
+    .af-copy { word-break: break-all; font-family: var(--bcn-mono); font-size: 12px; }
+    .af-form { display: flex; flex-direction: column; gap: 10px; }
+    .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    .af-scroll { overflow-x: auto; }
+  </style>
+</head>
+<body class="silo-brand">
+<main class="af-wrap">
+  <header class="bcn-header"><div class="bcn-header-title"><h1 id="title">Affiliate portal</h1></div></header>
+  <div class="bcn-status" id="status" hidden></div>
+  <div class="bcn-kpi-band" id="kpis" hidden></div>
+  <div id="body"><div class="bcn-card"><div class="bcn-card-body">Loading…</div></div></div>
+  <p class="af-muted">Earnings are from orders that used your code, net of discounts and refunds, excluding tax and shipping. Run by the brand using SILO. Your link is personal; please do not share it.</p>
+</main>
+<script type="module">
+import { $, esc, call, setStatus, takeToken } from './public.js';
+import { formatMoney } from './studio-core.js';
+const token = takeToken('silo_affiliate_portal');
+const card = (title, html) => `<div class="bcn-card"><div class="bcn-card-header"><h2>${esc(title)}</h2></div><div class="bcn-card-body">${html}</div></div>`;
+const table = (head, rows, emptyText) => rows.length
+  ? `<div class="af-scroll"><table class="bcn-table"><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+  : `<div class="bcn-empty">${esc(emptyText)}</div>`;
+const day = (s) => (s ? String(s).slice(0, 10) : '');
+
+function expired() {
+  $('body').innerHTML = card('This link has expired', `<p>Portal links work for 90 days. We can email a new one to the address the brand has on file for you.</p>
+    <button class="bcn-btn bcn-btn--primary" id="renew">Email me a new link</button>`);
+  $('renew').addEventListener('click', async () => {
+    $('renew').disabled = true;
+    try { const r = await call('renew', { token }); setStatus(r.message, 'pos'); }
+    catch (e) { setStatus(e.message, 'neg'); $('renew').disabled = false; }
+  });
+}
+
+async function load() {
+  if (!token) { $('body').innerHTML = card('This link is incomplete', '<p>Open the link exactly as it was emailed to you.</p>'); return; }
+  let r;
+  try { r = await call('resolve', { token }); }
+  catch (e) { if (e.status === 404) return expired(); $('body').innerHTML = card('Something went wrong', `<p>${esc(e.message)}</p>`); return; }
+  if (r.purpose === 'signup') { location.replace(`join.html?t=${encodeURIComponent(token)}`); return; }
+  $('title').textContent = `${r.brand} affiliate portal`;
+  const s = (await call('statement', { token })).statement || {};
+  const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
+  const kpi = (l, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(l)}</div><div class="bcn-kpi-value">${v}</div></div>`;
+  $('kpis').innerHTML = kpi('Earned', m(t.earned_cents)) + kpi('Paid', m(t.paid_cents)) + kpi('Not yet paid', m(t.unclaimed_cents)) + kpi('Orders', esc(t.orders ?? 0));
+  $('kpis').hidden = false;
+  $('body').innerHTML = [
+    s.affiliate?.status === 'paused' ? card('Paused', '<p>The brand has paused your affiliate account. New orders are not credited until it is resumed.</p>') : '',
+    card('Your codes', table(['Code', 'From', 'Until', 'Status'], (s.codes || []).map((c) => [`<span class="af-num">${esc(c.code)}</span>`, esc(day(c.starts_on)), esc(day(c.ends_on) || 'open'), esc(c.status)]), 'No code yet. The brand will send one.')),
+    card('Your links', table(['Link', 'From', 'Status'], (s.links || []).map((l) => { let u = l.destination_url; try { const x = new URL(l.destination_url); for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k]) x.searchParams.set(k, l[k]); u = x.toString(); } catch {} return [`<span class="af-copy">${esc(u)}</span>`, esc(day(l.starts_on)), esc(l.status)]; }), 'No links yet.')
+      + '<p class="af-muted">Links help the brand see your traffic. Commission is paid on orders that use your code.</p>'),
+    card('Earnings by month', table(['Month', 'Orders', 'Commission'], (s.monthly || []).map((x) => [esc(x.month), `<span class="af-num">${esc(x.orders)}</span>`, `<span class="af-num">${m(x.amount_cents)}</span>`]), 'No earnings yet.')
+      + '<p class="af-muted">A refund on an earlier order shows as a negative amount in the month it was found.</p>'),
+    card('Payouts', table(['Amount', 'Status', 'Paid', 'Reference'], (s.payouts || []).map((p) => [`<span class="af-num">${m(p.amount_cents)}</span>`, esc(p.status === 'marked_paid' ? 'paid' : p.status), esc(day(p.marked_paid_at)), esc(p.reference || '')]), 'No payouts yet.')),
+    card('Terms', `<p>You accepted version ${esc(s.affiliate?.terms_version_accepted ?? '—')} on ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`),
+  ].join('');
+}
+load().catch((e) => setStatus(e.message, 'neg'));
+</script>
+</body>
+</html>
