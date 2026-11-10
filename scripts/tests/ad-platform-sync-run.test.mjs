@@ -8,7 +8,7 @@
  * Mutations (each must fail the suite): AD_SYNC_RUN_MUTATION=
  *   no-rls-check | no-account-check | no-clamp | job-not-failed |
  *   unchecked-token | unchecked-meta | unchecked-job-success | silent-unrecorded |
- *   no-act-prefix | google-env-for-meta
+ *   no-act-prefix | google-env-for-meta | no-fail-stamp | stale-success
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,6 +30,12 @@ const MUTATIONS = {
   'silent-unrecorded': ["const unrecorded = res?.error", "const unrecorded = false"],
   'no-act-prefix': ["meta_ad_account_id: metaAccountId(conn.meta_ad_account_id)", "meta_ad_account_id: conn.meta_ad_account_id"],
   'google-env-for-meta': ["if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID", "if (true && (!googleEnv.GOOGLE_CLIENT_ID"],
+  // The failure reaches sync_jobs but not the connection, so the page cannot
+  // tell WHICH connection broke and shows nothing.
+  'no-fail-stamp': ["      await stampOutcome({ last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message }) });\n", ''],
+  // A success leaves the previous failure standing, so the card goes on
+  // saying the feed is broken after it has healed.
+  'stale-success': ['            last_sync: syncOutcome({ at: result.synced_at, ok: true }),\n', ''],
 };
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
@@ -127,6 +133,7 @@ function fakeGoogle({ adsStatus = 200 } = {}) {
 }
 const handlerFor = (db, env = ENV) => H.createHandler({
   service: db.service, userClientFor: db.userClientFor, googleEnv: env, runConnectionSync: core.runConnectionSync,
+  syncOutcome: core.syncOutcome,
   now: () => new Date('2026-09-30T20:00:00Z'),
 });
 
@@ -364,10 +371,47 @@ await test('Integrations offers Sync now on every platform this function runs, c
   const inPage = page.match(/const SYNC_NOW_PLATFORMS = \[([^\]]*)\]/)[1]
     .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean);
   assert.deepEqual(inPage, H.SYNC_RUN_PLATFORMS);
-  // Every ad card draws its rows through the one row template above, so that
-  // single `includes(row.platform)` is the whole rule -- no card may grow a
-  // Sync now button of its own that this list does not govern.
-  assert.equal((page.match(/syncAdConnection\('\$\{row\.id\}', this\)/g) || []).length, 1);
+  // Every ad card draws its rows through the one row template above, so these
+  // guards are the whole rule -- no card may grow a Sync now button of its own
+  // that this list does not govern. Exactly two call sites: the row's action
+  // and the Retry on a failed-sync line, and the second is additionally
+  // withheld when the failure is the client's to fix, where a retry can only
+  // fail again.
+  assert.match(page, /const canRetrySync = SYNC_NOW_PLATFORMS\.includes\(row\.platform\) && !clientBlock;/);
+  assert.match(page, /\$\{canRetrySync\s*\n?\s*\? `<div[^`]*syncAdConnection\('\$\{row\.id\}', this\)/);
+  assert.equal((page.match(/syncAdConnection\('\$\{row\.id\}', this\)/g) || []).length, 2);
+});
+
+await test('a failed sync is recorded on the connection, not only in sync_jobs', async () => {
+  // sync_jobs carries company + job_type and no connection id, so with two
+  // Google Ads accounts in one company it cannot say which one failed. The
+  // page renders meta.last_sync; without this stamp a nightly or manual
+  // failure is invisible to the customer.
+  fakeGoogle({ adsStatus: 403 });
+  const db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'] });
+  const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  assert.equal(res.status, 502);
+  const stamped = db.tables.ad_platform_connections.find((r) => r.id === 'c-ads');
+  assert.equal(stamped.meta.last_sync.ok, false);
+  assert.match(stamped.meta.last_sync.error, /PERMISSION_DENIED/);
+  assert.ok(stamped.meta.last_sync.at, 'the stamp says when, so a stale failure can be told from a fresh one');
+  assert.equal(stamped.meta.keep, 1, 'the rest of meta survives the stamp');
+  // The existing audit record is untouched: this is the customer-facing half.
+  assert.equal(db.tables.sync_jobs[0].status, 'error');
+});
+
+await test('a sync that succeeds clears the failure the page is showing', async () => {
+  fakeGoogle();
+  const db = makeDb({
+    rows: [adsConn({ meta: { last_sync: { at: '2026-09-29T00:00:00Z', ok: false, error: 'older failure' } } })],
+    visibleIds: ['c-ads'],
+  });
+  const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  assert.equal(res.status, 200);
+  const stamped = db.tables.ad_platform_connections.find((r) => r.id === 'c-ads');
+  assert.equal(stamped.meta.last_sync.ok, true);
+  assert.equal(stamped.meta.last_sync.error, undefined,
+    'a success must not keep the old error text, or the card goes on saying the feed is broken');
 });
 
 console.log(`\n${n} passed`);

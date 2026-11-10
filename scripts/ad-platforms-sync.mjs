@@ -13,7 +13,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { clientSideReason, makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
-import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
+import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, syncOutcome, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
 import { planMetaHistory, metaHistoryComplete, metaAfterHistory } from './lib/meta-history-backfill.mjs';
@@ -146,7 +146,12 @@ async function syncConnection(connection) {
       });
       // client_side_block cleared for the same reason as the campaign path
       // below: a connection that just synced is not blocked.
-      const meta = { ...(connection.meta || {}), last_sync_at: result.synced_at, client_side_block: null };
+      const meta = {
+        ...(connection.meta || {}),
+        last_sync_at: result.synced_at,
+        last_sync: syncOutcome({ at: result.synced_at, ok: true }),
+        client_side_block: null,
+      };
       await supabase
         .from('ad_platform_connections')
         .update({ meta, updated_at: new Date().toISOString() })
@@ -165,6 +170,18 @@ async function syncConnection(connection) {
       return { connection: label, ...result };
     } catch (err) {
       const message = err?.message || String(err);
+      // Same stamp as the main path: the page must be able to say this
+      // connection's last attempt failed, whichever path ran it.
+      await supabase.from('ad_platform_connections').update({
+        meta: {
+          ...(connection.meta || {}),
+          last_sync: syncOutcome({
+            at: new Date().toISOString(), ok: false, error: message,
+            clientBlock: clientSideReason(message),
+          }),
+        },
+        updated_at: new Date().toISOString(),
+      }).eq('id', connection.id);
       await finishJob(jobId, 'error', { error: message });
       console.error(`[error] ${label}: ${message}`);
       throw err;
@@ -258,6 +275,9 @@ async function syncConnection(connection) {
         backfill: history.backfill, succeeded: metaHistoryComplete(result), at: result.synced_at,
       }),
       last_sync_at: result.synced_at,
+      // What the page shows. last_sync_at alone cannot say a run FAILED, and
+      // a failed nightly sync was otherwise invisible to the customer.
+      last_sync: syncOutcome({ at: result.synced_at, ok: true }),
       // A connection that just synced is not blocked, whatever it was last
       // run. Cleared here rather than on reconnect so recovery needs no
       // action at all -- and so the freshness alarm can never be quietened
@@ -316,6 +336,12 @@ async function syncConnection(connection) {
       ? metaAfterHistory(connection.meta, { backfill: true, succeeded: false, at: new Date().toISOString() })
       : { ...(connection.meta || {}) };
     failedMeta.client_side_block = block ? { reason: block, at: new Date().toISOString() } : null;
+    // The customer-facing half of the same fact: client_side_block is read by
+    // the freshness alarm, last_sync is what Integrations renders. Written in
+    // the same update so the two can never disagree about this attempt.
+    failedMeta.last_sync = syncOutcome({
+      at: new Date().toISOString(), ok: false, error: message, clientBlock: block,
+    });
     const { error: metaError } = await supabase
       .from('ad_platform_connections')
       .update({ meta: failedMeta, updated_at: new Date().toISOString() })

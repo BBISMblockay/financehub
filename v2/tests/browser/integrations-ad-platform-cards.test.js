@@ -24,6 +24,10 @@
  *   AD_CARDS_MUTATION=no-sync-now   TikTok loses Sync now (back to waiting for the nightly)
  *   AD_CARDS_MUTATION=sc-sync-now   Search Console is offered a Sync now it cannot finish
  *   AD_CARDS_MUTATION=no-organic    the Meta card loses its Page / Instagram fields
+ *   AD_CARDS_MUTATION=no-failline   a failed nightly sync goes back to showing nothing
+ *   AD_CARDS_MUTATION=no-retry      the failure is shown with no way to run the sync again
+ *   AD_CARDS_MUTATION=retry-blocked a failure only the client can fix is offered a retry anyway
+ *   AD_CARDS_MUTATION=no-error-text the line says a sync failed but not what the provider said
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -46,6 +50,10 @@ const MUTATIONS = {
     "    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'];",
     "    const SYNC_NOW_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads', 'search_console'];",
   ]],
+  'no-failline': [['      const syncFailed = lastSync && lastSync.ok === false;', '      const syncFailed = false;']],
+  'no-retry': [['      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;', '      const canRetrySync = false;']],
+  'retry-blocked': [['      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;', '      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform);']],
+  'no-error-text': [["${escHtml(lastSync.error || 'No reason recorded.')}", '']],
   'no-organic': [["      const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>", '      const organicRow = true ? \'\' : `<tr>']],
 };
 const MUT = process.env.AD_CARDS_MUTATION || '';
@@ -73,7 +81,7 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
       last_tested_at: null, last_test_success: null, last_test_error: null,
       google_customer_id: null, meta_ad_account_id: null, tiktok_advertiser_id: null,
       ga4_property_id: null, search_console_site_url: null,
-      facebook_page_id: null, instagram_business_account_id: null, ...over,
+      facebook_page_id: null, instagram_business_account_id: null, meta: null, ...over,
     });
     // One connection per platform, each with a name no other row shares, so
     // a row drawn on the wrong card is caught by the name alone.
@@ -164,6 +172,60 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
     R.eq(await page.evaluate(() => document.getElementById('other-platforms-card')?.hidden), true,
       'the catch-all card is hidden while every connection has a card of its own');
     await page.close();
+
+    // ── A failed sync is the thing this page used to hide: the credential
+    // still tests OK, the first import succeeded long ago, and the nightly
+    // has been failing where only GitHub Actions can see it.
+    const failing = {
+      ad_platform_connections: [
+        adRow({
+          id: 'f1', platform: 'tiktok_ads', display_name: 'Acme Supply Co',
+          tiktok_advertiser_id: '7012345678901234567', sync_enabled: true,
+          last_tested_at: new Date().toISOString(), last_test_success: true,
+          meta: { last_sync: { at: '2026-11-09T11:20:00Z', ok: false, error: 'TikTok said: rate limit exceeded' } },
+        }),
+      ],
+    };
+    const bad = await suite.open('/v2/integrations.html', failing, { ready, rpc: { is_admin_user: true } });
+    const badCard = await bad.evaluate(htmlOf, 'tiktok_ads');
+    R.has(badCard, 'Last sync failed', 'a failed sync is said on the card, not only in the Actions log');
+    R.has(badCard, 'rate limit exceeded', "and what the provider actually said, or nobody can act on it");
+    R.has(badCard, 'syncAdConnection', 'with a way to run it again right there');
+    R.has(await bad.evaluate(() => document.querySelector('#tiktok_ads-connections-list')?.textContent || ''), 'Retry sync now');
+    R.eq(await bad.evaluate(() => document.querySelectorAll('#tiktok_ads-connections-list tr[data-sync-failed]').length), 1);
+    await bad.close();
+
+    // A failure the client owns: retrying cannot fix it, so it is not offered.
+    const blocked = {
+      ad_platform_connections: [
+        adRow({
+          id: 'b1', platform: 'tiktok_ads', display_name: 'Acme Supply Co',
+          tiktok_advertiser_id: '7012345678901234567', sync_enabled: true,
+          meta: { last_sync: { at: '2026-11-09T11:20:00Z', ok: false, error: 'access revoked',
+            client_block: 'TikTok access was revoked -- reconnect' } },
+        }),
+      ],
+    };
+    const blk = await suite.open('/v2/integrations.html', blocked, { ready, rpc: { is_admin_user: true } });
+    const blkCard = await blk.evaluate(htmlOf, 'tiktok_ads');
+    R.has(blkCard, 'Last sync failed');
+    R.has(blkCard, 'revoked');
+    R.not(blkCard, 'Retry sync now', 'a retry that can only fail again is not offered');
+    await blk.close();
+
+    // Healed: nothing shown. A line that outlives the failure is worse than none.
+    const healed = {
+      ad_platform_connections: [
+        adRow({
+          id: 'h1', platform: 'tiktok_ads', display_name: 'Acme Supply Co',
+          tiktok_advertiser_id: '7012345678901234567', sync_enabled: true,
+          meta: { last_sync: { at: '2026-11-10T11:20:00Z', ok: true } },
+        }),
+      ],
+    };
+    const good = await suite.open('/v2/integrations.html', healed, { ready, rpc: { is_admin_user: true } });
+    R.not(await good.evaluate(htmlOf, 'tiktok_ads'), 'Last sync failed');
+    await good.close();
 
     // ── A platform added to the table before its card exists must still be
     // visible: it is syncing every night either way.
