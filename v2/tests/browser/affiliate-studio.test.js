@@ -65,7 +65,7 @@ const tables = {
     terms_markdown: 'Be honest.', terms_version: 2, created_at: now,
   }],
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
-  affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', enabled: true, max_results: 30, created_at: now }],
+  affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'success', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
   affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
@@ -99,7 +99,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const ov = await text(page, '#overviewBody');
     R.has(ov, 'Outreach to prospects', 'the overview states how each part works');
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
-    R.ok('Stripe payouts are labelled unconfigured', /Stripe Connect payouts\s*unconfigured/.test(ov))
+    R.not(ov, 'Stripe Connect', 'an unbuilt feature is not advertised')
+    R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.ok('incrementality is labelled not measured', /Incremental sales\s*not measured/.test(ov))
     R.has(ov, 'not credited', 'uncredited code orders are surfaced');
     for (const tab of ['program', 'prospects', 'outreach', 'affiliates', 'commissions', 'payouts']) {
@@ -110,7 +111,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
     R.has(pr, 'not found', 'a missing contact says so, not a guess');
-    R.has(pr, '$0.0020', 'discovery cost is shown as the provider reported it');
+    R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
+    R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
+    R.has(pr, 'United States', 'a search shows its country by name, not a provider code');
+    R.ok('the country picker offers names', await page.$('#srcLoc option[value="2840"]'));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     await page.click('#tabs [data-tab="commissions"]');
     const cm = await page.evaluate(() => [...document.querySelectorAll('#commissionsBody tr')].map((r) => r.textContent).find((t) => t.includes('#1002')) || '');
@@ -118,7 +122,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(cm, '—', 'an unknown base renders as a dash');
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
-    R.has(await text(page, '#payoutsBody'), 'SILO moves no money', 'the payout tab says money moves elsewhere');
+    R.has(await text(page, '#payoutsBody'), 'pay it from your bank or payment tool', 'the payout tab says where money moves');
     await page.click('#tabs [data-tab="program"]');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     await page.close();

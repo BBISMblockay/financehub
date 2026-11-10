@@ -118,7 +118,7 @@ await t('labels follow the data and never claim what was not observed', () => {
   assert.equal(none.Discovery, 'unconfigured');
   assert.equal(none['Outreach to prospects'], 'manual');
   assert.equal(none.Payouts, 'manual');
-  assert.equal(none['Stripe Connect payouts'], 'unconfigured');
+  assert.equal(none['Stripe Connect payouts'], undefined, 'an unbuilt feature is not listed');
   assert.equal(none['Incremental sales'], 'not measured');
   assert.equal(byStage({ discoveryRuns: [{ dry_run: true, status: 'success' }] }).Discovery, 'simulated');
   assert.equal(byStage({ discoveryRuns: [{ dry_run: false, status: 'error' }] }).Discovery, 'unconfigured');

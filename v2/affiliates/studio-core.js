@@ -56,6 +56,19 @@ export const BASIS_LABELS = {
 };
 export const basisLabel = (b) => BASIS_LABELS[b]?.label || b;
 
+// Where a discovery search looks, by name. The numbers are the search
+// provider's location codes (Google geo target ids); nobody should have to
+// know them.
+export const SEARCH_COUNTRIES = [
+  ['US', 2840, 'United States'], ['CA', 2124, 'Canada'], ['GB', 2826, 'United Kingdom'], ['AU', 2036, 'Australia'],
+  ['NZ', 2554, 'New Zealand'], ['IE', 2372, 'Ireland'], ['DE', 2276, 'Germany'], ['FR', 2250, 'France'],
+  ['ES', 2724, 'Spain'], ['IT', 2380, 'Italy'], ['NL', 2528, 'Netherlands'], ['MX', 2484, 'Mexico'],
+  ['BR', 2076, 'Brazil'], ['JP', 2392, 'Japan'],
+];
+export const SEARCH_LANGUAGES = [['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['it', 'Italian'], ['pt', 'Portuguese'], ['nl', 'Dutch'], ['ja', 'Japanese']];
+export const countryName = (code) => SEARCH_COUNTRIES.find((c) => c[1] === Number(code))?.[2] || (code ? `location ${code}` : 'any country');
+export const languageName = (code) => SEARCH_LANGUAGES.find((l) => l[0] === code)?.[1] || code || 'any language';
+
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export function slugify(name) {
   return String(name || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
@@ -198,16 +211,15 @@ export function stageLabels(f = {}) {
   const mailSkipped = notes.some((n) => n.status === 'skipped' && /RESEND/i.test(n.reason || ''));
   return [
     { stage: 'Discovery', label: liveOk ? 'verified' : dryOnly ? 'simulated' : f.sources ? 'unconfigured' : 'unconfigured',
-      detail: liveOk ? 'Search runs have completed for this company; each prospect cites the result it came from.' : dryOnly ? 'Only dry runs so far: no searches were paid for and nothing was written.' : 'Add a search source. The weekly run (or a manual run) searches public results only.' },
-    { stage: 'Outreach to prospects', label: 'manual', detail: 'SILO drafts, approves and exports. You send from your own inbox and mark each one sent with evidence. SILO never emails a prospect.' },
+      detail: liveOk ? 'Finding creators from public search results.' : dryOnly ? 'Only test runs so far.' : 'Add a search on the Prospects tab.' },
+    { stage: 'Outreach to prospects', label: 'manual', detail: 'You send approved messages from your own inbox.' },
     { stage: 'Affiliate emails', label: mailSent ? 'verified' : mailSkipped ? 'unconfigured' : 'unconfigured',
-      detail: mailSent ? 'Signup confirmations and portal links have been delivered by the mail provider.' : mailSkipped ? 'Mail was skipped because the mail key is not set on the server.' : 'No affiliate email has been sent yet.' },
+      detail: mailSent ? 'Signup confirmations and portal links are being delivered.' : mailSkipped ? 'Email is not set up yet.' : 'No affiliate email has been sent yet.' },
     { stage: 'Code tracking', label: f.codesSeen > 0 ? 'verified' : 'unconfigured',
-      detail: f.codesSeen > 0 ? `${f.codesSeen} code(s) have been seen on real orders.` : 'No affiliate code has been seen on an order yet. Codes must already exist in Shopify; SILO does not create them.' },
-    { stage: 'Trackable links', label: 'manual', detail: 'Links are UTM-tagged destinations you hand out. SILO does not count clicks and pays nothing on a link.' },
-    { stage: 'Commissions', label: f.ledgerEntries > 0 ? 'verified' : 'unconfigured', detail: 'Computed from synced orders net of discounts and refunds, excluding tax and shipping, into an append-only ledger.' },
-    { stage: 'Payouts', label: 'manual', detail: 'SILO builds and approves the payout and exports it. A person pays it elsewhere and records the reference. SILO moves no money.' },
-    { stage: 'Stripe Connect payouts', label: 'unconfigured', detail: 'Designed, not built. Needs a decision on who funds transfers and on tax forms before it can be turned on.' },
-    { stage: 'Incremental sales', label: 'not measured', detail: 'A sale with an affiliate’s code is credited to them. That is not proof the affiliate caused it.' },
+      detail: f.codesSeen > 0 ? `${f.codesSeen} code(s) have been seen on real orders.` : 'No affiliate code has been used on an order yet.' },
+    { stage: 'Trackable links', label: 'manual', detail: 'Tagged links to your site for your analytics.' },
+    { stage: 'Commissions', label: f.ledgerEntries > 0 ? 'verified' : 'unconfigured', detail: 'Calculated after discounts and refunds, before tax and shipping.' },
+    { stage: 'Payouts', label: 'manual', detail: 'You pay from your own bank or payment tool and record it here.' },
+    { stage: 'Incremental sales', label: 'not measured', detail: 'Credited sales used an affiliate’s code; that does not prove the affiliate caused them.' },
   ];
 }
