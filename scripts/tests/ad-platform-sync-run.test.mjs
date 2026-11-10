@@ -360,12 +360,14 @@ await test('Integrations offers Sync now on every platform this function runs, c
   // The page's list and the function's must stay equal: a platform offered
   // here that the handler refuses is a button that can only fail, and one the
   // handler runs but the page hides is a connection that waits for the
-  // nightly for no reason. TikTok's own card calls syncAdConnection directly,
-  // so it is checked by name.
+  // nightly for no reason.
   const inPage = page.match(/const SYNC_NOW_PLATFORMS = \[([^\]]*)\]/)[1]
     .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean);
   assert.deepEqual(inPage, H.SYNC_RUN_PLATFORMS);
-  assert.match(page, /SYNC_NOW_PLATFORMS\.includes\('tiktok_ads'\) \? `<button[^`]*syncAdConnection/);
+  // Every ad card draws its rows through the one row template above, so that
+  // single `includes(row.platform)` is the whole rule -- no card may grow a
+  // Sync now button of its own that this list does not govern.
+  assert.equal((page.match(/syncAdConnection\('\$\{row\.id\}', this\)/g) || []).length, 1);
 });
 
 console.log(`\n${n} passed`);
