@@ -32,6 +32,9 @@
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
  *   AFFILIATE_UI_MUTATION=codestate   code badges judge dates by UTC, not the company's own day
+ *   AFFILIATE_UI_MUTATION=autocodeold settings sends the automatic-code field before the column exists
+ *   AFFILIATE_UI_MUTATION=todocodes   the To do list leaves out codes waiting on the AI
+ *   AFFILIATE_UI_MUTATION=todomoney   payouts to approve are listed for someone who cannot approve money
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -51,6 +54,9 @@ const MUTATIONS = {
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
+  autocodeold: ['/affiliates/studio.js', "const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));", 'const hasAutoCode = () => true;'],
+  todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
+  todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
@@ -125,6 +131,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const next = await text(page, '#nextStep');
     R.has(next, 'waiting for your review', 'the next-step line says what to do now');
     R.has(next, 'not credited', 'uncredited code orders are surfaced');
+    R.has(next, 'To do', 'everything waiting on a person is one list');
+    R.has(next, 'earnings to put in a payout', 'unpaid earnings are on the list for a manager');
+    R.has(next, 'commissions update every night', 'one line says what runs by itself');
     R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
     await page.click('#btnSettings');
     await page.waitForFunction(() => !!document.querySelector('#programBody .bcn-card'), null, { timeout: 5000 });
@@ -229,7 +238,34 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(adRow?.product_path, '/products/mud-shoe');
     await page.click('#btnSettings');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
+    R.ok('before the loop migration, settings has no automatic-code field (saving still works)', !(await page.$('#pAutoPct')));
     await page.close();
+
+    // ── the loop: after 20261110180000 ────────────────────────────────────
+    const loopTables = { ...tables,
+      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 10 }],
+      affiliate_codes: [...tables.affiliate_codes, { id: 'c2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10-2', starts_on: '2026-11-10', ends_on: null, status: 'pending', discount_percent: 10 }],
+      affiliate_payouts: [{ id: 'po-d', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now }] };
+    const loop = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    loop.on('pageerror', (e) => errors.push(e.message));
+    const todo = await text(loop, '#nextStep');
+    R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
+    R.ok('with a prompt to copy', !!(await loop.$('#nextStep [data-act="copy-codes-prompt"]')));
+    R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
+    await loop.click('#tabs [data-tab="payouts"]');
+    await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
+    R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
+    await loop.click('#btnSettings');
+    R.eq(await loop.inputValue('#pAutoPct'), '10', 'settings shows the % off for new affiliates');
+    await loop.fill('#pAutoPct', '');
+    await loop.click('#programBody [data-act="save-program"]');
+    await loop.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
+    const progRow = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
+    R.ok('blank saves as off (null), not 0', progRow && 'default_discount_percent' in progRow && progRow.default_discount_percent === null);
+    await loop.close();
+    const nomoney = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: false } });
+    R.not(await text(nomoney, '#nextStep'), 'payout(s) to approve', 'someone who cannot approve money is not asked to');
+    await nomoney.close();
 
     // ── payout export: the file is what the database claimed ─────────────
     // Two payouts look approved on the page; by the time Export runs one was

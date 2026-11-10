@@ -34,6 +34,10 @@
 //   AFFILIATE_EDGE_MUTATION=plainmaillink the codes email sends plain links that do not apply the code
 //   AFFILIATE_EDGE_MUTATION=linkquery     a store page's own query (variant, search) is dropped from the link
 //   AFFILIATE_EDGE_MUTATION=utcday        the codes email picks today's code by the UTC date
+//   AFFILIATE_EDGE_MUTATION=noticesweep   anyone (no service key) may sweep every company's live-code notices
+//   AFFILIATE_EDGE_MUTATION=noticepaused  a paused rep is mailed that their code is live
+//   AFFILIATE_EDGE_MUTATION=kickreplay    a replayed code mark kicks the notice again
+//   AFFILIATE_EDGE_MUTATION=kickgrant     the kick forwards the connection's own token
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -55,11 +59,15 @@ async function load(fn, file) {
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
     nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}${h}`)}`;", "return `${store}${p}?${q}`;", 'affiliate-mail.mjs'],
     linkquery: ['affiliate-portal', "  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);", "  return affiliateLink(store, code, u.pathname || '/');", 'affiliate-mail.mjs'],
-    utcday: ['affiliate-invite', "          const today = localDay(now(), tz);", "          const today = now().toISOString().slice(0, 10);"],
+    utcday: ['affiliate-invite', "    const today = localDay(now(), tz);", "    const today = now().toISOString().slice(0, 10);"],
+    noticesweep: ['affiliate-invite', "      if (!codeId && !isService) return reply({ error: 'Unauthorized' }, 401);\n", ''],
+    noticepaused: ['affiliate-invite', "        if (!a || a.status !== 'active') {", '        if (!a) {'],
+    kickreplay: ['mcp', "      if (r.data && r.data.replayed === false) await kickCodeNotice(code);", '      if (r.data) await kickCodeNotice(code);'],
+    kickgrant: ['mcp', "        headers: { apikey: anonKey, Authorization: 'Bearer ' + anonKey, 'Content-Type': 'application/json' },", "        headers: { apikey: anonKey, Authorization: authorization, 'Content-Type': 'application/json' },"],
     offsitelink: ['affiliate-portal', "const p = PATH_RE.test(String(path || '')) && !String(path).startsWith('//') ? path : '/';", "const p = path || '/';", 'affiliate-mail.mjs'],
     anyhostlink: ['affiliate-portal', "  if (u.protocol !== 'https:' || bare(u.hostname) !== bare(new URL(store).hostname)) return null;", "  if (u.protocol !== 'https:') return null;", 'affiliate-mail.mjs'],
     pendingcode: ['affiliate-portal', "data.codes = data.codes.filter((c) => c?.status !== 'pending');", 'data.codes = data.codes;'],
-    plainmaillink: ['affiliate-invite', "              let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;", '              let u = null;'],
+    plainmaillink: ['affiliate-invite', "        let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;", '        let u = null;'],
     oldplatform: ['affiliate-portal', "if (platformVersion !== null && platformVersion !== PLATFORM_TERMS_VERSION) {", 'if (false) {'],
     anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
@@ -74,7 +82,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -526,6 +534,80 @@ await test('invite: the codes email picks the code in effect on the company\'s o
   assert.ok(ending.includes('/discount/ENDSTODAY?'), 'a code valid through the local today still gets its link');
   const starting = await send([{ code: 'TOMORROW', starts_on: '2026-11-11', ends_on: null, status: 'active' }]);
   assert.ok(!starting.includes('/discount/TOMORROW?'), 'a code that starts tomorrow, local time, is not linked yet');
+});
+
+await test('invite: code notices -- a sweep needs the service key; a code_id needs no session; neither touches the staff gate', async () => {
+  const CODE = '3f000000-0000-4000-8000-000000000009';
+  const notice = { code_id: CODE, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10' };
+  const mk = () => {
+    const mail = fakeResend();
+    const svc = fakeService({ rpc: { ...noSuppression, affiliate_claim_code_notices: (a) => ({ data: a.p_code === CODE || a.p_code === null ? [notice] : [], error: null }),
+      affiliate_program_store_url: { data: 'https://shop.brand.test', error: null } }, tables: {
+      affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
+      entities: { title: 'Brand A' },
+      affiliate_codes: [{ code: 'PAT10', starts_on: '2026-01-01', ends_on: null, status: 'active' }],
+      affiliate_links: [],
+    } });
+    const c = caller({ gate: { data: null, error: { message: 'should not be asked' } } });
+    const h = createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: 're_x', serviceKey: 'svc-key', fetchImpl: mail.fetchImpl });
+    return { mail, svc, c, h };
+  };
+  // A sweep (no code_id) from anyone but the service key: refused, nothing claimed.
+  let k = mk();
+  let res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 401);
+  assert.ok(!k.svc.log.some((x) => x.name === 'affiliate_claim_code_notices'), 'a stranger cannot sweep every company');
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer svc-keyX' }));
+  assert.equal(res.status, 401, 'a near-miss key is refused');
+  // The sweep with the service key claims and mails.
+  k = mk();
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer svc-key' }));
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).delivered, [{ code_id: CODE, email: 'sent' }]);
+  assert.equal(k.mail.sent.length, 1);
+  assert.equal(k.mail.sent[0].body.to?.[0] ?? k.mail.sent[0].body.to, 'pat@onfile.invalid', 'mailed to the address on file');
+  assert.match(k.mail.sent[0].body.subject, /PAT10 is live/);
+  assert.ok(k.mail.sent[0].body.html.includes('https://shop.brand.test/discount/PAT10'), 'the live email carries the code link');
+  assert.equal(k.c.calls.length, 0, 'the staff gate is never consulted');
+  // One code, no session (the mcp kick): claims only that code.
+  k = mk();
+  res = await k.h(post({ action: 'deliver_code_notices', code_id: CODE }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 200);
+  const claim = k.svc.log.find((x) => x.name === 'affiliate_claim_code_notices');
+  assert.equal(claim.args.p_code, CODE, 'scoped to the one code');
+  // A paused rep is not mailed.
+  k = mk();
+  k.svc.from = ((orig) => (t) => (t === 'affiliates' ? fakeService({ tables: { affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'paused' } } }).from(t) : orig(t)))(k.svc.from);
+  res = await k.h(post({ action: 'deliver_code_notices', code_id: CODE }, { Authorization: 'Bearer anon.key' }));
+  assert.deepEqual((await res.json()).delivered, [{ code_id: CODE, email: 'skipped' }]);
+  assert.equal(k.mail.sent.length, 0);
+});
+
+await test('mcp: marking a code created kicks the live notice once; a replay or refusal does not', async () => {
+  const { createMcpHandler } = await load('mcp', 'handler.mjs');
+  const CODE = '3f000000-0000-4000-8000-000000000009';
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const GRANT = `Bearer ${b64({ alg: 'ES256' })}.${b64({ sub: '11111111-1111-4111-8111-111111111111', role: 'silo_integration', client_id: 'app' })}.sig`;
+  const run = async (markReply) => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null, auth: init?.headers?.Authorization });
+      if (String(url).includes('/rpc/silo_api_mark_code_created')) return new Response(JSON.stringify(markReply.body), { status: markReply.status });
+      if (String(url).includes('/functions/v1/affiliate-invite')) return new Response('{}', { status: 200 });
+      if (String(url).includes('/rpc/silo_api_scopes')) return new Response(JSON.stringify(['codes:create']), { status: 200 });
+      return new Response(JSON.stringify({}), { status: 200 });
+    };
+    const h = createMcpHandler({ env: { SUPABASE_URL: 'https://db.test', SUPABASE_ANON_KEY: 'anon-k' }, fetchImpl });
+    await h(new Request('https://db.test/functions/v1/mcp', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: GRANT, accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'mark_affiliate_code_created', arguments: { code_id: CODE, shopify_discount_id: 'gid://shopify/DiscountCodeNode/123' } } }) }));
+    return calls.filter((c) => c.url.includes('/functions/v1/affiliate-invite'));
+  };
+  const first = await run({ status: 200, body: { code_id: CODE, code: 'PAT10', status: 'active', replayed: false } });
+  assert.equal(first.length, 1, 'a fresh mark kicks the notice');
+  assert.deepEqual(first[0].body, { action: 'deliver_code_notices', code_id: CODE });
+  assert.equal(first[0].auth, 'Bearer anon-k', 'the public key, never the grant token or a service key');
+  assert.equal((await run({ status: 200, body: { code_id: CODE, status: 'active', replayed: true } })).length, 0, 'a replay sends nothing new');
+  assert.equal((await run({ status: 400, body: { message: 'not pending' } })).length, 0, 'a refused mark sends nothing');
 });
 
 await test('the mail module ships byte-identical in both functions', async () => {

@@ -3240,6 +3240,22 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate loop — `20261110180000_affiliate_loop.sql`
+
+Apply after `20261110170000`, then deploy `affiliate-invite` and `mcp`.
+`affiliate_programs.default_discount_percent` (default 10; NULL = off): when an
+affiliate becomes active with no live or waiting code, a trigger queues a
+pending code (first name + percent, numbered when taken, via
+`affiliate_suggest_code`) for the company's AI to create (`codes:create`); a
+refusal never stops the join. A pending code going active is stamped
+`live_notice_at`; `affiliate_claim_code_notices(code?, limit)` (service role
+only) claims each stamp once, and `affiliate-invite` `deliver_code_notices`
+emails the rep their code and link (kicked by `mcp` right after the mark,
+swept nightly). `affiliate_resolve_attributions` / `affiliate_accrue_commissions`
+accept the service role for the nightly `affiliate-commissions.yml` run; every
+person keeps the company + manager gate. `sync_jobs.job_type` gains
+`affiliate_commissions`.
+
 ## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
 
 Apply after `20261110160000`, then deploy `affiliate-portal`. Adds

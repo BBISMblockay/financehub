@@ -63,6 +63,13 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   const fixed = C.validateProgram({ name: 'F', slug: 'fixed-one', commission_kind: 'fixed_per_order', commission_fixed: '5', currency: 'USD' });
   assert.equal(fixed.row.commission_fixed_cents, 500);
   assert.equal(fixed.row.commission_percent, null);
+  // The automatic first code's % off: only sent when the form carries it.
+  assert.ok(!('default_discount_percent' in fixed.row), 'a form without the field leaves the column alone');
+  assert.equal(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: '' }).row.default_discount_percent, null, 'blank turns it off');
+  assert.equal(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: '15' }).row.default_discount_percent, 15);
+  for (const bad of ['0', '101', '7.5', 'x']) {
+    assert.ok(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: bad }).errors.some((e) => /% off/.test(e)), bad);
+  }
 });
 
 await t('CSV: a creator name cannot become a spreadsheet formula, and quoting is RFC 4180', () => {

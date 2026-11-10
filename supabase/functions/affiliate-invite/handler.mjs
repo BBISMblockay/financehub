@@ -21,6 +21,8 @@
 //                                                   returns a 14-day signup URL
 //   portal_link { affiliate_id, email? }          -> 90-day portal URL; mails it if email=true
 //   notify      { affiliate_id, kind: 'codes_and_links' | 'payout_status', payout_id? }
+//   deliver_code_notices { code_id? }           -> mails "your code is live" for each notice the database
+//                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -37,9 +39,16 @@ export function localDay(at, tz) {
   try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at); }
   catch { return at.toISOString().slice(0, 10); }
 }
+// Constant-time string compare (no early exit on the first differing byte).
+export function safeEqual(a, b) {
+  const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
+  let d = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) d |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return d === 0;
+}
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
-export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
+export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, serviceKey = '', fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
   const base = siteUrl.replace(/\/$/, '');
 
   async function mint({ company, program, purpose, affiliateId, prospectId, days, createdBy }) {
@@ -55,11 +64,98 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     return { token_id: data, url: `${base}/v2/affiliates/${page}.html?t=${encodeURIComponent(raw)}`, expires_at: expires };
   }
 
+
+  // The rep's current codes and links, mailed. Used by the Studio button and
+  // by the automatic "your code is live" notice. Returns null when the rep
+  // has nothing live to send.
+  async function sendCodesAndLinks({ company, a, brand, actor, live = null }) {
+    const { data: codes } = await service.from('affiliate_codes').select('code, starts_on, ends_on, status')
+      .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
+    const { data: links } = await service.from('affiliate_links').select('destination_url, utm_source, utm_medium, utm_campaign, starts_on, ends_on')
+      .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
+    if (!codes?.length && !links?.length) return null;
+    const dates = (s, e) => `${s}${e ? ` to ${e}` : ' onward'}`;
+    // Links apply the affiliate's code (20261110160000): the store the
+    // brand named, or its only Shopify store -- never a guess among several.
+    const { data: store } = await service.rpc('affiliate_program_store_url', { p_company: company, p_program: a.program_id });
+    // The company's own calendar day, as the portal feed and the Shopify
+    // instructions use, not UTC's.
+    const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: company });
+    const today = localDay(now(), tz);
+    const current = (codes || []).find((c) => c.starts_on <= today && (!c.ends_on || c.ends_on >= today));
+    const shopLink = current ? affiliateLink(store, current.code, '/') : null;
+    const paras = live
+      ? [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} code <strong>${escapeHtml(live)}</strong> is live. Share it, or your link below, and you earn on every sale that uses it.`]
+      : [`Hi ${escapeHtml(a.display_name)}, here are your current ${escapeHtml(brand)} affiliate details.`];
+    if (codes?.length) paras.push(`<strong>Codes</strong><br>${codes.map((c) => `${escapeHtml(c.code)} (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join('<br>')}`);
+    const linkLines = [
+      ...(shopLink ? [`${escapeHtml(shopLink)} (your code is applied at checkout)`] : []),
+      ...(links || []).map((l) => {
+        let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;
+        if (!u) {
+          const x = new URL(l.destination_url);
+          for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
+          u = x.toString();
+        }
+        return `${escapeHtml(u)} (${escapeHtml(dates(l.starts_on, l.ends_on))})`;
+      }),
+    ];
+    if (linkLines.length) paras.push(`<strong>Links</strong><br>${linkLines.join('<br>')}`);
+    paras.push('A sale counts when the customer uses your code at checkout, within the dates shown.');
+    const { html, text } = renderMail({ brand, heading: live ? 'Your code is live' : 'Your codes and links', paragraphs: paras, footer: 'Reply to this email with any questions.' });
+    return sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
+      kind: 'codes_and_links', to: a.contact_email,
+      subject: live ? `${brand}: your code ${live} is live` : `${brand}: your affiliate codes and links`, html, text, triggeredBy: actor });
+  }
+
+  // Internal: mails each rep whose code just went live (the AI marked it
+  // created in Shopify). Called with the service key only -- by the mcp
+  // function right after the mark, and by the nightly run as a sweep. Each
+  // notice is claimed once in the database, so a repeat call sends nothing.
+  async function deliverCodeNotices(body) {
+    const codeId = body?.code_id && UUID_RE.test(String(body.code_id)) ? String(body.code_id) : null;
+    const { data: due, error } = await service.rpc('affiliate_claim_code_notices', { p_code: codeId, p_limit: 50 });
+    if (error) throw new Error(error.message);
+    const results = [];
+    for (const n of due || []) {
+      try {
+        const { data: a } = await service.from('affiliates').select('id, program_id, display_name, contact_email, status')
+          .eq('id', n.affiliate_id).eq('company_entity_id', n.company_entity_id).maybeSingle();
+        if (!a || a.status !== 'active') { results.push({ code_id: n.code_id, email: 'skipped' }); continue; }
+        const { data: co } = await service.from('entities').select('title').eq('id', n.company_entity_id).maybeSingle();
+        const mail = await sendCodesAndLinks({ company: n.company_entity_id, a, brand: co?.title || 'Affiliate program', actor: null, live: n.code });
+        results.push({ code_id: n.code_id, email: mail?.status ?? 'skipped' });
+      } catch (err) {
+        console.error('[affiliate-invite] code notice', n.code_id, err?.message);
+        results.push({ code_id: n.code_id, email: 'failed' });
+      }
+    }
+    return results;
+  }
+
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
     const authHeader = req.headers.get('Authorization') || '';
     if (!/^Bearer\s+\S+/.test(authHeader)) return reply({ error: 'Unauthorized' }, 401);
+
+    // deliver_code_notices sends only mail the database already owes (a code
+    // went live) and claims each notice once, so it needs no staff session:
+    //   * with a code_id, any caller the platform admits (the mcp function
+    //     calls it right after the AI marks a code created, with the public
+    //     key -- mcp holds no service key). The worst a stranger can do is
+    //     make that one owed email go out a few seconds sooner, once.
+    //   * without one (the sweep across every company), the service key
+    //     only, compared in constant time.
+    let peek = null;
+    try { peek = await req.clone().json(); } catch { /* handled below */ }
+    if (peek?.action === 'deliver_code_notices') {
+      const isService = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
+      const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
+      if (!codeId && !isService) return reply({ error: 'Unauthorized' }, 401);
+      try { return reply({ delivered: await deliverCodeNotices({ code_id: codeId }) }); }
+      catch (err) { console.error('[affiliate-invite] notices', err?.message); return reply({ error: 'Could not deliver notices' }, 500); }
+    }
 
     // 1. Authority, answered by the database AS THE CALLER. An error here is a
     //    refused session (expired, password-only with 2FA enrolled, revoked
@@ -168,40 +264,8 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
 
         const kind = body.kind;
         if (kind === 'codes_and_links') {
-          const { data: codes } = await service.from('affiliate_codes').select('code, starts_on, ends_on, status')
-            .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
-          const { data: links } = await service.from('affiliate_links').select('destination_url, utm_source, utm_medium, utm_campaign, starts_on, ends_on')
-            .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
-          if (!codes?.length && !links?.length) return reply({ error: 'This affiliate has no active code or link to send.' }, 409);
-          const dates = (s, e) => `${s}${e ? ` to ${e}` : ' onward'}`;
-          // Links apply the affiliate's code (20261110160000): the store the
-          // brand named, or its only Shopify store -- never a guess among several.
-          const { data: store } = await service.rpc('affiliate_program_store_url', { p_company: company, p_program: a.program_id });
-          // The company's own calendar day, as the portal feed and the Shopify
-          // instructions use, not UTC's.
-          const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: company });
-          const today = localDay(now(), tz);
-          const current = (codes || []).find((c) => c.starts_on <= today && (!c.ends_on || c.ends_on >= today));
-          const shopLink = current ? affiliateLink(store, current.code, '/') : null;
-          const paras = [`Hi ${escapeHtml(a.display_name)}, here are your current ${escapeHtml(brand)} affiliate details.`];
-          if (codes?.length) paras.push(`<strong>Codes</strong><br>${codes.map((c) => `${escapeHtml(c.code)} (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join('<br>')}`);
-          const linkLines = [
-            ...(shopLink ? [`${escapeHtml(shopLink)} (your code is applied at checkout)`] : []),
-            ...(links || []).map((l) => {
-              let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;
-              if (!u) {
-                const x = new URL(l.destination_url);
-                for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
-                u = x.toString();
-              }
-              return `${escapeHtml(u)} (${escapeHtml(dates(l.starts_on, l.ends_on))})`;
-            }),
-          ];
-          if (linkLines.length) paras.push(`<strong>Links</strong><br>${linkLines.join('<br>')}`);
-          paras.push('A sale counts when the customer uses your code at checkout, within the dates shown.');
-          const { html, text } = renderMail({ brand, heading: 'Your codes and links', paragraphs: paras, footer: 'Reply to this email with any questions.' });
-          const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
-            kind, to: a.contact_email, subject: `${brand}: your affiliate codes and links`, html, text, triggeredBy: actor });
+          const mail = await sendCodesAndLinks({ company, a, brand, actor });
+          if (!mail) return reply({ error: 'This affiliate has no active code or link to send.' }, 409);
           return reply({ email: mail.status, reason: mail.reason ?? null });
         }
         if (kind === 'payout_status') {

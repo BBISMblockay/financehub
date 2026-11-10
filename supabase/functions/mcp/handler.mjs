@@ -677,6 +677,11 @@ export function createMcpHandler({ env, fetchImpl }) {
       }
       const r = await callRpc(authorization, 'silo_api_mark_code_created', { p_code_id: code, p_shopify_discount_id: gid });
       if (!r.ok) return refusalResponse(id, r, true);
+      // The rep hears their code is live now, not at the nightly sweep.
+      // Fail-soft and bounded: the mark is already recorded, and the sweep
+      // sends anything this misses. Public key only -- affiliate-invite sends
+      // just the one notice the database owes for this code, once.
+      if (r.data && r.data.replayed === false) await kickCodeNotice(code);
       return rpcResult(id, toolOk(r.data));
     }
 
@@ -685,6 +690,20 @@ export function createMcpHandler({ env, fetchImpl }) {
     if (name === GUIDE_TOOL_NAME) return rpcResult(id, toolOk(buildGuide()));
 
     return rpcError(id, -32602, 'Unknown tool: ' + String(name));
+  }
+
+  async function kickCodeNotice(codeId) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 4000);
+    try {
+      await fetchImpl(base + '/functions/v1/affiliate-invite', {
+        method: 'POST',
+        headers: { apikey: anonKey, Authorization: 'Bearer ' + anonKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deliver_code_notices', code_id: codeId }),
+        signal: ctl.signal,
+      });
+    } catch (_) { /* the nightly sweep sends it */ }
+    finally { clearTimeout(timer); }
   }
 
   /* A refusal from the database, as the client needs to hear it.

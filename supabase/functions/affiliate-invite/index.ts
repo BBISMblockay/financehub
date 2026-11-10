@@ -20,4 +20,5 @@ Deno.serve(createInviteHandler({
   }),
   siteUrl: Deno.env.get('SILO_APP_URL') ?? Deno.env.get('SILO_SITE_URL') ?? 'https://get-silo.com',
   resendKey: Deno.env.get('RESEND_API_KEY') ?? '',
+  serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
 }));

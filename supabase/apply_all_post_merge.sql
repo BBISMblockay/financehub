@@ -19668,4 +19668,8 @@ $c$select (select count(*) from v_po_header_summary
 -- and is mailed a fresh portal link; statement gains sales_cents.
 -- Deploy affiliate-portal.
 \i migrations/20261110170000_affiliate_portal_signin.sql
+-- Affiliate loop (20261110180000): joining queues a code for the company's AI,
+-- a code going live emails the rep, commissions update nightly.
+-- Deploy affiliate-invite and mcp.
+\i migrations/20261110180000_affiliate_loop.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
