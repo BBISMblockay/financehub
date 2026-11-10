@@ -46,6 +46,16 @@
 .workspace-settings .ws-table td {padding:7px 10px;border-bottom:1px solid var(--bcn-border);vertical-align:middle;}
 .workspace-settings .ws-empty {padding:26px;text-align:center;color:var(--bcn-ink-3);font-size:13px;}
 .workspace-settings .ws-actions {display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+/* The attribution store choices: a plain column of checkboxes. Each row is one
+   store, its name first and its domain beneath, because two Baseballism stores
+   read the same at a glance and only the domain separates them. */
+.workspace-settings .ws-stores {display:flex;flex-direction:column;gap:2px;max-width:76ch;}
+.workspace-settings .ws-store {display:flex;gap:9px;align-items:flex-start;padding:7px 9px;border-radius:7px;}
+.workspace-settings .ws-store:hover {background:var(--bcn-band);}
+.workspace-settings .ws-store input {margin-top:2px;flex:none;}
+.workspace-settings .ws-store-name {font-size:13px;line-height:1.35;}
+.workspace-settings .ws-store-sub {font-size:11.5px;color:var(--bcn-ink-3);line-height:1.4;}
+
 .workspace-settings .ws-you {font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-3);}
 /* Never flex the <td> — display:flex on table-cell breaks column alignment. */
 .workspace-settings .ws-table td.ws-perm-cell {text-align:center;vertical-align:middle;width:72px;}
