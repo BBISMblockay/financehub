@@ -396,8 +396,12 @@ function renderOutreach() {
   const who = (x) => `${esc(x.recipient_email || x.recipient_handle)}<div class="af-muted">${esc(d.prospectById[x.prospect_id]?.display_name || '')} · ${esc(x.channel)}</div>`;
   const msg = (x) => `<div class="af-evidence"><strong>${esc(x.subject)}</strong><br>${esc(String(x.body || '').slice(0, 220))}${String(x.body || '').length > 220 ? '…' : ''}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
+  // "Via <app>": a batch an AI connection claimed (outreach:send) to send from
+  // the approver's own mailbox, and a send it recorded. Null for a person.
+  const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
+  const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
   $('outreachBody').innerHTML = [
-    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p>'),
+    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p><p class="af-muted">Or let your own AI send them from your mailbox: connect it in Settings → Connect AI and tick “send approved affiliate outreach”.</p>'),
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     card('Drafts', table([
       { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
@@ -406,15 +410,15 @@ function renderOutreach() {
     card('Approved, not yet exported', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
       ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each person gets a personal signup link, valid for 14 days. Lost the file? Make a new link from the Prospects tab.</p>` : ''}`),
     card('Exported, waiting to be marked sent', table([
-      { h: 'To', f: who }, { h: 'Exported', f: (x) => fmtTime(x.exported_at) },
+      { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
     ], byState('exported'), 'Nothing is waiting.')),
     card('Sent and outcomes', table([
-      { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>` },
+      { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>${x.sent_via_app ? `<div class="af-muted">Via ${esc(x.sent_via_app)}</div>` : ''}` },
       { h: '', f: (x) => (MANAGE && x.state === 'sent' ? `<div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' })}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' })}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' })}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div>` : '') },
     ], byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), 'Nothing sent yet.')),
     card('Export batches', table([
-      { h: 'Exported', f: (b) => fmtTime(b.exported_at) }, { h: 'Rows', num: true, f: (b) => num(b.row_count) },
+      { h: 'Exported', f: (b) => `${fmtTime(b.exported_at)}${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}, sent from the approver's mailbox</div>` : ''}` }, { h: 'Rows', num: true, f: (b) => num(b.row_count) },
       { h: 'Fingerprint (SHA-256 of the file)', f: (b) => `<span class="af-mono af-copy">${esc(b.fingerprint || '—')}</span>` },
     ], d.batches, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
   ].join('');

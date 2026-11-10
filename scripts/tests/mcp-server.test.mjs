@@ -195,6 +195,13 @@ test('the tool list shows what this connection may call, and nothing else', asyn
   assert.deepEqual(writer.calls.map((c) => c.fn), ['silo_api_scopes'],
     'listing reads the connection\'s own scopes and no data');
 
+  // outreach:send is its own permission: the two outreach tools appear with
+  // it, and never because a connection may open tasks.
+  const sender = withScopes(['reports:read', 'data:read', 'outreach:send']);
+  const sent = await (await sender.handle(post(rpc('tools/list')))).json();
+  assert.deepEqual(sent.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'claim_outreach_to_send', 'mark_outreach_sent', 'how_to_use_silo']);
+  assert.ok(!wrote.result.tools.some((t) => /outreach/.test(t.name)), 'work:write does not imply outreach:send');
+
   const reader = withScopes(['reports:read', 'data:read']);
   const read1 = await (await reader.handle(post(rpc('tools/list')))).json();
   assert.ok(!read1.result.tools.some((t) => t.name === 'create_task'),
@@ -217,18 +224,18 @@ test('the tool list shows what this connection may call, and nothing else', asyn
   }
 });
 
-test('create_task is the only tool that declares itself not read-only', async () => {
+test('the write tools are exactly create_task and the two outreach tools', async () => {
   const { handle } = harness((fn) =>
-    fn === 'silo_api_scopes' ? [200, ['reports:read', 'data:read', 'work:write']] : [200, CATALOG]);
+    fn === 'silo_api_scopes' ? [200, ['reports:read', 'data:read', 'work:write', 'outreach:send']] : [200, CATALOG]);
   const body = await (await handle(post(rpc('tools/list')))).json();
-  // Pinned as a list so a second writer cannot arrive unremarked.
+  // Pinned as a list so another writer cannot arrive unremarked.
   const writers = body.result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name);
-  assert.deepEqual(writers, ['create_task']);
+  assert.deepEqual(writers, ['create_task', 'claim_outreach_to_send', 'mark_outreach_sent']);
   for (const t of TOOLS) {
-    if (t.name === 'create_task') {
+    if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent'].includes(t.name)) {
       assert.equal(t.annotations.readOnlyHint, false);
-      assert.equal(t.annotations.destructiveHint, false, 'it creates; it can change nothing that exists');
-      assert.equal(t.annotations.idempotentHint, true, 'the same idempotency_key returns the first task');
+      assert.equal(t.annotations.destructiveHint, false, `${t.name} destroys nothing`);
+      assert.equal(t.annotations.idempotentHint, true, `${t.name}: a retry returns the first result`);
     } else {
       assert.equal(t.annotations.readOnlyHint, true, t.name);
     }
@@ -414,6 +421,53 @@ test('create_task refuses a shape the database would have to guess at', async ()
   assert.equal(calls.length, 0, 'a refused shape never reaches the database');
 });
 
+test('the outreach tools pass only what the bot was handed, and refuse anything else', async () => {
+  const D = '11111111-2222-4333-8444-555555555555';
+  const { handle, calls } = harness();
+  let body = await (await handle(post(rpc('tools/call', {
+    name: 'claim_outreach_to_send', arguments: { limit: 5, idempotency_key: ' run-7 ' } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[0].fn, 'silo_api_claim_outreach');
+  assert.deepEqual(calls[0].body, { p_limit: 5, p_idempotency_key: 'run-7' },
+    'no company, no recipients, no message text: the database decides what is approved');
+  body = await (await handle(post(rpc('tools/call', {
+    name: 'mark_outreach_sent', arguments: { draft_id: D, evidence: ' gmail:18c2f0a9 ' } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[1].fn, 'silo_api_mark_outreach_sent');
+  assert.deepEqual(calls[1].body, { p_draft_id: D, p_evidence: 'gmail:18c2f0a9' });
+
+  const before = calls.length;
+  const cases = [
+    ['claim_outreach_to_send', { limit: 0 }, /1 to 25/],
+    ['claim_outreach_to_send', { limit: 26 }, /1 to 25/],
+    ['claim_outreach_to_send', { limit: 2.5 }, /1 to 25/],
+    ['claim_outreach_to_send', { program_id: 'nope' }, /program id/],
+    ['claim_outreach_to_send', { idempotency_key: 'k'.repeat(101) }, /up to 100 characters/],
+    ['mark_outreach_sent', { evidence: 'x' }, /draft_id/],
+    ['mark_outreach_sent', { draft_id: D }, /sent message id/],
+    ['mark_outreach_sent', { draft_id: D, evidence: '   ' }, /sent message id/],
+    ['mark_outreach_sent', { draft_id: D, evidence: 'e'.repeat(501) }, /under 500/],
+  ];
+  for (const [name, args, expected] of cases) {
+    const out = await (await handle(post(rpc('tools/call', { name, arguments: args })))).json();
+    assert.equal(out.result.isError, true, `${name} ${JSON.stringify(args)}`);
+    assert.match(out.result.content[0].text, expected);
+  }
+  assert.equal(calls.length, before, 'a refused shape never reaches the database');
+});
+
+test('the outreach tools tell the bot that it sends, from the person\'s mailbox, and SILO does not', () => {
+  const src = read('supabase/functions/mcp/handler.mjs');
+  assert.match(src, /SILO itself sends nothing/);
+  const claim = TOOLS.find((t) => t.name === 'claim_outreach_to_send');
+  assert.match(claim.description, /ALREADY APPROVED/);
+  assert.match(claim.description, /own mailbox/);
+  assert.match(claim.description, /no extra recipients, no BCC/);
+  assert.match(claim.description, /REUSE IT if you retry/);
+  const mark = TOOLS.find((t) => t.name === 'mark_outreach_sent');
+  assert.match(mark.description, /Only for a message you actually sent/);
+});
+
 test('create_task is declared in the instructions as the only thing that changes anything', () => {
   const src = read('supabase/functions/mcp/handler.mjs');
   const rules = read('supabase/functions/mcp/guide.mjs');
@@ -467,7 +521,8 @@ test('the function never reaches for the database service role; live access adds
   const src = read('supabase/functions/mcp/handler.mjs');
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
-    ['silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports', 'silo_api_query',
+    ['silo_api_claim_outreach', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
+     'silo_api_mark_outreach_sent', 'silo_api_query',
      'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
 });
 
