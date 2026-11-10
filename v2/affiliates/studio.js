@@ -645,10 +645,10 @@ async function renderShare() {
     MANAGE ? (needsStore(p)
       ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
       : more(`Links open ${storeOf(p)}`, [card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div><span id="storeNow" hidden></span>`)])) : '',
+    card('Recent ads', `${ads.length ? ads.join('') : empty('No recent ads yet.')}`),
     card('Upcoming launches', (launches.length ? launches.join('') : empty('No upcoming launches on the launch calendar.'))
 ),
     card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? products.join('') : (sh.q ? empty('No products match.') : '')}`),
-    card('Recent ads', `${ads.length ? ads.join('') : empty('No recent ads yet.')}`),
     sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
   ].join('');
 }

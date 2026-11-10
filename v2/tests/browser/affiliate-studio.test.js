@@ -44,7 +44,7 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
-  feedhtml: ['/affiliates/portal.html', '<div class="af-item-title">${esc(i.title)}</div>', '<div class="af-item-title">${i.title}</div>'],
+  feedhtml: ['/affiliates/portal.html', '<div class="af-media-none">${esc(i.title)}</div>', '<div class="af-media-none">${i.title}</div>'],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
@@ -331,6 +331,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const LOGO = `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${PROG}/logo-1762758000000.png`;
     const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     await suite.context.route('**/company-logos/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await suite.context.route('https://cdn.invalid/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     await suite.context.route('https://evil.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     const join = await suite.open('/v2/affiliates/join.html?t=' + 'S'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
     join.on('pageerror', (e) => errors.push(e.message));
@@ -362,13 +363,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
     R.ok('no element is built from a shared title', !(await portal.$('#body b')));
-    const copies = await portal.$$eval('#body [data-copy]', (b) => b.map((x) => x.dataset.copy));
+    if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
+    const copies = await portal.$$eval('#hero [data-copy], #body [data-copy]', (b) => b.map((x) => x.dataset.copy));
     R.eq(copies.length, 5, 'a copy button for the store link, each shared item, and the ad\'s caption');
     R.ok('an ad\'s caption can be copied to repost', copies.includes('Grip that holds.'));
     R.has(fb, 'Ads to repost', 'shared ads have their own section');
     R.ok('a shared ad shows its picture, with a way to save it', !!(await portal.$('#body .af-media img[src="https://cdn.invalid/mud.jpg"]')) && !!(await portal.$('#body a[href="https://cdn.invalid/mud.jpg"][download]')));
     R.has(fb, 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', 'a link to a store page is the code link');
-    R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(fb));
+    R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(await text(portal, '#hero')));
+    R.has(await text(portal, '#hero'), 'Hi Pat', 'the portal greets the affiliate');
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
     await portal.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });
