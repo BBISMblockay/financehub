@@ -193,19 +193,19 @@ await test('one result set becomes de-duplicated candidates with full provenance
 await test('the SERP task is bounded', () => {
   const t = buildSerpTask(SOURCE('s', '  baseball  ', { max_results: 500 }));
   assert.equal(t.depth, 100);
-  assert.equal(t.keyword, 'baseball (site:instagram.com OR site:tiktok.com OR site:youtube.com OR site:twitch.tv OR site:x.com OR site:twitter.com OR site:pinterest.com)', 'no program: every creator platform');
+  assert.equal(t.keyword, 'baseball (site:instagram.com OR site:tiktok.com/@ OR site:youtube.com/@ OR site:twitch.tv OR site:x.com OR site:twitter.com OR site:pinterest.com)', 'no program: every creator platform');
   assert.ok(buildSerpTask(SOURCE('s', 'y'.repeat(900)), PROGRAM).keyword.length <= 700);
 });
 
 await test('every search is pinned to creator platforms', () => {
   const q = (query, extra, program) => searchKeyword(SOURCE('s', query, extra), program);
-  assert.equal(q('baseball drills', {}, PROGRAM), 'baseball drills (site:youtube.com OR site:instagram.com)', 'the program\u2019s ticked platforms');
-  assert.equal(q('baseball drills', { platform_hint: 'tiktok' }, PROGRAM), 'baseball drills site:tiktok.com', 'the search\u2019s own Platform wins');
+  assert.equal(q('baseball drills', {}, PROGRAM), 'baseball drills (site:youtube.com/@ OR site:instagram.com)', 'the program\u2019s ticked platforms');
+  assert.equal(q('baseball drills', { platform_hint: 'tiktok' }, PROGRAM), 'baseball drills site:tiktok.com/@', 'the search\u2019s own Platform wins');
   assert.equal(q('baseball drills', { platform_hint: 'x' }, PROGRAM), 'baseball drills (site:x.com OR site:twitter.com)');
   assert.equal(q('baseball drills', { platform_hint: 'blog' }, PROGRAM), 'baseball drills', 'Platform blog searches websites, unpinned');
   assert.equal(q('baseball drills', {}, { ...PROGRAM, platforms: ['blog', 'web'] }), 'baseball drills', 'a websites-only program is unpinned');
-  assert.equal(q('baseball drills', {}, { ...PROGRAM, platforms: ['blog', 'youtube'] }), 'baseball drills site:youtube.com', 'social ticks pin even with blog ticked');
-  assert.match(q('baseball drills', {}, { ...PROGRAM, platforms: [] }), /site:youtube\.com OR .*site:pinterest\.com\)$/, 'nothing ticked: every creator platform');
+  assert.equal(q('baseball drills', {}, { ...PROGRAM, platforms: ['blog', 'youtube'] }), 'baseball drills site:youtube.com/@', 'social ticks pin even with blog ticked');
+  assert.match(q('baseball drills', {}, { ...PROGRAM, platforms: [] }), /site:youtube\.com\/@ OR .*site:pinterest\.com\)$/, 'nothing ticked: every creator platform');
   assert.equal(q('drills site:youtube.com/@', {}, PROGRAM), 'drills site:youtube.com/@', 'an operator\u2019s own site: filter is left alone');
   assert.equal(buildSerpTask(SOURCE('s', 'x', { max_results: 1 })).depth, 10);
 });

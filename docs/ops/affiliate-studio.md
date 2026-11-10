@@ -56,6 +56,8 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    platforms, else all of them (`searchKeyword()` in the core). Platform
    "websites" (or a program that ticked only blog/web) runs unpinned, and a
    query that already has its own `site:` filter is sent as written.
+   YouTube and TikTok are pinned to profile paths (`site:youtube.com/@`,
+   `site:tiktok.com/@`), because video links name no channel and are dropped.
 
 ## Daily use
 
