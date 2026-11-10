@@ -350,7 +350,7 @@ function aiEnabledRow(label, apps, enabled, waiting) {
 }
 function aiHubIntro(canSend, canCode) {
   if (canSend && canCode) {
-    return 'Approve in Studio, then run agent prompts in your AI app. SILO can hand off work your connection allows.';
+    return 'Approve in Studio, then run agent prompts in whatever MCP client you use. SILO can hand off work your connection allows.';
   }
   return 'Connect SILO MCP for this company and allow send outreach and Shopify codes on that connection.';
 }
@@ -617,14 +617,14 @@ const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; ma
 const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
-  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">${esc(can[0].name)} may create Shopify codes when your agent can reach Shopify—SILO only sees codes allowed on your connection.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
+  if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">A connected MCP client with codes allowed may create Shopify codes when it can reach Shopify—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
 function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
-  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages when your agent has mail access—SILO only sees send allowed on your connection.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
-  return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
+  if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">A connected MCP client with send allowed may send approved messages when it has mail access—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
+  return '<p class="af-muted" id="aiSendHow">Your own MCP client sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
