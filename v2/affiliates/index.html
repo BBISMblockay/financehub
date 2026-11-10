@@ -197,9 +197,49 @@
       box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
     }
     .af-studio .af-filter-chip:hover { background: var(--bcn-sunken); }
-    .af-studio .af-filter-chip--on {
+    .af-studio .af-filter-chip--on,
+    .af-studio .af-filter-chip.bcn-btn--primary {
+      background: var(--bcn-accent);
+      color: #fff;
       border-color: var(--bcn-accent);
       box-shadow: 0 2px 10px color-mix(in srgb, var(--bcn-accent) 24%, transparent);
+    }
+    .af-studio .af-filter-chip.bcn-btn--primary .af-mono { color: inherit; opacity: .92; }
+    /* No invisible controls: ghost reads as surfaced inside Studio panels. */
+    .af-studio .af-panel .bcn-btn--ghost:not(.bcn-btn--danger),
+    .af-studio .af-next .bcn-btn--ghost:not(.bcn-btn--danger),
+    .af-studio .af-ai-hub .bcn-btn--ghost:not(.bcn-btn--danger),
+    .af-studio .bcn-header-actions .bcn-btn--ghost {
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+      border: 1px solid var(--bcn-border-strong);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    .af-studio .af-panel .bcn-btn--ghost:not(.bcn-btn--danger):hover,
+    .af-studio .af-next .bcn-btn--ghost:not(.bcn-btn--danger):hover,
+    .af-studio .af-ai-hub .bcn-btn--ghost:not(.bcn-btn--danger):hover,
+    .af-studio .bcn-header-actions .bcn-btn--ghost:hover {
+      background: var(--bcn-sunken);
+      color: var(--bcn-ink);
+    }
+    .af-studio #tabs.af-tabs--workflow .bcn-tab:not(.bcn-tab--active) {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      color: var(--bcn-ink-2);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+    }
+    .af-studio .af-catalog-foot .bcn-btn,
+    .af-studio .af-item-foot .bcn-btn {
+      min-height: 34px;
+      border: 1px solid var(--bcn-border-strong);
+      background: var(--bcn-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    .af-studio .af-catalog-foot .bcn-btn--primary,
+    .af-studio .af-item-foot .bcn-btn--primary {
+      background: var(--bcn-accent);
+      color: #fff;
+      border-color: var(--bcn-accent);
     }
     .af-items--grid {
       display: grid;
@@ -290,7 +330,7 @@
       </div>
       <div class="bcn-header-actions">
         <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;"></select>
-        <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="program" id="btnSettings">Settings</button>
+        <button class="bcn-btn" data-act="go-tab" data-t="program" id="btnSettings">Settings</button>
         <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
       </div>
     </header>

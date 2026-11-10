@@ -329,7 +329,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(how, 'send allowed', 'Messages ties copy to SILO connection permission');
     R.not(how, 'Claude', 'tab copy does not hardcode an app vendor name');
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
-    R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn--ghost[href="../settings-connect-ai.html"]')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
+    R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await ai.click('#tabs [data-tab="affiliates"]');
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
