@@ -203,7 +203,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
     R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
     await page.click('#tabs [data-tab="payouts"]');
-    const cm = await page.evaluate(() => [...document.querySelectorAll('#commissionsBody tr')].map((r) => r.textContent).find((t) => t.includes('#1002')) || '');
+    const cm = await text(page, '#commissionsBody');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
     R.has(cm, '—', 'an unknown base renders as a dash');
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
