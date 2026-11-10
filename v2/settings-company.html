@@ -156,6 +156,21 @@
         </div>
 
         <div class="ws-card">
+          <div class="ws-card-head">
+            <div class="ws-title">Attribution reporting</div>
+            <div class="ws-sub">Which stores the Attribution page reports on</div>
+          </div>
+          <div class="ws-body">
+            <p class="ws-note">Pick the stores you actually read attribution for. The Attribution page then opens on them instead of asking every visit, and a single store means no picker at all. This changes reporting only &mdash; every connected store keeps collecting its history either way.</p>
+            <div id="attrStores" class="ws-stores" style="margin-top:14px;"></div>
+            <div class="ws-actions" style="margin-top:14px;">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveAttrStores" disabled>Save stores</button>
+              <span class="ws-you" id="attrStoresHint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-card">
           <div class="ws-card-head"><div class="ws-title">Workspace</div></div>
           <div class="ws-body">
             <dl class="ws-grid">
@@ -203,6 +218,9 @@
   const el = (id) => document.getElementById(id);
   let _co = null, _canEdit = false, _loaded = null, _docsAvailable = true;
   let _billPayAvailable = true, _billPayLoaded = { provider: '', email: '' };
+  // Attribution reporting stores (20261110024500). `_attrLoaded` is the saved
+  // selection, sorted, so a comparison does not depend on checkbox order.
+  let _attrAvailable = true, _attrStores = [], _attrLoaded = [];
   // Document identity columns on company_settings (20260922130000): what the
   // PO Builder's vendor PDF prints. One input per column, keyed by data-col.
   const DOC_COLS = ['legal_name', 'address_line1', 'address_line2', 'city', 'region', 'postal_code', 'country', 'phone', 'purchasing_contact_name', 'purchasing_contact_phone', 'purchasing_contact_email'];
@@ -243,6 +261,11 @@
       : _canEdit ? '' : 'Only a workspace owner can change these settings.';
     el('saveHint').textContent = _canEdit
       ? '' : 'Only a workspace owner can change these settings.';
+    el('btnSaveAttrStores').disabled = true;
+    for (const n of attrBoxes()) n.disabled = !_canEdit || !_attrAvailable;
+    el('attrStoresHint').textContent = !_attrAvailable
+      ? 'Available after the attribution reporting stores migration is applied.'
+      : _canEdit ? '' : 'Only a workspace owner can change which stores are reported on.';
   }
 
   function dirty() {
@@ -256,6 +279,74 @@
   function billPayDirty() {
     return el('billPayProvider').value !== _billPayLoaded.provider
       || el('billPayEmail').value.trim() !== _billPayLoaded.email;
+  }
+
+  const attrBoxes = () => [...document.querySelectorAll('[data-store]')];
+  const attrChosen = () => attrBoxes().filter((n) => n.checked).map((n) => n.dataset.store).sort();
+  function attrDirty() {
+    if (!_attrAvailable || !_attrStores.length) return false;
+    const now = attrChosen();
+    return now.length !== _attrLoaded.length || now.some((id, i) => id !== _attrLoaded[i]);
+  }
+  function renderAttrStores(pending = null) {
+    const host = el('attrStores');
+    host.textContent = '';
+    if (!_attrStores.length) {
+      const note = document.createElement('p');
+      note.className = 'ws-note';
+      note.textContent = 'No active Shopify stores are connected to this workspace yet.';
+      host.append(note);
+      return;
+    }
+    const chosen = pending || new Set(_attrLoaded);
+    for (const store of _attrStores) {
+      const row = document.createElement('label');
+      row.className = 'ws-store';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.dataset.store = store.id;
+      box.checked = chosen.has(store.id);
+      box.disabled = !_canEdit || !_attrAvailable;
+      box.addEventListener('change', () => { el('btnSaveAttrStores').disabled = !_canEdit || !attrDirty(); });
+      const text = document.createElement('span');
+      const name = document.createElement('span');
+      name.className = 'ws-store-name';
+      // Shopify's own shop name, refreshed on every Test. Several domains here
+      // are stale (a store moved city and the domain did not), so the name is
+      // the more current of the two -- but show both, because the domain is
+      // what every other page and every export identifies a store by.
+      name.textContent = store.shop_name || store.shop_domain;
+      const sub = document.createElement('span');
+      sub.className = 'ws-store-sub';
+      sub.textContent = store.shop_name ? store.shop_domain : '';
+      text.append(name);
+      if (sub.textContent) { text.append(document.createElement('br'), sub); }
+      row.append(box, text);
+      host.append(row);
+    }
+  }
+  async function saveAttrStores() {
+    if (!_canEdit || !_attrAvailable) return;
+    el('btnSaveAttrStores').disabled = true;
+    setStatus('Saving…', 'info');
+    try {
+      const chosen = attrChosen();
+      const { data, error } = await db.from('company_settings')
+        .update({ attribution_store_ids: chosen })
+        .eq('company_entity_id', _co.id)
+        .select('company_entity_id');
+      if (error) throw error;
+      // An RLS refusal on UPDATE is a SUCCESS WITH ZERO ROWS, not an error.
+      if (!data || !data.length) {
+        throw new Error('Those stores were not saved — your account may no longer have owner access here.');
+      }
+      _attrLoaded = chosen;
+      setStatus(chosen.length ? 'Saved.' : 'Saved. Attribution will offer every store with collected sales.', 'pos', 5000);
+    } catch (e) {
+      setStatus(e?.message || String(e), 'neg', 15000);
+    } finally {
+      el('btnSaveAttrStores').disabled = !_canEdit || !attrDirty();
+    }
   }
 
   async function load() {
@@ -323,6 +414,31 @@
     };
     el('billPayProvider').value = _billPayLoaded.provider;
     el('billPayEmail').value = _billPayLoaded.email;
+
+    // Attribution reporting stores. Feature-detected the same way: until
+    // 20261110024500 is applied the card says so rather than looking broken.
+    const attrRead = await db.from('company_settings')
+      .select('attribution_store_ids')
+      .eq('company_entity_id', _co.id).maybeSingle();
+    _attrAvailable = attrRead.error?.code !== '42703';
+    if (attrRead.error && _attrAvailable) throw attrRead.error;
+    // Every active store is offered here, including one with no sales yet: this
+    // is where somebody says which stores matter, so it must not pre-judge that
+    // with the same money heuristic the Attribution page is dropping.
+    const storeRead = await db.from('shopify_connections')
+      .select('id, shop_domain, shop_name')
+      .eq('company_entity_id', _co.id).eq('is_active', true).order('shop_domain');
+    if (storeRead.error) throw storeRead.error;
+    _attrStores = storeRead.data || [];
+    // Drop ids whose store is gone or deactivated, so a stale selection cannot
+    // leave a box the page can never show or clear.
+    const live = new Set(_attrStores.map((row) => row.id));
+    // Saving the Company or Bill pay card re-runs load(), so an unsaved choice
+    // here has to survive it. Captured before _attrLoaded moves, because
+    // attrDirty() compares against it.
+    const pending = _attrAvailable && attrBoxes().length && attrDirty() ? new Set(attrChosen()) : null;
+    _attrLoaded = [...(attrRead.data?.attribution_store_ids || [])].filter((id) => live.has(id)).sort();
+    renderAttrStores(pending);
   }
 
   async function saveBillPay() {
@@ -442,6 +558,7 @@
       el(id).addEventListener('change', () => { el('btnSaveBillPay').disabled = !_canEdit || !billPayDirty(); });
     }
     el('btnSaveBillPay').addEventListener('click', saveBillPay);
+    el('btnSaveAttrStores').addEventListener('click', saveAttrStores);
   })().catch((e) => {
     console.error(e);
     setStatus(`Unexpected error: ${e?.message || e}`, 'neg');

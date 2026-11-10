@@ -3172,3 +3172,31 @@ members can insert/update. No delete privilege, billing or entitlement behavior.
 The Silo Modules tab saves one switch at a time and verifies the returned row.
 Apply separately before enabling edits; a missing table preserves existing menus
 and shows an unavailable message in settings. No migration was applied by this task.
+
+## Attribution reporting stores — `20261110024500_attribution_reporting_stores.sql`
+
+Adds `company_settings.attribution_store_ids` (`uuid[]`, `not null default '{}'`):
+the Shopify connections offered on `/v2/silo-attribution.html`, chosen on the
+Company tab of Workspace Settings.
+
+- **Empty means "not configured"**, never "no stores". The page then keeps its
+  previous behaviour of offering every store with collected sales, so an
+  unconfigured workspace does not get a blank report. That is also why the
+  column is `not null`: a third, null state would be one more branch readers
+  could get wrong.
+- **Reporting only. It never gates collection.** The sync chooses what to
+  collect from the `ATTRIBUTION_COVERAGE_COMPANIES` repo variable and
+  `shopify_attribution_coverage`, and reads this column nowhere. Clearing a
+  store here must not stop its history being gathered — past Shopify's 60-day
+  order-access limit those days cannot be recovered. `verify_v2_schema.sql`
+  fails CRITICAL if any database function starts reading this column.
+- No new policies: `company_settings` already carries RLS, with SELECT scoped
+  to the active company and UPDATE additionally requiring
+  `is_owner_admin_of_active_company()`. A new column inherits both, so changing
+  which stores feed Attribution is an owner/admin action.
+- It replaces a heuristic, not a blank: the picker used to offer any store with
+  money on any collected day (PR #1016), which keeps a store that sold once
+  months ago and says nothing about which store matters.
+- Apply separately. Until it is applied the settings card feature-detects the
+  missing column (`42703`) and says it is unavailable, and the Attribution page
+  falls back to its previous behaviour.

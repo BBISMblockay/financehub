@@ -5374,6 +5374,30 @@ select 'Launch products-unknown flag' as check_name,
    then 'MISSING: launch_calendar_products_unknown_consistent'
  else 'ok' end as status;
 
+select 'Attribution reporting stores' as check_name,
+ case
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids')
+   then 'MISSING: attribution reporting stores migration 20261110024500'
+ -- Defaulting this to anything but empty would pick stores for every existing
+ -- workspace on its behalf. Empty means "not configured", which is what keeps
+ -- the Attribution page on its previous behaviour until someone chooses.
+ when coalesce((select column_default from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids'), '') not like '%{}%'
+   then 'CRITICAL: attribution reporting stores do not default to empty'
+ when (select is_nullable from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='attribution_store_ids') <> 'NO'
+   then 'MISSING: attribution_store_ids should be NOT NULL (null is a third state the page does not read)'
+ -- A reporting preference must never have become a collection gate: the sync
+ -- reads the coverage allowlist and shopify_attribution_coverage, never this.
+ when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and pg_get_functiondef(p.oid) like '%attribution_store_ids%')
+   then 'CRITICAL: a database function reads attribution_store_ids; it is a reporting preference, not a collection gate'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null

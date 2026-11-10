@@ -19609,4 +19609,8 @@ $c$select (select count(*) from v_po_header_summary
 -- tiles on the Marketing system dashboard. Data only, no deploy. Needs
 -- 20261109210000 (the reports the tiles read) and 20260925193000 (the board).
 \i migrations/20261109230000_klaviyo_dashboard_tiles.sql
+-- 20261110024500: which Shopify stores feed Attribution reporting, chosen in
+-- Workspace Settings. One additive column on company_settings. Reporting only:
+-- it never gates collection. No deploy.
+\i migrations/20261110024500_attribution_reporting_stores.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

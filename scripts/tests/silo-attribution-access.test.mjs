@@ -5,6 +5,7 @@ import vm from 'node:vm';
 const base=new URL('../../',import.meta.url);
 const navSource=await readFile(new URL('v2/nav-config.js',base),'utf8');
 const pageSource=(await readFile(new URL('v2/silo-attribution-page.js',base),'utf8')).replace(/^import[^\n]+\n/gm,'').replace('boot().catch(e=>fail(e.message||String(e)));','globalThis.start=boot;');
+const {periodRange,matchPeriod}=await import(new URL('v2/silo-attribution-period.js',base));
 const bb={id:'3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',entity_key:'baseballism'};
 const other={id:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',meta:{nav_profile:'grandfathered'}};
 function nav(){const w={};new Function('window',navSource)(w);return w.SiloNav;}
@@ -17,14 +18,14 @@ test('navigation requires exact Baseballism ID and non-standard resolved profile
 });
 const oneStore=[{id:'store',shop_domain:'baseballism'}];
 const oneCovered=[{connection_id:'store',last_day:'2026-09-30',funded_days:30}];
-function harness(company=bb,active=company?.id,{stores=oneStore,coverage=oneCovered,search=''}={}){
- let activeId=active,callbacks,reads=0,spendReads=[],profileError=null,afterLoad=()=>{},queries=[];
- const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',options:[],append(option){this.options.push(option);},close(){}});return nodes.get(id);};
- const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},rpc:async(fn,args)=>{queries.push({fn,query:args?.query});return {data:coverage};},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:stores}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}}};return q;}};
+function harness(company=bb,active=company?.id,{stores=oneStore,coverage=oneCovered,search='',setting=null,settingError=null}={}){
+ let activeId=active,callbacks,reads=0,spendReads=[],profileError=null,afterLoad=()=>{},queries=[],settingReads=0;
+ const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,value:'',options:[],append(option){this.options.push(option);},close(){},addEventListener(t,f){(this.listeners||={})[t]=f;},closest(){return this.label||={hidden:false};},after(n){this.inserted=n;}});return nodes.get(id);};
+ const db={auth:{getSession:async()=>({data:{session:{user:{id:'user'}}}})},rpc:async(fn,args)=>{queries.push({fn,query:args?.query});return {data:coverage};},from(table){const q={select(){return q;},eq(){return q;},order(){return table==='shopify_connections'?Promise.resolve({data:stores}):q;},limit:async()=>({data:[{day:'2026-09-30'}]}),single:async()=>table==='profiles'?{data:{active_company_id:activeId,role:'admin'},error:profileError}:{data:{evidence:{}}},maybeSingle:async()=>{if(table==='company_settings'){settingReads++;return settingError?{data:null,error:settingError}:{data:setting?{attribution_store_ids:setting}:null,error:null};}return {data:null,error:null};}};return q;}};
  const w={SiloNav:nav(),__SILO_CONFIG__:{SUPABASE_URL:'test',SUPABASE_ANON_KEY:'test',SILO_ATTRIBUTION_ENABLED:true,ensureActiveCompany:async()=>company},supabase:{createClient:()=>db}};
- const context={URLSearchParams,location:{search},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';}};
+ const context={URLSearchParams,location:{search},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';},periodRange,matchPeriod};
  vm.createContext(context);vm.runInContext(pageSource,context);
- return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);}};
+ return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);},get labels(){return node('#store').options.map(o=>o.textContent);},get pickerHidden(){return node('#store').label?.hidden===true;},get settingReads(){return settingReads;}};
 }
 test('direct page accepts Baseballism and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
 test('direct page denies other, standard, missing and stale company even with global flag true',async()=>{for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}});
@@ -72,4 +73,76 @@ test('a company that is not the pilot workspace never reaches the coverage probe
  for(const c of [other,null,{},{...bb,meta:{nav_profile:'standard'}},{id:"3bd934c9'; drop table x --",entity_key:'baseballism'}]){
    const h=harness(c);await assert.rejects(h.start());assert.deepEqual(h.queries,[]);
  }
+});
+
+// Workspace Settings chooses the stores (company_settings.attribution_store_ids, 20261110024500).
+const named=[{id:'online',shop_domain:'baseballism.myshopify.com',shop_name:'Baseballism Online'},
+ {id:'retail',shop_domain:'baseballismchicago.myshopify.com',shop_name:'Baseballism Chicago'},
+ {id:'fod',shop_domain:'baseballismfod.myshopify.com',shop_name:null}];
+const namedCoverage=[{connection_id:'online',last_day:'2026-10-17',funded_days:47},
+ {connection_id:'retail',last_day:'2026-10-17',funded_days:0},
+ {connection_id:'fod',last_day:'2026-10-15',funded_days:37}];
+const chose=(setting,extra={})=>harness(bb,bb.id,{stores:named,coverage:namedCoverage,setting,...extra});
+
+test('the chosen stores win over the money heuristic, including one with no attributed sales',async()=>{
+ // 'retail' has funded_days 0, so the old heuristic hid it. Choosing it is the whole point of the
+ // setting: a human saying this store matters beats a guess from whether it happened to sell.
+ const h=chose(['retail','online']);await h.start();
+ assert.deepEqual(h.offered,['retail','online']);
+ assert.equal(h.node('#store').value,'retail');
+});
+test('an id whose store is gone or deactivated is dropped, and an all-stale setting falls back',async()=>{
+ const partly=chose(['online','deleted-store']);await partly.start();
+ assert.deepEqual(partly.offered,['online']);
+ const allStale=chose(['deleted-store','another-gone']);await allStale.start();
+ // Never an empty picker: an unreachable setting is the same as not configured.
+ assert.deepEqual(allStale.offered,['online','fod']);
+});
+test('an empty setting means NOT CONFIGURED, never "no stores"',async()=>{
+ for(const setting of [[],null]){
+   const h=chose(setting);await h.start();
+   assert.deepEqual(h.offered,['online','fod']); // the funded fallback, unchanged
+ }
+});
+test('the setting is read before the migration is applied without breaking the page',async()=>{
+ const missing=chose(['online'],{settingError:{code:'42703'}});await missing.start();
+ assert.deepEqual(missing.offered,['online','fod']); // feature-detected, previous behaviour
+ // Any OTHER read failure must fail closed rather than silently showing every store.
+ const broken=chose(['online'],{settingError:{code:'42501',message:'denied'}});
+ await assert.rejects(broken.start());
+});
+test('one store to report on is stated, not asked',async()=>{
+ const one=chose(['online']);await one.start();
+ assert.deepEqual(one.offered,['online']);
+ assert.equal(one.pickerHidden,true);
+ assert.match(String(one.node('.attr-controls').inserted?.textContent||''),/Reporting on Baseballism Online/);
+ // More than one is still a choice, so the picker stays.
+ const two=chose(['online','fod']);await two.start();
+ assert.equal(two.pickerHidden,false);
+});
+test('stores read as their Shopify name, with the domain only where it adds something',async()=>{
+ const h=chose(['online','fod']);await h.start();
+ // A name plus the distinguishing part of the domain: two Baseballism stores read alike otherwise.
+ assert.deepEqual(h.labels,['Baseballism Online (baseballism)','baseballismfod.myshopify.com']);
+});
+test('the setting is read once per load, scoped to the active company',async()=>{
+ const h=chose(['online']);await h.start();
+ assert.equal(h.settingReads,1);
+ // A company that is not the pilot workspace never reaches it.
+ for(const c of [other,null,{}]){
+   const denied=harness(c,c?.id,{stores:named,coverage:namedCoverage,setting:['online']});
+   await assert.rejects(denied.start());
+   assert.equal(denied.settingReads,0);
+ }
+});
+
+test('useless shop names fall back to the domain',async()=>{
+ // Shopify has returned a whitespace-only name, and a name identical to the domain. Either one,
+ // shown as-is, is a blank or doubled entry in the picker.
+ const odd=[{id:'blank',shop_domain:'blankname.myshopify.com',shop_name:'   '},
+  {id:'same',shop_domain:'samename.myshopify.com',shop_name:'samename.myshopify.com'},
+  {id:'padded',shop_domain:'padded.myshopify.com',shop_name:'  Baseballism Hohokam  '}];
+ const coverage=odd.map(s=>({connection_id:s.id,last_day:'2026-10-17',funded_days:5}));
+ const h=harness(bb,bb.id,{stores:odd,coverage,setting:['blank','same','padded']});await h.start();
+ assert.deepEqual(h.labels,['blankname.myshopify.com','samename.myshopify.com','Baseballism Hohokam (padded)']);
 });
