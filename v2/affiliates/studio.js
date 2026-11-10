@@ -343,36 +343,48 @@ function renderPipeline() {
     return `<button type="button" class="af-pipe-step${on ? ' af-pipe-step--on' : ''}" data-act="go-tab" data-t="${s.t}" aria-current="${on ? 'step' : 'false'}"><span class="af-pipe-label">${esc(s.label)}</span>${badge}</button>`;
   }).join('');
 }
+function aiEnabledRow(label, apps, enabled, waiting) {
+  const state = apps === null ? pill('Unknown', '') : enabled ? pill('Enabled', 'pos') : pill('Not enabled', '');
+  const wait = waiting ? `<span class="af-wait">${num(waiting)} waiting</span>` : '';
+  return `<div class="af-ai-status-row"><span>${esc(label)}</span>${state}${wait}</div>`;
+}
 function renderAiHub() {
   const el = $('afAiHub');
   if (!el) return;
   if (!MANAGE || !prog() || !S.d) { el.hidden = true; return; }
   const apps = S.d.aiApps;
-  const sendApps = (apps || []).filter((a) => a.canSend);
-  const codeApps = (apps || []).filter((a) => a.canCode);
+  const canSend = (apps || []).some((a) => a.canSend);
+  const canCode = (apps || []).some((a) => a.canCode);
   const approvedMsgs = S.d.drafts.filter((x) => x.state === 'approved').length;
   const pendingCodes = S.d.codes.filter((c) => c.status === 'pending').length;
-  const connectPrimary = apps !== null && !sendApps.length && !codeApps.length;
-  const status = apps === null
-    ? '<p class="af-muted">Could not read your AI connections for this company.</p>'
-    : sendApps.length || codeApps.length
-      ? `<p class="af-muted">${sendApps.map((a) => pill(a.name, 'pos')).join(' ')}${sendApps.length && codeApps.length ? ' · ' : ''}${codeApps.map((a) => pill(a.name, 'accent')).join(' ')}</p>`
-      : '<p class="af-muted">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach” and “create affiliate codes” when you approve the connection.</p>';
-  const promptCard = (label, count, text, act) => `<div class="af-ai-prompt"><div class="af-muted">${esc(label)}${count ? ` · <strong>${num(count)}</strong> waiting` : ''}</div><div class="af-ai-prompt-txt">${esc(text)}</div>${btn('Copy for your AI', act, {}, 'ghost')}</div>`;
+  const connectPrimary = apps !== null && !canSend && !canCode;
+  const workSend = canSend && approvedMsgs > 0;
+  const workCodes = canCode && pendingCodes > 0;
+  const copyBtns = [
+    workSend ? btn('Copy send prompt', 'copy-send-prompt', {}, workSend && !workCodes ? 'primary' : 'ghost') : '',
+    workCodes ? btn('Copy codes prompt', 'copy-codes-prompt', {}, workCodes && !workSend ? 'primary' : 'ghost') : '',
+  ].filter(Boolean).join('');
+  const hintLines = [
+    !workSend ? `<p class="af-muted"><strong>Send:</strong> ${esc(SEND_PROMPT_HINT)}</p>` : '',
+    !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
+    connectPrimary ? '<p class="af-muted">Connect while this company is selected and allow outreach + Shopify codes.</p>' : '',
+    !workSend && !workCodes && (canSend || canCode)
+      ? `<div class="af-row">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
+      : '',
+  ].filter(Boolean).join('');
+  const hintSummary = workSend || workCodes ? 'More prompt examples' : 'Example prompts';
+  const hints = hintLines ? `<details class="af-ai-hint"><summary>${hintSummary}</summary>${hintLines}</details>` : '';
   el.hidden = false;
-  el.innerHTML = card('Your AI (SILO MCP)', `
-    <p class="af-muted" style="margin:0 0 8px;">Approve outreach and codes here in Studio. Your AI does the Shopify and mailbox steps through SILO&rsquo;s MCP server&mdash;nothing is sent until you approve drafts and your AI runs the tools.</p>
-    <ol class="af-ai-steps">
-      <li>Open <a href="../settings-connect-ai.html">Connect your AI</a> with <strong>this company</strong> active in the workspace picker.</li>
-      <li>When approving the connection, tick <strong>send approved affiliate outreach</strong> and/or <strong>create affiliate codes in Shopify</strong>.</li>
-      <li>In Claude, ChatGPT, Cursor, or another MCP client, add SILO and paste a prompt below (or set it as a daily task).</li>
-    </ol>
-    ${status}
-    <div class="af-ai-prompts">
-      ${promptCard('Send approved outreach', approvedMsgs, SEND_PROMPT, 'copy-send-prompt')}
-      ${promptCard('Create waiting codes', pendingCodes, CODES_PROMPT, 'copy-codes-prompt')}
+  el.innerHTML = card('Your AI', `
+    <p class="af-muted" style="margin:0;">Approve here. Your AI runs mail and Shopify (SILO MCP).</p>
+    <div class="af-ai-status">
+      ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
+      ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
     </div>
-    <div class="af-row" style="margin-top:10px;"><a class="bcn-btn bcn-btn--${connectPrimary ? 'primary' : 'ghost'}" href="../settings-connect-ai.html">${connectPrimary ? 'Connect your AI' : 'Manage AI connections'}</a></div>`, 'MCP tools: outreach send + Shopify codes');
+    <div class="af-row" style="margin-top:4px;">
+      ${copyBtns}
+      <a class="bcn-btn bcn-btn--${connectPrimary ? 'primary' : 'ghost'}" href="../settings-connect-ai.html">${connectPrimary ? 'Connect your AI' : 'Manage connections'}</a>
+    </div>${hints}`, 'SILO MCP');
 }
 function stageCard() {
   const d = S.d;
@@ -587,15 +599,17 @@ async function publishAdImage(path) {
 // What the person pastes into their own AI (or sets as a daily task there).
 const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach from my own mailbox, then mark each one sent with where I sent it from.';
 const CODES_PROMPT = 'Using SILO, create every affiliate code waiting for Shopify in my Shopify store, then mark each one created in SILO.';
+const SEND_PROMPT_HINT = 'Send approved outreach from my mailbox; mark each one sent.';
+const CODES_PROMPT_HINT = 'Create waiting affiliate codes in Shopify; mark each in SILO.';
 function aiCodesBlock(apps) {
-  const can = [...new Set((apps || []).filter((a) => a.canCode).map((a) => a.name))];
-  if (can.length) return `<div id="aiCodesHow"><div class="af-row"><span class="af-muted">${can.map((n) => pill(n, 'pos')).join(' ')} creates codes in Shopify via MCP.</span>${btn('Copy prompt for your AI', 'copy-codes-prompt')}</div></div><p class="af-muted">Full steps are in <strong>Your AI (SILO MCP)</strong> above.</p></div>`;
+  const can = (apps || []).filter((a) => a.canCode);
+  if (can.length) return `<p class="af-muted" id="aiCodesHow">${esc(can[0].name)} creates codes in Shopify. ${btn('Copy prompt', 'copy-codes-prompt', {}, 'ghost')}</p>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
 function aiSendBlock(apps) {
-  const send = [...new Set((apps || []).filter((a) => a.canSend).map((a) => a.name))];
-  if (send.length) return `<p class="af-muted" id="aiSendHow">${send.map((n) => pill(n, 'pos')).join(' ')} sends approved messages from your email via MCP. Copy the send prompt from <strong>Your AI (SILO MCP)</strong> above.</p>`;
+  const send = (apps || []).filter((a) => a.canSend);
+  if (send.length) return `<p class="af-muted" id="aiSendHow">${esc(send[0].name)} sends approved messages from your email. ${btn('Copy prompt', 'copy-send-prompt', {}, 'ghost')}</p>`;
   return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach”.</p>';
 }
 
