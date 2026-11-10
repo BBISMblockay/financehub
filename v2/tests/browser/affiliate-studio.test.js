@@ -18,6 +18,8 @@
  *   AFFILIATE_UI_MUTATION=nullzero    an unknown money amount renders as $0.00
  *   AFFILIATE_UI_MUTATION=termshtml   the program terms are rendered as HTML
  *   AFFILIATE_UI_MUTATION=tokenurl    the token is left in the address bar
+ *   AFFILIATE_UI_MUTATION=silentswitch a link from the brand's team hides the menu with no way forward
+ *   AFFILIATE_UI_MUTATION=codeblame   the banner blames a missing code when the store address is missing
  *   AFFILIATE_UI_MUTATION=membergate  a member is shown the manager buttons
  *   AFFILIATE_UI_MUTATION=exportlocal the payout file is built from the page's
  *                                     rows instead of what the database claimed
@@ -59,6 +61,8 @@ const MUTATIONS = {
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
+  silentswitch: ['/affiliates/portal.html', '  if (!brands.length) {', '  if (false) {'],
+  codeblame: ['/affiliates/portal.html', '      : `<span class="af-sub">${feed?.code', '      : `<span class="af-sub">${false'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -359,7 +363,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         return reply(404, { error: 'This link has expired or is no longer valid.', code: 'invalid_link' });
       }
       // A join link gets a real logo address; a portal link gets one outside the bucket, which must not be shown.
-      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
+      // The brand menu: [] means this link did not reach the rep's own inbox.
+      if (body.action === 'brands') return reply(200, { brands: [] });
+      // An N link is a rep whose brand has set no store address: a live code,
+      // but no link to build from it.
+      if (body.token?.startsWith('N') && body.action === 'statement') {
+        return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: null, items: [] },
+          statement: { currency: 'USD', totals: { earned_cents: 0, paid_cents: 0, unclaimed_cents: 0, orders: 0, today: '2026-11-09' }, monthly: [], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', display_name: 'Pat', terms_version_accepted: 3, terms_accepted_at: now } } });
+      }
+      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
@@ -428,7 +440,24 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(await text(portal, '#hero')));
     R.has(await text(portal, '#hero'), 'Hi Pat', 'the portal greets the affiliate');
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
+    // A link that did not come from the rep's own inbox opens one brand only.
+    // The page says how to get the rest, instead of hiding the menu silently.
+    await portal.waitForSelector('#switch #switchBtn', { timeout: 5000 });
+    R.eq(await text(portal, '#switch'), 'Switch brand', 'a link from the brand’s team offers a way to switch');
+    await portal.click('#switchBtn');
+    await portal.waitForSelector('#signin #siEmail', { timeout: 5000 });
+    R.has(await text(portal, '#body'), 'came from your brand’s team', 'and says why the menu is not there');
+    R.ok('switching asks for the email, never sends a link on its own', !calls.some((c) => c.action === 'signin' || c.action === 'switch'));
     await portal.close();
+
+    // A rep with a live code whose brand has no store address: the banner
+    // names the code they can use and the real gap, not a missing code.
+    const nostore = await suite.open('/v2/affiliates/portal.html?t=' + 'N'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
+    const nh = await text(nostore, '#hero');
+    R.ok('the banner says the code is live', /Your code\s*PAT10\s*is live/.test(nh));
+    R.has(nh, 'sets its store address', 'and that the store address is what the link is waiting on');
+    R.ok('it never claims there is no code', !nh.includes('once you have a code'));
+    await nostore.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });
     await expiredPortal.click('#renew');
     await expiredPortal.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });

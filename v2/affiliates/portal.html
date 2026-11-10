@@ -144,8 +144,12 @@ function wireSignIn() {
     catch (e) { setStatus(e.message, 'neg'); $('siGo').disabled = false; }
   });
 }
-function signIn() {
-  $('body').innerHTML = card('Sign in', `<p>Enter the email you joined with. We'll send you a link.</p>${signInForm()}`);
+// `intro` replaces the standard line when the rep arrived here for a reason
+// of their own, so the page answers the question they actually asked.
+function signIn(intro) {
+  $('body').innerHTML = card('Sign in', `<p>${intro ? esc(intro) : "Enter the email you joined with. We'll send you a link."}</p>${signInForm()}`);
+  $('kpis').hidden = true;
+  $('hero').innerHTML = '';
   wireSignIn();
 }
 
@@ -203,6 +207,17 @@ async function load() {
 async function brandSwitcher() {
   let brands = [];
   try { brands = (await call('brands', { token })).brands || []; } catch { return; }
+  // No rows at all means this link was not sent to the rep's own address --
+  // a link their brand's team generated and passed on. Those open one brand
+  // on purpose, because whoever generated it holds the same link. Say so,
+  // rather than leaving a rep who works with several brands wondering where
+  // the menu went. One row means one brand, and needs nothing.
+  if (!brands.length) {
+    $('switch').innerHTML = '<button class="af-switch-btn" type="button" id="switchBtn">Switch brand</button>';
+    $('switchBtn').addEventListener('click', () => signIn(
+      'This link came from your brand’s team, so it opens that brand only. Enter your email and we’ll send you a link that moves between every brand you work with.'));
+    return;
+  }
   if (brands.length < 2) return;
   const current = brands.find((b) => b.is_current) || brands[0];
   const row = (b) => `<button class="af-switch-item" type="button" data-brand="${esc(b.affiliate_id)}"${b.is_current ? ' disabled' : ''}>
@@ -262,7 +277,9 @@ function heroCard(feed, name, brand, status) {
     <div class="af-hero-link">${link
       ? `<span class="af-copy" id="storeLink">${esc(link)}</span>
          <div class="af-brand">${copyBtn(link, 'Copy my link', 'primary')}<span class="af-sub">Your code <span class="af-code">${esc(feed.code || '')}</span> is applied at checkout.</span></div>`
-      : '<span class="af-sub">Your link appears once you have a code.</span>'}</div>
+      : `<span class="af-sub">${feed?.code
+        ? `Your code <span class="af-code">${esc(feed.code)}</span> is live — use it at checkout. Your one-tap link appears once ${esc(brand)} sets its store address.`
+        : 'Your link appears once you have a code.'}</span>`}</div>
   </section>`;
 }
 const copyBtn = (text, label, kind = 'ghost') => (text ? `<button class="bcn-btn bcn-btn--${kind}" type="button" data-copy="${esc(text)}" data-what="${esc(label)}">${esc(label)}</button>` : '');

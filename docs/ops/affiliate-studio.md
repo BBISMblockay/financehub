@@ -183,10 +183,16 @@ by hand is the secondary button.
   1. The session must have reached the mailbox. `mailed_to_hash` holds
      `affiliate_contact_key()` of the address a token's raw value was mailed
      to, set only by `affiliate_portal_issue_mailed_token()` -- sign-in,
-     renewal, a switch. A staff `portal_link` (affiliate-invite) hands its raw
-     URL to a manager and `accept` returns one to whoever finished a signup
-     link, so neither is bound and neither gets a menu. Otherwise a manager of
-     company A could open a rep's company B portal.
+     renewal, a switch, and Studio's "email portal link" (affiliate-invite
+     `portal_link` with `email: true`), which mails a bound link and returns
+     NO URL. A link a manager receives -- `portal_link` without `email`, the
+     fallback when that mail did not go out, and the one `accept` returns to
+     whoever finished a signup link -- is not bound and gets no menu.
+     Otherwise a manager of company A could open a rep's company B portal.
+     On an unbound portal link the header shows **Switch brand**, which opens
+     the email sign-in with one line saying why, instead of hiding silently.
+     The sign-in answer names the 10-minute cooldown, because a second
+     request inside it is answered the same and sends nothing.
   2. The rep is identified by that **bound recipient**, not by today's
      `contact_email`, and a token whose affiliate no longer carries the address
      it was mailed to fails closed. `contact_email` is writable by any manager
@@ -312,4 +318,4 @@ non-manual payout as paid until it is built and verified in test mode.
 | `scripts/tests/affiliate-discovery-run-edge.test.mjs` | Search now: gate first, company from the caller, other-company and inactive programs refused, once a minute, counts not cost, the pinned core copy. 4 mutations |
 | `scripts/tests/affiliate-edge.test.mjs` | Both edge functions: hash-only tokens, gates before service role, company from the caller, no prospect email, no draft payout news. 6 mutations |
 | `scripts/tests/affiliate-studio-ui.test.mjs` | Page logic: money, form validation, CSV formula guard, fingerprints, labels. 3 mutations |
-| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim) and database period totals. 7 mutations |
+| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim), database period totals, the Switch brand hint and the no-store banner. Mutations listed in its header |
