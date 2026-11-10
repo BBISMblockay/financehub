@@ -28,6 +28,7 @@
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
+ *   AFFILIATE_UI_MUTATION=calpast     the calendar keeps drops whose date has passed
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
  *   AFFILIATE_UI_MUTATION=codestate   code badges judge dates by UTC, not the company's own day
@@ -45,7 +46,8 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
-  feedhtml: ['/affiliates/portal.html', '<div class="af-media-none">${esc(i.title)}</div>', '<div class="af-media-none">${i.title}</div>'],
+  feedhtml: ['/affiliates/portal.html', '<div class="af-cal-title">${esc(i.title)}</div>', '<div class="af-cal-title">${i.title}</div>'],
+  calpast: ['/affiliates/portal.html', "    .filter((i) => !today || day(i.event_on) >= today)\n", ''],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
@@ -325,6 +327,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
+        { kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold' },
+        { kind: 'launch', title: 'Holiday cap', event_on: '2026-11-12', note: 'Limited run.', image_url: 'https://cdn.invalid/cap.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fcap' },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
         { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
@@ -376,7 +380,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('no element is built from a shared title', !(await portal.$('#body b')));
     if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
     const copies = await portal.$$eval('#hero [data-copy], #body [data-copy]', (b) => b.map((x) => x.dataset.copy));
-    R.eq(copies.length, 5, 'a copy button for the store link, each shared item, and the ad\'s caption');
+    R.eq(copies.length, 6, 'a copy button for the store link, each upcoming drop and shared item, and the ad\'s caption');
+    const cal = await portal.$$eval('#calendar [data-cal-date]', (rows) => rows.map((r) => r.dataset.cal_date || r.getAttribute('data-cal-date')));
+    R.eq(cal, ['2026-11-12', '2099-03-01'], 'the calendar lists upcoming drops soonest first, past ones left off (company day)');
+    R.ok('a drop within a week is marked', !!(await portal.$('#calendar [data-cal-date="2026-11-12"].is-soon')) && !(await portal.$('#calendar [data-cal-date="2099-03-01"].is-soon')));
+    R.ok('drops sit in the calendar, not the tile grid', !(await portal.$('#feed [data-kind="launch"]')));
     R.ok('an ad\'s caption can be copied to repost', copies.includes('Grip that holds.'));
     R.has(fb, 'Ads to repost', 'shared ads have their own section');
     R.ok('a shared ad shows its picture, with a way to save it', !!(await portal.$('#body .af-media img[src="https://cdn.invalid/mud.jpg"]')) && !!(await portal.$('#body a[href="https://cdn.invalid/mud.jpg"][download]')));
