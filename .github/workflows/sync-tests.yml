@@ -1260,7 +1260,7 @@ jobs:
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
-          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak noticesweep noticepaused kickreplay kickgrant
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany noticesweep noticepaused kickreplay kickgrant
           run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers doublerun oneround partial onesource leadevidence nobrief freecharge
@@ -2559,7 +2559,7 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
-      # Affiliate Studio's four migrations, applied twice, against real
+      # Affiliate Studio's migrations, applied twice, against real
       # PostgreSQL: tenant isolation, both gates, one credit per order across
       # programs, the append-only ledger, refund hold, payout claims, portal
       # tokens and terms versions.
@@ -2568,7 +2568,7 @@ jobs:
       - name: The Affiliate Studio database guards, removed, must break it
         run: |
           set -u
-          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock; do
+          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail; do
             if AFFILIATE_DB_MUTATION="$m" node scripts/tests/affiliate-studio-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

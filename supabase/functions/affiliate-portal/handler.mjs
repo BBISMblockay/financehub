@@ -25,6 +25,8 @@
 //                                                to the address ON FILE
 //   apply     { company_id, program, email, name, platform?, handle?, profile_url?, pitch?, website? }
 //                                             -> open intake: creates a PROSPECT
+//   brands    { token }                       -> the other brands this rep's email reps, for the menu
+//   switch    { token, affiliate_id }         -> a fresh portal token for one of them
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -81,7 +83,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       p_affiliate_id: subject.affiliate_id, p_prospect_id: null, p_created_by: null,
     });
     if (error) throw Object.assign(new Error(error.message), { db: error });
-    return { url: portalUrl(raw), expires_at: expires };
+    return { url: portalUrl(raw), raw, expires_at: expires };
   }
 
   // Mails a fresh portal link to the affiliate's address ON FILE, never one
@@ -220,6 +222,45 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           terms_version_accepted: t.terms_version_accepted, terms_accepted_at: t.terms_accepted_at } : null,
         expires_at: t.expires_at,
       });
+    }
+
+    // ── one rep, several brands ──────────────────────────────────────────
+    // The menu, and the switch. Both read the sibling list from the database
+    // (20261110190000), which matches on the contact email STORED on each
+    // record -- never on anything in the request -- so a token can only ever
+    // reach records that would be mailed their own link at the same address.
+    if (action === 'brands' || action === 'switch') {
+      if (t.purpose !== 'portal') return reply({ brands: [] });
+      const { data, error } = await service.rpc('affiliate_portal_brands', { p_token_hash: hash });
+      if (error) return dbError(error);
+      const rows = Array.isArray(data) ? data : [];
+
+      if (action === 'brands') {
+        // Names for a menu. Nothing of another brand's data travels with it.
+        return reply({
+          brands: await Promise.all(rows.map(async (b) => ({
+            affiliate_id: b.affiliate_id,
+            brand: b.company_title,
+            brand_logo: await brandLogo(b.company_entity_id),
+            program: b.program_name,
+            is_current: b.is_current === true,
+          }))),
+        });
+      }
+
+      const wanted = String(body?.affiliate_id || '');
+      if (!UUID_RE.test(wanted)) return reply({ error: 'Pick a brand from the list.' }, 400);
+      const target = rows.find((b) => b.affiliate_id === wanted && b.is_current !== true);
+      // The same answer for "not yours" and "not a brand": the menu is the
+      // only way to learn which records exist on this address.
+      if (!target) return reply({ error: 'That brand is not on this account.' }, 404);
+      // Mints WITHOUT mailing: the holder already proved they receive mail at
+      // this address. affiliate_issue_access_token revokes only that
+      // affiliate's own unused links, so an unopened portal email for this
+      // brand is replaced by the session being opened now -- the same "one
+      // live link per subject" rule every other path follows.
+      const link = await mintPortalLink(target);
+      return reply({ token: link.raw, expires_at: link.expires_at });
     }
 
     if (action === 'accept') {

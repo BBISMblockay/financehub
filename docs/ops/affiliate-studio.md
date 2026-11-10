@@ -172,6 +172,21 @@ by hand is the secondary button.
   32 random bytes, only the SHA-256 is stored, every token has an expiry, and
   all portal functions are executable by the service role only. Tokens leave
   the address bar as soon as the page reads them.
+- **One rep, several brands: separate records, one menu.** A creator who reps
+  two brands has two affiliate records, one per company, and that does not
+  change -- a program, its codes and its ledger belong to a company, so merging
+  the records would merge two companies' money. What is shared is the way in.
+  `affiliate_portal_brands(token_hash)` (service role only, 20261110190000)
+  returns every active or paused record whose contact email ON FILE equals the
+  one on this PORTAL token's record, normalized, and the portal shows them as a
+  menu. A sibling's own link would be mailed to that same address by sign-in or
+  renewal, so handing the holder that session grants nothing they could not
+  already get from their inbox; the equality is checked on the stored
+  addresses, never on anything in the request, and a signup token gets no menu.
+  Switching mints a fresh portal token for the one record chosen (mailing
+  nothing) and the page reloads onto it, so every read after it still goes
+  through `affiliate_portal_resolve` / `_statement` / `_feed` on that token
+  alone: no session sees two brands.
 - **Attribution** (`affiliate_resolve_attributions`): one row per order per
   company, unique on `(company_entity_id, shop_domain, order_id)`, so an order
   is credited at most once across every program. A run from a second program

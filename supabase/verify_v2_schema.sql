@@ -9150,6 +9150,24 @@ select 'Affiliate portal sign-in' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate portal brand switcher (20261110190000): the sibling list is
+-- service role only and matches on the STORED contact email, so a token can
+-- only reach records that would be mailed their own link at that address.
+select 'Affiliate portal brands' as check_name,
+  case
+    when to_regprocedure('public.affiliate_portal_brands(text)') is null
+      then 'MISSING — run 20261110190000_affiliate_portal_brands.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_brands(text)', 'execute'))
+      then 'BROKEN — a client role can list an affiliate''s other brands'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — a signup link can switch brands'
+    when position('lower(btrim(a.contact_email)) = me.email'
+                  in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — siblings are not matched on the stored contact email'
+    else 'ok'
+  end as status;
+
 -- Affiliate loop (20261110180000): joining queues a code for the company's AI,
 -- a code going live owes the rep one email (claimed once, service role only),
 -- and the nightly run may calculate commissions as the service role while

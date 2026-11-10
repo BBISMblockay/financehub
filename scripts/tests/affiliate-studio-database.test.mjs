@@ -1,6 +1,6 @@
 // scripts/tests/affiliate-studio-database.test.mjs
 //
-// Affiliate Studio's database (20261110083000, 084000, 085000, 086000) on real
+// Affiliate Studio's database (20261110083000, 084000, 085000, 086000, 190000) on real
 // PostgreSQL (PGlite). Every migration is EXECUTED verbatim, twice, because
 // apply_all_post_merge.sql re-runs them. Supabase's default grants are
 // emulated BEFORE the migrations run, so every revoke they rely on is tested
@@ -27,6 +27,7 @@
 //      intake, suppression on applications, cross-company token minting
 //
 // Mutations (CI runs each and requires the suite to FAIL):
+//   AFFILIATE_DB_MUTATION=anyemail      the brand menu matches records on any email, not the one on file
 //   AFFILIATE_DB_MUTATION=rls           RLS left off affiliate_attributions
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
@@ -150,6 +151,7 @@ const files = {
   core: '20261110084000_affiliate_studio.sql',
   ledger: '20261110085000_affiliate_studio_ledger.sql',
   portal: '20261110086000_affiliate_portal.sql',
+  brands: '20261110190000_affiliate_portal_brands.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -214,6 +216,8 @@ switch (MUT) {
     mutate('core', `  if new.status = 'active' and exists (`, `  if false and exists (`); break;
   case 'staleterms':
     mutate('portal', '  if p_terms_version is distinct from v_prog.terms_version then', '  if false then'); break;
+  case 'anyemail':
+    mutate('brands', 'on lower(btrim(a.contact_email)) = me.email', 'on true'); break;
   case 'portalgrant':
     mutate('portal', 'revoke all on function public.affiliate_portal_resolve(text) from public, anon, authenticated;',
       'revoke all on function public.affiliate_portal_resolve(text) from anon;'); break;
@@ -275,7 +279,7 @@ switch (MUT) {
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
-for (const k of ['orders', 'core', 'ledger', 'portal']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'brands']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -794,6 +798,49 @@ await check('C2 the portal functions are service-role only', async () => {
   await assert.rejects(db.query(`select * from public.affiliate_portal_resolve('hash-pat')`), /permission denied/);
   await assert.rejects(db.query(`select public.affiliate_portal_statement('hash-pat')`), /permission denied/);
   await assert.rejects(db.query(`select public.affiliate_issue_access_token($1,$2,'portal','x',now() + interval '1 day',$3)`, [A, progA, affPat]), /permission denied/);
+});
+
+await check('K9 the brand menu is this email\'s records only, and a signup link gets none', async () => {
+  await asSuper();
+  // The same person, same address, on a SECOND company -- which is what
+  // "reps two brands" is -- plus a look-alike address that must not match.
+  const progB = (await one(`insert into affiliate_programs(company_entity_id,name,slug,status,commission_percent)
+                            values ($1,'Creators','creators-b','active',10) returning id`, [B])).id;
+  const patB = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+                           values ($1,$2,'Pat','  PAT@Coach.test ','active',1,now()) returning id`, [B, progB])).id;
+  // Terminated, and in a program of its own because one address can hold only
+  // one record per program.
+  const progBOld = (await one(`insert into affiliate_programs(company_entity_id,name,slug,status,commission_percent)
+                               values ($1,'Retired','retired-b','active',10) returning id`, [B])).id;
+  const gone = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status)
+                           values ($1,$2,'Pat Old','pat@coach.test','terminated') returning id`, [B, progBOld])).id;
+  await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+                  values ($1,$2,'Someone Else','pat@coach.test.evil','active',1,now())`, [B, progBOld]);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+                  values ($1,$2,$3,'portal','hash-pat-portal', now() + interval '1 day'),
+                         ($1,$2,$3,'signup','hash-pat-signup', now() + interval '1 day')`, [A, progA, affPat]);
+
+  const rows = await all(`select * from public.affiliate_portal_brands('hash-pat-portal')`);
+  assert.deepEqual(rows.map((r) => r.affiliate_id).sort(), [affPat, patB].sort());
+  assert.equal(rows.find((r) => r.affiliate_id === affPat).is_current, true);
+  assert.equal(rows.find((r) => r.affiliate_id === patB).is_current, false);
+  assert.ok(!rows.some((r) => r.affiliate_id === gone), 'a terminated record is not a brand to switch to');
+  assert.ok(!rows.some((r) => String(r.contact_email).includes('evil')), 'a look-alike address is not the same address');
+
+  // A signup link is part-way through accepting ONE brand: no session, no menu.
+  assert.equal((await all(`select * from public.affiliate_portal_brands('hash-pat-signup')`)).length, 0);
+  assert.equal((await all(`select * from public.affiliate_portal_brands('nope')`)).length, 0);
+});
+
+await check('K10 the brand menu is service-role only', async () => {
+  await as(U.ownerA, A);
+  await assert.rejects(db.query(`select * from public.affiliate_portal_brands('hash-pat-portal')`), /permission denied/);
+  // Said once more as a privilege, because the signed-in role above is only
+  // one of the two client roles the browser can reach the database as.
+  await asSuper();
+  const granted = await all(`select r as role from unnest(array['anon','authenticated']) r
+                              where has_function_privilege(r, 'public.affiliate_portal_brands(text)', 'execute')`);
+  assert.deepEqual(granted, []);
 });
 
 await check('K1 unknown, expired and revoked links resolve to no row', async () => {

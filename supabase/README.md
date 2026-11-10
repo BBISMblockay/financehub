@@ -3256,6 +3256,25 @@ accept the service role for the nightly `affiliate-commissions.yml` run; every
 person keeps the company + manager gate. `sync_jobs.job_type` gains
 `affiliate_commissions`.
 
+## Affiliate portal brand switcher — `20261110190000_affiliate_portal_brands.sql`
+
+Apply after `20261110180000`, then deploy `affiliate-portal`. Adds
+`affiliate_portal_brands(token_hash)` (service role only): every active or
+paused affiliate record whose address ON FILE matches the one on the record
+this PORTAL token belongs to, the token's own record first. A rep who reps two
+brands has two affiliate records, one per company, because a program and its
+ledger belong to a company; that does not change. What changes is the way in:
+the portal shows a brand menu instead of sending the rep back to their inbox.
+
+A sibling's own link would be mailed to the same address, by sign-in
+(`20261110170000`) or renewal, so handing the holder that session grants
+nothing new -- the match is on the STORED addresses, normalized, never on
+anything in the request. A signup token gets no menu. The switch
+(`affiliate-portal`, `switch`) mints a fresh portal token for the one record
+chosen and mails nothing; every later read still goes through
+`affiliate_portal_resolve` / `_statement` / `_feed` on that token alone, so no
+session ever sees two brands.
+
 ## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
 
 Apply after `20261110160000`, then deploy `affiliate-portal`. Adds
