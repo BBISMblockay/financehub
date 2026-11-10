@@ -114,6 +114,11 @@
        the square glyph tiles, same height. */
     .int-card-icon--klaviyo { background: #fff; border: 1px solid var(--bcn-border); width: auto; padding: 0 9px; }
     .int-card-icon--klaviyo img { display: block; height: 16px; width: auto; }
+    /* Google Ads, GA4, Search Console and Meta ship full-colour brand marks,
+       so their tile is white with a border rather than a coloured square:
+       a multi-colour glyph on a blue tile reads as a rendering fault. */
+    .int-card-icon--brand   { background: #fff; border: 1px solid var(--bcn-border); }
+    .int-card-icon--brand svg { width: 19px; height: 19px; }
     .int-card-icon--tiktok  { background: #000; }
     .int-card-icon--qbo     { background: #2ca01c; }
     .int-card-icon--stripe  { background: #635bff; }
@@ -513,6 +518,18 @@
     .test-result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; display: block; }
 
     .empty-state { padding: 32px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    /* Five ad-platform cards, most of them empty for most companies: a
+       32px empty state in each turns the page into scrolling. */
+    .int-card[data-ad-card] .empty-state { padding: 16px; }
+    /* `hidden` loses to an inline display on the same element, and the Meta
+       token form carries one (display:flex). Without this the "Replace
+       token" form is open before anyone asks for it, and the button hides
+       it instead of showing it. Scoped to the ad-platform cards on purpose:
+       other cards have their own elements whose class sets a display and
+       that carry `hidden` too, and quietly changing whether THOSE show is
+       not this change's business. */
+    .int-card[data-ad-card] [hidden],
+    #other-platforms-card [hidden] { display: none !important; }
     .empty-state strong { display: block; font-size: 14px; color: var(--bcn-ink-2); margin-bottom: 4px; }
 
     /* hide legacy helpers that aren't used in table layout */
@@ -687,14 +704,32 @@
           </div>
         </section>
 
-        <section class="int-card">
+        <!-- One card per place a connection comes FROM, not one table of
+             all of them, and not one card per platform either.
+
+             Every row here lives in ad_platform_connections and syncs
+             through the same nightly core; what differs is how it is
+             connected, and that is what somebody coming to this page to add
+             a platform is looking for. Google Ads, GA4 and Search Console
+             are one Google sign-in away each, so they share the Google card
+             and name themselves in its first column. Meta is a System User
+             token you make yourself, TikTok is its own sign-in: separate
+             cards, because the thing you do is different.
+
+             renderPlatformCards() draws every card from CARD_PLATFORMS, so
+             there is one row template and one set of actions, never a
+             per-card copy that can drift. A platform in no card's list
+             falls into "Other ad platforms" at the end, which stays hidden
+             while it is empty: a connection that exists must never be
+             invisible here. -->
+        <section class="int-card" data-ad-card="google">
           <header class="int-card-header">
-            <span class="int-card-icon int-card-icon--ads" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v3a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M20 5a9 9 0 0 1 0 14"/></svg></span>
+            <span class="int-card-icon int-card-icon--brand" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.27-4.74 3.27-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a11 11 0 0 0-9.82 6.05l3.66 2.84c.87-2.6 3.3-4.51 6.16-4.51z"/></svg></span>
             <div class="int-card-header-text">
-              <h2>Ad platforms</h2>
-              <p>Connect platform → set account/property ID → test → enable nightly sync.</p>
+              <h2>Google</h2>
+              <p>Google Ads spend and conversions, GA4 sessions and users, and Search Console's organic clicks and positions. Each is its own sign-in; connect only the ones you use.</p>
             </div>
-            <button type="button" class="int-card-collapse-btn" data-card="ads" aria-label="Collapse ad platforms">
+            <button type="button" class="int-card-collapse-btn" data-card="google" aria-label="Collapse Google">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
             </button>
           </header>
@@ -703,27 +738,68 @@
           <table class="int-table">
             <thead>
               <tr>
-                <th>Platform</th>
+                <th>Source</th>
                 <th>Name</th>
-                <th>Account / property ID</th>
+                <th>Account / property</th>
                 <th>Nightly sync</th>
                 <th>Last test</th>
                 <th></th>
               </tr>
             </thead>
-            <tbody id="ad-connections-list">
-              <tr><td colspan="6"><div class="empty-state" id="ad-empty"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>
+            <tbody id="google-connections-list">
+              <tr><td colspan="6"><div class="empty-state"><strong>Not connected</strong>Connect Google Ads, GA4 or Search Console below</div></td></tr>
             </tbody>
             <tfoot>
               <tr class="int-add-row">
                 <td colspan="6">
-                  <div class="form-row" style="padding:10px 0;flex-wrap:wrap;gap:8px;">
+                  <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--google-ads" id="btn-connect-google-ads">Connect Google Ads →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--ga4" id="btn-connect-ga4">Connect GA4 →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--search-console" id="btn-connect-search-console">Connect Search Console →</button>
+                  </div>
+                  <div class="int-muted" style="padding-bottom:10px;">Each button is its own Google sign-in, so connecting one does not connect the others. SILO reads reporting only — it never creates, edits, pauses or spends anything. Google Ads and GA4 import the last 90 days; Search Console imports the 16 months Google will return, and has no "Sync now" because one run fills three tables and rebuilds a rollup.</div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+          </div>
+        </section>
+
+        <section class="int-card" data-ad-card="meta_ads">
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--brand" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#0467DF" d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Meta Ads</h2>
+              <p>Daily campaign performance from Facebook and Instagram ads, plus optional organic Page and Instagram insights.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="meta_ads" aria-label="Collapse Meta Ads">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Ad account</th>
+                <th>Nightly sync</th>
+                <th>Last test</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="meta_ads-connections-list">
+              <tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Add your Meta ad account below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row">
+                <td colspan="5">
+                  <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-add-meta">Add Meta Ads token…</button>
                     <button type="button" class="ig-open-btn" data-guide="meta_ads">Meta setup guide</button>
                   </div>
+                  <div class="int-muted" style="padding-bottom:10px;">Meta is connected with a System User token you create in your own Business settings, not a sign-in. SILO reads reporting only. After the token is saved, SILO imports the last 90 days and then syncs nightly.</div>
                   <div class="int-add-form add-form" id="meta-add-form">
                     <div class="int-muted" style="margin-bottom:10px;">Meta needs a System User token created in your Business settings first.
                       <button type="button" class="ig-open-btn" data-guide="meta_ads" style="margin-left:4px;">How to get one</button></div>
@@ -750,21 +826,14 @@
           </div>
         </section>
 
-        <!-- TikTok Ads is stored in ad_platform_connections like every other
-             ad platform, and syncs through the same nightly core. It gets its
-             own card rather than a row in the table above because connecting
-             it is a TikTok sign-in, not an ID to paste, and because a native
-             pillar is what a customer looks for when they come here to add
-             TikTok. renderAdConnections() therefore filters tiktok_ads out of
-             the table above, so one connection is never drawn twice. -->
-        <section class="int-card">
+        <section class="int-card" data-ad-card="tiktok_ads">
           <header class="int-card-header">
             <span class="int-card-icon int-card-icon--tiktok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg></span>
             <div class="int-card-header-text">
               <h2>TikTok Ads</h2>
               <p>Daily campaign performance — spend, impressions, clicks and purchases — read straight from your TikTok ad account.</p>
             </div>
-            <button type="button" class="int-card-collapse-btn" data-card="tiktok" aria-label="Collapse TikTok Ads">
+            <button type="button" class="int-card-collapse-btn" data-card="tiktok_ads" aria-label="Collapse TikTok Ads">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
             </button>
           </header>
@@ -780,8 +849,8 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="tiktok-connections-list">
-              <tr><td colspan="5"><div class="empty-state" id="tiktok-empty"><strong>Not connected</strong>Connect your TikTok ad account below</div></td></tr>
+            <tbody id="tiktok_ads-connections-list">
+              <tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect your TikTok ad account below</div></td></tr>
             </tbody>
             <tfoot>
               <tr class="int-add-row">
@@ -789,14 +858,39 @@
                   <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
                   </div>
-                  <div class="int-muted" style="padding-bottom:10px;">
-                    Signing in sends you to TikTok, where you pick which ad account SILO may read. SILO reads
-                    reporting only — it never creates, edits, pauses or spends anything in your TikTok account.
-                    After you choose the advertiser, SILO imports the last 90 days and then syncs nightly.
-                  </div>
+                  <div class="int-muted" style="padding-bottom:10px;">Signing in sends you to TikTok, where you pick which ad account SILO may read. SILO reads reporting only — it never creates, edits, pauses or spends anything in your TikTok account. After you choose the advertiser, SILO imports the last 90 days and then syncs nightly.</div>
                 </td>
               </tr>
             </tfoot>
+          </table>
+        </div>
+          </div>
+        </section>
+
+        <section class="int-card" id="other-platforms-card" hidden>
+          <header class="int-card-header">
+            <span class="int-card-icon int-card-icon--ads" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11v3a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M20 5a9 9 0 0 1 0 14"/></svg></span>
+            <div class="int-card-header-text">
+              <h2>Other ad platforms</h2>
+              <p>Connections whose platform has no card of its own yet.</p>
+            </div>
+            <button type="button" class="int-card-collapse-btn" data-card="other-platforms" aria-label="Collapse other ad platforms">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </header>
+          <div class="int-card-body">
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Account</th>
+                <th>Nightly sync</th>
+                <th>Last test</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="other-connections-list"></tbody>
           </table>
         </div>
           </div>
@@ -2673,7 +2767,7 @@
       loadConnections();
     }
 
-    // ══ Ad platforms (Google Ads / Meta Ads / TikTok Ads / GA4) ═══════════
+    // ══ Ad platforms (Google Ads / GA4 / Search Console / Meta / TikTok) ══
 
     const AD_PLATFORM_LABELS = {
       google_ads: 'Google Ads', meta_ads: 'Meta Ads', tiktok_ads: 'TikTok Ads', ga4: 'GA4',
@@ -2695,11 +2789,14 @@
     };
     const AD_ACCOUNT_PLACEHOLDER = {
       google_ads: '123-456-7890', meta_ads: 'act_1234567890',
-      tiktok_ads: '7012345678901234567', ga4: '123456789 (property ID)',
+      // Nothing is stored here until the picker is used, and a digit string
+      // as a placeholder reads like a stored advertiser id that just failed
+      // to sync. Say the real state instead.
+      tiktok_ads: 'Not chosen yet', ga4: '123456789 (property ID)',
       // Both forms are valid and cover DIFFERENT traffic — a URL prefix is
       // one scheme+host+path, a domain property is every subdomain and both
       // schemes. Paste what Test returns, verbatim, trailing slash included.
-      search_console: 'https://www.baseballism.com/ or sc-domain:baseballism.com',
+      search_console: 'https://www.example.com/ or sc-domain:example.com',
     };
 
     let _adRows = [];
@@ -2710,8 +2807,7 @@
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       _adRows = data || [];
-      renderAdConnections(data || []);
-      renderTiktokConnections(data || []);
+      renderPlatformCards(data || []);
       _summaryState.ad = data || [];
       updateSummaryBand();
     }
@@ -2720,142 +2816,168 @@
       return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     }
 
-    function renderAdConnections(rows) {
-      const tbody = document.getElementById('ad-connections-list');
-      // TikTok has its own card below. It is stored here like every other ad
-      // platform, so it must be filtered OUT of this table or one connection
-      // would be drawn, and editable, in two places.
-      rows = rows.filter((row) => row.platform !== 'tiktok_ads');
-      if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>No ad platforms connected</strong>Connect a platform below</div></td></tr>';
-        return;
+    /** Every ad-platform card is drawn from here.
+     *
+     *  The rows all live in ad_platform_connections and sync through the same
+     *  nightly core; what differs between platforms is only how they are
+     *  connected, which is static markup in each card's footer. So there is
+     *  ONE row template and one set of actions for all of them: a per-card
+     *  copy would drift, and a connection drawn in two cards would be
+     *  editable in two places.
+     *
+     *  CARD_PLATFORMS maps each card to the platforms it holds. Google's
+     *  card holds three, because Google Ads, GA4 and Search Console are the
+     *  same company and the same kind of sign-in; a card holding more than
+     *  one names the source in its first column, which is the only thing
+     *  its rows do not share. Anything in no card's list -- a platform
+     *  added to the table's CHECK before its card exists -- falls into
+     *  "Other ad platforms", which unhides itself only when it has a row: a
+     *  connection that exists must never be invisible here.
+     *
+     *  _adRows still holds every row, which is what lets updateAdConnection,
+     *  openAccountPicker, testAdConnection, syncAdConnection and
+     *  removeAdConnection find one by id from any card. */
+    const CARD_PLATFORMS = {
+      google: ['google_ads', 'ga4', 'search_console'],
+      meta_ads: ['meta_ads'],
+      tiktok_ads: ['tiktok_ads'],
+    };
+    const CARDED_PLATFORMS = Object.values(CARD_PLATFORMS).flat();
+
+    const SYNC_NOW_TITLE = {
+      google_ads: 'Pull this account\'s recent daily figures from Google now, the same sync the nightly runs (read-only)',
+      ga4: 'Pull this property\'s recent daily figures from Google now, the same sync the nightly runs (read-only)',
+      meta_ads: 'Pull this ad account\'s recent daily campaign totals from Meta now (read-only). Ad-level detail and Page posts follow with the nightly sync.',
+      tiktok_ads: 'Pull this advertiser\'s recent daily campaign totals from TikTok now (read-only), the same sync the nightly runs',
+    };
+    const NIGHTLY_TITLE = {
+      // Since 2026-09-10 the nightly ad-platforms sync ingests Search Console
+      // too (search_console_{site,page,query}_daily, its own tables -- never
+      // marketing_kpis_daily), so the toggle is live for it like every other
+      // platform.
+      search_console: 'Nightly: site/page/query performance into the search_console_*_daily tables (final data, 2 days back)',
+      tiktok_ads: 'Nightly: this advertiser\'s daily campaign totals — spend, impressions, clicks, purchases and purchase value — into marketing_kpis_daily',
+    };
+    // Connected with no account chosen is the one state worth saying out
+    // loud: nothing syncs until the choice is made, and the row otherwise
+    // looks finished.
+    const CHOOSE_PROMPT = {
+      google_ads: 'Choose which Google Ads account SILO reads — nothing syncs until you do.',
+      ga4: 'Choose which GA4 property SILO reads — nothing syncs until you do.',
+      search_console: 'Choose which property SILO reads — nothing syncs until you do.',
+      meta_ads: 'Enter the ad account ID SILO reads — nothing syncs until you do.',
+      tiktok_ads: 'Choose which advertiser SILO reads — nothing syncs until you do.',
+    };
+
+    function renderPlatformCards(rows) {
+      rows = rows || [];
+      for (const [card, platforms] of Object.entries(CARD_PLATFORMS)) {
+        const tbody = document.getElementById(`${card}-connections-list`);
+        if (!tbody) continue;
+        // A card holding several platforms names each row's source; one
+        // holding a single platform already said it in its heading.
+        const withPlatform = platforms.length > 1;
+        const mine = rows.filter((row) => platforms.includes(row.platform));
+        if (!mine.length) { tbody.innerHTML = emptyCardRow(card, withPlatform); continue; }
+        // Ordered by the card's own list, so Google Ads, GA4 and Search
+        // Console keep one order whatever order they were connected in.
+        mine.sort((a, b) => platforms.indexOf(a.platform) - platforms.indexOf(b.platform));
+        tbody.innerHTML = mine.map((row) => adConnectionRow(row, { withPlatform })).join('');
       }
-      tbody.innerHTML = rows.map((row) => {
-        const acctField = AD_ACCOUNT_FIELD[row.platform];
-        const acctVal = row[acctField] || '';
-        const test = row.last_tested_at
-          ? (row.last_test_success
-              ? `<span class="bcn-pill bcn-pill--pos">OK</span>`
-              : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
-          : '<span class="bcn-pill">Untested</span>';
-        const mainRow = `<tr>
-          <td><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>
-          <td><input class="bcn-field" style="min-width:140px;" value="${escAttr(row.display_name)}"
-            onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
-          <td><div class="int-acct">
-            <input class="bcn-field bcn-field--mono" style="min-width:150px;" value="${escAttr(acctVal)}"
-              placeholder="${AD_ACCOUNT_PLACEHOLDER[row.platform]}"
-              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
-            <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
-          </div></td>
-          <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"
-              ${row.platform === 'search_console'
-                // Since 2026-09-10 the nightly ad-platforms sync ingests
-                // Search Console too (search_console_{site,page,query}_daily,
-                // its own tables -- never marketing_kpis_daily), so the
-                // toggle is live for it like every other platform.
-                ? 'title="Nightly: site/page/query performance into the search_console_*_daily tables (final data, 2 days back)"'
-                : ''}>
-            <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
-              onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
-            ${row.sync_enabled ? 'On' : 'Off'}</label></td>
-          <td>${test}</td>
-          <td style="white-space:nowrap;">
-            <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
-            ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${row.platform === 'meta_ads' ? 'Pull this ad account\'s recent daily campaign totals from Meta now (read-only). Ad-level detail and Page posts follow with the nightly sync.' : 'Pull this account\'s recent daily figures from Google now, the same sync the nightly runs (read-only)'}">Sync now</button>` : ''}
-            ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
-            ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
-            <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
-          </td>
-        </tr>`;
-        // Organic (Instagram + Facebook Page) rides this SAME Meta
-        // connection's token — no separate connect flow — but needs its
-        // own two IDs once the token has pages_read_engagement/
-        // instagram_basic/instagram_manage_insights and the System User is
-        // assigned to the Page in Business Manager. See docs/ops/
-        // ad-platform-api-setup.md for the exact steps.
-        const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
-          <td></td>
-          <td colspan="5" style="padding-top:0;">
-            <div id="meta-token-${row.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;" hidden>
-              <span style="font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);">New System User token:</span>
-              <input class="bcn-field bcn-field--mono" style="min-width:260px;font-size:11px;" type="password"
-                placeholder="EAAB…" autocomplete="off" spellcheck="false"
-                onkeydown="if (event.key === 'Enter') saveMetaToken('${row.id}')" />
-              <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
-              <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
-              <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
-              <button type="button" class="ig-open-btn" data-guide="meta_ads">How to generate one</button>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
-              <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
-              <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
-                value="${escAttr(row.facebook_page_id || '')}" placeholder="Facebook Page ID"
-                onchange="updateAdConnection('${row.id}', { facebook_page_id: this.value.trim() || null })" />
-              <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
-                value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
-                onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
-              <span>— needs pages_show_list / pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
-            </div>
-          </td>
-        </tr>`;
-        return mainRow + organicRow;
-      }).join('');
+
+      const other = rows.filter((row) => !CARDED_PLATFORMS.includes(row.platform));
+      const card = document.getElementById('other-platforms-card');
+      const otherBody = document.getElementById('other-connections-list');
+      if (card && otherBody) {
+        card.hidden = !other.length;
+        otherBody.innerHTML = other.map((row) => adConnectionRow(row, { withPlatform: true })).join('');
+      }
     }
 
-    /** The TikTok Ads card: the same ad_platform_connections rows the table
-     *  above holds, drawn as a pillar of its own.
-     *
-     *  Every control reuses the ad-platform functions (updateAdConnection,
-     *  openAccountPicker, testAdConnection, syncAdConnection,
-     *  removeAdConnection) rather than reimplementing them, so there is one
-     *  code path per action and the card cannot drift from the table.
-     *  _adRows still holds these rows, which is what lets those functions
-     *  find them by id. */
-    function renderTiktokConnections(rows) {
-      const tbody = document.getElementById('tiktok-connections-list');
-      if (!tbody) return;
-      const tiktok = (rows || []).filter((row) => row.platform === 'tiktok_ads');
-      if (!tiktok.length) {
-        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect your TikTok ad account below</div></td></tr>';
-        return;
-      }
-      tbody.innerHTML = tiktok.map((row) => {
-        const advertiser = row.tiktok_advertiser_id || '';
-        const test = row.last_tested_at
-          ? (row.last_test_success
-              ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
-              : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
-          : '<span class="bcn-pill">Untested</span>';
-        // Connected but with no advertiser chosen is the one state that needs
-        // saying out loud: nothing syncs until the choice is made, and the row
-        // otherwise looks finished.
-        const needsChoice = !advertiser
-          ? '<div class="int-muted">Choose which advertiser SILO reads — nothing syncs until you do.</div>'
-          : '';
-        return `<tr>
-          <td><input class="bcn-field" style="min-width:150px;" value="${escAttr(row.display_name)}"
-            onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
-          <td><div class="int-acct">
-            <input class="bcn-field bcn-field--mono" style="min-width:170px;" value="${escAttr(advertiser)}"
-              placeholder="7012345678901234567"
-              onchange="updateAdConnection('${row.id}', { tiktok_advertiser_id: this.value.trim() || null })" />
-            <button class="int-btn ${advertiser ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${advertiser ? 'Change' : 'Choose…'}</button>
-          </div>${needsChoice}</td>
-          <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"
-              title="Nightly: this advertiser's daily campaign totals — spend, impressions, clicks, purchases and purchase value — into marketing_kpis_daily">
-            <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
-              onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
-            ${row.sync_enabled ? 'On' : 'Off'}</label></td>
-          <td>${test}</td>
-          <td style="white-space:nowrap;">
-            <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
-            ${SYNC_NOW_PLATFORMS.includes('tiktok_ads') ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)"
-              title="Pull this advertiser's recent daily campaign totals from TikTok now (read-only), the same sync the nightly runs">Sync now</button>` : ''}
-            <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
-          </td>
-        </tr>`;
-      }).join('');
+    function emptyCardRow(card, withPlatform) {
+      const EMPTY = {
+        google: 'Connect Google Ads, GA4 or Search Console below',
+        meta_ads: 'Add your Meta ad account below',
+        tiktok_ads: 'Connect your TikTok ad account below',
+      };
+      return `<tr><td colspan="${withPlatform ? 6 : 5}"><div class="empty-state"><strong>Not connected</strong>${EMPTY[card] || 'Connect it below'}</div></td></tr>`;
+    }
+
+    function adConnectionRow(row, { withPlatform = false } = {}) {
+      const acctField = AD_ACCOUNT_FIELD[row.platform];
+      const acctVal = (acctField && row[acctField]) || '';
+      const test = row.last_tested_at
+        ? (row.last_test_success
+            ? '<span class="bcn-pill bcn-pill--pos">OK</span>'
+            : `<span class="bcn-pill bcn-pill--neg" title="${escAttr(row.last_test_error)}">Failed</span>`)
+        : '<span class="bcn-pill">Untested</span>';
+      const nightlyTitle = NIGHTLY_TITLE[row.platform] ? ` title="${escAttr(NIGHTLY_TITLE[row.platform])}"` : '';
+      const needsChoice = !acctVal && CHOOSE_PROMPT[row.platform]
+        ? `<div class="int-muted">${CHOOSE_PROMPT[row.platform]}</div>`
+        : '';
+      // A platform with no account column in the table (none today) must not
+      // render an input bound to an undefined column.
+      // A card holding several sources spends a whole column naming them,
+      // so its inputs give that width back rather than pushing the row's
+      // buttons off the right edge of the table.
+      const wide = withPlatform ? 112 : 160;
+      const acctCell = acctField
+        ? `<div class="int-acct">
+            <input class="bcn-field bcn-field--mono" style="min-width:${wide}px;" value="${escAttr(acctVal)}"
+              placeholder="${escAttr(AD_ACCOUNT_PLACEHOLDER[row.platform] || '')}"
+              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
+            <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
+          </div>${needsChoice}`
+        : '<span class="int-muted">—</span>';
+      const mainRow = `<tr data-platform="${row.platform}">
+        ${withPlatform ? `<td style="width:1%;"><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>` : ''}
+        <td><input class="bcn-field" style="min-width:${withPlatform ? 112 : 150}px;" value="${escAttr(row.display_name)}"
+          onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
+        <td>${acctCell}</td>
+        <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"${nightlyTitle}>
+          <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
+            onchange="updateAdConnection('${row.id}', { sync_enabled: this.checked })" />
+          ${row.sync_enabled ? 'On' : 'Off'}</label></td>
+        <td>${test}</td>
+        <td style="white-space:nowrap;">
+          <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+          ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">Sync now</button>` : ''}
+          ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
+          ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
+          <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
+        </td>
+      </tr>`;
+      // Organic (Instagram + Facebook Page) rides this SAME Meta
+      // connection's token — no separate connect flow — but needs its own two
+      // IDs once the token has pages_read_engagement / instagram_basic /
+      // instagram_manage_insights and the System User is assigned to the Page
+      // in Business Manager. See docs/ops/ad-platform-api-setup.md.
+      const span = withPlatform ? 6 : 5;
+      const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
+        <td colspan="${span}" style="padding-top:0;">
+          <div id="meta-token-${row.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;" hidden>
+            <span style="font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);">New System User token:</span>
+            <input class="bcn-field bcn-field--mono" style="min-width:260px;font-size:11px;" type="password"
+              placeholder="EAAB…" autocomplete="off" spellcheck="false"
+              onkeydown="if (event.key === 'Enter') saveMetaToken('${row.id}')" />
+            <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
+            <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
+            <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
+            <button type="button" class="ig-open-btn" data-guide="meta_ads">How to generate one</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
+            <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
+            <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
+              value="${escAttr(row.facebook_page_id || '')}" placeholder="Facebook Page ID"
+              onchange="updateAdConnection('${row.id}', { facebook_page_id: this.value.trim() || null })" />
+            <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
+              value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
+              onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
+            <span>— needs pages_show_list / pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
+          </div>
+        </td>
+      </tr>`;
+      return mainRow + organicRow;
     }
 
     // Regenerating a Meta System User token used to have no home in this UI:
