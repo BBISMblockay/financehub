@@ -20,6 +20,9 @@
  *   ready            predicate evaluated in the page to decide "loaded"
  *   rpc              name -> rows (or a function of the args)
  *   broken           table names whose every read errors
+ *   gateTables       ['table'] -- every list read of those tables waits until
+ *                    the page calls window.__RELEASE_TABLE__(table), so a
+ *                    suite can act on the page while a read is in flight
  *   missingColumns   { table: ['col'] } -- reads and writes naming one of
  *                    those columns fail with PostgREST's real 42703, so a
  *                    page that feature-detects an unapplied migration can be
@@ -307,7 +310,8 @@ window.__QUERIES__ = [];
         var got = rows();
         var out = { data: q.head ? null : got, error: null };
         if (q.count) out.count = got.length;
-        return Promise.resolve(out).then(res, rej);
+        var gate = window.__FIXTURE_TABLE_GATES__ && window.__FIXTURE_TABLE_GATES__[table];
+        return (gate ? gate.then(function () { return out; }) : Promise.resolve(out)).then(res, rej);
       }
     };
     return api;
@@ -622,7 +626,13 @@ async function startSuite(options = {}) {
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
     // Re-runs on every navigation of this page, reload included, so the
     // company fixtures below survive a reload the way real server state does.
-    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate }) => {
+    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate, gateTables }) => {
+      window.__FIXTURE_TABLE_GATES__ = {};
+      window.__TABLE_RELEASERS__ = {};
+      gateTables.forEach((name) => {
+        window.__FIXTURE_TABLE_GATES__[name] = new Promise((release) => { window.__TABLE_RELEASERS__[name] = release; });
+      });
+      window.__RELEASE_TABLE__ = (name) => { const r = window.__TABLE_RELEASERS__[name]; if (r) r(); };
       window.__FIXTURE_TABLES__ = t;
       window.__FIXTURE_BROKEN__ = broken;
       window.__FIXTURE_MISSING_COLUMNS__ = missingColumns;
@@ -642,6 +652,7 @@ async function startSuite(options = {}) {
       cachedCompany: (opts && 'cachedCompany' in opts) ? opts.cachedCompany : '__unset__',
       serverCompany: (opts && opts.serverCompany) || null,
       ensureGate: !!(opts && opts.ensureGate),
+      gateTables: (opts && opts.gateTables) || [],
     });
     await page.goto(`${base}${path}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(ready, { timeout: 20000 });

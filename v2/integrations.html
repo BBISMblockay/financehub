@@ -3255,6 +3255,9 @@
     // a stale copy would offer a metric that no longer exists.
     let _klaviyoMetrics = [];
 
+    // Bumped by every load, so a slow count from an older load never writes
+    // into the card a newer load drew.
+    let _klaviyoLoad = 0;
     async function loadKlaviyoConnection() {
       const { data, error } = await db
         .from('klaviyo_connections')
@@ -3273,9 +3276,54 @@
         setStatus('Failed to load the Klaviyo connection: ' + error.message, 'neg');
         return;
       }
+      const load = ++_klaviyoLoad;
       renderKlaviyoConnection(data || null);
       _summaryState.klaviyo = data || null;
       updateSummaryBand();
+      if (data?.last_synced_at) {
+        const found = await klaviyoSyncedSummary();
+        // Only into its own element, never by redrawing the row: an admin may
+        // already be typing a replacement key or changing the metric. And
+        // only if no newer load has redrawn the card since this one began.
+        const slot = document.querySelector('[data-klaviyo-found]');
+        if (found && slot && load === _klaviyoLoad) {
+          slot.textContent = `Synced ${found}`;
+          slot.hidden = false;
+        }
+      }
+    }
+
+    // What the sync has brought in, said on the card: a connected account
+    // with no sends yet (a new or test account) otherwise looks like a sync
+    // that did nothing. Counts of synced rows only -- never a performance
+    // figure. Fail-soft: without it the card reads exactly as before.
+    async function klaviyoSyncedSummary() {
+      const count = async (table, kind) => {
+        let q = db.from(table).select('klaviyo_id', { count: 'exact', head: true });
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        if (kind) q = q.eq('kind', kind);
+        const { count: n, error } = await q;
+        if (error) throw error;
+        return Number(n || 0);
+      };
+      try {
+        const [campaigns, flowMessages, audiences] = await Promise.all([
+          count('klaviyo_messages', 'campaign'),
+          count('klaviyo_messages', 'flow_message'),
+          // klaviyo_audiences arrives with 20261110010000; before that this
+          // one count fails and only it is left out.
+          count('klaviyo_audiences').catch(() => null),
+        ]);
+        const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+        return [
+          plural(campaigns, 'campaign', 'campaigns'),
+          plural(flowMessages, 'flow message', 'flow messages'),
+          ...(audiences == null ? [] : [plural(audiences, 'list or segment', 'lists & segments')]),
+        ].join(' · ');
+      } catch (err) {
+        console.warn('Klaviyo synced counts unavailable', err);
+        return '';
+      }
     }
 
     function klaviyoStatusCell(row) {
@@ -3352,7 +3400,7 @@
           </label>
           <div style="margin-top:6px;">${klaviyoStatusCell(row)}</div>
         </td>
-        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}</td>
+        <td>${row.last_synced_at ? escHtml(new Date(row.last_synced_at).toLocaleString()) : '<span class="bcn-pill">Never</span>'}<div style="margin-top:4px;font-size:11px;color:var(--bcn-ink-3);" data-klaviyo-found hidden></div></td>
         <td>
           <button class="int-btn" onclick="testKlaviyoConnection()">Test</button>
           <button class="int-btn int-btn--danger" onclick="removeKlaviyoConnection()">Remove</button>
