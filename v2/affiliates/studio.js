@@ -81,7 +81,8 @@ function searchSummary(r = {}) {
   if (!r.ran && !r.failed) return 'Nothing to search yet: add a search, or resume a paused one.';
   const found = `${num(r.prospects_new || 0)} new prospect(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
   if (r.failed && !r.ran) return 'The search service had a temporary problem. Try again in a few minutes.';
-  return r.failed ? `Searched. ${found} Some searches had a temporary problem; try again in a few minutes.` : `Searched. ${found}`;
+  if (r.failed) return `Searched. ${found} Some searches had a temporary problem; try again in a few minutes.`;
+  return r.prospects_new || r.prospects_updated ? `Searched. ${found}` : 'Searched. No creators found this time. Try other words or another platform.';
 }
 
 async function invoke(fn, body) {
@@ -368,13 +369,13 @@ function renderProspects() {
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
     card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week, and right away when you add a search or press Search now.</p>
       ${table([
-        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
+        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint === 'blog' ? 'websites' : s.platform_hint || 'program platforms')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
         { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(friendlySearchError(s.last_error))}</div>` : ''}` },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
       ${MANAGE && d.sources.some((s) => s.enabled) ? `<div class="af-row" style="margin-top:8px;">${btn('Search now', 'discovery-run', {}, 'primary')}</div>` : ''}
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">any</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'].map((x) => `<option>${x}</option>`).join('')}</select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
       { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill('live', 'accent')) },
