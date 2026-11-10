@@ -9100,6 +9100,20 @@ select 'Affiliate outreach HTML' as check_name,
     else 'ok'
   end as status;
 
+-- Follow-up outreach (20261110120000): a second approved message to an email
+-- the program already has reuses that affiliate record instead of failing on
+-- affiliates_identity.
+select 'Affiliate follow-up outreach' as check_name,
+  case
+    when position('lower(btrim(a.contact_email)) = lower(btrim(p_email))' in
+           pg_get_functiondef('public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)'::regprocedure)) = 0
+      then 'MISSING — run 20261110120000_affiliate_followup_outreach.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_outreach_mint_signup(uuid, uuid, uuid, text, uuid)', 'execute'))
+      then 'CRITICAL — a client role can call affiliate_outreach_mint_signup'
+    else 'ok'
+  end as status;
+
 -- Affiliate AI research (20261110100000): the affiliate-research function
 -- holds AI credit under feature 'affiliate_research' and writes prospects with
 -- source 'ai_research'; either value refused means every research run fails.

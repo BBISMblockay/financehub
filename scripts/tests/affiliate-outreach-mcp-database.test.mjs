@@ -38,6 +38,8 @@
 //   OUTREACH_MCP_MUTATION=active-program   a paused program's drafts are claimed
 //   OUTREACH_MCP_MUTATION=html-unescaped   the HTML version does not escape the draft
 //   OUTREACH_MCP_MUTATION=html-no-button   the HTML button does not carry the signup link
+//   OUTREACH_MCP_MUTATION=followup-by-prospect-only  a follow-up to a known email tries a second record
+//   OUTREACH_MCP_MUTATION=followup-reopen-joined     an ended affiliate who had joined is reopened
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -175,6 +177,7 @@ const files = {
   portal: '20261110086000_affiliate_portal.sql',
   send: '20261110093000_affiliate_outreach_send_scope.sql',
   html: '20261110110000_affiliate_outreach_html.sql',
+  followup: '20261110120000_affiliate_followup_outreach.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -183,7 +186,7 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
@@ -229,9 +232,13 @@ switch (MUT) {
   case 'html-no-button':
     mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url'),",
       "'html', public.affiliate_outreach_html(v_brand, v_d.body, ''),"); break;
+  case 'followup-by-prospect-only':
+    mutate("  if v_aff is null then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted", "  if false then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted"); break;
+  case 'followup-reopen-joined':
+    mutate("    if v_accepted is not null then\n      raise exception 'ended_affiliate", "    if false then\n      raise exception 'ended_affiliate"); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -491,6 +498,25 @@ await check('M3 an opt-out that arrived after the claim refuses the record', asy
 });
 
 // ── G: grants ─────────────────────────────────────────────────────────────
+await check('F1 a follow-up to an email the program already has reuses that record, and reopens an ended invite', async () => {
+  const aff = (await one(`select a.id from affiliates a join affiliate_outreach_drafts d on d.prospect_id = a.from_prospect_id where d.id = $1`, [d1.d])).id;
+  // A second prospect row for the same person (another channel), approved.
+  const p2 = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, platform, handle, profile_url, contact_email, status)
+    values ($1,$2,'Again','instagram','@again',null,'ONE@creator.test','approved') returning id`, [A, progA])).id;
+  const mint = (p) => one(`select public.affiliate_outreach_mint_signup($1,$2,$3,'one@creator.test',$4) as r`, [A, progA, p, U.ownerA]);
+  const r1 = (await mint(p2)).r;
+  assert.equal(r1.affiliate_id, aff, 'the existing record for that email is reused, not duplicated');
+  assert.equal((await one(`select count(*)::int as n from affiliates where program_id = $1 and lower(contact_email) = 'one@creator.test'`, [progA])).n, 1);
+  await db.query(`update affiliates set status = 'terminated' where id = $1`, [aff]);
+  const r2 = (await mint(p2)).r;
+  assert.equal(r2.affiliate_id, aff);
+  assert.equal((await one('select status from affiliates where id = $1', [aff])).status, 'invited', 'an ended invite is reopened');
+  await db.query(`update affiliates set status = 'active', terms_accepted_at = now(), terms_version_accepted = 1 where id = $1`, [aff]);
+  await assert.rejects(mint(p2), /already_affiliate/, 'an active affiliate gets no signup link');
+  await db.query(`update affiliates set status = 'terminated' where id = $1`, [aff]);
+  await assert.rejects(mint(p2), /ended_affiliate/, 'someone who joined and was ended is not reopened');
+});
+
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {
   const fns = [
     'silo_api_claim_outreach(uuid, integer, text)', 'silo_api_mark_outreach_sent(uuid, text)',

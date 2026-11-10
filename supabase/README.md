@@ -3240,6 +3240,14 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate follow-up outreach — `20261110120000_affiliate_followup_outreach.sql`
+
+Apply after `20261110093000`, then deploy `affiliate-invite`. A second approved
+message to an email the program already has reuses that affiliate record
+(fresh link) instead of failing on `affiliates_identity`; an ended invite is
+reopened; an active, paused, or joined-then-ended affiliate is skipped with a
+readable reason.
+
 ## Affiliate outreach HTML — `20261110110000_affiliate_outreach_html.sql`
 
 Apply after `20261110093000`. No deploy. `silo_api_claim_outreach` now returns
