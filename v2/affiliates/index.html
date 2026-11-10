@@ -47,6 +47,36 @@
     .af-next { margin: 12px 18px 0; padding: 10px 14px; border: 1px solid var(--bcn-border); border-radius: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
     .af-next[hidden] { display: none; }
     .af-more > summary { cursor: pointer; font-size: 13px; color: var(--bcn-ink-2); padding: 6px 0; list-style: revert; }
+  /* Workflow rail: five steps map to the tabs, with counts when something needs you. */
+    .af-pipeline { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 18px 12px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
+    .af-pipeline[hidden] { display: none; }
+    .af-pipe-step { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 120px; padding: 8px 10px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); cursor: pointer; font: inherit; text-align: left; transition: border-color .12s, background .12s; }
+    .af-pipe-step:hover { border-color: var(--bcn-accent); }
+    .af-pipe-step--on { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); box-shadow: inset 3px 0 0 var(--bcn-accent); }
+    .af-pipe-n { font-family: var(--bcn-mono); font-size: 10px; font-weight: 700; color: var(--bcn-ink-3); width: 1.4em; flex: none; }
+    .af-pipe-step--on .af-pipe-n { color: var(--bcn-accent); }
+    .af-pipe-label { flex: 1; font-size: 13px; font-weight: 600; color: var(--bcn-ink); min-width: 0; }
+    .af-pipe-count { font-family: var(--bcn-mono); font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--bcn-accent); color: #fff; flex: none; }
+    .af-pipe-count--muted { background: var(--bcn-band); color: rgba(255, 255, 255, .85); }
+    /* Card lists replace wide tables on workflow tabs. */
+    .af-items { display: flex; flex-direction: column; gap: 8px; }
+    .af-item { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
+    .af-item--compact { padding: 10px 12px; }
+    .af-item-head { font-size: 14px; font-weight: 600; line-height: 1.35; }
+    .af-item-stats { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-2); margin-top: 4px; }
+    .af-item-detail { font-size: 12px; color: var(--bcn-ink-2); margin-top: 8px; line-height: 1.45; max-width: 52rem; }
+    .af-item-detail .af-evidence { max-width: none; }
+    .af-item-foot { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+    .af-item-pay .af-item-stats { font-size: 18px; font-weight: 700; color: var(--bcn-ink); }
+    .af-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+    @media (max-width: 900px) { .af-board { grid-template-columns: 1fr; } }
+    .af-board-col { border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-bg); padding: 10px; min-height: 80px; }
+    .af-board-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--bcn-border); }
+    .af-board-head h3 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-2); font-family: var(--bcn-mono); }
+    .af-board-cards { display: flex; flex-direction: column; gap: 8px; }
+    .af-board-empty { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 4px; }
+    .af-codes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .af-code-pill { font-family: var(--bcn-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--bcn-border); background: var(--bcn-bg); }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
   </style>
@@ -74,6 +104,8 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <div class="af-next" id="nextStep" hidden></div>
+
+    <div class="af-pipeline" id="afPipeline" hidden aria-label="Affiliate workflow"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
