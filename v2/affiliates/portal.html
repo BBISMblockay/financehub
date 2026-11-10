@@ -73,18 +73,18 @@
     .af-cal { display: flex; flex-direction: column; }
     .af-cal-month { font-family: var(--bcn-mono); font-size: 12px; font-weight: 600; color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
     .af-cal-month:first-child { margin-top: 0; }
-    .af-cal-row { display: grid; grid-template-columns: 54px 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--bcn-border); }
+    .af-cal-row { display: grid; grid-template-columns: 54px 132px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--bcn-border); }
     .af-cal-row:last-child { border-bottom: 0; }
     .af-cal-date { border: 1px solid var(--bcn-border); border-radius: 10px; text-align: center; padding: 4px 0; font-family: var(--bcn-mono); line-height: 1.1; }
     .af-cal-date .af-cal-day { display: block; font-size: 20px; font-weight: 600; color: var(--bcn-ink); text-transform: none; }
     .af-cal-date > span:first-child { font-size: 11px; color: var(--bcn-accent); font-weight: 600; text-transform: uppercase; }
     .af-cal-row.is-soon .af-cal-date { border-color: var(--bcn-accent); }
-    .af-cal-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; display: block; background: var(--bcn-sunken); }
-    .af-cal-thumb-none { width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
+    .af-cal-thumb { width: 132px; height: 99px; border-radius: 10px; object-fit: cover; display: block; background: var(--bcn-sunken); }
+    .af-cal-thumb-none { width: 132px; height: 99px; border-radius: 10px; background: linear-gradient(160deg, var(--bcn-band-hi), var(--bcn-band)); }
     .af-cal-text { min-width: 0; }
-    .af-cal-title { font-weight: 700; color: var(--bcn-ink); font-size: 14px; }
-    .af-cal-note { color: var(--bcn-ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    @media (max-width: 560px) { .af-cal-row { grid-template-columns: 54px minmax(0, 1fr); } .af-cal-thumb, .af-cal-thumb-none { display: none; } .af-cal-row .bcn-btn { grid-column: 2; justify-self: start; } }
+    .af-cal-title { font-weight: 700; color: var(--bcn-ink); font-size: 15px; }
+    .af-cal-note { color: var(--bcn-ink-3); font-size: 13px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    @media (max-width: 560px) { .af-cal-row { grid-template-columns: 54px minmax(0, 1fr); } .af-cal-thumb, .af-cal-thumb-none { grid-column: 2; width: 100%; height: auto; aspect-ratio: 4 / 3; } .af-cal-text, .af-cal-row .bcn-btn { grid-column: 2; } .af-cal-row .bcn-btn { justify-self: start; } .af-cal-date { align-self: start; } }
 
     /* Account side: codes as chips, earnings as bars, payouts as rows. */
     .af-chips { display: flex; flex-wrap: wrap; gap: 8px; }
