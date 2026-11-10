@@ -59,6 +59,11 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    query that already has its own `site:` filter is sent as written.
    YouTube and TikTok are pinned to profile paths (`site:youtube.com/@`,
    `site:tiktok.com/@`), because video links name no channel and are dropped.
+   Google redirect results (`https://google.com/goto?url=CAES…`, domain
+   reported as google.com, seen from late October 2026) are read from the
+   result's breadcrumb (`https://www.tiktok.com › @name`); a shortened
+   breadcrumb segment is dropped rather than guessed, and the redirect URL
+   is kept in `evidence.google_redirect_url`.
 
 ## Daily use
 

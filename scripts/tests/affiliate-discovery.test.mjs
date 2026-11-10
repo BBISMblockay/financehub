@@ -45,6 +45,8 @@ async function loadCore() {
   else if (MUT === 'dryrun') swap("      if (dryRun) {\n        log(", "      if (dryRun && false) {\n        log(");
   else if (MUT === 'unpinned') swap('  if (!sites.length) return q.slice(0, 700);', '  return q.slice(0, 700);')
   else if (MUT === 'noretry') swap('      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;', '      throw err;');
+  else if (MUT === 'goto') swap('    const resolved = resolveResultUrl(raw);', '    const resolved = raw.url;')
+  else if (MUT === 'crumbcut') swap("    if (/(\\.\\.\\.|…)/.test(seg)) break;", '')
   else if (MUT === 'ceiling') swap('  score = Math.min(0.95, Math.round(score * 1000) / 1000);', '  score = Math.min(1, Math.round(score * 1000) / 1000 + 0.5);');
   else throw new Error(`unknown mutation ${MUT}`);
   const dir = await mkdtemp(join(tmpdir(), 'affdisc-'));
@@ -53,7 +55,7 @@ async function loadCore() {
   return import(pathToFileURL(file).href);
 }
 const core = await loadCore();
-const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask, fetchSerpLive, searchKeyword } = core;
+const { classifyProfileUrl, classifyWebsite, statedEmail, scoreProspect, nicheTerms, candidatesFromResults, runDiscovery, buildSerpTask, fetchSerpLive, searchKeyword, resolveResultUrl } = core;
 
 let passed = 0;
 async function test(name, fn) {
@@ -304,6 +306,30 @@ await test('a transient provider error is retried; a real refusal is not', async
   let k = 0;
   await assert.rejects(fetchSerpLive({ credentials: creds, task: { keyword: 'q' }, fetchImpl: async () => { k += 1; return answer(40501); }, sleep: async () => {} }), /40501/);
   assert.equal(k, 1, 'an invalid request is not retried');
+});
+
+await test('a Google redirect result is read from its breadcrumb, never guessed', async () => {
+  // Production 2026-11-10: every one of 29 results came back as
+  // https://google.com/goto?url=CAES... (domain google.com), so nothing was a profile.
+  const goto = 'https://google.com/goto?url=CAESZwHEIkXXsgCwMjMc&gsessionid=ceamwnE7qgzatoIjo';
+  const items = [
+    { type: 'organic', url: goto, domain: 'google.com', breadcrumb: 'https://www.tiktok.com › @jenna.and.her.gents', title: 'Jenna and Her Gents (@jenna.and.her.gents) | TikTok' },
+    { type: 'organic', url: goto, domain: 'google.com', breadcrumb: 'https://www.youtube.com › @BaseballBenji', title: 'Baseball Benji - YouTube' },
+    { type: 'organic', url: goto, domain: 'google.com', breadcrumb: 'https://www.instagram.com › baseball_mo…', title: 'cut off' },
+    { type: 'organic', url: goto, domain: 'google.com', breadcrumb: 'www.google.com › search', title: 'google' },
+    { type: 'organic', url: goto, domain: 'google.com', title: 'no breadcrumb' },
+  ];
+  const { candidates, stats } = candidatesFromResults({ items, program: { ...PROGRAM, platforms: ['tiktok', 'youtube', 'instagram'] }, source: SOURCE('s1', 'baseball mom'), collectedAt: '2026-11-10T00:00:00Z' });
+  assert.equal(stats.profiles_recognized, 2);
+  assert.deepEqual(candidates.map((c) => c.profile_url).sort(), ['https://www.tiktok.com/@jenna.and.her.gents', 'https://www.youtube.com/@BaseballBenji'].sort());
+  const t = candidates.find((c) => c.platform === 'tiktok');
+  assert.equal(t.source_url, 'https://www.tiktok.com/@jenna.and.her.gents');
+  assert.equal(t.evidence.google_redirect_url, goto, 'the original redirect is kept for audit');
+  assert.equal(t.evidence.resolved_from, 'breadcrumb');
+  assert.equal(resolveResultUrl({ url: goto, breadcrumb: 'https://www.instagram.com › reel › …' }), 'https://www.instagram.com/reel', 'a shortened segment is dropped, not guessed');
+  assert.equal(resolveResultUrl({ url: goto }), null);
+  assert.equal(resolveResultUrl({ url: 'https://www.tiktok.com/@x', breadcrumb: 'https://other.com › y' }), 'https://www.tiktok.com/@x', 'a normal result is untouched');
+  assert.equal(resolveResultUrl({ url: 'http://192.168.3.1/upg.html?url=www.google.com/goto?url=CAES', breadcrumb: 'https://www.tiktok.com › @a' }), 'https://www.tiktok.com/@a');
 });
 
 console.log(`\naffiliate-discovery: ${passed} passed`);

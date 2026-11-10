@@ -4,6 +4,7 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 
 | When | Area | What was fixed |
 |------|------|----------------|
+| 2026-11-10 | Affiliate Studio | Searches still found 0 creators: Google now serves many results through an opaque `google.com/goto?url=CAES…` link and the SERP provider reports url and domain as google.com (all 29 results on Blake's 05:33 UTC search). Results are now read from the breadcrumb (`https://www.tiktok.com › @name`); a shortened segment is dropped, never guessed, and the redirect is kept in evidence (`scripts/lib/affiliate-discovery-core.mjs` + copy; **deploy `affiliate-discovery-run`**, no migration). |
 | 2026-11-10 | Affiliate Studio | Adding a second search within a minute was refused ("A search just ran"). Adding a search now runs only that search, and only the same search again within 20 seconds is refused (double click). |
 | 2026-11-10 | Affiliate Studio | YouTube searches returned only video links (30 results, 0 creators): YouTube and TikTok searches are now pinned to profile pages (`/@handle`). |
 | 2026-11-10 | Affiliate Studio | Searches returned company sites instead of creators: the per-search Platform and the program's ticked platforms never reached the query. Each search is now pinned to creator platforms with `site:` filters; an empty result says so in plain words. |
