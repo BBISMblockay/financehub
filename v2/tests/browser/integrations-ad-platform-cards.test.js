@@ -60,6 +60,27 @@ const MUTATIONS = {
 };
 const MUT = process.env.AD_CARDS_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
+
+// EVERY pattern is checked on EVERY run, not just the one being applied.
+//
+// A mutation whose pattern has drifted out of the page still exits non-zero
+// -- on the setup assertion, before anything is exercised -- and the CI loop
+// reads any non-zero exit as "the guard is tested". So a stale pattern leaves
+// a guard silently unguarded while the step stays green. Checking all of them
+// here moves that failure into the ORDINARY run, which is the one CI reads
+// for its own sake. (Found by review cycle 2 of #1224, in the sibling
+// handler suite, where two patterns had drifted.)
+{
+  const page = require('node:fs').readFileSync(
+    require('node:path').join(require('../lib/harness').REPO_ROOT, 'v2/integrations.html'), 'utf8');
+  for (const [name, pairs] of Object.entries(MUTATIONS)) {
+    for (const [from] of pairs) {
+      assert.ok(page.includes(from),
+        `mutation ${name} no longer matches v2/integrations.html: fix its pattern, or the guard it tests is untested`);
+    }
+  }
+}
+
 const transform = (rel, source) => {
   if (!MUT || !rel.endsWith('/integrations.html')) return source;
   for (const [from, to] of MUTATIONS[MUT]) {

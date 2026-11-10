@@ -26,14 +26,14 @@ const MUTATIONS = {
   'no-clamp': ['Math.min(days, MAX_DAYS_BACK)', 'days'],
   'job-not-failed': ["update({ status: 'error',", "update({ status: 'running',"],
   'unchecked-token': ["check(await service.from('ad_platform_connections')\n            .update({ access_token", "(await service.from('ad_platform_connections')\n            .update({ access_token"],
-  'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({ meta", "(await service.from('ad_platform_connections')\n        .update({ meta"],
+  'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({\n          meta:", "(await service.from('ad_platform_connections')\n        .update({\n          meta:"],
   'unchecked-job-success': ["check(await service.from('sync_jobs')\n        .update({ status: 'success'", "(await service.from('sync_jobs')\n        .update({ status: 'success'"],
   'silent-unrecorded': ["const unrecorded = res?.error", "const unrecorded = false"],
   'no-act-prefix': ["meta_ad_account_id: metaAccountId(conn.meta_ad_account_id)", "meta_ad_account_id: conn.meta_ad_account_id"],
   'google-env-for-meta': ["if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID", "if (true && (!googleEnv.GOOGLE_CLIENT_ID"],
   // The failure reaches sync_jobs but not the connection, so the page cannot
   // tell WHICH connection broke and shows nothing.
-  'no-fail-stamp': ["      await stampOutcome({ last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message }) });\n", ''],
+  'no-fail-stamp': ["      await stampOutcome({\n        last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message, clientBlock }),\n      });\n", ''],
   // A success leaves the previous failure standing, so the card goes on
   // saying the feed is broken after it has healed.
   // A manual failure stores no client_block, so the card offers a Retry for
@@ -44,9 +44,22 @@ const MUTATIONS = {
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
 let handlerSrc = read(`${FN}/handler.mjs`);
+
+// EVERY pattern is checked on EVERY run, not just the one being applied.
+//
+// A mutation whose pattern has drifted out of the source still exits
+// non-zero -- on this setup assertion, before the handler is even imported --
+// and the CI loop reads any non-zero exit as "the guard is tested". So a
+// stale pattern leaves a guard silently unguarded while the step stays
+// green. Checking all of them here moves that failure into the ORDINARY run,
+// which is the one CI reads for its own sake. (Found by review cycle 2 of
+// #1224, where no-fail-stamp had drifted a commit earlier.)
+for (const [name, [from]] of Object.entries(MUTATIONS)) {
+  assert.ok(handlerSrc.includes(from), `mutation ${name} no longer matches the source: fix its pattern, or the guard it tests is untested`);
+}
+
 if (MUTATIONS[mutation]) {
   const [from, to] = MUTATIONS[mutation];
-  assert.ok(handlerSrc.includes(from), `mutation ${mutation} no longer matches the source`);
   handlerSrc = handlerSrc.replace(from, to);
 }
 const H = await import('data:text/javascript,' + encodeURIComponent(handlerSrc));
