@@ -2,7 +2,7 @@ import {analyzeJourneys} from './silo-attribution-overview.js';
 import {channelTeamwork,findings,pathRevenue,ratio,days,GAPS} from './silo-attribution-together.js';
 import {spendTotal,spendNote} from './silo-attribution-spend.js';
 import {platformMark} from './silo-attribution-visuals.js';
-import {buildJourneyMapData,renderJourneyMap} from './silo-attribution-journey-map.js';
+import {buildJourneyStudioData,renderJourneyStudio,wireJourneyStudio} from './silo-attribution-journey-studio.js';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const duration=ms=>ms==null?'Unavailable':ms<3600000?`${Math.round(ms/60000)} min`:ms<86400000?`${(ms/3600000).toFixed(1)} hr`:`${(ms/86400000).toFixed(1)} days`;
 
@@ -31,11 +31,12 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
   const pathSteps=p=>`<ol class="attr-overview-path" aria-label="Observed channel sequence">${p.path.map((c,j)=>`<li>${platformMark(c)}<strong>${esc(c)}</strong><small>${esc(duration(p.steps[j].medianMs))} to ${j===p.path.length-1?'purchase':'next step'} · ${p.steps[j].count.toLocaleString()} order${p.steps[j].count===1?'':'s'}</small></li>`).join('')}<li>${platformMark('Shopify')}<strong>Purchase</strong></li></ol>`;
   const gapCents=rows.filter(r=>GAPS.includes(r.channel)).reduce((s,r)=>s+r.net_cents,0);
   const total=spendTotal(spend);
-  const mapData=buildJourneyMapData(report,analysis,rows);
+  const studioPaths=analysis?pathRevenue(report,analysis.paths):[];
+  const studioData=buildJourneyStudioData(report,analysis,rows,studioPaths);
   const topPath=analysis?.paths?.[0];
-  const journeyMap=renderJourneyMap(mapData,{money,medianDays:topPath?.medianMs!=null?days(topPath.medianMs):null,topPath:topPath?.path});
+  const journeyStudio=renderJourneyStudio(studioData,{money,medianDays:topPath?.medianMs!=null?days(topPath.medianMs):null});
 
-  root.innerHTML=`${journeyMap}<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
+  root.innerHTML=`${journeyStudio}<section class="bcn-card attr-together"><div class="bcn-card-body"><span class="attr-eyebrow">HOW YOUR CHANNELS WORK TOGETHER</span>
    <h2>${share.any?`${pct}% of orders touched more than one channel before purchase`:'No identified channel journeys in this period'}</h2>${share.any?`<p class="attr-context">${share.multi.toLocaleString()} of ${share.total.toLocaleString()} orders. ${(share.total-share.any).toLocaleString()} had no channel we could identify.</p>`:''}
    <p><strong>Last click</strong> gives each sale to the last channel before purchase. <strong>Shared</strong> splits it evenly across every channel the customer came through.${journeyError?` <strong>Shared credit and journeys aren't available right now: ${esc(journeyError)}</strong>`:''}</p>
    <div class="attr-findings">${items.map((f,i)=>`<article class="attr-finding"><h3>${esc(f.title)}</h3><p>${esc(f.text)}</p>${f.orderIds.length?`<button class="bcn-btn" data-support="${i}">See ${f.orderIds.length.toLocaleString()} orders</button>`:''}</article>`).join('')||'<p class="attr-context">Not enough data yet to point out a pattern.</p>'}</div></div></section>
@@ -62,20 +63,7 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
     $('compare-models').onclick=()=>{try{analysis={...analyzeJourneys(report,records,{halfLifeDays:Number($('decay-days').value),roles:[0,1,2].map(i=>Number($('role-'+i).value))}),paths:analysis.paths};drawModels();$('model-error').textContent='';}catch(e){$('model-error').textContent=e.message;}};
   }
   const orderList=ids=>`<p class="attr-context">Showing up to 50 orders. Open one to see its full journey; the Journeys tab has all of them.</p><div class="attr-order-links">${ids.slice(0,50).map(id=>`<button class="bcn-btn" data-order="${esc(id)}">${esc(report.orders.find(r=>r.order_id===id)?.order_name||id)}</button>`).join('')}</div>`;
-  const map=root.querySelector('.attr-journey-map-card .attr-journey-map');
-  const mapFocus=channel=>{
-    if(!map||!channel)return;
-    map.querySelectorAll('.attr-map-ribbon,.attr-map-spine,.attr-map-hop,.attr-map-node').forEach(el=>el.classList.remove('attr-map-ribbon--on','attr-map-spine--on','attr-map-hop--on','attr-map-node--on'));
-    if(!channel){map.classList.remove('attr-journey-map--focus');return;}
-    map.classList.add('attr-journey-map--focus');
-    map.querySelectorAll(`[data-map-channel="${CSS.escape(channel)}"]`).forEach(el=>el.classList.add('attr-map-node--on'));
-    map.querySelectorAll('.attr-map-ribbon,.attr-map-spine,.attr-map-hop').forEach(el=>{if(el.dataset.mapFrom===channel||el.dataset.mapTo===channel)el.classList.add(el.classList.contains('attr-map-ribbon')?'attr-map-ribbon--on':el.classList.contains('attr-map-hop')?'attr-map-hop--on':'attr-map-spine--on');});
-  };
-  map?.addEventListener('pointerleave',()=>mapFocus(null));
-  map?.addEventListener('pointerover',event=>{
-    const node=event.target.closest('[data-map-channel]');
-    if(node)mapFocus(node.dataset.mapChannel);
-  });
+  wireJourneyStudio(root.querySelector('.attr-journey-studio'),studioData,{money,rows});
   root.onclick=event=>{
     const close=event.target.closest('[data-close]');if(close)$(close.dataset.close).close();
     const path=event.target.closest('[data-path]');if(path){const p=paths[Number(path.dataset.path)];$('path-title').textContent=p.path.join(' → ')+' → Purchase';$('path-content').innerHTML=pathSteps(p)+`<p>${p.count.toLocaleString()} orders · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase.</p>`+orderList(p.orderIds);$('path-detail').showModal();}
