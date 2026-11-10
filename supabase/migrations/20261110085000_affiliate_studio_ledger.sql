@@ -823,6 +823,27 @@ begin
 
   v_conflict := v_attempted - v_written;
 
+  -- A cancelled order reverses what it earned even when its code no longer
+  -- matches (retired, re-dated or removed since it was credited): the matching
+  -- above only sees ACTIVE codes, so this pass works from the stored
+  -- attribution and its affiliate instead. The known entitlement becomes
+  -- zero and the next accrual appends the negative delta (review cycle 2, P1).
+  update public.affiliate_attributions a
+     set basis                = 'order_cancelled',
+         commissionable_cents = 0,
+         run_id               = v_run,
+         updated_at           = now()
+    from public.shopify_orders o
+   where a.company_entity_id = v_company
+     and a.program_id = p_program
+     and a.affiliate_id is not null
+     and a.basis <> 'order_cancelled'
+     and a.order_day between p_from and p_to
+     and o.company_entity_id = v_company
+     and o.shop_domain = a.shop_domain
+     and o.order_id = a.order_id
+     and o.cancelled_at is not null;
+
   -- Stamp the codes SILO has now actually SEEN on a real order. With no
   -- Shopify write scope this is the only confirmation available that a code
   -- recorded here exists in the merchant's admin at all.

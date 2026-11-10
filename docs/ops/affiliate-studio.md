@@ -116,7 +116,9 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
   Approving a draft is refused if a negative line arrived after it was built
   (void it and build again).
 - **Cancelled orders**: a cancelled order resolves to `order_cancelled` with a
-  zero base, so anything it already earned is reversed by a negative line. An
+  zero base, so anything it already earned is reversed by a negative line,
+  also when its code has since been retired (a second pass works from the
+  stored attribution, not from code matching). An
   affiliate who is paused or ended still gets negative lines; only new
   positive earnings stop.
 - **Periods**: a period is created open, and only `affiliate_approve_period`
@@ -191,9 +193,9 @@ non-manual payout as paid until it is built and verified in test mode.
 
 | Suite | What |
 |---|---|
-| `scripts/tests/affiliate-studio-database.test.mjs` | Real PostgreSQL (PGlite), all four migrations applied twice under Supabase's default grants; tenant isolation, both gates, attribution, refunds, duplicates, ledger, periods, payouts, tokens, terms, and the verify block. 31 mutations |
+| `scripts/tests/affiliate-studio-database.test.mjs` | Real PostgreSQL (PGlite), all four migrations applied twice under Supabase's default grants; tenant isolation, both gates, attribution, refunds, duplicates, ledger, periods, payouts, tokens, terms, and the verify block. 32 mutations |
 | `scripts/tests/shopify-order-discount-codes.test.mjs` | The sync core's code and refund capture, its column fallback, and the pinned copy. 5 mutations |
 | `scripts/tests/affiliate-discovery.test.mjs` | Discovery against a fake provider: URL recognition, cost cap, dry run, suppression, no status or contact overwrite. 7 mutations |
 | `scripts/tests/affiliate-edge.test.mjs` | Both edge functions: hash-only tokens, gates before service role, company from the caller, no prospect email, no draft payout news. 6 mutations |
 | `scripts/tests/affiliate-studio-ui.test.mjs` | Page logic: money, form validation, CSV formula guard, fingerprints, labels. 3 mutations |
-| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export and database period totals. 6 mutations |
+| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim) and database period totals. 7 mutations |

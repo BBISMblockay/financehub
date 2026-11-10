@@ -706,11 +706,15 @@ const A = {
   // exactly what it claimed. The file is built from that answer, so a payout
   // approved, voided or exported elsewhere in the meantime can never be in a
   // file without being marked, or marked without being in a file.
+  // Everything the file needs is captured BEFORE the first await: switching
+  // program while the claim is in flight must not label program A's payouts
+  // with program B's name and affiliates (review cycle 2).
   'payout-export': async () => {
+    const programId = S.programId; const slug = prog().slug; const affById = S.d.affById;
     const ids = S.d.payouts.filter((x) => x.status === 'approved').map((x) => x.id);
-    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: S.programId, p_payouts: ids, p_batch: null }));
-    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));
-    download(`payouts-${prog().slug}-${today()}.csv`, csv);
+    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
+    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
+    download(`payouts-${slug}-${today()}.csv`, csv);
     const skipped = (r.skipped || []).length;
     const done = `Exported ${(r.payouts || []).length}${skipped ? ` (${skipped} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
     // The payouts are already exported and the file is downloaded; a missing
@@ -721,8 +725,9 @@ const A = {
   // Download a claimed export again (a lost or blocked download). Nothing is
   // re-marked; the payouts still waiting to be paid in that batch come back.
   'payout-redownload': async ({ batch }) => {
-    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: S.programId, p_payouts: null, p_batch: batch }));
-    download(`payouts-${prog().slug}-${today()}-again.csv`, toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById)));
+    const programId = S.programId; const slug = prog().slug; const affById = S.d.affById;
+    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: null, p_batch: batch }));
+    download(`payouts-${slug}-${today()}-again.csv`, toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById)));
     return `Downloaded ${(r.payouts || []).length} again. Nothing was changed.`;
   },
   'payout-paid': async ({ id }) => {

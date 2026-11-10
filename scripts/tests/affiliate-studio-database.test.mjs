@@ -50,6 +50,7 @@
 //   AFFILIATE_DB_MUTATION=normalize     a suppression is stored exactly as typed
 //   Review cycle 1 of #1177:
 //   AFFILIATE_DB_MUTATION=cancelreverse cancelled orders are skipped again, so no reversal
+//   AFFILIATE_DB_MUTATION=cancelretired a cancelled order whose code was retired keeps its commission
 //   AFFILIATE_DB_MUTATION=inactiveneg   a paused affiliate's refunds are skipped
 //   AFFILIATE_DB_MUTATION=stalepayout   a draft built before a refund can be approved
 //   AFFILIATE_DB_MUTATION=periodinsert  a period may be inserted already approved
@@ -238,7 +239,10 @@ switch (MUT) {
     mutate('ledger', `      and jsonb_array_length(o.discount_codes) > 0
 `, `      and jsonb_array_length(o.discount_codes) > 0
       and o.cancelled_at is null
-`); break;
+`);
+    mutate('ledger', '     and o.cancelled_at is not null;', '     and false;'); break;
+  case 'cancelretired':
+    mutate('ledger', '     and o.cancelled_at is not null;', '     and false;'); break;
   case 'inactiveneg':
     mutate('ledger', "    if r.affiliate_status <> 'active' and v_delta > 0 then", "    if r.affiliate_status <> 'active' then"); break;
   case 'stalepayout':
@@ -943,6 +947,21 @@ await check('R1 an order cancelled AFTER its commission accrued is reversed', as
   assert.equal(await ledgerSum('1030'), 0, 'the cancellation takes the commission back');
   const a = await one(`select basis, commissionable_cents from affiliate_attributions where order_id = '1030'`);
   assert.deepEqual([a.basis, Number(a.commissionable_cents)], ['order_cancelled', 0]);
+});
+
+await check('R1b a cancelled order is reversed even after its code was retired', async () => {
+  await newActive('Ivo', 'IVO');
+  await orderA('1036', '2026-11-02', 'IVO', 30);
+  await settle();
+  assert.equal(await ledgerSum('1036'), 300);
+  await as(U.mgrA, A);
+  await db.query(`update affiliate_codes set status = 'retired' where code = 'IVO' and company_entity_id = $1`, [A]);
+  await asSuper();
+  await db.query(`update shopify_orders set cancelled_at = now() where order_id = '1036'`);
+  await settle();
+  assert.equal(await ledgerSum('1036'), 0, 'retiring the code does not keep a cancelled sale payable');
+  const a = await one(`select basis, commissionable_cents, affiliate_id is not null as has_aff from affiliate_attributions where order_id = '1036'`);
+  assert.deepEqual([a.basis, Number(a.commissionable_cents), a.has_aff], ['order_cancelled', 0, true]);
 });
 
 await check('R2 a refund still reverses commission for an affiliate who was paused since', async () => {
