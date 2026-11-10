@@ -19,7 +19,9 @@
 // Actions:
 //   signup_link { prospect_id, contact_email? }  -> creates the affiliate (invited) if needed,
 //                                                   returns a 14-day signup URL
-//   portal_link { affiliate_id, email? }          -> 90-day portal URL; mails it if email=true
+//   portal_link { affiliate_id, email? }          -> 90-day portal link. email=true MAILS it to the
+//                                                   address on file and returns no URL (see mintMailed);
+//                                                   otherwise it returns the URL for the caller to send
 //   notify      { affiliate_id, kind: 'codes_and_links' | 'payout_status', payout_id? }
 //   deliver_code_notices { code_id? }           -> mails "your code is live" for each notice the database
 //                                                   owes; no session needed with a code_id, service key without
@@ -62,6 +64,24 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     if (error) throw new Error(error.message);
     const page = purpose === 'signup' ? 'join' : 'portal';
     return { token_id: data, url: `${base}/v2/affiliates/${page}.html?t=${encodeURIComponent(raw)}`, expires_at: expires };
+  }
+
+  // A portal link that will go ONLY to the rep's own address, bound to it by
+  // the database (20261110190000) so the portal treats it as mailbox proof
+  // and lets that rep move between the brands the same address reps. The
+  // caller never sees the raw value -- a link a manager holds is not proof of
+  // anything, and that is what `mint` above is for. `mailedTo` is the address
+  // this is about to be sent to; the database refuses if it is no longer the
+  // affiliate's, so an edit racing the mint aborts it.
+  async function mintMailed({ company, program, affiliateId, mailedTo, days }) {
+    const raw = makeToken();
+    const expires = new Date(now().getTime() + days * 86400000).toISOString();
+    const { error } = await service.rpc('affiliate_portal_issue_mailed_token', {
+      p_company_entity_id: company, p_program_id: program, p_affiliate_id: affiliateId,
+      p_token_hash: await sha256hex(raw), p_expires_at: expires, p_mailed_to: mailedTo,
+    });
+    if (error) throw new Error(error.message);
+    return { url: `${base}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`, expires_at: expires };
   }
 
 
@@ -250,16 +270,26 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         const brand = co?.title || 'Affiliate program';
 
         if (action === 'portal_link') {
-          const link = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });
-          let mail = null;
+          // Mailing it and handing it back are different things, and a link
+          // cannot be both: one that reaches the rep's inbox is bound to that
+          // address and carries the brand menu, one the caller receives is
+          // not. So email=true mints bound and returns no URL. If the mail
+          // did NOT go out, the caller still needs something to send by hand:
+          // mint an ordinary link, which revokes the bound one it replaces
+          // (affiliate_issue_access_token keeps one live link per subject).
           if (body.email === true) {
+            const sent = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS });
             const { html, text } = renderMail({ brand, heading: 'Your affiliate portal',
               paragraphs: [`Hi ${escapeHtml(a.display_name)}, here is your link to the ${escapeHtml(brand)} affiliate portal: your codes, links, earnings and payouts.`],
-              cta: { url: link.url, label: 'Open my portal' }, footer: `This link is personal to you and works for ${PORTAL_LINK_DAYS} days.` });
-            mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
+              cta: { url: sent.url, label: 'Open my portal' }, footer: `This link is personal to you and works for ${PORTAL_LINK_DAYS} days.` });
+            const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
               kind: 'portal_link', to: a.contact_email, subject: `${brand}: your affiliate portal`, html, text, triggeredBy: actor });
+            if (mail?.status === 'sent') return reply({ portal_url: null, expires_at: sent.expires_at, email: 'sent', reason: null });
+            const fallback = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });
+            return reply({ portal_url: fallback.url, expires_at: fallback.expires_at, email: mail?.status ?? 'not_sent', reason: mail?.reason ?? null });
           }
-          return reply({ portal_url: link.url, expires_at: link.expires_at, email: mail?.status ?? 'not_requested', reason: mail?.reason ?? null });
+          const link = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });
+          return reply({ portal_url: link.url, expires_at: link.expires_at, email: 'not_requested', reason: null });
         }
 
         const kind = body.kind;

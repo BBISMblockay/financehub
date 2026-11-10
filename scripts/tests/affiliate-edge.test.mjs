@@ -40,6 +40,8 @@
 //   AFFILIATE_EDGE_MUTATION=noticepaused  a paused rep is mailed that their code is live
 //   AFFILIATE_EDGE_MUTATION=kickreplay    a replayed code mark kicks the notice again
 //   AFFILIATE_EDGE_MUTATION=kickgrant     the kick forwards the connection's own token
+//   AFFILIATE_EDGE_MUTATION=handbackmailed a mailed portal link is also returned to the manager
+//   AFFILIATE_EDGE_MUTATION=unboundmail   the emailed portal link is minted unbound
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -75,6 +77,8 @@ async function load(fn, file) {
     oldplatform: ['affiliate-portal', "if (platformVersion !== null && platformVersion !== PLATFORM_TERMS_VERSION) {", 'if (false) {'],
     anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
+    handbackmailed: ['affiliate-invite', "            if (mail?.status === 'sent') return reply({ portal_url: null, expires_at: sent.expires_at, email: 'sent', reason: null });", "            if (mail?.status === 'sent') return reply({ portal_url: sent.url, expires_at: sent.expires_at, email: 'sent', reason: null });"],
+    unboundmail: ['affiliate-invite', "            const sent = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS });", "            const sent = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });"],
   };
   const m = muts[MUT];
   if (!MUT || !m || m[0] !== fn) return import(new URL(file, dir));
@@ -86,7 +90,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -518,6 +522,50 @@ await test('invite: the company comes from the caller, never from the body', asy
   await h(authed({ action: 'portal_link', affiliate_id: AFF, company_entity_id: '3f000000-0000-4000-8000-0000000000ff' }));
   const reads = svc.log.filter((l) => l.table === 'affiliates');
   assert.ok(reads.length && reads.every((r) => r.filters.company_entity_id === CO));
+});
+
+await test('invite: a portal link that is emailed is bound to the rep and never handed back', async () => {
+  // The brand menu treats a bound link as proof the rep's own mailbox got it,
+  // so the Studio button must mint bound when it mails -- and must not also
+  // return the raw value, or the manager who clicked holds mailbox proof.
+  const mk = (resendKey, mail) => fakeService({
+    rpc: { ...noSuppression, affiliate_issue_access_token: { data: 'tok-u', error: null },
+      affiliate_portal_issue_mailed_token: { data: 'tok-b', error: null } },
+    tables: { affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@x.invalid', status: 'active' }, entities: { title: 'Brand' } },
+  });
+
+  const mail = fakeResend();
+  const svc = mk();
+  const res = await createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl, makeToken: () => 'B'.repeat(43) })(authed({ action: 'portal_link', affiliate_id: AFF, email: true }));
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.email, 'sent');
+  assert.equal(body.portal_url, null, 'the raw link is not handed to the caller');
+  assert.ok(!JSON.stringify(body).includes('B'.repeat(43)), 'the token appears nowhere in the answer');
+  const bound = svc.log.find((l) => l.name === 'affiliate_portal_issue_mailed_token');
+  assert.ok(bound, 'the mailed link is minted through the bound path');
+  assert.equal(bound.args.p_mailed_to, 'pat@x.invalid', 'bound to the address on file, not one from the body');
+  assert.equal(bound.args.p_affiliate_id, AFF);
+  assert.ok(!svc.log.some((l) => l.name === 'affiliate_issue_access_token'), 'no second, unbound link is minted when the mail went');
+  assert.equal(mail.sent.length, 1);
+  assert.ok(mail.sent[0].body.html.includes('B'.repeat(43)), 'the token travels only in the email');
+
+  // No mail provider: the mail is recorded as skipped, so the manager needs
+  // something to send by hand -- an ordinary link, which opens one brand.
+  const svc2 = mk();
+  const res2 = await createInviteHandler({ service: svc2, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: '', makeToken: () => 'C'.repeat(43) })(authed({ action: 'portal_link', affiliate_id: AFF, email: true }));
+  const body2 = await res2.json();
+  assert.equal(body2.email, 'skipped');
+  assert.match(body2.portal_url, /portal\.html\?t=C+$/, 'a fallback link is returned when nothing was sent');
+  assert.ok(svc2.log.some((l) => l.name === 'affiliate_issue_access_token'), 'the fallback is an ordinary, unbound link');
+
+  // Asked for without email: the caller gets a link, and nothing is bound.
+  const svc3 = mk();
+  const res3 = await createInviteHandler({ service: svc3, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: fakeResend().fetchImpl, makeToken: () => 'D'.repeat(43) })(authed({ action: 'portal_link', affiliate_id: AFF }));
+  const body3 = await res3.json();
+  assert.match(body3.portal_url, /portal\.html\?t=D+$/);
+  assert.equal(body3.email, 'not_requested');
+  assert.ok(!svc3.log.some((l) => l.name === 'affiliate_portal_issue_mailed_token'), 'a link for the manager is never bound to the rep');
 });
 
 await test('invite: a signup link is RETURNED for the person to send -- SILO emails no prospect', async () => {

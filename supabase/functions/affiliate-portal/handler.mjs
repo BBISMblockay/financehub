@@ -192,7 +192,11 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     // their own link -- at most once per 10 minutes (the database decides).
     // The answer never says whether the address belongs to an affiliate.
     if (action === 'signin') {
-      const generic = reply({ status: 'sent_if_eligible', message: 'If that email belongs to an affiliate, a sign-in link is on its way.' });
+      // The cooldown is named here because a silent drop reads as a bug: a
+      // second request inside ten minutes is answered exactly like the first
+      // and sends nothing. Saying so reveals nothing new -- the sentence is
+      // the same whether or not the address belongs to an affiliate.
+      const generic = reply({ status: 'sent_if_eligible', message: 'If that email belongs to an affiliate, a sign-in link is on its way. We send one every 10 minutes, so if you just asked, use the link already in your inbox.' });
       const email = String(clip(body?.email, 254) || '').toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reply({ error: 'Enter the email you signed up with.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_signin_subjects', { p_email: email });

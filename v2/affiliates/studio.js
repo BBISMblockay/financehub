@@ -990,8 +990,14 @@ const A = {
   },
   'portal-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'portal_link', affiliate_id: id, email: true });
-    S.flash = { el: 'affOut', html: card('Portal link', `<p>${out.email === 'sent' ? 'Emailed to the affiliate.' : `Not emailed (${esc(out.reason || out.email)}). Send it yourself.`} Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.portal_url)}</div>`) };
-    return 'Portal link created.';
+    // A link that went to the rep's own inbox is theirs alone: it is never
+    // shown here, and it is the only kind that lets a rep who works with
+    // several brands move between them. A link we hand you instead opens this
+    // brand only, so send it yourself and tell them it is personal.
+    S.flash = { el: 'affOut', html: card('Portal link', out.email === 'sent'
+      ? `<p>Emailed to the affiliate. Valid until ${fmtTime(out.expires_at)}.</p>`
+      : `<p>Not emailed (${esc(out.reason || out.email)}). Send this to them yourself; it opens ${esc(co?.title || 'this brand')} only. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.portal_url || '')}</div>`) };
+    return out.email === 'sent' ? 'Portal link emailed.' : 'Portal link created.';
   },
   'notify-codes': async ({ id }) => { const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: id, kind: 'codes_and_links' }); return out.email === 'sent' ? 'Emailed.' : `Not emailed: ${out.reason || out.email}.`; },
   'affiliate-status': async ({ id, s }) => { await updateRows('affiliates', { status: s, changed_by: me.id }, { id }); return `Affiliate ${s}.`; },
