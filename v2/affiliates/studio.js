@@ -348,6 +348,12 @@ function aiEnabledRow(label, apps, enabled, waiting) {
   const wait = waiting ? `<span class="af-wait">${num(waiting)} waiting</span>` : '';
   return `<div class="af-ai-status-row"><span>${esc(label)}</span>${state}${wait}</div>`;
 }
+function aiHubIntro(canSend, canCode) {
+  if (canSend && canCode) {
+    return 'Both capabilities are on. Approve in Studio, then run agent prompts in your AI app—your agent finishes mail and Shopify.';
+  }
+  return 'Connect SILO MCP in your AI app. When send and Shopify codes both show Enabled below, approving here lets your agent finish the workflow.';
+}
 function renderAiHub() {
   const el = $('afAiHub');
   if (!el) return;
@@ -367,7 +373,7 @@ function renderAiHub() {
   const hintLines = [
     !workSend ? `<p class="af-muted"><strong>Send:</strong> ${esc(SEND_PROMPT_HINT)}</p>` : '',
     !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
-    connectPrimary ? '<p class="af-muted">In your AI app, connect SILO MCP while this company is selected and allow outreach + Shopify codes.</p>' : '',
+    connectPrimary ? '<p class="af-muted">Pick this company in the workspace, then allow send outreach and create Shopify codes on the connection.</p>' : '',
     !workSend && !workCodes && (canSend || canCode)
       ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
       : '',
@@ -379,7 +385,7 @@ function renderAiHub() {
   const manageKind = connectPrimary ? 'primary' : '';
   el.hidden = false;
   el.innerHTML = card('Your AI', `
-    <p class="af-muted" style="margin:0;">You approve messages and codes in Studio. SILO passes approved work to your MCP agent—in Claude, Cursor, or similar—to send from your mailbox and create Shopify codes.</p>
+    <p class="af-muted" style="margin:0;">${esc(aiHubIntro(canSend, canCode))}</p>
     <div class="af-ai-status">
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
       ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
@@ -616,7 +622,7 @@ function aiCodesBlock(apps) {
 function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
   if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">${esc(send[0].name)} sends approved messages from your email.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'ghost')}</div>`;
-  return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach”.</p>';
+  return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
