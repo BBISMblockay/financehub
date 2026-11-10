@@ -45,6 +45,12 @@
 //   OUTREACH_MCP_MUTATION=logo-any-folder            a stored logo may point at another company's folder
 //   OUTREACH_MCP_MUTATION=logo-upload-any-folder     an owner may upload into another company's logo folder
 //   OUTREACH_MCP_MUTATION=logo-upload-any-member     any member may upload the company logo
+//   OUTREACH_MCP_MUTATION=feed-any-member            any member may share items with affiliates
+//   OUTREACH_MCP_MUTATION=feed-other-program         an item may be filed under another company's program
+//   OUTREACH_MCP_MUTATION=feed-signup-link           a signup link (not a portal link) reads the feed
+//   OUTREACH_MCP_MUTATION=feed-other-program-items   the feed shows another program's items
+//   OUTREACH_MCP_MUTATION=feed-expired-codes         the feed offers a code that has ended
+//   OUTREACH_MCP_MUTATION=feed-offsite-path          a shared item may point at another site
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -112,6 +118,8 @@ $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
 create function refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 create table company_settings(company_entity_id uuid primary key, business_timezone text);
+create table shopify_connections(id uuid primary key default gen_random_uuid(), company_entity_id uuid, shop_domain text,
+  is_active boolean default true, created_at timestamptz default now());
 create function is_owner_admin_of_active_company() returns boolean language sql stable security definer as $$
   select exists (select 1 from public.entity_memberships em
     where em.user_id = auth.uid() and em.entity_id = public.active_company_id() and em.role = 'owner_admin') $$;
@@ -197,6 +205,7 @@ const files = {
   followup: '20261110120000_affiliate_followup_outreach.sql',
   button: '20261110130000_affiliate_outreach_email_button.sql',
   logo: '20261110140000_company_logo.sql',
+  feed: '20261110150000_affiliate_portal_feed.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -205,12 +214,32 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html', 'followup', 'button', 'logo'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup', 'button', 'logo', 'feed'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
+  case 'feed-any-member':
+    mutate(`  with check (
+    company_entity_id = public.active_company_id()
+    and public.can_manage_affiliate_programs()
+    and exists`, `  with check (
+    company_entity_id = public.active_company_id()
+    and exists`);
+    mutate("  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_programs())\n  with check (\n    company_entity_id = public.active_company_id()\n    and exists",
+      "  using (company_entity_id = public.active_company_id())\n  with check (\n    company_entity_id = public.active_company_id()\n    and exists"); break;
+  case 'feed-other-program':
+    mutate("    and exists (select 1 from public.affiliate_programs p\n                 where p.id = program_id and p.company_entity_id = affiliate_feed_items.company_entity_id));",
+      "    and true);"); break;
+  case 'feed-signup-link':
+    mutate("     and t.purpose = 'portal'\n", ''); break;
+  case 'feed-other-program-items':
+    mutate("                 and f.program_id = v_tok.program_id\n", ''); break;
+  case 'feed-expired-codes':
+    mutate("         and (c.ends_on is null or c.ends_on >= v_today)),", '),'); break;
+  case 'feed-offsite-path':
+    mutate("and product_path ~ '^/[A-Za-z0-9/_.~%-]*$' and product_path !~ '^//'", "and product_path ~ '^/'"); break;
   case 'logo-not-passed':
     mutate("'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url', v_logo),",
       "'html', public.affiliate_outreach_html(v_brand, v_d.body, v_link ->> 'url', null),"); break;
@@ -278,7 +307,7 @@ switch (MUT) {
     mutate("    || '<p style=\"margin:0 0 18px;font-size:12px;line-height:1.5;color:#77828d\">Or open this link: '\n    || '<a href=\"' || v_url || '\" target=\"_blank\" style=\"color:#2f5fd0;word-break:break-all\">' || v_url || '</a></p>'\n", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button', 'logo', 'feed']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -595,6 +624,58 @@ await check('B2 only an owner of the active company uploads its logo, and only i
   const b = await one(`select public, allowed_mime_types from storage.buckets where id = 'company-logos'`);
   assert.equal(b.public, true, 'public, so email clients and the join page can show it');
   assert.ok(!b.allowed_mime_types.some((m) => /svg/.test(m)), 'no SVG, which can carry script');
+});
+
+await check('P1 only someone who manages affiliates shares items, for a program of their active company, as safe snapshots', async () => {
+  const as = async (uid, q, p) => {
+    await db.exec(`select set_config('test.uid', '${uid}', false)`);
+    await db.exec('set role authenticated');
+    try { return await db.query(q, p); } finally { await db.exec('reset role'); await db.exec(`select set_config('test.uid', '', false)`); }
+  };
+  const ins = (uid, program, extra = {}) => as(uid, `insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, product_path, image_url)
+    values ($1,$2,$3,$4,$5,$6,$7) returning id`, [A, program, extra.kind || 'product', extra.src || `p-${Math.random()}`, extra.title || 'Hat', extra.path ?? '/products/hat', extra.img ?? null]);
+  const ok = await ins(U.ownerA, progA, { src: 'hat' });
+  assert.equal(ok.rows.length, 1, 'an owner shares a product');
+  await assert.rejects(ins(U.memberA, progA), /row-level security/, 'a member cannot share');
+  await assert.rejects(ins(U.ownerA, progB), /row-level security/, 'not under another company\'s program');
+  for (const path of ['//evil.test/x', 'https://evil.test/x', '/products/a b', '/x"onmouseover=y']) {
+    await assert.rejects(ins(U.ownerA, progA, { path }), /affiliate_feed_items_path/, `refused path ${path}`);
+  }
+  await assert.rejects(ins(U.ownerA, progA, { img: 'javascript:alert(1)' }), /affiliate_feed_items_image/);
+  await assert.rejects(ins(U.ownerA, progA, { src: 'hat' }), /affiliate_feed_items_once/, 'one share per item');
+  await assert.rejects(db.query(`update affiliate_programs set store_url = 'https://shop.test/path' where id = $1`, [progA]), /affiliate_programs_store_url_check/);
+});
+
+await check('P2 a portal link reads its own program\'s feed, the store address, and only the codes in effect today', async () => {
+  const aff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_accepted_at, terms_version_accepted)
+    values ($1,$2,'Feed Pat','feed@creator.test','active', now(), 1) returning id`, [A, progA])).id;
+  const tok = async (purpose) => { const h = sha(`feed-${purpose}-${Math.random()}`); await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,$4,$5, now() + interval '1 day')`, [A, progA, aff, purpose, h]); return h; };
+  await db.query(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on, ends_on) values
+    ($1,$2,$3,'FEEDNOW', current_date - 5, null), ($1,$2,$3,'FEEDOLD', current_date - 30, current_date - 10), ($1,$2,$3,'FEEDSOON', current_date + 10, null)`, [A, progA, aff]);
+  await db.query(`insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, event_on) values
+    ($1,$2,'launch','l-past','Past drop', current_date - 2), ($1,$2,'launch','l-next','Next drop', current_date + 3)`, [A, progA]);
+  const progA2 = await prog(A, 'second', 'active');
+  await db.query(`insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title) values ($1,$2,'product','other','Other program hat')`, [A, progA2]);
+  await db.query(`insert into shopify_connections(company_entity_id, shop_domain) values ($1,'brand-a.myshopify.com')`, [A]);
+  const feed = (h) => one('select public.affiliate_portal_feed($1) as f', [h]).then((r) => r.f);
+  const f = await feed(await tok('portal'));
+  assert.deepEqual(f.codes, ['FEEDNOW'], 'only the code in effect today');
+  assert.equal(f.store_url, 'https://brand-a.myshopify.com', 'the Shopify domain when no store address is set');
+  const titles = f.items.map((i) => i.title);
+  assert.ok(titles.includes('Next drop') && titles.includes('Hat'), 'shared items of this program');
+  assert.ok(!titles.includes('Past drop'), 'a launch that has passed drops out');
+  assert.ok(!titles.includes('Other program hat'), 'never another program\'s items');
+  assert.ok(!('source_id' in f.items[0]) && !('company_entity_id' in f.items[0]), 'no internal ids');
+  await db.query(`update affiliate_programs set store_url = 'https://shop.brand-a.test' where id = $1`, [progA]);
+  assert.equal((await feed(await tok('portal'))).store_url, 'https://shop.brand-a.test', 'the store address when set');
+  assert.equal(await feed(await tok('signup')), null, 'a signup link reads nothing');
+  assert.equal(await feed(sha('unknown')), null);
+  await db.query(`update affiliates set status = 'terminated' where id = $1`, [aff]);
+  assert.equal(await feed(await tok('portal')), null, 'an ended affiliate reads nothing');
+  for (const role of ['anon', 'authenticated', 'silo_integration']) {
+    assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_portal_feed(text)', 'execute') as v`)).v, false, role);
+  }
 });
 
 await check('G1 no browser or anonymous role can call the tools or their helpers', async () => {

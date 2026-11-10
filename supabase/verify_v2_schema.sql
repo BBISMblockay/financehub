@@ -9102,6 +9102,31 @@ select 'Affiliate outreach HTML' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate portal feed (20261110150000): brands share launches, products and
+-- ads with affiliates; the portal reads them only through a valid portal link.
+select 'Affiliate portal feed' as check_name,
+  case
+    when to_regclass('public.affiliate_feed_items') is null
+      or to_regprocedure('public.affiliate_portal_feed(text)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'store_url')
+      then 'MISSING — run 20261110150000_affiliate_portal_feed.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_feed_items'::regclass)
+      then 'BROKEN — affiliate_feed_items has RLS off'
+    when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_feed_items'::regclass
+                      and polname = 'affiliate_feed_items_write'
+                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — sharing with affiliates is not limited to people who manage affiliate programs'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_feed_items_path')
+      then 'BROKEN — a shared item may point off the brand''s store'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_feed(text)', 'execute'))
+      then 'BROKEN — a client role can call affiliate_portal_feed'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
+      then 'BROKEN — the feed is readable with a signup link'
+    else 'ok'
+  end as status;
+
 -- Company logo (20261110140000): owners upload a logo in Settings -> Company;
 -- the stored address is held to this company's folder of a public
 -- company-logos bucket on a Supabase host, and the outreach email uses it.

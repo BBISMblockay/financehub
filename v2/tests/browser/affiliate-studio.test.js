@@ -27,6 +27,7 @@
  *                                     ledger lines the page holds
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
+ *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -41,6 +42,7 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
+  feedhtml: ['/affiliates/portal.html', '<div class="af-item-title">${esc(i.title)}</div>', '<div class="af-item-title">${i.title}</div>'],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
@@ -88,6 +90,10 @@ const tables = {
   affiliate_balances_v: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, currency: 'USD', earned_cents: 500, refund_adjustment_cents: null, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 500 }],
   affiliate_payouts: [], affiliate_payout_items: [],
   affiliate_notifications: [],
+  affiliate_feed_items: [{ id: 'f1', company_entity_id: CO, program_id: PROG, kind: 'product', source_id: 'trail-hat', title: 'Trail Hat', image_url: null, product_path: '/products/trail-hat', shared_at: now }],
+  launch_calendar: [{ id: 'lc1', company_entity_id: CO, title: 'Spring Drop', launch_date: '2099-03-01', launch_image_url: 'https://cdn.invalid/spring.png', landing_page_url: 'https://brand.invalid/collections/spring', status: 'planned' }],
+  ad_ideas: [{ id: 'ad1', company_entity_id: CO, title: 'Mud season', hook: 'Built for mud', body_draft: 'Grip that holds.', destination_url: 'https://brand.invalid/products/mud-shoe', status: 'live', updated_at: now }],
+  products_master: [{ company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: null, shopify_handle: 'trail-hat' }],
   entity_memberships: [{ entity_id: CO, user_id: 'u1' }],
 };
 const ready = () => !!document.querySelector('#prospectsBody .bcn-card');
@@ -101,8 +107,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── staff page, as a manager ──────────────────────────────────────────
     const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     page.on('pageerror', (e) => errors.push(e.message));
-    // Simple page: four tabs, Find creators first, one next-step line.
-    R.ok('the page has four tabs', (await page.$$('#tabs [data-tab]')).length === 4);
+    // Simple page: five tabs (Share added for the portal feed), Find creators first, one next-step line.
+    R.ok('the page has five tabs', (await page.$$('#tabs [data-tab]')).length === 5);
     const next = await text(page, '#nextStep');
     R.has(next, 'waiting for your review', 'the next-step line says what to do now');
     R.has(next, 'not credited', 'uncredited code orders are surfaced');
@@ -115,7 +121,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(ov, 'Stripe Connect', 'an unbuilt feature is not advertised')
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.ok('incrementality is labelled not measured', /Incremental sales\s*not measured/.test(ov))
-    for (const tab of ['prospects', 'outreach', 'affiliates', 'payouts']) {
+    for (const tab of ['prospects', 'outreach', 'affiliates', 'share', 'payouts']) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });
     }
@@ -161,6 +167,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
     R.has(await text(page, '#payoutsBody'), 'pay it from your bank or payment tool', 'the payout tab says where money moves');
+    // ── Share tab: the brand picks what affiliates see ──────────────────
+    await page.click('#tabs [data-tab="share"]');
+    await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
+    const sb = await text(page, '#shareBody');
+    R.has(sb, 'Trail Hat', 'what is already shared is listed first');
+    R.has(sb, 'Mud season', 'live Ad Studio campaigns can be shared');
+    await page.click('#shareBody [data-act="feed-add"][data-kind="launch"]');
+    await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_items' && q._op === 'insert'), null, { timeout: 5000 });
+    const shared = await page.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').pop().rows);
+    const row = Array.isArray(shared) ? shared[0] : shared;
+    R.eq(row?.kind, 'launch');
+    R.eq(row?.product_path, '/collections/spring', 'a launch shares its store page as a path, never another site');
+    R.eq(row?.event_on, '2099-03-01');
+    R.ok('only the snapshot fields are shared', row && Object.keys(row).sort().join() === 'company_entity_id,event_on,image_url,kind,note,product_path,program_id,source_id,title');
     await page.click('#btnSettings');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     await page.close();
@@ -250,7 +270,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // A join link gets a real logo address; a portal link gets one outside the bucket, which must not be shown.
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
-      if (body.action === 'statement') return reply(200, { brand: 'Brand A', statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
+      if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
+        { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
+        { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
     });
@@ -282,6 +304,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const portal = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
     R.has(await text(portal, '#kpis'), '$12.50', 'the portal shows earnings in the program currency');
     R.has(await text(portal, '#body'), 'PAT10', 'the portal lists the affiliate code');
+    const fb = await text(portal, '#body');
+    R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
+    R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
+    R.eq(await portal.$$eval('#body [data-copy]', (b) => b.map((x) => x.dataset.copy)).then((a) => a.length), 3, 'a copy button for the store link and each shared item');
+    R.has(fb, 'applies your code PAT10', 'the portal says the link carries the code');
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
     await portal.close();
     const expiredPortal = await suite.open('/v2/affiliates/portal.html?t=' + 'E'.repeat(43), {}, { ready: () => !!document.getElementById('renew') });

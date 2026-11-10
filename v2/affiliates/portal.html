@@ -25,6 +25,18 @@
     .af-scroll { overflow-x: auto; }
     .af-brand { display: flex; align-items: center; gap: 12px; }
     .af-logo { height: 36px; width: auto; max-width: 180px; object-fit: contain; border-radius: 8px; display: block; }
+    /* The feed: what the brand shared, each with the affiliate's own link. */
+    .af-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .af-item { border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); overflow: hidden; display: flex; flex-direction: column; }
+    .af-item img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: var(--bcn-bg); }
+    .af-item-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .af-item-title { font-weight: 700; color: var(--bcn-ink); font-size: 14px; line-height: 1.35; }
+    .af-item-note { color: var(--bcn-ink-2); font-size: 13px; line-height: 1.45; white-space: pre-line; }
+    .af-item-date { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-3); }
+    .af-item .bcn-btn { margin-top: auto; align-self: flex-start; }
+    .af-mylink { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .af-mylink .af-copy { flex: 1; min-width: 200px; }
+    .af-feed-head { font-weight: 700; color: var(--bcn-ink); margin: 14px 0 8px; font-size: 13px; }
     .af-badge { width: 32px; height: 32px; border-radius: 8px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; flex: none; }
   </style>
 </head>
@@ -65,13 +77,15 @@ async function load() {
   $('title').textContent = `${r.brand} affiliate portal`;
   $('mark').innerHTML = brandMark(r.brand, r.brand_logo);
   wireBrandMark($('mark'));
-  const s = (await call('statement', { token })).statement || {};
+  const st = await call('statement', { token });
+  const s = st.statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
   const kpi = (l, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(l)}</div><div class="bcn-kpi-value">${v}</div></div>`;
   $('kpis').innerHTML = kpi('Earned', m(t.earned_cents)) + kpi('Paid', m(t.paid_cents)) + kpi('Not yet paid', m(t.unclaimed_cents)) + kpi('Orders', esc(t.orders ?? 0));
   $('kpis').hidden = false;
   $('body').innerHTML = [
     s.affiliate?.status === 'paused' ? card('Paused', '<p>The brand has paused your affiliate account. New orders are not credited until it is resumed.</p>') : '',
+    feedCard(st.feed),
     card('Your codes', table(['Code', 'From', 'Until', 'Status'], (s.codes || []).map((c) => [`<span class="af-num">${esc(c.code)}</span>`, esc(day(c.starts_on)), esc(day(c.ends_on) || 'open'), esc(c.status)]), 'No code yet. The brand will send one.')),
     card('Your links', table(['Link', 'From', 'Status'], (s.links || []).map((l) => { let u = l.destination_url; try { const x = new URL(l.destination_url); for (const k of ['utm_source', 'utm_medium', 'utm_campaign']) if (l[k]) x.searchParams.set(k, l[k]); u = x.toString(); } catch {} return [`<span class="af-copy">${esc(u)}</span>`, esc(day(l.starts_on)), esc(l.status)]; }), 'No links yet.')
       + '<p class="af-muted">Links help the brand see your traffic. Commission is paid on orders that use your code.</p>'),
@@ -81,6 +95,32 @@ async function load() {
     card('Terms', `<p>You accepted version ${esc(s.affiliate?.terms_version_accepted ?? '—')} on ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`),
   ].join('');
 }
+// What the brand shared, each with this affiliate's own link: the link opens
+// the brand's store with the affiliate's code applied, and the code is what
+// earns commission.
+function feedCard(feed) {
+  if (!feed) return '';
+  const items = Array.isArray(feed.items) ? feed.items : [];
+  if (!items.length && !feed.store_link) return '';
+  const copyBtn = (link) => (link ? `<button class="bcn-btn bcn-btn--ghost" type="button" data-copy="${esc(link)}">Copy my link</button>` : '');
+  const item = (i) => `<div class="af-item">${i.image_url ? `<img src="${esc(i.image_url)}" alt="" loading="lazy">` : ''}
+    <div class="af-item-body"><div class="af-item-title">${esc(i.title)}</div>
+    ${i.event_on ? `<div class="af-item-date">${esc(day(i.event_on))}</div>` : ''}
+    ${i.note ? `<div class="af-item-note">${esc(i.note)}</div>` : ''}${copyBtn(i.link)}</div></div>`;
+  const group = (kind, head) => { const g = items.filter((i) => i.kind === kind); return g.length ? `<div class="af-feed-head">${esc(head)}</div><div class="af-feed">${g.map(item).join('')}</div>` : ''; };
+  const mine = feed.store_link
+    ? `<div class="af-mylink"><span class="af-copy" id="storeLink">${esc(feed.store_link)}</span>${copyBtn(feed.store_link)}</div>
+       <p class="af-muted">Every link here applies your code ${esc(feed.code || '')} at checkout, so the order is credited to you once.</p>`
+    : '<p class="af-muted">Your links appear here once the brand gives you a code.</p>';
+  return card('Share and earn', mine + group('launch', 'Coming up') + group('product', 'Products') + group('ad', 'Campaigns'));
+}
+
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-copy]');
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); setStatus('Link copied.', 'pos'); }
+  catch { setStatus(b.dataset.copy, 'info'); }
+});
 load().catch((e) => setStatus(e.message, 'neg'));
 </script>
 </body>
