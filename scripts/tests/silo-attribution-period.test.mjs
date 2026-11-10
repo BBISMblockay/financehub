@@ -6,7 +6,8 @@ test('presets are inclusive day counts anchored on the newest collected day',()=
  // Inclusive: "Last 7 days" ending 2026-10-17 starts on the 11th, which is 7 days of data, not 8.
  assert.deepEqual(periodRange('7','2026-10-17'),{start:'2026-10-11',end:'2026-10-17'});
  assert.deepEqual(periodRange('30','2026-10-17'),{start:'2026-09-18',end:'2026-10-17'});
- assert.deepEqual(periodRange('90','2026-10-17'),{start:'2026-07-20',end:'2026-10-17'});
+ // No 90-day preset: loadRows() refuses anything over 31 days (review cycle 1, finding 1).
+ assert.equal(periodRange('90','2026-10-17'),null);
 });
 test('month presets land on real month boundaries, including across a year',()=>{
  assert.deepEqual(periodRange('mtd','2026-10-17'),{start:'2026-10-01',end:'2026-10-17'});
@@ -45,4 +46,35 @@ test('day arithmetic is UTC and does not drift across a DST change',()=>{
  assert.equal(shiftDay('2026-03-09',-7),'2026-03-02');
  assert.deepEqual(periodRange('7','2026-03-09'),{start:'2026-03-03',end:'2026-03-09'});
  assert.equal(shiftDay('2026-11-02',-1),'2026-11-01');
+});
+
+// Review cycle 1 of PR #1173, finding 1: a "Last 90 days" option was offered that loadRows()
+// deterministically refused. These two tests make the page's options, this module's list and the
+// loader's own limit one fact instead of three that can drift.
+import {readFileSync} from 'node:fs';
+import {loadRows} from '../../v2/silo-attribution-report.js';
+const pageHtml=readFileSync(new URL('../../v2/silo-attribution.html',import.meta.url),'utf8');
+
+test('the page offers exactly the presets this module defines',()=>{
+ const control=pageHtml.match(/<select[^>]*id="period"[^>]*>(.*?)<\/select>/s);
+ assert.ok(control,'the period control must exist on the page');
+ const offered=[...control[1].matchAll(/value="([^"]+)"/g)].map(m=>m[1]);
+ assert.deepEqual(offered,PERIODS);
+});
+test('every offered preset is a period the real loader will accept',async()=>{
+ const uuid='00000000-0000-0000-0000-000000000001';
+ for(const preset of PERIODS){
+   for(const anchor of ['2026-10-17','2026-01-31','2026-03-01','2026-12-31']){
+     const range=periodRange(preset,anchor);
+     if(!range)continue; // 'custom' computes nothing; the typed dates are the user's own.
+     const days=Math.round((Date.parse(range.end)-Date.parse(range.start))/86400000)+1;
+     assert.ok(days>=1&&days<=31,`${preset} at ${anchor} spans ${days} days`);
+     // Through loadRows itself, not a copy of its rule. Returning no control rows makes it stop at
+     // the NEXT guard, so reaching that message proves the period length was accepted.
+     const db={from:()=>{const q={select:()=>q,eq:()=>q,gte:()=>q,lte:()=>q,order:()=>Promise.resolve({data:[],error:null})};return q;}};
+     await assert.rejects(()=>loadRows(db,uuid,uuid,range.start,range.end,30),
+       (e)=>{assert.doesNotMatch(e.message,/inclusive period/,`${preset} at ${anchor} was refused as a period`);
+             assert.match(e.message,/have not been backfilled/);return true;});
+   }
+ }
 });

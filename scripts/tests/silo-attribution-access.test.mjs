@@ -25,7 +25,7 @@ function harness(company=bb,active=company?.id,{stores=oneStore,coverage=oneCove
  const w={SiloNav:nav(),__SILO_CONFIG__:{SUPABASE_URL:'test',SUPABASE_ANON_KEY:'test',SILO_ATTRIBUTION_ENABLED:true,ensureActiveCompany:async()=>company},supabase:{createClient:()=>db}};
  const context={URLSearchParams,location:{search},window:w,document:{querySelector:()=>({querySelector:node}),createElement:()=>({})},mountReport:(root,c)=>{callbacks=c;return {refresh:async()=>{}};},loadRows:async()=>{reads++;afterLoad();return 'rows';},loadSpend:async(db,companyId)=>{spendReads.push(companyId);return 'spend';},periodRange,matchPeriod};
  vm.createContext(context);vm.runInContext(pageSource,context);
- return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);},get labels(){return node('#store').options.map(o=>o.textContent);},get pickerHidden(){return node('#store').label?.hidden===true;},get settingReads(){return settingReads;}};
+ return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);},get labels(){return node('#store').options.map(o=>o.textContent);},get pickerHidden(){return node('#store').label?.hidden===true;},get settingReads(){return settingReads;},get dateFieldsHidden(){return node('#start').label?.hidden===true&&node('#end').label?.hidden===true;},get dateLine(){return node('#onlystore').inserted;}};
 }
 test('direct page accepts Baseballism and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
 test('direct page denies other, standard, missing and stale company even with global flag true',async()=>{for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}});
@@ -145,4 +145,81 @@ test('useless shop names fall back to the domain',async()=>{
  const coverage=odd.map(s=>({connection_id:s.id,last_day:'2026-10-17',funded_days:5}));
  const h=harness(bb,bb.id,{stores:odd,coverage,setting:['blank','same','padded']});await h.start();
  assert.deepEqual(h.labels,['blankname.myshopify.com','samename.myshopify.com','Baseballism Hohokam (padded)']);
+});
+
+// Review cycle 1 of PR #1173, finding 2: the period anchor is per store, so switching store left
+// the previous store's dates in place while the control still claimed the old preset. loadRows()
+// refuses a period containing uncollected days outright, so that combination did not show less --
+// it failed.
+const twoDates=[{id:'a',shop_domain:'a.myshopify.com',shop_name:'Store A'},
+ {id:'b',shop_domain:'b.myshopify.com',shop_name:'Store B'}];
+const twoDatesCoverage=[{connection_id:'a',last_day:'2026-10-17',funded_days:40},
+ {connection_id:'b',last_day:'2026-10-15',funded_days:40}];
+
+test('switching store re-anchors an active preset to that store',async()=>{
+ const h=harness(bb,bb.id,{stores:twoDates,coverage:twoDatesCoverage,setting:['a','b']});await h.start();
+ assert.equal(h.node('#store').value,'a');
+ assert.equal(h.node('#period').value,'30');
+ assert.equal(h.node('#start').value,'2026-09-18');
+ assert.equal(h.node('#end').value,'2026-10-17');
+ // Switch to the store collected two days earlier.
+ h.node('#store').value='b';
+ h.node('#store').listeners.change();
+ assert.equal(h.node('#period').value,'30','the preset stays the chosen one');
+ assert.equal(h.node('#end').value,'2026-10-15','and follows the new store\'s newest collected day');
+ assert.equal(h.node('#start').value,'2026-09-16');
+});
+test('switching store keeps a custom range as typed and only relabels it',async()=>{
+ const h=harness(bb,bb.id,{stores:twoDates,coverage:twoDatesCoverage,setting:['a','b']});await h.start();
+ // A range that is nobody's preset.
+ h.node('#start').value='2026-10-01';h.node('#end').value='2026-10-09';
+ h.node('#start').listeners.change();
+ assert.equal(h.node('#period').value,'custom');
+ h.node('#store').value='b';
+ h.node('#store').listeners.change();
+ assert.equal(h.node('#start').value,'2026-10-01','custom dates are the user\'s own, not re-anchored');
+ assert.equal(h.node('#end').value,'2026-10-09');
+ assert.equal(h.node('#period').value,'custom');
+ // The same dates can be a preset for one store and custom for another, so the label is recomputed:
+ // store B's newest day is the 15th, so its last 7 days are the 9th to the 15th.
+ h.node('#start').value='2026-10-09';h.node('#end').value='2026-10-15';
+ h.node('#store').listeners.change();
+ assert.equal(h.node('#period').value,'7');
+ // ... and the restated range follows it, or the bar would name a period the report is not about.
+ assert.equal(h.dateLine.textContent,'Oct 9, 2026 through Oct 15, 2026');
+ assert.equal(h.dateFieldsHidden,true,'a range that lands on a preset is shown as one');
+});
+
+test('a preset states its range once instead of repeating it in From and To',async()=>{
+ const h=harness();await h.start();
+ assert.equal(h.node('#period').value,'30');
+ assert.equal(h.dateFieldsHidden,true);
+ assert.equal(h.dateLine.hidden,false);
+ assert.equal(h.dateLine.textContent,'Sep 1, 2026 through Sep 30, 2026');
+});
+
+test('choosing Custom brings the date fields back carrying the preset dates',async()=>{
+ const h=harness();await h.start();
+ h.node('#period').value='custom';h.node('#period').listeners.change();
+ assert.equal(h.dateFieldsHidden,false);
+ assert.equal(h.dateLine.hidden,true);
+ assert.equal(h.node('#start').value,'2026-09-01');
+ assert.equal(h.node('#end').value,'2026-09-30');
+});
+
+test('switching to a preset hides the fields again and restates the new range',async()=>{
+ const h=harness();await h.start();
+ h.node('#period').value='custom';h.node('#period').listeners.change();
+ h.node('#period').value='7';h.node('#period').listeners.change();
+ assert.equal(h.dateFieldsHidden,true);
+ assert.equal(h.node('#start').value,'2026-09-24');
+ assert.equal(h.dateLine.textContent,'Sep 24, 2026 through Sep 30, 2026');
+});
+
+test('typing a custom date keeps the fields visible and clears the restated range',async()=>{
+ const h=harness();await h.start();
+ h.node('#start').value='2026-09-15';h.node('#start').listeners.change();
+ assert.equal(h.node('#period').value,'custom');
+ assert.equal(h.dateFieldsHidden,false);
+ assert.equal(h.dateLine.hidden,true);
 });
