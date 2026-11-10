@@ -302,7 +302,7 @@ function nextSteps() {
   if (p.status !== 'active') steps.push({ text: `The program is ${p.status}. Set it to active in Settings to start finding and recruiting creators.`, tab: 'program' });
   if (!p.terms_markdown) steps.push({ text: 'Write your program terms in Settings. Affiliates accept them to join.', tab: 'program' });
   if (h.prospects_new) steps.push({ text: `${num(h.prospects_new)} creator(s) waiting for your review.`, tab: 'prospects' });
-  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) ready for your AI to send.`, tab: 'outreach' });
+  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, tab: 'outreach' });
   if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
   if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
@@ -367,7 +367,7 @@ function renderAiHub() {
   const hintLines = [
     !workSend ? `<p class="af-muted"><strong>Send:</strong> ${esc(SEND_PROMPT_HINT)}</p>` : '',
     !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
-    connectPrimary ? '<p class="af-muted">Connect while this company is selected and allow outreach + Shopify codes.</p>' : '',
+    connectPrimary ? '<p class="af-muted">In your AI app, connect SILO MCP while this company is selected and allow outreach + Shopify codes.</p>' : '',
     !workSend && !workCodes && (canSend || canCode)
       ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'ghost')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'ghost')}</div>`
       : '',
@@ -379,7 +379,7 @@ function renderAiHub() {
   const manageKind = connectPrimary ? 'primary' : '';
   el.hidden = false;
   el.innerHTML = card('Your AI', `
-    <p class="af-muted" style="margin:0;">Approve here. Your AI runs mail and Shopify (SILO MCP).</p>
+    <p class="af-muted" style="margin:0;">You approve messages and codes in Studio. SILO passes approved work to your MCP agent—in Claude, Cursor, or similar—to send from your mailbox and create Shopify codes.</p>
     <div class="af-ai-status">
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
       ${aiEnabledRow('Create Shopify codes', apps, canCode, pendingCodes)}
