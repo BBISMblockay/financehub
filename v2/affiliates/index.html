@@ -89,6 +89,11 @@
     .af-ai-status { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
     .af-ai-status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; color: var(--bcn-ink); }
     .af-ai-status-row .af-wait { font-size: 12px; color: var(--bcn-ink-3); }
+    .af-ai-hint { margin-top: 10px; font-size: 13px; }
+    .af-ai-hint > summary { cursor: pointer; color: var(--bcn-ink-3); list-style: none; }
+    .af-ai-hint > summary::-webkit-details-marker { display: none; }
+    .af-ai-hint[open] > summary { margin-bottom: 8px; }
+    .af-ai-hint p { margin: 0 0 6px; }
     .af-stack { gap: 16px; }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
