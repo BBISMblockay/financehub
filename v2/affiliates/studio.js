@@ -77,15 +77,6 @@ async function updateRows(table, patch, match) {
   if (!rows?.length) throw new Error('Nothing was changed: the row was not found, or you do not have permission to change it.');
   return rows;
 }
-// What a search found, in words. Counts only.
-function searchSummary(r = {}) {
-  if (!r.ran && !r.failed) return 'Nothing to search yet: add a search, or resume a paused one.';
-  const found = `${num(r.prospects_new || 0)} new prospect(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
-  if (r.failed && !r.ran) return 'The search service had a temporary problem. Try again in a few minutes.';
-  if (r.failed) return `Searched. ${found} Some searches had a temporary problem; try again in a few minutes.`;
-  return r.prospects_new || r.prospects_updated ? `Searched. ${found}` : 'Searched. No creators found this time. Try other words or another platform.';
-}
-
 // AI research runs in the background; the page watches its run row.
 const RESEARCH_STALE_MS = 10 * 60_000;
 function researchSummary(r) {
@@ -395,6 +386,9 @@ function renderProspects() {
   const filters = ['new', 'qualified', 'approved', 'invited', 'signed_up', 'rejected', 'suppressed', 'all'];
   const runs = d.runs.slice(0, 10);
   $('prospectsBody').innerHTML = [
+    MANAGE ? card('Find creators', `<p class="af-muted">SILO searches Google and has AI check every creator it finds, keeping only real creators who fit. Uses AI credit and takes a few minutes.</p>
+      ${field('Who are you looking for? (optional)', `<textarea class="bcn-field" id="rsFocus" rows="2" maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} parents and coaches on TikTok` : 'e.g. youth baseball coaches with drill videos')}"></textarea>`)}
+      <div class="af-row" style="margin-top:8px;">${field('How many (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
     card('Prospects', `<div class="bcn-tabs" style="margin:0 0 8px;">${filters.map((f) => `<button class="bcn-tab${f === filter ? ' bcn-tab--active' : ''}" data-act="prospect-filter" data-f="${f}">${esc(f.replace('_', ' '))} <span class="af-mono">${f === 'all' ? d.prospects.length : d.prospects.filter((x) => x.status === f).length}</span></button>`).join('')}</div>
       ${table([
         { h: 'Creator', f: who }, { h: 'Followers', num: true, f: followers }, { h: 'Contact', f: contact }, { h: 'Why they were found', f: provenance },
@@ -403,9 +397,6 @@ function renderProspects() {
       ], list, 'No prospects in this state.')}
       <p class="af-muted">Fit is scored from what was found: platform, niche words and a published contact.</p>
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
-    MANAGE ? card('Find creators with AI', `<p class="af-muted">AI reads public pages for creators who fit this program and keeps only the ones it found there. Uses AI credit and takes a few minutes.</p>
-      ${field('What to look for (optional)', `<textarea class="bcn-field" id="rsFocus" rows="2" maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} parents and coaches on TikTok` : 'e.g. youth baseball coaches with drill videos')}"></textarea>`)}
-      <div class="af-row" style="margin-top:8px;">${field('How many (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">Upload a CSV with one creator per row and a profile link column. Rows marked as minors are skipped.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
     MANAGE ? card('Add a prospect by hand', `<div class="af-grid">
@@ -413,14 +404,13 @@ function renderProspects() {
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email (only one they published or gave you)', input('mpEmail', 'type="email"'))}${field('Where you found them (URL)', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
-    card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week, and right away when you add a search or press Search now.</p>
+    card('Saved Google searches', `<p class="af-muted">Every Find creators run also checks these searches and hands what they find to the AI.</p>
       ${table([
         { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint === 'blog' ? 'websites' : s.platform_hint || 'program platforms')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
         { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(friendlySearchError(s.last_error))}</div>` : ''}` },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
-      ${MANAGE && d.sources.some((s) => s.enabled) ? `<div class="af-row" style="margin-top:8px;">${btn('Search now', 'discovery-run', {}, 'primary')}</div>` : ''}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
@@ -652,9 +642,7 @@ const A = {
       company_entity_id: CO, program_id: S.programId, kind: 'serp_query', query: val('srcQuery'), platform_hint: val('srcPlat') || null,
       location_code: Number(val('srcLoc')) || null, language_code: val('srcLang') || null, max_results: Number(val('srcMax')) || 30, created_by: me.id,
     }).select('id').single());
-    setStatus('Search added. Searching…', 'info');
-    try { return `Search added. ${searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId, source_id: added.id }))}`; }
-    catch (e) { return `Search added. It will run with the weekly refresh (${e.message})`; }
+    return added ? 'Search saved. Find creators will check it on every run.' : 'Search saved.';
   },
   'research-run': async () => {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
@@ -679,7 +667,6 @@ const A = {
       + `${t.skipped_not_profile ? ` ${num(t.skipped_not_profile)} had no profile link.` : ''}`
       + `${t.suppressed_skipped ? ` ${num(t.suppressed_skipped)} are on the do-not-contact list.` : ''}`;
   },
-  'discovery-run': async () => { setStatus('Searching…', 'info'); return searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId })); },
   'source-toggle': async ({ id, on }) => { await updateRows('affiliate_prospect_sources', { enabled: on === '1' }, { id }); return on === '1' ? 'Search resumed.' : 'Search paused.'; },
   'suppression-add': async () => {
     if (!val('supVal')) throw new Error('Type the address, domain, handle or URL.');

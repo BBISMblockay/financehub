@@ -46,12 +46,17 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 6. Make the program **active** when it should recruit. Discovery, approving
    outreach, joining and applying all skip or refuse a program that is not
    active.
-7. Adding a search runs it immediately (the `affiliate-discovery-run`
-   function), and **Search now** runs every enabled search for the program
-   again. Adding a search runs only that search; the same search (or the
-   same program's Search now) is refused again within 20 seconds, a double click. The **Affiliate discovery** workflow still
-   refreshes every active program on Mondays 14:40 UTC; dispatch it with
-   `dry_run: true` to print the plan without calling the provider.
+7. **One search** (Blake, 2026-11-10): the Prospects tab has a single **Find
+   creators** button (`affiliate-research`). Each run first runs up to 3 of
+   the program's enabled saved Google searches plus the "who are you looking
+   for" text as one more, hands the profiles found (up to 40) to the AI as
+   leads, and the AI checks each one and keeps searching beyond them. A lead
+   is stored ONLY if the AI records it; it then counts as found because a real
+   search returned it. Saving a search no longer runs it on its own, and the
+   page has no separate Search now. The **Affiliate discovery** workflow is no
+   longer scheduled (it would write unchecked results); `affiliate-discovery-run`
+   stays deployed but nothing on the page calls it. Dispatch the workflow with
+   `dry_run: true` to print a plan for support.
    Every search is pinned to creator profiles: the words are sent with Google
    `site:` filters for the search's Platform, else the program's ticked social
    platforms, else all of them (`searchKeyword()` in the core). Platform

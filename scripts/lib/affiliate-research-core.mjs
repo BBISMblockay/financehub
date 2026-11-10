@@ -37,6 +37,8 @@ export const MAX_IMPORT_ROWS = 500;
 // asked for, so the cap allows several rounds.
 export const MAX_MODEL_CALLS = 10;
 export const MAX_PER_SOURCE = 5;
+// Google leads handed to the AI per run (profiles the program's searches found).
+export const MAX_LEADS = 40;
 export const WEB_SEARCH_USES = 8;
 export const WEB_FETCH_USES = 15;
 export const FETCH_CONTENT_TOKENS = 20000;
@@ -93,7 +95,7 @@ When you are done, call record_creators once with your list.`;
 export const clampCount = (n) => Math.min(Math.max(Math.round(Number(n) || 25), 5), MAX_RESEARCH_CREATORS);
 
 /** The first Messages API request for one research run. */
-export function buildResearchRequest({ program, focus, count, model, today }) {
+export function buildResearchRequest({ program, focus, count, model, today, leads = [] }) {
   const platforms = (program?.platforms || []).filter((p) => PLATFORMS.includes(p));
   const brief = [
     `Program: ${program?.name || 'affiliate program'}`,
@@ -103,6 +105,7 @@ export function buildResearchRequest({ program, focus, count, model, today }) {
     (program?.geographies || []).length ? `Countries: ${program.geographies.join(', ')}` : '',
     focus ? `Look for: ${String(focus).slice(0, 500)}` : '',
     `Find ${clampCount(count)} creators. Today is ${today}.`,
+    leads.length ? leadsBrief(leads) : '',
   ].filter(Boolean).join('\n');
   return {
     model,
@@ -116,6 +119,25 @@ export function buildResearchRequest({ program, focus, count, model, today }) {
     tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: brief }],
   };
+}
+
+/**
+ * Profiles a Google search found, as the AI's first leads. They are real
+ * search results, so they count as seen; whether each one FITS is the AI's
+ * call, and a lead it does not record is never stored.
+ */
+export function leadsBrief(leads) {
+  const lines = leads.slice(0, MAX_LEADS).map((l) => `- ${String(l.display_name || l.handle || '').slice(0, 80)} (${l.platform}) ${l.profile_url}${l.evidence?.snippet ? ` | ${String(l.evidence.snippet).slice(0, 140)}` : ''}`);
+  return `\nLeads from a Google search (not yet checked). Open each one that looks relevant, keep only real creators who fit this program, and drop businesses, stores, news sites and unrelated accounts. Then search for more beyond these leads.\n${lines.join('\n')}`;
+}
+
+/** Leads as evidence: their profile URLs and the search titles and snippets. */
+export function leadsEvidence(leads, into = { urls: new Set(), text: [] }) {
+  for (const l of leads.slice(0, MAX_LEADS)) {
+    const n = normUrl(l.profile_url); if (n) into.urls.add(n);
+    for (const t of [l.profile_url, l.evidence?.title, l.evidence?.snippet]) if (t) into.text.push(String(t).toLowerCase());
+  }
+  return into;
 }
 
 /** A URL reduced to what identifies a page: host without www, path without trailing slash. */
@@ -155,9 +177,9 @@ export function collectEvidence(contentBlocks, into = { urls: new Set(), text: [
  * (usage so far, next body) -> boolean lets the credit meter stop a run.
  * Returns { creators, evidence, usages, calls } or throws.
  */
-export async function runResearchConversation({ request, callModel, beforeNextCall = async () => true, maxCalls = MAX_MODEL_CALLS, wanted = 0, countKept = null }) {
+export async function runResearchConversation({ request, callModel, beforeNextCall = async () => true, maxCalls = MAX_MODEL_CALLS, wanted = 0, countKept = null, leads = [] }) {
   const messages = [...request.messages];
-  const evidence = { urls: new Set(), text: [] };
+  const evidence = leadsEvidence(leads);
   const usages = [];
   const creators = [];
   let nudged = false; let rounds = 0;

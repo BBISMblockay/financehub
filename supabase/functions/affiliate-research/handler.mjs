@@ -23,10 +23,10 @@
 // AI credit (docs/ops/ai-credits.md): one hold per run, opened before the
 // first model call, grown before each later call; charged only when at least
 // one creator survived the checks, free otherwise.
-import { upsertCandidates } from './lib/affiliate-discovery-core.mjs';
+import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
-  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES,
+  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
 
@@ -50,7 +50,34 @@ const reply = (body, status = 200) => new Response(JSON.stringify(body), { statu
 export function createResearchHandler({
   service, userClientFor, apiKey, model = 'claude-sonnet-5-5', fetchImpl = fetch,
   background = (p) => p, now = () => new Date(), newId = () => crypto.randomUUID(),
+  serpCredentials = null, fetchSerp = null,
 }) {
+  const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
+
+  // Google leads for one run: the program's enabled searches, plus the focus
+  // text as one more search. Leads are only handed to the AI; nothing is
+  // stored from them unless the AI checks and records the creator. A failed
+  // or unconfigured search just means fewer leads.
+  async function gatherLeads(program, focus) {
+    if (!search) return { leads: [], searched: 0, failed: 0 };
+    const { data: sources } = await service.from('affiliate_prospect_sources')
+      .select('id, query, platform_hint, location_code, language_code, max_results, kind, enabled')
+      .eq('company_entity_id', program.company_entity_id).eq('program_id', program.id).eq('enabled', true).eq('kind', 'serp_query')
+      .order('created_at', { ascending: true }).limit(3);
+    const list = [...(sources || [])];
+    if (focus) list.push({ id: null, query: focus, platform_hint: null, max_results: 30, location_code: null, language_code: null });
+    const byUrl = new Map(); let searched = 0; let failed = 0;
+    for (const src of list) {
+      try {
+        const { items } = await search(buildSerpTask(src, program));
+        searched += 1;
+        const { candidates } = candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() });
+        for (const c of candidates) if (!byUrl.has(c.profile_url.toLowerCase())) byUrl.set(c.profile_url.toLowerCase(), c);
+      } catch { failed += 1; }
+    }
+    return { leads: [...byUrl.values()].slice(0, MAX_LEADS), searched, failed };
+  }
+
   async function finishRun(id, patch) {
     await service.from('affiliate_discovery_runs').update({ ...patch, finished_at: now().toISOString() }).eq('id', id);
   }
@@ -70,7 +97,6 @@ export function createResearchHandler({
     }
 
     const focus = String(body?.focus || '').trim().slice(0, 500);
-    const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10) });
     const runId = newId();
     const { data: row, error: rErr } = await service.from('affiliate_discovery_runs').insert({
       company_entity_id: company, program_id: program.id, source_id: null, run_id: runId, provider: RESEARCH_PROVIDER,
@@ -80,7 +106,8 @@ export function createResearchHandler({
 
     const meter = createCreditMeter({ db: service, requestId: newId(), companyId: company, userId: callerId,
       feature: 'affiliate_research', model, sourceRef: row.id });
-    const opened = await meter.open({ estInput: estimateInputTokens(request) + HOLD_INPUT_TOKENS, maxOutput: MAX_OUTPUT_TOKENS, maxWeb: WEB_SEARCH_USES, calls: 1 });
+    const firstRequest = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10) });
+    const opened = await meter.open({ estInput: estimateInputTokens(firstRequest) + HOLD_INPUT_TOKENS, maxOutput: MAX_OUTPUT_TOKENS, maxWeb: WEB_SEARCH_USES, calls: 1 });
     if (!opened.ok) {
       const credit = opened.reason === 'insufficient_credit';
       await finishRun(row.id, { status: 'error', error: credit ? 'AI credit exhausted' : `AI credit check failed: ${opened.reason || 'unavailable'}` });
@@ -93,6 +120,8 @@ export function createResearchHandler({
     const work = (async () => {
       let usages = []; let outcome = 'failed';
       try {
+        const g = await gatherLeads(program, focus).catch(() => ({ leads: [], searched: 0, failed: 1 }));
+        const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10), leads: g.leads });
         const callModel = async (b) => {
           const left = RUN_BUDGET_MS - (now().getTime() - startedAt);
           if (left <= 5_000) { outcome = 'timed_out'; throw new Error('research ran out of time'); }
@@ -119,7 +148,7 @@ export function createResearchHandler({
         const wanted = clampCount(body?.count);
         const collectedAt = now().toISOString();
         const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt }).stats.kept;
-        const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept });
+        const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
         usages = out.usages;
         const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString() });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates, runId,
@@ -129,8 +158,8 @@ export function createResearchHandler({
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
-          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.kept < wanted
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}`
+          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.kept < wanted || g.leads.length
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
             : null,
         });
       } catch (err) {
