@@ -122,7 +122,7 @@ function download(name, text, type = 'text/csv') {
 }
 
 // ── State ────────────────────────────────────────────────────────────────
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '' };
+const S = { programs: [], programId: null, tab: 'prospects', profiles: [], brand: '' };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -199,6 +199,9 @@ const field = (label, inner) => `<div class="bcn-field-group"><label class="bcn-
 const input = (id, attrs = '') => `<input class="bcn-field" id="${id}" ${attrs} />`;
 const pill = (t, kind = '') => `<span class="bcn-pill${kind ? ` bcn-pill--${kind}` : ''}">${esc(t)}</span>`;
 const statusPill = (s) => pill(s, ({ active: 'pos', approved: 'pos', signed_up: 'pos', marked_paid: 'pos', sent: 'accent', exported: 'accent', invited: 'accent', qualified: 'accent', under_review: 'accent', rejected: 'neg', suppressed: 'neg', terminated: 'neg', void: 'neg', bounced: 'neg', declined: 'neg' })[s] || '');
+// Secondary tools stay one click away, closed by default, so each tab shows
+// only what most people need.
+const more = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<details class="af-more"><summary>${esc(label)}</summary><div class="af-stack">${p.join('')}</div></details>` : ''; };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (c) => formatMoney(c, prog()?.currency);
@@ -212,11 +215,12 @@ function render() {
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   renderKpis();
+  renderNextStep();
   if (!p && S.tab !== 'program') {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
   }
-  ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, commissions: renderCommissions, payouts: renderPayouts })[S.tab]();
+  ({ program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
 }
 
 function renderKpis() {
@@ -225,42 +229,44 @@ function renderKpis() {
   const bal = (S.d?.balances || []).filter((b) => b.currency === prog()?.currency);
   const sum = (f) => bal.reduce((a, b) => a + Number(b[f] || 0), 0);
   $('kpis').innerHTML = h ? [
-    k('New prospects', num(h.prospects_new)), k('Approved to contact', num(h.prospects_approved)),
-    k('Outreach marked sent', num(h.outreach_marked_sent)), k('Active affiliates', num(h.affiliates_active)),
+    k('Creators to review', num(h.prospects_new)), k('Active affiliates', num(h.affiliates_active)),
     k('Credited orders', num(h.attributions_earning)), k('Unpaid earned', bal.length ? money(sum('earned_cents') - sum('paid_cents')) : '—'),
   ].join('') : k('Programs', num(S.programs.length));
 }
 
-// ── Overview ─────────────────────────────────────────────────────────────
-function renderOverview() {
-  const d = S.d; const p = prog(); const h = d.health || {};
-  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, ledgerEntries: d.ledgerCount, sources: d.sources.length });
+// ── Next step ────────────────────────────────────────────────────────────
+// One line under the header: the most useful thing to do now.
+function nextSteps() {
+  const d = S.d; const p = prog(); if (!d || !p) return [];
+  const h = d.health || {};
   const steps = [];
-  if (p.status !== 'active') steps.push(`The program is <strong>${esc(p.status)}</strong>. Discovery, approving outreach, joining and applying all wait until it is active.`);
-  if (!p.terms_markdown) steps.push('Write the program terms on the Program tab. Affiliates read and accept them to join.');
-  if (!d.sources.length) steps.push('Add a search on the Prospects tab so SILO knows what kind of creators to look for.');
-  if (h.prospects_new) steps.push(`${num(h.prospects_new)} new prospect(s) are waiting for review on the Prospects tab.`);
-  if (h.outreach_approved) steps.push(`${num(h.outreach_approved)} approved message(s) are ready to export on the Outreach tab.`);
-  if (h.outreach_exported) steps.push(`${num(h.outreach_exported)} exported message(s) have not been marked sent.`);
-  if (h.codes_never_seen) steps.push(`${num(h.codes_never_seen)} active code(s) have never appeared on an order. Check that each exists in Shopify with the same spelling.`);
+  if (p.status !== 'active') steps.push({ text: `The program is ${p.status}. Set it to active in Settings to start finding and recruiting creators.`, tab: 'program' });
+  if (!p.terms_markdown) steps.push({ text: 'Write your program terms in Settings. Affiliates accept them to join.', tab: 'program' });
+  if (h.prospects_new) steps.push({ text: `${num(h.prospects_new)} creator(s) waiting for your review.`, tab: 'prospects' });
+  if (h.outreach_approved) steps.push({ text: `${num(h.outreach_approved)} approved message(s) ready to send.`, tab: 'outreach' });
+  if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
+  if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
-  if (unattributed) steps.push(`${num(unattributed)} order(s) carried an affiliate code but were not credited. The Commissions tab says why for each.`);
-  $('overviewBody').innerHTML = [
-    card('What needs attention', steps.length ? `<ul>${steps.map((s) => `<li>${s}</li>`).join('')}</ul>` : '<p>Nothing is waiting.</p>'),
-    card('How each part works for this company', table([
-      { h: 'Part', f: (r) => `<strong>${esc(r.stage)}</strong>` },
-      { h: 'Status', f: (r) => `<span class="af-stage af-label-${esc(r.label.replace(' ', '-'))}">${esc(r.label)}</span>` },
-      { h: 'What that means', f: (r) => `<span class="af-evidence">${esc(r.detail)}</span>` },
-    ], labels), 'verified = SILO has seen it work here'),
-    card('Program summary', `<div class="af-grid">
-      <div>${field('Commission', `<div>${esc(describeCommission({ kind: p.commission_kind, percent: p.commission_percent, fixed_cents: p.commission_fixed_cents, currency: p.currency }))}</div>`)}</div>
-      <div>${field('Settles in', `<div class="af-mono">${esc(p.currency)}</div>`)}</div>
-      <div>${field('Refund hold before paying', `<div class="af-mono">${num(p.refund_hold_days)} days</div>`)}</div>
-      <div>${field('Grace after a code ends', `<div class="af-mono">${num(p.attribution_window_days)} days</div>`)}</div>
-      <div>${field('Several codes on one order', `<div>${p.code_precedence === 'single_code_only' ? 'Not credited' : 'Credited only if exactly one is an affiliate’s'}</div>`)}</div>
-      <div>${field('Joining', `<div>${p.intake_mode === 'open' ? 'Open applications (reviewed)' : 'Invite only'}</div>`)}</div>
-    </div>`),
-  ].join('');
+  if (unattributed) steps.push({ text: `${num(unattributed)} order(s) with an affiliate code were not credited. Payouts → More shows why.`, tab: 'payouts' });
+  if (!steps.length && !d.prospects.length) steps.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects' });
+  return steps;
+}
+function renderNextStep() {
+  const el = $('nextStep'); if (!el) return;
+  const steps = nextSteps();
+  el.hidden = !steps.length;
+  if (!steps.length) return;
+  const [first] = steps;
+  el.innerHTML = `<strong>Next:</strong> ${esc(first.text)}${first.tab !== S.tab ? ` <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="${first.tab}">Go</button>` : ''}${steps.length > 1 ? `<details class="af-more"><summary>+${steps.length - 1} more</summary><ul>${steps.slice(1).map((x) => `<li>${esc(x.text)}</li>`).join('')}</ul></details>` : ''}`;
+}
+function stageCard() {
+  const d = S.d;
+  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, ledgerEntries: d.ledgerCount, sources: d.sources.length });
+  return card('How each part works for this company', table([
+    { h: 'Part', f: (r) => `<strong>${esc(r.stage)}</strong>` },
+    { h: 'Status', f: (r) => `<span class="af-stage af-label-${esc(r.label.replace(' ', '-'))}">${esc(r.label)}</span>` },
+    { h: 'What that means', f: (r) => `<span class="af-evidence">${esc(r.detail)}</span>` },
+  ], labels), 'verified = SILO has seen it work here');
 }
 
 // ── Program ──────────────────────────────────────────────────────────────
@@ -284,34 +290,31 @@ function renderProgram(isNew = S.creating) {
   const form = `
     <div class="af-grid">
       ${field('Name', input('pName', `${dis} value="${esc(p.name || '')}" placeholder="e.g. Creator program"`))}
-      ${field('Short name (used in the apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
       ${field('Status', `<select class="bcn-field" id="pStatus" ${dis}>${o('draft', 'Draft', p.status ?? 'draft')}${o('active', 'Active: recruiting', p.status)}${o('paused', 'Paused', p.status)}${o('closed', 'Closed', p.status)}</select>`)}
-      ${field('Designated employee (replies go to them)', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
+      ${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}
     </div>
-    <div class="af-grid af-grid--wide">
-      ${field('Niche (what discovery searches around)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}
-      ${field('Audience notes', input('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`))}
-      ${field('Countries (comma separated)', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
-    </div>
-    ${field('Platforms to recruit on', `<div class="af-checks">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`)}
+    ${field('Platforms', `<div class="af-checks">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`)}
     <div class="af-grid">
-      ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications (you review each)', p.intake_mode)}</select>`)}
       ${field('Commission type', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of net order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed per order', p.commission_kind)}</select>`)}
       ${field('Percent', input('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`))}
       ${field('Fixed amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
-      ${field('Currency', input('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}"`))}
     </div>
-    <div class="af-grid">
+    ${field(`Program terms${p.terms_version ? ` (version ${p.terms_version}; editing makes a new version)` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="6" ${dis} placeholder="What the affiliate agrees to: commission, how orders are credited, refunds, when and how you pay, what they may not do.">${esc(p.terms_markdown || '')}</textarea>`)}
+    ${more('Advanced settings', [`<div class="af-grid">
+      ${field('Short name (used in the apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
+      ${field('Designated employee (replies go to them)', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
+      ${field('Audience notes', input('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`))}
+      ${field('Countries (comma separated)', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
+      ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications (you review each)', p.intake_mode)}</select>`)}
+      ${field('Currency', input('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}"`))}
       ${field('Default code start', input('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`))}
       ${field('Default code end', input('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`))}
       ${field('Grace days after a code ends', input('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`))}
       ${field('Several codes on one order', `<select class="bcn-field" id="pPrec" ${dis}>${o('first_affiliate_code', 'Credit the one affiliate code', p.code_precedence ?? 'first_affiliate_code')}${o('single_code_only', 'Do not credit', p.code_precedence)}</select>`)}
       ${field('Refund hold (days)', input('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`))}
       ${field('Payout minimum', input('pMin', `${dis} inputmode="decimal" value="${esc(major(p.payout_minimum_cents))}"`))}
-    </div>
-    ${field(`Program terms${p.terms_version ? ` (version ${p.terms_version}; editing the text makes a new version)` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="10" ${dis} placeholder="What the affiliate agrees to: commission, how orders are credited, refunds, when and how you pay, what they may not do.">${esc(p.terms_markdown || '')}</textarea>`)}
-    <p class="af-muted">You pay affiliates from your own bank or payment tool, then record the payment here.</p>
-    ${MANAGE ? `<div class="af-row">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new') : ''}</div>` : ''}`;
+    </div>`])}
+    ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new') : ''}</div>` : ''}`;
   let extra = '';
   if (!isNew && p.id) {
     const url = applyUrl(location.origin, CO, p.slug);
@@ -320,7 +323,7 @@ function renderProgram(isNew = S.creating) {
       : '<p class="af-muted">Joining is invite only, so there is no public application link.</p>');
     extra += '<div id="managersCard"></div>';
   }
-  $('programBody').innerHTML = card(isNew ? 'New program' : 'Program settings', form) + extra;
+  $('programBody').innerHTML = card(isNew ? 'New program' : 'Settings', form) + (extra ? more('Sharing, access and how it works', [extra, S.d ? stageCard() : '']) : '');
   if (!isNew && p.id) renderManagers();
 }
 
@@ -351,22 +354,24 @@ function readProgramForm() {
 function renderProspects() {
   const d = S.d; const p = prog();
   const filter = S.prospectFilter || 'new';
-  const list = d.prospects.filter((x) => filter === 'all' || x.status === filter);
+  const GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
+  const inGroup = (x, g) => !GROUPS[g] || GROUPS[g].includes(x.status);
+  const list = d.prospects.filter((x) => inGroup(x, filter));
   const live = new Set(d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
   const actions = (x) => {
     if (!MANAGE) return '';
     const b = [];
-    if (['new'].includes(x.status)) b.push(btn('Qualify', 'prospect-status', { id: x.id, s: 'qualified' }));
     if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
     if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' }));
+    if (x.status === 'rejected') b.push(pill('rejected'));
     if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
     if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(btn('Signup link', 'signup-link', { id: x.id }));
-    if (!['suppressed', 'signed_up'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'danger', { confirm: true }));
+    if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'ghost', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
-    return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>`;
+    return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
   };
   const provenance = (x) => {
     const e = x.evidence || {};
@@ -383,20 +388,19 @@ function renderProspects() {
     return `${num(f.count)}${where ? `<div class="af-muted">${where}</div>` : ''}`;
   };
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
-  const filters = ['new', 'qualified', 'approved', 'invited', 'signed_up', 'rejected', 'suppressed', 'all'];
+  const filters = [['new', 'To review'], ['approved', 'Approved'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
   $('prospectsBody').innerHTML = [
-    MANAGE ? card('Find creators', `<p class="af-muted">SILO searches Google and has AI check every creator it finds, keeping only real creators who fit. Uses AI credit and takes a few minutes.</p>
-      ${field('Who are you looking for? (optional)', `<textarea class="bcn-field" id="rsFocus" rows="2" maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} parents and coaches on TikTok` : 'e.g. youth baseball coaches with drill videos')}"></textarea>`)}
-      <div class="af-row" style="margin-top:8px;">${field('How many (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
-    card('Prospects', `<div class="bcn-tabs" style="margin:0 0 8px;">${filters.map((f) => `<button class="bcn-tab${f === filter ? ' bcn-tab--active' : ''}" data-act="prospect-filter" data-f="${f}">${esc(f.replace('_', ' '))} <span class="af-mono">${f === 'all' ? d.prospects.length : d.prospects.filter((x) => x.status === f).length}</span></button>`).join('')}</div>
+    MANAGE ? card('Find creators', `<p class="af-muted">SILO searches the web and checks every creator it finds. Takes a few minutes and uses AI credit.</p>
+      <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
+    card('Creators', `<div class="bcn-tabs" style="margin:0 0 8px;">${filters.map(([f, label]) => `<button class="bcn-tab${f === filter ? ' bcn-tab--active' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)}&nbsp;<span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
       ${table([
-        { h: 'Creator', f: who }, { h: 'Followers', num: true, f: followers }, { h: 'Contact', f: contact }, { h: 'Why they were found', f: provenance },
-        { h: 'Fit', num: true, f: (x) => (x.confidence === null ? '—' : `${Math.round(x.confidence * 100)}%<div class="af-muted" style="text-align:right;max-width:200px;white-space:normal;">${esc(x.confidence_basis)}</div>`) },
-        { h: 'Status', f: (x) => statusPill(x.status) }, { h: '', f: actions },
-      ], list, 'No prospects in this state.')}
-      <p class="af-muted">Fit is scored from what was found: platform, niche words and a published contact.</p>
+        { h: 'Creator', f: who }, { h: 'Followers', num: true, f: followers }, { h: 'Why they fit', f: provenance }, { h: '', f: actions },
+      ], list, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')}
+      <p class="af-muted">Approving a creator drafts their message on the Messages tab.</p>
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
+    more('More options', [
+    MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">Upload a CSV with one creator per row and a profile link column. Rows marked as minors are skipped.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
     MANAGE ? card('Add a prospect by hand', `<div class="af-grid">
@@ -412,7 +416,7 @@ function renderProspects() {
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
-    card('Recent discovery runs', table([
+    card('Recent runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
       { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')) },
       { h: 'Results', num: true, f: (r) => num(r.results_returned) }, { h: 'Profiles', num: true, f: (r) => num(r.profiles_recognized) },
@@ -423,6 +427,7 @@ function renderProspects() {
     card('Do-not-contact list', `<p class="af-muted">People on this list are never contacted, invited or accepted, in any program.</p>
       ${table([{ h: 'Type', f: (s) => esc(s.kind) }, { h: 'Value', f: (s) => `<span class="af-mono">${esc(s.value_normalized)}</span>` }, { h: 'Reason', f: (s) => esc(s.reason) }, { h: 'Added', f: (s) => fmtDate(s.created_at) }, { h: '', f: (s) => (MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'ghost', { confirm: true }) : '') }], d.suppressions, 'Nobody is on the list.')}
       <div class="af-row" style="margin-top:8px;">${field('Type', '<select class="bcn-field" id="supKind"><option>email</option><option>domain</option><option>handle</option><option value="profile_url">profile URL</option></select>')}${field('Value', input('supVal'))}${field('Reason', '<select class="bcn-field" id="supReason"><option value="opted_out">asked not to be contacted</option><option value="bounced">bounced</option><option value="complained">complained</option><option value="competitor">competitor</option><option value="do_not_contact">do not contact</option><option value="manual">other</option></select>')}${btn('Add', 'suppression-add')}</div>`),
+    ]),
   ].join('');
 }
 
@@ -438,18 +443,20 @@ function renderOutreach() {
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
   $('outreachBody').innerHTML = [
-    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p><p class="af-muted">Or let your own AI send them from your mailbox: connect it in Settings → Connect AI and tick “send approved affiliate outreach”.</p>'),
+    '<p class="af-muted">Approve each message, export them with personal signup links, send them from your own inbox, then mark each one sent.</p>',
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     card('Drafts', table([
       { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
       { h: '', f: (x) => (MANAGE ? `<div class="af-actions">${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}</div>` : '') },
-    ], byState('draft'), 'No drafts. Approve prospects, then use “Draft message”.'), `${byState('draft').length}`),
+    ], byState('draft'), 'No drafts. Approve a creator on Find creators to draft one.'), `${byState('draft').length}`),
     card('Approved, not yet exported', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
       ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each person gets a personal signup link, valid for 14 days. Lost the file? Make a new link from the Prospects tab.</p>` : ''}`),
     card('Exported, waiting to be marked sent', table([
       { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
     ], byState('exported'), 'Nothing is waiting.')),
+    more('More options', [
+    card('Send with your own AI', '<p class="af-muted">Let your own AI send approved messages from your mailbox: connect it in Settings → Connect AI and tick “send approved affiliate outreach”.</p>'),
     card('Sent and outcomes', table([
       { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>${x.sent_via_app ? `<div class="af-muted">Via ${esc(x.sent_via_app)}</div>` : ''}` },
       { h: '', f: (x) => (MANAGE && x.state === 'sent' ? `<div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' })}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' })}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' })}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div>` : '') },
@@ -458,6 +465,7 @@ function renderOutreach() {
       { h: 'Exported', f: (b) => `${fmtTime(b.exported_at)}${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}, sent from the approver's mailbox</div>` : ''}` }, { h: 'Rows', num: true, f: (b) => num(b.row_count) },
       { h: 'Fingerprint (SHA-256 of the file)', f: (b) => `<span class="af-mono af-copy">${esc(b.fingerprint || '—')}</span>` },
     ], d.batches, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
+    ]),
   ].join('');
 }
 
@@ -488,8 +496,8 @@ function renderAffiliates() {
     MANAGE ? card('Give an affiliate a code', `<p class="af-muted">Use a discount code that already exists in Shopify. Orders with the code between these dates are credited.</p>
       <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}${field('Code (exactly as in Shopify)', input('cCode', 'class="bcn-field bcn-field--mono"'))}${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends (blank = open)', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${btn('Add code', 'code-add', {}, 'primary')}</div>
       ${table([{ h: 'Code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` }, { h: 'Affiliate', f: (c) => esc(d.affById[c.affiliate_id]?.display_name) }, { h: 'Dates', f: (c) => `${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}` }, { h: 'First seen', f: (c) => (c.verified_at ? `${fmtDate(c.verified_at)}<div class="af-muted">order ${esc(c.first_seen_order_id)}</div>` : '<span class="af-muted">never</span>') }, { h: '', f: (c) => (c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : pill('retired')) }], d.codes, 'No codes yet.')}`) : '',
-    MANAGE ? card('Give an affiliate a link', `<p class="af-muted">A tagged link to your site, so visits show up in your analytics. Commission comes from codes.</p>
-      <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="lAff">${affOpts}</select>`)}${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}</div>`) : '',
+    more('More options', [MANAGE ? card('Give an affiliate a link', `<p class="af-muted">A tagged link to your site, so visits show up in your analytics. Commission comes from codes.</p>
+      <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="lAff">${affOpts}</select>`)}${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}</div>`) : '']),
   ].join('');
 }
 
@@ -501,10 +509,12 @@ function renderCommissions() {
   const openPeriods = d.periods.filter((x) => x.status === 'open');
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
   $('commissionsBody').innerHTML = [
-    card('Match orders and calculate', `<p class="af-muted">Step 1 finds orders with affiliate codes. Step 2 calculates commission. Refunds are corrected automatically. Safe to run again.</p>
-      <div class="af-row">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
+    card('Commissions', `<p class="af-muted">Finds orders with affiliate codes and calculates what each affiliate earned. Refunds are corrected automatically. Safe to run again.</p>
+      ${MANAGE ? `<div class="af-row">${btn('Update commissions', 'update-commissions', {}, 'primary')}</div>` : ''}<div id="runOut"></div>`),
+    more('More options', [
+    card('Dates and period', `<div class="af-row">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
       ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">the open period that contains each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
-      ${MANAGE ? btn('1. Match orders', 'resolve') + btn('2. Calculate commissions', 'accrue', {}, 'primary') : ''}</div><div id="runOut"></div>`),
+      ${MANAGE ? btn('Match orders only', 'resolve') + btn('Calculate only', 'accrue') : ''}</div>`),
     card('Per affiliate', table([
       { h: 'Affiliate', f: (r) => esc(r.a?.display_name || '—') },
       { h: 'Credited orders', num: true, f: (r) => num(r.attributed_orders) },
@@ -538,6 +548,7 @@ function renderCommissions() {
       { h: 'Memo', f: (l) => `<span class="af-evidence">${esc(l.memo || '')}</span>` },
     ], d.ledger, 'No commission lines yet.')}
     ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)} (negative to reduce)`, input('adjAmt', 'inputmode="decimal"'))}${field('Why (kept forever)', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need the same approval right as journal entries.</p>'}`, 'append-only'),
+    ]),
   ].join('');
 }
 
@@ -556,7 +567,7 @@ function renderPayouts() {
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
   $('payoutsBody').innerHTML = [
-    card('How payouts work', `<p>Build a payout, get it approved, export it, pay it from your bank or payment tool, then record the payment reference. Earnings become payable ${num(p.refund_hold_days)} days after the order.</p>`),
+    `<p class="af-muted">Build a payout, approve it, pay it from your bank or payment tool, then record the payment. Earnings become payable ${num(p.refund_hold_days)} days after the order.</p>`,
     card('Balances', table([
       { h: 'Affiliate', f: (r) => esc(r.a?.display_name || '—') }, { h: 'Currency', f: (r) => `<span class="af-mono">${esc(r.currency)}</span>` },
       { h: 'Earned', num: true, f: (r) => formatMoney(r.earned_cents, r.currency) }, { h: 'Refund corrections', num: true, f: (r) => formatMoney(r.refund_adjustment_cents, r.currency) },
@@ -608,9 +619,14 @@ const A = {
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; render(); },
+  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); },
   'prospect-status': async ({ id, s }) => {
     await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: new Date().toISOString(), changed_by: me.id }, { id });
-    return `Prospect ${s}.`;
+    if (s !== 'approved') return `Creator ${s}.`;
+    // Approving drafts the message, unless one is already in progress.
+    const live = S.d.drafts.some((x) => x.prospect_id === id && ['draft', 'approved', 'exported'].includes(x.state));
+    if (!live) { await A['draft-create']({ id }); S.tab = 'prospects'; }
+    return live ? 'Creator approved.' : 'Creator approved. Their message is drafted on the Messages tab.';
   },
   'prospect-suppress': async ({ id }) => {
     const x = S.d.prospectById[id];
@@ -744,6 +760,11 @@ const A = {
     if (!/^https:\/\//i.test(dest)) throw new Error('The page must start with https://');
     must(await db.from('affiliate_links').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: val('lAff'), slug: val('lSlug'), destination_url: dest, utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: val('lCamp') || null, starts_on: today(), created_by: me.id }));
     return 'Link added.';
+  },
+  'update-commissions': async () => {
+    const m = await A.resolve(); const runOut = S.flash?.html || '';
+    await A.accrue(); S.flash = { el: 'runOut', html: runOut + (S.flash?.html || '') };
+    return 'Commissions updated.';
   },
   resolve: async () => {
     S.rangeFrom = val('rFrom'); S.rangeTo = val('rTo');

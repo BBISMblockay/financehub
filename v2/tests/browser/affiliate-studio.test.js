@@ -86,7 +86,8 @@ const tables = {
   affiliate_notifications: [],
   entity_memberships: [{ entity_id: CO, user_id: 'u1' }],
 };
-const ready = () => !!document.querySelector('#overviewBody .bcn-card');
+const ready = () => !!document.querySelector('#prospectsBody .bcn-card');
+const openMore = (page) => page.evaluate(() => document.querySelectorAll('details.af-more').forEach((d) => { d.open = true; }));
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
 
 (async () => {
@@ -96,21 +97,27 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── staff page, as a manager ──────────────────────────────────────────
     const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     page.on('pageerror', (e) => errors.push(e.message));
-    const ov = await text(page, '#overviewBody');
-    R.has(ov, 'Outreach to prospects', 'the overview states how each part works');
+    // Simple page: four tabs, Find creators first, one next-step line.
+    R.ok('the page has four tabs', (await page.$$('#tabs [data-tab]')).length === 4);
+    const next = await text(page, '#nextStep');
+    R.has(next, 'waiting for your review', 'the next-step line says what to do now');
+    R.has(next, 'not credited', 'uncredited code orders are surfaced');
+    R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
+    await page.click('#btnSettings');
+    await page.waitForFunction(() => !!document.querySelector('#programBody .bcn-card'), null, { timeout: 5000 });
+    const ov = await text(page, '#programBody');
+    R.has(ov, 'Outreach to prospects', 'settings state how each part works');
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
     R.not(ov, 'Stripe Connect', 'an unbuilt feature is not advertised')
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.ok('incrementality is labelled not measured', /Incremental sales\s*not measured/.test(ov))
-    R.has(ov, 'not credited', 'uncredited code orders are surfaced');
-    for (const tab of ['program', 'prospects', 'outreach', 'affiliates', 'commissions', 'payouts']) {
+    for (const tab of ['prospects', 'outreach', 'affiliates', 'payouts']) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });
     }
     await page.click('#tabs [data-tab="prospects"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
-    R.has(pr, 'not found', 'a missing contact says so, not a guess');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
     R.has(pr, 'United States', 'a search shows its country by name, not a provider code');
@@ -132,19 +139,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('research asks for this program with the focus, never a company', researchCalls.length === 1 && researchCalls[0].action === 'research' && researchCalls[0].program_id === PROG && researchCalls[0].focus === 'trail running moms' && !('company_entity_id' in researchCalls[0]));
     // Import a list: the file is parsed in the page and sent as rows.
     await page.setInputFiles('#impFile', { name: 'list.csv', mimeType: 'text/csv', buffer: Buffer.from('name,url,followers,minor\r\n"Ann, Runs",https://www.tiktok.com/@annruns,41.2K,FALSE\r\nKid,https://www.tiktok.com/@kid,10,TRUE\r\n') });
+    await openMore(page);
     await page.click('#prospectsBody [data-act="import-run"]');
     await page.waitForFunction(() => /Imported/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
     const imp = researchCalls.find((c) => c.action === 'import');
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
     R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
-    await page.click('#tabs [data-tab="commissions"]');
+    await page.click('#tabs [data-tab="payouts"]');
     const cm = await page.evaluate(() => [...document.querySelectorAll('#commissionsBody tr')].map((r) => r.textContent).find((t) => t.includes('#1002')) || '');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
     R.has(cm, '—', 'an unknown base renders as a dash');
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
     R.has(await text(page, '#payoutsBody'), 'pay it from your bank or payment tool', 'the payout tab says where money moves');
-    await page.click('#tabs [data-tab="program"]');
+    await page.click('#btnSettings');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     await page.close();
 
@@ -184,7 +192,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('the fingerprint is recorded against the claimed batch', rpcCalls.some((c) => c[0] === 'fp' && c[1].p_batch === 'batch-1'));
     await pay.selectOption('#programSel', PROG);
     await pay.waitForFunction(() => /Pat Trails/.test(document.querySelector('#payoutsBody')?.textContent || ''), null, { timeout: 5000 });
-    await pay.click('#tabs [data-tab="commissions"]');
+    await pay.click('#tabs [data-tab="payouts"]');
     R.has(await text(pay, '#commissionsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
 
