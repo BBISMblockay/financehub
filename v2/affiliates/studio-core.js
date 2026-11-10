@@ -277,7 +277,7 @@ export function runKindLabel(r = {}) {
 export function followersFrom(evidence) {
   const e = evidence || {};
   if (!Number.isFinite(Number(e.followers)) || e.followers === null || e.followers === '') return null;
-  return { count: Number(e.followers), source_url: e.followers_source_url || null, as_of: e.followers_as_of || null };
+  return { count: Number(e.followers), source_url: e.followers_source_url || null, as_of: e.followers_as_of || null, kind: e.followers_source_kind || null };
 }
 
 // Where a prospect came from, in words.
