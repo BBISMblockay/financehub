@@ -175,24 +175,30 @@ by hand is the secondary button.
 - **One rep, several brands: separate records, one menu.** A creator who reps
   two brands has two affiliate records, one per company, and that does not
   change -- a program, its codes and its ledger belong to a company, so merging
-  the records would merge two companies' money. What is shared is the way in.
-  `affiliate_portal_brands(token_hash)` (service role only, 20261110190000)
-  returns every active or paused record whose contact email ON FILE equals the
-  one on this PORTAL token's record, normalized, and the portal shows them as a
-  menu. **Only for a `mailed_only` token**: one whose raw value went solely to
-  the address on file -- sign-in, renewal, or a switch descending from such a
-  session. A staff `portal_link` (affiliate-invite) hands its raw URL to a
-  manager, and `accept` returns one to whoever finished a signup link; treating
-  either as mailbox proof would let a manager of company A open a rep's company
-  B portal and read B's earnings, so neither is marked and neither gets a menu.
-  For a rep who did arrive by email, a sibling's own link would be mailed to
-  that same address anyway, so the menu grants nothing they could not already
-  get from their inbox. The equality is checked on the stored addresses, never
-  on anything in the request.
-  Switching mints a fresh portal token for the one record chosen (mailing
-  nothing) and the page reloads onto it, so every read after it still goes
-  through `affiliate_portal_resolve` / `_statement` / `_feed` on that token
-  alone: no session sees two brands.
+  the records would merge two companies' money. What is shared is the way in:
+  the portal offers a brand menu instead of a trip back to the inbox
+  (`affiliate_portal_brands`, `affiliate_portal_switch_token`, service role
+  only, 20261110190000).
+  Two things authorize it, and **both** are load-bearing:
+  1. The session must have reached the mailbox. `mailed_to_hash` holds
+     `affiliate_contact_key()` of the address a token's raw value was mailed
+     to, set only by `affiliate_portal_issue_mailed_token()` -- sign-in,
+     renewal, a switch. A staff `portal_link` (affiliate-invite) hands its raw
+     URL to a manager and `accept` returns one to whoever finished a signup
+     link, so neither is bound and neither gets a menu. Otherwise a manager of
+     company A could open a rep's company B portal.
+  2. The rep is identified by that **bound recipient**, not by today's
+     `contact_email`, and a token whose affiliate no longer carries the address
+     it was mailed to fails closed. `contact_email` is writable by any manager
+     of its own company (`affiliates_write`), so without this a manager could
+     hold a genuinely mailed link for an affiliate whose address they control
+     and then point that affiliate at a victim's address.
+  The switch mints a fresh token for the one record chosen, binds it to the
+  same recipient and mails nothing, so every later read goes through
+  `affiliate_portal_resolve` / `_statement` / `_feed` on that token alone: no
+  session sees two brands. Both refusals are worded identically, so the menu
+  stays the only way to learn what exists on an address. Regressions: `K9b`,
+  `K9c`, `K9d` in `affiliate-studio-database.test.mjs`.
 - **Attribution** (`affiliate_resolve_attributions`): one row per order per
   company, unique on `(company_entity_id, shop_domain, order_id)`, so an order
   is credited at most once across every program. A run from a second program

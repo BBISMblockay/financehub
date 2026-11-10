@@ -3258,33 +3258,44 @@ person keeps the company + manager gate. `sync_jobs.job_type` gains
 
 ## Affiliate portal brand switcher — `20261110190000_affiliate_portal_brands.sql`
 
-Apply after `20261110180000`, then deploy `affiliate-portal`. A rep who reps
-two brands has two affiliate records, one per company, because a program and
-its ledger belong to a company; that does not change. What changes is the way
-in: the portal shows a brand menu instead of sending the rep back to their
-inbox.
+Apply after `20261110180000` and **before** deploying `affiliate-portal` (it
+adds a column). A rep who reps two brands has two affiliate records, one per
+company, because a program and its ledger belong to a company; that does not
+change. What changes is the way in: the portal shows a brand menu instead of
+sending the rep back to their inbox.
 
-Adds `affiliate_access_tokens.mailed_only` (default FALSE) and
-`affiliate_portal_issue_mailed_token(...)` (service role only), which mints
-through `affiliate_issue_access_token` -- keeping its revoke and its ownership
-checks -- and marks the result. TRUE means the raw token went ONLY to the
-address on file and was never returned to whoever asked: sign-in
-(`20261110170000`), renewal, and a switch descending from such a session.
-**Not** `affiliate-invite`'s staff `portal_link`, whose raw URL goes to a
-manager (mailing it is optional), and **not** the one `affiliate-portal`'s
-`accept` returns, which whoever finished a signup link holds.
+Adds `affiliate_contact_key(email)` (one spelling of address identity:
+SHA-256 of the lowercased, trimmed address) and
+`affiliate_access_tokens.mailed_to_hash`, which holds that key for the
+recipient a portal token's raw value was mailed to — and nothing else. It is
+set only by `affiliate_portal_issue_mailed_token(...)`, which mints through
+`affiliate_issue_access_token` (keeping its revoke and ownership checks),
+refuses unless the recipient passed is still the affiliate's own address, and
+then records it. The portal uses that path for sign-in
+(`20261110170000`), renewal and a switch. It is **not** used by
+`affiliate-invite`'s staff `portal_link`, whose raw URL goes to a manager
+(mailing it is optional), nor by the one `affiliate-portal`'s `accept`
+returns, which whoever finished a signup link holds.
 
-`affiliate_portal_brands(token_hash)` (service role only) then returns, for a
-`mailed_only` PORTAL token and nothing else, every active or paused record
-whose address ON FILE matches that token's record, its own first. Without that
-gate a manager of company A could take a rep's A link and open their company B
-portal. A sibling's own link would be mailed to the same address anyway, so a
-rep who got there by email is given nothing new -- the match is on the STORED
-addresses, normalized, never on anything in the request. The switch
-(`affiliate-portal`, `switch`) mints a fresh portal token for the one record
-chosen and mails nothing; every later read still goes through
+`affiliate_portal_brands(token_hash)` and
+`affiliate_portal_switch_token(token_hash, affiliate_id, new_hash, expires)`
+(both service role only) then require a token that is bound **and** whose
+affiliate still carries that address, and match other records on the bound
+recipient rather than on today's `contact_email`. Both guards are load-bearing
+and neither is sufficient alone:
+
+- without the binding, a manager of company A could take a rep's A link and
+  open their company B portal;
+- without the re-check, a manager could take a genuinely mailed link for an
+  affiliate whose address they control and then edit that affiliate's address
+  to a victim's, walking the old token into the victim's other company —
+  `contact_email` is writable by `affiliates_write`.
+
+The switch mints a fresh portal token for the one record chosen, binds it to
+the same recipient, and mails nothing; every later read still goes through
 `affiliate_portal_resolve` / `_statement` / `_feed` on that token alone, so no
-session ever sees two brands.
+session ever sees two brands. Its refusals are worded identically, so the menu
+stays the only way to learn what exists on an address.
 
 ## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
 

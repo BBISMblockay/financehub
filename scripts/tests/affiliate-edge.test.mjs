@@ -20,8 +20,8 @@
 //   AFFILIATE_EDGE_MUTATION=rawtoken      the portal hands the raw token to the database
 //   AFFILIATE_EDGE_MUTATION=bodyaddress   renewal mails an address taken from the request
 //   AFFILIATE_EDGE_MUTATION=signinleak    email sign-in answers differently when the address is an affiliate's
-//   AFFILIATE_EDGE_MUTATION=switchany     a brand switch trusts the id in the request instead of the sibling list
-//   AFFILIATE_EDGE_MUTATION=mailedmint    a portal link handed to its requester is marked as having gone to the mailbox
+//   AFFILIATE_EDGE_MUTATION=switchany     a brand switch mints for the requested id instead of asking the database
+//   AFFILIATE_EDGE_MUTATION=mailedmint    a portal link handed to its requester is bound as though it had been mailed
 //   AFFILIATE_EDGE_MUTATION=gateorder     the staff function reads with the service role before the gate
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
@@ -55,7 +55,7 @@ async function load(fn, file) {
     rawtoken: ['affiliate-portal', "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: hash });", "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: token });"],
     bodyaddress: ['affiliate-portal', "        kind, to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,", "        kind, to: globalThis.__bodyEmail || subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,"],
     mailedmint: ['affiliate-portal', "  async function mintPortalLink(subject, { mailed = false } = {}) {", "  async function mintPortalLink(subject, { mailed = true } = {}) {"],
-    switchany: ['affiliate-portal', "      const target = rows.find((b) => b.affiliate_id === wanted && b.is_current !== true);", "      const target = rows.find((b) => b.affiliate_id === wanted && b.is_current !== true) || { company_entity_id: t.company_entity_id, program_id: t.program_id, affiliate_id: wanted, display_name: t.affiliate_display_name, contact_email: t.affiliate_contact_email };"],
+    switchany: ['affiliate-portal', "      const { error } = await service.rpc('affiliate_portal_switch_token', {", "      const { error } = await service.rpc('affiliate_issue_access_token', { p_purpose: 'portal', p_company_entity_id: t.company_entity_id, p_program_id: t.program_id, p_affiliate_id: wanted, p_prospect_id: null, p_created_by: null,"],
     signinleak: ['affiliate-portal', "      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {", "      if (Array.isArray(data) && data.length) return reply({ status: 'sent' });\n      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {"],
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
@@ -340,64 +340,64 @@ await test('portal: renewal answers the same either way, and mails only the addr
   delete globalThis.__bodyEmail;
 });
 
-await test('portal: the brand menu lists only this email\'s records, and a switch mints a token for one of them', async () => {
+await test('portal: the brand menu lists only this address\'s records, and a switch mints a token for one of them', async () => {
   const sibling = (id, co, title, current) => ({ affiliate_id: id, company_entity_id: co, program_id: PROG,
-    company_title: title, program_name: 'Creators', display_name: 'Pat',
-    contact_email: 'pat@onfile.invalid', is_current: current });
+    company_title: title, program_name: 'Creators', display_name: 'Pat', is_current: current });
   const rows = [sibling(AFF, CO, 'Brand A', true), sibling(AFF2, 'co-2', 'Brand B', false)];
-  const svc = () => fakeService({ rpc: {
+  const svc = (over = {}) => fakeService({ rpc: {
     affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
     affiliate_portal_touch_token: { data: null, error: null },
     affiliate_portal_brands: { data: rows, error: null },
-    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
-    affiliate_issue_access_token: { data: 'id', error: null } } });
+    affiliate_portal_switch_token: { data: 'new-id', error: null },
+    ...over } });
   const mk = (service) => createPortalHandler({ service, siteUrl: 'https://app.test', resendKey: 're_x' });
 
   const menu = await (await mk(svc())(post({ action: 'brands', token: TOKEN }))).json();
   assert.deepEqual(menu.brands.map((b) => [b.brand, b.is_current]), [['Brand A', true], ['Brand B', false]]);
-  // Names for a menu: no company id, program id or email reaches the page.
+  // Names for a menu: no company id, program id or address reaches the page.
   assert.deepEqual(Object.keys(menu.brands[0]).sort(), ['affiliate_id', 'brand', 'brand_logo', 'is_current', 'program']);
-  assert.equal(JSON.stringify(menu).includes('pat@onfile.invalid'), false);
+  assert.equal(JSON.stringify(menu).includes('@'), false);
 
-  // A SIGNUP link cannot switch: there is no session to switch out of.
+  // A SIGNUP link cannot switch: there is no session to switch out of, and it
+  // is refused here before the database is asked at all.
   const signup = fakeService({ rpc: { affiliate_portal_resolve: { data: [resolvedRow()], error: null },
     affiliate_portal_touch_token: { data: null, error: null } } });
   assert.deepEqual(await (await mk(signup)(post({ action: 'brands', token: TOKEN }))).json(), { brands: [] });
 
   const mail = fakeResend();
-  const ok = await mk(svc())(post({ action: 'switch', token: TOKEN, affiliate_id: AFF2 }));
-  const got = await ok.json();
-  assert.equal(ok.status, 200);
+  const ok = svc();
+  const got = await (await mk(ok)(post({ action: 'switch', token: TOKEN, affiliate_id: AFF2 }))).json();
   assert.match(got.token, /^[A-Za-z0-9_-]{32,128}$/);
   assert.notEqual(got.token, TOKEN);
   // A switch is a session, not a letter: nothing is mailed.
   assert.equal(mail.sent.length, 0);
+  // The database decides which record may be moved to, and sees only hashes.
+  const sw = ok.log.find((l) => l.name === 'affiliate_portal_switch_token').args;
+  assert.equal(sw.p_affiliate_id, AFF2);
+  assert.equal(sw.p_token_hash.length, 64);
+  assert.equal(sw.p_new_token_hash.length, 64);
+  assert.equal(sw.p_new_token_hash, await sha256hex(got.token), 'the database is given the hash, never the token');
+  assert.equal(ok.log.some((l) => l.name === 'affiliate_issue_access_token'), false, 'the switch mints through the bound path only');
 
-  // An id that is not on this email, and the rep's CURRENT record, answer the
-  // same way: the menu stays the only way to learn what exists on it.
-  for (const id of [AFF, '3f000000-0000-4000-8000-00000000dead']) {
-    const r = await mk(svc())(post({ action: 'switch', token: TOKEN, affiliate_id: id }));
-    assert.equal(r.status, 404);
-  }
   assert.equal((await mk(svc())(post({ action: 'switch', token: TOKEN, affiliate_id: 'not-a-uuid' }))).status, 400);
 
-  // A portal token the database does not call mailed_only -- a staff-issued
+  // Every refusal the database can raise -- not a sibling, the rep's own
+  // record, a token that was never mailed, one whose affiliate's address has
+  // since been changed -- comes back identically, so the menu stays the only
+  // way to learn what exists on an address.
+  const refused = svc({ affiliate_portal_switch_token: { data: null, error: { code: '42501', message: 'affiliate_portal_switch_token: that brand is not on this account' } } });
+  const no = await mk(refused)(post({ action: 'switch', token: TOKEN, affiliate_id: AFF2 }));
+  assert.equal(no.status, 403);
+  assert.equal((await no.json()).error, 'that brand is not on this account');
+
+  // A portal token the database does not treat as mailbox proof -- a staff
   // link (affiliate-invite portal_link) or the one signup acceptance returns,
-  // both held by their requester rather than by the mailbox -- gets no
-  // siblings back, so it can neither enumerate nor reach another company.
-  const staff = fakeService({ rpc: {
-    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal' })], error: null },
-    affiliate_portal_touch_token: { data: null, error: null },
-    affiliate_portal_brands: { data: [], error: null },
-    affiliate_portal_issue_mailed_token: { data: 'id', error: null },
-    affiliate_issue_access_token: { data: 'id', error: null } } });
+  // both held by their requester -- gets no siblings back either.
+  const staff = svc({ affiliate_portal_brands: { data: [], error: null } });
   assert.deepEqual(await (await mk(staff)(post({ action: 'brands', token: TOKEN }))).json(), { brands: [] });
-  const denied = await mk(staff)(post({ action: 'switch', token: TOKEN, affiliate_id: AFF2 }));
-  assert.equal(denied.status, 404);
-  assert.equal(staff.log.some((l) => String(l.name).includes('issue')), false, 'a refused switch mints nothing');
 });
 
-await test('portal: only the links that go to the address on file are minted as mailed_only', async () => {
+await test('portal: only the links that go to the address on file are bound to it', async () => {
   const mail = fakeResend();
   const svc = fakeService({ rpc: { ...noSuppression,
     affiliate_portal_signin_subjects: { data: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, contact_email: 'pat@onfile.invalid', display_name: 'Pat' }], error: null },
@@ -407,8 +407,11 @@ await test('portal: only the links that go to the address on file are minted as 
     tables: { entities: { title: 'Brand A' } } });
   await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(post({ action: 'signin', email: 'pat@onfile.invalid' }));
   // Sign-in mails the link and returns nothing, so it is mailbox proof.
-  assert.equal(svc.log.filter((l) => l.name === 'affiliate_portal_issue_mailed_token').length, 1);
+  const minted = svc.log.filter((l) => l.name === 'affiliate_portal_issue_mailed_token');
+  assert.equal(minted.length, 1);
   assert.equal(svc.log.filter((l) => l.name === 'affiliate_issue_access_token').length, 0);
+  // Bound to the address the mail actually goes to, which is the one ON FILE.
+  assert.equal(minted[0].args.p_mailed_to, 'pat@onfile.invalid');
 
   // Signup acceptance hands the portal URL back to whoever finished the
   // signup link -- a manager can hold one -- so it is NOT.
@@ -444,6 +447,7 @@ await test('portal: email sign-in answers the same either way, mails each record
   const issued = known.log.filter((e) => e.name === 'affiliate_portal_issue_mailed_token');
   assert.equal(issued.length, 2);
   assert.ok(issued.every((e) => e.args.p_token_hash.length === 64 && e.args.p_affiliate_id));
+  assert.ok(issued.every((e) => e.args.p_mailed_to === 'Pat@OnFile.invalid'), 'bound to the address the mail went to');
   assert.equal(known.log.filter((e) => e.name === 'affiliate_issue_access_token').length, 0);
   // A lookup error is the same answer too, and a missing address is refused before any lookup.
   const broken = fakeService({ rpc: { affiliate_portal_signin_subjects: { data: null, error: { message: 'boom' } } } });
