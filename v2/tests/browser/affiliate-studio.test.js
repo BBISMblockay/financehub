@@ -30,7 +30,7 @@
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
- *   AFFILIATE_UI_MUTATION=codestate   a code still waiting for setup is shown to the rep as Active
+ *   AFFILIATE_UI_MUTATION=codestate   code badges judge dates by UTC, not the company's own day
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -49,7 +49,7 @@ const MUTATIONS = {
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
   logoanyurl: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", "if (typeof logo === 'string' && logo) {"],
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
-  codestate: ['/affiliates/portal.html', "  if (c.status === 'pending') return pill('Waiting for setup');\n", ''],
+  codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
@@ -326,7 +326,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
-        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500 }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }, { code: 'PATNEW', starts_on: '2026-11-01', ends_on: null, status: 'pending' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'active' }],
+        { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
@@ -367,7 +367,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(kp, '$125.00', 'in the program currency');
     R.has(kp, '10% of each order', 'Earned says what it is a share of');
     const states = await portal.$$eval('.af-chip', (cs) => Object.fromEntries(cs.map((c) => [c.querySelector('.af-chip-code').textContent, c.querySelector('[data-code-state]')?.textContent])));
-    R.eq(states, { PAT10: 'Active', PATNEW: 'Waiting for setup', PATOLD: 'Ended' }, 'each code says whether it works at checkout');
+    // The company's day is Nov 9 (its evening is already Nov 10 in UTC): a code
+    // ending Nov 9 still works and one starting Nov 10 has not started.
+    R.eq(states, { PAT10: 'Active', PATNEXT: 'Starts 2026-11-10', PATOLD: 'Ended' }, 'each code says whether it works at checkout, on the company\'s own day');
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');

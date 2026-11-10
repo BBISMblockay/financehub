@@ -8,8 +8,8 @@
 --    address was mailed a portal link in the last 10 minutes, so the form
 --    cannot be used to flood someone's inbox. Service role only.
 -- 2. affiliate_portal_statement: totals gain sales_cents, the sales the
---    affiliate's orders brought in (each order counted once, at its latest
---    commissionable base). NULL when no ledger row carries a base, never 0.
+--    affiliate's credited orders brought in (each once, at its attribution's
+--    current commissionable base), and today, the company's own calendar day.
 --
 -- Idempotent. Apply after 20261110160000, then deploy affiliate-portal.
 
@@ -20,33 +20,70 @@
 create index if not exists affiliate_notifications_to_email_idx
   on public.affiliate_notifications (lower(to_email), created_at desc);
 
+-- The 10-minute limit is a RESERVATION, taken before any link is minted or
+-- mailed: two sign-in requests at once for the same address serialize on this
+-- row, and only the one that moves sent_at forward gets anything back. A read
+-- of affiliate_notifications alone would let both through, because the mail
+-- is recorded only after the provider answers. Keyed by a hash of the
+-- normalized address, so the table holds no email. No client role reads it.
+create table if not exists public.affiliate_portal_signin_throttle (
+  email_hash text primary key,
+  sent_at    timestamptz not null default now()
+);
+alter table public.affiliate_portal_signin_throttle enable row level security;
+revoke all on table public.affiliate_portal_signin_throttle from public, anon, authenticated;
+comment on table public.affiliate_portal_signin_throttle is
+  'Per-address cooldown for portal sign-in by email (sha256 of the lowercased address). Written only by affiliate_portal_signin_subjects; no policies, no client access.';
+
+drop function if exists public.affiliate_portal_signin_subjects(text);
 create or replace function public.affiliate_portal_signin_subjects(p_email text)
 returns table (
   company_entity_id uuid, program_id uuid, affiliate_id uuid,
   contact_email text, display_name text
 )
-language sql
-stable
+language plpgsql
+volatile
 security definer
 set search_path = public, pg_temp
 as $$
-  with e as (select lower(btrim(coalesce(p_email, ''))) as v)
-  select a.company_entity_id, a.program_id, a.id, a.contact_email, a.display_name
-  from public.affiliates a, e
-  where position('@' in e.v) > 1
-    and lower(btrim(a.contact_email)) = e.v
-    and a.status in ('active','paused')
-    -- One portal email per address per 10 minutes, whatever asked for it.
-    and not exists (
-      select 1 from public.affiliate_notifications n
-       where lower(n.to_email) = e.v
-         and n.kind in ('portal_link','link_renewal')
-         and n.created_at > now() - interval '10 minutes')
-  order by a.created_at
-  limit 10;
+declare
+  v_email text := lower(btrim(coalesce(p_email, '')));
+  v_hash text;
+begin
+  if position('@' in v_email) < 2 then return; end if;
+  if not exists (select 1 from public.affiliates a
+                  where lower(btrim(a.contact_email)) = v_email
+                    and a.status in ('active','paused')) then
+    return;
+  end if;
+  -- A portal email from any path (Studio, renewal) in the last 10 minutes.
+  if exists (select 1 from public.affiliate_notifications n
+              where lower(n.to_email) = v_email
+                and n.kind in ('portal_link','link_renewal')
+                and n.created_at > now() - interval '10 minutes') then
+    return;
+  end if;
+
+  v_hash := encode(sha256(convert_to(v_email, 'UTF8')), 'hex');
+  insert into public.affiliate_portal_signin_throttle as t (email_hash, sent_at)
+  values (v_hash, now())
+  on conflict (email_hash) do update set sent_at = excluded.sent_at
+    where t.sent_at <= now() - interval '10 minutes';
+  if not found then return; end if;   -- another request holds this address's turn
+
+  delete from public.affiliate_portal_signin_throttle where sent_at < now() - interval '1 day';
+
+  return query
+    select a.company_entity_id, a.program_id, a.id, a.contact_email, a.display_name
+      from public.affiliates a
+     where lower(btrim(a.contact_email)) = v_email
+       and a.status in ('active','paused')
+     order by a.created_at
+     limit 10;
+end;
 $$;
 comment on function public.affiliate_portal_signin_subjects(text) is
-  'For the portal''s sign-in box: active or paused affiliates whose address on file is this email (at most 10), each to be mailed a fresh portal link at that address. Returns nothing when the address was mailed a portal link in the last 10 minutes. Service role only; the caller answers the same whether or not anything was returned.';
+  'For the portal''s sign-in box: active or paused affiliates whose address on file is this email (at most 10), each to be mailed a fresh portal link at that address. Reserves the address for 10 minutes before returning anything, so concurrent requests mail once; returns nothing while reserved or when a portal email went there in the last 10 minutes. Service role only; the caller answers the same whether or not anything was returned.';
 
 revoke all on function public.affiliate_portal_signin_subjects(text) from public, anon, authenticated;
 grant execute on function public.affiliate_portal_signin_subjects(text) to service_role;
@@ -101,20 +138,24 @@ begin
           where exists (select 1 from public.affiliate_payout_items i
                          join public.affiliate_payouts po on po.id = i.payout_id and po.status = 'marked_paid'
                         where i.ledger_entry_id = l.id)), 0),
-        -- Each order once, at its LATEST base: accrual rows append deltas but
-        -- each carries the order's whole current base, so summing them would
-        -- count an order again after every refund. NULL (not 0) when no row
-        -- carries a base, e.g. only manual adjustments.
+        -- Each credited order once, at its CURRENT commissionable base, read
+        -- from the attribution: a refund that does not change the commission
+        -- (a fixed fee, or rounding) appends no ledger row, so a ledger
+        -- basis can be stale. NULL (not 0) when no credited order has a
+        -- known base, e.g. only manual adjustments.
         'sales_cents', (
-          select sum(s.basis_cents) from (
-            select distinct on (l2.attribution_id) l2.basis_cents
-              from public.affiliate_commission_ledger l2
-             where l2.company_entity_id = v_tok.company_entity_id
-               and l2.affiliate_id = v_tok.affiliate_id
-               and l2.attribution_id is not null
-               and l2.kind in ('accrual','refund_adjustment')
-               and l2.basis_cents is not null
-             order by l2.attribution_id, l2.created_at desc, l2.id desc) s))
+          select sum(at.commissionable_cents)
+            from public.affiliate_attributions at
+           where at.company_entity_id = v_tok.company_entity_id
+             and at.commissionable_cents is not null
+             and at.id in (select l2.attribution_id
+                             from public.affiliate_commission_ledger l2
+                            where l2.company_entity_id = v_tok.company_entity_id
+                              and l2.affiliate_id = v_tok.affiliate_id
+                              and l2.attribution_id is not null)),
+        -- The company's own calendar day, so the page judges a code's dates
+        -- the way checkout and the feed do.
+        'today', (now() at time zone public.silo_company_timezone(v_tok.company_entity_id))::date)
         from public.affiliate_commission_ledger l
        where l.company_entity_id = v_tok.company_entity_id
          and l.affiliate_id = v_tok.affiliate_id),

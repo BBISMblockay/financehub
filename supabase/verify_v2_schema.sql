@@ -9128,20 +9128,25 @@ select 'Affiliate portal feed' as check_name,
   end as status;
 
 -- Affiliate portal sign-in by email (20261110170000): the lookup is service
--- role only and rate-limited per address; the statement counts each order's
--- sales once.
+-- role only and reserves each address for 10 minutes before mailing; the
+-- statement reads each credited order's current base from its attribution.
 select 'Affiliate portal sign-in' as check_name,
   case
     when to_regprocedure('public.affiliate_portal_signin_subjects(text)') is null
+      or to_regclass('public.affiliate_portal_signin_throttle') is null
       or position('sales_cents' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
       then 'MISSING — run 20261110170000_affiliate_portal_signin.sql'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_portal_signin_subjects(text)', 'execute'))
       then 'BROKEN — a client role can look affiliates up by email'
-    when position('10 minutes' in pg_get_functiondef('public.affiliate_portal_signin_subjects(text)'::regprocedure)) = 0
-      then 'BROKEN — email sign-in has no per-address limit'
-    when position('distinct on (l2.attribution_id)' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
-      then 'BROKEN — statement sales count an order again after each refund'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_table_privilege(r.role, 'public.affiliate_portal_signin_throttle', 'select'))
+      or not (select relrowsecurity from pg_class where oid = 'public.affiliate_portal_signin_throttle'::regclass)
+      then 'BROKEN — a client role can read the sign-in throttle'
+    when position('affiliate_portal_signin_throttle' in pg_get_functiondef('public.affiliate_portal_signin_subjects(text)'::regprocedure)) = 0
+      then 'BROKEN — email sign-in does not reserve the address before mailing'
+    when position('affiliate_attributions' in pg_get_functiondef('public.affiliate_portal_statement(text)'::regprocedure)) = 0
+      then 'BROKEN — statement sales read a ledger base that a refund may not have updated'
     else 'ok'
   end as status;
 
