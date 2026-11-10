@@ -110,7 +110,10 @@
     .int-card-icon--shopify { background: #95bf47; }
     .int-card-icon--ads     { background: #2563eb; }
     .int-card-icon--redo    { background: #ef4444; }
-    .int-card-icon--klaviyo { background: #1a1a1a; }
+    /* Klaviyo's own wordmark on white, per their brand guidelines; wider than
+       the square glyph tiles, same height. */
+    .int-card-icon--klaviyo { background: #fff; border: 1px solid var(--bcn-border); width: auto; padding: 0 9px; }
+    .int-card-icon--klaviyo img { display: block; height: 16px; width: auto; }
     .int-card-icon--qbo     { background: #2ca01c; }
     .int-card-icon--stripe  { background: #635bff; }
     /* white-space: normal is required, not cosmetic -- .int-table td sets
@@ -790,7 +793,7 @@
 
         <section class="int-card">
           <header class="int-card-header">
-            <span class="int-card-icon int-card-icon--klaviyo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg></span>
+            <span class="int-card-icon int-card-icon--klaviyo" aria-hidden="true"><img src="../assets/brands/klaviyo-logo.png" alt="" width="54" height="16" /></span>
             <div class="int-card-header-text">
               <h2>Klaviyo</h2>
               <p>Email &amp; SMS campaigns and flows, read straight from Klaviyo.</p>
