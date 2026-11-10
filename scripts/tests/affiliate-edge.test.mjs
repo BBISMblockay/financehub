@@ -23,6 +23,7 @@
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
 //   AFFILIATE_EDGE_MUTATION=draftnews     a draft payout is announced
+//   AFFILIATE_EDGE_MUTATION=byprospectonly a follow-up to a known email tries a second record
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -37,6 +38,7 @@ async function load(fn, file) {
   const muts = {
     rawtoken: ['affiliate-portal', "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: hash });", "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: token });"],
     bodyaddress: ['affiliate-portal', "kind: 'link_renewal', to: subject.contact_email,", "kind: 'link_renewal', to: body.email || subject.contact_email,"],
+    byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
@@ -52,7 +54,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(path).href);
 }
-if (MUT && !['rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -86,7 +88,7 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
       const filters = {};
       let op = 'select'; let payload = null;
       const b = {
-        select() { return b; }, eq(k, v) { filters[k] = v; return b; }, in() { return b; },
+        select() { return b; }, eq(k, v) { filters[k] = v; return b; }, ilike(k, v) { filters[k] = { ilike: v }; return b; }, in() { return b; },
         insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
         maybeSingle() { return b; }, single() { return b; },
         then(res) {
@@ -311,6 +313,31 @@ await test('invite: a signup link is RETURNED for the person to send -- SILO ema
   const issued = svc.log.find((l) => l.name === 'affiliate_issue_access_token').args;
   assert.equal(issued.p_purpose, 'signup');
   assert.equal(issued.p_company_entity_id, CO);
+});
+
+await test('invite: a follow-up to an email the program already has reuses that record, never a second one', async () => {
+  // The prospect row is new; the program already holds a record for the email.
+  const mk = (existing) => fakeService({ rpc: { ...noSuppression, affiliate_issue_access_token: { data: 'tok-2', error: null } },
+    tables: {
+      affiliate_prospects: ({ op }) => (op === 'select' ? { id: PROSPECT, program_id: PROG, display_name: 'Pat', platform: 'youtube', handle: '@pat2', profile_url: null, contact_email: 'Pat_1@x.invalid', status: 'approved' } : null),
+      affiliates: ({ op, filters }) => (op === 'select' ? (filters.contact_email ? existing : null) : null),
+    } });
+  const run = async (svc) => {
+    const res = await createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: '', makeToken: () => 'F'.repeat(43) })(authed({ action: 'signup_link', prospect_id: PROSPECT }));
+    return { status: res.status, body: await res.json() };
+  };
+  const ended = mk({ id: AFF, status: 'terminated', terms_accepted_at: null });
+  const r1 = await run(ended);
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+  assert.ok(!ended.log.some((l) => l.table === 'affiliates' && l.op === 'insert'), 'no second affiliate record is created');
+  const reopen = ended.log.find((l) => l.table === 'affiliates' && l.op === 'update');
+  assert.equal(reopen?.payload?.status, 'invited', 'an ended invite is reopened');
+  assert.equal(ended.log.find((l) => l.name === 'affiliate_issue_access_token').args.p_affiliate_id, AFF, 'the link belongs to the existing record');
+  const lookup = ended.log.find((l) => l.table === 'affiliates' && l.filters.contact_email);
+  assert.deepEqual(lookup.filters.contact_email, { ilike: 'pat\\_1@x.invalid' }, 'matched case-insensitively, with _ taken literally');
+  assert.equal(lookup.filters.program_id, PROG);
+  assert.equal((await run(mk({ id: AFF, status: 'active', terms_accepted_at: '2026-11-01' }))).status, 409, 'an active affiliate gets no signup link');
+  assert.equal((await run(mk({ id: AFF, status: 'terminated', terms_accepted_at: '2026-11-01' }))).status, 409, 'someone who joined and was ended is not reopened');
 });
 
 await test('invite: an unapproved prospect gets no link; a suppressed one gets none either', async () => {

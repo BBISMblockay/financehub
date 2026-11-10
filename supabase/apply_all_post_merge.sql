@@ -19647,4 +19647,8 @@ $c$select (select count(*) from v_po_header_summary
 -- also comes as branded HTML with the signup link as a button. Needs
 -- 20261110093000. No deploy.
 \i migrations/20261110110000_affiliate_outreach_html.sql
+-- Follow-up outreach (20261110120000): a second approved message to an email
+-- the program already has reuses that affiliate record. Needs 20261110093000.
+-- Deploy affiliate-invite for the export path.
+\i migrations/20261110120000_affiliate_followup_outreach.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

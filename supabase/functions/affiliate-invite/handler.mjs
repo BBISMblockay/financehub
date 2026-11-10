@@ -95,8 +95,27 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         });
         if (ok !== true) return reply({ error: 'This contact is on the suppression list.' }, 409);
 
-        let { data: aff } = await service.from('affiliates').select('id, status')
+        let { data: aff } = await service.from('affiliates').select('id, status, terms_accepted_at')
           .eq('company_entity_id', company).eq('from_prospect_id', p.id).maybeSingle();
+        // A follow-up written against another prospect row for the same
+        // email reuses the program's record for that email (one per email per
+        // program), as affiliate_outreach_mint_signup does (20261110120000).
+        if (!aff) {
+          const like = email.replace(/[\\%_]/g, (c) => `\\${c}`);
+          ({ data: aff } = await service.from('affiliates').select('id, status, terms_accepted_at')
+            .eq('company_entity_id', company).eq('program_id', p.program_id).ilike('contact_email', like).maybeSingle());
+        }
+        if (aff && (aff.status === 'active' || aff.status === 'paused')) {
+          return reply({ error: 'This person is already an affiliate of this program. Send them a portal link instead.' }, 409);
+        }
+        if (aff && aff.status === 'terminated') {
+          if (aff.terms_accepted_at) return reply({ error: 'This person was an affiliate of this program and was ended.' }, 409);
+          // An invite someone ended is reopened by a new invite.
+          const { error: rErr } = await service.from('affiliates').update({ status: 'invited', updated_at: now().toISOString(), changed_by: actor })
+            .eq('id', aff.id).eq('company_entity_id', company);
+          if (rErr) return reply({ error: rErr.message }, 500);
+          aff = { ...aff, status: 'invited' };
+        }
         if (!aff) {
           const { data: created, error: aErr } = await service.from('affiliates').insert({
             company_entity_id: company, program_id: p.program_id, display_name: p.display_name || p.handle || email,
