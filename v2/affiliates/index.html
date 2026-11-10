@@ -44,12 +44,23 @@
     .af-stage { font-family: var(--bcn-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
     .af-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
     .af-copy { word-break: break-all; }
-    .af-next { margin: 12px 18px 0; padding: 10px 14px; border: 1px solid var(--bcn-border); border-radius: 8px; font-size: 13px; }
+    .af-next { margin: 12px 18px 0; padding: 0; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); overflow: hidden; font-size: 13px; }
     .af-next[hidden] { display: none; }
-    .af-todo { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
-    .af-todo-item { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .af-todo-item > span { flex: 1 1 220px; }
-    .af-todo-none, .af-todo-how { margin: 6px 0 0; }
+    .af-todo-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-bg); }
+    .af-todo-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--bcn-ink); flex: 1; }
+    .af-todo { list-style: none; margin: 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .af-todo-item { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 8px; background: var(--bcn-bg); }
+    .af-todo-text { flex: 1; min-width: 0; line-height: 1.45; color: var(--bcn-ink); }
+    .af-todo-acts { display: flex; gap: 6px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .af-todo-none { margin: 0; padding: 14px; }
+    .af-todo-how { margin: 0; border-top: 1px solid var(--bcn-border); }
+    .af-todo-how > summary {
+      list-style: none; cursor: pointer; padding: 10px 14px; font-size: 12px; font-weight: 500; color: var(--bcn-ink-2);
+      background: var(--bcn-bg);
+    }
+    .af-todo-how > summary::-webkit-details-marker { display: none; }
+    .af-todo-how[open] > summary { border-bottom: 1px solid var(--bcn-border); }
+    .af-todo-how-body { margin: 0; padding: 10px 14px 12px; font-size: 11px; line-height: 1.5; color: var(--bcn-ink-3); }
     .af-more > summary { cursor: pointer; font-size: 13px; color: var(--bcn-ink-2); padding: 6px 0; list-style: revert; }
   /* Workflow rail: five steps map to the tabs, with counts when something needs you. */
     .af-pipeline { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 18px 12px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
