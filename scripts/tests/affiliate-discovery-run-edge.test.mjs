@@ -161,7 +161,7 @@ await test('Search now runs the program and replies with counts, not cost', asyn
   assert.equal(j.prospects_new, 1);
   assert.ok(!('cost_usd' in j), 'no cost in the reply');
   assert.equal(s.searches.length, 1);
-  assert.equal(s.searches[0].keyword, 'baseball drills youtube site:youtube.com', 'only this program’s searches run, pinned to its platforms');
+  assert.equal(s.searches[0].keyword, 'baseball drills youtube site:youtube.com/@', 'only this program’s searches run, pinned to its platforms');
 });
 
 await test('a second search within a minute is refused', async () => {

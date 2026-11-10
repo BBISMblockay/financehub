@@ -172,8 +172,11 @@ export function scoreProspect({ item, profile, program, terms }) {
 }
 
 // The social platforms a search can be pinned to, as Google site: filters.
+// YouTube and TikTok are pinned to their PROFILE paths (/@handle): a bare
+// site:youtube.com returns /watch links, which name no channel and are
+// discarded, so a YouTube search found 30 results and 0 creators.
 export const PLATFORM_SITES = {
-  instagram: ['instagram.com'], tiktok: ['tiktok.com'], youtube: ['youtube.com'],
+  instagram: ['instagram.com'], tiktok: ['tiktok.com/@'], youtube: ['youtube.com/@'],
   twitch: ['twitch.tv'], x: ['x.com', 'twitter.com'], pinterest: ['pinterest.com'],
 };
 
