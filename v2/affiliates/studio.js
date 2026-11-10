@@ -447,6 +447,14 @@ async function ensureProfiles() {
 // The automatic first code exists once 20261110180000 is applied (the
 // program rows then carry the column).
 const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));
+const settingsBlock = (title, inner) => `<section class="af-settings-block"><h3 class="af-settings-title">${esc(title)}</h3>${inner}</section>`;
+function syncCommissionFields() {
+  const kind = $('pKind')?.value;
+  const pct = $('pPct')?.closest('.bcn-field-group');
+  const fix = $('pFixed')?.closest('.bcn-field-group');
+  if (pct) pct.hidden = kind === 'fixed_per_order';
+  if (fix) fix.hidden = kind === 'percent_of_net';
+}
 function renderProgram(isNew = S.creating) {
   const p = isNew ? {} : (prog() || {});
   const dis = MANAGE ? '' : 'disabled';
@@ -455,34 +463,35 @@ function renderProgram(isNew = S.creating) {
   const units = minorUnits(p.currency || 'USD');
   const major = (c) => (c === null || c === undefined ? '' : (Number(c) / units).toString());
   const form = `
-    <div class="af-grid">
+    ${settingsBlock('Basics', `<div class="af-grid--settings">
       ${field('Name', input('pName', `${dis} value="${esc(p.name || '')}" placeholder="e.g. Creator program"`))}
       ${field('Status', `<select class="bcn-field" id="pStatus" ${dis}>${o('draft', 'Draft', p.status ?? 'draft')}${o('active', 'Active: recruiting', p.status)}${o('paused', 'Paused', p.status)}${o('closed', 'Closed', p.status)}</select>`)}
-      ${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}
-    </div>
-    ${field('Platforms', `<div class="af-checks">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`)}
-    <div class="af-grid">
+      <div class="af-span-full">${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}</div>
+    </div>`)}
+    ${settingsBlock('Platforms', `<div class="af-checks af-checks--boxed">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`)}
+    ${settingsBlock('Commission & codes', `<div class="af-grid--settings">
       ${field('Commission type', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of net order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed per order', p.commission_kind)}</select>`)}
       ${field('Percent', input('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`))}
       ${field('Fixed amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
-      ${hasAutoCode() ? field('Code % off for new affiliates (blank: no automatic code)', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
-    </div>
-    ${field(`Program terms${p.terms_version ? ` (version ${p.terms_version}; editing makes a new version)` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="6" ${dis} placeholder="What the affiliate agrees to: commission, how orders are credited, refunds, when and how you pay, what they may not do.">${esc(p.terms_markdown || '')}</textarea>`)}
-    ${more('Advanced settings', [`<div class="af-grid">
-      ${field('Short name (used in the apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
-      ${field('Designated employee (replies go to them)', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
+      ${hasAutoCode() ? field('Code % off for new affiliates', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="10" title="Blank: no automatic code" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
+    </div>`)}
+    ${settingsBlock(`Program terms${p.terms_version ? ` (v${p.terms_version})` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="5" ${dis} placeholder="Commission, how orders are credited, refunds, payouts, what affiliates may not do. Editing saves a new version.">${esc(p.terms_markdown || '')}</textarea>`)}
+    ${MANAGE ? `<div class="af-settings-save">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : ''}
+    ${more('Advanced settings', [`<p class="af-muted af-settings-sub">Link, owner, who you recruit</p><div class="af-grid--settings">
+      ${field('Short name (apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
+      ${field('Designated employee', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
       ${field('Audience notes', input('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`))}
-      ${field('Countries (comma separated)', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
-      ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications (you review each)', p.intake_mode)}</select>`)}
+      ${field('Countries', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
+      ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications', p.intake_mode)}</select>`)}
+    </div><p class="af-muted af-settings-sub">Money, codes, payouts</p><div class="af-grid--settings">
       ${field('Currency', input('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}"`))}
       ${field('Default code start', input('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`))}
       ${field('Default code end', input('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`))}
-      ${field('Grace days after a code ends', input('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`))}
-      ${field('Several codes on one order', `<select class="bcn-field" id="pPrec" ${dis}>${o('first_affiliate_code', 'Credit the one affiliate code', p.code_precedence ?? 'first_affiliate_code')}${o('single_code_only', 'Do not credit', p.code_precedence)}</select>`)}
+      ${field('Grace days after code ends', input('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`))}
+      ${field('Several codes on one order', `<select class="bcn-field" id="pPrec" ${dis}>${o('first_affiliate_code', 'Credit one code', p.code_precedence ?? 'first_affiliate_code')}${o('single_code_only', 'Do not credit', p.code_precedence)}</select>`)}
       ${field('Refund hold (days)', input('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`))}
       ${field('Payout minimum', input('pMin', `${dis} inputmode="decimal" value="${esc(major(p.payout_minimum_cents))}"`))}
-    </div>`])}
-    ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new') : ''}</div>` : ''}`;
+    </div>`])}`;
   let extra = '';
   if (!isNew && p.id) {
     const url = applyUrl(location.origin, CO, p.slug);
@@ -492,6 +501,8 @@ function renderProgram(isNew = S.creating) {
     extra += '<div id="managersCard"></div>';
   }
   $('programBody').innerHTML = card(isNew ? 'New program' : 'Settings', form) + (extra ? more('Sharing, access and how it works', [extra, S.d ? stageCard() : '']) : '');
+  $('pKind')?.addEventListener('change', syncCommissionFields);
+  syncCommissionFields();
   if (!isNew && p.id) renderManagers();
 }
 
