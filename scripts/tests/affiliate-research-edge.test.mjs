@@ -25,6 +25,8 @@
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
 //   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
+//   AFFILIATE_RESEARCH_MUTATION=leadevidence a Google lead does not count as found
+//   AFFILIATE_RESEARCH_MUTATION=nobrief      the Google leads never reach the AI
 //   AFFILIATE_RESEARCH_MUTATION=freecharge   a run that kept nobody is charged
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -47,6 +49,8 @@ const MUTS = {
   oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
   partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
   onesource: [CORE, '{ stats.over_source += 1; continue; }', '{ stats.over_source += 0; }'],
+  leadevidence: [CORE, '  const evidence = leadsEvidence(leads);', '  const evidence = { urls: new Set(), text: [] };'],
+  nobrief: [CORE, "    leads.length ? leadsBrief(leads) : '',", "    '',"],
   freecharge: ['handler.mjs', "outcome = stats.kept > 0 ? 'succeeded' : 'failed';", "outcome = 'succeeded';"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -127,6 +131,11 @@ const seed = (extraRuns = []) => ({
     { id: PPAUSED, company_entity_id: CO_A, name: 'Paused', status: 'paused', niche: 'x', platforms: [], geographies: [] },
   ],
   affiliate_discovery_runs: extraRuns,
+  affiliate_prospect_sources: [
+    { id: 'src-a', company_entity_id: CO_A, program_id: PA, kind: 'serp_query', enabled: true, query: 'baseball mom', platform_hint: 'tiktok', max_results: 30, created_at: '2026-11-01' },
+    { id: 'src-off', company_entity_id: CO_A, program_id: PA, kind: 'serp_query', enabled: false, query: 'paused search', max_results: 30, created_at: '2026-11-02' },
+    { id: 'src-b', company_entity_id: CO_B, program_id: PB, kind: 'serp_query', enabled: true, query: 'golf', max_results: 30, created_at: '2026-11-01' },
+  ],
   affiliate_prospects: [],
   affiliate_prospect_observations: [],
 });
@@ -157,8 +166,8 @@ const SCRIPT = () => [
   msg([{ type: 'tool_use', id: 't1', name: 'record_creators', input: { creators: LIST } }], 'tool_use'),
 ];
 
-function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200 } = {}) {
-  const log = []; const rpcs = []; const calls = []; const bg = [];
+function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200, serp = null } = {}) {
+  const log = []; const rpcs = []; const calls = []; const bg = []; const searches = [];
   const service = fakeService(seed(runs), log, rpcs);
   const handler = createResearchHandler({
     service,
@@ -175,6 +184,7 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
       return { ok: true, status: 200, json: async () => next };
     },
     background: (p) => { bg.push(p); },
+    fetchSerp: serp ? async (task) => { searches.push(task); if (serp === 'fail') throw new Error('SERP provider HTTP 500'); return { items: serp, cost: 0.002 }; } : null,
     now: () => new Date('2026-11-10T12:00:00Z'),
   });
   const call = async (body, auth = 'Bearer t') => {
@@ -182,7 +192,7 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
     await Promise.all(bg.splice(0));
     return r;
   };
-  return { log, rpcs, calls, service, call };
+  return { log, rpcs, calls, service, call, searches };
 }
 
 await test('the caller-token gate runs first, and a refused session stops everything', async () => {
@@ -282,6 +292,33 @@ await test('no single outside page supplies more than five creators', async () =
   assert.equal(ps.length, 5);
   assert.ok(ps.every((p) => p.evidence.followers_source_kind === 'other_page'), 'a count from a list article is labelled as such');
   assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 over the per-source limit/);
+});
+
+await test('Google leads go to the AI first; only the ones it checks and records are kept', async () => {
+  const serp = [
+    { type: 'organic', url: 'https://google.com/goto?url=CAES1', breadcrumb: 'https://www.tiktok.com › @leadcreator', title: 'Lead Creator (@leadcreator) | TikTok', description: 'baseball mom life' },
+    { type: 'organic', url: 'https://www.tiktok.com/@junkstore', title: 'Junk Store (@junkstore)', description: 'shop now' },
+  ];
+  const s = setup({ serp, script: [msg([{ type: 'tool_use', id: 't', name: 'record_creators', input: { creators: [
+    creator({ name: 'Lead Creator', handle: '@leadcreator', profile_url: 'https://www.tiktok.com/@leadcreator' }),
+  ] } }], 'tool_use')] });
+  await s.call({ action: 'research', program_id: PA, focus: 'travel ball parents', count: 5 });
+  assert.deepEqual(s.searches.map((t) => t.keyword.split(' site:')[0].split(' (site:')[0]), ['baseball mom', 'travel ball parents'], "only this program's enabled searches, plus the focus");
+  const brief = s.calls[0].messages[0].content;
+  assert.match(brief, /Leads from a Google search/);
+  assert.match(brief, /https:\/\/www\.tiktok\.com\/@leadcreator/);
+  assert.match(brief, /@junkstore/);
+  const ps = s.service.tables.affiliate_prospects;
+  assert.deepEqual(ps.map((p) => p.handle), ['@leadcreator'], 'a lead the AI recorded is kept on the strength of the real search result; one it dropped is never stored');
+  assert.equal(ps[0].source, 'ai_research');
+  assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 Google leads checked$/);
+});
+
+await test('a failed Google search does not stop the research', async () => {
+  const s = setup({ serp: 'fail' });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  assert.equal(s.service.tables.affiliate_discovery_runs[0].status, 'ok');
+  assert.equal(s.service.tables.affiliate_prospects.length, 2);
 });
 
 await test('a run that keeps nobody is free, and a model failure is recorded', async () => {

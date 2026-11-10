@@ -18,9 +18,11 @@ name: Affiliate discovery
 #
 # Manual runs default to DRY RUN, which calls no provider and writes nothing.
 
+# NOT SCHEDULED since 2026-11-10 (Blake: one search, not two). Saved searches
+# now feed Find creators (affiliate-research), where AI checks every Google
+# lead before anything is stored; a scheduled run here would write unchecked
+# Google results straight into Prospects. Manual dispatch is kept for support.
 on:
-  schedule:
-    - cron: '40 14 * * 1'   # Mondays 14:40 UTC, clear of the SEO SERP Monday slots
   workflow_dispatch:
     inputs:
       dry_run:

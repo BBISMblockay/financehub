@@ -115,13 +115,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
     R.has(pr, 'United States', 'a search shows its country by name, not a provider code');
     R.ok('the country picker offers names', await page.$('#srcLoc option[value="2840"]'));
-    // Search now: runs the program's searches immediately and says what it found, in counts.
-    const searchCalls = [];
-    await suite.context.route('**/functions/v1/affiliate-discovery-run', (route) => { searchCalls.push(JSON.parse(route.request().postData() || '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ran: 1, failed: 0, skipped: 0, prospects_new: 2, prospects_updated: 0 }) }); });
-    await page.click('#prospectsBody [data-act="discovery-run"]');
-    await page.waitForFunction(() => /Searched\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
-    R.has(await text(page, '#status'), '2 new prospect(s)', 'Search now reports what it found');
-    R.ok('Search now asks for this program only', searchCalls.length === 1 && searchCalls[0].program_id === PROG && !('company_entity_id' in searchCalls[0]));
+    R.ok('there is one search button, not two', !(await page.$('#prospectsBody [data-act="discovery-run"]')) && !!(await page.$('#prospectsBody [data-act="research-run"]')));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
     R.ok('the follower count links to where it was stated', await page.$('#prospectsBody a[href="https://www.youtube.com/@samruns"]'));
