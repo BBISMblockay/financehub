@@ -116,7 +116,7 @@ async function fixture({ session = null, reducedMotion = 'no-preference', unavai
       return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Fixture destination</title><h1>Routing destination verified</h1>' });
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'legal/privacy.html', 'legal/eula.html'];
+    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css', 'assets/landing/public-home.css', 'assets/silo-icon.png', 'legal/privacy.html', 'legal/eula.html'];
     const motionAsset = relative === 'assets/landing/silo-hero-motion.js' || mediaPaths.includes(url.pathname);
     if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative) && !motionAsset) {
       failures.push('Unexpected fixture path: ' + relative);
@@ -226,8 +226,12 @@ async function assertGeometry(page, name, width) {
         .filter(a => a.getClientRects().length).map(a => a.getBoundingClientRect().toJSON()) };
   });
   assert.ok(geometry.scrollWidth <= geometry.width, `${name}: horizontal overflow`);
-  assert.equal(geometry.imageFit, 'contain', `${name}: whole still must fit vertically`);
-  assert.equal(geometry.videoFit, 'contain', `${name}: whole video must fit vertically`);
+  // 'cover' since the cinematic runway hero (#1133): the still and the video fill the runway and
+  // are cropped, where the previous hero was letterboxed to show the whole frame. What still has
+  // to hold either way is that the two layers crop IDENTICALLY, which the rectangle check below
+  // asserts -- a mismatch would make the page jump when motion starts.
+  assert.equal(geometry.imageFit, 'cover', `${name}: still fills the runway`);
+  assert.equal(geometry.videoFit, 'cover', `${name}: video fills the runway`);
   // In reduced-motion CSS the video is display:none. Otherwise its artwork
   // rectangle must exactly match the still; swapping layers cannot shift layout.
   if (geometry.video.width) {
@@ -283,9 +287,20 @@ try {
   await page.goto('https://get-silo.com/');
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Sign in');
-  assert.equal(await page.locator('.lp-signin').evaluate(a => getComputedStyle(a).outlineStyle), 'solid');
-  await page.keyboard.press('Tab');
-  assert.match(await page.evaluate(() => document.activeElement.textContent.trim()), /^Create your SILO/);
+  // The hero is no longer the only Sign in: #1133 added one in the header, which is what the first
+  // Tab reaches. Assert the ring on whatever is focused, so a later layout change cannot move the
+  // focus onto a link this check is not looking at and still read as green.
+  assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), 'solid');
+  // The shipped tab order through the hero (#1133): the header's Sign in, then the hero's Sign in,
+  // then Create your SILO. Asserted as a sequence, with the focus ring on each, so a link that
+  // loses its ring or drops out of the order is caught rather than silently skipped over.
+  for (const [className, text] of [['lp-signin', 'Sign in'], ['lp-create', 'Create your SILO →']]) {
+    await page.keyboard.press('Tab');
+    assert.deepEqual(await page.evaluate(() => {
+      const active = document.activeElement;
+      return [active.className, active.textContent.trim(), getComputedStyle(active).outlineStyle];
+    }), ['bcn-btn ' + className, text, 'solid'], 'tab order: ' + text);
+  }
   await page.keyboard.press('Enter');
   await page.waitForURL('**/v2/company-onboarding.html');
   assert.equal(await page.locator('#obTitle').textContent(), 'You need an invitation');
@@ -310,8 +325,10 @@ try {
   await page.waitForURL('**/v2/company-onboarding.html');
   assert.equal(await page.locator('#obSupport').isVisible(), true);
   await page.goBack();
-  for (let i = 0; i < 2; i++) {
-    await page.getByRole('link', { name: 'Sign in', exact: true }).click();
+  // #1133 gave the page two Sign in links, the header's and the hero's. Click each, rather than
+  // the same one twice: both have to reach login, and a role lookup by name now matches both.
+  for (const signIn of ['a.lp-top-signin', 'a.lp-signin']) {
+    await page.locator(signIn).click();
     await page.waitForURL('**/pages/login.html');
     assert.equal(await page.locator('#formPassword').isVisible(), true);
     assert.equal(await page.locator('#btnGoSignup').isVisible(), false);
@@ -484,7 +501,7 @@ try {
     await fallback.page.goto('https://get-silo.com/');
     await expectNoMedia(fallback);
     await expectFallbackLink(fallback.page);
-    assert.equal(await fallback.page.getByRole('link', { name: 'Sign in', exact: true }).isVisible(), true);
+    for (const signIn of ['a.lp-top-signin', 'a.lp-signin']) assert.equal(await fallback.page.locator(signIn).isVisible(), true);
     assert.equal(await fallback.page.getByRole('link', { name: 'Create your SILO' }).isVisible(), true);
     const popupPromise = fallback.page.waitForEvent('popup');
     await fallback.page.getByRole('link', { name: 'Watch animation', exact: true }).click();
@@ -570,7 +587,7 @@ try {
   const offline = await fixture({ unavailable: true });
   await offline.page.goto('https://get-silo.com/');
   assert.equal(await offline.page.getByRole('heading', { name: 'Welcome to Silo.' }).isVisible(), true);
-  assert.equal(await offline.page.getByRole('link', { name: 'Sign in', exact: true }).isVisible(), true);
+  for (const signIn of ['a.lp-top-signin', 'a.lp-signin']) assert.equal(await offline.page.locator(signIn).isVisible(), true);
   assert.equal(await offline.page.getByRole('link', { name: 'Create your SILO' }).isVisible(), true);
   await offline.context.close();
   pass('unavailable SDK and artwork do not remove public navigation');
