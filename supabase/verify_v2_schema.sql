@@ -9092,6 +9092,8 @@ select 'Affiliate outreach HTML' as check_name,
     when to_regprocedure('public.affiliate_outreach_html(text, text, text)') is null
       or position('affiliate_outreach_html' in pg_get_functiondef('public.silo_api_claim_outreach(uuid, integer, text)'::regprocedure)) = 0
       then 'MISSING — run 20261110110000_affiliate_outreach_html.sql'
+    when position('Or open this link:' in pg_get_functiondef('public.affiliate_outreach_html(text, text, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261110130000_affiliate_outreach_email_button.sql (the email has no visible link under the button)'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration', 'silo_revoked']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_outreach_html(text, text, text)', 'execute'))
       then 'BROKEN — a client role can call affiliate_outreach_html'

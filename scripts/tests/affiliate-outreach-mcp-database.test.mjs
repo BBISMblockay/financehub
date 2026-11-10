@@ -40,6 +40,7 @@
 //   OUTREACH_MCP_MUTATION=html-no-button   the HTML button does not carry the signup link
 //   OUTREACH_MCP_MUTATION=followup-by-prospect-only  a follow-up to a known email tries a second record
 //   OUTREACH_MCP_MUTATION=followup-reopen-joined     an ended affiliate who had joined is reopened
+//   OUTREACH_MCP_MUTATION=html-no-text-link          the email has no visible link under the button
 //
 // Run:  npm ci --prefix scripts/tests/finance-db && node scripts/tests/affiliate-outreach-mcp-database.test.mjs
 process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
@@ -178,6 +179,7 @@ const files = {
   send: '20261110093000_affiliate_outreach_send_scope.sql',
   html: '20261110110000_affiliate_outreach_html.sql',
   followup: '20261110120000_affiliate_followup_outreach.sql',
+  button: '20261110130000_affiliate_outreach_email_button.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -186,7 +188,7 @@ for (const [k, f] of Object.entries(files)) {
 function mutate(from, to) {
   // The claim tool is re-stated in the html migration (the live version), so
   // a guard is mutated wherever it appears.
-  const hit = ['send', 'html', 'followup'].filter((k) => sql[k].includes(from));
+  const hit = ['send', 'html', 'followup', 'button'].filter((k) => sql[k].includes(from));
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
@@ -236,9 +238,11 @@ switch (MUT) {
     mutate("  if v_aff is null then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted", "  if false then\n    select a.id, a.status, a.terms_accepted_at into v_aff, v_status, v_accepted"); break;
   case 'followup-reopen-joined':
     mutate("    if v_accepted is not null then\n      raise exception 'ended_affiliate", "    if false then\n      raise exception 'ended_affiliate"); break;
+  case 'html-no-text-link':
+    mutate("    || '<p style=\"margin:0 0 18px;font-size:12px;line-height:1.5;color:#77828d\">Or open this link: '\n    || '<a href=\"' || v_url || '\" target=\"_blank\" style=\"color:#2f5fd0;word-break:break-all\">' || v_url || '</a></p>'\n", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'send', 'html', 'followup', 'button']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -394,20 +398,23 @@ await check('C2 each message carries a working personal link, and only its hash 
 
 await check('C2b each message also comes as branded HTML with the link as a button', async () => {
   const c1 = first.claimed.find((c) => c.draft_id === d1.d);
-  assert.ok(c1.html.includes('>Brand A</div>'), 'the company name heads the email');
+  assert.ok(c1.html.includes('>Brand A</td>'), 'the company name heads the email');
   const btn = `<a href="${c1.signup_url}"`;
-  assert.equal(c1.html.split(btn).length - 1, 1, 'exactly one button, pointing at this person\'s own link');
-  assert.ok(c1.html.includes('See the program and join</a>'));
+  assert.equal(c1.html.split(btn).length - 1, 2, 'a button and a text link, both to this person\'s own link, and no other');
+  assert.ok(c1.html.includes('See the program and join &rarr;</a>'));
+  assert.ok(/<td bgcolor="#14181d"[^>]*><a href=/.test(c1.html), 'the button is an email-safe table cell, not a bare styled link');
+  assert.ok(c1.html.includes(`Or open this link: ${btn}`) && c1.html.includes(`>${c1.signup_url}</a>`),
+    'the link is also shown as text, so a client that drops the button still leaves it visible');
   assert.ok(c1.html.includes('Hi, join here: </p>') && c1.html.includes('>Thanks</p>'), 'the approved words, around the button');
   assert.ok(!c1.html.includes('{signup_link}'));
   const c2 = first.claimed.find((c) => c.draft_id === d2.d);
-  assert.equal(c2.html.split(`<a href="${c2.signup_url}"`).length - 1, 1, 'a template without the placeholder gets the button at the end');
+  assert.equal(c2.html.split(`<a href="${c2.signup_url}"`).length - 1, 2, 'a template without the placeholder gets the button at the end');
   assert.ok(/body/.test(first.next_step) && /html/.test(first.next_step), 'next_step says to send both versions');
   const x = await one(`select public.affiliate_outreach_html('A & <B>', $1, 'https://get-silo.com/v2/affiliates/join.html?t=ab') as h`,
     ['Hi <script>alert(1)</script> "x" & y\n\nJoin: {signup_link}']);
   assert.ok(!x.h.includes('<script>') && x.h.includes('&lt;script&gt;alert(1)&lt;/script&gt; &quot;x&quot; &amp; y'),
     'the draft is escaped, so a message can never inject markup');
-  assert.ok(x.h.includes('>A &amp; &lt;B&gt;</div>'), 'the company name is escaped too');
+  assert.ok(x.h.includes('>A &amp; &lt;B&gt;</td>'), 'the company name is escaped too');
 });
 
 await check('C3 the rows say which connection, and the invited affiliate exists', async () => {

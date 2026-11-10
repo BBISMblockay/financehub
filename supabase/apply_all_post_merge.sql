@@ -19651,4 +19651,7 @@ $c$select (select count(*) from v_po_header_summary
 -- the program already has reuses that affiliate record. Needs 20261110093000.
 -- Deploy affiliate-invite for the export path.
 \i migrations/20261110120000_affiliate_followup_outreach.sql
+-- Outreach email button (20261110130000): the join button is an email-safe
+-- table cell with the link also shown as text under it. No deploy.
+\i migrations/20261110130000_affiliate_outreach_email_button.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
