@@ -133,4 +133,10 @@ await t('a failed search is described without the provider name or codes', () =>
   assert.equal(C.friendlySearchError(''), '');
 });
 
+await t('beacon tabs: button tabs reset the UA chrome so they read as page tabs', async () => {
+  const css = await readFile(new URL('../../v2/beacon.css', import.meta.url), 'utf8');
+  assert.match(css, /\.bcn-tabs button\.bcn-tab\s*\{[\s\S]*?background:\s*none/);
+  assert.match(css, /appearance:\s*none/);
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);

@@ -32,6 +32,8 @@
     .af-stage { font-family: var(--bcn-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
     .af-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
     .af-copy { word-break: break-all; }
+    .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
+    .silo-main > .af-panel { padding: 16px 18px 32px; }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -55,15 +57,15 @@
 
     <div class="bcn-kpi-band" id="kpis"></div>
 
-    <div class="bcn-tabs" id="tabs" role="tablist" style="margin-top:12px;">
-      <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
-      <button class="bcn-tab" data-tab="program">Program</button>
-      <button class="bcn-tab" data-tab="prospects">Prospects</button>
-      <button class="bcn-tab" data-tab="outreach">Outreach</button>
-      <button class="bcn-tab" data-tab="affiliates">Affiliates</button>
-      <button class="bcn-tab" data-tab="commissions">Commissions</button>
-      <button class="bcn-tab" data-tab="payouts">Payouts</button>
-    </div>
+    <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Overview</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="program" id="tab-program">Program</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="prospects" id="tab-prospects">Prospects</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Outreach</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="commissions" id="tab-commissions">Commissions</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Payouts</button>
+    </nav>
 
     <section class="af-panel" data-panel="overview"><div class="af-stack" id="overviewBody"></div></section>
     <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>

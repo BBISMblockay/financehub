@@ -185,7 +185,11 @@ const money = (c) => formatMoney(c, prog()?.currency);
 function render() {
   const p = prog();
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
-  for (const b of document.querySelectorAll('#tabs [data-tab]')) b.classList.toggle('bcn-tab--active', b.dataset.tab === S.tab);
+  for (const b of document.querySelectorAll('#tabs [data-tab]')) {
+    const on = b.dataset.tab === S.tab;
+    b.classList.toggle('bcn-tab--active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  }
   renderKpis();
   if (!p && S.tab !== 'program') {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
