@@ -6,7 +6,7 @@
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
-  linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName,
+  linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -80,7 +80,8 @@ async function updateRows(table, patch, match) {
 function searchSummary(r = {}) {
   if (!r.ran && !r.failed) return 'Nothing to search yet: add a search, or resume a paused one.';
   const found = `${num(r.prospects_new || 0)} new prospect(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
-  return r.failed ? `Searched with ${num(r.failed)} error(s); ${found} See Recent discovery runs.` : `Searched. ${found}`;
+  if (r.failed && !r.ran) return 'The search service had a temporary problem. Try again in a few minutes.';
+  return r.failed ? `Searched. ${found} Some searches had a temporary problem; try again in a few minutes.` : `Searched. ${found}`;
 }
 
 async function invoke(fn, body) {
@@ -369,7 +370,7 @@ function renderProspects() {
       ${table([
         { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
-        { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(s.last_error)}</div>` : ''}` },
+        { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(friendlySearchError(s.last_error))}</div>` : ''}` },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
       ${MANAGE && d.sources.some((s) => s.enabled) ? `<div class="af-row" style="margin-top:8px;">${btn('Search now', 'discovery-run', {}, 'primary')}</div>` : ''}
@@ -380,7 +381,7 @@ function renderProspects() {
       { h: 'Results', num: true, f: (r) => num(r.results_returned) }, { h: 'Profiles', num: true, f: (r) => num(r.profiles_recognized) },
       { h: 'New', num: true, f: (r) => num(r.prospects_new) }, { h: 'Emails stated', num: true, f: (r) => num(r.emails_found) },
       { h: 'Skipped (opted out)', num: true, f: (r) => num(r.suppressed_skipped) },
-      { h: 'Result', f: (r) => `${statusPill(r.status)}${r.error ? `<div class="af-muted">${esc(r.error)}</div>` : ''}` },
+      { h: 'Result', f: (r) => `${statusPill(r.status)}${r.error ? `<div class="af-muted">${esc(friendlySearchError(r.error))}</div>` : ''}` },
     ], runs, 'Discovery has not run for this program yet.')),
     card('Do-not-contact list', `<p class="af-muted">People on this list are never contacted, invited or accepted, in any program.</p>
       ${table([{ h: 'Type', f: (s) => esc(s.kind) }, { h: 'Value', f: (s) => `<span class="af-mono">${esc(s.value_normalized)}</span>` }, { h: 'Reason', f: (s) => esc(s.reason) }, { h: 'Added', f: (s) => fmtDate(s.created_at) }, { h: '', f: (s) => (MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'ghost', { confirm: true }) : '') }], d.suppressions, 'Nobody is on the list.')}
