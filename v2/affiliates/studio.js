@@ -243,6 +243,10 @@ function table(cols, rows, emptyText = 'Nothing here yet.') {
   return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
+function itemList(rows, renderRow, emptyText = 'Nothing here yet.') {
+  if (!rows.length) return empty(emptyText);
+  return `<div class="af-items" role="list">${rows.map(renderRow).join('')}</div>`;
+}
 const btn = (label, act, data = {}, kind = 'ghost', opts = {}) => `<button class="bcn-btn bcn-btn--${kind}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}>${esc(label)}</button>`;
 const field = (label, inner) => `<div class="bcn-field-group"><label class="bcn-label">${esc(label)}</label>${inner}</div>`;
 const input = (id, attrs = '') => `<input class="bcn-field" id="${id}" ${attrs} />`;
@@ -265,6 +269,8 @@ function render() {
   }
   renderKpis();
   renderNextStep();
+  renderPipeline();
+  renderAiHub();
   if (!p && S.tab !== 'program') {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
@@ -273,14 +279,18 @@ function render() {
 }
 
 function renderKpis() {
+  const el = $('kpis');
   const h = S.d?.health;
+  const p = prog();
+  // The workflow rail carries counts when a program is loaded; skip the extra KPI band.
+  if (h && p) {
+    el.innerHTML = '';
+    el.classList.add('af-kpis-off');
+    return;
+  }
+  el.classList.remove('af-kpis-off');
   const k = (label, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(label)}</div><div class="bcn-kpi-value">${v}</div></div>`;
-  const bal = (S.d?.balances || []).filter((b) => b.currency === prog()?.currency);
-  const sum = (f) => bal.reduce((a, b) => a + Number(b[f] || 0), 0);
-  $('kpis').innerHTML = h ? [
-    k('Creators to review', num(h.prospects_new)), k('Active affiliates', num(h.affiliates_active)),
-    k('Credited orders', num(h.attributions_earning)), k('Unpaid earned', bal.length ? money(sum('earned_cents') - sum('paid_cents')) : '—'),
-  ].join('') : k('Programs', num(S.programs.length));
+  el.innerHTML = k('Programs', num(S.programs.length));
 }
 
 // ── Next step ────────────────────────────────────────────────────────────
@@ -296,7 +306,7 @@ function nextSteps() {
   if (h.outreach_exported) steps.push({ text: `${num(h.outreach_exported)} sent message(s) to mark as sent.`, tab: 'outreach' });
   if (h.codes_never_seen) steps.push({ text: `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, tab: 'affiliates' });
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
-  if (unattributed) steps.push({ text: `${num(unattributed)} order(s) with an affiliate code were not credited. Payouts → More shows why.`, tab: 'payouts' });
+  if (unattributed) steps.push({ text: `${num(unattributed)} order(s) with an affiliate code were not credited. Open Pay → Commissions and orders.`, tab: 'payouts' });
   if (!steps.length && !d.prospects.length) steps.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects' });
   return steps;
 }
@@ -305,8 +315,64 @@ function renderNextStep() {
   const steps = nextSteps();
   el.hidden = !steps.length;
   if (!steps.length) return;
-  const [first] = steps;
-  el.innerHTML = `<strong>Next:</strong> ${esc(first.text)}${first.tab !== S.tab ? ` <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="${first.tab}">Go</button>` : ''}${steps.length > 1 ? `<details class="af-more"><summary>+${steps.length - 1} more</summary><ul>${steps.slice(1).map((x) => `<li>${esc(x.text)}</li>`).join('')}</ul></details>` : ''}`;
+  const head = steps.slice(0, 2);
+  const [first] = head;
+  el.innerHTML = `<strong>Next:</strong> ${esc(head.map((x) => x.text).join(' · '))}${first.tab !== S.tab ? ` <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="${first.tab}">Go</button>` : ''}`;
+}
+function renderPipeline() {
+  const el = $('afPipeline');
+  if (!el) return;
+  const p = prog();
+  const h = S.d?.health;
+  if (!p || !h) { el.hidden = true; return; }
+  const d = S.d;
+  const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
+  const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
+  const steps = [
+    { t: 'prospects', label: 'Find', n: Number(h.prospects_new || 0) },
+    { t: 'outreach', label: 'Message', n: msgN },
+    { t: 'affiliates', label: 'Onboard', n: onboardN },
+    { t: 'share', label: 'Share', n: 0, mute: true },
+    { t: 'payouts', label: 'Pay', n: payN },
+  ];
+  el.hidden = false;
+  el.innerHTML = steps.map((s) => {
+    const on = S.tab === s.t;
+    const badge = s.n > 0 && !s.mute ? `<span class="af-pipe-count">${num(s.n)}</span>` : '';
+    return `<button type="button" class="af-pipe-step${on ? ' af-pipe-step--on' : ''}" data-act="go-tab" data-t="${s.t}" aria-current="${on ? 'step' : 'false'}"><span class="af-pipe-label">${esc(s.label)}</span>${badge}</button>`;
+  }).join('');
+}
+function renderAiHub() {
+  const el = $('afAiHub');
+  if (!el) return;
+  if (!MANAGE || !prog() || !S.d) { el.hidden = true; return; }
+  const apps = S.d.aiApps;
+  const sendApps = (apps || []).filter((a) => a.canSend);
+  const codeApps = (apps || []).filter((a) => a.canCode);
+  const approvedMsgs = S.d.drafts.filter((x) => x.state === 'approved').length;
+  const pendingCodes = S.d.codes.filter((c) => c.status === 'pending').length;
+  const connectPrimary = apps !== null && !sendApps.length && !codeApps.length;
+  const status = apps === null
+    ? '<p class="af-muted">Could not read your AI connections for this company.</p>'
+    : sendApps.length || codeApps.length
+      ? `<p class="af-muted">${sendApps.map((a) => pill(a.name, 'pos')).join(' ')}${sendApps.length && codeApps.length ? ' · ' : ''}${codeApps.map((a) => pill(a.name, 'accent')).join(' ')}</p>`
+      : '<p class="af-muted">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach” and “create affiliate codes” when you approve the connection.</p>';
+  const promptCard = (label, count, text, act) => `<div class="af-ai-prompt"><div class="af-muted">${esc(label)}${count ? ` · <strong>${num(count)}</strong> waiting` : ''}</div><div class="af-ai-prompt-txt">${esc(text)}</div>${btn('Copy for your AI', act, {}, 'ghost')}</div>`;
+  el.hidden = false;
+  el.innerHTML = card('Your AI (SILO MCP)', `
+    <p class="af-muted" style="margin:0 0 8px;">Approve outreach and codes here in Studio. Your AI does the Shopify and mailbox steps through SILO&rsquo;s MCP server&mdash;nothing is sent until you approve drafts and your AI runs the tools.</p>
+    <ol class="af-ai-steps">
+      <li>Open <a href="../settings-connect-ai.html">Connect your AI</a> with <strong>this company</strong> active in the workspace picker.</li>
+      <li>When approving the connection, tick <strong>send approved affiliate outreach</strong> and/or <strong>create affiliate codes in Shopify</strong>.</li>
+      <li>In Claude, ChatGPT, Cursor, or another MCP client, add SILO and paste a prompt below (or set it as a daily task).</li>
+    </ol>
+    ${status}
+    <div class="af-ai-prompts">
+      ${promptCard('Send approved outreach', approvedMsgs, SEND_PROMPT, 'copy-send-prompt')}
+      ${promptCard('Create waiting codes', pendingCodes, CODES_PROMPT, 'copy-codes-prompt')}
+    </div>
+    <div class="af-row" style="margin-top:10px;"><a class="bcn-btn bcn-btn--${connectPrimary ? 'primary' : 'ghost'}" href="../settings-connect-ai.html">${connectPrimary ? 'Connect your AI' : 'Manage AI connections'}</a></div>`, 'MCP tools: outreach send + Shopify codes');
 }
 function stageCard() {
   const d = S.d;
@@ -441,9 +507,7 @@ function renderProspects() {
     MANAGE ? card('Find creators', `
       <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
     card('Creators', `<div class="bcn-tabs" style="margin:0 0 8px;">${filters.map(([f, label]) => `<button class="bcn-tab${f === filter ? ' bcn-tab--active' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)}&nbsp;<span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
-      ${table([
-        { h: 'Creator', f: who }, { h: 'Followers', num: true, f: followers }, { h: 'Why they fit', f: provenance }, { h: '', f: actions },
-      ], list, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')}
+      ${itemList(list, (x) => `<article class="af-item" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-stats">${followers(x)}</div><details class="af-item-more"><summary>Why they fit</summary><div class="af-item-detail">${provenance(x)}</div></details></div><div class="af-item-foot">${actions(x)}</div></article>`, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')}
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     more('More options', [
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
@@ -488,19 +552,15 @@ function renderOutreach() {
   // the approver's own mailbox, and a send it recorded. Null for a person.
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
+  const draftCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? `${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}` : ''}</div></article>`;
+  const approvedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div></article>`;
+  const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
+  const boardCol = (title, items, render, empty) => `<section class="af-board-col"><header class="af-board-head"><h3>${esc(title)}</h3>${items.length ? pill(String(items.length), 'accent') : ''}</header><div class="af-board-cards">${items.length ? items.map(render).join('') : `<p class="af-board-empty">${esc(empty)}</p>`}</div></section>`;
   $('outreachBody').innerHTML = [
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    card('Drafts', table([
-      { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
-      { h: '', f: (x) => (MANAGE ? `<div class="af-actions">${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}</div>` : '') },
-    ], byState('draft'), 'No drafts. Approve a creator on Find creators to draft one.'), `${byState('draft').length}`),
-    card('Approved, ready to send', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
+    card('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Find creators to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
       ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:8px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn bcn-btn--ghost" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'ghost', { confirm: true }) : ''}</div>`),
-    card('Waiting to be marked sent', table([
-      { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
-      { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
-    ], byState('exported'), 'Nothing is waiting.')),
+      <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn bcn-btn--ghost" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'ghost', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
     more('More options', [
     card('Sent and outcomes', table([
       { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>${x.sent_via_app ? `<div class="af-muted">Via ${esc(x.sent_via_app)}</div>` : ''}` },
@@ -524,19 +584,18 @@ async function publishAdImage(path) {
   return db.storage.from('affiliate-feed-images').getPublicUrl(path).data.publicUrl;
 }
 
-// Which of your AI apps can create codes in Shopify for this company.
 // What the person pastes into their own AI (or sets as a daily task there).
+const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach from my own mailbox, then mark each one sent with where I sent it from.';
 const CODES_PROMPT = 'Using SILO, create every affiliate code waiting for Shopify in my Shopify store, then mark each one created in SILO.';
 function aiCodesBlock(apps) {
   const can = [...new Set((apps || []).filter((a) => a.canCode).map((a) => a.name))];
-  if (can.length) return `<div class="af-row" id="aiCodesHow"><span class="af-muted">${can.map((n) => pill(n, 'pos')).join(' ')} makes your codes in Shopify.</span>${btn('Copy prompt for your AI', 'copy-codes-prompt')}</div>`;
+  if (can.length) return `<div id="aiCodesHow"><div class="af-row"><span class="af-muted">${can.map((n) => pill(n, 'pos')).join(' ')} creates codes in Shopify via MCP.</span>${btn('Copy prompt for your AI', 'copy-codes-prompt')}</div></div><p class="af-muted">Full steps are in <strong>Your AI (SILO MCP)</strong> above.</p></div>`;
   return '<p class="af-muted" id="aiCodesHow">Want codes made for you? <a href="../settings-connect-ai.html">Connect your AI</a> and allow “create affiliate codes”.</p>';
 }
 
-// Which of your AI apps can send for this company, in one line.
 function aiSendBlock(apps) {
   const send = [...new Set((apps || []).filter((a) => a.canSend).map((a) => a.name))];
-  if (send.length) return `<p class="af-muted" id="aiSendHow">${send.map((n) => pill(n, 'pos')).join(' ')} sends approved messages from your email. Ask it to “send my approved affiliate messages”.</p>`;
+  if (send.length) return `<p class="af-muted" id="aiSendHow">${send.map((n) => pill(n, 'pos')).join(' ')} sends approved messages from your email via MCP. Copy the send prompt from <strong>Your AI (SILO MCP)</strong> above.</p>`;
   return '<p class="af-muted" id="aiSendHow">Your own AI sends approved messages from your email. Connect it while this company is selected and allow “send approved affiliate outreach”.</p>';
 }
 
@@ -556,26 +615,30 @@ function renderAffiliates() {
   };
   const canCode = (d.aiApps || []).some((a) => a.canCode);
   const affOpts = d.affiliates.filter((a) => a.status !== 'terminated').map((a) => `<option value="${a.id}">${esc(a.display_name)} (${esc(a.status)})</option>`).join('');
+  const affiliateRow = (a) => {
+    const code = liveCodeOf(a.id);
+    const store = storeOf(p);
+    const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
+    const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
+    const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
+    const linksBlock = linkRows.length ? `<details class="af-item-more"><summary>${num(linkRows.length)} link(s)</summary>${linkRows.map((u) => `<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(u)}</div>`).join('')}</details>` : '';
+    return `<article class="af-item" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(a.display_name)} ${statusPill(a.status)}</div><div class="af-muted">${esc(a.contact_email)} · ${esc(terms)}</div><div class="af-codes">${codesHtml}</div>${linksBlock}</div><div class="af-item-foot">${actions(a)}</div></article>`;
+  };
   $('affiliatesBody').innerHTML = [
-    card('Affiliates', `${table([
-      { h: 'Affiliate', f: (a) => `<strong>${esc(a.display_name)}</strong><div class="af-muted">${esc(a.contact_email)}</div>` },
-      { h: 'Status', f: (a) => statusPill(a.status) },
-      { h: 'Terms', f: (a) => (a.terms_version_accepted ? `v${a.terms_version_accepted} on ${fmtDate(a.terms_accepted_at)}${a.terms_version_accepted < p.terms_version ? '<div class="af-muted">older than current terms</div>' : ''}` : '<span class="af-muted">not accepted</span>') },
-      { h: 'Codes', f: (a) => codesOf(a).map((c) => `<span class="af-mono">${esc(c.code)}</span> <span class="af-muted">${fmtDate(c.starts_on)}→${c.ends_on ? fmtDate(c.ends_on) : 'open'}${c.status === 'retired' ? ' · retired' : c.status === 'pending' ? ' · waiting for your AI' : (c.verified_at ? ' · seen on orders' : ' · not seen yet')}</span>`).join('<br>') || '—' },
-      { h: 'Links', f: (a) => { const code = liveCodeOf(a.id); const store = storeOf(p);
-        const rows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
-        return rows.map((u) => `<span class="af-mono af-copy">${esc(u)}</span>`).join('<br>') || '—'; } },
-      { h: '', f: actions },
-    ], d.affiliates, 'No affiliates yet. They appear here when someone you invite opens their signup link.')}<div id="affOut"></div>`),
+    card('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.')}<div id="affOut"></div>`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on the Share tab to turn on affiliate links.</div>` : '',
     MANAGE ? card('Give an affiliate a code', `<div class="af-row">${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}${field('Code', input('cCode', 'class="bcn-field bcn-field--mono"'))}${btn('Add code', 'code-add', {}, 'primary')}</div>
       <details class="af-more"><summary>Options</summary><div class="af-row">${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="exists"${canCode ? '' : ' selected'}>I made it</option><option value="ai"${canCode ? ' selected' : ''}>My AI makes it</option></select>`)}${field('% off', input('cPct', 'type="number" min="1" max="100" step="1" value="10"'))}</div></details>
-      ${aiCodesBlock(d.aiApps)}
-      ${table([{ h: 'Code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` }, { h: 'Affiliate', f: (c) => esc(d.affById[c.affiliate_id]?.display_name) }, { h: 'Dates', f: (c) => `${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}` },
+      ${aiCodesBlock(d.aiApps)}`) : '',
+    more('Codes and links', [
+      MANAGE ? card('All codes', table([
+        { h: 'Code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` }, { h: 'Affiliate', f: (c) => esc(d.affById[c.affiliate_id]?.display_name) }, { h: 'Dates', f: (c) => `${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}` },
         { h: 'In Shopify', f: (c) => (c.status === 'pending' ? `${pill('waiting for your AI', 'warn')}<div class="af-muted">${esc(Number(c.discount_percent))}% off</div>` : c.shopify_created_via_app ? `created via ${esc(c.shopify_created_via_app)}<div class="af-muted">${fmtDate(c.shopify_created_at)}</div>` : '<span class="af-muted">made by you</span>') },
         { h: 'First seen', f: (c) => (c.verified_at ? `${fmtDate(c.verified_at)}<div class="af-muted">order ${esc(c.first_seen_order_id)}</div>` : '<span class="af-muted">never</span>') },
-        { h: '', f: (c) => (c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : c.status === 'pending' ? btn('Cancel', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : pill('retired')) }], d.codes, 'No codes yet.')}`) : '',
-    more('More options', [MANAGE ? card('Give an affiliate a link to a page', `      <div class="af-row">${field('Affiliate', `<select class="bcn-field" id="lAff">${affOpts}</select>`)}${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://yourstore.com/collections/new"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}</div>`) : '']),
+        { h: '', f: (c) => (c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : c.status === 'pending' ? btn('Cancel', 'code-retire', { id: c.id }, 'ghost', { confirm: true }) : pill('retired')) },
+      ], d.codes, 'No codes yet.')) : '',
+      MANAGE ? card('Give an affiliate a link to a page', `<div class="af-row">${field('Affiliate', `<select class="bcn-field" id="lAff">${affOpts}</select>`)}${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://yourstore.com/collections/new"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}</div>`) : '',
+    ]),
   ].join('');
 }
 
@@ -639,17 +702,19 @@ async function renderShare() {
     { title: String(x.title || x.ad_name || 'Ad').slice(0, 200), note: x.body ? String(x.body).slice(0, 1000) : null,
       product_path: safePath(x.link_path) || (x.link_url ? pathOf(x.link_url) : null), image_path: x.image_path }));
   const sharedRows = d.feed.map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
+  const storeCard = MANAGE ? (needsStore(p)
+    ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
+    : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`)) : '';
   $('shareBody').innerHTML = [
-    card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet.')}`,
+    card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
       `${d.feed.length} shared`),
-    MANAGE ? (needsStore(p)
-      ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
-      : more(`Links open ${storeOf(p)}`, [card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div><span id="storeNow" hidden></span>`)])) : '',
-    card('Recent ads', `${ads.length ? ads.join('') : empty('No recent ads yet.')}`),
-    card('Upcoming launches', (launches.length ? launches.join('') : empty('No upcoming launches on the launch calendar.'))
-),
-    card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? products.join('') : (sh.q ? empty('No products match.') : '')}`),
-    sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
+    storeCard,
+    card('Upcoming launches', launches.length ? launches.join('') : empty('No upcoming launches on the launch calendar.')),
+    card('Recent ads', ads.length ? ads.join('') : empty('No recent ads yet.')),
+    more('Add products', [
+      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'ghost')}</div>${products.length ? products.join('') : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
+      sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
+    ]),
   ].join('');
 }
 
@@ -660,10 +725,8 @@ function renderCommissions() {
   const to = S.rangeTo || today();
   const openPeriods = d.periods.filter((x) => x.status === 'open');
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
-  $('commissionsBody').innerHTML = [
-    card('Commissions', `
-      ${MANAGE ? `<div class="af-row">${btn('Update commissions', 'update-commissions', {}, 'primary')}</div>` : ''}<div id="runOut"></div>`),
-    more('More options', [
+  const commInner = [
+    card('Run', `${MANAGE ? `<div class="af-row">${btn('Update commissions', 'update-commissions', {}, 'primary')}</div>` : ''}<div id="runOut"></div>`),
     card('Dates and period', `<div class="af-row">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
       ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">the open period that contains each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
       ${MANAGE ? btn('Match orders only', 'resolve') + btn('Calculate only', 'accrue') : ''}</div>`),
@@ -700,8 +763,8 @@ function renderCommissions() {
       { h: 'Memo', f: (l) => `<span class="af-evidence">${esc(l.memo || '')}</span>` },
     ], d.ledger, 'No commission lines yet.')}
     ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)} (negative to reduce)`, input('adjAmt', 'inputmode="decimal"'))}${field('Why (kept forever)', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need the same approval right as journal entries.</p>'}`, 'append-only'),
-    ]),
-  ].join('');
+  ];
+  $('commissionsBody').innerHTML = more('Commissions and orders', commInner);
 }
 
 // ── Payouts ──────────────────────────────────────────────────────────────
@@ -718,22 +781,20 @@ function renderPayouts() {
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
+  const balanceRow = (r) => `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')}</div><div class="af-item-stats">${formatMoney(r.unclaimed_cents, r.currency)}<span class="af-muted" style="font-size:12px;font-weight:400;"> not yet in a payout</span></div><div class="af-muted" style="margin-top:4px;">Earned ${formatMoney(r.earned_cents, r.currency)} · Paid ${formatMoney(r.paid_cents, r.currency)}</div></div><div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[x.affiliate_id]?.display_name || '—')} ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div></div><div class="af-item-foot">${act(x)}</div></article>`;
   $('payoutsBody').innerHTML = [
     `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
-    card('Balances', table([
+    card('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.'), `${bal.length} affiliate(s)`),
+    card('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
+    ${MANAGE && approved.length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, 'primary', { confirm: true })}</div>` : ''}`),
+    more('Balance detail', [card('All balances', table([
       { h: 'Affiliate', f: (r) => esc(r.a?.display_name || '—') }, { h: 'Currency', f: (r) => `<span class="af-mono">${esc(r.currency)}</span>` },
       { h: 'Earned', num: true, f: (r) => formatMoney(r.earned_cents, r.currency) }, { h: 'Refund corrections', num: true, f: (r) => formatMoney(r.refund_adjustment_cents, r.currency) },
       { h: 'In a payout', num: true, f: (r) => formatMoney(r.claimed_cents, r.currency) }, { h: 'Paid', num: true, f: (r) => formatMoney(r.paid_cents, r.currency) },
       { h: 'Not yet in a payout', num: true, f: (r) => formatMoney(r.unclaimed_cents, r.currency) },
       { h: '', f: (r) => (MANAGE && r.currency === p.currency ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }) : '') },
-    ], bal, 'Nothing earned yet.')),
-    card('Payouts', `${table([
-      { h: 'Created', f: (x) => fmtDate(x.created_at) }, { h: 'Affiliate', f: (x) => esc(d.affById[x.affiliate_id]?.display_name || '—') },
-      { h: 'Amount', num: true, f: (x) => formatMoney(x.amount_cents, x.currency) }, { h: 'Lines', num: true, f: (x) => num(x.item_count) },
-      { h: 'Status', f: (x) => `${statusPill(x.status)}${x.external_reference ? `<div class="af-muted">ref ${esc(x.external_reference)}</div>` : ''}${x.void_reason ? `<div class="af-muted">${esc(x.void_reason)}</div>` : ''}` },
-      { h: '', f: act },
-    ], d.payouts, 'No payouts yet.')}
-    ${MANAGE && approved.length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, 'primary', { confirm: true })}</div>` : ''}`),
+    ], bal, 'Nothing earned yet.'))]),
   ].join('');
 }
 
@@ -942,6 +1003,10 @@ const A = {
     const seen = new Set();
     S.share.products = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle)).slice(0, 30);
     renderShare();
+  },
+  'copy-send-prompt': async () => {
+    try { await navigator.clipboard.writeText(SEND_PROMPT); } catch { setStatus(SEND_PROMPT, 'info'); return null; }
+    return 'Copied. Paste it into your AI, or set it as a daily task there.';
   },
   'copy-codes-prompt': async () => {
     try { await navigator.clipboard.writeText(CODES_PROMPT); } catch { setStatus(CODES_PROMPT, 'info'); return null; }
