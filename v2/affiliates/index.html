@@ -146,6 +146,105 @@
     .af-stack { gap: 16px; }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
+    /* Modern workflow app shell (dashboard cards, not spreadsheet rows). */
+    .silo-main.af-studio { background: linear-gradient(180deg, var(--bcn-bg) 0%, var(--bcn-surface) 42%, var(--bcn-bg) 100%); }
+    .af-studio .bcn-header { margin: 0 18px; padding: 20px 0 8px; border-bottom: 0; }
+    .af-studio .bcn-header-title h1 { font-size: 1.35rem; letter-spacing: -.02em; }
+    .af-studio .af-panel .bcn-card {
+      border: 1px solid color-mix(in srgb, var(--bcn-border) 88%, transparent);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 8px 24px rgba(15, 23, 42, .04);
+      background: var(--bcn-surface);
+      overflow: hidden;
+    }
+    .af-studio .bcn-card-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--bcn-border); background: color-mix(in srgb, var(--bcn-bg) 55%, var(--bcn-surface)); }
+    .af-studio .bcn-card-header h2 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+    .af-studio .bcn-card-body { padding: 14px 16px 16px; }
+    .af-studio .af-card-hero .bcn-card-body { padding: 18px 18px 20px; background: linear-gradient(135deg, color-mix(in srgb, var(--bcn-accent-soft) 70%, var(--bcn-surface)) 0%, var(--bcn-surface) 58%); }
+    .af-studio .af-card-hero .af-row { align-items: stretch; gap: 12px; }
+    .af-studio .af-card-hero .bcn-field { min-height: 44px; border-radius: 12px; }
+    .af-studio .af-next, .af-studio .af-pipeline, .af-studio .af-ai-hub { margin-left: 18px; margin-right: 18px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 6px 18px rgba(15, 23, 42, .04); border-radius: 14px; }
+    .af-studio .af-todo-item { border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, .03); }
+    .af-studio .af-pipeline { gap: 8px; padding: 8px; background: var(--bcn-surface); }
+    .af-studio .af-pipe-step { border-radius: 12px; border-color: transparent; background: var(--bcn-bg); box-shadow: inset 0 0 0 1px var(--bcn-border); }
+    .af-studio .af-pipe-step--on { box-shadow: inset 0 0 0 1px var(--bcn-accent), 0 4px 14px color-mix(in srgb, var(--bcn-accent) 18%, transparent); background: var(--bcn-accent-soft); }
+    .af-studio #tabs.af-tabs--workflow {
+      margin: 0 18px 14px; padding: 5px; gap: 4px;
+      border-radius: 14px; border: 1px solid var(--bcn-border);
+      background: color-mix(in srgb, var(--bcn-bg) 70%, var(--bcn-surface));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5);
+    }
+    .af-studio #tabs.af-tabs--workflow .bcn-tab {
+      border: none; border-radius: 10px; background: transparent;
+      padding: 8px 14px; font-weight: 600;
+      box-shadow: none;
+    }
+    .af-studio #tabs.af-tabs--workflow .bcn-tab--active {
+      background: var(--bcn-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 4px 12px rgba(15, 23, 42, .05);
+      color: var(--bcn-ink);
+    }
+    .af-studio .af-filter-bar { gap: 8px; margin-bottom: 14px; padding: 4px; border-radius: 12px; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
+    .af-studio .af-filter-bar .bcn-btn { border-radius: 999px; border: none; background: transparent; box-shadow: none; }
+    .af-studio .af-filter-bar .bcn-btn.bcn-btn--primary { box-shadow: 0 2px 8px color-mix(in srgb, var(--bcn-accent) 28%, transparent); }
+    .af-items--grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+      gap: 14px;
+    }
+    .af-item--tile {
+      flex-direction: column; align-items: stretch; gap: 0;
+      padding: 0; border-radius: 14px; overflow: hidden;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 6px 16px rgba(15, 23, 42, .04);
+      transition: transform .14s ease, box-shadow .14s ease;
+    }
+    .af-studio .af-item--tile:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(15, 23, 42, .06), 0 14px 28px rgba(15, 23, 42, .07); }
+    .af-item-top { display: flex; gap: 12px; align-items: flex-start; padding: 14px 14px 10px; }
+    .af-item-main { flex: 1; min-width: 0; }
+    .af-item-metric {
+      margin: 0 14px; padding: 10px 12px; border-radius: 10px;
+      background: color-mix(in srgb, var(--bcn-bg) 80%, var(--bcn-surface));
+      border: 1px solid var(--bcn-border);
+      font-family: var(--bcn-mono); font-size: 13px; font-weight: 600; color: var(--bcn-ink);
+    }
+    .af-item-metric .af-muted { font-family: var(--bcn-font); font-weight: 400; font-size: 11px; margin-top: 2px; }
+    .af-item--tile .af-item-more { margin: 8px 14px 0; }
+    .af-item--tile .af-item-foot {
+      margin-top: auto; padding: 12px 14px 14px;
+      border-top: 1px solid var(--bcn-border);
+      background: color-mix(in srgb, var(--bcn-bg) 45%, var(--bcn-surface));
+    }
+    .af-item--tile .af-codes { margin-top: 8px; }
+    .af-avatar {
+      flex: none; width: 44px; height: 44px; border-radius: 12px;
+      display: grid; place-items: center; font-weight: 700; font-size: 15px;
+      color: var(--bcn-accent); background: var(--bcn-accent-soft);
+      border: 1px solid color-mix(in srgb, var(--bcn-accent) 22%, var(--bcn-border));
+    }
+    .af-item-avatar.bcn-avatar { flex: none; border-radius: 12px; }
+    .af-share-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px; margin-top: 8px;
+    }
+    .af-studio .af-share-card {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 12px; border-radius: 14px;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+      height: 100%;
+    }
+    .af-studio .af-share-card img, .af-studio .af-share-card .af-share-noimg {
+      width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: 10px;
+    }
+    .af-studio .af-share-card .af-share-txt { flex: 1; }
+    .af-studio .af-board-col { border-radius: 14px; box-shadow: inset 0 0 0 1px var(--bcn-border); }
+    .af-items--grid .af-item--pay { border-radius: 14px; box-shadow: 0 6px 18px rgba(15, 23, 42, .05); }
+    @media (max-width: 720px) {
+      .af-items--grid { grid-template-columns: 1fr; }
+      .af-studio .af-item--tile:hover { transform: none; }
+    }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -153,7 +252,7 @@
 </head>
 <body class="silo-brand">
 <div class="silo-app" id="silo-app">
-  <main class="silo-main">
+  <main class="silo-main af-studio">
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Affiliate Studio</h1></div>
