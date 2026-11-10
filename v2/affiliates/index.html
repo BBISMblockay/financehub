@@ -32,6 +32,9 @@
     .af-stage { font-family: var(--bcn-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
     .af-checks { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
     .af-copy { word-break: break-all; }
+    .af-next { margin: 12px 18px 0; padding: 10px 14px; border: 1px solid var(--bcn-border); border-radius: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+    .af-next[hidden] { display: none; }
+    .af-more > summary { cursor: pointer; font-size: 13px; color: var(--bcn-ink-2); padding: 6px 0; list-style: revert; }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
   </style>
@@ -45,10 +48,11 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Affiliate Studio</h1></div>
-        <div class="bcn-header-sub bcn-header-sub--trimmed">Find creators, recruit them with your own outreach, track their codes, and pay commissions by hand from an auditable ledger.</div>
+        <div class="bcn-header-sub bcn-header-sub--trimmed">Find creators, invite them, track their codes and pay their commission.</div>
       </div>
       <div class="bcn-header-actions">
         <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;"></select>
+        <button class="bcn-btn bcn-btn--ghost" data-act="go-tab" data-t="program" id="btnSettings">Settings</button>
         <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
       </div>
     </header>
@@ -57,23 +61,21 @@
 
     <div class="bcn-kpi-band" id="kpis"></div>
 
+    <div class="af-next" id="nextStep" hidden></div>
+
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Overview</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="program" id="tab-program">Program</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="prospects" id="tab-prospects">Prospects</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Outreach</button>
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="commissions" id="tab-commissions">Commissions</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Payouts</button>
     </nav>
 
-    <section class="af-panel" data-panel="overview"><div class="af-stack" id="overviewBody"></div></section>
     <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
-    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack" id="prospectsBody"></div></section>
+    <section class="af-panel" data-panel="prospects"><div class="af-stack" id="prospectsBody"></div></section>
     <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
     <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
-    <section class="af-panel" data-panel="commissions" hidden><div class="af-stack" id="commissionsBody"></div></section>
     <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="payoutsBody"></div></section>
+    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="commissionsBody"></div></section>
   </main>
 </div>
 

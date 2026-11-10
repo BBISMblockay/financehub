@@ -101,6 +101,16 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 
 ## Daily use
 
+The page has four tabs (Blake, 2026-11-10: "a consumer product, not so many
+inputs"): **Find creators** (was Prospects), **Messages** (was Outreach),
+**Affiliates**, and **Payouts** (Commissions and Payouts together, with one
+Update commissions button). Program settings sit behind the **Settings**
+button. Everything secondary (saved searches, list import, adding by hand,
+run history, do-not-contact, date ranges, periods, the ledger, advanced
+program settings) is under a closed **More options** on its tab. A one-line
+**Next** bar under the KPIs names the most useful thing to do now. Approving
+a creator drafts their message.
+
 - **Prospects**: review each prospect against the search result it came from
   (title, snippet, URL, date). Approve, reject, or put them on the
   do-not-contact list. "Fit" is a 0–1 score from the result alone, always with
