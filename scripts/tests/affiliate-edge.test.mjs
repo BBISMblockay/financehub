@@ -38,7 +38,7 @@ async function load(fn, file) {
     rawtoken: ['affiliate-portal', "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: hash });", "const { data: rows, error: rErr } = await service.rpc('affiliate_portal_resolve', { p_token_hash: token });"],
     bodyaddress: ['affiliate-portal', "kind: 'link_renewal', to: subject.contact_email,", "kind: 'link_renewal', to: body.email || subject.contact_email,"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
-    bodycompany: ['affiliate-invite', "    const { data: company, error: coErr } = await caller.rpc('active_company_id');", "    let { data: company, error: coErr } = await caller.rpc('active_company_id');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
+    bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
   };
@@ -239,9 +239,16 @@ await test('portal: the application honeypot writes nothing; a bad company id is
 });
 
 // ── affiliate-invite ──────────────────────────────────────────────────────
+// The database answers "may manage" and "which company" together
+// (affiliate_managed_company): a company id, NULL for a non-manager, or an
+// error for a refused session.
 function caller({ gate = { data: true, error: null }, company = CO } = {}) {
   const calls = [];
-  return { calls, client: { rpc: async (name) => { calls.push(name); return name === 'can_manage_affiliate_programs' ? gate : { data: company, error: null }; } } };
+  return { calls, client: { rpc: async (name) => {
+    calls.push(name);
+    if (name !== 'affiliate_managed_company') return { data: null, error: { message: `unexpected rpc ${name}` } };
+    return gate.error ? { data: null, error: gate.error } : { data: gate.data === true ? company : null, error: null };
+  } } };
 }
 const authed = (body) => post(body, { Authorization: 'Bearer staff.jwt.value' });
 
@@ -260,7 +267,21 @@ await test('invite: a non-manager is 403 before any service-role call', async ()
   const h = createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: '' });
   assert.equal((await h(authed({ action: 'portal_link', affiliate_id: AFF }))).status, 403);
   assert.equal(svc.log.length, 0);
-  assert.equal(c.calls[0], 'can_manage_affiliate_programs', 'the gate is the first thing asked');
+  assert.equal(c.calls[0], 'affiliate_managed_company', 'the gate is the first thing asked');
+});
+
+await test('invite: permission and company come from ONE caller request, so a company switch cannot split them', async () => {
+  // Review cycle 1, P1: asked as two requests, a manager of A who is a plain
+  // member of B could switch to B in between and write B's rows on A's word.
+  const OTHER = '3f000000-0000-4000-8000-0000000000bb';
+  const svc = fakeService({ tables: { affiliates: null } });
+  const c = caller({ company: OTHER });
+  const h = createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: '' });
+  await h(authed({ action: 'portal_link', affiliate_id: AFF }));
+  assert.deepEqual(c.calls, ['affiliate_managed_company'], 'exactly one caller-token request decides both');
+  const reads = svc.log.filter((l) => l.table === 'affiliates');
+  assert.ok(reads.length && reads.every((r) => r.filters.company_entity_id === OTHER),
+    'every service-role read uses the company the gate returned');
 });
 
 await test('invite: the company comes from the caller, never from the body', async () => {

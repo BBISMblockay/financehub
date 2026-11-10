@@ -195,9 +195,14 @@ as $$
     a.terms_version_accepted, a.terms_accepted_at,
     t.expires_at
   from public.affiliate_access_tokens t
-  join public.affiliate_programs p on p.id = t.program_id
+  -- Company-qualified joins: a token can only ever show its OWN company's
+  -- program and affiliate (the composite foreign keys below make any other
+  -- pairing unstorable; this makes it unreadable too).
+  join public.affiliate_programs p
+    on p.id = t.program_id and p.company_entity_id = t.company_entity_id
   join public.entities e on e.id = t.company_entity_id
-  left join public.affiliates a on a.id = t.affiliate_id
+  left join public.affiliates a
+    on a.id = t.affiliate_id and a.company_entity_id = t.company_entity_id and a.program_id = t.program_id
   where t.token_hash = p_token_hash
     and t.revoked_at is null
     -- An expiry compared with `or expires_at is null` would be no expiry at
@@ -574,10 +579,25 @@ begin
   )
   on conflict (company_entity_id, program_id,
                lower(coalesce(nullif(btrim(profile_url), ''), platform || ':' || btrim(handle))))
+  -- A profile URL or handle is public, so anyone can submit someone else's.
+  -- The application is RECORDED on the existing prospect (evidence), but it
+  -- never replaces a name or email a person already reviewed: otherwise a
+  -- stranger could put their own address on an approved creator and receive
+  -- that creator's signup link (review cycle 1, P2). An unreviewed prospect
+  -- with no email yet may take the applicant's, since a person still has to
+  -- approve it.
   do update set
-       display_name = excluded.display_name,
-       contact_email = coalesce(excluded.contact_email, affiliate_prospects.contact_email),
-       evidence = affiliate_prospects.evidence || excluded.evidence,
+       contact_email = case
+         when affiliate_prospects.status in ('new','qualified')
+           then coalesce(affiliate_prospects.contact_email, excluded.contact_email)
+         else affiliate_prospects.contact_email end,
+       display_name = case
+         when affiliate_prospects.status in ('new','qualified') and affiliate_prospects.display_name is null
+           then excluded.display_name
+         else affiliate_prospects.display_name end,
+       evidence = affiliate_prospects.evidence || jsonb_build_object('last_application',
+         excluded.evidence || jsonb_strip_nulls(jsonb_build_object(
+           'applicant_name', excluded.display_name, 'applicant_email', excluded.contact_email))),
        updated_at = now()
   returning id into v_prospect;
 
@@ -590,6 +610,53 @@ comment on function public.affiliate_portal_apply(uuid, text, text, text, text, 
 
 revoke all on function public.affiliate_portal_apply(uuid, text, text, text, text, text, text, text) from public, anon, authenticated;
 grant execute on function public.affiliate_portal_apply(uuid, text, text, text, text, text, text, text) to service_role;
+
+-- Every reference between two affiliate tables stays inside one company.
+-- A single-column foreign key lets a row of company A point at company B's
+-- program, affiliate or prospect when someone knows the id; RLS checks only
+-- the row's own company (review cycle 1, P1: an A affiliate row pointing at
+-- B's program got B's terms through the portal). So every such reference
+-- gets a composite twin, (col, company_entity_id) -> (id, company_entity_id),
+-- found from the catalog rather than listed, so a table added later is
+-- covered by re-running this block. The single-column keys stay: they carry
+-- the cascade and set-null behaviour; the twin only refuses a mismatch.
+do $$
+declare
+  r record;
+  v_uq text;
+  v_fk text;
+begin
+  for r in
+    select c.conrelid, c.confrelid, cl.relname as child, pl.relname as parent, ca.attname as col
+      from pg_constraint c
+      join pg_class cl on cl.oid = c.conrelid
+      join pg_namespace n on n.oid = cl.relnamespace
+      join pg_class pl on pl.oid = c.confrelid
+      join pg_attribute ca on ca.attrelid = c.conrelid and ca.attnum = c.conkey[1]
+      join pg_attribute pa on pa.attrelid = c.confrelid and pa.attnum = c.confkey[1]
+     where c.contype = 'f'
+       and n.nspname = 'public'
+       and array_length(c.conkey, 1) = 1
+       and pa.attname = 'id'
+       and (cl.relname = 'affiliates' or cl.relname like 'affiliate\_%')
+       and (pl.relname = 'affiliates' or pl.relname like 'affiliate\_%')
+       and exists (select 1 from pg_attribute a where a.attrelid = c.conrelid
+                    and a.attname = 'company_entity_id' and not a.attisdropped)
+       and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid
+                    and a.attname = 'company_entity_id' and not a.attisdropped)
+     order by 3, 5
+  loop
+    v_uq := left(r.parent, 48) || '_id_company_key';
+    if not exists (select 1 from pg_constraint where conrelid = r.confrelid and conname = v_uq) then
+      execute format('alter table public.%I add constraint %I unique (id, company_entity_id)', r.parent, v_uq);
+    end if;
+    v_fk := left(r.child, 30) || '_' || left(r.col, 20) || '_same_co';
+    if not exists (select 1 from pg_constraint where conrelid = r.conrelid and conname = v_fk) then
+      execute format('alter table public.%I add constraint %I foreign key (%I, company_entity_id) references public.%I (id, company_entity_id)',
+                     r.child, v_fk, r.col, r.parent);
+    end if;
+  end loop;
+end $$;
 
 -- Nothing in this module is for the anon role: affiliates reach it only
 -- through the affiliate-portal function (service role), never PostgREST.

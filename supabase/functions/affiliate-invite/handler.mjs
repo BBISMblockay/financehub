@@ -58,12 +58,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     // 1. Authority, answered by the database AS THE CALLER. An error here is a
     //    refused session (expired, password-only with 2FA enrolled, revoked
     //    integration token) and aborts before any service-role call.
+    //    The permission AND the company come back from ONE statement: asked as
+    //    two requests, a person who manages company A could switch to company
+    //    B between them and have B's rows written under A's authorization.
     const caller = userClientFor(authHeader);
-    const { data: mayManage, error: gateErr } = await caller.rpc('can_manage_affiliate_programs');
+    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');
     if (gateErr) return reply({ error: 'Your session could not be verified. Sign in again.' }, 401);
-    if (mayManage !== true) return reply({ error: 'Managing affiliates needs Affiliate Studio access for this company.' }, 403);
-    const { data: company, error: coErr } = await caller.rpc('active_company_id');
-    if (coErr || !company) return reply({ error: 'No active company. Pick a company and try again.' }, 400);
+    if (!company || !UUID_RE.test(String(company))) {
+      return reply({ error: 'Managing affiliates needs Affiliate Studio access for your active company.' }, 403);
+    }
     // Who, for the audit columns. Read only AFTER the caller-token gate above
     // has accepted the session.
     const jwt = authHeader.replace(/^Bearer\s+/i, '');

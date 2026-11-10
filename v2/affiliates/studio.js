@@ -129,6 +129,7 @@ async function loadProgramData() {
     ledger: by('affiliate_commission_ledger').order('created_at', { ascending: false }).limit(300),
     ledgerCount: db.from('affiliate_commission_ledger').select('id', { count: 'exact', head: true }).eq('company_entity_id', CO).eq('program_id', p.id),
     balances: by('affiliate_balances_v'),
+    periodTotals: by('affiliate_period_totals_v'),
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
     notifications: by('affiliate_notifications').order('created_at', { ascending: false }).limit(50),
   };
@@ -475,7 +476,8 @@ function renderCommissions() {
     card('Review periods', `<p class="af-muted">A period groups commission lines for review. Lines in a period cannot be paid until someone who can approve journal entries approves it.</p>
       ${table([
         { h: 'Period', f: (x) => `${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}` }, { h: 'Status', f: (x) => statusPill(x.status) },
-        { h: 'Total', num: true, f: (x) => money(d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0)) },
+        // From the database, not the 300 newest ledger lines the page holds.
+        { h: 'Total', num: true, f: (x) => { const t = d.periodTotals.filter((r) => r.period_id === x.id); return t.length ? t.map((r) => formatMoney(r.amount_cents, r.currency)).join('<br>') : money(0); } },
         { h: 'Approved', f: (x) => (x.approved_at ? fmtTime(x.approved_at) : '—') },
         { h: '', f: (x) => `<div class="af-actions">${MANAGE && x.status === 'open' ? btn('Submit for approval', 'period-submit', { id: x.id }) : ''}${MONEY && x.status === 'under_review' ? btn('Approve', 'period-approve', { id: x.id }, 'primary', { confirm: true }) : ''}</div>` },
       ], d.periods, 'No periods yet. Without one, commission lines are still reviewed when a payout is approved.')}
@@ -500,6 +502,7 @@ function renderPayouts() {
     const b = [];
     if (MONEY && x.status === 'draft') b.push(btn('Approve', 'payout-approve', { id: x.id }, 'primary', { confirm: true }));
     if (MONEY && x.status === 'exported') b.push(`<input class="bcn-field" id="ref-${x.id}" placeholder="Payment reference" style="max-width:160px;" /><input class="bcn-field" id="pev-${x.id}" placeholder="Evidence: where it shows as paid" style="max-width:220px;" />`, btn('Record as paid', 'payout-paid', { id: x.id }, 'primary', { confirm: true }));
+    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
     if (MANAGE && ['approved', 'exported', 'marked_paid'].includes(x.status)) b.push(btn('Tell affiliate', 'payout-notify', { id: x.id, aff: x.affiliate_id }));
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) b.push(`<input class="bcn-field" id="vr-${x.id}" placeholder="Reason to void" style="max-width:160px;" />`, btn('Void', 'payout-void', { id: x.id }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
@@ -698,13 +701,29 @@ const A = {
   },
   'payout-build': async ({ aff }) => { must(await db.rpc('affiliate_build_payout', { p_affiliate: aff, p_through: null })); return 'Draft payout built. It needs approval.'; },
   'payout-approve': async ({ id }) => { must(await db.rpc('affiliate_approve_payout', { p_payout: id })); return 'Payout approved.'; },
+  // The claim comes first: the database moves the approved payouts to
+  // exported under one batch, under the program's money lock, and returns
+  // exactly what it claimed. The file is built from that answer, so a payout
+  // approved, voided or exported elsewhere in the meantime can never be in a
+  // file without being marked, or marked without being in a file.
   'payout-export': async () => {
-    const list = S.d.payouts.filter((x) => x.status === 'approved');
-    const csv = toCsv(PAYOUT_HEADER, payoutRows(list, S.d.affById));
-    const fp = await sha256Hex(csv);
+    const ids = S.d.payouts.filter((x) => x.status === 'approved').map((x) => x.id);
+    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: S.programId, p_payouts: ids, p_batch: null }));
+    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));
     download(`payouts-${prog().slug}-${today()}.csv`, csv);
-    for (const x of list) must(await db.rpc('affiliate_mark_payout_exported', { p_payout: x.id, p_fingerprint: fp }));
-    return `Exported ${list.length}. Pay them in your own system, then record each reference.`;
+    const skipped = (r.skipped || []).length;
+    const done = `Exported ${(r.payouts || []).length}${skipped ? ` (${skipped} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
+    // The payouts are already exported and the file is downloaded; a missing
+    // fingerprint only loses the file's checksum, so say so rather than fail.
+    try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { return `${done} The file's checksum was not saved (${e.message}).`; }
+    return done;
+  },
+  // Download a claimed export again (a lost or blocked download). Nothing is
+  // re-marked; the payouts still waiting to be paid in that batch come back.
+  'payout-redownload': async ({ batch }) => {
+    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: S.programId, p_payouts: null, p_batch: batch }));
+    download(`payouts-${prog().slug}-${today()}-again.csv`, toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById)));
+    return `Downloaded ${(r.payouts || []).length} again. Nothing was changed.`;
   },
   'payout-paid': async ({ id }) => {
     if (!val(`ref-${id}`) || !val(`pev-${id}`)) throw new Error('Enter the payment reference and where it shows as paid.');

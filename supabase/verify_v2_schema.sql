@@ -8993,6 +8993,37 @@ select 'Affiliate Studio' as check_name,
       or exists (select 1 from information_schema.columns where table_schema = 'public'
                   and table_name = 'affiliate_access_token_state_v' and column_name = 'token_hash')
       then 'CRITICAL — the token state view (definer) lost its company filter or exposes the hash'
+    -- Review cycle 1 of #1177: these held only by construction, so they are
+    -- checked by structure here.
+    when exists (select 1 from pg_constraint c
+                  join pg_class cl on cl.oid = c.conrelid join pg_namespace n on n.oid = cl.relnamespace
+                  join pg_class pl on pl.oid = c.confrelid
+                  join pg_attribute pa on pa.attrelid = c.confrelid and pa.attnum = c.confkey[1]
+                  join pg_attribute ca on ca.attrelid = c.conrelid and ca.attnum = c.conkey[1]
+                 where c.contype = 'f' and n.nspname = 'public' and array_length(c.conkey, 1) = 1 and pa.attname = 'id'
+                   and (cl.relname = 'affiliates' or cl.relname like 'affiliate\_%')
+                   and (pl.relname = 'affiliates' or pl.relname like 'affiliate\_%')
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.conrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and exists (select 1 from pg_attribute a where a.attrelid = c.confrelid and a.attname = 'company_entity_id' and not a.attisdropped)
+                   and not exists (select 1 from pg_constraint t
+                                    where t.contype = 'f' and t.conrelid = c.conrelid and t.confrelid = c.confrelid
+                                      and array_length(t.conkey, 1) = 2 and t.conkey[1] = c.conkey[1]))
+      then 'CRITICAL — an affiliate reference has no same-company twin, so a row can point at another company''s program or affiliate'
+    when exists (select 1 from unnest(array['public.affiliate_accrue_commissions(uuid,date,date,uuid)',
+                                            'public.affiliate_build_payout(uuid,date)',
+                                            'public.affiliate_approve_payout(uuid)']) f(sig)
+                  where pg_get_functiondef(to_regprocedure(f.sig)) not like '%affiliate_lock_program_money(%')
+      then 'CRITICAL — accrual or a payout step no longer takes the program money lock, so overlapping runs can double-count'
+    when pg_get_functiondef('public.affiliate_periods_guard()'::regprocedure) not like '%tg_op = ''INSERT''%'
+      then 'CRITICAL — a commission period can be inserted already approved, skipping the money gate'
+    when to_regprocedure('public.affiliate_managed_company()') is null
+      or to_regprocedure('public.affiliate_claim_payout_export(uuid,uuid[],uuid)') is null
+      or to_regclass('public.affiliate_period_totals_v') is null
+      then 'MISSING — re-run 20261110084000 and 20261110085000 (review cycle 1 fixes)'
+    when coalesce((select option_value from pg_options_to_table(
+                     (select reloptions from pg_class where oid = 'public.affiliate_period_totals_v'::regclass))
+                   where option_name = 'security_invoker'), 'false') <> 'true'
+      then 'CRITICAL — affiliate_period_totals_v is not security_invoker, so ledger RLS does not apply through it'
     when to_regclass('public.sync_jobs') is not null
       and not exists (select 1 from pg_constraint where conrelid = 'public.sync_jobs'::regclass
                        and conname = 'sync_jobs_job_type_check' and pg_get_constraintdef(oid) ~ 'affiliate_discovery')

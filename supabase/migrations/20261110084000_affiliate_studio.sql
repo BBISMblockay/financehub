@@ -121,6 +121,32 @@ comment on function public.can_manage_affiliate_programs() is
 revoke execute on function public.can_manage_affiliate_programs() from public, anon;
 grant execute on function public.can_manage_affiliate_programs() to authenticated;
 
+-- The company a staff edge function may act on, answered in ONE statement:
+-- the caller's active company if they manage affiliates there, else NULL.
+-- Asking "may I manage?" and "which company?" as two requests let a person
+-- who manages A and is a plain member of B switch A -> B between them, so the
+-- first answer authorized A and every service-role write that followed
+-- targeted B (review cycle 1, P1). A STABLE function reads one snapshot, so
+-- the company it returns is the company the gate judged.
+create or replace function public.affiliate_managed_company()
+returns uuid
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select c.id
+    from (select public.active_company_id() as id) c
+   where c.id is not null
+     and public.can_manage_affiliate_programs()
+$$;
+
+comment on function public.affiliate_managed_company() is
+  'The caller''s active company when they may manage affiliate programs there, else NULL -- the permission and the company in one statement, so a staff edge function cannot authorize one company and act on another. Used by affiliate-invite.';
+
+revoke execute on function public.affiliate_managed_company() from public, anon;
+grant execute on function public.affiliate_managed_company() to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 1. Programs -- the configuration every other table reads
 -- ---------------------------------------------------------------------------

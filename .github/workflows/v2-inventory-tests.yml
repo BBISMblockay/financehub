@@ -194,7 +194,7 @@ jobs:
       - name: Affiliate Studio page guards (mutations)
         run: |
           set -u
-          for m in nullzero termshtml tokenurl membergate; do
+          for m in nullzero termshtml tokenurl membergate exportlocal periodtotal; do
             if AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

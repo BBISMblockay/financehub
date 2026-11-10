@@ -118,10 +118,13 @@ create table if not exists public.affiliate_attributions (
   --   code_outside_window    -- the code is an affiliate's, the order is not in its dates
   --   currency_mismatch      -- attributed, but not in the program's settlement currency
   --   refunds_not_measured   -- attributed, but the commissionable base is unknown
+  --   order_cancelled        -- the affiliate's order was cancelled: a KNOWN zero
+  --                             base, so anything accrued on it is reversed
   basis               text not null check (basis in (
                         'single_affiliate_code','first_affiliate_code',
                         'ambiguous_multiple_affiliate_codes','multiple_codes_refused',
-                        'code_outside_window','currency_mismatch','refunds_not_measured')),
+                        'code_outside_window','currency_mismatch','refunds_not_measured',
+                        'order_cancelled')),
 
   gross_subtotal_cents    bigint,
   refunded_subtotal_cents bigint,
@@ -139,6 +142,7 @@ create table if not exists public.affiliate_attributions (
       when 'first_affiliate_code'  then affiliate_id is not null
       when 'currency_mismatch'     then affiliate_id is not null and commissionable_cents is null
       when 'refunds_not_measured'  then affiliate_id is not null and commissionable_cents is null
+      when 'order_cancelled'       then affiliate_id is not null and commissionable_cents = 0
       when 'ambiguous_multiple_affiliate_codes' then affiliate_id is null and commissionable_cents is null
       when 'multiple_codes_refused'             then affiliate_id is null and commissionable_cents is null
       when 'code_outside_window'                then affiliate_id is null and commissionable_cents is null
@@ -239,13 +243,44 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_gated boolean := coalesce(current_setting('silo.affiliate_period_approval', true), '') = coalesce(new.id::text, '');
 begin
-  if tg_op = 'UPDATE'
-     and new.status is distinct from old.status
-     and new.status in ('approved','paid')
-     and coalesce(current_setting('silo.affiliate_period_approval', true), '') <> new.id::text
-  then
+  if v_gated then
+    return new;
+  end if;
+
+  -- A period is born open and unapproved. Without this a manager could
+  -- INSERT one already 'approved' with their own name on it, which satisfies
+  -- every CHECK and skips the money gate entirely (review cycle 1, P2).
+  if tg_op = 'INSERT' then
+    if new.status <> 'open' or new.approved_by is not null or new.approved_at is not null
+       or new.submitted_by is not null or new.submitted_at is not null then
+      raise exception 'affiliate_commission_periods: a period starts open; submit it with affiliate_submit_period() and approve it with affiliate_approve_period()'
+        using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if (new.status is distinct from old.status and new.status in ('approved','paid'))
+     or new.approved_by is distinct from old.approved_by
+     or new.approved_at is distinct from old.approved_at then
     raise exception 'affiliate_commission_periods: approve through affiliate_approve_period(), which requires can_approve_affiliate_commissions()'
+      using errcode = '42501';
+  end if;
+
+  -- What somebody signed off stays signed off: an approved or paid period
+  -- cannot be reopened, re-dated or moved by a plain UPDATE. Its note can
+  -- still be edited.
+  if old.status in ('approved','paid')
+     and (new.status is distinct from old.status
+          or new.period_start is distinct from old.period_start
+          or new.period_end is distinct from old.period_end
+          or new.program_id is distinct from old.program_id
+          or new.company_entity_id is distinct from old.company_entity_id
+          or new.submitted_by is distinct from old.submitted_by
+          or new.submitted_at is distinct from old.submitted_at) then
+    raise exception 'affiliate_commission_periods: an approved period cannot be reopened or changed'
       using errcode = '42501';
   end if;
   return new;
@@ -414,6 +449,9 @@ create table if not exists public.affiliate_payouts (
   exported_by       uuid references public.profiles(id),
   exported_at       timestamptz,
   export_fingerprint text,
+  -- One id per export, so the file a person pays from can be downloaded
+  -- again exactly as it was confirmed.
+  export_batch_id   uuid,
   marked_paid_by    uuid references public.profiles(id),
   marked_paid_at    timestamptz,
   external_reference text,
@@ -572,6 +610,20 @@ grant execute on function public.affiliate_effective_rate(uuid) to authenticated
 -- An order already attributed to a DIFFERENT program is left alone and
 -- counted as conflict_other_program: the unique key is the order, and one
 -- program's run must never take an order another program already owns.
+-- The program's money lock: accrual, payout build and payout approval take it
+-- for the rest of their transaction, so none of them reads a ledger another
+-- is half-way through changing.
+create or replace function public.affiliate_lock_program_money(p_program uuid)
+returns void
+language sql
+volatile
+set search_path = public, pg_temp
+as $$
+  select pg_advisory_xact_lock(hashtextextended('affiliate_money:' || p_program::text, 0))
+$$;
+
+revoke execute on function public.affiliate_lock_program_money(uuid) from public, anon, authenticated;
+
 create or replace function public.affiliate_resolve_attributions(
   p_program uuid,
   p_from date,
@@ -628,12 +680,16 @@ begin
       o.shop_domain, o.order_id, o.order_number, o.currency,
       o.subtotal_price, o.refunded_subtotal, o.discount_codes,
       (o.shopify_created_at at time zone v_tz)::date as order_day,
-      jsonb_array_length(o.discount_codes) as codes_on_order
+      jsonb_array_length(o.discount_codes) as codes_on_order,
+      -- Cancelled orders are READ, not skipped: an order credited before it
+      -- was cancelled must come back as a known zero so accrual appends the
+      -- reversal. Skipping them left the old positive attribution in place
+      -- and the commission payable (review cycle 1, P1).
+      (o.cancelled_at is not null) as cancelled
     from public.shopify_orders o
     where o.company_entity_id = v_company
       and o.discount_codes is not null
       and jsonb_array_length(o.discount_codes) > 0
-      and o.cancelled_at is null
       -- Indexed on (company_entity_id, shopify_created_at). Widened by three
       -- days so no timezone can push a boundary day out of the scan, then
       -- narrowed to the business day below.
@@ -667,14 +723,14 @@ begin
   agg as (
     select
       m.shop_domain, m.order_id, m.order_number, m.currency,
-      m.subtotal_price, m.refunded_subtotal, m.order_day, m.codes_on_order,
+      m.subtotal_price, m.refunded_subtotal, m.order_day, m.codes_on_order, m.cancelled,
       count(*) filter (where m.in_window)                        as in_window_codes,
       count(distinct m.affiliate_id) filter (where m.in_window)   as in_window_affiliates,
       (array_agg(m.code      order by m.code) filter (where m.in_window))[1] as win_code,
       (array_agg(m.code_id   order by m.code) filter (where m.in_window))[1] as win_code_id,
       (array_agg(m.affiliate_id order by m.code) filter (where m.in_window))[1] as win_affiliate
     from matched m
-    group by 1,2,3,4,5,6,7,8
+    group by 1,2,3,4,5,6,7,8,9
   ),
   decided as (
     select
@@ -684,6 +740,7 @@ begin
           then 'multiple_codes_refused'
         when a.in_window_affiliates = 0 then 'code_outside_window'
         when a.in_window_affiliates > 1 then 'ambiguous_multiple_affiliate_codes'
+        when a.cancelled then 'order_cancelled'
         when upper(coalesce(a.currency, '')) <> v_prog.currency then 'currency_mismatch'
         when a.subtotal_price is null or a.refunded_subtotal is null then 'refunds_not_measured'
         when a.codes_on_order = 1 then 'single_affiliate_code'
@@ -727,7 +784,8 @@ begin
       -- Clamped at zero: a refund larger than the merchandise subtotal
       -- (shipping refunded alongside it, say) must not create a NEGATIVE
       -- commissionable base, which would claw back more than was ever earned.
-      case when s.earns
+      case when s.basis = 'order_cancelled' then 0::bigint
+           when s.earns
             and s.subtotal_price is not null
             and s.refunded_subtotal is not null
            then greatest(round((s.subtotal_price - s.refunded_subtotal) * s.minor)::bigint, 0)
@@ -829,10 +887,11 @@ grant execute on function public.affiliate_resolve_attributions(uuid, date, date
 --   * a rate corrected on the program appends the delta rather than rewriting
 --     history, and the memo says which run did it.
 --
--- Only affiliates whose status is 'active' accrue. A paused or terminated
--- affiliate keeps every entry they earned and earns nothing new, which is
--- what those statuses mean; the return value counts what was skipped so the
--- page can say so rather than showing a silent gap.
+-- Only affiliates whose status is 'active' accrue NEW commission. A paused or
+-- terminated affiliate keeps every entry they earned and earns nothing new,
+-- which is what those statuses mean -- but a refund or cancellation on what
+-- they already earned is still reversed, because otherwise it stays payable.
+-- The return value counts what was skipped so the page can say so.
 create or replace function public.affiliate_accrue_commissions(
   p_program uuid,
   p_from date,
@@ -880,6 +939,13 @@ begin
       using errcode = '42501';
   end if;
 
+  -- One accrual per program at a time. Each attribution's delta is "what is
+  -- owed now minus what the ledger holds", so two overlapping runs could both
+  -- read $0 held and both append the full $10 (review cycle 1, P1). The same
+  -- program lock is taken by building and approving a payout, so a payout is
+  -- never assembled from a ledger an accrual is half-way through.
+  perform public.affiliate_lock_program_money(p_program);
+
   if p_period is not null then
     perform 1 from public.affiliate_commission_periods
       where id = p_period and company_entity_id = v_company and program_id = p_program;
@@ -923,11 +989,6 @@ begin
       continue;
     end if;
 
-    if r.affiliate_status <> 'active' then
-      v_skipped_inactive := v_skipped_inactive + 1;
-      continue;
-    end if;
-
     v_entitled := case r.kind
       when 'percent_of_net' then round(r.commissionable_cents * coalesce(r.pct, 0) / 100.0)::bigint
       -- A fully refunded order earns no flat fee either: the fee is per
@@ -944,6 +1005,14 @@ begin
        and l.kind in ('accrual','refund_adjustment');
 
     v_delta := v_entitled - v_existing;
+
+    -- A paused or terminated affiliate earns nothing NEW, but a refund or
+    -- cancellation on what they already earned is still taken back:
+    -- skipping them entirely left the old commission payable (review cycle 1).
+    if r.affiliate_status <> 'active' and v_delta > 0 then
+      v_skipped_inactive := v_skipped_inactive + 1;
+      continue;
+    end if;
 
     if v_delta = 0 then
       v_unchanged := v_unchanged + 1;
@@ -1120,6 +1189,7 @@ begin
   end if;
 
   select * into v_prog from public.affiliate_programs where id = v_aff.program_id;
+  perform public.affiliate_lock_program_money(v_aff.program_id);
   v_through := coalesce(p_through, (now() at time zone public.silo_company_timezone(v_company))::date);
 
   create temporary table if not exists affiliate_payout_candidates (
@@ -1196,15 +1266,36 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare v_company uuid; v_amount bigint; v_claimed bigint;
+declare v_company uuid; v_amount bigint; v_claimed bigint; v_program uuid; v_affiliate uuid;
+  v_currency text; v_newer bigint;
 begin
-  select company_entity_id, amount_cents into v_company, v_amount
+  select company_entity_id, amount_cents, program_id, affiliate_id, currency
+    into v_company, v_amount, v_program, v_affiliate, v_currency
     from public.affiliate_payouts where id = p_payout;
   if not found then raise exception 'affiliate_approve_payout: no such payout'; end if;
   if v_company is distinct from public.active_company_id()
      or not public.can_approve_affiliate_commissions() then
     raise exception 'affiliate_approve_payout: approving a payout needs can_approve_affiliate_commissions()'
       using errcode = '42501';
+  end if;
+
+  perform public.affiliate_lock_program_money(v_program);
+
+  -- A reduction that landed AFTER the draft was built (a refund, a
+  -- cancellation, a negative manual adjustment) is money already known to
+  -- have come back. Approving the old total would pay it anyway, so the
+  -- draft must be rebuilt first (review cycle 1, P1). Approved amounts are
+  -- never edited in place.
+  select coalesce(sum(l.amount_cents), 0) into v_newer
+    from public.affiliate_commission_ledger l
+   where l.company_entity_id = v_company
+     and l.affiliate_id = v_affiliate
+     and l.currency = v_currency
+     and l.amount_cents < 0
+     and not exists (select 1 from public.affiliate_payout_items i where i.ledger_entry_id = l.id);
+  if v_newer < 0 then
+    raise exception 'affiliate_approve_payout: % minor units of refunds or reductions arrived after this draft was built -- void it and build again',
+      -v_newer;
   end if;
 
   -- The stored total must still equal the entries it claims. A draft built
@@ -1255,6 +1346,111 @@ $$;
 
 revoke execute on function public.affiliate_mark_payout_exported(uuid, text) from public, anon;
 grant execute on function public.affiliate_mark_payout_exported(uuid, text) to authenticated;
+
+-- The payment handoff, CONFIRMED BEFORE the file exists. The page used to
+-- build the CSV from its own cached list and download it, then ask the
+-- database to mark each row exported -- so a payout somebody else had
+-- already voided or paid was still in the file a person pays from (review
+-- cycle 1, P1). Now the database moves the still-approved rows to exported
+-- under one batch id and returns exactly those; the page builds the file
+-- from what came back. With p_batch it returns that batch again, unchanged,
+-- so a lost file is downloaded again rather than re-exported.
+create or replace function public.affiliate_claim_payout_export(
+  p_program uuid,
+  p_payouts uuid[] default null,
+  p_batch uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid;
+  v_batch   uuid := p_batch;
+  v_rows    jsonb;
+begin
+  select company_entity_id into v_company from public.affiliate_programs where id = p_program;
+  if v_company is null
+     or v_company is distinct from public.active_company_id()
+     or not public.can_manage_affiliate_programs() then
+    raise exception 'affiliate_claim_payout_export: not permitted' using errcode = '42501';
+  end if;
+  perform public.affiliate_lock_program_money(p_program);
+
+  if v_batch is null then
+    if coalesce(array_length(p_payouts, 1), 0) = 0 then
+      raise exception 'affiliate_claim_payout_export: no payouts were chosen';
+    end if;
+    v_batch := gen_random_uuid();
+    update public.affiliate_payouts
+       set status = 'exported', exported_by = auth.uid(), exported_at = now(), export_batch_id = v_batch
+     where id = any(p_payouts)
+       and company_entity_id = v_company
+       and program_id = p_program
+       and status = 'approved';
+    if not found then
+      raise exception 'affiliate_claim_payout_export: none of those payouts is still approved -- reload the page';
+    end if;
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', p.id, 'affiliate_id', p.affiliate_id, 'amount_cents', p.amount_cents,
+           'currency', p.currency, 'approved_at', p.approved_at, 'status', p.status,
+           'item_count', (select count(*) from public.affiliate_payout_items i where i.payout_id = p.id))
+         order by p.created_at, p.id), '[]'::jsonb)
+    into v_rows
+    from public.affiliate_payouts p
+   where p.company_entity_id = v_company
+     and p.program_id = p_program
+     and p.export_batch_id = v_batch
+     and p.status = 'exported';
+
+  if p_batch is not null and v_rows = '[]'::jsonb then
+    raise exception 'affiliate_claim_payout_export: nothing in that export is still waiting to be paid';
+  end if;
+
+  return jsonb_build_object('batch_id', v_batch, 'payouts', v_rows,
+    'skipped', coalesce((select jsonb_agg(x) from unnest(coalesce(p_payouts, '{}'::uuid[])) x
+                          where p_batch is null
+                            and not exists (select 1 from public.affiliate_payouts q
+                                             where q.id = x and q.export_batch_id = v_batch)), '[]'::jsonb));
+end;
+$$;
+
+comment on function public.affiliate_claim_payout_export(uuid, uuid[], uuid) is
+  'Moves the chosen payouts that are STILL approved to exported under one batch id and returns exactly those rows, so the payment file is built from confirmed rows only; with p_batch, returns that batch again for a re-download. Manager gate, program money lock. Moves no money.';
+
+revoke execute on function public.affiliate_claim_payout_export(uuid, uuid[], uuid) from public, anon;
+grant execute on function public.affiliate_claim_payout_export(uuid, uuid[], uuid) to authenticated;
+
+-- The fingerprint of the file built from a confirmed batch, stored once.
+create or replace function public.affiliate_set_payout_export_fingerprint(p_batch uuid, p_fingerprint text)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare v_n integer;
+begin
+  if btrim(coalesce(p_fingerprint, '')) = '' then
+    raise exception 'affiliate_set_payout_export_fingerprint: a fingerprint is required';
+  end if;
+  if not public.can_manage_affiliate_programs() then
+    raise exception 'affiliate_set_payout_export_fingerprint: not permitted' using errcode = '42501';
+  end if;
+  update public.affiliate_payouts
+     set export_fingerprint = p_fingerprint
+   where export_batch_id = p_batch
+     and company_entity_id = public.active_company_id()
+     and export_fingerprint is null;
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+revoke execute on function public.affiliate_set_payout_export_fingerprint(uuid, text) from public, anon;
+grant execute on function public.affiliate_set_payout_export_fingerprint(uuid, text) to authenticated;
 
 create or replace function public.affiliate_mark_payout_paid(
   p_payout uuid,
@@ -1399,6 +1595,30 @@ grant execute on function public.affiliate_clear_attributions(uuid, date, date) 
 
 -- Earned, claimed, paid and balance per affiliate. security_invoker, so RLS
 -- on the ledger is what scopes it.
+-- Each period's complete total, computed by the database. The page used to
+-- add up the newest 300 ledger lines it had loaded for the whole program, so
+-- a busy period showed less than it held and an older one showed $0 -- beside
+-- the button that approves it (review cycle 1, P2). security_invoker: the
+-- ledger's own RLS scopes it.
+create or replace view public.affiliate_period_totals_v
+  with (security_invoker = true) as
+select
+  l.company_entity_id,
+  l.program_id,
+  l.period_id,
+  l.currency,
+  sum(l.amount_cents)::bigint as amount_cents,
+  count(*)::integer as entry_count
+from public.affiliate_commission_ledger l
+where l.period_id is not null
+group by 1, 2, 3, 4;
+
+comment on view public.affiliate_period_totals_v is
+  'The full total and line count of each commission review period, per currency. security_invoker, so the ledger''s RLS applies. What the page shows beside "Approve".';
+
+revoke all on public.affiliate_period_totals_v from anon;
+grant select on public.affiliate_period_totals_v to authenticated, service_role;
+
 create or replace view public.affiliate_balances_v
   with (security_invoker = true) as
 select

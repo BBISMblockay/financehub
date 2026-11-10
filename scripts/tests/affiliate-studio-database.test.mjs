@@ -48,6 +48,17 @@
 //   AFFILIATE_DB_MUTATION=claimonce     one ledger entry may be claimed by two payouts
 //   AFFILIATE_DB_MUTATION=termsbump     editing the terms text keeps the old version number
 //   AFFILIATE_DB_MUTATION=normalize     a suppression is stored exactly as typed
+//   Review cycle 1 of #1177:
+//   AFFILIATE_DB_MUTATION=cancelreverse cancelled orders are skipped again, so no reversal
+//   AFFILIATE_DB_MUTATION=inactiveneg   a paused affiliate's refunds are skipped
+//   AFFILIATE_DB_MUTATION=stalepayout   a draft built before a refund can be approved
+//   AFFILIATE_DB_MUTATION=periodinsert  a period may be inserted already approved
+//   AFFILIATE_DB_MUTATION=periodreopen  an approved period may be reopened
+//   AFFILIATE_DB_MUTATION=samecompany   references are not tied to one company
+//   AFFILIATE_DB_MUTATION=applyoverwrite an application replaces a reviewed email
+//   AFFILIATE_DB_MUTATION=exportconfirm the export confirms payouts that are no longer approved
+//   AFFILIATE_DB_MUTATION=managedco     the staff gate returns the company without judging it
+//   AFFILIATE_DB_MUTATION=moneylock     accrual takes no program lock
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -223,6 +234,40 @@ switch (MUT) {
     mutate('core', `create trigger affiliate_suppressions_normalize_trg
   before insert on public.affiliate_suppressions
   for each row execute function public.affiliate_suppressions_normalize();`, ''); break;
+  case 'cancelreverse':
+    mutate('ledger', `      and jsonb_array_length(o.discount_codes) > 0
+`, `      and jsonb_array_length(o.discount_codes) > 0
+      and o.cancelled_at is null
+`); break;
+  case 'inactiveneg':
+    mutate('ledger', "    if r.affiliate_status <> 'active' and v_delta > 0 then", "    if r.affiliate_status <> 'active' then"); break;
+  case 'stalepayout':
+    mutate('ledger', '  if v_newer < 0 then', '  if false then'); break;
+  case 'periodinsert':
+    mutate('ledger', "    if new.status <> 'open' or new.approved_by is not null or new.approved_at is not null\n       or new.submitted_by is not null or new.submitted_at is not null then", "    if false then"); break;
+  case 'periodreopen':
+    mutate('ledger', "  if old.status in ('approved','paid')\n     and (", "  if false\n     and ("); break;
+  case 'samecompany':
+    mutate('portal', "       and (cl.relname = 'affiliates' or cl.relname like 'affiliate\\_%')\n       and (pl.relname", "       and false\n       and (pl.relname"); break;
+  case 'applyoverwrite':
+    mutate('portal', `       contact_email = case
+         when affiliate_prospects.status in ('new','qualified')
+           then coalesce(affiliate_prospects.contact_email, excluded.contact_email)
+         else affiliate_prospects.contact_email end,`, `       contact_email = coalesce(excluded.contact_email, affiliate_prospects.contact_email),`); break;
+  case 'exportconfirm':
+    mutate('ledger', `       and program_id = p_program
+       and status = 'approved';`, `       and program_id = p_program
+       and status in ('approved', 'void');`);
+    mutate('ledger', `     and p.export_batch_id = v_batch
+     and p.status = 'exported';`, `     and p.export_batch_id = v_batch;`); break;
+  case 'managedco':
+    mutate('core', `   where c.id is not null
+     and public.can_manage_affiliate_programs()`, `   where c.id is not null`); break;
+  case 'moneylock':
+    mutate('ledger', `  perform public.affiliate_lock_program_money(p_program);
+
+  if p_period is not null then`, `
+  if p_period is not null then`); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
@@ -504,7 +549,8 @@ await check('G2 precedence, windows, currency and unmeasured refunds', async () 
   assert.equal(rows['1006'].basis, 'refunds_not_measured');
   assert.equal(rows['1006'].commissionable_cents, null);
   assert.ok(!rows['1007'], 'unmeasured codes are not attributed');
-  assert.ok(!rows['1008'], 'a cancelled order is not attributed');
+  assert.equal(rows['1008'].basis, 'order_cancelled', 'a cancelled order is recorded as a known zero, not skipped');
+  assert.equal(Number(rows['1008'].commissionable_cents), 0);
   assert.equal(rows['1009'].order_day instanceof Date ? rows['1009'].order_day.toISOString().slice(0, 10) : String(rows['1009'].order_day).slice(0, 10),
     '2026-11-01', '21:00 Pacific belongs to the Pacific business day, not the UTC one');
   assert.equal(Number(rows['1012'].commissionable_cents), 0, 'a refund larger than the subtotal clamps at zero');
@@ -861,6 +907,163 @@ await check('L1 every reading view is tenant-scoped', async () => {
   const reloptions = await all(`select c.relname, c.reloptions from pg_class c where c.relname in
     ('affiliate_balances_v','affiliate_performance_v','affiliate_program_health_v','shopify_order_discount_codes_v')`);
   for (const r of reloptions) assert.ok(String(r.reloptions).includes('security_invoker=true'), `${r.relname} must be security_invoker`);
+});
+
+// ── R: review cycle 1 regressions ────────────────────────────────────────
+// Each check below is a defect the first independent review found, pinned so
+// it cannot come back.
+const orderA = async (id, day, code, subtotal, refunded = 0) => {
+  await asSuper();
+  await db.query(`insert into shopify_orders(company_entity_id, shop_domain, order_id, currency, subtotal_price, refunded_subtotal, discount_codes, shopify_created_at)
+                  values ($1,'a.myshopify.com',$2,'USD',$3,$4,$5,$6)`, [A, id, subtotal, refunded, JSON.stringify([code]), `${day}T18:00:00Z`]);
+};
+const settle = async () => {
+  await as(U.mgrA, A);
+  await db.query(`select public.affiliate_resolve_attributions($1,'2026-11-01','2026-11-05')`, [progA]);
+  return (await one(`select public.affiliate_accrue_commissions($1,'2026-11-01','2026-11-05') as r`, [progA])).r;
+};
+const ledgerSum = async (orderId) => Number((await one(`select coalesce(sum(amount_cents),0) as s from affiliate_commission_ledger where order_id = $1`, [orderId])).s);
+const newActive = async (name, code) => {
+  await as(U.mgrA, A);
+  const id = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+    values ($1,$2,$3,$4,'active',1,now()) returning id`, [A, progA, name, `${name.toLowerCase()}@creator.test`])).id;
+  await db.query(`insert into affiliate_codes(company_entity_id, program_id, affiliate_id, code, starts_on) values ($1,$2,$3,$4,'2026-10-01')`, [A, progA, id, code]);
+  return id;
+};
+
+await check('R1 an order cancelled AFTER its commission accrued is reversed', async () => {
+  await newActive('Cleo', 'CLEO');
+  await orderA('1030', '2026-11-02', 'CLEO', 40);
+  await settle();
+  assert.equal(await ledgerSum('1030'), 400);
+  await asSuper();
+  await db.query(`update shopify_orders set cancelled_at = now() where order_id = '1030'`);
+  const r = await settle();
+  assert.ok(r.entries_reduced >= 1);
+  assert.equal(await ledgerSum('1030'), 0, 'the cancellation takes the commission back');
+  const a = await one(`select basis, commissionable_cents from affiliate_attributions where order_id = '1030'`);
+  assert.deepEqual([a.basis, Number(a.commissionable_cents)], ['order_cancelled', 0]);
+});
+
+await check('R2 a refund still reverses commission for an affiliate who was paused since', async () => {
+  const rae = await newActive('Rae', 'RAE');
+  await orderA('1031', '2026-11-02', 'RAE', 60);
+  await settle();
+  assert.equal(await ledgerSum('1031'), 600);
+  await as(U.mgrA, A);
+  await db.query(`update affiliates set status = 'paused' where id = $1`, [rae]);
+  await asSuper();
+  await db.query(`update shopify_orders set refunded_subtotal = 60 where order_id = '1031'`);
+  await settle();
+  assert.equal(await ledgerSum('1031'), 0, 'paused means no NEW earnings, not keeping refunded ones');
+  // And paused still earns nothing new.
+  await orderA('1032', '2026-11-03', 'RAE', 50);
+  await settle();
+  assert.equal(await ledgerSum('1032'), 0);
+});
+
+await check('R3 a refund that lands between building and approving a payout blocks the approval', async () => {
+  const quinn = await newActive('Quinn', 'QUINN');
+  await orderA('1033', '2026-11-02', 'QUINN', 100);
+  await settle();
+  await as(U.mgrA, A);
+  const draft = (await one(`select public.affiliate_build_payout($1, '2027-02-01') as id`, [quinn])).id;
+  await asSuper();
+  await db.query(`update shopify_orders set refunded_subtotal = 100 where order_id = '1033'`);
+  await settle();
+  await as(U.finA, A);
+  await assert.rejects(db.query(`select public.affiliate_approve_payout($1)`, [draft]), /arrived after this draft was built/);
+  assert.equal((await one(`select status from affiliate_payouts where id = $1`, [draft])).status, 'draft');
+});
+
+await check('R4 a period cannot be born approved, and an approved one cannot be reopened', async () => {
+  await as(U.mgrA, A);
+  await assert.rejects(db.query(`insert into affiliate_commission_periods(company_entity_id, program_id, period_start, period_end, status, approved_by, approved_at)
+    values ($1,$2,'2027-01-01','2027-01-31','approved',$3,now())`, [A, progA, U.mgrA]), /starts open/);
+  await assert.rejects(db.query(`update affiliate_commission_periods set status = 'open' where id = $1`, [period]), /cannot be reopened/);
+  await assert.rejects(db.query(`update affiliate_commission_periods set period_end = '2026-12-31' where id = $1`, [period]), /cannot be reopened/);
+  await assert.rejects(db.query(`update affiliate_commission_periods set approved_at = now() where id = $1`, [period]), /approve through/);
+  await db.query(`update affiliate_commission_periods set note = 'reviewed twice' where id = $1`, [period]);
+});
+
+await check('R5 a row cannot point at another company\'s program, affiliate or prospect', async () => {
+  await as(U.ownerA, A);
+  await assert.rejects(db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email) values ($1,$2,'x','x@cross.test')`, [A, progB]),
+    /same_co|violates foreign key/);
+  await asSuper();
+  await assert.rejects(db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email) values ($1,$2,'x','x@cross.test')`, [A, progB]),
+    /same_co|violates foreign key/, 'not even the service role can store the inconsistent pair');
+  const n = Number((await one(`select count(*) as n from pg_constraint where contype = 'f' and conname like '%\_same\_co'`)).n);
+  assert.ok(n >= 15, `every affiliate-to-affiliate reference has a company twin (found ${n})`);
+});
+
+await check('R6 an anonymous application never replaces a reviewed prospect\'s email', async () => {
+  await asSuper();
+  await db.query(`update affiliate_prospects set status = 'approved', contact_email = 'pat@coach.test' where id = $1`, [prospect]);
+  await as(U.ownerA, A);
+  await db.query(`update affiliate_programs set intake_mode = 'open' where id = $1`, [progA]);
+  await as(null, null);
+  await db.query(`select public.affiliate_portal_apply($1,'creators','evil@attacker.test','Not Pat','youtube','@coachpat','https://youtube.com/@coachpat')`, [A]);
+  const p = await one(`select contact_email, display_name, status, evidence from affiliate_prospects where id = $1`, [prospect]);
+  assert.equal(p.contact_email, 'pat@coach.test');
+  assert.equal(p.display_name, 'Coach Pat');
+  assert.equal(p.status, 'approved');
+  assert.equal(p.evidence.last_application.applicant_email, 'evil@attacker.test', 'the application is kept for a person to read');
+});
+
+await check('R7 a period\'s total is the whole period, from the database', async () => {
+  await as(U.mgrA, A);
+  const v = await one(`select amount_cents, entry_count from affiliate_period_totals_v where period_id = $1`, [period]);
+  const l = await one(`select sum(amount_cents) as s, count(*) as n from affiliate_commission_ledger where period_id = $1`, [period]);
+  assert.equal(Number(v.amount_cents), Number(l.s));
+  assert.equal(Number(v.entry_count), Number(l.n));
+  await as(U.ownerB, B);
+  assert.equal((await all(`select * from affiliate_period_totals_v`)).length, 0, 'tenant-scoped through the ledger RLS');
+});
+
+await check('R8 the payment file is built only from payouts the database just confirmed', async () => {
+  const una = await newActive('Una', 'UNA');
+  await orderA('1034', '2026-11-02', 'UNA', 100);
+  const vic = await newActive('Vic', 'VIC');
+  await orderA('1035', '2026-11-02', 'VIC', 100);
+  await settle();
+  await as(U.mgrA, A);
+  const p1 = (await one(`select public.affiliate_build_payout($1, '2027-02-01') as id`, [una])).id;
+  const p2 = (await one(`select public.affiliate_build_payout($1, '2027-02-01') as id`, [vic])).id;
+  await as(U.finA, A);
+  await db.query(`select public.affiliate_approve_payout($1)`, [p1]);
+  await db.query(`select public.affiliate_approve_payout($1)`, [p2]);
+  // Someone else voids p2 while this page still shows it as approved.
+  await db.query(`select public.affiliate_void_payout($1,'duplicate')`, [p2]);
+  await as(U.mgrA, A);
+  const r = (await one(`select public.affiliate_claim_payout_export($1, $2::uuid[]) as r`, [progA, `{${p1},${p2}}`])).r;
+  assert.deepEqual(r.payouts.map((x) => x.id), [p1], 'the voided payout is not in the file');
+  assert.deepEqual(r.skipped, [p2]);
+  assert.equal((await one(`select status from affiliate_payouts where id = $1`, [p1])).status, 'exported');
+  const again = (await one(`select public.affiliate_claim_payout_export($1, null, $2) as r`, [progA, r.batch_id])).r;
+  assert.deepEqual(again.payouts, r.payouts, 'a lost file downloads again exactly as confirmed');
+  await assert.rejects(db.query(`select public.affiliate_claim_payout_export($1, $2::uuid[])`, [progA, `{${p2}}`]), /still approved/);
+  assert.equal((await one(`select public.affiliate_set_payout_export_fingerprint($1,'abc') as n`, [r.batch_id])).n, 1);
+});
+
+await check('R9 the staff gate returns the company it judged, or nothing', async () => {
+  await as(U.mgrA, A);
+  assert.equal((await one(`select public.affiliate_managed_company() as c`)).c, A);
+  await as(U.memberA, A);
+  assert.equal((await one(`select public.affiliate_managed_company() as c`)).c, null);
+  await as(U.mgrAB, B);
+  assert.equal((await one(`select public.affiliate_managed_company() as c`)).c, null, 'a manager of A is not one of B');
+});
+
+await check('R10 accrual, payout build and approval take the program money lock', async () => {
+  // Concurrency itself cannot be exercised on single-connection PGlite; the
+  // lock is pinned by structure instead.
+  await asSuper();
+  for (const f of ['affiliate_accrue_commissions(uuid,date,date,uuid)', 'affiliate_build_payout(uuid,date)',
+                   'affiliate_approve_payout(uuid)', 'affiliate_claim_payout_export(uuid,uuid[],uuid)']) {
+    const src = (await one(`select pg_get_functiondef('public.${f}'::regprocedure) as s`)).s;
+    assert.match(src, /affiliate_lock_program_money\(/, f);
+  }
 });
 
 // ── N: the daily drift check reads ok on this schema ─────────────────────

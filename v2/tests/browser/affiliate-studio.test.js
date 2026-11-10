@@ -19,6 +19,10 @@
  *   AFFILIATE_UI_MUTATION=termshtml   the program terms are rendered as HTML
  *   AFFILIATE_UI_MUTATION=tokenurl    the token is left in the address bar
  *   AFFILIATE_UI_MUTATION=membergate  a member is shown the manager buttons
+ *   AFFILIATE_UI_MUTATION=exportlocal the payout file is built from the page's
+ *                                     rows instead of what the database claimed
+ *   AFFILIATE_UI_MUTATION=periodtotal a period total is summed from the 300
+ *                                     ledger lines the page holds
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -31,6 +35,8 @@ const MUTATIONS = {
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
   tokenurl: ['/affiliates/public.js', "if (url.searchParams.has('t')) { url.searchParams.delete('t'); history.replaceState(null, '', url.pathname + url.search); }", ''],
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
+  exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
+  periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -69,7 +75,8 @@ const tables = {
     { id: 'a2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, order_id: '1002', order_number: '#1002', order_day: '2026-11-02', order_currency: 'USD', codes_on_order: 1, matched_code: 'PAT10', basis: 'refunds_not_measured', gross_subtotal_cents: 7000, refunded_subtotal_cents: null, commissionable_cents: null },
   ],
   affiliate_performance_v: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, attributed_orders: 1, orders_with_unknown_base: 0, gross_subtotal_cents: 5000, refunded_subtotal_cents: 0, commissionable_cents: 5000, order_currency: 'USD' }],
-  affiliate_commission_periods: [],
+  affiliate_commission_periods: [{ id: 'per1', company_entity_id: CO, program_id: PROG, period_start: '2026-10-01', period_end: '2026-10-31', status: 'under_review' }],
+  affiliate_period_totals_v: [{ company_entity_id: CO, program_id: PROG, period_id: 'per1', currency: 'USD', amount_cents: 123456, entry_count: 412 }],
   affiliate_commission_ledger: [{ id: 'l1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'accrual', amount_cents: 500, currency: 'USD', rate_kind: 'percent_of_net', rate_value: 10, basis_cents: 5000, order_id: '1001', created_at: now }],
   affiliate_balances_v: [{ company_entity_id: CO, program_id: PROG, affiliate_id: AFF, currency: 'USD', earned_cents: 500, refund_adjustment_cents: null, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 500 }],
   affiliate_payouts: [], affiliate_payout_items: [],
@@ -112,6 +119,39 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="program"]');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     await page.close();
+
+    // ── payout export: the file is what the database claimed ─────────────
+    // Two payouts look approved on the page; by the time Export runs one was
+    // voided elsewhere, so the claim returns only the other. The file must
+    // hold exactly the claimed one, and its fingerprint goes to that batch.
+    const PA = '33333333-3333-4333-8333-333333333333';
+    const PB = '44444444-4444-4444-8444-444444444444';
+    const payTables = { ...tables, affiliate_payouts: [
+      { id: PA, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now, approved_at: now },
+      { id: PB, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', amount_cents: 900, currency: 'USD', item_count: 2, created_at: now, approved_at: now },
+    ] };
+    const pay = await suite.open('/v2/affiliates/index.html', payTables, { ready, rpc: {
+      can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+      affiliate_claim_payout_export: (args) => { (window.__rpcCalls = window.__rpcCalls || []).push(['claim', args]); return { batch_id: 'batch-1', payouts: [{ id: '33333333-3333-4333-8333-333333333333', affiliate_id: '22222222-2222-4222-8222-222222222222', amount_cents: 500, currency: 'USD', item_count: 1, approved_at: new Date().toISOString(), status: 'exported' }], skipped: ['44444444-4444-4444-8444-444444444444'] }; },
+      affiliate_set_payout_export_fingerprint: (args) => { (window.__rpcCalls = window.__rpcCalls || []).push(['fp', args]); return 1; },
+    } });
+    pay.on('pageerror', (e) => errors.push(e.message));
+    await pay.evaluate(() => { window.__files = []; const orig = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => window.__files.push(t)); return orig.call(URL, b); };
+      // The test server is plain http, where browsers withhold crypto.subtle.
+      if (!crypto.subtle) Object.defineProperty(crypto, 'subtle', { value: { digest: async () => new Uint8Array(32).buffer } }); });
+    await pay.click('#tabs [data-tab="payouts"]');
+    await pay.click('#payoutsBody [data-act="payout-export"]');
+    await pay.click('#payoutsBody [data-act="payout-export"]');
+    await pay.waitForFunction(() => (window.__files || []).length && (window.__rpcCalls || []).some((c) => c[0] === 'fp'), null, { timeout: 5000 });
+    const [file] = await pay.evaluate(() => window.__files);
+    const rpcCalls = await pay.evaluate(() => window.__rpcCalls);
+    R.ok('the claim runs before the file exists', rpcCalls[0][0] === 'claim');
+    R.has(file, PA, 'the claimed payout is in the file');
+    R.not(file, PB, 'a payout the database did not claim is not in the file');
+    R.ok('the fingerprint is recorded against the claimed batch', rpcCalls.some((c) => c[0] === 'fp' && c[1].p_batch === 'batch-1'));
+    await pay.click('#tabs [data-tab="commissions"]');
+    R.has(await text(pay, '#commissionsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
+    await pay.close();
 
     // ── staff page, as a member who cannot manage ─────────────────────────
     const member = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: false, can_approve_affiliate_commissions: false } });

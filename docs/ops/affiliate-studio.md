@@ -110,6 +110,31 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
   approved is not payable. A refund found after a payout shows as a negative
   balance and comes off the next payout. `mark_payout_paid` refuses any method
   but `manual` and requires a reference and evidence.
+- **Money lock**: accrual, building, approving and exporting payouts take one
+  advisory lock per program (`affiliate_lock_program_money`), so a refund
+  accrued while a payout is being built or approved cannot slip past it.
+  Approving a draft is refused if a negative line arrived after it was built
+  (void it and build again).
+- **Cancelled orders**: a cancelled order resolves to `order_cancelled` with a
+  zero base, so anything it already earned is reversed by a negative line. An
+  affiliate who is paused or ended still gets negative lines; only new
+  positive earnings stop.
+- **Periods**: a period is created open, and only `affiliate_approve_period`
+  approves it. An approved or paid period cannot be reopened or have its dates
+  or lines changed; its note stays editable. The page's period total comes from
+  `affiliate_period_totals_v`, not from the lines the page has loaded.
+- **Export**: `affiliate_claim_payout_export` moves the chosen approved payouts
+  to exported under one batch id and returns exactly those; the CSV is built
+  from that answer, then its SHA-256 is stored with
+  `affiliate_set_payout_export_fingerprint`. A payout changed since the page
+  loaded is skipped and listed. *Download again* re-reads the batch and changes
+  nothing.
+- **Same company everywhere**: every reference between affiliate tables also
+  matches on `company_entity_id` (a composite foreign key), so a row can never
+  point at another company's row.
+- **Applications**: a repeat application never overwrites a prospect that has
+  been reviewed; the new name and email are kept in the evidence as
+  `last_application`.
 - **Terms**: editing the text bumps the version in the database. Acceptance
   stores the version, the signed name, IP, user agent and the SHA-256 of the
   exact text shown; a stale version is refused (`409 terms_changed`).
@@ -166,9 +191,9 @@ non-manual payout as paid until it is built and verified in test mode.
 
 | Suite | What |
 |---|---|
-| `scripts/tests/affiliate-studio-database.test.mjs` | Real PostgreSQL (PGlite), all four migrations applied twice under Supabase's default grants; tenant isolation, both gates, attribution, refunds, duplicates, ledger, periods, payouts, tokens, terms, and the verify block. 21 mutations |
+| `scripts/tests/affiliate-studio-database.test.mjs` | Real PostgreSQL (PGlite), all four migrations applied twice under Supabase's default grants; tenant isolation, both gates, attribution, refunds, duplicates, ledger, periods, payouts, tokens, terms, and the verify block. 31 mutations |
 | `scripts/tests/shopify-order-discount-codes.test.mjs` | The sync core's code and refund capture, its column fallback, and the pinned copy. 5 mutations |
 | `scripts/tests/affiliate-discovery.test.mjs` | Discovery against a fake provider: URL recognition, cost cap, dry run, suppression, no status or contact overwrite. 7 mutations |
 | `scripts/tests/affiliate-edge.test.mjs` | Both edge functions: hash-only tokens, gates before service role, company from the caller, no prospect email, no draft payout news. 6 mutations |
 | `scripts/tests/affiliate-studio-ui.test.mjs` | Page logic: money, form validation, CSV formula guard, fingerprints, labels. 3 mutations |
-| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. 4 mutations |
+| `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export and database period totals. 6 mutations |
