@@ -67,7 +67,7 @@ const tables = {
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'success', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
-  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
+  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
   affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
@@ -123,6 +123,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(page, '#status'), '2 new prospect(s)', 'Search now reports what it found');
     R.ok('Search now asks for this program only', searchCalls.length === 1 && searchCalls[0].program_id === PROG && !('company_entity_id' in searchCalls[0]));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
+    R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
+    R.ok('the follower count links to where it was stated', await page.$('#prospectsBody a[href="https://www.youtube.com/@samruns"]'));
+    // Find creators with AI: starts a background run and says so; the company is never sent.
+    const researchCalls = [];
+    await suite.context.route('**/functions/v1/affiliate-research', (route) => {
+      const body = JSON.parse(route.request().postData() || '{}'); researchCalls.push(body);
+      if (body.action === 'import') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ kept: 2, prospects_new: 2, prospects_updated: 0, skipped_minors: 1, skipped_not_profile: 0, suppressed_skipped: 0 }) });
+      return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ run_id: 'r9' }) });
+    });
+    await page.fill('#rsFocus', 'trail running moms');
+    await page.click('#prospectsBody [data-act="research-run"]');
+    await page.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('research asks for this program with the focus, never a company', researchCalls.length === 1 && researchCalls[0].action === 'research' && researchCalls[0].program_id === PROG && researchCalls[0].focus === 'trail running moms' && !('company_entity_id' in researchCalls[0]));
+    // Import a list: the file is parsed in the page and sent as rows.
+    await page.setInputFiles('#impFile', { name: 'list.csv', mimeType: 'text/csv', buffer: Buffer.from('name,url,followers,minor\r\n"Ann, Runs",https://www.tiktok.com/@annruns,41.2K,FALSE\r\nKid,https://www.tiktok.com/@kid,10,TRUE\r\n') });
+    await page.click('#prospectsBody [data-act="import-run"]');
+    await page.waitForFunction(() => /Imported/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
+    const imp = researchCalls.find((c) => c.action === 'import');
+    R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
+    R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
     await page.click('#tabs [data-tab="commissions"]');
     const cm = await page.evaluate(() => [...document.querySelectorAll('#commissionsBody tr')].map((r) => r.textContent).find((t) => t.includes('#1002')) || '');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
@@ -179,6 +199,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     member.on('pageerror', (e) => errors.push(e.message));
     await member.click('#tabs [data-tab="prospects"]');
     R.ok('a member is not offered approve/reject', !(await member.$('#prospectsBody [data-act="prospect-status"]')))
+    R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
     await member.click('#tabs [data-tab="payouts"]');
     R.ok('a member is not offered payouts', !(await member.$('#payoutsBody [data-act="payout-build"]')))
     R.has(await text(member, '#status'), 'You can view Affiliate Studio', 'the page says why the buttons are missing');
