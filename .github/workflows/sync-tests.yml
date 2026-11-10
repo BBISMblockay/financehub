@@ -1257,7 +1257,7 @@ jobs:
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned
           run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews
-          run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive
+          run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href
 
   plaid-typecheck:

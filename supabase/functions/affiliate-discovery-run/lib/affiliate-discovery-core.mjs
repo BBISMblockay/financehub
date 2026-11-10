@@ -266,9 +266,10 @@ export function candidatesFromResults({ items, program, source, collectedAt }) {
   const terms = nicheTerms(program);
   const webLane = (program?.platforms || []).some((p) => ['blog', 'web'].includes(String(p).toLowerCase()));
   const seen = new Map();
+  const unrecognized = [];
   for (const item of items || []) {
     const profile = classifyProfileUrl(item.url) || (webLane ? classifyWebsite(item.url) : null);
-    if (!profile) continue;
+    if (!profile) { if (unrecognized.length < 10) unrecognized.push(String(item.url).slice(0, 200)); continue; }
     const key = profile.profile_url.toLowerCase();
     if (seen.has(key)) continue; // the same creator twice in one result set is one candidate
     const { confidence, confidence_basis, email } = scoreProspect({ item, profile, program, terms });
@@ -295,6 +296,10 @@ export function candidatesFromResults({ items, program, source, collectedAt }) {
   return {
     candidates: [...seen.values()],
     stats: { results_returned: (items || []).length, profiles_recognized: seen.size },
+    // Not stored on the run row (it has no column for it): the first result
+    // URLs that were NOT a profile, kept on the program's sync_jobs row so a
+    // search that finds nothing can be diagnosed.
+    unrecognized,
   };
 }
 
@@ -311,7 +316,7 @@ async function canContact(supabase, program, c) {
  * Write one source's candidates. Never touches a reviewed field; a prospect
  * a human rejected or suppressed stays exactly as they left it.
  */
-export async function upsertCandidates({ supabase, program, source, candidates, runId }) {
+export async function upsertCandidates({ supabase, program, source, candidates, runId, origin = { source: 'serp', collector: `affiliate-discovery/${PROVIDER}` } }) {
   const out = { prospects_new: 0, prospects_updated: 0, suppressed_skipped: 0, emails_found: 0 };
   if (!candidates.length) return out;
 
@@ -339,7 +344,7 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
         company_entity_id: program.company_entity_id, program_id: program.id,
         display_name: c.display_name, platform: c.platform, handle: c.handle, profile_url: c.profile_url,
         contact_email: c.contact_email, contact_source_url: c.contact_source_url,
-        source_id: source.id, source: 'serp', source_url: c.source_url, collected_at: c.collected_at,
+        source_id: source.id ?? null, source: origin.source, source_url: c.source_url, collected_at: c.collected_at,
         evidence: c.evidence, confidence: c.confidence, confidence_basis: c.confidence_basis, status: 'new',
       }).select('id').single();
       if (insErr) {
@@ -369,8 +374,8 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
     }
 
     const { error: obsErr } = await supabase.from('affiliate_prospect_observations').insert({
-      company_entity_id: program.company_entity_id, prospect_id: prospectId, source_id: source.id,
-      collector: `affiliate-discovery/${PROVIDER}`, source_url: c.source_url, collected_at: c.collected_at,
+      company_entity_id: program.company_entity_id, prospect_id: prospectId, source_id: source.id ?? null,
+      collector: origin.collector, source_url: c.source_url, collected_at: c.collected_at,
       payload: { ...c.evidence, run_id: runId },
     });
     if (obsErr) throw new Error(`affiliate_prospect_observations insert failed: ${obsErr.message}`);
@@ -383,7 +388,7 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
  * drive it without a network. dryRun calls NO provider and writes NOTHING: it
  * reports which queries would run and what they would be capped at.
  */
-export async function runDiscovery({ supabase, fetchSerp, now = () => new Date(), dryRun = false, onlyProgramId = '', log = () => {}, uuid = () => crypto.randomUUID() }) {
+export async function runDiscovery({ supabase, fetchSerp, now = () => new Date(), dryRun = false, onlyProgramId = '', onlySourceId = '', log = () => {}, uuid = () => crypto.randomUUID() }) {
   let q = supabase.from('affiliate_programs')
     .select('id, company_entity_id, name, niche, audience_notes, platforms, status, discovery_max_cost_usd')
     .eq('status', 'active');
@@ -393,9 +398,11 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
 
   const summary = { programs: 0, sources: 0, ran: 0, skipped: 0, failed: 0, cost_usd: 0, prospects_new: 0, prospects_updated: 0, dry_run: dryRun };
   for (const program of programs || []) {
-    const { data: sources, error: sErr } = await supabase.from('affiliate_prospect_sources')
+    let sq = supabase.from('affiliate_prospect_sources')
       .select('*').eq('company_entity_id', program.company_entity_id).eq('program_id', program.id)
       .eq('kind', 'serp_query').eq('enabled', true);
+    if (onlySourceId) sq = sq.eq('id', onlySourceId);
+    const { data: sources, error: sErr } = await sq;
     if (sErr) throw new Error(`affiliate_prospect_sources load failed: ${sErr.message}`);
     if (!sources?.length) continue;
     summary.programs += 1;
@@ -405,6 +412,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
     const failedBefore = summary.failed;
     const cap = Number(program.discovery_max_cost_usd ?? 0);
     let spent = 0;
+    const diagnostics = [];
 
     for (const source of sources) {
       summary.sources += 1;
@@ -439,7 +447,8 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
       try {
         const { items, cost } = await fetchSerp(buildSerpTask(source, program));
         spent += Number(cost || 0);
-        const { candidates, stats } = candidatesFromResults({ items, program, source, collectedAt: now().toISOString() });
+        const { candidates, stats, unrecognized } = candidatesFromResults({ items, program, source, collectedAt: now().toISOString() });
+        diagnostics.push({ source_id: source.id, keyword: buildSerpTask(source, program).keyword, results: stats.results_returned, profiles: stats.profiles_recognized, not_profiles: unrecognized });
         const wrote = await upsertCandidates({ supabase, program, source, candidates, runId });
         await finish({ status: 'ok', cost_usd: cost, ...stats, ...wrote });
         // The source's own summary row is written LAST, so it never describes
@@ -470,7 +479,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
         company_entity_id: program.company_entity_id, job_type: 'affiliate_discovery',
         status: summary.failed > failedBefore ? 'error' : 'success',
         started_at: programStarted, finished_at: now().toISOString(),
-        result: { program_id: program.id, run_id: runId, cost_usd: Number(spent.toFixed(4)) },
+        result: { program_id: program.id, run_id: runId, cost_usd: Number(spent.toFixed(4)), searches: diagnostics },
       });
       if (jErr) log(`[affiliate-discovery] sync_jobs record failed (run detail is in affiliate_discovery_runs): ${jErr.message}`);
     }

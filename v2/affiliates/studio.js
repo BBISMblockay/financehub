@@ -606,12 +606,12 @@ const A = {
   },
   'source-add': async () => {
     if (!val('srcQuery')) throw new Error('Type what to search for.');
-    must(await db.from('affiliate_prospect_sources').insert({
+    const added = must(await db.from('affiliate_prospect_sources').insert({
       company_entity_id: CO, program_id: S.programId, kind: 'serp_query', query: val('srcQuery'), platform_hint: val('srcPlat') || null,
       location_code: Number(val('srcLoc')) || null, language_code: val('srcLang') || null, max_results: Number(val('srcMax')) || 30, created_by: me.id,
-    }));
+    }).select('id').single());
     setStatus('Search added. Searching…', 'info');
-    try { return `Search added. ${searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId }))}`; }
+    try { return `Search added. ${searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId, source_id: added.id }))}`; }
     catch (e) { return `Search added. It will run with the weekly refresh (${e.message})`; }
   },
   'discovery-run': async () => { setStatus('Searching…', 'info'); return searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId })); },
