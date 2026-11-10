@@ -19643,4 +19643,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 'affiliate_research' and the prospect source check learns 'ai_research'.
 -- Needs the Affiliate Studio migrations above. Deploy affiliate-research after.
 \i migrations/20261110100000_affiliate_ai_research.sql
+-- Affiliate outreach HTML (20261110110000): each message a connection claims
+-- also comes as branded HTML with the signup link as a button. Needs
+-- 20261110093000. No deploy.
+\i migrations/20261110110000_affiliate_outreach_html.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

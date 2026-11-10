@@ -3240,6 +3240,13 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate outreach HTML — `20261110110000_affiliate_outreach_html.sql`
+
+Apply after `20261110093000`. No deploy. `silo_api_claim_outreach` now returns
+`html` next to `body` for each message: the company's name, the approved text
+(escaped), and the signup link as a "See the program and join" button.
+`affiliate_outreach_html()` builds it and is callable by no client role.
+
 ## Affiliate outreach via the user's own AI — `20261110093000_affiliate_outreach_send_scope.sql`
 
 Apply after the four Affiliate Studio migrations, then deploy `mcp`.
