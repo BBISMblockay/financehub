@@ -430,6 +430,7 @@ on:
       - 'supabase/functions/affiliate-portal/**'
       - 'supabase/functions/affiliate-invite/**'
       - 'supabase/functions/affiliate-discovery-run/**'
+      - 'supabase/functions/affiliate-research/**'
       - 'supabase/functions/ad-platform-sync-run/lib/**'
       - 'v2/affiliates/**'
       - '.github/workflows/sync-tests.yml'
@@ -1241,6 +1242,7 @@ jobs:
           node scripts/tests/affiliate-discovery.test.mjs
           node scripts/tests/affiliate-edge.test.mjs
           node scripts/tests/affiliate-discovery-run-edge.test.mjs
+          node scripts/tests/affiliate-research-edge.test.mjs
           node scripts/tests/affiliate-studio-ui.test.mjs
       - name: The Affiliate Studio guards, removed, must break it
         run: |
@@ -1255,9 +1257,10 @@ jobs:
             done
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
-          run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut
+          run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
           run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
+          run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers doublerun freecharge
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href
 
   plaid-typecheck:

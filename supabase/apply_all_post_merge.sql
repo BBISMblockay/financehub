@@ -19639,4 +19639,8 @@ $c$select (select count(*) from v_po_header_summary
 -- that person's own mailbox, and mark each sent with evidence. Needs the four
 -- Affiliate Studio migrations above. Deploy the mcp function for the tools.
 \i migrations/20261110093000_affiliate_outreach_send_scope.sql
+-- Affiliate AI research (20261110100000): the AI credit feature check learns
+-- 'affiliate_research' and the prospect source check learns 'ai_research'.
+-- Needs the Affiliate Studio migrations above. Deploy affiliate-research after.
+\i migrations/20261110100000_affiliate_ai_research.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

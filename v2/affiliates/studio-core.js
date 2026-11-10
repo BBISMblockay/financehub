@@ -76,6 +76,9 @@ export function friendlySearchError(message) {
   if (!m) return '';
   if (/HTTP 401|HTTP 403|40100|40200|40201/.test(m)) return 'Search is not connected. Contact support.';
   if (/cost cap/i.test(m)) return 'Skipped: this run reached its search limit.';
+  if (/^skipped: /.test(m)) return `Left out: ${m.slice(9)}.`;
+  if (/AI credit exhausted/i.test(m)) return 'Out of AI credit. A workspace owner can add credit in Workspace Settings.';
+  if (/ran out of time|timeout|aborted/i.test(m)) return 'This took too long. Try a narrower focus.';
   return 'The search service had a temporary problem. Try again in a few minutes.';
 }
 
@@ -233,3 +236,50 @@ export function stageLabels(f = {}) {
     { stage: 'Incremental sales', label: 'not measured', detail: 'Credited sales used an affiliate’s code; that does not prove the affiliate caused them.' },
   ];
 }
+
+// ── List import ──────────────────────────────────────────────────────────
+// RFC 4180 CSV (quoted fields, doubled quotes, CRLF or LF, a leading BOM) to
+// an array of objects keyed by the header row. Header names are lower-cased
+// and trimmed; the edge function matches its own column aliases. Blank lines
+// are dropped. Throws on an unterminated quote, so a broken file is refused
+// instead of half-read.
+export function parseCsv(text) {
+  const s = String(text ?? '').replace(/^﻿/, '');
+  const rows = []; let row = []; let cell = ''; let q = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (q) {
+      if (ch === '"') { if (s[i + 1] === '"') { cell += '"'; i += 1; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"' && cell === '') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && s[i + 1] === '\n') i += 1;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (q) throw new Error('The file has an unclosed quote, so it cannot be read.');
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  const nonBlank = rows.filter((r) => r.some((c) => c.trim() !== ''));
+  if (!nonBlank.length) return [];
+  const header = nonBlank[0].map((h) => h.trim().toLowerCase());
+  return nonBlank.slice(1).map((r) => Object.fromEntries(header.map((h, i) => [h, (r[i] ?? '').trim()]).filter(([h]) => h)));
+}
+export const chunk = (list, size) => { const out = []; for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size)); return out; };
+
+// What kind of run a discovery-runs row is, in words.
+export function runKindLabel(r = {}) {
+  if (r.provider === 'anthropic') return 'AI research';
+  if (r.provider === 'import') return 'list import';
+  return r.dry_run ? 'dry run' : 'search';
+}
+// Followers as a page stated them (AI research), or as the imported file said.
+export function followersFrom(evidence) {
+  const e = evidence || {};
+  if (!Number.isFinite(Number(e.followers)) || e.followers === null || e.followers === '') return null;
+  return { count: Number(e.followers), source_url: e.followers_source_url || null, as_of: e.followers_as_of || null };
+}
+
+// Where a prospect came from, in words.
+export const SOURCE_LABELS = { serp: 'search', manual: 'added by hand', csv_import: 'your list', applied: 'applied', ai_research: 'AI research' };
+export const sourceLabel = (s) => SOURCE_LABELS[s] || s || '';

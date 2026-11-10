@@ -47,6 +47,7 @@ async function loadCore() {
   else if (MUT === 'noretry') swap('      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;', '      throw err;');
   else if (MUT === 'goto') swap('    const resolved = resolveResultUrl(raw);', '    const resolved = raw.url;')
   else if (MUT === 'crumbcut') swap("    if (/(\\.\\.\\.|…)/.test(seg)) break;", '')
+  else if (MUT === 'blank') swap('...Object.fromEntries(Object.entries(c.evidence || {}).filter(([, v]) => v !== null && v !== undefined))', '...c.evidence')
   else if (MUT === 'ceiling') swap('  score = Math.min(0.95, Math.round(score * 1000) / 1000);', '  score = Math.min(1, Math.round(score * 1000) / 1000 + 0.5);');
   else throw new Error(`unknown mutation ${MUT}`);
   const dir = await mkdtemp(join(tmpdir(), 'affdisc-'));
@@ -239,14 +240,17 @@ await test('a run writes prospects, observations, a run row per query, the sourc
 });
 
 await test('a reviewed prospect is refreshed, never re-opened, and keeps its contact', async () => {
-  const existing = { id: 'p-1', company_entity_id: CO, program_id: PROGRAM.id, profile_url: 'https://www.youtube.com/@CoachPat', status: 'rejected', contact_email: 'manager@coachpat.invalid', evidence: { note: 'kept' } };
+  const existing = { id: 'p-1', company_entity_id: CO, program_id: PROGRAM.id, profile_url: 'https://www.youtube.com/@CoachPat', status: 'rejected', contact_email: 'manager@coachpat.invalid', evidence: { note: 'kept', followers: 41200, domain: 'kept.example' } };
   const sb = fakeSupabase({ affiliate_programs: [PROGRAM], affiliate_prospect_sources: [SOURCE('s1', 'q')], affiliate_prospects: [existing] });
-  await runDiscovery({ supabase: sb, now: clock, uuid, fetchSerp: async () => ({ items: ITEMS.slice(0, 1), cost: 0.002 }) });
+  // This run's result names no domain, so its evidence carries domain: null.
+  await runDiscovery({ supabase: sb, now: clock, uuid, fetchSerp: async () => ({ items: [{ ...ITEMS[0], domain: undefined }], cost: 0.002 }) });
   const p = sb.tables.affiliate_prospects.find((x) => x.id === 'p-1');
   assert.equal(p.status, 'rejected');
   assert.equal(p.contact_email, 'manager@coachpat.invalid');
   assert.equal(p.evidence.note, 'kept', 'earlier evidence is merged, not replaced');
   assert.equal(p.evidence.last_seen_query, 'q');
+  assert.equal(p.evidence.followers, 41200, 'a value this run did not find never blanks a recorded one');
+  assert.equal(p.evidence.domain, 'kept.example', 'a null from this run does not overwrite');
   assert.equal(sb.tables.affiliate_prospects.length, 1);
 });
 

@@ -3256,3 +3256,14 @@ Apply after the four Affiliate Studio migrations, then deploy `mcp`.
 - SILO still sends nothing: the person's AI sends from their own mailbox.
   Verify: `verify_v2_schema.sql` check "outreach:send tools". Tests:
   `scripts/tests/affiliate-outreach-mcp-database.test.mjs`.
+
+## Affiliate AI research and list import — `20261110100000_affiliate_ai_research.sql`
+
+Apply after the Affiliate Studio migrations, then deploy `affiliate-research`.
+
+- `ai_credit_reservations.feature` accepts `affiliate_research` (one credit hold
+  per research run, charged only when at least one creator is kept).
+- `affiliate_prospects.source` accepts `ai_research`. Imported lists keep using
+  the existing `csv_import`.
+- No new table, policy or function. Verify: `verify_v2_schema.sql` check
+  "Affiliate AI research". Tests: `scripts/tests/affiliate-research-edge.test.mjs`.
