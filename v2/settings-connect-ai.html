@@ -516,7 +516,17 @@
      the application. The scopes come off the grant row the page already reads;
      the switch appears only once the pause column answers, so the card still
      renders correctly before that migration is applied. */
-  const canWrite = (g) => Array.isArray(g.scopes) && g.scopes.includes(K.WRITE_SCOPE);
+  const OUTREACH = K.OUTREACH_SCOPE || 'outreach:send';
+  const hasScope = (g, s) => Array.isArray(g.scopes) && g.scopes.includes(s);
+  const canWrite = (g) => hasScope(g, K.WRITE_SCOPE) || hasScope(g, OUTREACH);
+
+  /* What this connection may write, in words. Pausing stops both. */
+  function writeWhat(g) {
+    const parts = [];
+    if (hasScope(g, K.WRITE_SCOPE)) parts.push('open tasks in this company, marked as this app');
+    if (hasScope(g, OUTREACH)) parts.push('send affiliate outreach someone approved, from your own mailbox, and record it as sent');
+    return 'Can ' + parts.join(', and ') + '. It cannot change anything that exists';
+  }
 
   function writeLine(g) {
     if (!canWrite(g)) return '';
@@ -528,7 +538,7 @@
     return '<div class="cn-meta cn-activity">'
       + (off
         ? 'Writing paused \u2014 it can still read'
-        : 'Can open tasks in this company, marked as this app. It cannot change anything that exists')
+        : writeWhat(g))
       + btn + '</div>';
   }
 
@@ -890,12 +900,13 @@
     'reports:read': 'SILO reports (run and read results)',
     'data:read': 'Company data (read-only lookups)',
     'work:write': 'Open tasks (only if you tick it when approving)',
+    'outreach:send': 'Send approved affiliate outreach from your own mailbox (only if you tick it when approving)',
   };
 
   function renderGrantedScopes() {
     /* Writing is listed last and named as optional, because it is the one
        permission the approval screen leaves unticked. */
-    const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE]);
+    const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE, K.OUTREACH_SCOPE || 'outreach:send']);
     const items = keys.map((key) => {
       const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
       const label = SCOPE_LABEL[key] || key;

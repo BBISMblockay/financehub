@@ -19,7 +19,7 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 | Part | Label | What that means |
 |---|---|---|
 | Discovery | **verified** once a live run succeeds; **simulated** while only dry runs exist; else **unconfigured** | Public Google results through DataForSEO, the SERP vendor SILO already pays for. Only result titles, snippets and URLs are read; SILO never visits or scrapes a profile |
-| Outreach to prospects | **manual** | SILO drafts, approves and exports. A person sends from their own inbox or DMs and marks each message sent, with evidence. **SILO never emails a prospect**, through Resend or anything else |
+| Outreach to prospects | **manual** | SILO drafts, approves and exports. A person, or the person's own AI with the opt-in `outreach:send` scope, sends from their own inbox or DMs and marks each message sent, with evidence. **SILO never emails a prospect**, through Resend or anything else |
 | Affiliate emails | **verified** once one is delivered; else **unconfigured** | Resend, transactional only: signup confirmation, portal links, codes and links, payout status. Only to people who accepted terms or asked for a link |
 | Code tracking | **verified** once a code is seen on an order | Existing Shopify discount codes, read from synced orders. No Shopify write scope; SILO never creates or edits a discount |
 | Trackable links | **manual** | UTM-tagged destinations. No redirector, no click counting, no commission on a link |
@@ -51,6 +51,13 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    again, at most once a minute. The **Affiliate discovery** workflow still
    refreshes every active program on Mondays 14:40 UTC; dispatch it with
    `dry_run: true` to print the plan without calling the provider.
+   Every search is pinned to creator profiles: the words are sent with Google
+   `site:` filters for the search's Platform, else the program's ticked social
+   platforms, else all of them (`searchKeyword()` in the core). Platform
+   "websites" (or a program that ticked only blog/web) runs unpinned, and a
+   query that already has its own `site:` filter is sent as written.
+   YouTube and TikTok are pinned to profile paths (`site:youtube.com/@`,
+   `site:tiktok.com/@`), because video links name no channel and are dropped.
 
 ## Daily use
 
@@ -63,6 +70,13 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
   email and downloads a CSV whose SHA-256 is stored on the batch. Send, then
   mark each message sent with evidence. Replies, declines and bounces are
   recorded; "asked to stop" also adds them to the do-not-contact list.
+- **Outreach through your own AI (optional)**: approve a connection on
+  Settings, Connect AI with "send affiliate outreach" ticked (`outreach:send`,
+  two-step login, off by default). The AI then claims approved drafts
+  (`claim_outreach_to_send`), sends each from YOUR mailbox, and marks it sent
+  with evidence (`mark_outreach_sent`). Claims count toward the 50 writes per
+  connection per day; drafts and batches show "Via <app>". SILO itself still
+  sends nothing to prospects.
 - **Affiliates**: appear when an invitee opens their link. They become
   **active** only by accepting the current terms version on `join.html`. Give
   each one an existing Shopify code with dates, and optionally a UTM link.

@@ -3239,3 +3239,20 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
 - No affiliate table grants anything to `anon`. Verify:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
+
+## Affiliate outreach via the user's own AI — `20261110093000_affiliate_outreach_send_scope.sql`
+
+Apply after the four Affiliate Studio migrations, then deploy `mcp`.
+
+- Adds the opt-in `outreach:send` scope to `silo_api_consent()` and the two RPCs
+  to `silo_api_path_allowed()`; `silo_api_writes.kind` gains `outreach_claim`.
+- `silo_api_claim_outreach(program, limit, idempotency_key)`: one ACTIVE
+  program, approved drafts only, suppressed recipients skipped with a reason,
+  at most 25 and never past the 50/day write cap; a replay with the same key
+  returns the same drafts (fresh signup links) and spends nothing. The caller
+  must still be an Affiliate Studio manager of the grant's company.
+- `silo_api_mark_outreach_sent(draft, evidence)`: only drafts THIS grant
+  claimed; idempotent. Drafts and batches record the app ("Via <app>").
+- SILO still sends nothing: the person's AI sends from their own mailbox.
+  Verify: `verify_v2_schema.sql` check "outreach:send tools". Tests:
+  `scripts/tests/affiliate-outreach-mcp-database.test.mjs`.

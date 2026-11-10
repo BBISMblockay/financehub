@@ -69,6 +69,16 @@ export const SEARCH_LANGUAGES = [['en', 'English'], ['es', 'Spanish'], ['fr', 'F
 export const countryName = (code) => SEARCH_COUNTRIES.find((c) => c[1] === Number(code))?.[2] || (code ? `location ${code}` : 'any country');
 export const languageName = (code) => SEARCH_LANGUAGES.find((l) => l[0] === code)?.[1] || code || 'any language';
 
+// What a person sees for a failed search: no provider name, no codes. The
+// provider's own message stays in affiliate_discovery_runs.error for support.
+export function friendlySearchError(message) {
+  const m = String(message || '');
+  if (!m) return '';
+  if (/HTTP 401|HTTP 403|40100|40200|40201/.test(m)) return 'Search is not connected. Contact support.';
+  if (/cost cap/i.test(m)) return 'Skipped: this run reached its search limit.';
+  return 'The search service had a temporary problem. Try again in a few minutes.';
+}
+
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export function slugify(name) {
   return String(name || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')

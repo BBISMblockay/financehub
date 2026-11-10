@@ -171,17 +171,59 @@ export function scoreProspect({ item, profile, program, terms }) {
   return { confidence: score, confidence_basis: `Fit to the search query, not creator quality. ${parts.join('; ')}.`, email };
 }
 
+// The social platforms a search can be pinned to, as Google site: filters.
+// YouTube and TikTok are pinned to their PROFILE paths (/@handle): a bare
+// site:youtube.com returns /watch links, which name no channel and are
+// discarded, so a YouTube search found 30 results and 0 creators.
+export const PLATFORM_SITES = {
+  instagram: ['instagram.com'], tiktok: ['tiktok.com/@'], youtube: ['youtube.com/@'],
+  twitch: ['twitch.tv'], x: ['x.com', 'twitter.com'], pinterest: ['pinterest.com'],
+};
+
+/**
+ * The words actually sent to the search engine. A search looks for CREATORS:
+ * unless the operator wrote their own site: filter, the query is pinned to the
+ * search's Platform, else to the program's ticked social platforms, else to all
+ * of them. Only a search whose Platform is "blog" (or a program that ticked
+ * only blog/web) runs unpinned, to find personal websites.
+ */
+export function searchKeyword(source, program) {
+  const q = String(source?.query || '').replace(/\s+/g, ' ').trim();
+  if (/\bsite:/i.test(q)) return q.slice(0, 700);
+  const hint = String(source?.platform_hint || '').toLowerCase();
+  let wanted;
+  if (hint) wanted = [hint];
+  else {
+    const ticked = (program?.platforms || []).map((p) => String(p).toLowerCase());
+    wanted = ticked.filter((p) => PLATFORM_SITES[p]);
+    if (!wanted.length && !ticked.some((p) => ['blog', 'web'].includes(p))) wanted = Object.keys(PLATFORM_SITES);
+  }
+  const sites = [...new Set(wanted.flatMap((p) => PLATFORM_SITES[p] || []))];
+  if (!sites.length) return q.slice(0, 700);
+  const filter = sites.length === 1 ? `site:${sites[0]}` : `(${sites.map((s) => `site:${s}`).join(' OR ')})`;
+  return `${q.slice(0, 700 - filter.length - 1)} ${filter}`;
+}
+
 /** DataForSEO live/advanced task for one source. */
-export function buildSerpTask(source) {
-  const task = { keyword: String(source.query).trim().slice(0, 700), depth: Math.min(Math.max(Number(source.max_results) || 20, 10), 100) };
+export function buildSerpTask(source, program) {
+  const task = { keyword: searchKeyword(source, program), depth: Math.min(Math.max(Number(source.max_results) || 20, 10), 100) };
   if (source.location_code) task.location_code = Number(source.location_code);
   else task.location_name = 'United States';
   task.language_code = source.language_code || 'en';
   return task;
 }
 
-/** POST one live task; returns { items, cost }. Errors carry the provider's own message. */
-export async function fetchSerpLive({ credentials, task, fetchImpl = fetch }) {
+// Provider answers that mean "try again", not "this request is wrong":
+// 40101 is the search engine's own internal error (seen on production
+// 2026-11-10 on a plain US/English query), 5xxxx are the provider's.
+export const RETRYABLE_SERP_CODES = new Set([40101, 50000, 50301]);
+export const SERP_ATTEMPTS = 3;
+
+export class SerpError extends Error {
+  constructor(message, { code = null, retryable = false } = {}) { super(message); this.code = code; this.retryable = retryable; }
+}
+
+async function fetchSerpOnce({ credentials, task, fetchImpl }) {
   // btoa, not Buffer: this module also ships verbatim in an edge function
   // (Deno), where Buffer is not a global.
   const auth = 'Basic ' + btoa(`${credentials.login}:${credentials.password}`);
@@ -189,13 +231,30 @@ export async function fetchSerpLive({ credentials, task, fetchImpl = fetch }) {
     method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify([task]),
   });
   const body = await res.json().catch(() => null);
-  if (!res.ok || !body) throw new Error(`SERP provider HTTP ${res.status}`);
+  if (!res.ok || !body) throw new SerpError(`SERP provider HTTP ${res.status}`, { code: res.status, retryable: res.status >= 500 || res.status === 429 });
   const t = body.tasks?.[0];
   if (!t || (t.status_code && t.status_code >= 40000)) {
-    throw new Error(`SERP provider refused the task: ${t?.status_code ?? '?'} ${t?.status_message ?? body.status_message ?? ''}`.trim());
+    const code = t?.status_code ?? null;
+    throw new SerpError(`SERP provider refused the task: ${code ?? '?'} ${t?.status_message ?? body.status_message ?? ''}`.trim(), { code, retryable: RETRYABLE_SERP_CODES.has(code) });
   }
   const items = (t.result?.[0]?.items || []).filter((i) => i && i.type === 'organic' && i.url);
   return { items, cost: Number.isFinite(Number(t.cost)) ? Number(t.cost) : null };
+}
+
+/**
+ * POST one live task; returns { items, cost }. A transient provider error is
+ * retried (SERP_ATTEMPTS in all, with a short backoff); anything else, or the
+ * last attempt, throws with the provider's own message for the run record.
+ */
+export async function fetchSerpLive({ credentials, task, fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fetchSerpOnce({ credentials, task, fetchImpl });
+    } catch (err) {
+      if (!err?.retryable || attempt >= SERP_ATTEMPTS) throw err;
+      await sleep(1500 * attempt);
+    }
+  }
 }
 
 /**
@@ -351,7 +410,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
       summary.sources += 1;
       const started = now().toISOString();
       if (dryRun) {
-        log(`[affiliate-discovery] DRY RUN ${program.name}: would query "${source.query}" (max ${source.max_results}, cap $${cap.toFixed(2)})`);
+        log(`[affiliate-discovery] DRY RUN ${program.name}: would query "${searchKeyword(source, program)}" (max ${source.max_results}, cap $${cap.toFixed(2)})`);
         continue;
       }
 
@@ -378,7 +437,7 @@ export async function runDiscovery({ supabase, fetchSerp, now = () => new Date()
       }
 
       try {
-        const { items, cost } = await fetchSerp(buildSerpTask(source));
+        const { items, cost } = await fetchSerp(buildSerpTask(source, program));
         spent += Number(cost || 0);
         const { candidates, stats } = candidatesFromResults({ items, program, source, collectedAt: now().toISOString() });
         const wrote = await upsertCandidates({ supabase, program, source, candidates, runId });

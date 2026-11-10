@@ -323,6 +323,18 @@ it as shipped.
 - [ ] Sync health page — `sync_jobs` and `silo_chat_health_v` hold the data,
       nothing surfaces it
 - [ ] Retire unused `legacy/` pages after v2 parity
+- [ ] **Affiliate Studio: Stripe payouts from the customer's own Stripe**
+      (parked by Blake 2026-11-10: "I wanna see this new module in action
+      before payouts"). Payouts stay manual until then. Direction agreed: the
+      customer's own connected Stripe pays its affiliates and reps, never
+      SILO's platform balance. Candidate is Stripe Global Payouts (outbound
+      payments from a connected account's Treasury financial account to a
+      third party), which needs Treasury per customer and is partly preview
+      API. Open: whether it works through the existing Standard connection,
+      and who collects W-9s and files 1099-NEC. Schema already carries
+      `affiliate_payout_accounts` and `payout_method`; every path refuses to
+      record a non-manual payout as paid. Investigation:
+      `docs/ops/affiliate-studio.md` ("Stripe Connect payouts").
 
 ---
 

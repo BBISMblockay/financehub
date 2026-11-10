@@ -6,7 +6,7 @@
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
-  linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName,
+  linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -80,7 +80,9 @@ async function updateRows(table, patch, match) {
 function searchSummary(r = {}) {
   if (!r.ran && !r.failed) return 'Nothing to search yet: add a search, or resume a paused one.';
   const found = `${num(r.prospects_new || 0)} new prospect(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
-  return r.failed ? `Searched with ${num(r.failed)} error(s); ${found} See Recent discovery runs.` : `Searched. ${found}`;
+  if (r.failed && !r.ran) return 'The search service had a temporary problem. Try again in a few minutes.';
+  if (r.failed) return `Searched. ${found} Some searches had a temporary problem; try again in a few minutes.`;
+  return r.prospects_new || r.prospects_updated ? `Searched. ${found}` : 'Searched. No creators found this time. Try other words or another platform.';
 }
 
 async function invoke(fn, body) {
@@ -371,20 +373,20 @@ function renderProspects() {
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
     card('Discovery searches', `<p class="af-muted">SILO looks for new creators in public search results every week, and right away when you add a search or press Search now.</p>
       ${table([
-        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint || 'any platform')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
+        { h: 'Search', f: (s) => `“${esc(s.query)}”<div class="af-muted">${esc(s.platform_hint === 'blog' ? 'websites' : s.platform_hint || 'program platforms')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div>` },
         { h: 'Results wanted', num: true, f: (s) => num(s.max_results) },
-        { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(s.last_error)}</div>` : ''}` },
+        { h: 'Last run', f: (s) => `${fmtDate(s.last_run_at)}${s.last_error ? `<div class="af-muted">${esc(friendlySearchError(s.last_error))}</div>` : ''}` },
         { h: '', f: (s) => (MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }) : '') },
       ], d.sources, 'No searches yet.')}
       ${MANAGE && d.sources.some((s) => s.enabled) ? `<div class="af-row" style="margin-top:8px;">${btn('Search now', 'discovery-run', {}, 'primary')}</div>` : ''}
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">any</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'].map((x) => `<option>${x}</option>`).join('')}</select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
       { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill('live', 'accent')) },
       { h: 'Results', num: true, f: (r) => num(r.results_returned) }, { h: 'Profiles', num: true, f: (r) => num(r.profiles_recognized) },
       { h: 'New', num: true, f: (r) => num(r.prospects_new) }, { h: 'Emails stated', num: true, f: (r) => num(r.emails_found) },
       { h: 'Skipped (opted out)', num: true, f: (r) => num(r.suppressed_skipped) },
-      { h: 'Result', f: (r) => `${statusPill(r.status)}${r.error ? `<div class="af-muted">${esc(r.error)}</div>` : ''}` },
+      { h: 'Result', f: (r) => `${statusPill(r.status)}${r.error ? `<div class="af-muted">${esc(friendlySearchError(r.error))}</div>` : ''}` },
     ], runs, 'Discovery has not run for this program yet.')),
     card('Do-not-contact list', `<p class="af-muted">People on this list are never contacted, invited or accepted, in any program.</p>
       ${table([{ h: 'Type', f: (s) => esc(s.kind) }, { h: 'Value', f: (s) => `<span class="af-mono">${esc(s.value_normalized)}</span>` }, { h: 'Reason', f: (s) => esc(s.reason) }, { h: 'Added', f: (s) => fmtDate(s.created_at) }, { h: '', f: (s) => (MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'ghost', { confirm: true }) : '') }], d.suppressions, 'Nobody is on the list.')}
@@ -399,8 +401,12 @@ function renderOutreach() {
   const who = (x) => `${esc(x.recipient_email || x.recipient_handle)}<div class="af-muted">${esc(d.prospectById[x.prospect_id]?.display_name || '')} · ${esc(x.channel)}</div>`;
   const msg = (x) => `<div class="af-evidence"><strong>${esc(x.subject)}</strong><br>${esc(String(x.body || '').slice(0, 220))}${String(x.body || '').length > 220 ? '…' : ''}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
+  // "Via <app>": a batch an AI connection claimed (outreach:send) to send from
+  // the approver's own mailbox, and a send it recorded. Null for a person.
+  const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
+  const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
   $('outreachBody').innerHTML = [
-    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p>'),
+    card('How outreach works', '<p>Approve each message, export them with their personal signup links, send them from your own inbox or DMs, then mark each one sent.</p><p class="af-muted">Or let your own AI send them from your mailbox: connect it in Settings → Connect AI and tick “send approved affiliate outreach”.</p>'),
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     card('Drafts', table([
       { h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Created', f: (x) => fmtDate(x.created_at) },
@@ -409,15 +415,15 @@ function renderOutreach() {
     card('Approved, not yet exported', `${table([{ h: 'To', f: who }, { h: 'Message', f: msg }, { h: 'Approved', f: (x) => fmtTime(x.approved_at) }], byState('approved'), 'Nothing approved yet.')}
       ${MANAGE && byState('approved').length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${byState('approved').length} with signup links`, 'outreach-export', {}, 'primary', { confirm: true })}</div><p class="af-muted">Each person gets a personal signup link, valid for 14 days. Lost the file? Make a new link from the Prospects tab.</p>` : ''}`),
     card('Exported, waiting to be marked sent', table([
-      { h: 'To', f: who }, { h: 'Exported', f: (x) => fmtTime(x.exported_at) },
+      { h: 'To', f: who }, { h: 'Exported', f: (x) => `${fmtTime(x.exported_at)}${viaBatch(x)}` },
       { h: 'Mark sent', f: (x) => (MANAGE ? `<div class="af-row"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') },
     ], byState('exported'), 'Nothing is waiting.')),
     card('Sent and outcomes', table([
-      { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>` },
+      { h: 'To', f: who }, { h: 'State', f: (x) => statusPill(x.state) }, { h: 'Marked by', f: (x) => `${fmtTime(x.sent_marked_at)}<div class="af-muted">${esc(x.sent_evidence || '')}</div>${x.sent_via_app ? `<div class="af-muted">Via ${esc(x.sent_via_app)}</div>` : ''}` },
       { h: '', f: (x) => (MANAGE && x.state === 'sent' ? `<div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' })}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' })}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' })}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div>` : '') },
     ], byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), 'Nothing sent yet.')),
     card('Export batches', table([
-      { h: 'Exported', f: (b) => fmtTime(b.exported_at) }, { h: 'Rows', num: true, f: (b) => num(b.row_count) },
+      { h: 'Exported', f: (b) => `${fmtTime(b.exported_at)}${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}, sent from the approver's mailbox</div>` : ''}` }, { h: 'Rows', num: true, f: (b) => num(b.row_count) },
       { h: 'Fingerprint (SHA-256 of the file)', f: (b) => `<span class="af-mono af-copy">${esc(b.fingerprint || '—')}</span>` },
     ], d.batches, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
   ].join('');
