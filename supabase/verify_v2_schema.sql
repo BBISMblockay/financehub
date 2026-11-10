@@ -9083,3 +9083,25 @@ select 'outreach:send tools' as check_name,
       then 'BROKEN — affiliate_outreach_batches_claim_once is missing, so a retried claim takes more outreach'
     else 'ok'
   end as status;
+
+-- Affiliate AI research (20261110100000): the affiliate-research function
+-- holds AI credit under feature 'affiliate_research' and writes prospects with
+-- source 'ai_research'; either value refused means every research run fails.
+select 'Affiliate AI research' as check_name,
+  case
+    when not exists (select 1 from pg_constraint where conrelid = 'public.ai_credit_reservations'::regclass
+                      and conname = 'ai_credit_reservations_feature_check'
+                      and pg_get_constraintdef(oid) like '%affiliate_research%')
+      or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_prospects'::regclass
+                      and conname = 'affiliate_prospects_source_check'
+                      and pg_get_constraintdef(oid) like '%ai_research%')
+      then 'MISSING — run 20261110100000_affiliate_ai_research.sql'
+    when not exists (select 1 from pg_constraint where conrelid = 'public.ai_credit_reservations'::regclass
+                      and conname = 'ai_credit_reservations_feature_check'
+                      and pg_get_constraintdef(oid) like '%ask_silo%' and pg_get_constraintdef(oid) like '%payment_request_extract%')
+      or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_prospects'::regclass
+                      and conname = 'affiliate_prospects_source_check'
+                      and pg_get_constraintdef(oid) like '%csv_import%' and pg_get_constraintdef(oid) like '%applied%')
+      then 'BROKEN — a re-added check lost an existing value, so an older feature or prospect source is refused'
+    else 'ok'
+  end as status;

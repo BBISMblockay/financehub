@@ -139,4 +139,30 @@ await t('beacon tabs: button tabs reset the UA chrome so they read as page tabs'
   assert.match(css, /appearance:\s*none/);
 });
 
+await t('a CSV list is read with quotes, commas, CRLF and a BOM, and a broken file is refused', () => {
+  const rows = C.parseCsv('\uFEFFName,URL,Followers\r\n"Smith, Jo",https://www.tiktok.com/@jo,"993.2K ""TikTok"""\r\n\r\nAl,https://www.youtube.com/@al,12\n');
+  assert.deepEqual(rows, [
+    { name: 'Smith, Jo', url: 'https://www.tiktok.com/@jo', followers: '993.2K "TikTok"' },
+    { name: 'Al', url: 'https://www.youtube.com/@al', followers: '12' },
+  ]);
+  assert.deepEqual(C.parseCsv(''), []);
+  assert.throws(() => C.parseCsv('a\n"open'), /unclosed quote/);
+  assert.deepEqual(C.chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+});
+
+await t('runs, sources and followers are named in words; a missing count is not zero', () => {
+  assert.equal(C.runKindLabel({ provider: 'anthropic' }), 'AI research');
+  assert.equal(C.runKindLabel({ provider: 'import' }), 'list import');
+  assert.equal(C.runKindLabel({ provider: 'dataforseo', dry_run: true }), 'dry run');
+  assert.equal(C.sourceLabel('ai_research'), 'AI research');
+  assert.equal(C.sourceLabel('csv_import'), 'your list');
+  assert.equal(C.followersFrom({ followers: null }), null);
+  assert.equal(C.followersFrom({}), null);
+  assert.deepEqual(C.followersFrom({ followers: 0 }), { count: 0, source_url: null, as_of: null });
+  assert.match(C.friendlySearchError('skipped: 1 likely minors, 0 not found on a page read, 0 not a profile link'), /^Left out: 1 likely minors/);
+  assert.match(C.friendlySearchError('AI credit exhausted'), /Out of AI credit/);
+  const shown = ['anthropic', 'Claude', 'dataforseo'].some((w) => C.friendlySearchError('model HTTP 529 anthropic').includes(w));
+  assert.equal(shown, false, 'no provider names reach the page');
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);

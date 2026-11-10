@@ -7,6 +7,7 @@ import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
+  parseCsv, chunk, runKindLabel, followersFrom, sourceLabel,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -85,6 +86,32 @@ function searchSummary(r = {}) {
   return r.prospects_new || r.prospects_updated ? `Searched. ${found}` : 'Searched. No creators found this time. Try other words or another platform.';
 }
 
+// AI research runs in the background; the page watches its run row.
+const RESEARCH_STALE_MS = 10 * 60_000;
+function researchSummary(r) {
+  if (r.status !== 'ok') return `Research did not finish. ${friendlySearchError(r.error)}`;
+  if (!r.prospects_new && !r.prospects_updated) return 'Research finished. No creators could be confirmed this time. Try a different focus.';
+  return `Research finished: ${num(r.prospects_new || 0)} new creator(s)${r.prospects_updated ? `, ${num(r.prospects_updated)} refreshed` : ''}.`;
+}
+function watchResearch(runId) {
+  S.watching = runId;
+  const until = Date.now() + RESEARCH_STALE_MS;
+  const tick = async () => {
+    if (S.watching !== runId) return;
+    const { data } = await db.from('affiliate_discovery_runs').select('status, prospects_new, prospects_updated, error')
+      .eq('id', runId).eq('company_entity_id', CO).maybeSingle();
+    if (data && data.status !== 'running') {
+      S.watching = null;
+      await reload();
+      setStatus(researchSummary(data), data.status === 'ok' ? 'pos' : 'neg', 10000);
+      return;
+    }
+    if (Date.now() > until) { S.watching = null; setStatus('Research is still running. Reload the page in a few minutes to see what it found.', 'info', 10000); return; }
+    setTimeout(tick, 15000);
+  };
+  setTimeout(tick, 15000);
+}
+
 async function invoke(fn, body) {
   const { data: { session: s } } = await db.auth.getSession();
   const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${fn}`, {
@@ -156,6 +183,9 @@ async function loadProgramData() {
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
   d.prospectById = Object.fromEntries(d.prospects.map((x) => [x.id, x]));
   S.d = d;
+  // A research run started earlier (another tab, a reload) is still watched.
+  const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
+  if (live && S.watching !== live.id) watchResearch(live.id);
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
 
@@ -350,22 +380,34 @@ function renderProspects() {
   const provenance = (x) => {
     const e = x.evidence || {};
     return `<div class="af-evidence">${e.title ? `<strong>${esc(e.title)}</strong><br>` : ''}${esc(e.snippet || e.note || e.pitch || '')}</div>
-      <div class="af-muted">${esc(x.source)}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}</div>`;
+      <div class="af-muted">${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}</div>`;
   };
   const contact = (x) => (x.contact_email
     ? `${esc(x.contact_email)}${x.contact_source_url ? `<div class="af-muted">${ext(x.contact_source_url, 'where it was stated')}</div>` : '<div class="af-muted">entered by a person</div>'}`
     : '<span class="af-muted">not found</span>');
+  const followers = (x) => {
+    const f = followersFrom(x.evidence);
+    if (!f) return '<span class="af-muted">—</span>';
+    const where = f.source_url ? `${ext(f.source_url, 'where it was stated')}${f.as_of ? ` · ${fmtDate(f.as_of)}` : ''}` : (x.source === 'csv_import' ? 'from your list' : '');
+    return `${num(f.count)}${where ? `<div class="af-muted">${where}</div>` : ''}`;
+  };
+  const researching = S.watching && d.runs.some((r) => r.id === S.watching);
   const filters = ['new', 'qualified', 'approved', 'invited', 'signed_up', 'rejected', 'suppressed', 'all'];
   const runs = d.runs.slice(0, 10);
   $('prospectsBody').innerHTML = [
     card('Prospects', `<div class="bcn-tabs" style="margin:0 0 8px;">${filters.map((f) => `<button class="bcn-tab${f === filter ? ' bcn-tab--active' : ''}" data-act="prospect-filter" data-f="${f}">${esc(f.replace('_', ' '))} <span class="af-mono">${f === 'all' ? d.prospects.length : d.prospects.filter((x) => x.status === f).length}</span></button>`).join('')}</div>
       ${table([
-        { h: 'Creator', f: who }, { h: 'Contact', f: contact }, { h: 'Why they were found', f: provenance },
+        { h: 'Creator', f: who }, { h: 'Followers', num: true, f: followers }, { h: 'Contact', f: contact }, { h: 'Why they were found', f: provenance },
         { h: 'Fit', num: true, f: (x) => (x.confidence === null ? '—' : `${Math.round(x.confidence * 100)}%<div class="af-muted" style="text-align:right;max-width:200px;white-space:normal;">${esc(x.confidence_basis)}</div>`) },
         { h: 'Status', f: (x) => statusPill(x.status) }, { h: '', f: actions },
       ], list, 'No prospects in this state.')}
-      <p class="af-muted">Fit is scored from the search result: platform, niche words and a published contact.</p>
+      <p class="af-muted">Fit is scored from what was found: platform, niche words and a published contact.</p>
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
+    MANAGE ? card('Find creators with AI', `<p class="af-muted">AI reads public pages for creators who fit this program and keeps only the ones it found there. Uses AI credit and takes a few minutes.</p>
+      ${field('What to look for (optional)', `<textarea class="bcn-field" id="rsFocus" rows="2" maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} parents and coaches on TikTok` : 'e.g. youth baseball coaches with drill videos')}"></textarea>`)}
+      <div class="af-row" style="margin-top:8px;">${field('How many', `<select class="bcn-field" id="rsCount">${[10, 25, 50].map((n) => `<option${n === 25 ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}${btn(researching ? 'Researching…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`) : '',
+    MANAGE ? card('Import a list', `<p class="af-muted">Upload a CSV with one creator per row and a profile link column. Rows marked as minors are skipped.</p>
+      <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
     MANAGE ? card('Add a prospect by hand', `<div class="af-grid">
       ${field('Name', input('mpName'))}${field('Platform', `<select class="bcn-field" id="mpPlat">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select>`)}
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
@@ -382,7 +424,7 @@ function renderProspects() {
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent discovery runs', table([
       { h: 'When', f: (r) => fmtTime(r.started_at) }, { h: 'Search', f: (r) => esc(r.query) },
-      { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill('live', 'accent')) },
+      { h: 'Kind', f: (r) => (r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')) },
       { h: 'Results', num: true, f: (r) => num(r.results_returned) }, { h: 'Profiles', num: true, f: (r) => num(r.profiles_recognized) },
       { h: 'New', num: true, f: (r) => num(r.prospects_new) }, { h: 'Emails stated', num: true, f: (r) => num(r.emails_found) },
       { h: 'Skipped (opted out)', num: true, f: (r) => num(r.suppressed_skipped) },
@@ -613,6 +655,29 @@ const A = {
     setStatus('Search added. Searching…', 'info');
     try { return `Search added. ${searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId, source_id: added.id }))}`; }
     catch (e) { return `Search added. It will run with the weekly refresh (${e.message})`; }
+  },
+  'research-run': async () => {
+    const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
+    watchResearch(out.run_id);
+    return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
+  },
+  'import-run': async () => {
+    const file = $('impFile')?.files?.[0];
+    if (!file) throw new Error('Choose a CSV file first.');
+    if (file.size > 5_000_000) throw new Error('That file is too large. Split it into files under 5 MB.');
+    const rows = parseCsv(await file.text());
+    if (!rows.length) throw new Error('The file has no rows under its header.');
+    const t = { kept: 0, prospects_new: 0, prospects_updated: 0, skipped_minors: 0, skipped_not_profile: 0, suppressed_skipped: 0 };
+    const parts = chunk(rows, 200); // each part is one request, well inside the function's time limit
+    for (const [i, part] of parts.entries()) {
+      if (parts.length > 1) setStatus(`Importing part ${i + 1} of ${parts.length}…`, 'info');
+      const o = await invoke('affiliate-research', { action: 'import', program_id: S.programId, rows: part });
+      for (const k of Object.keys(t)) t[k] += Number(o[k]) || 0;
+    }
+    return `Imported ${num(t.kept)} creator(s): ${num(t.prospects_new)} new, ${num(t.prospects_updated)} updated.`
+      + `${t.skipped_minors ? ` ${num(t.skipped_minors)} skipped as likely minors.` : ''}`
+      + `${t.skipped_not_profile ? ` ${num(t.skipped_not_profile)} had no profile link.` : ''}`
+      + `${t.suppressed_skipped ? ` ${num(t.suppressed_skipped)} are on the do-not-contact list.` : ''}`;
   },
   'discovery-run': async () => { setStatus('Searching…', 'info'); return searchSummary(await invoke('affiliate-discovery-run', { program_id: S.programId })); },
   'source-toggle': async ({ id, on }) => { await updateRows('affiliate_prospect_sources', { enabled: on === '1' }, { id }); return on === '1' ? 'Search resumed.' : 'Search paused.'; },

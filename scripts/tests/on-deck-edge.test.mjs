@@ -137,5 +137,9 @@ await test('AI credit: the two copies of the credit library are identical', asyn
   const a = await readFile(new URL('../../supabase/functions/silo-chat/ai-credit-lib.mjs', import.meta.url), 'utf8');
   const b = await readFile(new URL('../../supabase/functions/on-deck-prepare/ai-credit-lib.mjs', import.meta.url), 'utf8');
   assert.equal(a, b, 'copy supabase/functions/silo-chat/ai-credit-lib.mjs to on-deck-prepare/');
+  for (const fn of ["payment-request-extract", "affiliate-research"]) {
+    const c = await readFile(new URL(`../../supabase/functions/${fn}/ai-credit-lib.mjs`, import.meta.url), "utf8");
+    assert.equal(c, a, `copy supabase/functions/silo-chat/ai-credit-lib.mjs to ${fn}/`);
+  }
 });
 console.log(`${checks} Edge checks passed`);

@@ -17,6 +17,7 @@ on:
       - 'scripts/on-deck-prepare.mjs'
       - 'supabase/functions/on-deck-prepare/**'
       - 'supabase/functions/silo-chat/ai-credit-lib.mjs'
+      - 'supabase/functions/affiliate-research/ai-credit-lib.mjs'
       - 'scripts/lib/on-deck-core.mjs'
       - 'scripts/tests/on-deck*'
       - 'supabase/migrations/*on_deck*'

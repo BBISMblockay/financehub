@@ -65,6 +65,29 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    breadcrumb segment is dropped rather than guessed, and the redirect URL
    is kept in `evidence.google_redirect_url`.
 
+## AI research and list import
+
+- **Find creators with AI** (Prospects tab, `affiliate-research`, action
+  `research`): Claude searches and reads public pages for the program's niche,
+  audience, platforms and the optional focus text, then returns a list through
+  a strict tool. SILO keeps a creator only when the web tools' RESULTS showed
+  its profile URL, its `@handle` or its address; the model's own words never
+  count. Follower counts and emails are kept only with a source URL those
+  results returned (`evidence.followers_source_url`), else stored as null.
+  Likely minors are refused. One research per program at a time; it runs in
+  the background (a few minutes) and the page watches the run row
+  (`affiliate_discovery_runs.provider = 'anthropic'`). Skipped counts are in
+  that row's `error` text (`skipped: …`). AI credit feature
+  `affiliate_research`; free when nothing is kept.
+- **Import a list** (action `import`): a CSV with one creator per row and a
+  profile link column (`url`, `profile_url`, `profile` or `link`). Also read
+  when present: `name`, `platform`/`primary`, `followers`/`followerNum`,
+  `email`/`contact`, `fit_reason`/`fitWhy`/`focus`, and `minor` (TRUE rows are
+  skipped). The page sends 200 rows a request; the function takes up to 500.
+  Imported follower counts are shown as "from your list", not as verified.
+- Both write through `upsertCandidates`, so the do-not-contact list applies
+  and a later run never blanks a value an earlier run recorded.
+
 ## Daily use
 
 - **Prospects**: review each prospect against the search result it came from

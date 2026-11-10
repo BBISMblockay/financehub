@@ -390,8 +390,10 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
       out.prospects_new += 1;
     } else {
       const patch = {
-        evidence: { ...(prior.evidence || {}), ...c.evidence, last_seen_query: source.query },
-        collected_at: c.collected_at, source_url: c.source_url,
+        // Only ADD: a value this run did not find (null) never blanks one an
+        // earlier run, an import or a person recorded.
+        evidence: { ...(prior.evidence || {}), ...Object.fromEntries(Object.entries(c.evidence || {}).filter(([, v]) => v !== null && v !== undefined)), last_seen_query: source.query },
+        collected_at: c.collected_at, ...(c.source_url ? { source_url: c.source_url } : {}),
         confidence: c.confidence, confidence_basis: c.confidence_basis, updated_at: c.collected_at,
       };
       // A contact a person entered, or one found before, is not overwritten.
