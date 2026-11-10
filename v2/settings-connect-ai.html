@@ -518,13 +518,15 @@
      renders correctly before that migration is applied. */
   const OUTREACH = K.OUTREACH_SCOPE || 'outreach:send';
   const hasScope = (g, s) => Array.isArray(g.scopes) && g.scopes.includes(s);
-  const canWrite = (g) => hasScope(g, K.WRITE_SCOPE) || hasScope(g, OUTREACH);
+  const CODES = K.CODES_SCOPE || 'codes:create';
+  const canWrite = (g) => hasScope(g, K.WRITE_SCOPE) || hasScope(g, OUTREACH) || hasScope(g, CODES);
 
   /* What this connection may write, in words. Pausing stops both. */
   function writeWhat(g) {
     const parts = [];
     if (hasScope(g, K.WRITE_SCOPE)) parts.push('open tasks in this company, marked as this app');
     if (hasScope(g, OUTREACH)) parts.push('send affiliate outreach someone approved, from your own mailbox, and record it as sent');
+    if (hasScope(g, CODES)) parts.push('create the affiliate codes someone asked for in your own Shopify store, and record them');
     return 'Can ' + parts.join(', and ') + '. It cannot change anything that exists';
   }
 
@@ -901,12 +903,13 @@
     'data:read': 'Company data (read-only lookups)',
     'work:write': 'Open tasks (only if you tick it when approving)',
     'outreach:send': 'Send approved affiliate outreach from your own mailbox (only if you tick it when approving)',
+    'codes:create': 'Create affiliate codes in your own Shopify store (only if you tick it when approving)',
   };
 
   function renderGrantedScopes() {
     /* Writing is listed last and named as optional, because it is the one
        permission the approval screen leaves unticked. */
-    const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE, K.OUTREACH_SCOPE || 'outreach:send']);
+    const keys = (K.SILO_SCOPES || []).concat([K.WRITE_SCOPE, K.OUTREACH_SCOPE || 'outreach:send', K.CODES_SCOPE || 'codes:create']);
     const items = keys.map((key) => {
       const detail = (K.SCOPE_COPY && K.SCOPE_COPY[key]) || key;
       const label = SCOPE_LABEL[key] || key;

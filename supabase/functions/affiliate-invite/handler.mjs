@@ -21,7 +21,7 @@
 //                                                   returns a 14-day signup URL
 //   portal_link { affiliate_id, email? }          -> 90-day portal URL; mails it if email=true
 //   notify      { affiliate_id, kind: 'codes_and_links' | 'payout_status', payout_id? }
-import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney } from './affiliate-mail.mjs';
+import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +31,12 @@ export const corsHeaders = {
 export const SIGNUP_LINK_DAYS = 14;
 export const PORTAL_LINK_DAYS = 90;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A date (YYYY-MM-DD) as the company's own calendar day; UTC when the zone
+// is missing or unknown.
+export function localDay(at, tz) {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at); }
+  catch { return at.toISOString().slice(0, 10); }
+}
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
 export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
@@ -168,13 +174,30 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
             .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
           if (!codes?.length && !links?.length) return reply({ error: 'This affiliate has no active code or link to send.' }, 409);
           const dates = (s, e) => `${s}${e ? ` to ${e}` : ' onward'}`;
+          // Links apply the affiliate's code (20261110160000): the store the
+          // brand named, or its only Shopify store -- never a guess among several.
+          const { data: store } = await service.rpc('affiliate_program_store_url', { p_company: company, p_program: a.program_id });
+          // The company's own calendar day, as the portal feed and the Shopify
+          // instructions use, not UTC's.
+          const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: company });
+          const today = localDay(now(), tz);
+          const current = (codes || []).find((c) => c.starts_on <= today && (!c.ends_on || c.ends_on >= today));
+          const shopLink = current ? affiliateLink(store, current.code, '/') : null;
           const paras = [`Hi ${escapeHtml(a.display_name)}, here are your current ${escapeHtml(brand)} affiliate details.`];
           if (codes?.length) paras.push(`<strong>Codes</strong><br>${codes.map((c) => `${escapeHtml(c.code)} (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join('<br>')}`);
-          if (links?.length) paras.push(`<strong>Links</strong><br>${links.map((l) => {
-            const u = new URL(l.destination_url);
-            for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) u.searchParams.set(k, v);
-            return `${escapeHtml(u.toString())} (${escapeHtml(dates(l.starts_on, l.ends_on))})`;
-          }).join('<br>')}`);
+          const linkLines = [
+            ...(shopLink ? [`${escapeHtml(shopLink)} (your code is applied at checkout)`] : []),
+            ...(links || []).map((l) => {
+              let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;
+              if (!u) {
+                const x = new URL(l.destination_url);
+                for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
+                u = x.toString();
+              }
+              return `${escapeHtml(u)} (${escapeHtml(dates(l.starts_on, l.ends_on))})`;
+            }),
+          ];
+          if (linkLines.length) paras.push(`<strong>Links</strong><br>${linkLines.join('<br>')}`);
           paras.push('A sale counts when the customer uses your code at checkout, within the dates shown.');
           const { html, text } = renderMail({ brand, heading: 'Your codes and links', paragraphs: paras, footer: 'Reply to this email with any questions.' });
           const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,

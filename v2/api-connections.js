@@ -65,6 +65,7 @@
     'data:read': 'Read your company\'s SILO data and live sources explicitly enabled by a company admin, read-only; never logins or connection secrets',
     'work:write': 'Open a task in this company, marked as this application \u2014 it can create one, and cannot change, complete or delete anything that already exists',
     'outreach:send': 'Take affiliate outreach a person already approved in Affiliate Studio, so it can send it from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot approve or write outreach',
+    'codes:create': 'See the affiliate codes someone asked for in Affiliate Studio, so it can create them in your own Shopify store, and record each one it created, marked as this application \u2014 SILO writes nothing to Shopify, and it cannot ask for codes',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -150,6 +151,11 @@
      it from their own mailbox (20261110093000). */
   const OUTREACH_SCOPE = 'outreach:send';
 
+  /* Its own box too (20261110160000): the affiliate codes someone asked for in
+     Affiliate Studio, for the person's AI to create in their own Shopify store
+     and record as created. Never implied by another scope. */
+  const CODES_SCOPE = 'codes:create';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -161,7 +167,7 @@
   }
 
   const api = {
-    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, STATUS_COPY, SCOPE_COPY,
+    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
   };

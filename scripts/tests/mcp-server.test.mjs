@@ -202,6 +202,13 @@ test('the tool list shows what this connection may call, and nothing else', asyn
   assert.deepEqual(sent.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'claim_outreach_to_send', 'mark_outreach_sent', 'how_to_use_silo']);
   assert.ok(!wrote.result.tools.some((t) => /outreach/.test(t.name)), 'work:write does not imply outreach:send');
 
+  // codes:create is its own permission too: the two code tools appear with it
+  // alone, and never because a connection may send outreach.
+  const coder = withScopes(['reports:read', 'data:read', 'codes:create']);
+  const coded = await (await coder.handle(post(rpc('tools/list')))).json();
+  assert.deepEqual(coded.result.tools.map((t) => t.name), ['list_connections', 'describe_connection', 'query_connection', 'list_reports', 'run_report', 'describe_tables', 'query', 'affiliate_codes_to_create', 'mark_affiliate_code_created', 'how_to_use_silo']);
+  assert.ok(!sent.result.tools.some((t) => /code/.test(t.name)), 'outreach:send does not imply codes:create');
+
   const reader = withScopes(['reports:read', 'data:read']);
   const read1 = await (await reader.handle(post(rpc('tools/list')))).json();
   assert.ok(!read1.result.tools.some((t) => t.name === 'create_task'),
@@ -232,7 +239,7 @@ test('the write tools are exactly create_task and the two outreach tools', async
   const writers = body.result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name);
   assert.deepEqual(writers, ['create_task', 'claim_outreach_to_send', 'mark_outreach_sent']);
   for (const t of TOOLS) {
-    if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent'].includes(t.name)) {
+    if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent', 'mark_affiliate_code_created'].includes(t.name)) {
       assert.equal(t.annotations.readOnlyHint, false);
       assert.equal(t.annotations.destructiveHint, false, `${t.name} destroys nothing`);
       assert.equal(t.annotations.idempotentHint, true, `${t.name}: a retry returns the first result`);
@@ -456,6 +463,33 @@ test('the outreach tools pass only what the bot was handed, and refuse anything 
   assert.equal(calls.length, before, 'a refused shape never reaches the database');
 });
 
+test('the code tools pass only an id and a Shopify discount id, and refuse anything else', async () => {
+  const C = '11111111-2222-4333-8444-666666666666';
+  const { handle, calls } = harness();
+  let body = await (await handle(post(rpc('tools/call', { name: 'affiliate_codes_to_create', arguments: { limit: 10 } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[0].fn, 'silo_api_codes_to_create');
+  assert.deepEqual(calls[0].body, { p_limit: 10 });
+  body = await (await handle(post(rpc('tools/call', { name: 'mark_affiliate_code_created',
+    arguments: { code_id: C, shopify_discount_id: ' gid://shopify/DiscountCodeNode/1631384698950 ' } })))).json();
+  assert.equal(body.result.isError, false);
+  assert.equal(calls[1].fn, 'silo_api_mark_code_created');
+  assert.deepEqual(calls[1].body, { p_code_id: C, p_shopify_discount_id: 'gid://shopify/DiscountCodeNode/1631384698950' });
+  const before = calls.length;
+  for (const [name, args, expected] of [
+    ['affiliate_codes_to_create', { limit: 0 }, /1 to 50/],
+    ['affiliate_codes_to_create', { limit: 51 }, /1 to 50/],
+    ['mark_affiliate_code_created', { shopify_discount_id: '1' }, /code_id/],
+    ['mark_affiliate_code_created', { code_id: C }, /Shopify discount id/],
+    ['mark_affiliate_code_created', { code_id: C, shopify_discount_id: 'gid://shopify/PriceRule/1' }, /Shopify discount id/],
+  ]) {
+    const out = await (await handle(post(rpc('tools/call', { name, arguments: args })))).json();
+    assert.equal(out.result.isError, true, `${name} ${JSON.stringify(args)}`);
+    assert.match(out.result.content[0].text, expected);
+  }
+  assert.equal(calls.length, before, 'a refused shape never reaches the database');
+});
+
 test('the outreach tools tell the bot that it sends, from the person\'s mailbox, and SILO does not', () => {
   const src = read('supabase/functions/mcp/handler.mjs');
   assert.match(src, /SILO itself sends nothing/);
@@ -521,8 +555,8 @@ test('the function never reaches for the database service role; live access adds
   const src = read('supabase/functions/mcp/handler.mjs');
   const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
-    ['silo_api_claim_outreach', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
-     'silo_api_mark_outreach_sent', 'silo_api_query',
+    ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
+     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_query',
      'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
 });
 

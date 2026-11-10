@@ -3240,6 +3240,23 @@ Apply in that order, after `20261110083000`. Runbook and architecture:
   `verify_v2_schema.sql` checks "Shopify order discount codes" and
   "Affiliate Studio". Tests: `scripts/tests/affiliate-studio-database.test.mjs`.
 
+## Affiliate codes via the person's AI — `20261110160000_affiliate_codes_via_ai.sql`
+
+Apply after `20261110150000`, then deploy `mcp`, `affiliate-portal` and
+`affiliate-invite`. Adds `affiliate_codes.status = 'pending'` (asked for in
+Affiliate Studio, waiting to be created in Shopify; earns nothing and is handed
+out nowhere) with `discount_percent`, and the Shopify discount id, time and app
+once created. New developer-platform scope `codes:create` (its own box on the
+consent screen) with `silo_api_codes_to_create` and `silo_api_mark_code_created`:
+the person's OWN AI, signed in to their own Shopify, creates each code there and
+records it, which makes it active (one write against the cap). SILO writes
+nothing to Shopify. `affiliate_program_store_url(company, program)` is the one
+rule for where affiliate links open: the program's store address, else the
+company's Shopify domain only when it has exactly one active store. A public
+`affiliate-feed-images` bucket holds Ad Studio pictures a manager shared with
+affiliates (same content-addressed path; written only into the active company's
+folder by someone who manages affiliate programs).
+
 ## Affiliate portal feed — `20261110150000_affiliate_portal_feed.sql`
 
 Apply after `20261110140000`, then deploy `affiliate-portal`. Adds

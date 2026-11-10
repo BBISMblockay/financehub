@@ -19660,4 +19660,8 @@ $c$select (select count(*) from v_po_header_summary
 -- Affiliate portal feed (20261110150000): Share tab in Affiliate Studio, feed
 -- and code-carrying links in the portal. Deploy affiliate-portal.
 \i migrations/20261110150000_affiliate_portal_feed.sql
+-- Affiliate codes created by the person's own AI (20261110160000): codes:create
+-- scope and tools, one store rule for affiliate links, ad pictures in the feed.
+-- Deploy mcp, affiliate-portal and affiliate-invite.
+\i migrations/20261110160000_affiliate_codes_via_ai.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

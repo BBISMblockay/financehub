@@ -1258,7 +1258,7 @@ jobs:
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
-          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews byprospectonly anylogo nocodelink offsitelink oldplatform
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs rawtoken bodyaddress gateorder bodycompany prospectmail draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers doublerun oneround partial onesource leadevidence nobrief freecharge
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href
@@ -2581,7 +2581,7 @@ jobs:
       - name: The outreach:send guards, removed, must break it
         run: |
           set -u
-          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link logo-not-passed logo-any-folder logo-upload-any-folder logo-upload-any-member feed-any-member feed-other-program feed-signup-link feed-other-program-items feed-expired-codes feed-offsite-path; do
+          for m in session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link logo-not-passed logo-any-folder logo-upload-any-folder logo-upload-any-member feed-any-member feed-other-program feed-signup-link feed-other-program-items feed-expired-codes feed-offsite-path codes-not-offered codes-no-path codes-any-status codes-no-cap codes-no-cap-lock cap-no-trigger codes-pending-earns codes-pending-no-reserve codes-store-oldest codes-no-scope feed-images-any-folder feed-images-any-member; do
             if OUTREACH_MCP_MUTATION="$m" node scripts/tests/affiliate-outreach-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
