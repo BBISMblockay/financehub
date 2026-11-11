@@ -384,7 +384,8 @@
   // for it (Overview offers 14d; this page does not), so it stays a rolling
   // window on both pages instead of freezing into two dates.
   const isDays = v => /^[1-9]\d{0,3}$/.test(String(v || ''));
-  const isIso = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v + 'T00:00:00Z'));
+  // A real calendar day, not just the shape of one (2026-02-31 is refused).
+  const isIso = v => { try { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(v + 'T00:00:00Z').toISOString().slice(0,10) === v; } catch { return false; } };
   const emptyDrill = () => ({ platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null });
 
   function writeUrl({ push = false } = {}){
@@ -746,11 +747,11 @@
     if (canDrill){
       el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => {
         const r = rows[Number(tr.dataset.idx)];
+        // A row with no id (an unnamed campaign) has nowhere to drill to.
+        if (r.drillId == null) return;
         if (lv === 0) state.drill = { ...state.drill, platform: r.drillId };
         if (lv === 1) state.drill = { ...state.drill, campaignId: r.drillId, campaignName: r.name };
         if (lv === 2) state.drill = { ...state.drill, adsetId: r.drillId, adsetName: r.name };
-        // A row with no id (an unnamed campaign) has nowhere to drill to.
-        if (r.drillId == null) return;
         state.search = ''; el('rowSearch').value = '';
         state.focusAd = null;
         writeUrl({ push:true });

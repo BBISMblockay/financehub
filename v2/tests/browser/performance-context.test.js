@@ -227,6 +227,16 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
     R.eq(rolling, ['gte'], 'a rolling window keeps the query it always had');
     await page.close();
 
+    // A range that is not real dates is not sent to the database: default window.
+    page = await suite.open('/v2/marketing-overview.html?start=2026-02-31&end=2026-03-02', TABLES, { ready: overviewReady });
+    R.eq(await page.locator('#windowBtns .is-active').innerText(), '30d', 'an impossible date falls back to the default, and says 30d');
+    R.eq(await page.locator('#windowBtns button[data-fixed]').count(), 0);
+    await page.close();
+    page = await suite.open('/v2/marketing-explorer.html?start=2026-02-31&end=2026-03-02&platform=<img src=x onerror=window.__PWNED__=1>', TABLES, { ready: explorerReady });
+    R.eq(await page.locator('#presetBtns .is-active').innerText(), '30d', 'Explorer likewise');
+    R.ok('a hostile platform value is text, not HTML', (await page.evaluate(() => window.__PWNED__)) === undefined);
+    await page.close();
+
     // ── 7. Ad Studio -> back to the result ───────────────────────────────
     page = await suite.open('/v2/ad-studio.html?ad=a1', { ad_ideas: [], ad_studio_ads: [STUDIO_AD] },
       { ready: () => !!document.querySelector('#detail .as-title') });
