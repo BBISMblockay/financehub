@@ -240,7 +240,8 @@ the database, not the frontend:
 
 ## 8. UX (shipped as `/v2/calendar.html`)
 
-Pattern-1 Beacon page, nav `planning/calendar`, month view modeled on the
+Pattern-1 Beacon page, nav `planning/calendar` (shared since 2026-11-11 with the
+Launch calendar: one "Calendar" row, a tab strip on each page), month view modeled on the
 launch workbench grid + an agenda (upcoming) view; KPI band (events this
 month, payments due, POs inbound, launches); filter bar with category chips,
 event-type select, and search; click → detail drawer with source fields +
@@ -310,7 +311,9 @@ existing edge-function + Resend pattern.
   checks added to `verify_v2_schema.sql` (§20 in that file).
 - `/v2/calendar.html` — Org Calendar (month + agenda, filters, drawer,
   manual-event CRUD).
-- Nav: `planning/calendar` in `nav-config.js`; Planning card link on
+- Nav: `planning/calendar` in `nav-config.js` -- one row labelled "Calendar"
+  whose href is `/v2/launch-calendar.html`; this page is its second tab
+  (the `.cal-switch` strip, present on both pages). Planning card link on
   `finance.html`.
 
 After applying the migration, run `supabase/verify_v2_schema.sql` — all rows

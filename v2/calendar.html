@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SILO · Org Calendar</title>
+  <title>SILO · Calendar · Org</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
@@ -83,6 +83,14 @@
     .agenda-empty { padding:28px 16px; text-align:center; font-size:12px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
 
     /* in-page tabs */
+    /* Calendar tab strip — one nav item ("Calendar") hosts both calendar
+       views; these are links, not buttons, because each view is its own
+       Pattern-1 page with its own data layer. Deliberately NOT .pg-tab-bar:
+       launch-calendar.html moves the first .pg-tab-bar into its toolbar. */
+    .cal-switch { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
+    .cal-switch a { height:36px; display:inline-flex; align-items:center; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); text-decoration:none; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .12s, border-color .12s; }
+    .cal-switch a:hover { color:var(--bcn-ink); }
+    .cal-switch a[aria-current="page"] { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
     .pg-tab-bar { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
     .pg-tab { height:36px; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; transition:color .12s, border-color .12s; }
     .pg-tab:hover { color:var(--bcn-ink); }
@@ -141,13 +149,18 @@
 
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title"><h1>Org Calendar</h1></div>
+        <div class="bcn-header-title"><h1>Calendar</h1></div>
         <div class="bcn-header-sub bcn-header-sub--trimmed">One company-wide time layer · launches · payments · POs · payroll · mail · live · manual events</div>
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newEventBtn">+ NEW EVENT</button>
       </div>
     </header>
+
+    <nav class="cal-switch" aria-label="Calendar views">
+      <a href="/v2/launch-calendar.html">LAUNCH CALENDAR</a>
+      <a href="/v2/calendar.html" aria-current="page">ORG CALENDAR</a>
+    </nav>
 
     <div class="bcn-status" id="status" hidden></div>
 
@@ -763,7 +776,7 @@
         appEl: '#silo-app',
         active: 'planning/calendar',
         user: { email: currentUser.email, role: myRole.toUpperCase() },
-        crumbs: ['Planning', 'Org Calendar'],
+        crumbs: ['Planning', 'Calendar', 'Org calendar'],
         supabaseClient: db,
       });
     }
