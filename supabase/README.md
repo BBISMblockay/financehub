@@ -3297,6 +3297,20 @@ the same recipient, and mails nothing; every later read still goes through
 session ever sees two brands. Its refusals are worded identically, so the menu
 stays the only way to learn what exists on an address.
 
+## Affiliate rep photo and outreach message — `20261111020000_affiliate_rep_photo_outreach_message.sql`
+
+Apply **before** deploying `affiliate-portal`. Additive; changes no data.
+
+- `affiliates.photo_url` (https only) and `affiliates.photo_hidden`. A rep sets
+  or removes their photo in the portal; `affiliate-portal` stores the image in
+  `affiliate-feed-images/<company>/affiliate-photos/<affiliate>-<time>-<random>.jpg` (a new object per upload; only the photo a request replaced is deleted after its update lands) and writes
+  these columns with the service role only after the portal token resolves to
+  that affiliate. A card shows: nothing when hidden, else the rep's own photo,
+  else the photo SILO found for them as a prospect.
+- `affiliate_programs.outreach_subject` / `outreach_body`: the wording every
+  NEW outreach draft starts from (Studio settings). NULL means SILO's built-in
+  message. The body must keep `{signup_link}`.
+
 ## Affiliate portal sign-in — `20261110170000_affiliate_portal_signin.sql`
 
 Apply after `20261110160000`, then deploy `affiliate-portal`. Adds

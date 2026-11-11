@@ -31,6 +31,7 @@
 //   AFFILIATE_RESEARCH_MUTATION=photoredirect a photo redirect hop is followed without the safety check
 //   AFFILIATE_RESEARCH_MUTATION=photomagic   a page that is not an image is stored as a photo
 //   AFFILIATE_RESEARCH_MUTATION=photostored  Refresh photos re-fetches creators that already have a stored copy
+//   AFFILIATE_RESEARCH_MUTATION=sitesplit    a typed site: filter is paid for once per ticked platform
 //   AFFILIATE_RESEARCH_MUTATION=onesearch    the typed words are searched once for all platforms together
 //   AFFILIATE_RESEARCH_MUTATION=noshare      leads from the platform searches are not merged by profile
 //   AFFILIATE_RESEARCH_MUTATION=notopup      a short run is not topped up from creators the per-source limit held back
@@ -65,6 +66,7 @@ const MUTS = {
   photoredirect: ['lib/affiliate-photo-core.mjs', "url = safeHttpsUrl(res.headers?.get?.('location') || '', url); continue;", "url = new URL(res.headers.get('location'), url).href; continue;"],
   photomagic: ['lib/affiliate-photo-core.mjs', "const kind = img && /^image\\//.test(img.type) ? imageKind(img.bytes) : null;", "const kind = img ? { type: 'image/jpeg', ext: 'jpg' } : null;"],
   photostored: ['handler.mjs', '(urls || !p.evidence?.profile_image_stored)', '(urls || true)'],
+  sitesplit: [CORE, '  if (/\\bsite:/i.test(q)) return [{ ...base, platform_hint: null }];\n', ''],
   onesearch: [CORE, '  return per.length > 1 ? per.map', '  return false ? per.map'],
   noshare: ['handler.mjs', 'leads: interleaveLeads(lists, MAX_LEADS)', 'leads: lists.flat().slice(0, MAX_LEADS)'],
   notopup: ['handler.mjs', 'collectedAt: now().toISOString(), fillTo: wanted });', 'collectedAt: now().toISOString() });'],
@@ -386,6 +388,12 @@ await test('Google leads go to the AI first; only the ones it checks and records
   assert.deepEqual(ps.map((p) => p.handle), ['@leadcreator'], 'a lead the AI recorded is kept on the strength of the real search result; one it dropped is never stored');
   assert.equal(ps[0].source, 'ai_research');
   assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 Google leads checked$/, 'the same profile from two searches is one lead');
+});
+
+await test('a typed site: filter is one search, as typed, however many platforms are ticked', async () => {
+  const s = setup({ serp: [], script: [msg([{ type: 'tool_use', id: 't', name: 'record_creators', input: { creators: [] } }], 'tool_use')] });
+  await s.call({ action: 'research', program_id: PA, focus: 'baseball moms site:tiktok.com', count: 5 });
+  assert.deepEqual(s.searches.map((t) => t.keyword), ['baseball moms site:tiktok.com'], 'one paid search, not one per platform');
 });
 
 await test('each platform search gets a share of the leads; no words means no searches', async () => {

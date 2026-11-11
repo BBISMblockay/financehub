@@ -56,6 +56,9 @@ export function leadSearches(program, focus) {
   const q = String(focus || '').trim();
   if (!q) return [];
   const base = { id: null, query: q, max_results: LEAD_SEARCH_RESULTS, location_code: null, language_code: null };
+  // Typed site: filters win over the platforms (searchKeyword sends them as
+  // typed), so splitting would pay for the same search once per platform.
+  if (/\bsite:/i.test(q)) return [{ ...base, platform_hint: null }];
   const per = [...new Set((program?.platforms || []).map((p) => String(p).toLowerCase()))].filter((p) => PLATFORM_SITES[p]).slice(0, MAX_LEAD_SEARCHES);
   return per.length > 1 ? per.map((p) => ({ ...base, platform_hint: p })) : [{ ...base, platform_hint: null }];
 }

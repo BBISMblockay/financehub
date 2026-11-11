@@ -111,6 +111,14 @@
     .af-switch-item .af-logo { height: 22px; max-width: 70px; }
     .af-switch-item .af-badge { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
     .af-switch-prog { color: var(--bcn-ink-3); font-size: 12px; margin-left: auto; }
+
+    /* The rep's own photo: what the brand's team sees on their card. */
+    .af-me { display: flex; align-items: center; gap: 14px; }
+    .af-me-pic { width: 72px; height: 72px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden; background: var(--bcn-sunken); color: var(--bcn-ink-2); font-weight: 700; font-size: 26px; }
+    .af-me-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .af-me-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+    .af-me input[type=file] { display: none; }
+    .af-me label.is-disabled { opacity: .5; pointer-events: none; }
   </style>
 </head>
 <body class="silo-brand">
@@ -191,6 +199,7 @@ async function load() {
   const monthly = s.monthly || [];
   const top = Math.max(1, ...monthly.map((x) => Math.abs(Number(x.amount_cents) || 0)));
   const side = [
+    photoCard(st.photo_url, st.photo_own, s.affiliate?.display_name || r.affiliate?.display_name),
     card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c, t.today)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
     links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<span class="af-copy">${esc(u)}</span>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
@@ -199,6 +208,7 @@ async function load() {
   ].join('');
   $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
   brandSwitcher();
+  wirePhoto();
 }
 
 // A rep who reps more than one brand gets a menu instead of a trip back to
@@ -246,6 +256,58 @@ async function brandSwitcher() {
       try { sessionStorage.setItem('silo_affiliate_portal', r.token); } catch {}
       location.replace(`portal.html?t=${encodeURIComponent(r.token)}`);
     } catch (e) { setStatus(e.message, 'neg'); b.disabled = false; }
+  });
+}
+
+// The rep's photo: shown to the brand's team on the rep's card. The page crops
+// it square and re-encodes it as a small JPEG, so the upload is tens of KB
+// whatever the phone took.
+const PHOTO_PX = 400;
+let meName = '';
+function photoCard(url, own, name) {
+  meName = name;
+  const initial = esc(String(name || '?').trim().charAt(0).toUpperCase() || '?');
+  const pic = url && /^https:\/\//.test(url)
+    ? `<img src="${esc(url)}" alt="" referrerpolicy="no-referrer" data-initial="${initial}">`
+    : initial;
+  return `<div id="meCard">${card('Your photo', `<div class="af-me"><span class="af-me-pic" id="mePic">${pic}</span><div>
+    <p class="af-muted" style="margin:0 0 8px;">${url ? (own ? 'The brand sees this photo.' : 'We found this photo on your profile. The brand sees it.') : 'Add a photo so the brand knows it is you.'}</p>
+    <div class="af-me-acts"><label class="bcn-btn bcn-btn--primary" for="meFile">${url ? 'Change photo' : 'Add photo'}</label>
+    ${url ? '<button class="bcn-btn bcn-btn--ghost" type="button" id="meRemove">Remove</button>' : ''}</div>
+    <input type="file" id="meFile" accept="image/*" /></div></div>`)}</div>`;
+}
+function showPhoto(r) { $('meCard').outerHTML = photoCard(r.photo_url, r.own, meName); wirePhoto(); }
+async function squareJpeg(file) {
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const c = document.createElement('canvas'); c.width = PHOTO_PX; c.height = PHOTO_PX;
+  c.getContext('2d').drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, PHOTO_PX, PHOTO_PX);
+  const url = c.toDataURL('image/jpeg', 0.85);
+  return url.slice(url.indexOf(',') + 1);
+}
+// One change at a time from this page: both controls wait for the answer.
+function photoBusy(on) {
+  const f = $('meFile'); if (f) f.disabled = on;
+  const r = $('meRemove'); if (r) r.disabled = on;
+  $('meCard')?.querySelector('label[for="meFile"]')?.classList.toggle('is-disabled', on);
+}
+function wirePhoto() {
+  const pic = $('mePic')?.querySelector('img');
+  if (pic) pic.addEventListener('error', () => { $('mePic').textContent = pic.dataset.initial || '?'; }, { once: true });
+  $('meFile')?.addEventListener('change', async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { setStatus('Pick an image file.', 'neg'); return; }
+    let image;
+    try { image = await squareJpeg(file); } catch { setStatus('That photo could not be read. Try another image.', 'neg'); return; }
+    photoBusy(true);
+    try { showPhoto(await call('photo', { token, image })); setStatus('Photo saved.', 'pos'); }
+    catch (e) { setStatus(e.message, 'neg'); photoBusy(false); }
+  });
+  $('meRemove')?.addEventListener('click', async () => {
+    photoBusy(true);
+    try { showPhoto(await call('photo', { token, remove: true })); setStatus('Photo removed.', 'pos'); }
+    catch (e) { setStatus(e.message, 'neg'); photoBusy(false); }
   });
 }
 
