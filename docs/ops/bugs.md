@@ -243,7 +243,7 @@ that reported them are fixed, so these are now reported as warnings instead of a
 
 ---
 
-## BBISM Receivables is a frozen book with live collections actions (P2)
+## ~~BBISM Receivables is a frozen book with live collections actions (P2)~~ — CLOSED 2026-11-11
 
 Found 2026-10-13 (review cycle 2 on #957). `/v2/baseballismwholesale.html` reads the retired `ar_*`
 tables, which stop at 2026-09-14, and it still computes open and past-due balances and offers a
@@ -254,11 +254,19 @@ actions are still there to click, and the aging KPIs still read as current numbe
 **Decided 2026-10-20 (Blake): make it historical, replace the numbers with a report.** Open
 receivables now come from the Shopify sync on the Wholesale Tracking dashboard (saved report
 "Wholesale AR — open balances (Shopify)"), the nav row was removed, and the page's banner links to
-that board. The page itself stays reachable at `/v2/baseballismwholesale.html` while the replacement
-is proven out, so the collections actions are still clickable and the aging KPIs still read as
-current numbers for anyone who types the URL — **the P2 is narrowed, not closed**. It closes when the
-page is retired, which is the agreed next step once nothing needs the pre-2026-05 history or the
-collections notes (neither has a home in reporting).
+that board. **Closed 2026-11-11 (Blake: "Retire old page but keep data? We have wholesale capable reporting in
+place."). The page is gone**, so there is no longer a screen anywhere that computes an open balance
+from the frozen book or offers a collections action against it. `/v2/baseballismwholesale.html` is a
+stub redirect to the reports library; `pages/baseballismwholesale.html` was deleted.
+
+**No data was dropped, and that is the point of the fix.** `ar_invoices` (1,432), `ar_customers`
+(446), `ar_contact_log` (65), `ar_action_queue` (12), `ar_statements` (0) and their views all stay,
+and `server/ar-sync.mjs` remains dispatchable. What the pre-2026-05 wholesale history, the
+collections queue and the contact log lost is a page of their own, not their rows: they are read
+through Reports / Ask SILO / the MCP connector now. Two consequences worth knowing — nobody can
+*write* a contact-log entry or queue action any more (the last entry was 2026-08-05, and no statement
+was ever sent), and the two open items that exist only in this book, `#4340` ($1,359.73) and `#4656`
+($157.50), are now visible only by querying those tables. They are still Blake's calls to make.
 
 ---
 
