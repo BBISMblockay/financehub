@@ -415,7 +415,9 @@
   overflow-y: auto; padding-bottom: 14px;
 }
 .rb-canvas .rb-stale-bar { margin: 10px 14px 0; }
-.rb-canvas--sql .rb-preview,
+/* Advanced SQL hides the guided-builder furniture, never the results: Run,
+   a failed query's error and "Load next 1000 rows" all render into
+   .rb-preview, so hiding it leaves Run with nothing to show for itself. */
 .rb-canvas--sql .rb-params,
 .rb-canvas--sql #canvasHead { display: none; }
 .rb-controls {

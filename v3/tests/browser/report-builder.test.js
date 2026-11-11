@@ -137,6 +137,9 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
  await p.fill('#sqlText','select product_title, net_sales, units from sales');
  await p.click('#btnPreview');
  await p.waitForFunction(()=>!/Running/.test(document.getElementById('previewBody').textContent),null,{timeout:10000});
+ // Regression: the SQL tab once hid the whole results panel, so Run showed
+ // nothing -- no rows, no error, no Load more.
+ ok('results of a SQL-tab run are visible on the SQL tab', await p.isVisible('#previewBody'));
  await p.click('#btnSave'); await p.waitForSelector('#saveBackdrop.open');
  await p.fill('#saveName','My manual report');
  await p.fill('#saveDesc','Built from a view');
