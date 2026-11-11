@@ -1,0 +1,7 @@
+/* Launch-link chips and their unlink control. Shared by the Performance pages
+   that can link an ad, campaign or message to a launch (marketing-launch-links.js),
+   so the chip reads the same wherever it is drawn. */
+.mo-link-chip { display:inline-flex; align-items:center; gap:2px; margin:2px; }
+.mo-link-chip .bcn-pill { font-size:9.5px; padding:1px 7px; }
+.mo-unlink { border:0; background:none; cursor:pointer; color:var(--bcn-ink-3); font-size:13px; line-height:1; padding:2px 5px; border-radius:4px; }
+.mo-unlink:hover, .mo-unlink:focus-visible { color:var(--bcn-neg); background:var(--bcn-sunken); }
