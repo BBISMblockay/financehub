@@ -407,10 +407,10 @@ export const WHERE_IN_SILO = {
     { section: 'Requests', page: 'Request Manager', path: '/v2/request_manager.html', what: 'Review, approve and follow payment requests. A single request opens at ?request=<id>.' },
     { section: 'Requests', page: 'Mailroom', path: '/v2/mailroom.html', what: 'Post and documents that have arrived, and mail intake.' },
 
-    { section: 'Planning', page: 'Org Calendar', path: '/v2/calendar.html', what: 'The company-wide calendar.' },
+    { section: 'Planning', page: 'Org calendar', path: '/v2/calendar.html', what: 'The company-wide calendar: the Org calendar tab of Calendar.' },
     { section: 'Planning', page: 'Revenue Projection', path: '/v2/projections.html', what: 'Revenue projections.' },
     { section: 'Planning', page: 'Planning scenarios', path: '/v2/planning-scenarios.html', what: 'Planning scenarios, side by side.' },
-    { section: 'Planning', page: 'Launch calendar', path: '/v2/launch-calendar.html', what: 'The Launch Workbench: each dated launch with its tasks and marketing initiatives.' },
+    { section: 'Planning', page: 'Calendar', path: '/v2/launch-calendar.html', what: 'The Launch calendar tab: each dated launch with its tasks and marketing initiatives.' },
     { section: 'Planning', page: 'Task Manager', path: '/v2/tasks.html', what: 'Tasks: raising them, assigning them and following them.' },
     { section: 'Planning', page: 'TikTok Live Schedule', path: '/v2/live-schedule.html', what: 'The TikTok live schedule.' },
 
