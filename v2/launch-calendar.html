@@ -855,10 +855,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
               <div class="bcn-field-group"><label class="bcn-label">TIME</label><input class="bcn-field" id="channelTime" type="time" /></div>
               <div class="bcn-field-group"><label class="bcn-label">STATUS</label><select class="bcn-field" id="channelStatus"><option value="planned">Planned</option><option value="drafting">Drafting</option><option value="ready">Ready</option><option value="scheduled">Scheduled</option><option value="live">Live</option><option value="blocked">Blocked</option></select></div>
             </div>
-            <div class="dp-g2">
-              <div class="bcn-field-group"><label class="bcn-label">OWNER</label><input class="bcn-field" id="channelOwner" /></div>
-              <div class="bcn-field-group"><label class="bcn-label">URL</label><input class="bcn-field bcn-field--mono" id="channelUrl" type="url" /></div>
-            </div>
+            <div class="bcn-field-group"><label class="bcn-label">OWNER</label><input class="bcn-field" id="channelOwner" /></div>
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="channelNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelChannelBtn">CANCEL</button>
@@ -990,10 +987,10 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
           <div class="bcn-field-group"><label class="bcn-label">PREVIEW START TIME</label><input class="bcn-field bcn-field--mono" id="briefPreviewTime" type="time" /></div>
         </div>
         <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">PRODUCT RELEASE PDF</label><input class="bcn-field bcn-field--mono" id="briefReleasePdfUrl" type="url" placeholder="https://…" /></div>
           <div class="bcn-field-group"><label class="bcn-label">LANDING PAGE</label><input class="bcn-field bcn-field--mono" id="briefLandingPageUrl" type="url" placeholder="https://…" /></div>
+          <div class="bcn-field-group"><label class="bcn-label">PROJECTED REVENUE</label><input class="bcn-field bcn-field--mono" id="briefProjectedRevenue" type="number" min="0" step="0.01" /></div>
         </div>
-        <div class="dp-sub" style="margin-top:10px;">Launch title, launch date, and deliverables are already captured on the Overview and Initiatives tabs — no need to repeat them here.</div>
+        <div class="dp-sub" style="margin-top:10px;">Launch title, launch date, and deliverables are already captured on the Overview and Initiatives tabs — no need to repeat them here. Inventory revenue worth is computed live from Products.</div>
       </div>
 
       <div class="dp-section">
@@ -1027,45 +1024,10 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
           <textarea class="bcn-field" id="briefApprovedCopy" rows="3" placeholder="The signed-off copy itself — headlines, captions, key lines."></textarea>
         </div>
         <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">COPY — DO'S</label><textarea class="bcn-field" id="briefCopyDos" rows="3"></textarea></div>
-          <div class="bcn-field-group"><label class="bcn-label">COPY — DON'TS</label><textarea class="bcn-field" id="briefCopyDonts" rows="3"></textarea></div>
-        </div>
-        <div class="bcn-field-group" style="margin-top:8px;">
-          <label class="bcn-label">APPROVED CREATIVES</label>
-          <textarea class="bcn-field" id="briefApprovedCreatives" rows="3" placeholder="The signed-off creative set, or a link to it."></textarea>
-        </div>
-        <div class="dp-g2" style="margin-top:8px;">
           <div class="bcn-field-group"><label class="bcn-label">CREATIVE — DO'S</label><textarea class="bcn-field" id="briefCreativeDos" rows="3"></textarea></div>
           <div class="bcn-field-group"><label class="bcn-label">CREATIVE — DON'TS</label><textarea class="bcn-field" id="briefCreativeDonts" rows="3"></textarea></div>
         </div>
-        <div class="dp-sub" style="margin-top:4px;">Approved = the asset itself. Do's / don'ts = standing guardrails that apply to it.</div>
-      </div>
-
-      <div class="dp-section">
-        <div class="dp-sec-head">
-          <div><div class="dp-title">Budget / Forecast</div><div class="dp-sub">Inventory revenue worth is computed live from Products — no need to enter it.</div></div>
-        </div>
-        <div class="dp-g3">
-          <div class="bcn-field-group"><label class="bcn-label">PREVIEW MARKETING BUDGET</label><input class="bcn-field bcn-field--mono" id="briefPreviewBudget" type="number" min="0" step="0.01" /></div>
-          <div class="bcn-field-group"><label class="bcn-label">POST-LAUNCH BUDGET</label><input class="bcn-field bcn-field--mono" id="briefPostLaunchBudget" type="number" min="0" step="0.01" /></div>
-          <div class="bcn-field-group"><label class="bcn-label">PROJECTED REVENUE</label><input class="bcn-field bcn-field--mono" id="briefProjectedRevenue" type="number" min="0" step="0.01" /></div>
-        </div>
-      </div>
-
-      <div class="dp-section">
-        <div class="dp-sec-head">
-          <div><div class="dp-title">Performance Tracking</div><div class="dp-sub">Fill in after launch — the Document tab compares these against the forecast above.</div></div>
-        </div>
-        <div class="dp-g3">
-          <div class="bcn-field-group"><label class="bcn-label">ACTUAL PREVIEW SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPreviewSpend" type="number" min="0" step="0.01" /></div>
-          <div class="bcn-field-group"><label class="bcn-label">ACTUAL POST-LAUNCH SPEND (MANUAL)</label><input class="bcn-field bcn-field--mono" id="briefActualPostLaunchSpend" type="number" min="0" step="0.01" /></div>
-          <div class="bcn-field-group"><label class="bcn-label">ACTUAL REVENUE</label><input class="bcn-field bcn-field--mono" id="briefActualRevenue" type="number" min="0" step="0.01" /></div>
-        </div>
-        <div class="bcn-field-group" style="margin-top:8px;"><label class="bcn-label">COMPARISON (FOR ANNUALLY RECURRING EVENTS)</label><textarea class="bcn-field" id="briefPerformanceComparison" rows="2"></textarea></div>
-        <div class="dp-g2" style="margin-top:8px;">
-          <div class="bcn-field-group"><label class="bcn-label">OVERPERFORMED</label><textarea class="bcn-field" id="briefOverperformed" rows="2"></textarea></div>
-          <div class="bcn-field-group"><label class="bcn-label">UNDERPERFORMED</label><textarea class="bcn-field" id="briefUnderperformed" rows="2"></textarea></div>
-        </div>
+        <div class="dp-sub" style="margin-top:4px;">Approved copy = the signed-off lines themselves. Creative do's / don'ts = standing guardrails for the assets.</div>
       </div>
 
       <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">
@@ -2017,7 +1979,7 @@ function renderChannels(rows){
       ? `<span class="bcn-pill" style="font-size:9px;margin-left:6px;" title="Tasks on this initiative">`
         + `${openN} open${mine.length>openN?` · ${mine.length-openN} done`:''}</span>`
       : '';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(safeUrl(x.link_url))}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-ch ${chClass(x.channel)}">${esc(x.channel||'other')}</span><span class="bcn-pill">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}${taskTag}</div><div class="dp-item-meta">${esc([when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-ch ${chClass(x.channel)}">${esc(x.channel||'other')}</span><span class="bcn-pill">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-edit-ch]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editCh)); if(row) btn.onclick=()=>openChannelForm(row); });
@@ -2146,7 +2108,6 @@ function renderBrief(x){
   if(!x) return;
   $('briefPreviewDate').value=x.preview_start_date||'';
   $('briefPreviewTime').value=x.preview_start_time||'';
-  $('briefReleasePdfUrl').value=x.release_pdf_url||'';
   $('briefLandingPageUrl').value=x.landing_page_url||'';
   $('briefDesignIntent').value=x.design_intent||'';
   $('briefProductCallouts').value=x.product_callouts||'';
@@ -2157,20 +2118,9 @@ function renderBrief(x){
   $('briefAudience').value=x.audience||'';
   $('briefSpecialCallouts').value=x.special_callouts||'';
   $('briefApprovedCopy').value=x.approved_copy||'';
-  $('briefCopyDos').value=x.copy_dos||'';
-  $('briefCopyDonts').value=x.copy_donts||'';
-  $('briefApprovedCreatives').value=x.approved_creatives||'';
   $('briefCreativeDos').value=x.creative_dos||'';
   $('briefCreativeDonts').value=x.creative_donts||'';
-  $('briefPreviewBudget').value=x.preview_marketing_budget??'';
-  $('briefPostLaunchBudget').value=x.post_launch_budget??'';
   $('briefProjectedRevenue').value=x.projected_revenue??'';
-  $('briefActualPreviewSpend').value=x.actual_preview_spend??'';
-  $('briefActualPostLaunchSpend').value=x.actual_post_launch_spend??'';
-  $('briefActualRevenue').value=x.actual_revenue??'';
-  $('briefPerformanceComparison').value=x.performance_comparison||'';
-  $('briefOverperformed').value=x.overperformed_notes||'';
-  $('briefUnderperformed').value=x.underperformed_notes||'';
   $('briefSaveStatus').textContent='';
 }
 
@@ -2180,7 +2130,6 @@ function briefPayloadFromForm(){
   return {
     preview_start_date: $('briefPreviewDate').value||null,
     preview_start_time: $('briefPreviewTime').value||null,
-    release_pdf_url: $('briefReleasePdfUrl').value.trim()||null,
     landing_page_url: $('briefLandingPageUrl').value.trim()||null,
     design_intent: $('briefDesignIntent').value.trim()||null,
     product_callouts: $('briefProductCallouts').value.trim()||null,
@@ -2189,20 +2138,9 @@ function briefPayloadFromForm(){
     audience: $('briefAudience').value.trim()||null,
     special_callouts: $('briefSpecialCallouts').value.trim()||null,
     approved_copy: $('briefApprovedCopy').value.trim()||null,
-    copy_dos: $('briefCopyDos').value.trim()||null,
-    copy_donts: $('briefCopyDonts').value.trim()||null,
-    approved_creatives: $('briefApprovedCreatives').value.trim()||null,
     creative_dos: $('briefCreativeDos').value.trim()||null,
     creative_donts: $('briefCreativeDonts').value.trim()||null,
-    preview_marketing_budget: num('briefPreviewBudget'),
-    post_launch_budget: num('briefPostLaunchBudget'),
     projected_revenue: num('briefProjectedRevenue'),
-    actual_preview_spend: num('briefActualPreviewSpend'),
-    actual_post_launch_spend: num('briefActualPostLaunchSpend'),
-    actual_revenue: num('briefActualRevenue'),
-    performance_comparison: $('briefPerformanceComparison').value.trim()||null,
-    overperformed_notes: $('briefOverperformed').value.trim()||null,
-    underperformed_notes: $('briefUnderperformed').value.trim()||null,
   };
 }
 
@@ -2265,7 +2203,6 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
       
       ${row('Preview begins', previewDate)}
       ${row('Launch date & time', launchDate)}
-      ${linkRow('Product Release PDF', x.release_pdf_url)}
       ${linkRow('Landing Page', x.landing_page_url)}
       <div class="reldoc-block-label" style="margin-top:8px;">Initiative schedule</div>
       ${deliverables}
@@ -2285,29 +2222,14 @@ function renderReleaseDocument(x, prods, chans, assetRows, linkRows){
       ${row('Audience — Notes', x.audience?esc(x.audience):null)}
       ${row('Special Callouts / Limited Edition', x.special_callouts?esc(x.special_callouts):null)}
       ${block('Approved Copy', x.approved_copy)}
-      ${block("Copy — Do's", x.copy_dos)}
-      ${block("Copy — Don'ts", x.copy_donts)}
-      ${block('Approved Creatives', x.approved_creatives)}
       ${block("Creative — Do's", x.creative_dos)}
       ${block("Creative — Don'ts", x.creative_donts)}
     </div>
 
     <div class="reldoc-sec">
       <div class="reldoc-sec-title">Budget / Forecast</div>
-      ${row('Preview Marketing Budget', x.preview_marketing_budget!=null?money(x.preview_marketing_budget):null)}
-      ${row('Post-Launch Budget', x.post_launch_budget!=null?money(x.post_launch_budget):null)}
       ${row('Inventory Revenue (Full Price Worth)', invWorth?money(invWorth):null)}
       ${row('Projected Revenue', x.projected_revenue!=null?money(x.projected_revenue):null)}
-    </div>
-
-    <div class="reldoc-sec">
-      <div class="reldoc-sec-title">Performance Tracking</div>
-      ${row('Actual Preview Marketing Spend (manual)', x.actual_preview_spend!=null?money(x.actual_preview_spend):null)}
-      ${row('Actual Post-Launch Spend (manual)', x.actual_post_launch_spend!=null?money(x.actual_post_launch_spend):null)}
-      ${row('Actual Revenue', x.actual_revenue!=null?money(x.actual_revenue):null)}
-      ${block('Comparison (Annually Recurring Events)', x.performance_comparison)}
-      ${block('Overperformed', x.overperformed_notes)}
-      ${block('Underperformed', x.underperformed_notes)}
     </div>
 
     ${(assetLinks||siloLinks)?`
@@ -2744,7 +2666,6 @@ function openChannelForm(row){
     $('channelTime').value=row.scheduled_time||'';
     $('channelStatus').value=row.status||'planned';
     $('channelOwner').value=row.owner||'';
-    $('channelUrl').value=row.link_url||'';
     $('channelNotes').value=row.notes||'';
   } else {
     // The Type field used to be a <select> whose first option was Email, so a
@@ -2756,7 +2677,7 @@ function openChannelForm(row){
   $('channelForm').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function channelPayloadFromForm(){
-  return { channel:$('channelName').value.trim(), item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null };
+  return { channel:$('channelName').value.trim(), item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, notes:$('channelNotes').value.trim()||null };
 }
 async function saveChannelItem(e){
   e.preventDefault(); if(!activeLaunch) return;
@@ -3299,7 +3220,7 @@ function lc2MoveDates(launch, targetDate) {
  $('briefMarketingAngle').placeholder='What is the story, and why should someone care?';
  $('briefAudience').placeholder='Who is this launch for?';
  $('briefAudience').previousElementSibling.textContent='AUDIENCE';
- const titles=['Schedule & release links','Design details','Copy, creative & audience details','Budget & forecast','Post-launch results'];
+ const titles=['Schedule & release links','Design details','Copy, creative & audience details'];
  sections.forEach((section,i)=>{
   const details=document.createElement('details');details.className='lc3-optional';
   const summary=document.createElement('summary');summary.textContent=titles[i];details.append(summary);
