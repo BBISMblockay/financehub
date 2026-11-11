@@ -204,8 +204,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="prospects"]');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
-    R.has(pr, 'United States', 'a search shows its country by name, not a provider code');
-    R.ok('the country picker offers names', await page.$('#srcLoc option[value="2840"]'));
+    R.not(pr, 'Saved Google searches', 'there are no saved searches to manage: a run searches what was typed');
+    R.ok('no saved-search form', !(await page.$('#srcQuery')) && !(await page.$('[data-act="source-add"]')));
     R.ok('there is one search button, not two', !(await page.$('#prospectsBody [data-act="discovery-run"]')) && !!(await page.$('#prospectsBody [data-act="research-run"]')));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
