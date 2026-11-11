@@ -1258,7 +1258,9 @@
           // which is how suticompany.myshopify.com sat at zero rows for five
           // days with the page reporting nothing wrong.
           || enrolmentFor(r)?.state === 'never_imported').length
-        + s.ad.filter((r) => r.last_test_success === false).length
+        // A credential that still tests OK while its sync fails is exactly
+        // the case this tile used to miss.
+        + s.ad.filter((r) => r.last_test_success === false || r.meta?.last_sync?.ok === false).length
         + (s.qbo && (s.qbo.last_test_success === false
             || (s.qbo.refresh_token_expires_at && new Date(s.qbo.refresh_token_expires_at) < new Date())) ? 1 : 0);
 
@@ -2803,7 +2805,7 @@
     async function loadAdConnections() {
       const { data, error } = await db
         .from('ad_platform_connections')
-        .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id, search_console_site_url, facebook_page_id, instagram_business_account_id')
+        .select('id, platform, display_name, is_active, sync_enabled, last_tested_at, last_test_success, last_test_error, google_customer_id, meta_ad_account_id, tiktok_advertiser_id, ga4_property_id, search_console_site_url, facebook_page_id, instagram_business_account_id, meta')
         .order('platform').order('created_at');
       if (error) { setStatus('Failed to load ad connections: ' + error.message, 'neg'); return; }
       _adRows = data || [];
@@ -2929,6 +2931,21 @@
             <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
           </div>${needsChoice}`
         : '<span class="int-muted">—</span>';
+      // What the LAST sync attempt did, written by both the nightly script and
+      // Sync now (meta.last_sync, see syncOutcome in the shared sync core).
+      // Until this line existed a failed nightly sync was invisible to the
+      // customer: the band at the top of this page covers only the FIRST
+      // import, Test only proves the credential, and the run itself is red in
+      // GitHub Actions, where nobody outside SILO looks. A feed could go quiet
+      // for weeks with this page showing nothing wrong.
+      const lastSync = row.meta?.last_sync || null;
+      const syncFailed = lastSync && lastSync.ok === false;
+      // A failure the client owns -- their account cancelled, access revoked.
+      // Retrying cannot fix it, so the line asks for the thing that can
+      // instead of offering a button that can only fail again.
+      const clientBlock = syncFailed ? (lastSync.client_block || null) : null;
+      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;
+
       const mainRow = `<tr data-platform="${row.platform}">
         ${withPlatform ? `<td style="width:1%;"><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>` : ''}
         <td><input class="bcn-field" style="min-width:${withPlatform ? 112 : 150}px;" value="${escAttr(row.display_name)}"
@@ -2977,7 +2994,22 @@
           </div>
         </td>
       </tr>`;
-      return mainRow + organicRow;
+      const when = syncFailed && lastSync.at ? new Date(lastSync.at).toLocaleString() : '';
+      const failRow = !syncFailed ? '' : `<tr data-sync-failed="${row.platform}">
+        <td colspan="${span}" style="padding-top:0;">
+          <div class="int-backfill-hint int-backfill-hint--warn">
+            <strong>Last sync failed${when ? ` — ${escHtml(when)}` : ''}.</strong>
+            ${clientBlock
+              ? `${escHtml(clientBlock)}. SILO cannot fix this one: sort it out with the provider, then ${GOOGLE_PLATFORMS.includes(row.platform) ? 'use Reconnect above' : 'connect again'}.`
+              : 'Nothing new has been imported since. Nightly runs will keep trying.'}
+            <div style="margin-top:4px;opacity:.85;">${escHtml(lastSync.error || 'No reason recorded.')}</div>
+            ${canRetrySync
+              ? `<div style="margin-top:6px;"><button class="int-btn int-btn--primary" onclick="syncAdConnection('${row.id}', this)" title="Run this connection's sync again now, the same sync the nightly runs (read-only)">Retry sync now</button></div>`
+              : ''}
+          </div>
+        </td>
+      </tr>`;
+      return mainRow + failRow + organicRow;
     }
 
     // Regenerating a Meta System User token used to have no home in this UI:
@@ -3115,6 +3147,10 @@
     async function syncAdConnection(id, btn) {
       const row = _adRows.find((r) => r.id === id);
       const label = AD_PLATFORM_LABELS[row?.platform] || 'connection';
+      // Restored, not assumed: this runs from the row's "Sync now" AND from
+      // "Retry sync now" on a failed-sync line, and hardcoding either label
+      // renames the other button.
+      const was = btn?.textContent;
       if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
       setStatus(`Syncing ${label}…`, 'info');
       try {
@@ -3137,7 +3173,13 @@
       } catch (err) {
         setStatus('✗ Sync failed: ' + err.message, 'neg', 8000);
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Sync now'; }
+      if (btn) { btn.disabled = false; btn.textContent = was || 'Sync now'; }
+      // Re-read the connection, whichever way it went: the run just rewrote
+      // meta.last_sync, and the failure line, the test pill and the Needs
+      // attention count are all drawn from it. Without this a retry that
+      // SUCCEEDS leaves "Last sync failed" on screen until a reload, which
+      // is the one moment the admin is watching the card.
+      await loadAdConnections();
     }
 
     // A failed test says what to DO where the answer is known.

@@ -8,7 +8,8 @@
  * Mutations (each must fail the suite): AD_SYNC_RUN_MUTATION=
  *   no-rls-check | no-account-check | no-clamp | job-not-failed |
  *   unchecked-token | unchecked-meta | unchecked-job-success | silent-unrecorded |
- *   no-act-prefix | google-env-for-meta
+ *   no-act-prefix | google-env-for-meta | no-fail-stamp | stale-success |
+ *   unclassified-failure
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -25,22 +26,45 @@ const MUTATIONS = {
   'no-clamp': ['Math.min(days, MAX_DAYS_BACK)', 'days'],
   'job-not-failed': ["update({ status: 'error',", "update({ status: 'running',"],
   'unchecked-token': ["check(await service.from('ad_platform_connections')\n            .update({ access_token", "(await service.from('ad_platform_connections')\n            .update({ access_token"],
-  'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({ meta", "(await service.from('ad_platform_connections')\n        .update({ meta"],
+  'unchecked-meta': ["check(await service.from('ad_platform_connections')\n        .update({\n          meta:", "(await service.from('ad_platform_connections')\n        .update({\n          meta:"],
   'unchecked-job-success': ["check(await service.from('sync_jobs')\n        .update({ status: 'success'", "(await service.from('sync_jobs')\n        .update({ status: 'success'"],
   'silent-unrecorded': ["const unrecorded = res?.error", "const unrecorded = false"],
   'no-act-prefix': ["meta_ad_account_id: metaAccountId(conn.meta_ad_account_id)", "meta_ad_account_id: conn.meta_ad_account_id"],
   'google-env-for-meta': ["if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID", "if (true && (!googleEnv.GOOGLE_CLIENT_ID"],
+  // The failure reaches sync_jobs but not the connection, so the page cannot
+  // tell WHICH connection broke and shows nothing.
+  'no-fail-stamp': ["      await stampOutcome({\n        last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message, clientBlock }),\n      });\n", ''],
+  // A success leaves the previous failure standing, so the card goes on
+  // saying the feed is broken after it has healed.
+  // A manual failure stores no client_block, so the card offers a Retry for
+  // an account only its owner can fix.
+  'unclassified-failure': ['const clientBlock = clientSideReason?.(message) ?? null;', 'const clientBlock = null;'],
+  'stale-success': ['            last_sync: syncOutcome({ at: result.synced_at, ok: true }),\n', ''],
 };
 assert.ok(mutation === '' || MUTATIONS[mutation], `Unknown mutation ${mutation}`);
 
 let handlerSrc = read(`${FN}/handler.mjs`);
+
+// EVERY pattern is checked on EVERY run, not just the one being applied.
+//
+// A mutation whose pattern has drifted out of the source still exits
+// non-zero -- on this setup assertion, before the handler is even imported --
+// and the CI loop reads any non-zero exit as "the guard is tested". So a
+// stale pattern leaves a guard silently unguarded while the step stays
+// green. Checking all of them here moves that failure into the ORDINARY run,
+// which is the one CI reads for its own sake. (Found by review cycle 2 of
+// #1224, where no-fail-stamp had drifted a commit earlier.)
+for (const [name, [from]] of Object.entries(MUTATIONS)) {
+  assert.ok(handlerSrc.includes(from), `mutation ${name} no longer matches the source: fix its pattern, or the guard it tests is untested`);
+}
+
 if (MUTATIONS[mutation]) {
   const [from, to] = MUTATIONS[mutation];
-  assert.ok(handlerSrc.includes(from), `mutation ${mutation} no longer matches the source`);
   handlerSrc = handlerSrc.replace(from, to);
 }
 const H = await import('data:text/javascript,' + encodeURIComponent(handlerSrc));
 const core = await import(join(ROOT, FN, 'lib/ad-platforms-sync-core.mjs'));
+const { clientSideReason } = await import(join(ROOT, FN, 'lib/ad-sync-client-errors.mjs'));
 
 let n = 0;
 const test = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${name}`); };
@@ -127,12 +151,13 @@ function fakeGoogle({ adsStatus = 200 } = {}) {
 }
 const handlerFor = (db, env = ENV) => H.createHandler({
   service: db.service, userClientFor: db.userClientFor, googleEnv: env, runConnectionSync: core.runConnectionSync,
+  syncOutcome: core.syncOutcome, clientSideReason,
   now: () => new Date('2026-09-30T20:00:00Z'),
 });
 
 // ── tests ───────────────────────────────────────────────────────────────────
 await test('the function ships exact copies of the nightly sync libraries', () => {
-  for (const f of ['ad-platforms-sync-core.mjs', 'shopify-sync-core.mjs', 'shopify-scopes.mjs']) {
+  for (const f of ['ad-platforms-sync-core.mjs', 'shopify-sync-core.mjs', 'shopify-scopes.mjs', 'ad-sync-client-errors.mjs']) {
     assert.equal(read(`${FN}/lib/${f}`), read(`scripts/lib/${f}`), `${FN}/lib/${f} has drifted from scripts/lib/${f}`);
   }
 });
@@ -364,10 +389,67 @@ await test('Integrations offers Sync now on every platform this function runs, c
   const inPage = page.match(/const SYNC_NOW_PLATFORMS = \[([^\]]*)\]/)[1]
     .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean);
   assert.deepEqual(inPage, H.SYNC_RUN_PLATFORMS);
-  // Every ad card draws its rows through the one row template above, so that
-  // single `includes(row.platform)` is the whole rule -- no card may grow a
-  // Sync now button of its own that this list does not govern.
-  assert.equal((page.match(/syncAdConnection\('\$\{row\.id\}', this\)/g) || []).length, 1);
+  // Every ad card draws its rows through the one row template above, so these
+  // guards are the whole rule -- no card may grow a Sync now button of its own
+  // that this list does not govern. Exactly two call sites: the row's action
+  // and the Retry on a failed-sync line, and the second is additionally
+  // withheld when the failure is the client's to fix, where a retry can only
+  // fail again.
+  assert.match(page, /const canRetrySync = SYNC_NOW_PLATFORMS\.includes\(row\.platform\) && !clientBlock;/);
+  assert.match(page, /\$\{canRetrySync\s*\n?\s*\? `<div[^`]*syncAdConnection\('\$\{row\.id\}', this\)/);
+  assert.equal((page.match(/syncAdConnection\('\$\{row\.id\}', this\)/g) || []).length, 2);
+});
+
+await test('a failed sync is recorded on the connection, not only in sync_jobs', async () => {
+  // sync_jobs carries company + job_type and no connection id, so with two
+  // Google Ads accounts in one company it cannot say which one failed. The
+  // page renders meta.last_sync; without this stamp a nightly or manual
+  // failure is invisible to the customer.
+  fakeGoogle({ adsStatus: 403 });
+  const db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'] });
+  const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  assert.equal(res.status, 502);
+  const stamped = db.tables.ad_platform_connections.find((r) => r.id === 'c-ads');
+  assert.equal(stamped.meta.last_sync.ok, false);
+  assert.match(stamped.meta.last_sync.error, /PERMISSION_DENIED/);
+  assert.ok(stamped.meta.last_sync.at, 'the stamp says when, so a stale failure can be told from a fresh one');
+  assert.equal(stamped.meta.keep, 1, 'the rest of meta survives the stamp');
+  // The existing audit record is untouched: this is the customer-facing half.
+  assert.equal(db.tables.sync_jobs[0].status, 'error');
+});
+
+await test('a sync that succeeds clears the failure the page is showing', async () => {
+  fakeGoogle();
+  const db = makeDb({
+    rows: [adsConn({ meta: { last_sync: { at: '2026-09-29T00:00:00Z', ok: false, error: 'older failure' } } })],
+    visibleIds: ['c-ads'],
+  });
+  const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  assert.equal(res.status, 200);
+  const stamped = db.tables.ad_platform_connections.find((r) => r.id === 'c-ads');
+  assert.equal(stamped.meta.last_sync.ok, true);
+  assert.equal(stamped.meta.last_sync.error, undefined,
+    'a success must not keep the old error text, or the card goes on saying the feed is broken');
+});
+
+await test('a manual failure the CLIENT owns is classified, as the nightly classifies it', async () => {
+  // Otherwise the card offers "Retry sync now" for an account that was
+  // cancelled or whose access was revoked -- a button that can only fail
+  // again -- and a manual attempt can downgrade a nightly failure that the
+  // same allowlist HAD classified.
+  globalThis.fetch = async (url) => {
+    if (String(url).startsWith('https://oauth2.googleapis.com/token')) {
+      return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), { status: 200 });
+    }
+    return new Response('{"error":{"message":"CUSTOMER_NOT_ENABLED"}}', { status: 403 });
+  };
+  const db = makeDb({ rows: [adsConn()], visibleIds: ['c-ads'] });
+  const res = await handlerFor(db)(req({ connection_id: 'c-ads' }));
+  assert.equal(res.status, 502);
+  const stamped = db.tables.ad_platform_connections.find((r) => r.id === 'c-ads');
+  assert.equal(stamped.meta.last_sync.ok, false);
+  assert.match(stamped.meta.last_sync.client_block, /not enabled/,
+    'the same reason the nightly would have recorded');
 });
 
 console.log(`\n${n} passed`);
