@@ -19685,6 +19685,13 @@ $c$select (select count(*) from v_po_header_summary
 -- that still named the data vendor. Catalog text only; no deploy.
 \i migrations/20261111050000_klaviyo_catalog_neutral_name.sql
 
+-- Report speed (20261111053000, 20261111053100): Attribution vs Sales hoists
+-- its channel lookup (it timed out for the largest tenant and ran the nightly
+-- tie-outs out of time); Search Console gets covering indexes so SEO
+-- Performance's Pages and Search queries read index-only. The index build
+-- blocks Search Console WRITES for about a minute: apply outside 10:30-12:00 UTC.
+\i migrations/20261111053000_attribution_report_channel_hoist.sql
+\i migrations/20261111053100_search_console_covering_indexes.sql
 -- 2026-11-11: the feed-health catalog entry learns 'not_configured', the
 -- verdict for a connection whose setup was never finished. Catalog text only.
 \i migrations/20261111180000_feed_health_not_configured.sql
