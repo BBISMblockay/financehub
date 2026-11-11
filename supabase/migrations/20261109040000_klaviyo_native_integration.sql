@@ -577,7 +577,7 @@ values
    'conversion_metric_id. text_message_spend is SMS sending cost, not ad spend. '
    'NULL means not reported, not zero (SMS statistics are null before '
    '2025-10-01). For a company that syncs Klaviyo directly, prefer this over '
-   'klaviyo_performance_daily, which is the Windsor.ai copy.',
+   'klaviyo_performance_daily, which is SILO''s connected-source copy.',
    array['klaviyo','email','sms','campaign','flow','opens','clicks','email revenue','marketing']),
   ('klaviyo_flow_daily_v', 'v', '[]'::jsonb,
    'Klaviyo FLOW (automation) performance per day, straight from Klaviyo''s own '
