@@ -1009,7 +1009,13 @@
     }
     renderInitiativeChoices();
     el('creativeLaunchSave').disabled = !choices.length;
-    if (!choices.length) el('creativeLaunchError').textContent = `This ${type} is already linked to every available launch.`;
+    if (!_launches.length) {
+      // No launches at all is not "already linked": say so, and where to make one.
+      const cal = document.createElement('a');
+      cal.href = '/v2/launch-calendar.html';
+      cal.textContent = 'Launch calendar';
+      el('creativeLaunchError').append('There are no launches yet. Create one in the ', cal, `, then link this ${type} to it.`);
+    } else if (!choices.length) el('creativeLaunchError').textContent = `This ${type} is already linked to every available launch.`;
     el('creativeLaunchDialog').showModal();
   }
   el('creativeLaunchCancel').onclick = () => el('creativeLaunchDialog').close();

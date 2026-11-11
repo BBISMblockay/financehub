@@ -37,6 +37,10 @@
  *   AFFILIATE_UI_MUTATION=autocodeold settings sends the automatic-code field before the column exists
  *   AFFILIATE_UI_MUTATION=todocodes   the To do list leaves out codes waiting on the AI
  *   AFFILIATE_UI_MUTATION=todomoney   payouts to approve are listed for someone who cannot approve money
+ *   AFFILIATE_UI_MUTATION=photonone   a creator's researched photo is not shown on their card
+ *   AFFILIATE_UI_MUTATION=photoaff    an affiliate's card ignores the photo of the prospect they came from
+ *   AFFILIATE_UI_MUTATION=photobroken a photo that no longer loads leaves an empty square, not the initials
+ *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -58,6 +62,10 @@ const MUTATIONS = {
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
   autocodeold: ['/affiliates/studio.js', "const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));", 'const hasAutoCode = () => true;'],
   todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
+  photonone: ['/affiliates/studio.js', '  const photo = prospectPhotoUrl(evidence);\n', '  const photo = null;\n'],
+  photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
+  photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  todopinch: ['/affiliates/index.html', '.silo-main.af-studio > * { flex-shrink: 0; }', ''],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
@@ -91,10 +99,10 @@ const tables = {
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'success', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
-  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
+  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
-  affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+  affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now, from_prospect_id: 'p1' }],
   affiliate_codes: [{ id: 'c1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active', verified_at: now, first_seen_order_id: '1001' }],
   affiliate_links: [],
   affiliate_attributions: [
@@ -124,6 +132,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
   try {
     // ── staff page, as a manager ──────────────────────────────────────────
     const AD_IMG = `${CO}/${'ab12'.repeat(16)}.jpg`;
+    const PHOTO_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    await suite.context.route('https://photos.invalid/samruns.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
     const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
       ad_studio_ads: () => [
         { ad_id: 'ad1', ad_name: 'Mud season v2', title: 'Mud season', body: 'Grip that holds.', link_path: '/products/mud-shoe', image_path: `test-company/${'ab12'.repeat(16)}.jpg`, image_shared_by: 1, recent_spend: 50, last_day: '2026-11-08', effective_status: 'ACTIVE' },
@@ -179,10 +189,25 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="prospects"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
+    // Creator photo: shown over the initials when research found one; a photo
+    // that no longer loads is removed so the initials show again.
+    const photoLoaded = (sel) => page.waitForFunction((q) => { const i = document.querySelector(q); return !!i && i.complete && i.naturalWidth > 0; }, sel, { timeout: 5000 }).then(() => true, () => false);
+    R.ok('a prospect card shows the researched photo', await photoLoaded('#prospectsBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    R.ok('the photo has no referrer', (await page.getAttribute('#prospectsBody img.af-avatar-photo', 'referrerpolicy').catch(() => null)) === 'no-referrer');
+    const broken = await page.evaluate(() => new Promise((done) => {
+      const thumb = document.querySelector('#prospectsBody .af-catalog-thumb');
+      const img = document.createElement('img'); img.className = 'af-avatar-photo'; img.src = 'https://photos.invalid/expired.png';
+      thumb.appendChild(img);
+      setTimeout(() => done({ gone: !thumb.contains(img), initials: (thumb.textContent || '').trim() }), 1500);
+    }));
+    R.ok('an expired photo is removed so the initials show', broken.gone && broken.initials.length > 0);
+    await page.click('#tabs [data-tab="affiliates"]');
+    R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    await page.click('#tabs [data-tab="prospects"]');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
-    R.has(pr, 'United States', 'a search shows its country by name, not a provider code');
-    R.ok('the country picker offers names', await page.$('#srcLoc option[value="2840"]'));
+    R.not(pr, 'Saved Google searches', 'there are no saved searches to manage: a run searches what was typed');
+    R.ok('no saved-search form', !(await page.$('#srcQuery')) && !(await page.$('[data-act="source-add"]')));
     R.ok('there is one search button, not two', !(await page.$('#prospectsBody [data-act="discovery-run"]')) && !!(await page.$('#prospectsBody [data-act="research-run"]')));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
@@ -191,6 +216,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const researchCalls = [];
     await suite.context.route('**/functions/v1/affiliate-research', (route) => {
       const body = JSON.parse(route.request().postData() || '{}'); researchCalls.push(body);
+      if (body.action === 'refresh_photos') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 3, stored: 2 }) });
       if (body.action === 'import') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ kept: 2, prospects_new: 2, prospects_updated: 0, skipped_minors: 1, skipped_not_profile: 0, suppressed_skipped: 0 }) });
       return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ run_id: 'r9' }) });
     });
@@ -206,6 +232,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const imp = researchCalls.find((c) => c.action === 'import');
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
     R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
+    await openMore(page);
+    await page.click('#prospectsBody [data-act="photos-refresh"]');
+    await page.waitForFunction(() => /Found 2 photos/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const ph = researchCalls.find((c) => c.action === 'refresh_photos');
+    R.ok('Refresh photos asks for this program only, never a company', ph && ph.program_id === PROG && !('company_entity_id' in ph));
+    R.has(await text(page, '#status'), 'Found 2 photos for 3 creators', 'Refresh photos says what it found');
     await page.click('#tabs [data-tab="payouts"]');
     const cm = await text(page, '#commissionsBody');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
@@ -256,6 +288,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
     R.ok('with a prompt to copy', !!(await loop.$('#nextStep [data-act="copy-codes-prompt"]')));
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
+    // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
+    await loop.setViewportSize({ width: 1280, height: 520 });
+    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
+    R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
+    await loop.setViewportSize({ width: 1280, height: 900 });
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
     R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');

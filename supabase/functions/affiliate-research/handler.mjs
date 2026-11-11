@@ -24,9 +24,10 @@
 // first model call, grown before each later call; charged only when at least
 // one creator survived the checks, free otherwise.
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
+import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
-  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS,
+  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
 
@@ -44,38 +45,58 @@ export const HOLD_INPUT_TOKENS = 400_000;
 // A further search round starts only with this much of the budget left, so a
 // round is not cut off mid-way and the creators already found are saved.
 export const ROUND_MIN_MS = 75_000;
+// Creator photos: SILO opens each profile page itself (lib/affiliate-photo-core.mjs).
+// After a research run it spends at most PHOTO_RUN_MS on the creators it just
+// kept; "Refresh photos" checks up to PHOTO_REFRESH_MAX prospects that have no
+// stored copy yet, within PHOTO_REFRESH_MS. No photoFetch = photos off.
+export const PHOTO_RUN_MS = 30_000;
+export const PHOTO_REFRESH_MS = 45_000;
+export const PHOTO_REFRESH_MAX = 30;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
 export function createResearchHandler({
   service, userClientFor, apiKey, model = 'claude-sonnet-5-5', fetchImpl = fetch,
   background = (p) => p, now = () => new Date(), newId = () => crypto.randomUUID(),
-  serpCredentials = null, fetchSerp = null,
+  serpCredentials = null, fetchSerp = null, photoFetch = null,
 }) {
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
-  // Google leads for one run: the program's enabled searches, plus the focus
-  // text as one more search. Leads are only handed to the AI; nothing is
+  // Google leads for one run: the words typed into Find creators, searched
+  // once per ticked social platform (in parallel), the results taken in turn
+  // so each platform gets a share. Leads are only handed to the AI; nothing is
   // stored from them unless the AI checks and records the creator. A failed
   // or unconfigured search just means fewer leads.
   async function gatherLeads(program, focus) {
     if (!search) return { leads: [], searched: 0, failed: 0 };
-    const { data: sources } = await service.from('affiliate_prospect_sources')
-      .select('id, query, platform_hint, location_code, language_code, max_results, kind, enabled')
-      .eq('company_entity_id', program.company_entity_id).eq('program_id', program.id).eq('enabled', true).eq('kind', 'serp_query')
-      .order('created_at', { ascending: true }).limit(3);
-    const list = [...(sources || [])];
-    if (focus) list.push({ id: null, query: focus, platform_hint: null, max_results: 30, location_code: null, language_code: null });
-    const byUrl = new Map(); let searched = 0; let failed = 0;
-    for (const src of list) {
+    let searched = 0; let failed = 0;
+    const lists = await Promise.all(leadSearches(program, focus).map(async (src) => {
       try {
         const { items } = await search(buildSerpTask(src, program));
         searched += 1;
-        const { candidates } = candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() });
-        for (const c of candidates) if (!byUrl.has(c.profile_url.toLowerCase())) byUrl.set(c.profile_url.toLowerCase(), c);
-      } catch { failed += 1; }
-    }
-    return { leads: [...byUrl.values()].slice(0, MAX_LEADS), searched, failed };
+        return candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() }).candidates;
+      } catch { failed += 1; return []; }
+    }));
+    return { leads: interleaveLeads(lists, MAX_LEADS), searched, failed };
+  }
+
+  // Photos for prospects of THIS company and program, by profile URL (null = the
+  // newest ones with no stored copy yet).
+  async function photosFor({ company, program, urls = null, deadline }) {
+    if (!photoFetch) return { checked: 0, stored: 0 };
+    let q = service.from('affiliate_prospects').select('id, profile_url, evidence, collected_at')
+      .eq('company_entity_id', company).eq('program_id', program.id);
+    if (urls) q = q.in('profile_url', urls);
+    const { data, error } = await q.order('collected_at', { ascending: false }).limit(urls ? urls.length : 200);
+    if (error) return { checked: 0, stored: 0 };
+    const todo = (data || []).filter((p) => p.profile_url && (urls || !p.evidence?.profile_image_stored)).slice(0, urls ? urls.length : PHOTO_REFRESH_MAX);
+    return storeProspectPhotos({ service, company, prospects: todo, fetchImpl: photoFetch, now, deadline });
+  }
+
+  async function refreshPhotos({ company, program }) {
+    if (!photoFetch) return reply({ error: 'Photos are not available right now.' }, 503);
+    const out = await photosFor({ company, program, deadline: Date.now() + PHOTO_REFRESH_MS });
+    return reply(out);
   }
 
   async function finishRun(id, patch) {
@@ -150,16 +171,18 @@ export function createResearchHandler({
         const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt }).stats.kept;
         const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
         usages = out.usages;
-        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString() });
+        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates, runId,
           origin: { source: 'ai_research', collector: `affiliate-research/${RESEARCH_PROVIDER}` } });
+        // Photos for the creators this run kept; never fails the run.
+        await photosFor({ company: program.company_entity_id, program, urls: candidates.map((c) => c.profile_url), deadline: Date.now() + PHOTO_RUN_MS }).catch(() => {});
         outcome = stats.kept > 0 ? 'succeeded' : 'failed';
         await finishRun(row.id, {
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
-          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.kept < wanted || g.leads.length
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
+          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.kept < wanted || g.leads.length
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
             : null,
         });
       } catch (err) {
@@ -222,6 +245,7 @@ export function createResearchHandler({
     if (pErr) return reply({ error: 'Could not load the program.' }, 500);
     if (!program) return reply({ error: 'Program not found.' }, 404);
 
+    if (body?.action === 'refresh_photos') return refreshPhotos({ company, program });
     if (body?.action === 'research') return research({ company, program, body, callerId: who?.user?.id ?? null });
     if (body?.action === 'import') return importRows({ company, program, body });
     return reply({ error: 'Unknown action.' }, 400);
