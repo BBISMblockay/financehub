@@ -1,4 +1,4 @@
-// Attribution vs Sales channel-resolver hoist (20261111050000), executed in a
+// Attribution vs Sales channel-resolver hoist (20261111053000), executed in a
 // real PostgreSQL (PGlite) over the report exactly as 20260925150000 installs
 // it, with that migration's own tie-outs.
 //
@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const REPORTS = readFileSync('supabase/migrations/20260925150000_marketing_inventory_reports.sql', 'utf8');
-const MIGRATION = readFileSync('supabase/migrations/20261111050000_attribution_report_channel_hoist.sql', 'utf8');
+const MIGRATION = readFileSync('supabase/migrations/20261111053000_attribution_report_channel_hoist.sql', 'utf8');
 const VERIFY = readFileSync('supabase/verify_v2_schema.sql', 'utf8');
 const ATTR = 'c3000000-0000-4000-a000-000000000005';
 

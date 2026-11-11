@@ -1838,7 +1838,7 @@ jobs:
       - name: Execute channel resolver hoist regressions
         run: node scripts/tests/wow-channel-hoist-database.test.mjs
 
-      # 20261111050000: the same hoist in Attribution vs Sales' stored SQL and
+      # 20261111053000: the same hoist in Attribution vs Sales' stored SQL and
       # its tie-outs. Proves every site is hoisted, the report and checks return
       # what they did, the checks are re-pinned (not STALE), one resolver call
       # per statement, idempotent, and refuses a drifted body.
