@@ -282,7 +282,16 @@ switch (MUT) {
   case 'periodreopen':
     mutate('ledger', "  if old.status in ('approved','paid')\n     and (", "  if false\n     and ("); break;
   case 'samecompany':
-    mutate('portal', "       and (cl.relname = 'affiliates' or cl.relname like 'affiliate\\_%')\n       and (pl.relname", "       and false\n       and (pl.relname"); break;
+    // BOTH attachment paths, or the mutation tests nothing: 20261111181000
+    // moved the same loop into a function that runs after the portal
+    // migration, so neutering only the portal copy leaves the function to
+    // put every twin back. Its closing assertion goes too, so the suite
+    // fails on the cross-company rejection this mutation is about rather
+    // than on the migration refusing to apply.
+    for (const k of ['portal', 'twins']) {
+      mutate(k, "       and (cl.relname = 'affiliates' or cl.relname like 'affiliate\\_%')\n       and (pl.relname", "       and false\n       and (pl.relname");
+    }
+    mutate('twins', "  if to_regclass('public.affiliate_feed_items') is not null", '  if false'); break;
   case 'applyoverwrite':
     mutate('portal', `       contact_email = case
          when affiliate_prospects.status in ('new','qualified')
