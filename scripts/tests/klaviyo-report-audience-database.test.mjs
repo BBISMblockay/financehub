@@ -26,8 +26,12 @@ process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
+// The nightly runner's OWN staleness query, imported rather than restated, so
+// this test cannot disagree with the job that decides red or green.
+import { CATALOG_SQL } from '../lib/report-tieouts-nightly.mjs';
 
 const REPORTS = readFileSync('supabase/migrations/20261109210000_klaviyo_silo_reports.sql', 'utf8');
+const TILES = readFileSync('supabase/migrations/20261109230000_klaviyo_dashboard_tiles.sql', 'utf8');
 const MIGRATION = readFileSync('supabase/migrations/20261111190000_klaviyo_report_audience.sql', 'utf8');
 const VERIFY = readFileSync('supabase/verify_v2_schema.sql', 'utf8');
 
@@ -109,13 +113,12 @@ async function fresh() {
     -- The dashboard tile the migration edits, plus a tenant's own clone of it
     -- pointing at the same system report, which must NOT be touched.
     create table dashboard_widgets(id uuid primary key, dashboard_id uuid, company_entity_id uuid,
-      report_id uuid, query_index int, visual_type text, title text,
+      created_by uuid, report_id uuid, query_index int, visual_type text, title text,
       visual_config jsonb, layout jsonb, sort_order int, updated_at timestamptz default now());
+    -- The system tile itself comes from 20261109230000, loaded below. Only a
+    -- tenant's own clone of it is hand-made here, to prove it is left alone.
     insert into dashboard_widgets(id, dashboard_id, company_entity_id, report_id, query_index, visual_type, title, visual_config)
-    values ('${TILE}', '5110da5b-0000-4000-a000-000000000012', null, '${PERF}', 0, 'table',
-            'Klaviyo email and SMS by message',
-            '{"limit":15,"columns":["message","channel","conversion_metric_id","window_days","sends","attributed_orders","attributed_revenue"],"empty_message":"No Klaviyo measurements in this window. Connect Klaviyo or widen the dates."}'::jsonb),
-           ('d0000000-0000-4000-a00c-0000000000ff', '5110da5b-0000-4000-a000-0000000000aa', '${CO}'::uuid, '${PERF}', 0, 'table',
+    values ('d0000000-0000-4000-a00c-0000000000ff', '5110da5b-0000-4000-a000-0000000000aa', '${CO}'::uuid, '${PERF}', 0, 'table',
             'My own Klaviyo table', '{"columns":["message","sends"]}'::jsonb);
 
     -- Ask SILO's map, and the refresh the migration calls. The real one
@@ -138,6 +141,7 @@ async function fresh() {
     end $$;
   `);
   await db.exec(REPORTS);
+  await db.exec(TILES);
   return { db, q };
 }
 
@@ -195,6 +199,20 @@ const verdicts = async (q) => {
   return out;
 };
 const verifyStatus = async (q) => (await q(VERIFY_CHECK))[0].status;
+
+// Every enabled tie-out ANYWHERE, with whether the fingerprint it pins still
+// matches the report it pins -- the nightly runner's own query. A row with
+// stale = true turns that night's run red, whether or not the company has any
+// Klaviyo data, because STALE is decided from fingerprints and not from rows.
+const stalePins = async (q) =>
+  (await q(CATALOG_SQL)).filter((r) => r.stale).map((r) => `${r.report_title} / ${r.check_name}`);
+
+// Which reports' SQL a check quotes a fingerprint for -- the set a report edit
+// has to refresh, which is NOT the same as the set the report owns.
+const pinnedBy = async (q, name) => (await q(`
+  select array(select m[1] from regexp_matches(check_sql,
+    'where id = ''(c9000000-0000-4000-a000-[0-9a-f]+)''', 'g') m) ids
+    from silo_report_tieouts where name = '${name.replace(/'/g, "''")}'`))[0].ids;
 const tileColumns = async (q, id = TILE) =>
   (await q(`select visual_config -> 'columns' as c from dashboard_widgets where id = '${id}'`))[0].c;
 
@@ -370,7 +388,75 @@ await test('the catalog describes klaviyo_audiences and the view\'s new columns'
   await db.close();
 });
 
+await test('the fixture reproduces the cross-report dependency this change has to respect', async () => {
+  const { db, q } = await fresh();
+  // Before the migration: two checks owned by OTHER reports pin ...001 as well
+  // as their own. If this ever stops being true the regression below is
+  // testing nothing, so it is asserted rather than assumed.
+  assert.deepEqual(await pinnedBy(q, 'Channel totals add up to Email & SMS Performance'),
+    ['c9000000-0000-4000-a000-000000000003', PERF]);
+  assert.deepEqual(await pinnedBy(q, 'Totals by conversion metric add up to Email & SMS Performance'),
+    ['c9000000-0000-4000-a000-000000000004', PERF]);
+  assert.deepEqual(await stalePins(q), [], 'the fixture started stale');
+  await db.close();
+});
+
+await test('REGRESSION: editing the report leaves NO stale fingerprint anywhere', async () => {
+  const { db, q } = await fresh();
+  await seed(db);
+  await db.exec(MIGRATION);
+  // The failure this guards: refreshing only the checks report ...001 OWNS
+  // leaves the two cross-report checks pinning a hash that no longer exists,
+  // and the nightly goes red the first night after the apply.
+  assert.deepEqual(await stalePins(q), []);
+  // Re-pinned, and still pinning BOTH reports -- a refresh that dropped the
+  // companion's own guard would be a different regression.
+  assert.deepEqual(await pinnedBy(q, 'Channel totals add up to Email & SMS Performance'),
+    ['c9000000-0000-4000-a000-000000000003', PERF]);
+  assert.deepEqual(await pinnedBy(q, 'Totals by conversion metric add up to Email & SMS Performance'),
+    ['c9000000-0000-4000-a000-000000000004', PERF]);
+  // And they still reconcile: both sides read the CURRENT report SQL.
+  for (const name of ['Channel totals add up to Email & SMS Performance',
+                      'Totals by conversion metric add up to Email & SMS Performance']) {
+    const [c] = await q(`select check_sql, tolerance from silo_report_tieouts where name = '${name.replace(/'/g, "''")}'`);
+    assert.ok(c.check_sql.includes('audience_included'), `${name} still embeds the pre-edit report SQL`);
+    const [row] = await q(c.check_sql);
+    assert.notEqual(row.left_value, null, `${name} reads NO DATA, so it has stopped reconciling`);
+    assert.ok(Math.abs(Number(row.left_value) - Number(row.right_value)) <= Number(c.tolerance),
+      `${name} no longer reconciles`);
+  }
+  // The companion reports keep their OTHER checks: ...004's KPI-shape check
+  // does not reference ...001 and must survive untouched.
+  const kpi = await q(`select name from silo_report_tieouts
+    where report_id = 'c9000000-0000-4000-a000-000000000004' order by name`);
+  assert.deepEqual(kpi.map((r) => r.name), [
+    'The KPI query returns one row, or none when nothing was measured',
+    'Totals by conversion metric add up to Email & SMS Performance',
+  ].sort());
+  await db.close();
+});
+
 // ── Mutations ──────────────────────────────────────────────────────────────
+
+await test('MUTATION ownedonly: refreshing only the edited report\'s own checks goes STALE', async () => {
+  const { db, q } = await fresh();
+  await seed(db);
+  // The migration as first written: the two cross-report deletes removed, so
+  // their checks keep the pre-edit fingerprint.
+  const broken = MIGRATION
+    .replace(/delete from public\.silo_report_tieouts\n where report_id = 'c9000000-0000-4000-a000-000000000003'[\s\S]*?;\n/, '')
+    .replace(/delete from public\.silo_report_tieouts\n where report_id = 'c9000000-0000-4000-a000-000000000004'[\s\S]*?;\n/, '')
+    .replace(/  insert into public\.silo_report_tieouts \(report_id, name, kind, check_sql, tolerance, note\)\n  values \('c9000000-0000-4000-a000-000000000003',[\s\S]*?in either report\.'\);\n/, '')
+    .replace(/  insert into public\.silo_report_tieouts \(report_id, name, kind, check_sql, tolerance, note\)\n  values \('c9000000-0000-4000-a000-000000000004',[\s\S]*?in either report\.'\);\n/, '');
+  assert.ok(!broken.includes("values ('c9000000-0000-4000-a000-000000000003',"), 'the mutation did not apply');
+  await db.exec(broken);
+  assert.deepEqual((await stalePins(q)).sort(), [
+    'Email & SMS Totals (Klaviyo) / Totals by conversion metric add up to Email & SMS Performance',
+    'Email vs SMS (Klaviyo) / Channel totals add up to Email & SMS Performance',
+  ], 'the stale-pin guard did not fire');
+  await db.close();
+});
+
 
 await test('MUTATION lateraljoin: a joined audience is caught ONLY by the third tie-out', async () => {
   const { db, q } = await fresh();

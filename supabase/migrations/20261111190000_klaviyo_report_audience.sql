@@ -218,13 +218,48 @@ on conflict (id) do update set
 -- not on the report -- by counting the view's rows against its own base
 -- table's. That is the check that fails the night anybody turns one of these
 -- subqueries into a join.
+--
+-- AND TWO CHECKS OWNED BY OTHER REPORTS ARE REGENERATED HERE TOO. This is the
+-- part that is easy to miss, and the first revision of this migration did miss
+-- it (review cycle 1): "Channel totals add up to Email & SMS Performance"
+-- (owned by report ...003, from 20261109210000) and "Totals by conversion
+-- metric add up to Email & SMS Performance" (owned by ...004, from
+-- 20261109230000) each embed THIS report's SQL and pin ITS fingerprint as well
+-- as their own. Confirmed against production before fixing: both carry two
+-- guards, one of which is ...001's.
+--
+-- So editing report ...001 and refreshing only the checks ...001 OWNS leaves
+-- those two pinning a hash that no longer exists. The nightly catalog query
+-- extracts EVERY (hash, report) pair from a check_sql and `bool_or`s the
+-- comparison, so both would read STALE and the run would go red the first
+-- night after the apply -- even for a workspace with no Klaviyo data, since
+-- STALE is decided from fingerprints and not from rows. Their SQL guards would
+-- also return false, so they would quietly stop reconciling anything.
+--
+-- The rule this file is following: a report edit must regenerate every tie-out
+-- that embeds that report, not every tie-out that BELONGS to it. The two are
+-- not the same set, and only the first one is safe.
+--
+-- The other reports' own checks are left alone. ...004's "The KPI query
+-- returns one row" does not reference ...001 at all, so it is not deleted and
+-- not rewritten; the deletes below name the two affected checks exactly.
 delete from public.silo_report_tieouts
  where report_id = 'c9000000-0000-4000-a000-000000000001';
+delete from public.silo_report_tieouts
+ where report_id = 'c9000000-0000-4000-a000-000000000003'
+   and name = 'Channel totals add up to Email & SMS Performance';
+delete from public.silo_report_tieouts
+ where report_id = 'c9000000-0000-4000-a000-000000000004'
+   and name = 'Totals by conversion metric add up to Email & SMS Performance';
 
 do $checks$
 declare
   perf_sql text;
   perf_guard text;
+  split_sql text;
+  split_guard text;
+  by_metric_sql text;
+  totals_guard text;
   from_sql constant text := '((select public.silo_business_today()) - 28)';
   to_sql constant text := '((select public.silo_business_today()) - 1)';
 begin
@@ -233,6 +268,24 @@ begin
                 md5(queries_run::text || parameters::text), id)
     into perf_sql, perf_guard
     from public.silo_chat_saved_reports where id = 'c9000000-0000-4000-a000-000000000001';
+
+  -- The two companion reports are NOT edited by this migration; their SQL and
+  -- their own fingerprints are read as they stand, so their halves of the
+  -- regenerated checks come out byte for byte as 20261109210000 and
+  -- 20261109230000 wrote them.
+  select replace(replace(queries_run[1], '{{date_from}}', from_sql), '{{date_to}}', to_sql),
+         format('(select md5(queries_run::text || parameters::text) = %L from public.silo_chat_saved_reports where id = %L)',
+                md5(queries_run::text || parameters::text), id)
+    into split_sql, split_guard
+    from public.silo_chat_saved_reports where id = 'c9000000-0000-4000-a000-000000000003';
+
+  -- Report ...004 holds TWO queries; this check compares the SECOND one, by
+  -- conversion metric, because that is the one covering every metric.
+  select replace(replace(queries_run[2], '{{date_from}}', from_sql), '{{date_to}}', to_sql),
+         format('(select md5(queries_run::text || parameters::text) = %L from public.silo_chat_saved_reports where id = %L)',
+                md5(queries_run::text || parameters::text), id)
+    into by_metric_sql, totals_guard
+    from public.silo_chat_saved_reports where id = 'c9000000-0000-4000-a000-000000000004';
 
   insert into public.silo_report_tieouts (report_id, name, kind, check_sql, tolerance, note)
   values ('c9000000-0000-4000-a000-000000000001',
@@ -280,6 +333,29 @@ begin
       perf_sql, perf_guard, from_sql, to_sql),
     1.00,
     'Uses deployed default SQL. The report rounds each message to the cent, so a board of many messages can drift by cents in total; $1 allows that and still catches a message dropped, duplicated or measured under the wrong window. NO DATA can mean no Klaviyo measurement in the period or a changed definition; never a certification of completeness.');
+
+  -- The two cross-report checks, re-pinned. Same names, kinds, tolerances and
+  -- notes as 20261109210000 / 20261109230000 wrote them -- only the halves
+  -- that quote report ...001 move, and they move because ...001 moved.
+  insert into public.silo_report_tieouts (report_id, name, kind, check_sql, tolerance, note)
+  values ('c9000000-0000-4000-a000-000000000003',
+    'Channel totals add up to Email & SMS Performance', 'reconciliation',
+    format('with split as materialized (%s), perf as materialized (%s) '
+        || 'select case when %s and %s then (select sum(attributed_revenue) from split) end as left_value, '
+        || '(select sum(attributed_revenue) from perf) as right_value',
+      split_sql, perf_sql, split_guard, perf_guard),
+    1.00,
+    'Uses both reports'' deployed default SQL. The split rounds once per channel and the message list once per message, so a board of many messages can drift by cents; $1 allows that and still catches a channel dropped or counted twice. NO DATA can mean no Klaviyo measurement in the period or a changed definition in either report.');
+
+  insert into public.silo_report_tieouts (report_id, name, kind, check_sql, tolerance, note)
+  values ('c9000000-0000-4000-a000-000000000004',
+    'Totals by conversion metric add up to Email & SMS Performance', 'reconciliation',
+    format('with by_metric as materialized (%s), perf as materialized (%s) '
+        || 'select case when %s and %s then (select sum(attributed_revenue) from by_metric) end as left_value, '
+        || '(select sum(attributed_revenue) from perf) as right_value',
+      by_metric_sql, perf_sql, totals_guard, perf_guard),
+    1.00,
+    'Uses both reports'' deployed default SQL. Each rounds to the cent at a different grain, so a board of many messages can drift by cents; $1 allows that and still catches a metric or a message dropped. Compares the SECOND result, by conversion metric, because that one covers every metric; the KPI row deliberately covers only the latest. NO DATA can mean no Klaviyo measurement in the period or a changed definition in either report.');
 end
 $checks$;
 
