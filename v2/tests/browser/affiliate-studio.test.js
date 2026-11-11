@@ -8,7 +8,7 @@
  *   - a member who cannot manage sees no write buttons (the database refuses
  *     anyway; this is the page not offering what will fail);
  *   - the "how each part works" labels follow the data (verified / manual /
- *     simulated / unconfigured / not measured);
+ *     simulated / waiting / unconfigured);
  *   - the affiliate pages strip the token from the address bar, render the
  *     brand's terms as text (an <img onerror> in the terms stays inert), send
  *     the version shown when accepting, and offer renewal on an expired link;
@@ -106,7 +106,7 @@ const tables = {
   }],
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
-  affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'success', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
+  affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'ok', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
   affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
@@ -164,7 +164,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
     R.not(ov, 'Stripe Connect', 'an unbuilt feature is not advertised')
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
-    R.ok('incrementality is labelled not measured', /Incremental sales\s*not measured/.test(ov))
+    R.not(ov, 'Incremental sales', 'the card lists what SILO does, not what it does not')
+    R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
     for (const tab of ['prospects', 'outreach', 'affiliates', 'share', 'payouts']) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });

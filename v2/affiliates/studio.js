@@ -450,7 +450,7 @@ function renderAiHub() {
 }
 function stageCard() {
   const d = S.d;
-  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, ledgerEntries: d.ledgerCount, sources: 0 });
+  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, codesTotal: d.codes.filter((c) => c.status !== 'pending').length, ledgerEntries: d.ledgerCount, sources: 0 });
   const row = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.stage)} <span class="af-stage af-label-${esc(r.label.replace(' ', '-'))}">${esc(r.label)}</span></div><div class="af-muted">${esc(r.detail)}</div></div></article>`;
   return card('How each part works for this company', itemList(labels, row, 'Nothing to report yet.'), 'verified = SILO has seen it work here');
 }
