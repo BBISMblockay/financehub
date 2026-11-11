@@ -40,6 +40,7 @@
  *   AFFILIATE_UI_MUTATION=photonone   a creator's researched photo is not shown on their card
  *   AFFILIATE_UI_MUTATION=photoaff    an affiliate's card ignores the photo of the prospect they came from
  *   AFFILIATE_UI_MUTATION=photobroken a photo that no longer loads leaves an empty square, not the initials
+ *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -64,6 +65,7 @@ const MUTATIONS = {
   photonone: ['/affiliates/studio.js', '  const photo = prospectPhotoUrl(evidence);\n', '  const photo = null;\n'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
   photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  todopinch: ['/affiliates/index.html', '.silo-main.af-studio > * { flex-shrink: 0; }', ''],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
@@ -286,6 +288,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
     R.ok('with a prompt to copy', !!(await loop.$('#nextStep [data-act="copy-codes-prompt"]')));
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
+    // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
+    await loop.setViewportSize({ width: 1280, height: 520 });
+    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
+    R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
+    await loop.setViewportSize({ width: 1280, height: 900 });
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
     R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
