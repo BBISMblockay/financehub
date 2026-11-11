@@ -21,6 +21,9 @@
 //   AFFILIATE_RESEARCH_MUTATION=minors       a likely minor from research is kept
 //   AFFILIATE_RESEARCH_MUTATION=importminor  a row marked minor in a file is kept
 //   AFFILIATE_RESEARCH_MUTATION=followers    a follower count without a seen source is kept
+//   AFFILIATE_RESEARCH_MUTATION=imageseen    a photo URL no returned page showed is kept
+//   AFFILIATE_RESEARCH_MUTATION=imagehttps   a plain-http or quote-breaking photo URL is kept
+//   AFFILIATE_RESEARCH_MUTATION=imagehost    a photo read on another page (a list article) is kept
 //   AFFILIATE_RESEARCH_MUTATION=doublerun    a second research starts while one runs
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
@@ -45,6 +48,9 @@ const MUTS = {
   minors: [CORE, '    if (c?.likely_minor === true) { stats.minors += 1; continue; }\n', ''],
   importminor: [CORE, "    if (truthy(pick(row, ['minor', 'likely_minor', 'is_minor']))) { stats.minors += 1; continue; }\n", ''],
   followers: [CORE, 'c.followers >= 0 && seenUrl(evidence, c.followers_source_url)', 'c.followers >= 0'],
+  imageseen: [CORE, ' && seenText(evidence, image.toLowerCase())', ''],
+  imagehttps: [CORE, "/^https:\\/\\/[^\\s\"'<>()\\\\]+$/.test(s)", '/^https?:/.test(s)'],
+  imagehost: [CORE, ' && sameHost(c.profile_image_source_url, profile.profile_url)', ''],
   doublerun: ['handler.mjs', "    if (prev?.status === 'running' &&", '    if (false &&'],
   oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
   partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
@@ -150,19 +156,27 @@ const WEB_RESULTS = {
     { type: 'web_search_result', url: 'https://www.instagram.com/lathanthekidumpire/', title: 'Lathan (@lathanthekidumpire)' },
   ],
 };
+// Two fetched pages: Jenna's own profile (which shows her photo URL) and a
+// ranking page that shows a photo next to Diamond Mama's name.
+const JENNA_PHOTO = 'https://p16-sign.tiktokcdn-us.example/tos/Jenna-Avatar.jpeg?x-expires=1';
+const LIST_PHOTO = 'https://img.tokranks.example/diamondmama.jpg';
+const FETCHED = [
+  { type: 'web_fetch_tool_result', tool_use_id: 'srv2', content: { type: 'web_fetch_result', url: 'https://www.tiktok.com/@jenna.and.her.gents', content: { type: 'document', source: { type: 'text', data: `Jenna and Her Gents 993.2K Followers avatar ${JENNA_PHOTO} banner http://plain.example/a.jpg x https://evil.example/x.jpg');background:red` } } } },
+  { type: 'web_fetch_tool_result', tool_use_id: 'srv3', content: { type: 'web_fetch_result', url: 'https://tokranks.example/baseballmom', content: { type: 'document', source: { type: 'text', data: `@diamondmama ${LIST_PHOTO}` } } } },
+];
 const creator = (o) => ({
   name: 'x', platform: 'tiktok', handle: '@x', profile_url: 'https://www.tiktok.com/@x', followers: null, followers_source_url: null,
-  followers_as_of: null, fit_reason: 'baseball mom', found_on_url: null, contact_email: null, contact_source_url: null, likely_minor: false, ...o,
+  followers_as_of: null, profile_image_url: null, profile_image_source_url: null, fit_reason: 'baseball mom', found_on_url: null, contact_email: null, contact_source_url: null, likely_minor: false, ...o,
 });
 const LIST = [
-  creator({ name: 'Jenna', handle: '@jenna.and.her.gents', profile_url: 'https://www.tiktok.com/@jenna.and.her.gents', followers: 993200, followers_source_url: 'https://www.tiktok.com/@jenna.and.her.gents', followers_as_of: '2026-11-10', found_on_url: 'https://www.tiktok.com/@jenna.and.her.gents' }),
-  creator({ name: 'Diamond Mama', handle: '@diamondmama', profile_url: 'https://www.instagram.com/diamondmama', platform: 'instagram', followers: 41200, followers_source_url: 'https://made-up.example/stats', contact_email: 'dm@example.com', contact_source_url: 'https://made-up.example/contact' }),
-  creator({ name: 'Invented', handle: '@notreal', profile_url: 'https://www.tiktok.com/@notreal', followers: 500000, followers_source_url: 'https://www.tiktok.com/@notreal' }),
+  creator({ name: 'Jenna', handle: '@jenna.and.her.gents', profile_url: 'https://www.tiktok.com/@jenna.and.her.gents', followers: 993200, followers_source_url: 'https://www.tiktok.com/@jenna.and.her.gents', followers_as_of: '2026-11-10', found_on_url: 'https://www.tiktok.com/@jenna.and.her.gents', profile_image_url: JENNA_PHOTO, profile_image_source_url: 'https://www.tiktok.com/@jenna.and.her.gents' }),
+  creator({ name: 'Diamond Mama', handle: '@diamondmama', profile_url: 'https://www.instagram.com/diamondmama', platform: 'instagram', followers: 41200, followers_source_url: 'https://made-up.example/stats', contact_email: 'dm@example.com', contact_source_url: 'https://made-up.example/contact', profile_image_url: LIST_PHOTO, profile_image_source_url: 'https://tokranks.example/baseballmom' }),
+  creator({ name: 'Invented', handle: '@notreal', profile_url: 'https://www.tiktok.com/@notreal', followers: 500000, followers_source_url: 'https://www.tiktok.com/@notreal', profile_image_url: 'https://cdn.example/made-up.jpg', profile_image_source_url: 'https://www.tiktok.com/@notreal' }),
   creator({ name: 'Lathan', handle: '@lathanthekidumpire', profile_url: 'https://www.instagram.com/lathanthekidumpire/', platform: 'instagram', likely_minor: true }),
 ];
 const msg = (content, stop) => ({ content, stop_reason: stop, usage: { input_tokens: 1000, output_tokens: 200, server_tool_use: { web_search_requests: 1 } } });
 const SCRIPT = () => [
-  msg([{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'baseball mom tiktok' } }, WEB_RESULTS], 'pause_turn'),
+  msg([{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'baseball mom tiktok' } }, WEB_RESULTS, ...FETCHED], 'pause_turn'),
   msg([{ type: 'tool_use', id: 't1', name: 'record_creators', input: { creators: LIST } }], 'tool_use'),
 ];
 
@@ -194,6 +208,20 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
   };
   return { log, rpcs, calls, service, call, searches };
 }
+
+await test('a photo URL is kept only if the profile page text showed it, exactly as https', async () => {
+  const jenna = (img) => creator({ name: 'Jenna', handle: '@jenna.and.her.gents', profile_url: 'https://www.tiktok.com/@jenna.and.her.gents', found_on_url: 'https://www.tiktok.com/@jenna.and.her.gents', profile_image_url: img, profile_image_source_url: 'https://www.tiktok.com/@jenna.and.her.gents' });
+  for (const img of ['https://p16-sign.tiktokcdn-us.example/tos/made-up.jpeg', 'http://plain.example/a.jpg', "https://evil.example/x.jpg');background:red"]) {
+    const s = setup({ script: [
+      msg([{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'q' } }, WEB_RESULTS, ...FETCHED], 'pause_turn'),
+      msg([{ type: 'tool_use', id: 't1', name: 'record_creators', input: { creators: [jenna(img)] } }], 'tool_use'),
+    ] });
+    await s.call({ action: 'research', program_id: PA, count: 5 });
+    const p = s.service.tables.affiliate_prospects.find((x) => x.handle === '@jenna.and.her.gents');
+    assert.ok(p, 'the creator is still kept');
+    assert.equal(p.evidence.profile_image_url ?? null, null, `not stored: ${img}`);
+  }
+});
 
 await test('the caller-token gate runs first, and a refused session stops everything', async () => {
   const s = setup({ gateError: { message: 'mfa_required' } });
@@ -227,6 +255,10 @@ await test('research keeps only creators the web results showed, and never a min
   const dm = ps.find((p) => p.handle === '@diamondmama');
   assert.equal(dm.evidence.followers, null, 'a count whose source no web result returned is not stored');
   assert.equal(dm.contact_email, null, 'nor is an email');
+  assert.equal(jenna.evidence.profile_image_url, JENNA_PHOTO, 'a photo URL shown on the creator\'s own fetched profile is kept exactly');
+  assert.equal(jenna.evidence.profile_image_source_url, 'https://www.tiktok.com/@jenna.and.her.gents');
+  assert.equal(jenna.evidence.profile_image_as_of, '2026-11-10');
+  assert.equal(dm.evidence.profile_image_url ?? null, null, 'a photo seen on another page (a list article) is never put on a creator');
   const run = s.service.tables.affiliate_discovery_runs.find((x) => x.id === run_id);
   assert.equal(run.status, 'ok');
   assert.equal(run.provider, 'anthropic');

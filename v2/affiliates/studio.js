@@ -7,7 +7,7 @@ import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
-  parseCsv, chunk, runKindLabel, followersFrom, sourceLabel,
+  parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -256,6 +256,14 @@ function personAvatar(person, size = 'lg') {
   const ch = (n ? n[0] : e ? e[0] : '?').toUpperCase();
   return `<span class="af-avatar" aria-hidden="true">${esc(ch)}</span>`;
 }
+// Initials, with the creator's photo laid over them when research found one.
+// A photo that no longer loads (platform photo links expire) is removed, so
+// the initials show again.
+function photoAvatar(person, evidence) {
+  const photo = prospectPhotoUrl(evidence);
+  return personAvatar(person, 'lg') + (photo ? `<img class="af-avatar-photo" src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '');
+}
+document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
 function evidenceSummary(x, max = 160) {
   const e = x?.evidence || {};
   const t = String(e.snippet || e.note || e.pitch || e.title || '').trim().replace(/\s+/g, ' ');
@@ -594,7 +602,7 @@ function renderProspects() {
     const meta = x.contact_email ? esc(x.contact_email) : 'No public email yet';
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
-        <div class="af-catalog-thumb">${personAvatar({ name: x.display_name, email: x.contact_email }, 'lg')}</div>
+        <div class="af-catalog-thumb">${photoAvatar({ name: x.display_name, email: x.contact_email }, x.evidence)}</div>
         <div class="af-catalog-title">
           <div class="af-catalog-name">${title}</div>
           <div class="af-catalog-sub">${esc(sub)}</div>
@@ -726,7 +734,7 @@ function renderAffiliates() {
     const codeCount = codesOf(a).filter((c) => c.status !== 'retired').length;
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
-        <div class="af-catalog-thumb">${personAvatar({ name: a.display_name, email: a.contact_email }, 'lg')}</div>
+        <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, d.prospectById[a.from_prospect_id]?.evidence)}</div>
         <div class="af-catalog-title">
           <div class="af-catalog-name">${esc(a.display_name)}</div>
           <div class="af-catalog-sub">${esc(a.contact_email)}</div>
