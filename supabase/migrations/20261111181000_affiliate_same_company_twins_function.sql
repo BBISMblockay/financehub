@@ -77,9 +77,10 @@ select public.attach_affiliate_same_company_twins();
 -- The thing this is for: the reference that had no twin.
 do $$
 begin
-  if not exists (select 1 from pg_constraint
-                  where conrelid = 'public.affiliate_feed_items'::regclass
-                    and contype = 'f' and array_length(conkey, 1) = 2) then
+  if to_regclass('public.affiliate_feed_items') is not null
+     and not exists (select 1 from pg_constraint
+                      where conrelid = 'public.affiliate_feed_items'::regclass
+                        and contype = 'f' and array_length(conkey, 1) = 2) then
     raise exception 'affiliate_feed_items still has no same-company twin';
   end if;
 end $$;

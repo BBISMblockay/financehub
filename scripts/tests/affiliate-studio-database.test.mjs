@@ -154,8 +154,14 @@ const files = {
   core: '20261110084000_affiliate_studio.sql',
   ledger: '20261110085000_affiliate_studio_ledger.sql',
   portal: '20261110086000_affiliate_portal.sql',
+  feed: '20261110150000_affiliate_portal_feed.sql',
   brands: '20261110190000_affiliate_portal_brands.sql',
   photo: '20261111020000_affiliate_rep_photo_outreach_message.sql',
+  // Last, like production: it reads pg_constraint and attaches the composite
+  // twins to whatever single-column affiliate references exist by then, so it
+  // has to see every table above. affiliate_feed_items (feed, above) is the
+  // one 20261110086000's DO block never covered, which is why this exists.
+  twins: '20261111181000_affiliate_same_company_twins_function.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -301,7 +307,7 @@ switch (MUT) {
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
-for (const k of ['orders', 'core', 'ledger', 'portal', 'brands', 'photo']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
