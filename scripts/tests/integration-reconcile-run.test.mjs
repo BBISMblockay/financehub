@@ -325,3 +325,79 @@ test('a failed publish is reported loudly and does not change the pass', async (
   assert.match(broken.out, /stale/, 'it must say what the consequence is, because the surface will look current');
   assert.match(broken.out, /brandnew\.myshopify\.com/, 'the log is still the primary output');
 });
+
+// ── Demo workspaces (20261111234000) ───────────────────────────────────────
+// A workspace kept for a vendor app review or a sales demo is not a customer,
+// and its connections are deliberately empty shells. Judging them as client
+// health kept this pass red for six days on work nobody owed -- seven of its
+// eight findings on 2026-11-11 were two such workspaces. The flag lives in
+// `company_settings.is_demo`, so these cover the wiring: that the column is
+// actually asked for, that a flagged company's connections never reach the
+// probe (not merely that they are left out of the log), that the skip is said
+// out loud, and that nothing changes when no workspace is flagged.
+
+test('the demo flag is read once per run, not once per feed', async () => {
+  const { seen } = await runPass();
+  const asks = seen.filter((s) => s.table === 'company_settings');
+  assert.equal(asks.length, 1, 'one read, cached as a Set for the walk');
+  assert.equal(asks[0].where.is_demo, 'true', 'it asks the database to filter, not the script');
+  assert.match(asks[0].select || '', /company_entity_id/);
+});
+
+test('a demo workspace connection is never probed, and the pass goes green', async () => {
+  const rows = fixture();
+  rows.company_settings = [{ company_entity_id: CO, is_demo: true }];
+  const { code, out, seen, posted } = await runPass({}, rows);
+  assert.equal(seen.filter((s) => s.table === 'sales_by_day').length, 0,
+    'skipping must happen BEFORE the probe: a skipped connection costs no query at all');
+  assert.doesNotMatch(out, /brandnew\.myshopify\.com/, 'and it is not reported as client health');
+  assert.equal(posted.length, 0);
+  assert.equal(code, 0, 'the only thing needing a person was a demo workspace, so nothing does');
+});
+
+test('the skip is said out loud, with a count', async () => {
+  const rows = fixture();
+  rows.company_settings = [{ company_entity_id: CO, is_demo: true }];
+  const { out } = await runPass({}, rows);
+  assert.match(out, /skipped 2 connection\(s\) in 1 demo company\(ies\)/,
+    'a pass that quietly drops connections cannot be audited, and is_demo on a real customer must be one log line away');
+});
+
+test('a demo workspace stops being shown as client health, rather than ageing forever', async () => {
+  const rows = fixture();
+  rows.company_settings = [{ company_entity_id: CO, is_demo: true }];
+  const { deleted } = await runPass({}, rows);
+  // publishHealth's prune is bounded by the (company, feed) pairs the run SAW,
+  // which is deliberate -- so a company no run will ever see again would keep
+  // its last verdicts in integration_feed_health indefinitely.
+  const prune = deleted.find((d) => d.table === 'integration_feed_health'
+    && String(d.where.company_entity_id || '').includes(CO)
+    && d.where.observed_at === undefined);
+  assert.ok(prune, 'the demo company rows must be cleared unbounded by this run stamp');
+});
+
+test('with nothing flagged, the run is unchanged', async () => {
+  const flagged = await runPass({}, { ...fixture(), company_settings: [] });
+  const baseline = await runPass();
+  assert.equal(flagged.code, baseline.code);
+  assert.equal(flagged.posted.length, baseline.posted.length);
+  assert.equal(flagged.health.length, baseline.health.length);
+  assert.doesNotMatch(flagged.out, /demo company/, 'and it says nothing about demos it did not find');
+  assert.deepEqual(flagged.deleted.filter((d) => d.where.observed_at === undefined), [],
+    'no unbounded delete when there is no demo workspace');
+});
+
+test('an unreadable demo flag stops the run rather than silently re-including every demo', async () => {
+  const { code, out } = await runPass({}, fixture(), { failTable: 'company_settings' });
+  assert.equal(code, 1);
+  assert.match(out, /company_settings load failed/);
+  assert.doesNotMatch(out, /never imported/, 'carrying on with an empty demo set is the failure, not the fallback');
+});
+
+test('a dry run reads the flag and clears nothing', async () => {
+  const rows = fixture();
+  rows.company_settings = [{ company_entity_id: CO, is_demo: true }];
+  const { deleted, seen } = await runPass({ RECONCILE_DRY_RUN: 'true' }, rows);
+  assert.ok(seen.some((s) => s.table === 'company_settings'));
+  assert.deepEqual(deleted, [], 'a dry run writes nothing, demo prune included');
+});

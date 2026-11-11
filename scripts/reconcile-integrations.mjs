@@ -18,6 +18,15 @@
  * or failed, is reported and left alone: re-queueing a failed first import
  * every morning is a paid retry loop on a credential that will never work.
  *
+ * DEMO TENANTS ARE SKIPPED. A company whose `company_settings.is_demo` is true
+ * is not a customer: it is a workspace kept for a vendor review or a sales
+ * demo, and its connections are deliberately empty shells. Judging them as
+ * client health meant this pass stayed red on work nobody owed -- seven of its
+ * eight findings on 2026-11-11 were two such workspaces -- and the alternative
+ * on offer was deactivating connections inside a tenant a vendor reviewer had
+ * been invited into. The flag lives in DATA and this file names no company:
+ * which workspaces are demos is a fact about a deployment, not about SILO.
+ *
  * Environment:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   required
  *   RECONCILE_AUTO_START      'true' to queue first imports (default off)
@@ -75,12 +84,32 @@ function connLabel(connTable, row) {
     || row.platform || `${connTable.replace(/_connections?$/, '')} ${String(row.id).slice(0, 8)}`;
 }
 
-async function loadConnections(feed) {
+async function loadConnections(feed, demoCompanies) {
   const cols = CONN_COLUMNS[feed.connTable];
   if (!cols) throw new Error(`no column list for ${feed.connTable}`);
   const { data, error } = await db.from(feed.connTable).select(cols);
   if (error) throw new Error(`${feed.connTable} load failed: ${error.message}`);
-  return (data || []).filter((row) => feedCovers(feed, row));
+  const covered = (data || []).filter((row) => feedCovers(feed, row));
+  const kept = covered.filter((row) => !demoCompanies.has(row.company_entity_id));
+  return { connections: kept, skipped: covered.length - kept.length };
+}
+
+/**
+ * The companies this pass does not judge: `company_settings.is_demo`.
+ *
+ * Read ONCE per run rather than per feed, and returned as a Set so the walk
+ * costs nothing. A failure here THROWS rather than returning empty: carrying
+ * on with no demo set would silently re-include every demo workspace and put
+ * the pass back where it was, which is the opposite of failing safe. Every
+ * company has a settings row (it is written at onboarding), and a company that
+ * somehow has none is simply not a demo -- false is the column's default and
+ * the absent row means the same thing.
+ */
+async function loadDemoCompanies() {
+  const { data, error } = await db.from('company_settings')
+    .select('company_entity_id').eq('is_demo', true);
+  if (error) throw new Error(`company_settings load failed: ${error.message}`);
+  return new Set((data || []).map((row) => row.company_entity_id).filter(Boolean));
 }
 
 /**
@@ -208,9 +237,12 @@ async function main() {
     process.exit(1);
   }
 
+  const demoCompanies = await loadDemoCompanies();
   const rows = [];
+  let skippedDemo = 0;
   for (const feed of feeds) {
-    const connections = await loadConnections(feed);
+    const { connections, skipped } = await loadConnections(feed, demoCompanies);
+    skippedDemo += skipped;
     const lastJobs = await lastJobsByCompany(feed);
     // Which identities more than one company holds, for this feed.
     const shared = new Map();
@@ -248,11 +280,37 @@ async function main() {
     }
   }
 
+  // Said out loud, every run. A pass that quietly drops connections is a pass
+  // nobody can audit, and "is_demo got set on a real customer" has to be one
+  // line of a log away rather than a thing somebody notices months later.
+  if (demoCompanies.size) {
+    console.log(`[reconcile] skipped ${skippedDemo} connection(s) in ${demoCompanies.size} demo company(ies) (company_settings.is_demo)`);
+  }
+
   report(rows, today);
   await publishHealth(rows, feeds);
+  await pruneDemoHealth(demoCompanies);
   const code = reconcileExitCode(rows.map((r) => r.verdict));
   if (code && FAIL_ON_ACTION) process.exit(code);
   if (code) console.error('[reconcile] RECONCILE_FAIL_ON_ACTION=false — reporting only.');
+}
+
+/* A company that BECOMES a demo keeps whatever rows it had: publishHealth's
+ * pruning only touches the (company, feed) pairs this run actually saw, which
+ * is deliberate -- a narrowed run must not delete the feeds it did not look at
+ * -- and a skipped company is seen by no run ever again. So its last verdicts
+ * would sit in integration_feed_health for good, ageing, and SILO would show a
+ * demo workspace's stale complaints as client health. Clearing them here is
+ * idempotent and costs one statement.
+ *
+ * Never throws, for publishHealth's reason: the log is the primary output and
+ * must survive a write failure.
+ */
+async function pruneDemoHealth(demoCompanies) {
+  if (DRY_RUN || !demoCompanies.size) return;
+  const { error } = await db.from('integration_feed_health')
+    .delete().in('company_entity_id', [...demoCompanies]);
+  if (error) console.error(`[reconcile] could not clear demo feed health: ${error.message}`);
 }
 
 /* Put this pass's verdicts where SILO can show them (integration_feed_health,
