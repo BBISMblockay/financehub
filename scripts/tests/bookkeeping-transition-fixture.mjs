@@ -57,9 +57,10 @@ export function seedSql(c) {
   insert into card_sources(id,company_entity_id,qbo_connection_id,source_key,display_name,source_type,credit_qbo_account_id,credit_qbo_account_name,is_active,posting_enabled)
   values ('${c.source}','${c.co}','${c.conn}','synthetic','Synthetic bank','bank','bank','bank',true,true);`;
 }
-export function claimSql(c, { status='submitting', source='journal_entry', id=randomUUID(), company=c.co, connection=c.conn, sourceRef=randomUUID(), hash='h', payload={} }={}) {
-  return `insert into quickbooks_journal_postings(id,company_entity_id,connection_id,source,source_ref,status,payload,request_key,payload_hash)
-  values ('${id}','${company}','${connection}','${source}','${sourceRef}','${status}','${JSON.stringify(payload).replaceAll("'","''")}','${randomUUID()}','${hash}');`;
+export function claimSql(c, { status='submitting', source='journal_entry', id=randomUUID(), company=c.co, connection=c.conn, sourceRef=randomUUID(), hash='h', payload={}, periodStart=null, periodEnd=null }={}) {
+  const date = (value) => (value ? `'${value}'` : 'null');
+  return `insert into quickbooks_journal_postings(id,company_entity_id,connection_id,source,source_ref,status,payload,request_key,payload_hash,period_start,period_end)
+  values ('${id}','${company}','${connection}','${source}','${sourceRef}','${status}','${JSON.stringify(payload).replaceAll("'","''")}','${randomUUID()}','${hash}',${date(periodStart)},${date(periodEnd)});`;
 }
 
 export async function transitionSql() {
@@ -71,9 +72,22 @@ export async function transitionSql() {
     'claim-check-removed': ["  if coalesce(v_mode, 'silo') <> 'qbo' then return new; end if;", '  return new;'],
     'stale-version-bypass': ['if p_expected_version is null or p_expected_version <> v_row.bookkeeping_version then', 'if false then'],
     'company-boundary-bypass': ['if p_company is null or p_company <> v_company then', 'if false then'],
-    'date-bypass': ['if v_takeover is not null and (not isfinite(v_takeover)', 'if false and (not isfinite(v_takeover)'],
-    'pending-claims-ignored': ["where p.company_entity_id = v_company and p.status in ('submitting', 'unknown');", 'where false;'],
-    'update-guard-removed': ['before insert or update of status on public.quickbooks_journal_postings', 'before insert on public.quickbooks_journal_postings'],
+    'date-bypass': ['    if not isfinite(v_takeover) or v_takeover > v_window.latest or v_takeover < v_window.earliest then', '    if false then'],
+    // The configurable bounds are ignored and the old fixed rule is restored.
+    'window-not-configurable': ['  select coalesce(st.takeover_earliest_on, st.accounting_start_date),\n         coalesce(st.takeover_latest_on, public.silo_business_today())',
+      '  select st.accounting_start_date, public.silo_business_today()'],
+    'pending-claims-ignored': ['       and public.silo_claim_blocks_handover(p.*) is not null;', '       and false;'],
+    // Everything open blocks again, including the pre-takeover history the
+    // approval trigger can no longer produce a send for.
+    'blocking-claims-widened': ["  if v_owner.owner = 'outside' then return null; end if;", ''],
+    // A period nobody can place is read as setup history, so an open claim
+    // with no period stops counting.
+    'unplaceable-read-as-setup': ["         when p_claim.period_end < v_floor then 'outside' else 'silo' end,", "         when p_claim.period_end < v_floor then 'outside' else 'outside' end,"],
+    'update-guard-removed': ['create trigger zz_bookkeeping_mode_claim before insert or update of status', 'create trigger zz_bookkeeping_mode_claim before insert'],
+    // The three sibling guards go back to covering INSERT only, so a row moved
+    // back into submitting skips the approval match, the posting start date and
+    // the open bank feed exception.
+    'sibling-guards-insert-only': ['create trigger qbo_card_claim_matches_approval before insert or update of status', 'create trigger qbo_card_claim_matches_approval before insert'],
   };
   const mutation=process.env.BOOKKEEPING_TRANSITION_MUTATION || '';
   if(mutation) {

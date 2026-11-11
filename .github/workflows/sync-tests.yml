@@ -1385,7 +1385,7 @@ jobs:
       - name: Interleave bookkeeping handover and all-surface claims
         run: |
           node scripts/tests/bookkeeping-transition-concurrency.test.mjs
-          for mutation in claim-lock-removed mode-lock-removed stale-version-bypass trigger-order-first; do
+          for mutation in claim-lock-removed mode-lock-removed stale-version-bypass trigger-order-first sibling-guards-insert-only; do
             if BOOKKEEPING_TRANSITION_MUTATION="$mutation" node scripts/tests/bookkeeping-transition-concurrency.test.mjs > /tmp/bookkeeping-transition-race.log 2>&1; then
               cat /tmp/bookkeeping-transition-race.log; echo "Survived handover race mutation: $mutation"; exit 1
             fi
@@ -1776,7 +1776,7 @@ jobs:
       - name: Execute checked bookkeeping transition regressions
         run: |
           node scripts/tests/bookkeeping-transition-database.test.mjs
-          for mutation in claim-check-removed stale-version-bypass company-boundary-bypass date-bypass pending-claims-ignored update-guard-removed; do
+          for mutation in claim-check-removed stale-version-bypass company-boundary-bypass date-bypass window-not-configurable pending-claims-ignored blocking-claims-widened unplaceable-read-as-setup update-guard-removed sibling-guards-insert-only; do
             if BOOKKEEPING_TRANSITION_MUTATION="$mutation" node scripts/tests/bookkeeping-transition-database.test.mjs > /tmp/bookkeeping-transition.log 2>&1; then
               cat /tmp/bookkeeping-transition.log; echo "Survived transition mutation: $mutation"; exit 1
             fi

@@ -42,18 +42,29 @@
      between the books start and today: ahead of today it would stop SILO
      posting the months being worked on now, and before the books start it
      changes nothing, which reads as a setting that did not take. */
-  function validate(mode, takeover, businessToday, booksStart) {
+  function validate(mode, takeover, latest, earliest) {
     if (mode !== 'silo') return '';
     const next = String(takeover || '').trim();
     if (!next) return '';
     if (!DAY.test(next)) return 'Enter the day SILO starts keeping the books, as YYYY-MM-DD.';
-    if (DAY.test(String(businessToday || '')) && next > businessToday) {
-      return `${longDate(next)} is in the future. SILO would post nothing until then, including the months you are working on now.`;
+    if (DAY.test(String(latest || '')) && next > latest) {
+      return `${longDate(next)} is after ${longDate(latest)}. SILO would post nothing until then, including the months you are working on now.`;
     }
-    if (DAY.test(String(booksStart || '')) && next < booksStart) {
-      return `Your books start ${longDate(booksStart)}, so SILO records nothing before then. Clear the date instead of setting an earlier one.`;
+    if (DAY.test(String(earliest || '')) && next < earliest) {
+      return `This company accepts a takeover date from ${longDate(earliest)} onward. Clear the date instead of setting an earlier one.`;
     }
     return '';
+  }
+
+  /* The window the server enforces, read from the company's own settings so
+     the picker cannot offer a date the save will refuse. Both bounds are
+     configurable per company (accounting_settings.takeover_earliest_on /
+     takeover_latest_on); absent, they are the two facts already true of it. */
+  function windowFor(settings, businessToday, booksStart) {
+    return {
+      earliest: settings?.takeover_earliest_on || booksStart || '',
+      latest: settings?.takeover_latest_on || businessToday || '',
+    };
   }
 
   /* What the save has to say for itself. Switching to QuickBooks is the
@@ -119,6 +130,7 @@
 
     function render() {
       const mode = settings?.bookkeeping_mode === 'qbo' ? 'qbo' : 'silo';
+      const bounds = windowFor(settings, businessToday, booksStart);
       host.querySelector('[data-mode-state]').textContent = stateLabel(settings);
       host.querySelector('[data-mode-body]').innerHTML = `
         <p>You’ve connected QuickBooks and SILO has your history. Pick one — running both at once is how the same month ends up recorded twice.</p>
@@ -128,7 +140,7 @@
           <span><strong>SILO keeps the books.</strong> SILO categorizes your bank and card activity and posts it to QuickBooks for you. Everything before your start date stays as you did it in QuickBooks, untouched.</span></label>
         <div class="books-choice-detail"${mode === 'silo' ? '' : ' hidden'} data-mode-date>
           <label>SILO starts keeping the books on
-            <input class="bcn-field" type="date" data-takeover value="${esc(settings?.silo_takeover_on || '')}" max="${esc(businessToday || '')}" />
+            <input class="bcn-field" type="date" data-takeover value="${esc(settings?.silo_takeover_on || '')}" min="${esc(bounds.earliest || '')}" max="${esc(bounds.latest || '')}" />
           </label>
           <p class="books-caption">Leave it empty if SILO should keep every period it has. An account that came onboard later can still be given its own date below.</p>
         </div>
@@ -139,7 +151,8 @@
     async function save() {
       const mode = host.querySelector('input[name="booksMode"]:checked')?.value || 'silo';
       const takeover = String(host.querySelector('[data-takeover]')?.value || '').trim();
-      const problem = validate(mode, takeover, businessToday, booksStart);
+      const bounds = windowFor(settings, businessToday, booksStart);
+      const problem = validate(mode, takeover, bounds.latest, bounds.earliest);
       if (problem) { status(problem, true); return; }
 
       const was = settings?.bookkeeping_mode === 'qbo' ? 'qbo' : 'silo';
@@ -155,9 +168,7 @@
             : 'SILO is to code and post this company’s activity.',
         });
         if (!ok) return;
-      }
-      const checked = settings?.bookkeeping_version != null;
-      if (!unchanged || checked) {
+        const checked = settings?.bookkeeping_version != null;
         status('Saving…');
         /* The company the card was mounted for, not whichever one is active by
            the time this returns: the confirmation sits outside the element the
@@ -167,15 +178,20 @@
           p_mode: mode, p_takeover: mode === 'silo' && takeover ? takeover : null, p_company: companyId,
           ...(checked ? { p_expected_version: settings.bookkeeping_version } : {}),
         });
-        if (error) { status(`Save was not confirmed: ${error.message}. Reload Books & setup before trying again.`, true); return; }
+        if (error) { await reportSaveError(error); return; }
         const saved = Array.isArray(data) ? data[0] : data;
         if (!saved || (checked && saved.bookkeeping_version == null)) {
-          status('Save returned no confirmed setting. Reload Books & setup before trying again.', true);
+          status('Nothing was saved: the save returned no setting to confirm. Reload Books & setup and check the current setting before trying again.', true);
           return;
         }
         settings = saved;
         render();
       } else {
+        /* Nothing to change. This press is how the card resumes a ledger
+           catch-up that could not finish in one pass, so it writes nothing and
+           asks the database for nothing: a version another tab has moved on,
+           or a takeover window tightened since, must not stand between the
+           reader and the rest of the reconciliation. */
         status('Checking SILO’s ledger against this setting…');
       }
 
@@ -205,21 +221,50 @@
         }
         outstanding += remaining || 0;
       }
-      if (checked) {
-        // Catch-up always uses the current database settings. If another tab
-        // changed them mid-loop, do not report our older choice as current.
-        const final = await db.rpc('set_bookkeeping_mode_checked', {
-          p_mode: settings.bookkeeping_mode, p_takeover: settings.silo_takeover_on,
-          p_company: companyId, p_expected_version: settings.bookkeeping_version,
-        });
-        if (final.error) {
-          status(`The setting was saved, but its current state could not be confirmed after ledger catch-up: ${final.error.message}. Reload Books & setup.`, true);
-          return;
+      /* Report the setting that is actually in force, not the one this press
+         chose: the catch-up loop can run for minutes and another finance tab
+         can commit in that time. Reading it back costs one select and keeps
+         the card, the ledger work and the stored answer aligned. A read that
+         fails is not evidence the setting moved, so the choice this press
+         committed stands as what is reported. */
+      let drifted = false;
+      const fresh = await db.from('accounting_settings').select('*')
+        .eq('company_entity_id', companyId).maybeSingle();
+      if (!fresh.error && fresh.data) {
+        drifted = !!settings && (fresh.data.bookkeeping_mode !== settings.bookkeeping_mode
+          || (fresh.data.silo_takeover_on || '') !== (settings.silo_takeover_on || ''));
+        settings = fresh.data;
+        render();
+      }
+      status([
+        drifted
+          ? 'Someone else changed this setting while SILO’s ledger was catching up, so this is the setting now in force, not the one you chose:'
+          : (unchanged ? 'Ledger checked.' : 'Saved.'),
+        `${stateLabel(settings)}.`,
+        outstanding
+          ? `${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
+          : 'Nothing was sent to QuickBooks.',
+      ].join(' '), !!outstanding || drifted);
+    }
+
+    /* A refusal that names a count asks the reader to resolve something they
+       cannot see. P0BM3 is the one that can, so it is the one that fetches the
+       list. Every other refusal already says what to do; it is not restated in
+       different words here. */
+    async function reportSaveError(error) {
+      let extra = '';
+      if (error.code === 'P0BM3') {
+        const list = await db.rpc('silo_open_posting_claims').catch(() => null);
+        const rows = ((list && !list.error && list.data) || []).filter((r) => r.blocks_handover);
+        if (rows.length) {
+          extra = ` ${rows.map((r) => `${r.source} ${r.source_ref}`
+            + `${r.period_end ? ` for ${longDate(r.period_end)}` : ''}: ${r.reason} ${r.resolve_where}`).join(' ')}`;
         }
       }
-      status(outstanding
-        ? `Saved. ${stateLabel(settings)}. ${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
-        : `Saved. ${stateLabel(settings)}. Nothing was sent to QuickBooks.`, !!outstanding);
+      const next = (error.code === 'P0BM1' || error.code === 'P0BM4')
+        ? ' Reload Books & setup and review the current setting.'
+        : ' Nothing was saved and nothing was sent.';
+      status(`${error.message}${extra}${next}`, true);
     }
 
     host.addEventListener('change', (event) => {
@@ -238,5 +283,5 @@
     await read();
   }
 
-  window.SiloBooksMode = { mount, stateLabel, validate, confirmText };
+  window.SiloBooksMode = { mount, stateLabel, validate, confirmText, windowFor };
 })();

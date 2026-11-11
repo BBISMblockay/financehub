@@ -38,13 +38,27 @@ test('a takeover date that would stop the month in hand is refused before anythi
   assert.equal(M.validate('silo', '2026-09-01', TODAY, BOOKS), '', 'the real case must pass');
   assert.equal(M.validate('silo', '', TODAY, BOOKS), '', 'no date means every period is SILO’s');
   assert.equal(M.validate('silo', TODAY, TODAY, BOOKS), '', 'today itself is a legitimate takeover day');
-  assert.match(M.validate('silo', '2026-12-01', TODAY, BOOKS), /in the future/,
-    'a date ahead of today would stop SILO posting the months being worked on now');
-  assert.match(M.validate('silo', '2026-07-01', TODAY, BOOKS), /books start/,
-    'before the books start it would read as a setting that did not take');
+  assert.match(M.validate('silo', '2026-12-01', TODAY, BOOKS), /is after October 15, 2026/,
+    'a date ahead of the window would stop SILO posting the months being worked on now');
+  assert.match(M.validate('silo', '2026-07-01', TODAY, BOOKS), /from August 1, 2026 onward/,
+    'before the window opens it would read as a setting that did not take');
   assert.match(M.validate('silo', 'september', TODAY, BOOKS), /YYYY-MM-DD/);
   assert.equal(M.validate('qbo', '2026-12-01', TODAY, BOOKS), '',
     'the date belongs to the other answer and is not judged here');
+});
+
+test('the takeover window is the company\u2019s own, not a rule written twice', () => {
+  /* The server enforces accounting_settings.takeover_earliest_on /
+     takeover_latest_on, falling back to the books start and the business day.
+     The picker reads the same two columns, so it cannot offer a date the save
+     will refuse. */
+  const plain = (w) => [w.earliest, w.latest];
+  assert.deepEqual(plain(M.windowFor({ accounting_start_date: BOOKS }, TODAY, BOOKS)), [BOOKS, TODAY]);
+  assert.deepEqual(
+    plain(M.windowFor({ takeover_earliest_on: '2026-09-01', takeover_latest_on: '2026-09-30' }, TODAY, BOOKS)),
+    ['2026-09-01', '2026-09-30']);
+  assert.equal(M.validate('silo', '2026-09-15', '2026-09-30', '2026-09-01'), '', 'inside a narrowed window');
+  assert.match(M.validate('silo', '2026-08-15', '2026-09-30', '2026-09-01'), /from September 1, 2026 onward/);
 });
 
 test('handing the books back says what it costs, in full, before it happens', () => {
@@ -74,7 +88,7 @@ test('choosing SILO says what the date does, and what it does not override', () 
 
 // Run the mounted event/RPC path, not only exported wording helpers. Database
 // responses are synthetic here; enforcement is exercised in the SQL suites.
-async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema = false } = {}) {
+async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema = false, after = null } = {}) {
   const calls = [];
   const listeners = {};
   const controls = {
@@ -87,17 +101,25 @@ async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema
   const host = { hidden: false, querySelector: (s) => controls[s] ||= { innerHTML: '' }, addEventListener: (type, fn) => { listeners[type] = fn; } };
   const saved = { bookkeeping_mode: 'silo', silo_takeover_on: null, accounting_start_date: BOOKS,
     ...(oldSchema ? {} : { bookkeeping_version: version }) };
+  let settingsReads = 0;
+  let committed = null;
   const db = {
     from(table) {
-      const result = { data: table === 'accounting_settings' ? saved : [{ id: 'source-a', display_name: 'Bank' }] };
+      if (table === 'accounting_settings') settingsReads += 1;
+      // `after` is what a LATER read of the row returns: the catch-up loop can
+      // run for minutes and another finance tab can commit inside it.
+      const row = table === 'accounting_settings'
+        ? (settingsReads > 1 ? (after || committed || saved) : saved) : null;
+      const result = { data: row || [{ id: 'source-a', display_name: 'Bank' }] };
       return { select() { return this; }, eq() { return this; }, maybeSingle: async () => result, order: async () => result };
     },
     async rpc(name, args) {
       calls.push({ name, args: { ...args } });
       if (rpc) return rpc(name, args, calls);
       if (name === 'silo_ledger_resync_posting_start') return { data: 0 };
-      return { data: { ...saved, bookkeeping_mode: args.p_mode, silo_takeover_on: args.p_takeover,
-        ...(oldSchema ? {} : { bookkeeping_version: args.p_expected_version + (args.p_expected_version === version ? 1 : 0) }) } };
+      committed = { ...saved, bookkeeping_mode: args.p_mode, silo_takeover_on: args.p_takeover,
+        ...(oldSchema ? {} : { bookkeeping_version: args.p_expected_version + (args.p_expected_version === version ? 1 : 0) }) };
+      return { data: committed };
     },
   };
   const localWindow = { SiloFinanceDialog: { ask: confirm } };
@@ -110,19 +132,20 @@ async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema
     return button;
   };
   const drain = async () => { for (let i = 0; i < 15; i++) await new Promise(setImmediate); };
-  return { calls, controls, click, drain, text: () => controls['[data-mode-status]'].innerHTML };
+  return { calls, controls, click, drain, reads: () => settingsReads, text: () => controls['[data-mode-status]'].innerHTML };
 }
 
-test('mounted save binds the reviewed company/version and checks again after ledger catch-up', async () => {
+test('mounted save binds the reviewed company/version and reports the committed setting', async () => {
   const ui = await mounted();
   ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
   ui.click(); await ui.drain();
   assert.equal(ui.calls[0].name, 'set_bookkeeping_mode_checked');
   assert.deepEqual(ui.calls[0].args, { p_mode: 'qbo', p_takeover: null, p_company: 'company-a', p_expected_version: 4 });
   assert.equal(ui.calls[1].name, 'silo_ledger_resync_posting_start');
-  assert.equal(ui.calls[2].name, 'set_bookkeeping_mode_checked');
-  assert.equal(ui.calls[2].args.p_expected_version, 5);
+  assert.equal(ui.calls.length, 2, 'the catch-up is followed by a read, not a second write');
+  assert.ok(ui.reads() > 1, 'the setting in force is read back after the catch-up');
   assert.match(ui.text(), /Saved/);
+  assert.match(ui.text(), /Nothing was sent to QuickBooks/);
 });
 
 test('stale or refused checked save never falls back or starts catch-up', async () => {
@@ -135,11 +158,15 @@ test('stale or refused checked save never falls back or starts catch-up', async 
   assert.doesNotMatch(ui.text(), /Saved\./);
 });
 
-test('unchanged Save still checks the reviewed version before catch-up', async () => {
-  const ui = await mounted({ confirm: async () => { throw new Error('unchanged must not reconfirm'); } });
+test('unchanged Save resumes the ledger catch-up and writes nothing', async () => {
+  /* Pressing Save with nothing changed is the documented way to resume a
+     catch-up that could not finish in one pass. It must not depend on the mode
+     version, or a tab that saved in between leaves the ledger half reconciled
+     with no way to carry on. */
+  const ui = await mounted({ version: 4, confirm: async () => { throw new Error('unchanged must not reconfirm'); } });
   ui.click(); await ui.drain();
-  assert.equal(ui.calls[0].name, 'set_bookkeeping_mode_checked');
-  assert.equal(ui.calls[0].args.p_expected_version, 4);
+  assert.deepEqual(ui.calls.map((c) => c.name), ['silo_ledger_resync_posting_start']);
+  assert.match(ui.text(), /Ledger checked/);
 });
 
 test('assets before migration preserve the old RPC without downgrading checked failures', async () => {
@@ -163,15 +190,38 @@ test('cancel and rapid repeated clicks do not dispatch duplicate decisions', asy
   assert.equal(first.disabled, false);
 });
 
-test('a setting changed during catch-up is not reported as current', async () => {
-  let checks = 0;
-  const ui = await mounted({ rpc: async (name, args) => {
-    if (name === 'silo_ledger_resync_posting_start') return { data: 0 };
-    if (++checks === 1) return { data: { bookkeeping_mode: args.p_mode, silo_takeover_on: null, bookkeeping_version: 5 } };
-    return { error: { code: 'P0BM4', message: 'Changed in another tab' } };
+test('a setting changed during catch-up is reported as what is now in force', async () => {
+  const ui = await mounted({ after: { bookkeeping_mode: 'silo', silo_takeover_on: null,
+    accounting_start_date: BOOKS, bookkeeping_version: 6 } });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.match(ui.text(), /Someone else changed this setting/);
+  assert.match(ui.text(), /SILO keeps the books/, 'the setting in force, not the one this press chose');
+  assert.doesNotMatch(ui.text(), /QuickBooks keeps the books/);
+});
+
+test('a refused handover names the open posts and where each one is resolved', async () => {
+  /* A count on its own asks the reader to go and resolve something they
+     cannot see, so P0BM3 -- the one refusal that can -- fetches the list. */
+  const ui = await mounted({ rpc: async (name) => {
+    if (name === 'silo_open_posting_claims') {
+      return { data: [
+        { source: 'card_import', source_ref: 'batch-1', period_end: '2026-09-30', blocks_handover: true,
+          period_owner: 'silo', reason: 'SILO owns Synthetic bank from September 1, 2026, and this post\u2019s outcome is unknown.',
+          resolve_where: 'Open the import in Transactions, check QuickBooks, then post it or confirm it was not posted.' },
+        { source: 'journal_entry', source_ref: 'old-1', period_end: '2026-07-31', blocks_handover: false,
+          period_owner: 'outside', reason: 'QuickBooks owned this period.', resolve_where: 'ignored' },
+      ] };
+    }
+    return { error: { code: 'P0BM3', message: 'There are 1 QuickBooks posting attempt(s) still sending or with an unknown outcome.' } };
   } });
   ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
   ui.click(); await ui.drain();
-  assert.match(ui.text(), /could not be confirmed after ledger catch-up/);
-  assert.doesNotMatch(ui.text(), /Nothing was sent to QuickBooks/);
+  assert.deepEqual(ui.calls.map((c) => c.name), ['set_bookkeeping_mode_checked', 'silo_open_posting_claims'],
+    'no ledger catch-up runs after a refused handover');
+  assert.match(ui.text(), /batch-1/);
+  assert.match(ui.text(), /Open the import in Transactions/);
+  assert.match(ui.text(), /Nothing was saved and nothing was sent/);
+  assert.doesNotMatch(ui.text(), /old-1/, 'setup history is not what the reader has to go and resolve');
+  assert.doesNotMatch(ui.text(), /Reload Books/, 'reloading does not clear an unresolved post');
 });

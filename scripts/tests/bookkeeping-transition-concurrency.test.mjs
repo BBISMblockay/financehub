@@ -3,8 +3,8 @@
 // Creates/drops ONLY its uniquely named synthetic database. No DATABASE_URL fallback.
 // SILO_PG_REQUIRED=1 makes unavailable PostgreSQL fail CI instead of skipping.
 // BOOKKEEPING_TRANSITION_MUTATION=claim-lock-removed|mode-lock-removed
-//   |stale-version-bypass|trigger-order-first must fail this suite.
-// BOOKKEEPING_TRANSITION_RACE_ONLY=1..8 isolates each race for mutation evidence. Locks are observed through
+//   |stale-version-bypass|trigger-order-first|sibling-guards-insert-only must fail this suite.
+// BOOKKEEPING_TRANSITION_RACE_ONLY=1..9 isolates each race for mutation evidence. Locks are observed through
 // pg_stat_activity, never inferred from a sleep or a single-connection test.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -29,7 +29,7 @@ async function connect(application_name) {
 }
 let passed=0, caseNumber=0;
 const only=process.env.BOOKKEEPING_TRANSITION_RACE_ONLY;
-assert.ok(!only || /^[1-8]$/.test(only), 'BOOKKEEPING_TRANSITION_RACE_ONLY must be 1..8');
+assert.ok(!only || /^[1-9]$/.test(only), 'BOOKKEEPING_TRANSITION_RACE_ONLY must be 1..9');
 async function test(title, fn) { caseNumber++; if(only && Number(only)!==caseNumber) return; await fn(); console.log(`ok ${++passed} - ${title}`); }
 const c=fixtureIds();
 let created=false;
@@ -131,6 +131,36 @@ try {
       await user(b);
     });
   }
+  await test('Card batch claim RE-ENTERING submitting vs reapproval: refused without deadlock',async()=>{
+    /* The three sibling guards now cover UPDATE as well as INSERT, so an
+       existing row moved back into submitting takes the same locks in the same
+       order (plaid account, batch, company). If it took them in any other
+       order against a held reapproval this deadlocks instead of waiting. */
+    const batch=randomUUID();
+    await ctl.query(batchSeedSql(c,batch));
+    await a.query('select approve_card_import_batch($1)',[batch]);
+    const snapshot=(await ctl.query('select approval_hash,approval_snapshot from card_import_batches where id=$1',[batch])).rows[0];
+    const id=randomUUID();
+    await ctl.query(claimSql(c,{id,status:'failed',source:'card_import',sourceRef:batch,hash:snapshot.approval_hash,payload:snapshot.approval_snapshot.payload}));
+    await a.query('begin');
+    await a.query('select reopen_card_import_batch($1,$2)',[batch,'Synthetic reapproval race']);
+    await a.query("update card_import_batches set label='Changed review' where id=$1",[batch]);
+    await b.query('reset role');
+    const pending=result(b.query("update quickbooks_journal_postings set status='submitting' where id=$1",[id]));
+    const waited=await blocked('transition-b');
+    const approved=await result(a.query('select approve_card_import_batch($1)',[batch]));
+    await a.query(approved.error?'rollback':'commit');
+    const claimed=await pending;
+    assert.ok(waited,'the re-entry must wait on the batch held by reapproval');
+    assert.notEqual(claimed.error?.code,'40P01','re-entry and reapproval must not deadlock');
+    assert.equal(claimed.error?.code,'P0OD1',claimed.error?.message);
+    assert.equal((await ctl.query('select status from quickbooks_journal_postings where id=$1',[id])).rows[0].status,'failed');
+    await reset();
+    await a.query('select reopen_card_import_batch($1,$2)',[batch,'Synthetic cleanup']);
+    await ctl.query('delete from card_transactions where batch_id=$1',[batch]);
+    await ctl.query('delete from card_import_batches where id=$1',[batch]);
+    await user(b);
+  });
   console.log(`\n${passed} bookkeeping transition races passed against real PostgreSQL.`);
 } finally {
   await Promise.all(sessions.map(s=>s.end().catch(()=>{})));

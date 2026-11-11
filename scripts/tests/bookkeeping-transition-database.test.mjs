@@ -1,17 +1,21 @@
 // First accounting safety slice: execute real migrations, not a model of the RPC.
 // Mutations are applied only to local SQL by the shared fixture. Each must fail:
 // BOOKKEEPING_TRANSITION_MUTATION=claim-check-removed|stale-version-bypass
-//   |company-boundary-bypass|date-bypass|pending-claims-ignored|update-guard-removed
+//   |company-boundary-bypass|date-bypass|window-not-configurable|pending-claims-ignored
+//   |blocking-claims-widened|unplaceable-read-as-setup|update-guard-removed
+//   |sibling-guards-insert-only
 // Production auth helpers are represented by finance-db/bootstrap.sql; this is
 // regression evidence for the real finance SQL, not production policy parity.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
-import { baseSql, transitionSql, fixtureIds, seedSql, claimSql, batchSeedSql } from './bookkeeping-transition-fixture.mjs';
+import { readFile } from 'node:fs/promises';
+import { baseSql, transitionSql, fixtureIds, seedSql, claimSql, batchSeedSql, root } from './bookkeeping-transition-fixture.mjs';
 const db = new PGlite({ extensions: { pgcrypto } });
 const c = fixtureIds();
 const q = async (sql, args=[]) => (await db.query(sql,args)).rows;
+const day=(v)=>(v instanceof Date ? v.toISOString() : String(v??'')).slice(0,10);
 const state = async () => (await q('select * from accounting_settings where company_entity_id=$1',[c.co]))[0];
 async function as(uid, fn, role='authenticated') {
   await q("select set_config('request.jwt.claim.sub',$1,false)",[uid || '']);
@@ -53,11 +57,17 @@ try {
     assert.equal(Number((await state()).bookkeeping_version),1);
     await reset();
   });
-  await test('CAS rejects stale/null versions even for no-op; changes increment exactly once',async()=>{
-    await denied(()=>save('silo',null,null),'P0BM4');
+  await test('CAS rejects stale/null versions on a change; an identical write stays connected',async()=>{
+    /* An identical write is how the card resumes a ledger catch-up it could
+       not finish in one pass. It changes nothing, so neither a version another
+       tab has moved on nor a window tightened since may refuse it -- otherwise
+       the reader cannot finish reversing or reconciling the ledger. Every
+       write that DOES change something is still compare-and-set. */
+    assert.equal((await save('silo',null,null))[0].bookkeeping_mode,'silo');
     await save('silo'); assert.equal(Number((await state()).bookkeeping_version),0);
     await save('silo','2026-09-01'); assert.equal(Number((await state()).bookkeeping_version),1);
-    await denied(()=>save('silo','2026-09-01',0),'P0BM4');
+    assert.ok((await save('silo','2026-09-01',0))[0].silo_takeover_on,'an identical write returns the committed row');
+    assert.equal(Number((await state()).bookkeeping_version),1);
     await denied(()=>save('qbo',null,0),'P0BM4');
     await save('silo','2026-09-01',1); assert.equal(Number((await state()).bookkeeping_version),1);
     await save('qbo','infinity',1); assert.equal(Number((await state()).bookkeeping_version),2);
@@ -114,7 +124,11 @@ try {
       for (const status of ['failed','voided','unknown']) {
         const id=randomUUID();
         await db.exec(claimSql(c,{source,status,id}));
-        await denied(()=>q("update quickbooks_journal_postings set status='submitting' where id=$1",[id]),'P0PS2');
+        /* Re-entry into submitting is refused. For a card import the three
+           sibling guards now cover the UPDATE too and speak first, so what
+           matters is that the row cannot move, not which guard says so. */
+        if(source==='card_import') await assert.rejects(()=>q("update quickbooks_journal_postings set status='submitting' where id=$1",[id]),/not found for posting claim|QuickBooks keeps the books|approved entry changed/);
+        else await denied(()=>q("update quickbooks_journal_postings set status='submitting' where id=$1",[id]),'P0PS2');
         await q("update quickbooks_journal_postings set status='unknown' where id=$1",[id]);
         await q("update quickbooks_journal_postings set status='posted',qbo_journal_entry_id='receipt' where id=$1",[id]);
         assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[id]))[0].status,'posted');
@@ -135,6 +149,125 @@ try {
       assert.match(e.message,/QuickBooks keeps the books/); return true;
     });
     assert.equal(Number((await q('select count(*) as n from quickbooks_journal_postings'))[0].n),0);
+  });
+  await test('pre-takeover history is listed, never released, and does not hold up the handover',async()=>{
+    await reset();
+    /* Leftover approved imports from the fixtures above would block the
+       handover on their own (P0BM2), which is not what this test is about. */
+    for (const b of await q("select id from card_import_batches where status in ('approved','posted')")) {
+      await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[b.id,'Synthetic cleanup before the handover tests']));
+      await q('delete from card_transactions where batch_id=$1',[b.id]);
+      await q('delete from card_import_batches where id=$1',[b.id]);
+    }
+    /* The months handled outside SILO. The approval trigger refuses any new
+       send for them, so no send can be open and nothing is in doubt about
+       SILO's own ledger -- but the row is still there, still says why, and is
+       not rewritten. */
+    const old=randomUUID();
+    await db.exec(claimSql(c,{status:'unknown',id:old,periodStart:'2026-07-01',periodEnd:'2026-07-31'}));
+    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
+    assert.equal(listed.length,1);
+    assert.equal(listed[0].blocks_handover,false);
+    assert.equal(listed[0].period_owner,'outside');
+    assert.equal(day(listed[0].owned_from),'2026-08-01','the date that settles who owned the period is shown');
+    assert.equal(listed[0].account,'journal_entry');
+    assert.match(listed[0].reason,/QuickBooks owned this period/);
+    assert.match(listed[0].reason,/setup history rather than an unresolved post/);
+    await save(); assert.equal((await state()).bookkeeping_mode,'qbo');
+    assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[old]))[0].status,'unknown');
+    await reset();
+  });
+  await test('an in-scope open claim blocks, and the refusal names what to resolve',async()=>{
+    await db.exec(claimSql(c,{status:'unknown',periodStart:'2026-09-01',periodEnd:'2026-09-30'}));
+    const e=await save().catch((err)=>err);
+    assert.equal(e.code,'P0BM3');
+    assert.match(e.message,/journal_entry/);
+    assert.match(e.message,/check QuickBooks/);
+    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
+    assert.equal(listed[0].blocks_handover,true);
+    assert.equal(listed[0].period_owner,'silo');
+    assert.match(listed[0].reason,/SILO owns/);
+    assert.match(listed[0].reason,/outcome is unknown/);
+    assert.match(listed[0].resolve_where,/check QuickBooks/);
+    assert.match(e.message,/a period SILO owns/);
+    // The list is finance-only and never reaches another tenant's claims.
+    for (const user of [c.member,c.admin]) assert.deepEqual(await as(user,()=>q('select * from silo_open_posting_claims()')),[]);
+    await db.exec(claimSql(c,{status:'unknown',company:c.other,connection:c.otherConn}));
+    assert.equal((await as(c.finance,()=>q('select * from silo_open_posting_claims()'))).length,1);
+    await reset();
+  });
+  await test('a period nobody can place is not read as setup history',async()=>{
+    /* During a build the trial balance, the Plaid history and a handover date
+       overlap, and a claim can arrive with no period at all. Not knowing who
+       owned a period is not evidence that SILO did not, so it still counts. */
+    await db.exec(claimSql(c,{status:'unknown'}));
+    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
+    assert.equal(listed[0].period_owner,'unknown');
+    assert.equal(listed[0].blocks_handover,true);
+    await denied(()=>save(),'P0BM3');
+    await reset();
+  });
+  await test('the takeover window comes from the company row, and the floor agrees with the live posting start',async()=>{
+    const window=async()=>(await q('select * from silo_takeover_window($1)',[c.co]))[0];
+    assert.equal(day((await window()).earliest),'2026-08-01');
+    assert.equal(day((await window()).latest),'2026-10-15');
+    await q("update accounting_settings set takeover_earliest_on='2026-09-01',takeover_latest_on='2026-09-30' where company_entity_id=$1",[c.co]);
+    assert.equal(day((await window()).earliest),'2026-09-01');
+    await denied(()=>save('silo','2026-08-15',0),'22023');
+    await denied(()=>save('silo','2026-10-01',0),'22023');
+    await save('silo','2026-09-15',0);
+    assert.equal(Number((await state()).bookkeeping_version),1);
+    await q('update accounting_settings set takeover_earliest_on=null,takeover_latest_on=null where company_entity_id=$1',[c.co]);
+    /* The floor silo_claim_blocks_handover uses mirrors the ELSE branch of
+       silo_posting_start_for_source on purpose: the whole function answers
+       infinity in reporting-only, which would make every claim look
+       pre-takeover exactly when the question is asked. In 'silo' mode the two
+       must agree, or the claim and the ledger disagree about one date. */
+    await save('silo',null,1);
+    const live=(await q('select silo_posting_start_for_source(s.*) as d from card_sources s where s.id=$1',[c.source]))[0].d;
+    const batch=randomUUID(); await db.exec(batchSeedSql(c,batch));
+    const id=randomUUID();
+    await db.exec(claimSql(c,{status:'unknown',id,source:'card_import',sourceRef:batch,periodEnd:day(live)}));
+    assert.equal((await as(c.finance,()=>q('select blocks_handover from silo_open_posting_claims()')))[0].blocks_handover,true,
+      'a period ending ON the posting start is SILO\'s own');
+    await q("update quickbooks_journal_postings set period_end=$2 where id=$1",[id,'2026-07-31']);
+    assert.equal((await as(c.finance,()=>q('select blocks_handover from silo_open_posting_claims()')))[0].blocks_handover,false);
+    await q('delete from quickbooks_journal_postings where id=$1',[id]);
+    await q('delete from card_transactions where batch_id=$1',[batch]);
+    await q('delete from card_import_batches where id=$1',[batch]);
+    await reset();
+  });
+  await test('a claim moved back into submitting after a reapproval is refused by the approval match',async()=>{
+    /* The gap the sibling guards leave if they stay INSERT-only: the mode
+       guard would pass this row while the approval it claims no longer
+       exists. Finance approval remains the authority -- a claim that still
+       matches its approval is not slowed down by any of this. */
+    const batch=randomUUID(); await db.exec(batchSeedSql(c,batch));
+    await as(c.finance,()=>q('select approve_card_import_batch($1)',[batch]));
+    const first=(await q('select approval_hash,approval_snapshot from card_import_batches where id=$1',[batch]))[0];
+    const id=randomUUID();
+    await db.exec(claimSql(c,{source:'card_import',status:'failed',id,sourceRef:batch,hash:first.approval_hash,payload:first.approval_snapshot.payload}));
+    await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[batch,'Reviewed again before sending']));
+    // Recoded while it was open: this is the entry nobody now approves.
+    await q("update card_transactions set qbo_account_id='bank',qbo_account_name='Bank' where batch_id=$1",[batch]);
+    await as(c.finance,()=>q('select approve_card_import_batch($1)',[batch]));
+    const again=(await q('select approval_hash from card_import_batches where id=$1',[batch]))[0];
+    assert.notEqual(again.approval_hash,first.approval_hash,'reapproval must move the hash');
+    await denied(()=>q("update quickbooks_journal_postings set status='submitting' where id=$1",[id]),'P0OD1');
+    assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[id]))[0].status,'failed');
+    await q('delete from quickbooks_journal_postings where id=$1',[id]);
+  });
+  await test('the production schema check agrees with this migration: both blocks read ok',async()=>{
+    /* Nothing else runs these before production does, so a check that no
+       longer matches the migration first shows up as a red drift run. */
+    await reset();
+    const verify=await readFile(new URL('supabase/verify_v2_schema.sql',root),'utf8');
+    for (const name of ['Bookkeeping mode','Bookkeeping checked transition safety']) {
+      const from=verify.indexOf(`select '${name}' as check_name`);
+      assert.ok(from>=0,`the ${name} check exists`);
+      const statement=verify.slice(from,verify.indexOf(';\n',from)+1);
+      assert.equal((await q(statement))[0].status,'ok',name);
+    }
   });
   console.log(`\n${passed} bookkeeping transition database tests passed.`);
 } finally { await db.close(); }
