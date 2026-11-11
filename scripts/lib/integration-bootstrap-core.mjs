@@ -27,7 +27,7 @@
 
 /** Shopify's first sync is two stages, not one `full` run.
  *
- * `full` mode would do the 60-day order history AND the nine other stages in
+ * `full` mode would do the two-year order history AND the nine other stages in
  * one process. Splitting them means the long stage is alone: if the history
  * import dies at day 40, the resume re-runs only the history, and the stock,
  * catalog and analytics that already landed are not fetched again. It also
@@ -87,6 +87,15 @@ const SHOPIFY_STAGES = [
  * integration row with its own (much longer) backfill, and ADS_SKIP_ORGANIC
  * is not: a newly connected Meta account's organic posts are part of what
  * someone connected it to see.
+ *
+ * META IS THE ONE PLATFORM THAT DOES NOT TAKE `adsDaysBack`. A new Meta
+ * connection already has its own first-run import (meta-history-backfill.mjs,
+ * META_HISTORY_DAYS = 365), and `planMetaHistory` takes the LARGER of the two
+ * windows -- so passing the wider default here would silently widen that
+ * import to match while `metaAfterHistory` went on recording
+ * `history_backfill_days: 365`, and the ad-level pass chunks at ONE day, so
+ * the widening is a request per extra day. Meta's depth belongs to Meta's
+ * module; this option is for the platforms that have no module of their own.
  */
 const adStages = (platform) => [
   {
@@ -96,7 +105,7 @@ const adStages = (platform) => [
       ADS_ONLY_CONNECTION_ID: job.connection_id,
       ADS_ONLY_COMPANY_ID: job.company_entity_id,
       ADS_ONLY_PLATFORM: platform,
-      ADS_DAYS_BACK: String(opts.adsDaysBack),
+      ADS_DAYS_BACK: String(platform === 'meta_ads' ? opts.metaAdsDaysBack : opts.adsDaysBack),
       ADS_SKIP_SEARCH_CONSOLE: 'true',
     }),
   },
@@ -146,6 +155,11 @@ const REDO_STAGES = [
     env: (job, opts) => ({
       REDO_MARKETING_COMPANY_ID: job.company_entity_id,
       REDO_MARKETING_START: opts.redoMarketingStart || '',
+      // Only consulted when no explicit start date was given: the script
+      // prefers REDO_MARKETING_START and falls back to this trailing window,
+      // whose own default is the 60 days a nightly wants rather than the
+      // history a first connect wants.
+      REDO_MARKETING_DAYS_BACK: String(opts.redoMarketingDays),
     }),
   },
 ];
@@ -196,18 +210,73 @@ export const BOOTSTRAP_PLANS = {
  * legitimately carries no connection_id. */
 export const COMPANY_SCOPED_INTEGRATIONS = new Set(['redo', 'klaviyo']);
 
+/** How much history a first connect asks each source for.
+ *
+ * THE RULE THESE NUMBERS SERVE (Blake, 2026-11-11): a first connect pulls as
+ * much history as the source will give, and the nightly keeps it current.
+ * Audited 2026-11-11 and widened, because the old numbers asked for a
+ * fraction of what every source serves -- and the two-year Shopify history
+ * each live tenant has turned out to be a HUMAN pressing "Start import" on
+ * the Integrations page (State Forty Eight's oldest sales row carries
+ * `sync_batch_id = 'ui-1791916232787'`), not something SILO pulled. An
+ * onboarding step somebody has to remember is not a default.
+ *
+ * ASKING FOR MORE THAN A SOURCE HOLDS IS SAFE, which is what makes one
+ * number right for every tenant. Shopify answers a window past its 60-day
+ * cap with HTTP 200 and nothing, and `windowFullyReadable` already refuses to
+ * purge on that answer, so a store without `read_all_orders` lands exactly
+ * what it would have before. GA4 and Google Ads return the days inside the
+ * property's retention and omit the rest. TikTok's day-grain report caps a
+ * RANGE at 30 days, not a depth, and `fetchTiktokAdsRows` already chunks to
+ * it. Redo refuses a request over 400 days, which is why that is the number.
+ */
 export const BOOTSTRAP_DEFAULTS = {
-  // 60 days, matching what a store without read_all_orders can return at all
-  // (Shopify caps order history at 60 days without that scope), so the
-  // default asks for exactly what is gettable rather than failing on day 61.
-  shopifyHistoryDays: 60,
-  shopifySessionsDays: 90,
+  // Two years, so year-over-year works on the day a store connects. It was 60
+  // -- what a store WITHOUT read_all_orders can return at all -- which made
+  // the floor every store got, not just the capped ones.
+  //
+  // This is the one long stage. It runs alone (see SHOPIFY_STAGES), commits
+  // per window, and resumes from its cursor, so the ~5 bootstrap attempts are
+  // five chances to finish the same plan rather than five fresh starts.
+  // Measured: State Forty Eight's 730-day import took 247s.
+  shopifyHistoryDays: 730,
+  // Shopify serves well past 90 -- Baseballism holds 806 days of sessions
+  // from a hand-run 730 -- and year-over-year traffic is half of what
+  // sessions are for. 730 is also exactly the ceiling the code already
+  // enforces: runSessionsSync clamps to SHOPIFYQL_MAX_DAYS (730), one wide
+  // window rather than a query per day, so this asks for the maximum and
+  // cannot ask for more by mistake.
+  shopifySessionsDays: 730,
+  // Stays at 30: landing pages cost one ShopifyQL query PER DAY (see
+  // runLandingPagesSync for why it cannot be one window), so this is the one
+  // window bounded by its own cost rather than by the source.
   shopifyLandingPagesDays: 30,
-  shopifyDiscountCodesDays: 30,
-  adsDaysBack: 90,
+  // A year, so a promo can be compared with last year's run of it.
+  //
+  // This stage costs one ShopifyQL query PER DAY, like landing pages -- so
+  // unlike the other numbers here, this one is not "what the source serves"
+  // but a deliberate 365 round trips, bought once per connect, because
+  // Shopify discount codes ARE affiliate codes (runDiscountCodesSync says so)
+  // and the affiliate year-over-year read has no other source. It must stay
+  // equal to DISCOUNT_CODES_MAX_DAYS in shopify-sync-core.mjs, which is a cost
+  // ceiling, not a limit of the source: when that ceiling was lower (120) it
+  // truncated this request in silence -- the worker returned normally and the
+  // stage recorded done, so a store with a promotion 200 days ago imported
+  // none of it (found in review of #1244).
+  shopifyDiscountCodesDays: 365,
+  // Google Ads and TikTok both serve years; GA4 returns whatever its property
+  // retains. Not used for Meta -- see adStages.
+  adsDaysBack: 730,
+  // Meta's own first-run import owns Meta's depth. Here only so that
+  // `planMetaHistory`'s max() cannot be raised from the outside by a change
+  // to `adsDaysBack`.
+  metaAdsDaysBack: 365,
   searchConsoleDays: 480,
   redoReturnsStart: '',
   redoMarketingStart: '',
+  // One Redo request's maximum. The core chunks anything wider, so this is
+  // the deepest single-request window rather than a cap on the backfill.
+  redoMarketingDays: 400,
   // Blank klaviyoStart means "use the trailing window below" rather than a
   // dated backfill: nobody has measured yet how far back Klaviyo's reporting
   // stays trustworthy, so the first sync asks for a year and no more.

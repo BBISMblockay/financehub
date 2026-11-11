@@ -2080,9 +2080,11 @@ export async function runMetaOrganicSync(supabase, connection, {
  * integrated report whose `dimensions` include `stat_time_day` refuses a date
  * range wider than 30 days (365 is the cap only WITHOUT the day dimension).
  * The nightly asks for 30 and so never met it, but the first-connect
- * bootstrap asks for 90 (BOOTSTRAP_DEFAULTS.adsDaysBack) -- that request
- * would have come back as a TikTok error and imported nothing, so a new
- * customer's TikTok card would have sat empty with no row to explain why.
+ * bootstrap asks for 730 (BOOTSTRAP_DEFAULTS.adsDaysBack, widened from 90 on
+ * 2026-11-11) -- that request would have come back as a TikTok error and
+ * imported nothing, so a new customer's TikTok card would have sat empty with
+ * no row to explain why. The depth is what the chunking makes gettable: the
+ * 30 days is a limit on each RANGE, not on how far back TikTok will go.
  * Chunking also keeps each page under the 20,000-ad synchronous-report limit.
  */
 export async function fetchTiktokAdsRows(connection, window, { chunkDays = 30 } = {}) {

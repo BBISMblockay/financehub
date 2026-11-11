@@ -50,9 +50,11 @@ on:
 jobs:
   integration-bootstrap:
     runs-on: ubuntu-latest
-    # A first Shopify sync is a 60-day order history plus nine other stages,
+    # A first Shopify sync is a two-year order history plus nine other stages,
     # and the drainer takes up to five jobs sequentially. 330 matches
-    # shopify-sync.yml, whose longest stage this one spawns verbatim.
+    # shopify-sync.yml, whose longest stage this one spawns verbatim. A history
+    # import that runs out of clock is not lost: it commits per 30-day window
+    # and the next attempt resumes from its cursor.
     timeout-minutes: 330
 
     env:

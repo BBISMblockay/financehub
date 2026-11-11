@@ -843,6 +843,18 @@ jobs:
       - name: Landing-page backfill keeps partial progress and reports honestly
         run: node scripts/tests/landing-pages-backfill.test.mjs
 
+      # Discount codes is the OTHER stage that costs one ShopifyQL query per
+      # day, so its bound is a request budget rather than a limit of the
+      # source -- and a bound of that kind truncates in silence. Found in
+      # review of #1244: the first-connect plan was widened to ask for a year,
+      # the worker still clamped to 120, the run returned normally and the
+      # stage recorded done, and a store with a promo 200 days ago imported
+      # none of it. This asserts the day the PLAN asks for is a day Shopify is
+      # actually asked about -- a test of the constant would pass again the
+      # next time a worker bound is lowered underneath the plan.
+      - name: Discount codes query the depth the first connect asks for
+        run: node scripts/tests/discount-codes-depth.test.mjs
+
       # Ask SILO may now select SEO candidate pages itself and inspect up to
       # five. These pin the parts decided in code and prompt text: the
       # inspection budget, the trusted-URL contract (never assemble one, never

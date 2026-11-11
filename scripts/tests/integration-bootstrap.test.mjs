@@ -142,9 +142,58 @@ await test('both Shopify stages are scoped to the one connection', () => {
   }
 });
 
-await test('the first sync asks for 60 days of history, which is what a store without read_all_orders can return', () => {
-  assert.equal(BOOTSTRAP_DEFAULTS.shopifyHistoryDays, 60);
-  assert.equal(planBootstrap(shopJob)[0].env.SHOPIFY_HISTORY_DAYS, '60');
+await test('the first sync asks for two years of every window the source will serve, not a nightly-sized one', () => {
+  // The rule these numbers serve: a first connect pulls as much history as
+  // the source gives. They were 60/90/30/90, and the two-year history every
+  // live tenant has was a human pressing "Start import" rather than anything
+  // SILO asked for -- so a number that is merely gettable is not enough, it
+  // has to be what the source holds.
+  assert.equal(BOOTSTRAP_DEFAULTS.shopifyHistoryDays, 730);
+  assert.equal(BOOTSTRAP_DEFAULTS.shopifySessionsDays, 730);
+  assert.equal(BOOTSTRAP_DEFAULTS.shopifyDiscountCodesDays, 365);
+  assert.equal(BOOTSTRAP_DEFAULTS.adsDaysBack, 730);
+  assert.equal(BOOTSTRAP_DEFAULTS.redoMarketingDays, 400);
+  const [history, storefront] = planBootstrap(shopJob);
+  assert.equal(history.env.SHOPIFY_HISTORY_DAYS, '730');
+  assert.equal(storefront.env.SHOPIFY_SESSIONS_DAYS, '730');
+  assert.equal(storefront.env.SHOPIFY_DISCOUNT_CODES_DAYS, '365');
+});
+
+await test('landing pages stay at 30 days, because that window is bounded by its own cost', () => {
+  // One ShopifyQL query PER DAY (runLandingPagesSync says why it cannot be
+  // one window), so this is the only stage whose depth is not the source's to
+  // decide. Widening it with its siblings would be 730 queries per connect.
+  assert.equal(BOOTSTRAP_DEFAULTS.shopifyLandingPagesDays, 30);
+  assert.equal(planBootstrap(shopJob)[1].env.SHOPIFY_LANDING_PAGES_DAYS, '30');
+});
+
+await test('Meta keeps its own 365-day import and is never widened by adsDaysBack', () => {
+  // planMetaHistory takes max(daysBack, META_HISTORY_DAYS), so passing the
+  // wider default here would widen Meta's import to match while
+  // metaAfterHistory went on recording history_backfill_days: 365 -- and
+  // Meta's ad-level pass chunks at ONE day, so each extra day is a request.
+  const meta = planBootstrap({
+    integration: 'meta_ads', company_entity_id: 'co-1', connection_id: 'ad-m', stages: {},
+  });
+  assert.equal(meta[0].env.ADS_DAYS_BACK, '365');
+  for (const platform of ['google_ads', 'ga4', 'tiktok_ads']) {
+    const planned = planBootstrap({
+      integration: platform, company_entity_id: 'co-1', connection_id: 'ad-x', stages: {},
+    });
+    assert.equal(planned[0].env.ADS_DAYS_BACK, '730', `${platform} takes the wide default`);
+  }
+});
+
+await test("Redo marketing's first sync asks for Redo's deepest single request, not the nightly window", () => {
+  // The script prefers REDO_MARKETING_START and falls back to this trailing
+  // window, whose own default is the 60 days a nightly wants. Without it a
+  // first connect got 60 days of a source that serves 400 per request.
+  const [, marketing] = planBootstrap(
+    { integration: 'redo', company_entity_id: 'co-1', stages: {} },
+    { connection: { api_secret: 's' } },
+  );
+  assert.equal(marketing.env.REDO_MARKETING_DAYS_BACK, '400');
+  assert.equal(marketing.env.REDO_MARKETING_START, '');
 });
 
 await test('collections is enabled for a first sync, and only there', () => {
@@ -317,7 +366,7 @@ await test('the Shopify Test button only bootstraps a store that has never synce
   const body = retest.slice(0, retest.indexOf('\n    function '));
   // The same button says "Connect" for a new store and "Re-test" for one
   // that has been syncing for a year. Without this gate, pressing it on an
-  // established store would switch sync on (already on) and queue a 60-day
+  // established store would switch sync on (already on) and queue a two-year
   // history re-import: a paid call, and a write over data that is already
   // there.
   assert.match(body, /sync_enabled, last_test_success/, 'retest must read the flags BEFORE the test overwrites them');
