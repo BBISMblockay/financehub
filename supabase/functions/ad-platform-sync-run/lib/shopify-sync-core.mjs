@@ -3531,10 +3531,18 @@ const DISCOUNT_TOP_N = 200;
  */
 export const DISCOUNT_CODES_MAX_DAYS = 365;
 
-export async function runDiscountCodesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
+export async function runDiscountCodesSync(
+  supabase, connection, { sinceDays = 30, batchId = null, now = () => new Date() } = {},
+) {
   const days = Math.min(Math.max(Number(sinceDays) || 30, 1), DISCOUNT_CODES_MAX_DAYS);
   const iso = (d) => d.toISOString().slice(0, 10);
-  const today = new Date();
+  // `now` is injectable ONLY so a test can assert which days are queried
+  // against a fixed instant. A 365-day loop can straddle UTC midnight, and a
+  // test that reads the clock twice compares a window built before the
+  // rollover against an expectation built after it -- which is a flake, not a
+  // defect, and the costly kind: it points at the worker. Same shape as
+  // klaviyo-sync-core and windsor-sync-core. Production passes nothing.
+  const today = now();
 
   const rows = [];
   let clippedDays = 0;
