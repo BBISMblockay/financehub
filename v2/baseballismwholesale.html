@@ -1,26 +1,24 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Wholesale accounts</title>
-  <link rel="stylesheet" href="beacon.css" />
-  <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="tool-shell.css" />
-  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="v2-mobile.css" />
-  <script src="v2-shell.js" defer></script>
+  <title>SILO · Reports</title>
+  <script>
+    // BBISM Receivables retired 2026-11-11. It was the last Pattern 2 iframe
+    // wrapper, over pages/baseballismwholesale.html — the wholesale book built
+    // on the Google Sheets AR sync, whose cron was removed 2026-10-13 and whose
+    // ar_* tables froze on 2026-10-12. Open balances have come from the Shopify
+    // sync since 2026-10-20 ("Wholesale AR — open balances (Shopify)", on the
+    // Wholesale Tracking dashboard), so the page could only ever show a book
+    // that cannot move.
+    //
+    // NO DATA WAS DROPPED: ar_invoices (1,432), ar_customers (446),
+    // ar_contact_log (65), ar_action_queue (12) and ar_statements all stay, and
+    // server/ar-sync.mjs remains dispatchable. The pre-2026-05 wholesale
+    // history, the collections queue and the contact log are now read through
+    // Reports / Ask SILO / the MCP connector rather than a page of their own.
+    location.replace('/v3/dashboards.html');
+  </script>
 </head>
-<body class="silo-brand">
-  <div id="silo-app" class="silo-app">
-    <main class="silo-main" data-tool='{"title":"Wholesale accounts","subtitle":"Customer accounts, balances, and AR aging for the wholesale book.","src":"/pages/baseballismwholesale.html","active":"wholesale/customers","crumbs":["Wholesale","Customers"]}'></main>
-  </div>
-
-  <script src="../pages/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="dept-guard.js" data-departments="exec,finance"></script>
-  <script src="nav-config.js"></script>
-  <script src="silo-chrome.js"></script>
-  <script src="tool-shell.js"></script>
-</body>
+<body></body>
 </html>

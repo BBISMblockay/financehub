@@ -415,9 +415,10 @@ the whole question:
 Not every Baseballism-shaped thing is accidental coupling. Leave these alone:
 
 - `v2/licensing/` — leftover MLB microsite assets; its entry page was retired 2026-10-01
-- `baseballismwholesale.html` / BBISM Receivables — one company's AR flow, now
-  URL-only (nav row removed 2026-10-20; open balances moved to the Wholesale
-  Tracking dashboard)
+- `baseballismwholesale.html` / BBISM Receivables — one company's AR flow,
+  **retired 2026-11-11** (nav row removed 2026-10-20; open balances moved to the
+  Wholesale Tracking dashboard; the URL is a stub redirect and the `ar_*` tables
+  stay as the historical book). Do not generalise it — build AR as a report.
 - the `grandfathered` nav profile itself — it is how one customer keeps a menu
   the product no longer leads with, which is exactly what per-tenant
   configuration is for

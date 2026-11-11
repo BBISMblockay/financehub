@@ -63,8 +63,9 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── review.html            ← PUBLIC review portal (token = the authorization)
 │   ├── embed.js               ← Loaded by iframe tool pages
 │   ├── po-costing-lib.js      ← Shared PO costing logic (used by v2/po-builder + v2/po-costing)
-│   └── [legacy-tool].html     ← factories, wholesale, baseballismwholesale, sales-verification
-│                                — some iframed by v2 wrappers, some linked directly
+│   └── [legacy-tool].html     ← factories, sales-verification — linked directly
+│                                (baseballismwholesale retired 2026-11-11, the last
+│                                 page any v2 wrapper iframed)
 ├── *.html (repo root)         ← Legacy standalone tools / iframe targets
 │                                (buyer and checkwriter retired 2026-10-06).
 │                                Superseded originals were retired 2026-10-01; see retirement runbook
@@ -168,8 +169,10 @@ window.SiloChrome.mount({
 });
 ```
 
-### Pattern 2: Tool shell (iframe wrapper for legacy pages)
-1 page remains: `baseballismwholesale`.
+### Pattern 2: Tool shell (iframe wrapper for legacy pages) — RETIRED, do not add one
+**0 pages remain.** `baseballismwholesale`, the last one, was retired 2026-11-11 (its `ar_*` book
+stays in the database and is read through Reports / Ask SILO / MCP). `tool-shell.js` and
+`tool-shell.css` are still in the tree but no page loads them.
 The `buyer` and `wholesale` wrappers were retired 2026-10-01, and `checkwriter` (wrapper and target)
 plus the root `buyer.html` target on 2026-10-06.
 (`sales-verification.html` was rebuilt as Pattern 1 and is no longer a wrapper. `allocation`,
