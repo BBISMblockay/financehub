@@ -63,6 +63,10 @@
     .mo-ad-name { font-weight:600; color:var(--bcn-ink); font-size:12px; line-height:1.25; }
     a.mo-ad-name { color:inherit; text-decoration:none; }
     a.mo-ad-name:hover, a.mo-ad-name:focus-visible { color:var(--bcn-accent); text-decoration:underline; }
+    /* The next step from a row: into Explorer's drill, or into Ad Studio. */
+    .mo-next { margin-left:6px; font-size:11.5px; font-weight:600; color:var(--bcn-accent); text-decoration:none; white-space:nowrap; }
+    .mo-ad-cell .mo-next { display:inline-block; margin:3px 0 0; }
+    .mo-next:hover { text-decoration:underline; }
     .mo-ad-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
@@ -133,7 +137,8 @@
     </div>
 
     <div class="bcn-tabs" style="padding:0 18px">
-      <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
+      <!-- "Summary", not "Overview": the Performance strip above already has an Overview tab (this page). -->
+      <button class="bcn-tab bcn-tab--active" data-tab="overview">Summary</button>
       <button class="bcn-tab" data-tab="campaigns">Campaigns</button>
       <button class="bcn-tab" data-tab="creatives">Creatives</button>
       <button class="bcn-tab" data-tab="redo">Email &amp; SMS</button>
@@ -429,7 +434,46 @@
   function setStatus(t){ el('statusText').textContent = t; }
 
   // ── Window state ───────────────────────────────────────────────
-  let WINDOW_DAYS = 30;
+  // The window, the open tab and the focus live in the address bar, so a
+  // refresh, the Back button and the Explorer tab keep them. `days` and the
+  // focus keys are shared with /v2/marketing-explorer.html
+  // (performance-suite.js carries them between the two); a key this page does
+  // not own -- Explorer's start/end, platform, adset -- is left untouched, so
+  // it is still there on the way back.
+  const WINDOWS = [7, 14, 30, 90];
+  const TABS = ['overview','campaigns','creatives','redo','funnel','channels','organic'];
+  const urlParam = k => new URLSearchParams(location.search).get(k);
+  function setUrlParams(changes){
+    const url = new URL(location.href);
+    for (const [k, v] of Object.entries(changes)){
+      if (v == null || v === '') url.searchParams.delete(k); else url.searchParams.set(k, String(v));
+    }
+    if (url.href !== location.href) history.replaceState(null, '', url);
+  }
+  // Any "last N days" is honoured, not only the four buttons: Explorer offers
+  // 1y and typed ranges, and arriving here must not quietly swap the window.
+  // A typed range that ends today is the same thing as a day count. One that
+  // ends earlier cannot be shown here (every query on this page runs to
+  // today), so the page falls back to 30d and leaves that range in the
+  // address bar for the way back.
+  function windowFromUrl(){
+    const d = urlParam('days');
+    if (/^[1-9]\d{0,3}$/.test(String(d || ''))) return Number(d);
+    const s = urlParam('start'), e = urlParam('end'), today = new Date().toISOString().slice(0,10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(s)) && e === today){
+      const n = Math.round((Date.parse(e) - Date.parse(s)) / 86400000) + 1;
+      if (n >= 1 && n <= 9999) return n;
+    }
+    return 30;
+  }
+  let WINDOW_DAYS = windowFromUrl();
+  // Into Explorer at this page's window, optionally already drilled in.
+  function explorerHref({ platform, campaign } = {}){
+    const q = new URLSearchParams({ days: String(WINDOW_DAYS) });
+    if (platform) q.set('platform', platform);
+    if (campaign) q.set('campaign', String(campaign));
+    return `/v2/marketing-explorer.html?${q}`;
+  }
   const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString().slice(0,10);
 
   // ── Paged loader (PostgREST caps at 1000 rows silently) ────────
@@ -715,7 +759,7 @@
       const ctr = p.impr ? p.clicks/p.impr : null;
       const roas = p.spend ? p.value/p.spend : null;
       return `<tr>
-        <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${PLATFORM_ICON[p.platform]||''}${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span></td>
+        <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${PLATFORM_ICON[p.platform]||''}${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span>${p.platform==='ga4' ? '' : ` <a class="mo-next" href="${esc(explorerHref({ platform:p.platform }))}" title="Drill into this platform's campaigns in Explorer">Campaigns →</a>`}</td>
         <td>${esc(p.account||'—')}</td><td>${money(p.spend)}</td><td>${numFmt(p.impr)}</td>
         <td>${numFmt(p.clicks)}</td><td>${pctFmt(ctr)}</td><td>${numFmt(p.conv)}</td>
         <td>${money(p.value)}</td><td>${p.platform==='ga4' ? '—' : ratioFmt(roas)}</td>
@@ -831,7 +875,7 @@
       const deltaHtml = delta == null ? '—'
         : `<span class="bcn-pill ${delta >= 0 ? 'bcn-pill--pos' : 'bcn-pill--neg'} mo-platform-pill">${delta>=0?'+':''}${delta.toFixed(2)}x</span>`;
       return `<tr>
-        <td>${esc(c.name||'—')}</td>
+        <td>${esc(c.name||'—')}${c.id ? ` <a class="mo-next" href="${esc(explorerHref({ platform:'meta_ads', campaign:c.id }))}" title="Drill into this campaign's ad sets and ads in Explorer">Ads →</a>` : ''}</td>
         <td>${money(c.spend)}</td>
         <td><span class="mo-bar" style="width:${Math.round(c.spend/maxSpend*70)}px"></span>${totalSpend ? Math.round(c.spend/totalSpend*100) : 0}%</td>
         <td>${numFmt(c.impr)}</td>
@@ -851,7 +895,9 @@
   // ── Creatives tab ──────────────────────────────────────────────
   let _adPerf = [], _creatives = [], _redo = [], _klaviyo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
   let focusedAd = new URLSearchParams(location.search).get('ad');
-  let focusedCampaign = new URLSearchParams(location.search).get('campaign');
+  // A campaign carried over from Explorer on another platform is not this
+  // tab's to filter by: Campaigns lists Meta only.
+  let focusedCampaign = (!urlParam('platform') || urlParam('platform') === 'meta_ads') ? urlParam('campaign') : null;
   let focusedRedo = new URLSearchParams(location.search).get('redo');
   let focusedKlaviyo = new URLSearchParams(location.search).get('klaviyo');
   const CREATIVE_REF = 'meta_ad_creatives';
@@ -1075,7 +1121,7 @@
       return `<tr>
         <td><div class="mo-ad-cell">${thumb}<div><div class="mo-ad-name">${safeHref(c?.preview_shareable_link)
           ? `<a class="mo-ad-name" href="${esc(safeHref(c.preview_shareable_link))}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(a.name||a.adId)} ↗</a>`
-          : esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div></div></div></td>
+          : esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div><a class="mo-next" href="/v2/ad-studio.html?ad=${encodeURIComponent(a.adId)}" title="Open this ad in Ad Studio to start an idea from it">Work on this in Ad Studio →</a></div></div></td>
         <td>${statusPill}</td>
         <td>${money(a.spend)}</td>
         <td>${pctFmt(a.impr ? a.clicks/a.impr : null)}</td>
@@ -1520,6 +1566,8 @@
     if (!btn) return;
     WINDOW_DAYS = Number(btn.dataset.days);
     document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
+    // Choosing a window here replaces any custom range Explorer left behind.
+    setUrlParams({ days: WINDOW_DAYS, start: null, end: null });
     runLoad();
   });
 
@@ -1527,8 +1575,19 @@
     tab.addEventListener('click', () => {
       document.querySelectorAll('.bcn-tab[data-tab]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
       document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+      setUrlParams({ tab: tab.dataset.tab === 'overview' ? null : tab.dataset.tab });
     });
   });
+  // A window with no button of its own (1y from Explorer) gets one, so the
+  // header always names the window the numbers below are for.
+  if (!WINDOWS.includes(WINDOW_DAYS)){
+    const extra = document.createElement('button');
+    extra.className = 'bcn-btn bcn-btn--ghost';
+    extra.dataset.days = String(WINDOW_DAYS);
+    extra.textContent = WINDOW_DAYS === 365 ? '1y' : `${WINDOW_DAYS}d`;
+    el('windowBtns').append(extra);
+  }
+  document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', Number(b.dataset.days) === WINDOW_DAYS));
 
   async function boot(){
     const sess = await sb.auth.getSession();
@@ -1546,7 +1605,10 @@
         supabaseClient:sb,
       });
     }
-    if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
+    // An explicit tab wins; otherwise a focused ad, campaign or message opens its tab, as before.
+    const wantTab = urlParam('tab');
+    if (TABS.includes(wantTab) && wantTab !== 'overview') document.querySelector(`.bcn-tab[data-tab="${wantTab}"]`).click();
+    else if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
     else if (focusedCampaign) document.querySelector('.bcn-tab[data-tab="campaigns"]').click();
     else if (focusedRedo||focusedKlaviyo) document.querySelector('.bcn-tab[data-tab="redo"]').click();
     await runLoad();

@@ -14,7 +14,12 @@
       boundary, and a direct URL was never a leak.
    2. Each tab names the revenue figure its page is built on. The four pages
       measure different things and their numbers must not be added together;
-      the strip is where someone moving between them is told so. */
+      the strip is where someone moving between them is told so.
+   3. Overview and Explorer share one selection -- the date window, platform,
+      campaign, ad set and ad -- kept in the address bar by each page. Moving
+      between those two tabs carries it, so the campaign you drilled to is
+      still the campaign after switching view. Report and Attribution have
+      their own period models and are never handed these keys. */
 (function () {
   'use strict';
   // Tolerate a cached nav-config from before PERFORMANCE_SUITE_PAGES existed.
@@ -41,6 +46,23 @@
   function visible(active) {
     const ok = allowed();
     return pages().filter(([id]) => id === active || ok.has(id));
+  }
+
+  // The keys Overview and Explorer both understand (or keep for each other).
+  const CONTEXT_KEYS = ['days', 'start', 'end', 'platform', 'campaign', 'adset', 'ad'];
+  const SHARES_CONTEXT = ['reports/marketing-overview', 'reports/marketing-explorer'];
+  // A tab's href, with the current selection when BOTH ends share it. The
+  // href drawn in the strip stays the plain page URL (what a copied link or a
+  // bookmark should be); the selection is added at click time, from whatever
+  // the address bar holds at that moment.
+  function hrefWithContext(active, id, path, search) {
+    const base = '/v2/' + path;
+    if (!SHARES_CONTEXT.includes(active) || !SHARES_CONTEXT.includes(id)) return base;
+    const from = new URLSearchParams(search || '');
+    const out = new URLSearchParams();
+    for (const k of CONTEXT_KEYS) { const v = from.get(k); if (v) out.set(k, v); }
+    const qs = out.toString();
+    return qs ? base + '?' + qs : base;
   }
 
   /* Same drawing as the other strips: 24-unit box, 1.6 stroke, round caps,
@@ -91,6 +113,7 @@
         link.append(b);
       }
       if (id === active) link.setAttribute('aria-current', 'page');
+      else link.addEventListener?.('click', () => { link.href = hrefWithContext(active, id, path, window.location?.search); });
       links.append(link);
     }
     nav.append(links);
@@ -114,5 +137,5 @@
     existing.replaceWith(build(active));
   }
 
-  window.SiloPerformanceSuite = { contains, mount, refresh };
+  window.SiloPerformanceSuite = { contains, mount, refresh, hrefWithContext };
 })();

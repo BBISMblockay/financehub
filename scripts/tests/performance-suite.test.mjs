@@ -61,7 +61,7 @@ function harness(company) {
   const state = { company };
   const window = { __SILO_CONFIG__: { getActiveCompany: () => state.company } };
   vm.runInNewContext(navSource, { window });
-  vm.runInNewContext(stripSource, { window, document });
+  vm.runInNewContext(stripSource, { window, document, URLSearchParams });
   let mounted;
   const main = {
     querySelector: () => mounted,
@@ -178,6 +178,23 @@ test('the open page is always in its own strip, and refresh() restores narrowed 
   h.refresh(ATTRIBUTION);
   assert.ok(first.replacedWith, 'strip not redrawn once the company resolved');
   assert.deepEqual(String(first.replacedWith.dataset.perfSuiteTabs).split(','), Object.keys(PAGES));
+});
+
+test('the selection is carried between Overview and Explorer only', () => {
+  const h = harness(BASEBALLISM);
+  const carry = h.window.SiloPerformanceSuite.hrefWithContext;
+  const search = '?days=14&platform=meta_ads&campaign=c1&adset=s1&ad=a1&tab=campaigns&utm=x';
+  // Shared keys go across; a page's own keys (Overview's tab) and anything unknown do not.
+  assert.equal(carry(EXPLORER, OVERVIEW, 'marketing-overview.html', search),
+    '/v2/marketing-overview.html?days=14&platform=meta_ads&campaign=c1&adset=s1&ad=a1');
+  assert.equal(carry(OVERVIEW, EXPLORER, 'marketing-explorer.html', '?start=2026-10-01&end=2026-10-09&tab=funnel'),
+    '/v2/marketing-explorer.html?start=2026-10-01&end=2026-10-09');
+  assert.equal(carry(OVERVIEW, EXPLORER, 'marketing-explorer.html', ''), '/v2/marketing-explorer.html');
+  // Report and Attribution have their own period models: nothing is handed to or taken from them.
+  assert.equal(carry(EXPLORER, REPORT, 'wow-report.html', search), '/v2/wow-report.html');
+  assert.equal(carry(EXPLORER, ATTRIBUTION, 'silo-attribution.html', search), '/v2/silo-attribution.html');
+  assert.equal(carry(ATTRIBUTION, EXPLORER, 'marketing-explorer.html', '?store=fod&start=2026-09-01&end=2026-09-30'), '/v2/marketing-explorer.html');
+  assert.equal(carry(REPORT, OVERVIEW, 'marketing-overview.html', '?days=7'), '/v2/marketing-overview.html');
 });
 
 test('pages outside the suite get no strip', () => {
