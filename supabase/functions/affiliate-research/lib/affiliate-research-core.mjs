@@ -264,12 +264,18 @@ function profileOf(url, platform) {
   return p;
 }
 
-/** The model's list -> prospect candidates, keeping only what the web results back up. Pure. */
-export function validateResearchCreators({ creators, evidence, program, focus, collectedAt, max = MAX_RESEARCH_CREATORS }) {
+/**
+ * The model's list -> prospect candidates, keeping only what the web results
+ * back up. Pure. `fillTo`: when the varied list is short of that number,
+ * creators held back by the per-source limit (still fully checked) top it up,
+ * in the order the AI found them -- variety first, then a full list.
+ */
+export function validateResearchCreators({ creators, evidence, program, focus, collectedAt, max = MAX_RESEARCH_CREATORS, fillTo = 0 }) {
   const terms = nicheTerms(program);
-  const stats = { returned: (creators || []).length, kept: 0, minors: 0, not_profile: 0, unverified: 0, over_source: 0, followers_kept: 0, images_kept: 0, emails_kept: 0 };
+  const stats = { returned: (creators || []).length, kept: 0, minors: 0, not_profile: 0, unverified: 0, over_source: 0, topped_up: 0, followers_kept: 0, images_kept: 0, emails_kept: 0 };
   const seen = new Map();
   const perSource = new Map();
+  const heldBack = [];
   for (const c of creators || []) {
     if (seen.size >= max) break;
     if (c?.likely_minor === true) { stats.minors += 1; continue; }
@@ -285,9 +291,22 @@ export function validateResearchCreators({ creators, evidence, program, focus, c
     // list is the AI's research, not one article copied out.
     const via = [c.found_on_url, c.followers_source_url].map(hostOf).find((h) => h && h !== hostOf(profile.profile_url)) || null;
     if (via) {
-      if ((perSource.get(via) || 0) >= MAX_PER_SOURCE) { stats.over_source += 1; continue; }
+      if ((perSource.get(via) || 0) >= MAX_PER_SOURCE) { stats.over_source += 1; heldBack.push({ c, profile, key }); continue; }
       perSource.set(via, (perSource.get(via) || 0) + 1);
     }
+    seen.set(key, build(c, profile));
+  }
+  const limit = Math.min(Number(fillTo) || 0, max);
+  for (const h of heldBack) {
+    if (seen.size >= limit) break;
+    if (seen.has(h.key)) continue;
+    seen.set(h.key, build(h.c, h.profile));
+    stats.over_source -= 1; stats.topped_up += 1;
+  }
+  stats.kept = seen.size;
+  return { candidates: [...seen.values()], stats };
+
+  function build(c, profile) {
     const followersOk = Number.isInteger(c.followers) && c.followers >= 0 && seenUrl(evidence, c.followers_source_url);
     const email = statedEmail(c.contact_email);
     const emailOk = !!email && seenUrl(evidence, c.contact_source_url) && seenText(evidence, email);
@@ -298,7 +317,7 @@ export function validateResearchCreators({ creators, evidence, program, focus, c
     if (followersOk) stats.followers_kept += 1;
     if (imageOk) stats.images_kept += 1;
     if (emailOk) stats.emails_kept += 1;
-    seen.set(key, candidate({
+    return candidate({
       profile, name: c.name, fit: c.fit_reason, program, terms, collectedAt,
       sourceUrl: seenUrl(evidence, c.found_on_url) ? String(c.found_on_url).trim() : null,
       email: emailOk ? email : null, emailUrl: emailOk ? String(c.contact_source_url).trim() : null,
@@ -317,10 +336,8 @@ export function validateResearchCreators({ creators, evidence, program, focus, c
         profile_image_source_url: imageOk ? String(c.profile_image_source_url).trim() : null,
         profile_image_as_of: imageOk ? isoDate(String(collectedAt || '').slice(0, 10)) : null,
       },
-    }));
+    });
   }
-  stats.kept = seen.size;
-  return { candidates: [...seen.values()], stats };
 }
 
 /** "993.2K", "1.1M", "12,400" -> integer, or null. */

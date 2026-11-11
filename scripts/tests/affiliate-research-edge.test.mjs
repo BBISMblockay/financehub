@@ -28,6 +28,8 @@
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
 //   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
+//   AFFILIATE_RESEARCH_MUTATION=notopup      a short run is not topped up from creators the per-source limit held back
+//   AFFILIATE_RESEARCH_MUTATION=topupfirst   the top-up counts while searching, so the AI stops looking for variety
 //   AFFILIATE_RESEARCH_MUTATION=leadevidence a Google lead does not count as found
 //   AFFILIATE_RESEARCH_MUTATION=nobrief      the Google leads never reach the AI
 //   AFFILIATE_RESEARCH_MUTATION=freecharge   a run that kept nobody is charged
@@ -54,7 +56,9 @@ const MUTS = {
   doublerun: ['handler.mjs', "    if (prev?.status === 'running' &&", '    if (false &&'],
   oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
   partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
-  onesource: [CORE, '{ stats.over_source += 1; continue; }', '{ stats.over_source += 0; }'],
+  onesource: [CORE, '{ stats.over_source += 1; heldBack.push({ c, profile, key }); continue; }', '{ stats.over_source += 0; }'],
+  notopup: ['handler.mjs', 'collectedAt: now().toISOString(), fillTo: wanted });', 'collectedAt: now().toISOString() });'],
+  topupfirst: ['handler.mjs', 'evidence: ev, program, focus, collectedAt }).stats.kept;', 'evidence: ev, program, focus, collectedAt, fillTo: wanted }).stats.kept;'],
   leadevidence: [CORE, '  const evidence = leadsEvidence(leads);', '  const evidence = { urls: new Set(), text: [] };'],
   nobrief: [CORE, "    leads.length ? leadsBrief(leads) : '',", "    '',"],
   freecharge: ['handler.mjs', "outcome = stats.kept > 0 ? 'succeeded' : 'failed';", "outcome = 'succeeded';"],
@@ -326,6 +330,25 @@ await test('no single outside page supplies more than five creators', async () =
   assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 over the per-source limit/);
 });
 
+await test('a run short of its number is topped up from creators the per-source limit held back, after searching on', async () => {
+  const handles = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'];
+  const list = {
+    type: 'web_fetch_tool_result', tool_use_id: 'srv3',
+    content: { type: 'web_fetch_result', url: 'https://www.listicle.example/best-creators', content: { type: 'document', source: { type: 'text', data: handles.map((h) => `@${h} 10K followers`).join('\n') } } },
+  };
+  const rec = (id) => ({ type: 'tool_use', id, name: 'record_creators', input: { creators: handles.map((h) => creator({ name: h, handle: `@${h}`, profile_url: `https://www.tiktok.com/@${h}`, found_on_url: 'https://www.listicle.example/best-creators' })) } });
+  const s = setup({ script: [
+    msg([{ type: 'server_tool_use', id: 'srv3', name: 'web_fetch', input: { url: 'https://www.listicle.example/best-creators' } }, list, rec('t3')], 'tool_use'),
+    msg([{ type: 'tool_use', id: 't4', name: 'record_creators', input: { creators: [] } }], 'tool_use'),
+  ] });
+  await s.call({ action: 'research', program_id: PA, count: 7 });
+  assert.equal(s.calls.length, 2, 'it first asks for more creators from other sources');
+  assert.deepEqual(s.service.tables.affiliate_prospects.map((p) => p.handle).sort(), handles.map((h) => `@${h}`), 'then the held-back creators fill the run');
+  const err = s.service.tables.affiliate_discovery_runs[0].error;
+  assert.match(err, /2 added from a list page to fill the run/);
+  assert.doesNotMatch(err, /over the per-source limit|found \d+ of/);
+});
+
 await test('Google leads go to the AI first; only the ones it checks and records are kept', async () => {
   const serp = [
     { type: 'organic', url: 'https://google.com/goto?url=CAES1', breadcrumb: 'https://www.tiktok.com › @leadcreator', title: 'Lead Creator (@leadcreator) | TikTok', description: 'baseball mom life' },
@@ -335,7 +358,7 @@ await test('Google leads go to the AI first; only the ones it checks and records
     creator({ name: 'Lead Creator', handle: '@leadcreator', profile_url: 'https://www.tiktok.com/@leadcreator' }),
   ] } }], 'tool_use')] });
   await s.call({ action: 'research', program_id: PA, focus: 'travel ball parents', count: 5 });
-  assert.deepEqual(s.searches.map((t) => t.keyword.split(' site:')[0].split(' (site:')[0]), ['baseball mom', 'travel ball parents'], "only this program's enabled searches, plus the focus");
+  assert.deepEqual(s.searches.map((t) => t.keyword.split(' site:')[0].split(' (site:')[0]), ['travel ball parents'], 'only the words typed for this run are searched; an old saved search does not steer it');
   const brief = s.calls[0].messages[0].content;
   assert.match(brief, /Leads from a Google search/);
   assert.match(brief, /https:\/\/www\.tiktok\.com\/@leadcreator/);
