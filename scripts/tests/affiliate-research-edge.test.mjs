@@ -28,6 +28,9 @@
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
 //   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
+//   AFFILIATE_RESEARCH_MUTATION=photoredirect a photo redirect hop is followed without the safety check
+//   AFFILIATE_RESEARCH_MUTATION=photomagic   a page that is not an image is stored as a photo
+//   AFFILIATE_RESEARCH_MUTATION=photostored  Refresh photos re-fetches creators that already have a stored copy
 //   AFFILIATE_RESEARCH_MUTATION=onesearch    the typed words are searched once for all platforms together
 //   AFFILIATE_RESEARCH_MUTATION=noshare      leads from the platform searches are not merged by profile
 //   AFFILIATE_RESEARCH_MUTATION=notopup      a short run is not topped up from creators the per-source limit held back
@@ -59,6 +62,9 @@ const MUTS = {
   oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
   partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
   onesource: [CORE, '{ stats.over_source += 1; heldBack.push({ c, profile, key }); continue; }', '{ stats.over_source += 0; }'],
+  photoredirect: ['lib/affiliate-photo-core.mjs', "url = safeHttpsUrl(res.headers?.get?.('location') || '', url); continue;", "url = new URL(res.headers.get('location'), url).href; continue;"],
+  photomagic: ['lib/affiliate-photo-core.mjs', "const kind = img && /^image\\//.test(img.type) ? imageKind(img.bytes) : null;", "const kind = img ? { type: 'image/jpeg', ext: 'jpg' } : null;"],
+  photostored: ['handler.mjs', '(urls || !p.evidence?.profile_image_stored)', '(urls || true)'],
   onesearch: [CORE, '  return per.length > 1 ? per.map', '  return false ? per.map'],
   noshare: ['handler.mjs', 'leads: interleaveLeads(lists, MAX_LEADS)', 'leads: lists.flat().slice(0, MAX_LEADS)'],
   notopup: ['handler.mjs', 'collectedAt: now().toISOString(), fillTo: wanted });', 'collectedAt: now().toISOString() });'],
@@ -81,6 +87,7 @@ async function load() {
 }
 const { createResearchHandler } = await load();
 const { interleaveLeads, leadSearches } = await import(new URL(`lib/affiliate-research-core.mjs`, FN));
+const PH = await import(new URL(`lib/affiliate-photo-core.mjs`, FN));
 
 let passed = 0;
 async function test(name, fn) {
@@ -96,6 +103,7 @@ const PPAUSED = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 function fakeService(seed, log, rpcs) {
   const tables = structuredClone(seed);
+  const uploads = [];
   let n = 1;
   function builder(table) {
     const filters = []; let op = 'select'; let payload = null; let single = false; let maybe = false; let lim = null; let ord = null;
@@ -136,7 +144,11 @@ function fakeService(seed, log, rpcs) {
     if (name === 'ai_credit_settle') return { data: { ok: true, outcome: args.p_outcome, enforced: true, charged_micros: 0 }, error: null };
     throw new Error(`unexpected rpc ${name}`);
   };
-  return { tables, from: builder, rpc };
+  const storage = { from: (bucket) => ({
+    upload: async (path, bytes, opts) => { log.push(`service:upload:${bucket}`); uploads.push({ bucket, path, bytes, opts }); return { error: null }; },
+    getPublicUrl: (path) => ({ data: { publicUrl: `https://store.test/${bucket}/${path}` } }),
+  }) };
+  return { tables, from: builder, rpc, storage, uploads };
 }
 
 const seed = (extraRuns = []) => ({
@@ -189,7 +201,7 @@ const SCRIPT = () => [
   msg([{ type: 'tool_use', id: 't1', name: 'record_creators', input: { creators: LIST } }], 'tool_use'),
 ];
 
-function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200, serp = null } = {}) {
+function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200, serp = null, photoFetch = null } = {}) {
   const log = []; const rpcs = []; const calls = []; const bg = []; const searches = [];
   const service = fakeService(seed(runs), log, rpcs);
   const handler = createResearchHandler({
@@ -209,6 +221,7 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
     background: (p) => { bg.push(p); },
     fetchSerp: serp ? async (task) => { searches.push(task); if (serp === 'fail') throw new Error('SERP provider HTTP 500'); return { items: serp, cost: 0.002 }; } : null,
     now: () => new Date('2026-11-10T12:00:00Z'),
+    photoFetch,
   });
   const call = async (body, auth = 'Bearer t') => {
     const r = await handler(new Request('https://x/fn', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
@@ -455,8 +468,93 @@ await test('an imported list keeps profiles, skips minors, and reads follower co
   assert.equal(big.status, 413);
 });
 
+// ── Creator photos: SILO opens the profile page itself ───────────────────
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+const resp = (status, { body = '', type = 'text/html', location = null } = {}) => {
+  const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body;
+  const h = { 'content-type': type, ...(location ? { location } : {}) };
+  return { status, ok: status >= 200 && status < 300, headers: { get: (k) => h[k.toLowerCase()] ?? null }, body: null, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+};
+function photoWeb(pages) {
+  const asked = [];
+  const f = async (url) => { asked.push(url); const r = pages[url]; return r ? r() : resp(404); };
+  f.asked = asked;
+  return f;
+}
+
+await test('photo helpers: the page\'s own declared image, https only, real image bytes only', async () => {
+  const page = 'https://www.youtube.com/@sam';
+  assert.equal(PH.profileImageFromHtml('<meta property="og:image" content="https://yt3.example/a.jpg?x=1&amp;y=2">', page), 'https://yt3.example/a.jpg?x=1&y=2');
+  assert.equal(PH.profileImageFromHtml('<meta content="https://yt3.example/b.jpg" property="og:image" />', page), 'https://yt3.example/b.jpg', 'either attribute order');
+  assert.equal(PH.profileImageFromHtml('<meta name="twitter:image" content="/img/c.png">', page), 'https://www.youtube.com/img/c.png', 'twitter:image, relative to the page');
+  assert.equal(PH.profileImageFromHtml('<meta property="og:image" content="http://yt3.example/a.jpg">', page), null, 'no plain http');
+  assert.equal(PH.profileImageFromHtml('<p>no meta</p>', page), null);
+  for (const bad of ['http://a.example/x', 'https://127.0.0.1/x', 'https://169.254.169.254/latest', 'https://localhost/x', 'https://db.internal/x', 'https://a.example:8443/x', 'https://u:p@a.example/x', 'https://[::1]/x', 'javascript:alert(1)']) {
+    assert.equal(PH.safeHttpsUrl(bad), null, bad);
+  }
+  assert.equal(PH.imageKind(JPEG).type, 'image/jpeg');
+  assert.equal(PH.imageKind(new TextEncoder().encode('<html>')), null);
+});
+
+await test('after a run, SILO keeps a copy of each kept creator\'s photo; a refused page just means no photo', async () => {
+  const web = photoWeb({
+    'https://www.tiktok.com/@jenna.and.her.gents': () => resp(200, { body: '<html><head><meta property="og:image" content="https://cdn.example/jenna.jpg"></head></html>' }),
+    'https://cdn.example/jenna.jpg': () => resp(200, { body: JPEG, type: 'image/jpeg' }),
+    'https://www.instagram.com/diamondmama': () => resp(403),
+  });
+  const s = setup({ photoFetch: web });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  const ps = s.service.tables.affiliate_prospects;
+  const jenna = ps.find((p) => p.handle === '@jenna.and.her.gents');
+  assert.equal(s.service.uploads.length, 1);
+  assert.equal(s.service.uploads[0].bucket, 'affiliate-feed-images');
+  assert.equal(s.service.uploads[0].path, `${CO_A}/creator-photos/${jenna.id}.jpg`, 'the copy lives in the company\'s own folder');
+  assert.match(jenna.evidence.profile_image_url, new RegExp(`^https://store\\.test/affiliate-feed-images/${CO_A}/creator-photos/`), 'the card shows SILO\'s copy, which does not expire');
+  assert.equal(jenna.evidence.profile_image_stored, true);
+  assert.equal(jenna.evidence.profile_image_source_url, 'https://www.tiktok.com/@jenna.and.her.gents');
+  assert.equal(jenna.evidence.followers, 993200, 'the rest of the evidence is kept');
+  const dm = ps.find((p) => p.handle === '@diamondmama');
+  assert.equal(dm.evidence.profile_image_url ?? null, null);
+  assert.equal(s.service.tables.affiliate_discovery_runs[0].status, 'ok');
+});
+
+await test('a redirect to a private address, or a page "image" that is not an image, is never stored', async () => {
+  const web = photoWeb({
+    'https://www.tiktok.com/@jenna.and.her.gents': () => resp(302, { location: 'https://169.254.169.254/latest/meta-data' }),
+    'https://www.instagram.com/diamondmama': () => resp(200, { body: '<meta property="og:image" content="https://cdn.example/fake.jpg">' }),
+    'https://cdn.example/fake.jpg': () => resp(200, { body: '<html>not an image</html>', type: 'image/jpeg' }),
+  });
+  const s = setup({ photoFetch: web });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  assert.ok(!web.asked.some((u) => u.includes('169.254')), 'the private address is never fetched');
+  assert.equal(s.service.uploads.length, 0);
+});
+
+await test('Refresh photos checks this program\'s prospects that have no stored copy, and only those', async () => {
+  const web = photoWeb({
+    'https://www.youtube.com/@one': () => resp(200, { body: '<meta property="og:image" content="https://cdn.example/one.jpg">' }),
+    'https://cdn.example/one.jpg': () => resp(200, { body: JPEG, type: 'image/jpeg' }),
+  });
+  const s = setup({ photoFetch: web });
+  const base = { company_entity_id: CO_A, program_id: PA, platform: 'youtube', collected_at: '2026-11-10' };
+  s.service.tables.affiliate_prospects.push(
+    { id: 'p-one', ...base, profile_url: 'https://www.youtube.com/@one', evidence: { note: 'kept' } },
+    { id: 'p-done', ...base, profile_url: 'https://www.youtube.com/@done', evidence: { profile_image_url: 'https://store.test/x.jpg', profile_image_stored: true } },
+    { id: 'p-other', ...base, company_entity_id: CO_B, program_id: PB, profile_url: 'https://www.youtube.com/@other', evidence: {} },
+  );
+  const r = await s.call({ action: 'refresh_photos', program_id: PA });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { checked: 1, stored: 1 });
+  assert.ok(!web.asked.some((u) => /@done|@other/.test(u)), 'a stored photo and another company\'s prospect are not fetched');
+  const one = s.service.tables.affiliate_prospects.find((p) => p.id === 'p-one');
+  assert.equal(one.evidence.note, 'kept');
+  assert.equal(one.evidence.profile_image_stored, true);
+  const off = setup();
+  assert.equal((await off.call({ action: 'refresh_photos', program_id: PA })).status, 503, 'with photos off it says so');
+});
+
 await test('the shipped libs are byte-identical to scripts/lib', async () => {
-  for (const f of ['affiliate-research-core.mjs', 'affiliate-discovery-core.mjs']) {
+  for (const f of ['affiliate-research-core.mjs', 'affiliate-discovery-core.mjs', 'affiliate-photo-core.mjs']) {
     const a = await readFile(new URL(`scripts/lib/${f}`, ROOT), 'utf8');
     const b = await readFile(new URL(`lib/${f}`, FN), 'utf8');
     assert.equal(b, a, `${f} copy drifted: re-copy it`);

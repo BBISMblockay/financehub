@@ -27,5 +27,7 @@ Deno.serve(createResearchHandler({
   // saved searches use); without them research runs on the AI's own searches.
   serpCredentials: { login: Deno.env.get('DATAFORSEO_LOGIN') ?? '', password: Deno.env.get('DATAFORSEO_PASSWORD') ?? '' },
   model: Deno.env.get('AFFILIATE_RESEARCH_MODEL') || 'claude-sonnet-5-5',
+  // SILO opens creators' own profile pages for their photo (lib/affiliate-photo-core.mjs).
+  photoFetch: fetch,
   background: (p: Promise<unknown>) => { if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(p); },
 }));

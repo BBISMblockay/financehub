@@ -214,6 +214,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const researchCalls = [];
     await suite.context.route('**/functions/v1/affiliate-research', (route) => {
       const body = JSON.parse(route.request().postData() || '{}'); researchCalls.push(body);
+      if (body.action === 'refresh_photos') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 3, stored: 2 }) });
       if (body.action === 'import') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ kept: 2, prospects_new: 2, prospects_updated: 0, skipped_minors: 1, skipped_not_profile: 0, suppressed_skipped: 0 }) });
       return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ run_id: 'r9' }) });
     });
@@ -229,6 +230,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const imp = researchCalls.find((c) => c.action === 'import');
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
     R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
+    await openMore(page);
+    await page.click('#prospectsBody [data-act="photos-refresh"]');
+    await page.waitForFunction(() => /Found 2 photos/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const ph = researchCalls.find((c) => c.action === 'refresh_photos');
+    R.ok('Refresh photos asks for this program only, never a company', ph && ph.program_id === PROG && !('company_entity_id' in ph));
+    R.has(await text(page, '#status'), 'Found 2 photos for 3 creators', 'Refresh photos says what it found');
     await page.click('#tabs [data-tab="payouts"]');
     const cm = await text(page, '#commissionsBody');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');

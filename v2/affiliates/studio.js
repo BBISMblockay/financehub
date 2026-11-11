@@ -634,6 +634,7 @@ function renderProspects() {
       ${itemList(list, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       <div id="signupOut"></div>`, `${d.prospects.length} total`),
     more('More options', [
+    MANAGE ? card('Creator photos', `<p class="af-muted">SILO keeps a copy of each creator's profile photo after every search.</p><div class="af-row" style="margin-top:8px;">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">CSV, one creator per row with a profile link.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
@@ -988,6 +989,11 @@ const A = {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
+  },
+  'photos-refresh': async () => {
+    const out = await invoke('affiliate-research', { action: 'refresh_photos', program_id: S.programId });
+    if (!out.checked) return 'Every creator already has a photo.';
+    return `Found ${out.stored} photo${out.stored === 1 ? '' : 's'} for ${out.checked} creator${out.checked === 1 ? '' : 's'}.`;
   },
   'import-run': async () => {
     const file = $('impFile')?.files?.[0];
