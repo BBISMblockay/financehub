@@ -66,8 +66,112 @@ test('choosing SILO says what the date does, and what it does not override', () 
   assert.match(dated, /from September 1, 2026/);
   assert.match(dated, /cannot be approved or posted/);
   assert.match(dated, /leave On Deck/);
-  assert.match(dated, /own later date/, 'an account that came onboard later keeps its own date');
+  assert.match(dated, /explicit date.*overrides this default/, 'an account that came onboard later keeps its own date');
   assert.match(M.confirmText('silo', ''), /every period/);
   assert.match(M.confirmText('silo', ''), /Nothing is sent by saving this/,
     'saving a setting must never read as a send');
+});
+
+// Run the mounted event/RPC path, not only exported wording helpers. Database
+// responses are synthetic here; enforcement is exercised in the SQL suites.
+async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema = false } = {}) {
+  const calls = [];
+  const listeners = {};
+  const controls = {
+    '[data-mode-status]': { innerHTML: '' },
+    '[data-mode-form]': { innerHTML: '' },
+    '[data-mode-label]': { textContent: '' },
+    'input[name="booksMode"]:checked': { value: 'silo' },
+    '[data-takeover]': { value: '' },
+  };
+  const host = { hidden: false, querySelector: (s) => controls[s] ||= { innerHTML: '' }, addEventListener: (type, fn) => { listeners[type] = fn; } };
+  const saved = { bookkeeping_mode: 'silo', silo_takeover_on: null, accounting_start_date: BOOKS,
+    ...(oldSchema ? {} : { bookkeeping_version: version }) };
+  const db = {
+    from(table) {
+      const result = { data: table === 'accounting_settings' ? saved : [{ id: 'source-a', display_name: 'Bank' }] };
+      return { select() { return this; }, eq() { return this; }, maybeSingle: async () => result, order: async () => result };
+    },
+    async rpc(name, args) {
+      calls.push({ name, args: { ...args } });
+      if (rpc) return rpc(name, args, calls);
+      if (name === 'silo_ledger_resync_posting_start') return { data: 0 };
+      return { data: { ...saved, bookkeeping_mode: args.p_mode, silo_takeover_on: args.p_takeover,
+        ...(oldSchema ? {} : { bookkeeping_version: args.p_expected_version + (args.p_expected_version === version ? 1 : 0) }) } };
+    },
+  };
+  const localWindow = { SiloFinanceDialog: { ask: confirm } };
+  vm.runInNewContext(await readFile(new URL('../../v2/accounting-mode.js', import.meta.url), 'utf8'),
+    { window: localWindow, CSS: { escape: String } });
+  await localWindow.SiloBooksMode.mount({ db, companyId: 'company-a', el: () => host, businessToday: TODAY, booksStart: BOOKS });
+  const click = () => {
+    const button = { disabled: false };
+    listeners.click({ target: { closest: () => button } });
+    return button;
+  };
+  const drain = async () => { for (let i = 0; i < 15; i++) await new Promise(setImmediate); };
+  return { calls, controls, click, drain, text: () => controls['[data-mode-status]'].innerHTML };
+}
+
+test('mounted save binds the reviewed company/version and checks again after ledger catch-up', async () => {
+  const ui = await mounted();
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.equal(ui.calls[0].name, 'set_bookkeeping_mode_checked');
+  assert.deepEqual(ui.calls[0].args, { p_mode: 'qbo', p_takeover: null, p_company: 'company-a', p_expected_version: 4 });
+  assert.equal(ui.calls[1].name, 'silo_ledger_resync_posting_start');
+  assert.equal(ui.calls[2].name, 'set_bookkeeping_mode_checked');
+  assert.equal(ui.calls[2].args.p_expected_version, 5);
+  assert.match(ui.text(), /Saved/);
+});
+
+test('stale or refused checked save never falls back or starts catch-up', async () => {
+  const ui = await mounted({ rpc: async () => ({ error: { code: 'P0BM4', message: 'The setting changed since review' } }) });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.calls[0].name, 'set_bookkeeping_mode_checked');
+  assert.match(ui.text(), /Reload/);
+  assert.doesNotMatch(ui.text(), /Saved\./);
+});
+
+test('unchanged Save still checks the reviewed version before catch-up', async () => {
+  const ui = await mounted({ confirm: async () => { throw new Error('unchanged must not reconfirm'); } });
+  ui.click(); await ui.drain();
+  assert.equal(ui.calls[0].name, 'set_bookkeeping_mode_checked');
+  assert.equal(ui.calls[0].args.p_expected_version, 4);
+});
+
+test('assets before migration preserve the old RPC without downgrading checked failures', async () => {
+  const ui = await mounted({ oldSchema: true });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.equal(ui.calls[0].name, 'set_bookkeeping_mode');
+  assert.equal('p_expected_version' in ui.calls[0].args, false);
+  assert.equal(ui.calls[1].name, 'silo_ledger_resync_posting_start');
+});
+
+test('cancel and rapid repeated clicks do not dispatch duplicate decisions', async () => {
+  let release;
+  const ui = await mounted({ confirm: () => new Promise((r) => { release = r; }) });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  const first = ui.click(); ui.click();
+  await ui.drain();
+  assert.equal(ui.calls.length, 0);
+  release(false); await ui.drain();
+  assert.equal(ui.calls.length, 0);
+  assert.equal(first.disabled, false);
+});
+
+test('a setting changed during catch-up is not reported as current', async () => {
+  let checks = 0;
+  const ui = await mounted({ rpc: async (name, args) => {
+    if (name === 'silo_ledger_resync_posting_start') return { data: 0 };
+    if (++checks === 1) return { data: { bookkeeping_mode: args.p_mode, silo_takeover_on: null, bookkeeping_version: 5 } };
+    return { error: { code: 'P0BM4', message: 'Changed in another tab' } };
+  } });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.match(ui.text(), /could not be confirmed after ledger catch-up/);
+  assert.doesNotMatch(ui.text(), /Nothing was sent to QuickBooks/);
 });

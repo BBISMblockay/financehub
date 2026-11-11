@@ -7508,7 +7508,7 @@ select 'Bookkeeping mode' as check_name,
    then 'MISSING — run 20261015190000_bookkeeping_mode.sql'
   -- Reporting-only is a statement about the whole company. Without this trigger
   -- it would only cover bank coding, and a revenue journal would still be sent.
-  when not exists (select 1 from pg_trigger where tgname = 'bookkeeping_mode_claim'
+  when not exists (select 1 from pg_trigger where tgname in ('bookkeeping_mode_claim', 'zz_bookkeeping_mode_claim')
                      and tgrelid = 'public.quickbooks_journal_postings'::regclass)
    then 'BROKEN — reporting-only does not cover every posting surface'
   when pg_get_functiondef(to_regprocedure('public.silo_posting_start_for_source(public.card_sources)')) not like '%bookkeeping_mode%'
@@ -9430,3 +9430,28 @@ select 'Search Console covering indexes' as check_name,
       then 'MISSING: Search Console autovacuum settings -- run 20261111053100'
     else 'ok'
   end as status;
+
+-- Bookkeeping handover safety (20261111201400). Keep outside Plaid fixtures.
+select 'Bookkeeping checked transition safety' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'accounting_settings' and column_name = 'bookkeeping_version'
+                         and is_nullable = 'NO')
+        or to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)') is null
+   then 'MISSING — run 20261111201400_bookkeeping_transition_safety.sql'
+  when not has_function_privilege('authenticated', 'public.set_bookkeeping_mode_checked(text,date,uuid,bigint)', 'execute')
+        or has_function_privilege('anon', 'public.set_bookkeeping_mode_checked(text,date,uuid,bigint)', 'execute')
+   then 'BROKEN — checked bookkeeping mode RPC privileges changed'
+  when pg_get_functiondef(to_regprocedure('public.silo_bookkeeping_mode_claim_guard()')) not like '%bookkeeping_mode_lock%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%bookkeeping_mode_lock%'
+   then 'BROKEN — posting claims and bookkeeping handover are not serialized'
+  when exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
+                    and tgname = 'bookkeeping_mode_claim' and tgenabled in ('O', 'A'))
+   then 'BROKEN — early bookkeeping claim trigger reverses approval lock order'
+  when not exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
+                    and tgname = 'zz_bookkeeping_mode_claim' and tgenabled in ('O', 'A')
+                    and (tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16)
+   then 'BROKEN — bookkeeping guard must cover claim inserts and status updates'
+  when pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%P0BM3%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%P0BM4%'
+   then 'BROKEN — checked handover lost pending-outcome or expected-version refusal'
+  else 'ok' end as status;

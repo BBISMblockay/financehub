@@ -293,6 +293,8 @@ on:
       - 'scripts/tests/bookkeeping-mode-database.test.mjs'
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
+      - 'supabase/migrations/*bookkeeping_transition_safety.sql'
+      - 'scripts/tests/bookkeeping-transition-*.mjs'
       - 'supabase/migrations/*card_posting_start.sql'
       - 'supabase/migrations/*silo_daily_ledger.sql'
       - 'v2/qbo-reports.html'
@@ -1378,6 +1380,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install finance test dependencies
+        run: npm ci --prefix scripts/tests/finance-db --ignore-scripts
+      - name: Interleave bookkeeping handover and all-surface claims
+        run: |
+          node scripts/tests/bookkeeping-transition-concurrency.test.mjs
+          for mutation in claim-lock-removed mode-lock-removed stale-version-bypass trigger-order-first; do
+            if BOOKKEEPING_TRANSITION_MUTATION="$mutation" node scripts/tests/bookkeeping-transition-concurrency.test.mjs > /tmp/bookkeeping-transition-race.log 2>&1; then
+              cat /tmp/bookkeeping-transition-race.log; echo "Survived handover race mutation: $mutation"; exit 1
+            fi
+            if grep -q "is stale" /tmp/bookkeeping-transition-race.log; then
+              cat /tmp/bookkeeping-transition-race.log; exit 1
+            fi
+          done
       - name: Interleave two sessions against the committed migration
         run: node scripts/tests/onboarding-concurrency.test.mjs
 
@@ -1755,6 +1770,18 @@ jobs:
             # A mutation whose target text is gone exits non-zero too, and would pass as killed.
             if grep -q "is stale" /tmp/bookkeeping-mode-mutation.log; then
               cat /tmp/bookkeeping-mode-mutation.log; echo "Stale bookkeeping mode mutation (target text gone): $mutation"; exit 1
+            fi
+          done
+
+      - name: Execute checked bookkeeping transition regressions
+        run: |
+          node scripts/tests/bookkeeping-transition-database.test.mjs
+          for mutation in claim-check-removed stale-version-bypass company-boundary-bypass date-bypass pending-claims-ignored update-guard-removed; do
+            if BOOKKEEPING_TRANSITION_MUTATION="$mutation" node scripts/tests/bookkeeping-transition-database.test.mjs > /tmp/bookkeeping-transition.log 2>&1; then
+              cat /tmp/bookkeeping-transition.log; echo "Survived transition mutation: $mutation"; exit 1
+            fi
+            if grep -q "is stale" /tmp/bookkeeping-transition.log; then
+              cat /tmp/bookkeeping-transition.log; exit 1
             fi
           done
 

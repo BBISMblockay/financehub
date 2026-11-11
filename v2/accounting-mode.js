@@ -70,7 +70,7 @@
     return (takeover
       ? `SILO will keep the books from ${longDate(takeover)} onward.\n\n`
         + 'Periods ending before that date cannot be approved or posted, and they leave On Deck. '
-        + 'Accounts that came onboard later keep their own later date.\n\n'
+        + 'Each account’s explicit date still overrides this default, even if it is earlier.\n\n'
       : 'SILO will keep the books for every period it has.\n\n')
       + 'SILO codes your bank and card activity and posts it to QuickBooks. Nothing is sent by saving this.';
   }
@@ -83,10 +83,13 @@
     };
     let settings = null;
     let sources = [];
+    let saving = false;
 
     async function read() {
       const [s, c] = await Promise.all([
-        db.from('accounting_settings').select('bookkeeping_mode,silo_takeover_on,accounting_start_date')
+        // Select the row so static assets can precede the additive migration.
+        // A missing version uses the existing RPC; checked errors NEVER downgrade.
+        db.from('accounting_settings').select('*')
           .eq('company_entity_id', companyId).maybeSingle(),
         db.from('card_sources').select('id,display_name,source_key,is_active')
           .eq('company_entity_id', companyId).order('display_name'),
@@ -98,7 +101,7 @@
          carry on. Any other failure (network, auth) is not evidence about the
          schema, so it is reported rather than quietly removing the control. */
       if (s.error) {
-        if (s.error.code === '42703' || /bookkeeping_mode/.test(s.error.message || '')) { host.hidden = true; return; }
+        if (s.error.code === '42703') { host.hidden = true; return; }
         throw new Error(s.error.message);
       }
       /* The account list is not decoration here: the save reconciles SILO's
@@ -130,7 +133,7 @@
           <p class="books-caption">Leave it empty if SILO should keep every period it has. An account that came onboard later can still be given its own date below.</p>
         </div>
         <button type="button" class="bcn-btn bcn-btn--primary" data-save-mode>Save</button>
-        <p class="books-caption">Coming later: SILO as your ledger, with QuickBooks no longer needed.</p>`;
+        <p class="books-caption">QuickBooks remains the official book of record in both modes. SILO-only books are not enabled.</p>`;
     }
 
     async function save() {
@@ -152,16 +155,25 @@
             : 'SILO is to code and post this company’s activity.',
         });
         if (!ok) return;
+      }
+      const checked = settings?.bookkeeping_version != null;
+      if (!unchanged || checked) {
         status('Saving…');
         /* The company the card was mounted for, not whichever one is active by
            the time this returns: the confirmation sits outside the element the
            company-switch shield makes inert, so a switch in another tab can
            land while it is open. The RPC refuses a mismatch. */
-        const { data, error } = await db.rpc('set_bookkeeping_mode', {
+        const { data, error } = await db.rpc(checked ? 'set_bookkeeping_mode_checked' : 'set_bookkeeping_mode', {
           p_mode: mode, p_takeover: mode === 'silo' && takeover ? takeover : null, p_company: companyId,
+          ...(checked ? { p_expected_version: settings.bookkeeping_version } : {}),
         });
-        if (error) { status(`That was not saved: ${error.message}.`, true); return; }
-        settings = Array.isArray(data) ? data[0] : data;
+        if (error) { status(`Save was not confirmed: ${error.message}. Reload Books & setup before trying again.`, true); return; }
+        const saved = Array.isArray(data) ? data[0] : data;
+        if (!saved || (checked && saved.bookkeeping_version == null)) {
+          status('Save returned no confirmed setting. Reload Books & setup before trying again.', true);
+          return;
+        }
+        settings = saved;
         render();
       } else {
         status('Checking SILO’s ledger against this setting…');
@@ -193,6 +205,18 @@
         }
         outstanding += remaining || 0;
       }
+      if (checked) {
+        // Catch-up always uses the current database settings. If another tab
+        // changed them mid-loop, do not report our older choice as current.
+        const final = await db.rpc('set_bookkeeping_mode_checked', {
+          p_mode: settings.bookkeeping_mode, p_takeover: settings.silo_takeover_on,
+          p_company: companyId, p_expected_version: settings.bookkeeping_version,
+        });
+        if (final.error) {
+          status(`The setting was saved, but its current state could not be confirmed after ledger catch-up: ${final.error.message}. Reload Books & setup.`, true);
+          return;
+        }
+      }
       status(outstanding
         ? `Saved. ${stateLabel(settings)}. ${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
         : `Saved. ${stateLabel(settings)}. Nothing was sent to QuickBooks.`, !!outstanding);
@@ -205,10 +229,11 @@
     });
     host.addEventListener('click', (event) => {
       const button = event.target.closest('[data-save-mode]');
-      if (!button) return;
+      if (!button || saving) return;
+      saving = true;
       button.disabled = true;
-      save().catch((e) => status(`That was not saved: ${e.message}.`, true))
-        .finally(() => { button.disabled = false; });
+      save().catch((e) => status(`The operation could not be confirmed: ${e.message}. Reload Books & setup to check the saved setting.`, true))
+        .finally(() => { saving = false; button.disabled = false; });
     });
     await read();
   }

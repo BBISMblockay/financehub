@@ -19704,4 +19704,6 @@ $c$select (select count(*) from v_po_header_summary
 -- regenerate them or the nightly run goes STALE) and adds a third that catches
 -- the audience lookup becoming a join. Catalog text only beyond that; no deploy.
 \i migrations/20261111190000_klaviyo_report_audience.sql
+-- 2026-11-11: serialize bookkeeping handover with every posting claim; checked mode edits.
+\i migrations/20261111201400_bookkeeping_transition_safety.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
