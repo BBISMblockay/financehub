@@ -67,5 +67,7 @@ export function mountOverview(root,trustRoot,{report,records=null,journeyError=n
     const path=event.target.closest('[data-path]');if(path){const p=paths[Number(path.dataset.path)];$('path-title').textContent=p.path.join(' → ')+' → Purchase';$('path-content').innerHTML=pathSteps(p)+`<p>${p.count.toLocaleString()} orders · ${esc(money(p.net_cents))} in sales · about ${esc(days(p.medianMs))} from first visit to purchase.</p>`+orderList(p.orderIds);$('path-detail').showModal();}
     const support=event.target.closest('[data-support]');if(support){const f=items[Number(support.dataset.support)];$('path-title').textContent=f.title;$('path-content').innerHTML=`<p>${esc(f.text)}</p>`+orderList(f.orderIds);$('path-detail').showModal();}
   };
-  return {analysis,rows,findings:items};
+  // `paths` and `share` ride along for the AI summary card, which must describe
+  // the SAME figures this tab rendered rather than recompute them.
+  return {analysis,rows,findings:items,paths,share};
 }
