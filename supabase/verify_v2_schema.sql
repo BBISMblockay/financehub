@@ -8939,6 +8939,12 @@ select 'Affiliate Studio' as check_name,
                    'affiliate_notifications']) t(n) where to_regclass('public.' || t.n) is null)
       or to_regprocedure('public.affiliate_portal_accept_terms(text,text,integer,jsonb,text,text)') is null
       then 'MISSING — run 20261110084000_affiliate_studio.sql, 20261110085000_affiliate_studio_ledger.sql and 20261110086000_affiliate_portal.sql, in that order'
+    -- The same-company twins are attached by a function a new affiliate
+    -- migration calls (20261111181000), rather than a DO block somebody has
+    -- to remember to re-run. Without it the twin check below is the only
+    -- thing standing between a new table and a cross-company reference.
+    when to_regprocedure('public.attach_affiliate_same_company_twins()') is null
+      then 'MISSING — run 20261111181000_affiliate_same_company_twins_function.sql'
     when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
                   where s.nspname = 'public' and c.relkind = 'r' and c.relname like 'affiliate%' and not c.relrowsecurity)
       then 'CRITICAL — RLS is off on an affiliate table'

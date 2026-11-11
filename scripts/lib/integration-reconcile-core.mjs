@@ -118,6 +118,12 @@ export const INTEGRATION_FEEDS = [
     // watermark IS the attempt.
     stamp: { on: 'data' },
     maxLagDays: 2,
+    // A store with nothing stocked snapshots successfully and writes no row,
+    // and `stamp: { on: 'data' }` then has no watermark to read -- so the
+    // attempt has to be read from the run record instead, or an empty store
+    // reads as a sync that is failing. Production 2026-11-11: Bat Nutz, one
+    // location, 0 rows, status success.
+    jobTypes: ['inventory_snapshot'],
     integration: 'shopify',
     workflow: 'shopify-sync.yml',
   },
@@ -163,6 +169,10 @@ export const INTEGRATION_FEEDS = [
     // entry in BOOTSTRAP_PLANS anyway. Nothing here may queue one, whatever
     // the flag says.
     neverAutoStart: true,
+    // A company with no active keywords is skipped by name
+    // ('seo_keyword_set has no active keywords for this company') and no run
+    // row exists to carry `last_run_on`, so the skip itself is the attempt.
+    jobTypes: ['seo_serp_weekly'],
     workflow: 'seo-serp-sync.yml',
   },
   {
@@ -176,6 +186,16 @@ export const INTEGRATION_FEEDS = [
     // A connection that has taken a webhook has produced something even if no
     // return row survived the filter.
     activityColumn: 'last_event_at',
+    // `lib/redo-marketing-sync-core.mjs` skips a connection with no
+    // api_secret or no meta.redo_store_id, and skips it WITHOUT writing a
+    // sync_jobs row -- so without this the connection reads as a sync that
+    // is failing when nobody ever finished setting it up. Production
+    // 2026-11-11: STLHD's connection, created 2026-10-12, has neither.
+    // Only the store id is checked, because this process deliberately does
+    // not load api_secret (see CONN_COLUMNS in reconcile-integrations.mjs):
+    // a connection with a secret and no store id is still caught, and one
+    // with a store id and no secret keeps the verdict it had before.
+    requires: [{ path: 'meta.redo_store_id', label: 'Redo store id' }],
     integration: 'redo',
     workflow: 'redo-marketing-sync.yml',
   },
@@ -251,7 +271,35 @@ export function feedCovers(feed, connection) {
  * store with years of history behind a failed probe is never offered to the
  * auto-start.
  */
-export function coverageState({ connection, everProduced, lastAttempt = null }) {
+/**
+ * Which pieces of a feed's required setup this connection does not have.
+ *
+ * A feed declares `requires` as connection field paths, each a dotted path
+ * ('meta.redo_store_id') or { path, label } where the path is not something
+ * to show a person. Returns the labels of the missing pieces. An empty array
+ * means nothing is missing, which is also the answer for a feed that declares
+ * nothing: "set up" is only a question a feed can define for itself. Generic
+ * by construction -- no platform, company or vendor appears here, and a
+ * declared path must be one the pass actually loads, or everything looks
+ * unconfigured.
+ */
+export function missingConfig(feed, connection) {
+  const required = feed?.requires;
+  if (!Array.isArray(required) || !required.length) return [];
+  const row = connection || {};
+  const missing = [];
+  for (const entry of required) {
+    const path = typeof entry === 'string' ? entry : entry?.path;
+    if (!path) continue;
+    const value = String(path).split('.').reduce((at, key) => (at == null ? at : at[key]), row);
+    if (value === null || value === undefined || value === '') {
+      missing.push(typeof entry === 'string' ? entry : (entry.label || path));
+    }
+  }
+  return missing;
+}
+
+export function coverageState({ connection, everProduced, lastAttempt = null, missing = [] }) {
   const row = connection || {};
   // plaid_connections carries `status`; the rest carry `is_active`.
   const inactive = row.is_active === false || (row.status != null && row.status !== 'active');
@@ -268,6 +316,10 @@ export function coverageState({ connection, everProduced, lastAttempt = null }) 
     // the fix. Production's Meta "App Review test" account is exactly this:
     // switched off, no KPI rows, and a last_sync_at from 2026-10-08.
     if (lastAttempt) return 'synced_but_empty';
+    // Nothing has arrived because the setup was never finished. Checked
+    // AFTER the stamp, so a connection that has actually synced is still
+    // reported on what it did, not on a field that has since been cleared.
+    if (missing.length) return 'not_configured';
     return row.sync_enabled === false ? 'never_imported' : 'enabled_but_empty';
   }
   // null/undefined: we could not tell. The safe answer acts on nothing.
@@ -369,10 +421,16 @@ export function expiryState({ expiresAt, now = new Date() }) {
  */
 export function reconcileConnection({
   feed, connection, everProduced, newestIso, today, autoStart = false, duplicate = false,
-  now = new Date(),
+  lastJob = null, now = new Date(),
 }) {
   const stampIso = lastAttemptIso(feed, connection);
-  const coverage = coverageState({ connection, everProduced, lastAttempt: stampIso });
+  const missing = missingConfig(feed, connection);
+  // A recorded run is attempt evidence too, and for a feed whose watermark IS
+  // its data (`stamp: { on: 'data' }`) or whose run row only exists where
+  // there was something to run, it is the ONLY evidence a sync happened at
+  // all. Second to the connection stamp, never instead of it.
+  const attemptIso = stampIso || lastJob?.at || null;
+  const coverage = coverageState({ connection, everProduced, lastAttempt: attemptIso, missing });
   const blocked = clientBlock(connection);
   const expiry = feed?.expiryColumn
     ? expiryState({ expiresAt: connection?.[feed.expiryColumn], now })
@@ -428,13 +486,28 @@ export function reconcileConnection({
         ? 'connected, never imported: queueing its first import'
         : 'connected, never imported: nothing has ever come from this connection' };
   }
+  if (coverage === 'not_configured') {
+    return { ...base, state: 'not_configured', severity: 'action',
+      detail: `never finished being set up: no ${missing.join(', ')}` };
+  }
   if (coverage === 'enabled_but_empty') {
     return { ...base, state: 'enabled_but_empty', severity: 'action',
       detail: 'sync is on and nothing has ever arrived: the sync is failing, not the enrolment' };
   }
   if (coverage === 'synced_but_empty') {
+    // A sync that RAN and had nothing to write is not a fault: a store with
+    // nothing stocked, a keyword set nobody has filled in. Say what the run
+    // recorded and drop it out of 'action', which is for work a person owes.
+    // A run that ERRORED is still theirs to look at.
+    if (!stampIso && lastJob) {
+      const ran = String(lastJob.at || '').slice(0, 10);
+      const why = lastJob.reason ? `: ${String(lastJob.reason).slice(0, 160)}` : '';
+      return { ...base, state: 'synced_but_empty',
+        severity: lastJob.status === 'error' ? 'action' : 'warn',
+        detail: `its sync ran ${ran} (${lastJob.status || 'recorded'}) and wrote nothing${why}` };
+    }
     return { ...base, state: 'synced_but_empty', severity: 'action',
-      detail: `it last synced ${String(stampIso).slice(0, 10)} and has produced nothing: a first import is not the fix` };
+      detail: `it last synced ${String(attemptIso).slice(0, 10)} and has produced nothing: a first import is not the fix` };
   }
   if (fresh.state === 'never_synced') {
     return { ...base, state: 'never_synced', severity: 'action',
