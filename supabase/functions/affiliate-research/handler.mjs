@@ -54,18 +54,14 @@ export function createResearchHandler({
 }) {
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
-  // Google leads for one run: the program's enabled searches, plus the focus
-  // text as one more search. Leads are only handed to the AI; nothing is
-  // stored from them unless the AI checks and records the creator. A failed
-  // or unconfigured search just means fewer leads.
+  // Google leads for one run: the words typed into Find creators, searched
+  // once. Leads are only handed to the AI; nothing is stored from them unless
+  // the AI checks and records the creator. A failed or unconfigured search
+  // just means fewer leads. (Saved searches are no longer read: one search,
+  // the one the person typed, so an old saved query cannot steer a new run.)
   async function gatherLeads(program, focus) {
     if (!search) return { leads: [], searched: 0, failed: 0 };
-    const { data: sources } = await service.from('affiliate_prospect_sources')
-      .select('id, query, platform_hint, location_code, language_code, max_results, kind, enabled')
-      .eq('company_entity_id', program.company_entity_id).eq('program_id', program.id).eq('enabled', true).eq('kind', 'serp_query')
-      .order('created_at', { ascending: true }).limit(3);
-    const list = [...(sources || [])];
-    if (focus) list.push({ id: null, query: focus, platform_hint: null, max_results: 30, location_code: null, language_code: null });
+    const list = focus ? [{ id: null, query: focus, platform_hint: null, max_results: 30, location_code: null, language_code: null }] : [];
     const byUrl = new Map(); let searched = 0; let failed = 0;
     for (const src of list) {
       try {
@@ -150,7 +146,7 @@ export function createResearchHandler({
         const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt }).stats.kept;
         const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
         usages = out.usages;
-        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString() });
+        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates, runId,
           origin: { source: 'ai_research', collector: `affiliate-research/${RESEARCH_PROVIDER}` } });
         outcome = stats.kept > 0 ? 'succeeded' : 'failed';
@@ -158,8 +154,8 @@ export function createResearchHandler({
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
-          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.kept < wanted || g.leads.length
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
+          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.kept < wanted || g.leads.length
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
             : null,
         });
       } catch (err) {

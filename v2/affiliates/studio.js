@@ -141,7 +141,6 @@ async function loadProgramData() {
   const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO).eq('program_id', p.id);
   const q = {
     health: db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO).eq('program_id', p.id).maybeSingle(),
-    sources: by('affiliate_prospect_sources').order('created_at'),
     runs: by('affiliate_discovery_runs').order('started_at', { ascending: false }).limit(25),
     prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(500),
     suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
@@ -452,7 +451,7 @@ function renderAiHub() {
 }
 function stageCard() {
   const d = S.d;
-  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, ledgerEntries: d.ledgerCount, sources: d.sources.length });
+  const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, ledgerEntries: d.ledgerCount, sources: 0 });
   const row = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.stage)} <span class="af-stage af-label-${esc(r.label.replace(' ', '-'))}">${esc(r.label)}</span></div><div class="af-muted">${esc(r.detail)}</div></div></article>`;
   return card('How each part works for this company', itemList(labels, row, 'Nothing to report yet.'), 'verified = SILO has seen it work here');
 }
@@ -643,9 +642,6 @@ function renderProspects() {
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email (only one they published or gave you)', input('mpEmail', 'type="email"'))}${field('Where you found them (URL)', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
-    card('Saved Google searches', `
-      ${itemList(d.sources, (s) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">“${esc(s.query)}”</div><div class="af-muted">${esc(s.platform_hint === 'blog' ? 'websites' : s.platform_hint || 'program platforms')} · ${esc(countryName(s.location_code))} · ${esc(languageName(s.language_code))}</div><div class="af-kv-line">${num(s.max_results)} results · last ${fmtDate(s.last_run_at)}${s.last_error ? ` · ${esc(friendlySearchError(s.last_error))}` : ''}</div></div><div class="af-item-foot">${MANAGE ? btn(s.enabled ? 'Pause' : 'Resume', 'source-toggle', { id: s.id, on: s.enabled ? '0' : '1' }, 'surface') : ''}</div></article>`, 'No searches yet.')}
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Search words', input('srcQuery', `placeholder="${esc(p.niche ? `${p.niche} creator` : 'e.g. youth baseball drills youtube')}"`))}${field('Platform', `<select class="bcn-field" id="srcPlat"><option value="">program platforms</option>${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'].map((x) => `<option>${x}</option>`).join('')}<option value="blog">websites</option></select>`)}${field('Country', `<select class="bcn-field" id="srcLoc">${SEARCH_COUNTRIES.map(([iso, code, name]) => `<option value="${code}"${iso === (p.geographies?.[0] || 'US') ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>`)}${field('Language', `<select class="bcn-field" id="srcLang">${SEARCH_LANGUAGES.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('')}</select>`)}${field('Results', input('srcMax', 'type="number" min="10" max="100" value="30"'))}${btn('Add search', 'source-add', {}, 'primary')}</div>` : ''}`),
     card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run for this program yet.')),
     card('Do-not-contact list', `
       ${itemList(d.suppressions, (s) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(s.value_normalized)}</span> ${pill(s.kind)}</div><div class="af-muted">${esc(s.reason)} · ${fmtDate(s.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'surface', { confirm: true }) : ''}</div></article>`, 'Nobody is on the list.')}
@@ -988,14 +984,6 @@ const A = {
     }));
     return 'Prospect added.';
   },
-  'source-add': async () => {
-    if (!val('srcQuery')) throw new Error('Type what to search for.');
-    const added = must(await db.from('affiliate_prospect_sources').insert({
-      company_entity_id: CO, program_id: S.programId, kind: 'serp_query', query: val('srcQuery'), platform_hint: val('srcPlat') || null,
-      location_code: Number(val('srcLoc')) || null, language_code: val('srcLang') || null, max_results: Number(val('srcMax')) || 30, created_by: me.id,
-    }).select('id').single());
-    return added ? 'Search saved. Find creators will check it on every run.' : 'Search saved.';
-  },
   'research-run': async () => {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
     watchResearch(out.run_id);
@@ -1019,7 +1007,6 @@ const A = {
       + `${t.skipped_not_profile ? ` ${num(t.skipped_not_profile)} had no profile link.` : ''}`
       + `${t.suppressed_skipped ? ` ${num(t.suppressed_skipped)} are on the do-not-contact list.` : ''}`;
   },
-  'source-toggle': async ({ id, on }) => { await updateRows('affiliate_prospect_sources', { enabled: on === '1' }, { id }); return on === '1' ? 'Search resumed.' : 'Search paused.'; },
   'suppression-add': async () => {
     if (!val('supVal')) throw new Error('Type the address, domain, handle or URL.');
     must(await db.from('affiliate_suppressions').insert({ company_entity_id: CO, kind: val('supKind'), value_normalized: val('supVal'), reason: val('supReason'), source: 'affiliate_studio', created_by: me.id }));
