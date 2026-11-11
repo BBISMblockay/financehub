@@ -70,6 +70,19 @@ await test('Search Console: the URL verbatim; an unverified property cannot be c
 await test('Meta and TikTok lists', () => {
   assert.equal(P.options('meta_ads', { ad_accounts: [{ id: 'act_1', name: 'BB', currency: 'USD' }] })[0].value, 'act_1');
   assert.equal(P.options('tiktok_ads', { advertiser_ids: ['70123'] })[0].value, '70123');
+  // Named advertisers win over the bare ids: both arrive together when the
+  // tester could reach /oauth2/advertiser/get/, and nineteen digits name
+  // nothing to the person choosing.
+  const named = P.options('tiktok_ads', {
+    advertiser_ids: ['70123', '70124'],
+    advertisers: [{ advertiser_id: '70123', advertiser_name: 'Acme Supply' }, { advertiser_id: '70124' }],
+  });
+  assert.equal(named.length, 2);
+  assert.equal(named[0].label, 'Acme Supply');
+  assert.equal(named[0].sub, '70123');
+  assert.equal(named[1].label, '70124', 'an advertiser with no name still falls back to its id');
+  assert.equal(P.patchFor('tiktok_ads', named[0]).tiktok_advertiser_id, '70123');
+  assert.equal(P.patchFor('tiktok_ads', named[0]).sync_enabled, true);
   assert.deepEqual(P.options('ga4', {}), []);
   assert.deepEqual(P.options('unknown', { properties: [{ property: 'x' }] }), []);
 });

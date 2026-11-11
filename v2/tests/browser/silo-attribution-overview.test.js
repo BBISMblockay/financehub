@@ -60,14 +60,14 @@ const fs=require('fs'),path=require('path'),http=require('http'),assert=require(
   assert.match(await page.locator('.attr-findings').innerText(),/Meta Ads starts more sales than it gets credit for/);
   assert.match(await page.locator('.attr-findings').innerText(),/Google Ads mostly finishes what others start/);
   // Paths carry dollars and open their orders, which open a journey.
-  const firstPath=page.locator('.attr-journey-path').first();
-  assert.match(await firstPath.innerText(),/7 orders[\s\S]*\$700 in sales[\s\S]*Meta Ads[\s\S]*2\.0 days to next step · 7 orders[\s\S]*Redo SMS[\s\S]*Google Ads[\s\S]*to purchase · 7 orders[\s\S]*Purchase/);
-  assert.equal(await firstPath.locator('.attr-overview-path li').count(),4,'three channel step boxes plus Purchase');
-  // Logos stay on the channel tables: scorecard, credit bars, journey steps and the Platform details table.
-  for(const sel of ['.attr-scorecard tbody tr','.attr-pair','.attr-journey-path li','#channels tr'])assert.ok(await page.locator(`${sel} .attr-logo`).count()>0,sel+' has logos');
+  const spotlight=page.locator('.attr-path-spotlight');
+  assert.match(await spotlight.innerText(),/7 orders[\s\S]*\$700[\s\S]*FIRST VISIT[\s\S]*Meta Ads[\s\S]*IN BETWEEN[\s\S]*Redo SMS[\s\S]*LAST CLICK[\s\S]*Google Ads[\s\S]*Purchase/i);
+  assert.equal(await spotlight.locator('.attr-spotlight-flow li').count(),4,'three channel steps plus Purchase');
+  // Logos stay on the channel tables: scorecard, credit bars, journey spotlight and the Platform details table.
+  for(const sel of ['.attr-scorecard tbody tr','.attr-pair','.attr-spotlight-flow li','#channels tr'])assert.ok(await page.locator(`${sel} .attr-logo`).count()>0,sel+' has logos');
   assert.match(await page.locator('#overview-tables summary').innerText(),/^Platform details$/);
   assert.match(await page.locator('#channels tr',{hasText:'Google Ads'}).textContent(),/Google Ads\s*\$700\.06\s*7\s*0\s*0/);
-  await page.locator('[data-path="0"]').first().click();await page.locator('#path-detail [data-order]').first().click();await page.waitForSelector('#journey[open]');assert.match(await page.locator('#flow').innerText(),/Meta Ads/);await page.locator('#close').click();await page.keyboard.press('Escape');
+  await page.locator('[data-spotlight-orders="0"]').click();await page.locator('#path-detail [data-order]').first().click();await page.waitForSelector('#journey[open]');assert.match(await page.locator('#flow').innerText(),/Meta Ads/);await page.locator('#close').click();await page.keyboard.press('Escape');
   await page.locator('[data-support="0"]').click();assert.match(await page.locator('#path-title').innerText(),/Meta Ads starts/);await page.keyboard.press('Escape');
   // A channel opens Journeys filtered to every order it appears in, not only the ones it was credited.
   await meta.locator('[data-channel]').click();assert.equal(await page.locator('#ordersection').isVisible(),true);assert.equal(await page.locator('#overview').isVisible(),false);assert.equal(await page.locator('#overview-tables').isVisible(),false);

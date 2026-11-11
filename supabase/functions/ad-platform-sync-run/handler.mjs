@@ -1,5 +1,5 @@
-// ad-platform-sync-run -- "Sync now" for ONE Google Ads, GA4 or Meta Ads
-// connection, from /v2/integrations.html.
+// ad-platform-sync-run -- "Sync now" for ONE Google Ads, GA4, Meta Ads or
+// TikTok Ads connection, from /v2/integrations.html.
 //
 // Until this existed, Google data reached SILO only through the scheduled
 // ad-platforms-sync workflow, so connecting an account and seeing its numbers
@@ -28,10 +28,18 @@
 // page by page and refreshes a materialized view, which does not fit an
 // interactive request. It stays nightly.
 
-export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads'];
-export const JOB_TYPES = { google_ads: 'google_ads_kpis', ga4: 'ga4_kpis', meta_ads: 'meta_ads_kpis' };
-const ACCOUNT_FIELD = { google_ads: 'google_customer_id', ga4: 'ga4_property_id', meta_ads: 'meta_ad_account_id' };
-const ACCOUNT_NOUN = { google_ads: 'Google Ads account', ga4: 'GA4 property', meta_ads: 'Meta ad account' };
+export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'];
+export const JOB_TYPES = {
+  google_ads: 'google_ads_kpis', ga4: 'ga4_kpis', meta_ads: 'meta_ads_kpis', tiktok_ads: 'tiktok_ads_kpis',
+};
+const ACCOUNT_FIELD = {
+  google_ads: 'google_customer_id', ga4: 'ga4_property_id', meta_ads: 'meta_ad_account_id',
+  tiktok_ads: 'tiktok_advertiser_id',
+};
+const ACCOUNT_NOUN = {
+  google_ads: 'Google Ads account', ga4: 'GA4 property', meta_ads: 'Meta ad account',
+  tiktok_ads: 'TikTok advertiser',
+};
 const GOOGLE_PLATFORMS = ['google_ads', 'ga4'];
 
 /** Meta's Graph API addresses an ad account as act_<id>; the sync core uses
@@ -60,7 +68,7 @@ const json = (body, status = 200) => new Response(JSON.stringify(body), {
 export function planSyncRun(conn) {
   if (!conn) return { ok: false, status: 404, error: 'Connection not found' };
   if (!SYNC_RUN_PLATFORMS.includes(conn.platform)) {
-    return { ok: false, status: 400, error: 'Sync now is available for Google Ads, GA4 and Meta Ads connections' };
+    return { ok: false, status: 400, error: 'Sync now is available for Google Ads, GA4, Meta Ads and TikTok Ads connections' };
   }
   if (conn.is_active !== true) return { ok: false, status: 409, error: 'This connection is inactive' };
   if (GOOGLE_PLATFORMS.includes(conn.platform) && !conn.refresh_token) {
@@ -68,6 +76,13 @@ export function planSyncRun(conn) {
   }
   if (conn.platform === 'meta_ads' && !conn.access_token) {
     return { ok: false, status: 409, error: 'No Meta token stored. Click Replace token on this row.' };
+  }
+  // TikTok's grant is the only credential its reporting call takes: the
+  // Marketing API issues a long-lived Access-Token and no refresh token, so
+  // an empty one means the authorization was never completed or was revoked
+  // in TikTok Business Center, and the only fix is to connect again.
+  if (conn.platform === 'tiktok_ads' && !conn.access_token) {
+    return { ok: false, status: 409, error: 'No TikTok authorization stored. Connect TikTok again on this card.' };
   }
   if (!conn[ACCOUNT_FIELD[conn.platform]]) {
     return { ok: false, status: 409, error: `Choose a ${ACCOUNT_NOUN[conn.platform]} on this row first` };
@@ -82,8 +97,12 @@ export function planSyncRun(conn) {
  * @param deps.userClientFor  (authHeader) => Supabase client carrying the caller's JWT
  * @param deps.googleEnv      { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN }
  * @param deps.runConnectionSync  the shared sync core's function
+ * @param deps.syncOutcome    the shared sync core's meta.last_sync builder
+ * @param deps.clientSideReason  the shared allowlist of failures the CLIENT owns
  */
-export function createHandler({ service, userClientFor, googleEnv, runConnectionSync, now = () => new Date() }) {
+export function createHandler({
+  service, userClientFor, googleEnv, runConnectionSync, syncOutcome, clientSideReason, now = () => new Date(),
+}) {
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -145,6 +164,22 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
       return json({ ok: false, error: (message + unrecorded).slice(0, 800) }, status);
     };
 
+    // Record this attempt on the connection, whichever way it went. The page
+    // renders meta.last_sync, and a failure that only reaches sync_jobs is
+    // invisible there: sync_jobs carries no connection id, so with two Google
+    // Ads accounts in one company nothing can say which one failed.
+    //
+    // Best-effort on purpose: the sync_jobs row is the audit record and the
+    // caller's answer already says what happened, so a lost stamp must not
+    // turn a successful sync into an error.
+    const stampOutcome = async (stamp) => {
+      try {
+        await service.from('ad_platform_connections')
+          .update({ meta: { ...(conn.meta || {}), ...stamp }, updated_at: now().toISOString() })
+          .eq('id', conn.id);
+      } catch (_err) { /* the answer below still tells the caller the truth */ }
+    };
+
     let result;
     try {
       const syncConn = conn.platform === 'meta_ads'
@@ -161,14 +196,33 @@ export function createHandler({ service, userClientFor, googleEnv, runConnection
         },
       });
     } catch (err) {
-      return fail(String(err?.message ?? err).slice(0, 500), 502);
+      const message = String(err?.message ?? err).slice(0, 500);
+      // The SAME allowlist the nightly uses (lib/ad-sync-client-errors.mjs, a
+      // verbatim copy). Without it a manual attempt stores an unclassified
+      // failure, the card offers Retry for an account that was cancelled or
+      // whose access was revoked -- a button that can only fail again -- and
+      // a manual run can downgrade a nightly failure that WAS classified.
+      const clientBlock = clientSideReason?.(message) ?? null;
+      await stampOutcome({
+        last_sync: syncOutcome({ at: now().toISOString(), ok: false, error: message, clientBlock }),
+      });
+      return fail(message, 502);
     }
 
     // The rows are in; only the bookkeeping remains. A failure here is SILO's,
     // not Google's, and the answer says the data did land.
     try {
       check(await service.from('ad_platform_connections')
-        .update({ meta: { ...(conn.meta || {}), last_sync_at: result.synced_at }, updated_at: now().toISOString() })
+        .update({
+          meta: {
+            ...(conn.meta || {}),
+            last_sync_at: result.synced_at,
+            // Clears a failure the page is still showing: this attempt
+            // succeeded, so the card must stop saying the feed is broken.
+            last_sync: syncOutcome({ at: result.synced_at, ok: true }),
+          },
+          updated_at: now().toISOString(),
+        })
         .eq('id', conn.id), 'Could not record the sync time on the connection');
       check(await service.from('sync_jobs')
         .update({ status: 'success', finished_at: now().toISOString(), result })

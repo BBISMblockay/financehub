@@ -36,6 +36,7 @@ on:
       - 'v2/*.css'
       - 'v2/tests/**'
       - 'v2/underwriting/**'
+      - 'v2/affiliates/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -61,6 +62,7 @@ on:
       - 'v2/*.css'
       - 'v2/tests/**'
       - 'v2/underwriting/**'
+      - 'v2/affiliates/**'
       - 'supabase/functions/payment-request-extract/**'
       # onboarding-callbacks.test.js reads pages/login.html: it guards that the
       # emailed auth callbacks keep carrying `next` (a company-creation invite
@@ -174,12 +176,67 @@ jobs:
           done
 
       # The Klaviyo card says what the sync stored, so an account with no
-      # sends yet does not read as a sync that did nothing.
+      # sends yet does not read as a sync that did nothing. Remove withdraws
+      # SILO's access in Klaviyo first and never depends on it, and declining
+      # on Klaviyo's consent screen is said plainly (Klaviyo app review).
       - name: Klaviyo card guards (mutations)
         run: |
           set -u
-          for m in no-found hard-count redraw; do
+          for m in no-found hard-count redraw no-revoke revoke-hard delete-first trust-any raw-deny no-deadline mismatch-goes no-target; do
             if KLAVIYO_CARD_MUTATION="$m" node v2/tests/browser/integrations-klaviyo-card.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Affiliate Studio's staff and affiliate-facing pages: unknown money is a
+      # dash, brand terms render as text, the token leaves the address bar, a
+      # member is not offered manager buttons.
+      - name: Affiliate Studio page guards (mutations)
+        run: |
+          set -u
+          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken todopinch photopng photostuck affownphoto sillodraft silentswitch codeblame; do
+            if AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Every ad platform's rows live in ONE table but the page draws them
+      # as cards grouped by where the connection comes from, so a row drawn
+      # on two cards is editable in two places, and a platform in no card's
+      # list would vanish from the page while still syncing nightly. Plus
+      # the two invisible states: no account chosen syncs nothing, and
+      # Search Console has no Sync now.
+      - name: Ad platform card guards (mutations)
+        run: |
+          set -u
+          for m in no-cards cross-card other-hidden other-empty no-source silent-choice no-sync-now sc-sync-now no-organic \
+                   no-failline no-retry retry-blocked no-error-text no-reload; do
+            if AD_CARDS_MUTATION="$m" node v2/tests/browser/integrations-ad-platform-cards.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Overview and Explorer are two tabs of one Performance destination.
+      # That is only an improvement while the selection (window, platform,
+      # campaign) survives a refresh, Back and a tab switch, and a row has a
+      # next step: into Explorer's drill, into Ad Studio, and back.
+      - name: Performance selection and next-step guards (mutations)
+        run: |
+          set -u
+          for m in no-carry no-url no-back no-window no-tab no-drill-link no-studio-link no-return no-focus foreign-campaign range-ignored range-unbounded range-unnamed summary-forgotten summary-overridden href-bare href-stale; do
+            if PERF_CTX_MUTATION="$m" node v2/tests/browser/performance-context.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Explorer shows and edits the same launch links as Overview, from one
+      # shared module. The row a control sits in drills when clicked, the
+      # links are read back for Meta only, and the write must carry the company.
+      - name: Explorer launch-link guards (mutations)
+        run: |
+          set -u
+          for m in no-cell bare-label drill-on-link any-platform no-redraw no-company dash; do
+            if EXP_LINKS_MUTATION="$m" node v2/tests/browser/explorer-launch-links.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
           done

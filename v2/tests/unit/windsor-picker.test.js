@@ -33,7 +33,41 @@ assert.equal(list.children[0].children[1].text, ' <img onerror=alert(1)>', 'vend
 list.children[0].handlers.click();
 assert.equal(picked.id, 'new_source');
 integration.setItems([]); assert.equal(picked, null);
-console.log('windsor-picker unit: limits, identity, safe labels, selection and reset passed');
+
+// SILO's own integrations are grouped, never dropped: the same items are still
+// offered, and a picker given no group containers behaves exactly as before.
+{
+  const items = [{ id: 'klaviyo', name: 'Klaviyo' }, { id: 'pinterest', name: 'Pinterest' }, { id: 'facebook', name: 'Meta Ads' }];
+  const flatList = el();
+  const flat = window.WindsorPicker.integrationPicker({ search: el(), list: flatList, status: el(), onSelect() {} });
+  const s2 = el(), l2 = el(), st2 = el(), nl = el(), ng = el(), nc = el();
+  let chose;
+  const grouped = window.WindsorPicker.integrationPicker({ search: s2, list: l2, status: st2,
+    nativeGroup: ng, nativeList: nl, nativeCount: nc, onSelect: (x) => { chose = x; } });
+  grouped.setItems(items);
+  assert.equal(l2.children.length, 1, 'only sources SILO does not integrate are offered first');
+  assert.equal(nl.children.length, 2, 'the rest move into the group, they are not removed');
+  assert.equal(nc.textContent, '2');
+  assert.equal(ng.hidden, false);
+  assert.match(st2.textContent, /^1 integrations/);
+  nl.children[0].handlers.click();
+  assert.equal(chose.id, 'klaviyo', 'a grouped source can still be connected');
+  // Searching only a SILO integration says so rather than reading as empty.
+  s2.value = 'klaviyo'; s2.handlers.input();
+  assert.equal(l2.children.length, 0);
+  assert.equal(nl.children.length, 1);
+  assert.match(st2.textContent, /is a SILO integration/);
+  s2.value = 'nothingmatches'; s2.handlers.input();
+  assert.equal(ng.hidden, true, 'the group disappears when nothing in it matches');
+  assert.match(st2.textContent, /No integrations match/);
+  // Same items, no group containers: one list, as before.
+  flat.setItems(items);
+  assert.equal(flatList.children.length, 3, 'without group containers nothing is grouped or hidden');
+  assert.equal(window.WindsorPicker.nativeIntegration('GA4'), 'Google Analytics 4', 'ids are matched case-insensitively');
+  assert.equal(window.WindsorPicker.nativeIntegration('pinterest'), null);
+  assert.equal(window.WindsorPicker.nativeIntegration(undefined), null);
+}
+console.log('windsor-picker unit: limits, identity, safe labels, selection, reset and SILO-integration grouping passed');
 
 const { previewCatalogProblem, discoveryError, SERVICE_UPDATE } = window.WindsorPicker;
 assert.equal(previewCatalogProblem({ numeric_fields: [{ id: 'clicks' }], total_fields: 99 }), SERVICE_UPDATE);

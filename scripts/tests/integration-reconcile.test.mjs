@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import {
   INTEGRATION_FEEDS, EXPIRY_WARN_DAYS, coverageState, daysBetween, expiryState, feedCovers,
   clientBlock, freshnessState, integrationFor, interpretProbe, lastAttemptIso, mayAutoStart,
+  missingConfig,
   feedHealthRow, planFirstImport, probeColumn,
   reconcileConnection, reconcileExitCode,
 } from '../lib/integration-reconcile-core.mjs';
@@ -67,6 +68,116 @@ test('a sync that is already on and has produced nothing is a sync fault, not an
   const v = reconcileConnection({ feed: feed('sales'), connection: on, everProduced: false, today: '2026-10-20', autoStart: true });
   assert.equal(v.severity, 'action');
   assert.equal(v.autoStart.start, false, 'queueing a bootstrap would paper over whatever is failing');
+});
+
+// -- Nothing arrived, and nothing is failing ---------------------------------
+//
+// Three production feeds on 2026-11-11 read 'enabled_but_empty', whose detail
+// line says "the sync is failing, not the enrolment". None of the three had a
+// failing sync: STLHD's Redo connection was never finished, State Forty
+// Eight's SERP schedule has no keywords (the sync records a skip saying so),
+// and Bat Nutz's store has nothing stocked (the snapshot succeeded and wrote
+// 0 rows). An alarm that says "failing" about three things that are not
+// failing is how people learn to ignore the alarm.
+
+test('a connection whose setup was never finished says so, not that the sync is failing', () => {
+  const unfinished = { id: 'r1', company_entity_id: 'e1', display_name: 'STLHD', is_active: true, meta: {} };
+  assert.deepEqual(missingConfig(feed('redo'), unfinished), ['Redo store id']);
+  assert.equal(coverageState({ connection: unfinished, everProduced: false, missing: ['Redo store id'] }), 'not_configured');
+  const v = reconcileConnection({ feed: feed('redo'), connection: unfinished, everProduced: false, today: '2026-11-11' });
+  assert.equal(v.state, 'not_configured');
+  assert.match(v.detail, /never finished being set up: no Redo store id/);
+  assert.equal(v.autoStart.start, false, 'finishing somebody else\'s setup is not this pass\'s job');
+});
+
+test('a finished connection with nothing in it keeps the verdict it had', () => {
+  const configured = { id: 'r2', company_entity_id: 'e2', is_active: true, meta: { redo_store_id: 'st_1' } };
+  assert.deepEqual(missingConfig(feed('redo'), configured), []);
+  assert.equal(coverageState({ connection: configured, everProduced: false, missing: [] }), 'enabled_but_empty');
+});
+
+test('a sync that ran and had nothing to write is not a fault', () => {
+  // Bat Nutz: one location, nothing stocked. inventory_on_hand holds no
+  // history, so with 0 rows the feed's own watermark cannot exist -- the run
+  // record is the only evidence the snapshot happened at all.
+  const store = offStore({ id: 'c9', sync_enabled: true, shop_domain: 'i09sb0-6m.myshopify.com' });
+  const v = reconcileConnection({
+    feed: feed('inventory'), connection: store, everProduced: false, today: '2026-11-11',
+    lastJob: { status: 'success', at: '2026-11-10T21:48:15Z', reason: null },
+  });
+  assert.equal(v.state, 'synced_but_empty');
+  assert.equal(v.severity, 'warn', 'nobody owes any work for a store with nothing stocked');
+  assert.match(v.detail, /ran 2026-11-10 \(success\) and wrote nothing/);
+});
+
+test('a skip says why, in the words the sync recorded', () => {
+  const schedule = { id: 's1', company_entity_id: 'e3', is_active: true, last_run_on: null };
+  const v = reconcileConnection({
+    feed: feed('seo_serp'), connection: schedule, everProduced: false, today: '2026-11-11',
+    lastJob: { status: 'skipped', at: '2026-11-10T02:53:47Z', reason: 'seo_keyword_set has no active keywords for this company' },
+  });
+  assert.equal(v.state, 'synced_but_empty');
+  assert.equal(v.severity, 'warn');
+  assert.match(v.detail, /no active keywords/);
+});
+
+test('a run that ERRORED is still somebody\'s to look at', () => {
+  const store = offStore({ sync_enabled: true });
+  const v = reconcileConnection({
+    feed: feed('inventory'), connection: store, everProduced: false, today: '2026-11-11',
+    lastJob: { status: 'error', at: '2026-11-10T21:48:15Z', reason: 'Shopify 500' },
+  });
+  assert.equal(v.severity, 'action');
+  assert.equal(reconcileExitCode([v]), 1, 'and it still fails the pass');
+});
+
+test('the connection stamp outranks the run record', () => {
+  // Two connections of one company share a company-grained run record, so a
+  // run row must never be allowed to speak for a connection that carries its
+  // own stamp -- that is how the duplicate-storefront case stays honest.
+  const conn = { id: 'a3', company_entity_id: 'e1', platform: 'meta_ads', is_active: true,
+    sync_enabled: true, meta: { last_sync_at: '2026-10-08T05:44:46Z' } };
+  const v = reconcileConnection({
+    feed: feed('marketing'), connection: conn, everProduced: false, today: '2026-11-11',
+    lastJob: { status: 'success', at: '2026-11-10T00:00:00Z', reason: null },
+  });
+  assert.equal(v.state, 'synced_but_empty');
+  assert.match(v.detail, /last synced 2026-10-08/);
+  assert.equal(v.severity, 'action');
+});
+
+test('every declared requires path is one the pass actually loads', () => {
+  // A path this process does not select reads as missing on every
+  // connection, which would call a working feed unconfigured.
+  for (const f of INTEGRATION_FEEDS) {
+    for (const entry of f.requires || []) {
+      const path = typeof entry === 'string' ? entry : entry.path;
+      const root = String(path).split('.')[0];
+      const cols = SCRIPT.match(new RegExp(`${f.connTable}: '([^']+)'`));
+      assert.ok(cols, `${f.connTable} has no column list`);
+      assert.ok(cols[1].split(',').map((c) => c.trim()).includes(root),
+        `${f.label} requires ${path} but ${f.connTable} does not select ${root}`);
+    }
+  }
+});
+
+test('every declared jobTypes value is a job type a sync really writes', () => {
+  // Read from the syncs themselves: a type nobody writes finds no evidence
+  // for ever, silently, which is the one failure mode this whole change has.
+  const sources = [];
+  for (const dir of ['../', '../lib/']) {
+    for (const file of fs.readdirSync(new URL(dir, import.meta.url))) {
+      // Not the feed list itself, or the declaration would be its own proof.
+      if (!file.endsWith('.mjs') || file.startsWith('integration-reconcile')) continue;
+      sources.push(fs.readFileSync(new URL(`${dir}${file}`, import.meta.url), 'utf8'));
+    }
+  }
+  for (const f of INTEGRATION_FEEDS) {
+    for (const t of f.jobTypes || []) {
+      assert.ok(sources.some((src) => src.includes(`'${t}'`)),
+        `${f.label} reads sync_jobs type '${t}' that no sync writes`);
+    }
+  }
 });
 
 test('a connection that has synced before is never offered a first import', () => {

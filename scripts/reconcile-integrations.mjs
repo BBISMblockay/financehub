@@ -30,7 +30,7 @@ import { appendFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import {
   INTEGRATION_FEEDS, feedCovers, feedHealthRow, integrationFor, interpretProbe,
-  planFirstImport, probeColumn, reconcileConnection, reconcileExitCode,
+  planFirstImport, probeColumn, probeNarrowing, reconcileConnection, reconcileExitCode,
 } from './lib/integration-reconcile-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -100,13 +100,70 @@ async function probe(feed, conn) {
   // Scoped to the connection's own company as well as its match key: three
   // storefronts are connected under two companies each, and one company's
   // rows are not evidence about the other's connection.
-  let q = db.from(feed.table).select(order || 'id')
-    .eq(feed.match.dataColumn, key)
-    .eq('company_entity_id', conn.company_entity_id)
-    .limit(1);
-  if (order) q = q.order(order, { ascending: false });
-  const { data, error } = await q;
+  const ask = (narrowing) => {
+    let q = db.from(feed.table).select(order || 'id')
+      .eq(feed.match.dataColumn, key)
+      .eq('company_entity_id', conn.company_entity_id);
+    if (narrowing) q = q.eq(narrowing.column, narrowing.value);
+    q = q.limit(1);
+    return order ? q.order(order, { ascending: false }) : q;
+  };
+
+  // A narrowed, index-backed ask first where the feed declares one
+  // (probeNarrowing). A row found this way is a row this connection
+  // produced, so it answers the question outright. Anything else -- no row,
+  // or an error -- is NOT an answer and falls through to the full question
+  // below, which is what it has always been.
+  const narrowing = probeNarrowing(feed);
+  if (narrowing) {
+    const fast = await ask(narrowing);
+    if (!fast.error && (fast.data || [])[0]) {
+      return interpretProbe({ feed, connection: conn, row: fast.data[0], error: null });
+    }
+  }
+
+  const { data, error } = await ask(null);
   return interpretProbe({ feed, connection: conn, row: (data || [])[0] || null, error });
+}
+
+/**
+ * The newest recorded run of this feed's sync, per company.
+ *
+ * Attempt evidence of last resort, for the feeds whose connection row carries
+ * no stamp and whose data IS the watermark: with nothing written there is
+ * nothing to read, and a sync that ran and had nothing to write then looks
+ * exactly like a sync that never ran. `sync_jobs` is where every sync records
+ * itself (scripts/CLAUDE.md), skips included, so it can tell them apart.
+ *
+ * Company-grained, like the feeds that need it. One query for the whole feed,
+ * not one per connection. It never throws: no evidence must read as no
+ * evidence, which leaves the verdict exactly where it was before this existed.
+ */
+async function lastJobsByCompany(feed) {
+  const types = feed?.jobTypes;
+  if (!Array.isArray(types) || !types.length) return new Map();
+  const { data, error } = await db.from('sync_jobs')
+    .select('company_entity_id, job_type, status, started_at, finished_at, error')
+    .in('job_type', types)
+    .order('started_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    console.error(`[reconcile] ${feed.label}: sync_jobs lookup failed (${error.message}); attempts unknown`);
+    return new Map();
+  }
+  const newest = new Map();
+  for (const row of data || []) {
+    if (!row.company_entity_id || newest.has(row.company_entity_id)) continue;
+    newest.set(row.company_entity_id, {
+      status: row.status || null,
+      at: row.finished_at || row.started_at || null,
+      // A skip records WHY in `error` -- 'seo_keyword_set has no active
+      // keywords for this company' -- which is the whole answer for a person
+      // reading the report.
+      reason: row.error || null,
+    });
+  }
+  return newest;
 }
 
 /**
@@ -154,6 +211,7 @@ async function main() {
   const rows = [];
   for (const feed of feeds) {
     const connections = await loadConnections(feed);
+    const lastJobs = await lastJobsByCompany(feed);
     // Which identities more than one company holds, for this feed.
     const shared = new Map();
     if (feed.identityColumn) {
@@ -171,6 +229,7 @@ async function main() {
       const { everProduced, newestIso, note } = await probe(feed, conn);
       const verdict = reconcileConnection({
         feed, connection: conn, everProduced, newestIso, today, autoStart: AUTO_START, duplicate,
+        lastJob: lastJobs.get(conn.company_entity_id) || null,
       });
       let action = null;
       let detail = note ? `${verdict.detail} (${note})` : verdict.detail;

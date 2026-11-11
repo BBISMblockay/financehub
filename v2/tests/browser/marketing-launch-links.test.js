@@ -232,6 +232,20 @@ const R = createReporter('marketing-launch-links');
     const oldWrite=await beforeMigration.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='launch_system_links'&&q._op==='insert').at(-1).rows);
     R.ok('old schema gets launch-level link only',!Object.hasOwn(oldWrite,'channel_item_id'));
     await beforeMigration.close();
+
+    // A workspace with no launches of its own (another company's do not
+    // count) is not "already linked to every launch": it says there are none
+    // yet and where to make one.
+    const noLaunches=await suite.open('/v2/marketing-overview.html',{...tables,
+      launch_calendar:tables.launch_calendar.filter(l=>l.company_entity_id!=='test-company')},{ready});
+    await noLaunches.click('[data-tab="creatives"]');
+    await noLaunches.click('[data-link-source="meta_ad_creatives"][data-link-id="ad-1"]');
+    const emptyMsg=await noLaunches.textContent('#creativeLaunchError');
+    R.has(emptyMsg,'no launches yet');
+    R.not(emptyMsg,'already linked');
+    R.eq(await noLaunches.locator('#creativeLaunchError a').getAttribute('href'),'/v2/launch-calendar.html','it links to where a launch is made');
+    R.ok('nothing to save without a launch',await noLaunches.locator('#creativeLaunchSave').isDisabled());
+    await noLaunches.close();
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

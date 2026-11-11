@@ -504,6 +504,7 @@
           <button type="button" class="as-btn-dark" id="btnIdeaFromAd">Add to idea bank</button>
           ${ask ? `<a class="bcn-btn" href="${esc('/v2/silo-chat.html?q=' + encodeURIComponent(ask))}">Draft variations with Ask SILO</a>` : ''}
           ${preview ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(preview)}" target="_blank" rel="noopener">Preview on Meta</a>` : ''}
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/marketing-explorer.html?ad=${encodeURIComponent(a.ad_id)}" title="This ad's spend, revenue and ROAS by day, beside the other ads in its ad set">See results in Explorer</a>
         </div>
       </div>`;
   }
@@ -933,6 +934,8 @@
         : 'No Meta ad data';
       const want = new URLSearchParams(location.search).get('ad');
       if (want && S.byId[want]) { S.selected = want; S.objective = S.byId[want].objective; }
+      // A link to an ad this window does not hold must say so, not quietly open another ad.
+      else if (want && S.ads.length && !S.linkMissSaid) { S.linkMissSaid = true; setStatus('The linked ad is not in this window. Try a longer one.', 'info', 8000); }
       else if (!S.byId[S.selected]) { const first = visibleAds()[0]; S.selected = first ? String(first.ad_id) : null; }
       if (!S.ads.length) {
         el('grid').innerHTML = `<div class="as-empty" style="grid-column:1/-1"><b>No Meta ads yet.</b>Connect Meta Ads in Integrations; ads appear here after the nightly sync.</div>`;

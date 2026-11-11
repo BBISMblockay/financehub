@@ -188,7 +188,10 @@
 
   function renderNavSections(active, department, role, grantIds) {
     const company = getActiveCompany();
-    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment(), role, grantIds ?? getCachedGrantIds());
+    // sidebarSections drops rows that are tabs of another row (the Performance
+    // suite); tolerate a cached nav-config from before it existed.
+    const NAV_SECTIONS = (Nav.sidebarSections || ((s) => s))(
+      navSectionsForCompany(company, department ?? getCachedDepartment(), role, grantIds ?? getCachedGrantIds()));
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
@@ -524,6 +527,7 @@
     else if (window.SiloWorkspaceSettings?.contains(navActive)) navActive = 'settings/workspace';
     else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
     else if (window.SiloAdStudioSuite?.contains(navActive)) navActive = 'reports/ad-studio';
+    else if (window.SiloPerformanceSuite?.contains(navActive)) navActive = Nav.PERFORMANCE_ROW || navActive;
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     // What first paint's sidebar LABEL actually shows, so the reconciliation
     // below only touches the DOM when ensureActiveCompany() resolves a
@@ -556,6 +560,7 @@
       window.SiloWorkspaceSettings?.mount(mainEl, opts.active);
       window.SiloSeoSuite?.mount(mainEl, opts.active);
       window.SiloAdStudioSuite?.mount(mainEl, opts.active);
+      window.SiloPerformanceSuite?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -727,6 +732,7 @@
           // one of its tabs is narrowed by nav profile, and first paint on a
           // deep link has no company yet, so it drew the smaller strip.
           if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
+          if (mainEl) window.SiloPerformanceSuite?.refresh(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {

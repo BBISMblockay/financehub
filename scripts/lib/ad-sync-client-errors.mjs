@@ -31,6 +31,16 @@ const RULES = [
   // Google OAuth: the client revoked SILO's access or the grant expired.
   [/Google token refresh[\s\S]*\binvalid_grant\b/, 'Google access was revoked or expired -- reconnect'],
   [/No refresh token/, 'never finished connecting -- reconnect'],
+  // A connection whose ACCOUNT was never chosen. Every platform's fetcher
+  // refuses in the same words -- "<field> not configured on connection" for
+  // google_customer_id, ga4_property_id, meta_ad_account_id,
+  // tiktok_advertiser_id -- so one rule covers any platform that follows the
+  // convention, including ones not built yet. SILO cannot invent the id: a
+  // person has to pick the account, which is the definition of this list.
+  // Found 2026-11-11: Test Company's TikTok connection carries no advertiser
+  // id, and that one unconfigured test row failed the whole Ad Platforms KPI
+  // Sync, then the Data freshness heal that re-runs the same script.
+  [/\b\w+ not configured on connection\b/, 'never finished being set up -- no account chosen for it'],
   // Meta: token invalidated (password change, removed app, expired user token).
   [/"type"\s*:\s*"OAuthException"[\s\S]*"code"\s*:\s*190\b|"code"\s*:\s*190\b[\s\S]*"OAuthException"/, 'Meta access token is no longer valid -- reconnect'],
   // Meta: the AD ACCOUNT is blocked from the API (restricted, disabled or

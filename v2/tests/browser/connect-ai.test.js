@@ -107,8 +107,10 @@ const r = createReporter('connect-ai');
   const scopeSub = await page.textContent('#scopeSub');
   r.ok('access subtitle reflects catalog plus data scope', /3 SILO reports/.test(scopeSub) && /read-only data/.test(scopeSub));
   const scopes = await page.locator('#scopeList li').allInnerTexts();
-  r.ok('lists the two read scopes, plus writing named as optional',
-    scopes.length === 3 && /optional|tick it/i.test(scopes[2]));
+  // Two read scopes, then the opt-in writes (work:write, outreach:send, codes:create), each
+  // named as optional.
+  r.ok('lists the two read scopes, plus each write named as optional',
+    scopes.length === 5 && scopes.slice(2).every((t) => /optional|tick it/i.test(t)));
   const heroNote = await page.textContent('#heroMfaNote');
   r.ok('hero always names two-step login in My profile',
     /My profile/.test(heroNote) && /two-step login/i.test(heroNote));

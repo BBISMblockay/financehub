@@ -6,6 +6,7 @@
   <title>SILO · Marketing</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="performance-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -258,7 +259,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
         <div class="bcn-header-title">
-          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Marketing</span>
         </div>
         <h1>Marketing Report</h1>
         <div class="bcn-header-sub" id="headerSub">
@@ -547,6 +548,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="performance-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -2594,7 +2596,7 @@
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'reports/wow-report',
         user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Marketing','Marketing Report'],
+        crumbs:['Marketing','Performance','Report'],
         supabaseClient:sb,
       });
     }

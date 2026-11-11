@@ -1,0 +1,61 @@
+name: Affiliate discovery
+
+# Affiliate Studio's native prospect discovery: for every ACTIVE program with an
+# enabled search source, run the program's own queries through the SERP
+# provider the SEO module already uses, and upsert recognisable creator
+# profiles as prospects with their source URL, collection time and a scored
+# basis. Logic: scripts/lib/affiliate-discovery-core.mjs.
+#
+# Weekly, not daily: search results for creator queries move slowly, and every
+# query is a paid provider call. Each program caps its own spend per run
+# (affiliate_programs.discovery_max_cost_usd, checked against the provider's
+# reported cost between queries).
+#
+# A concurrency group IS taken here, and that is the exception scripts/CLAUDE.md
+# asks to be justified: a dropped weekly run costs nothing (next week's run
+# reads the same results), while two overlapping runs would pay the provider
+# twice for the same queries.
+#
+# Manual runs default to DRY RUN, which calls no provider and writes nothing.
+
+# NOT SCHEDULED since 2026-11-10 (Blake: one search, not two). Saved searches
+# now feed Find creators (affiliate-research), where AI checks every Google
+# lead before anything is stored; a scheduled run here would write unchecked
+# Google results straight into Prospects. Manual dispatch is kept for support.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List the queries and caps only -- no provider calls, no writes'
+        type: boolean
+        default: true
+      program_id:
+        description: 'Only this affiliate_programs.id (blank = every active program)'
+        required: false
+        default: ''
+
+concurrency:
+  group: affiliate-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Discover prospects
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          # A scheduled run is live; a manual run is a dry run unless unticked.
+          AFFILIATE_DISCOVERY_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+          AFFILIATE_DISCOVERY_PROGRAM_ID: ${{ inputs.program_id || '' }}
+        run: node scripts/affiliate-discovery.mjs

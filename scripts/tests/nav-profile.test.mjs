@@ -99,6 +99,8 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
     'reports/ad-studio',
     'reports/seo',
   ]);
+  // Affiliate Studio is reachable by URL only for now (2026-11-10).
+  assert.ok(!ids.includes('marketing/affiliates'));
   assert.ok(!sections.some((section) => section.section === 'Reports'));
   assert.ok(!sections.some((section) => section.section === 'Sales'));
   assert.ok(!ids.includes('reports/library'));

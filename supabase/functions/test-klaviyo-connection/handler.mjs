@@ -226,3 +226,66 @@ export async function runKlaviyoTest({ supabase, companyEntityId, fetchImpl = fe
     },
   };
 }
+
+// ── Revoke: Remove in SILO withdraws the grant in Klaviyo too ─────────────
+//
+// Klaviyo's app review requires that removing the integration in the partner
+// app removes the app from the Klaviyo account. That happens only when the
+// grant is revoked: POST /oauth/revoke with the app's client credentials and
+// the refresh token. The refresh token lives on the klaviyo_connections row
+// the browser is about to delete, so the page asks for this FIRST, then
+// deletes the row whatever the answer was.
+//
+// It never changes the row and never fails the removal: every outcome is a
+// 200 with `revoked` true or false and a code saying why, and the page words
+// the message from that. It never returns a token.
+//
+// A private API key has nothing to revoke here -- the customer made it and
+// only they can delete it in Klaviyo -- so `api_key` is said, not attempted.
+//
+// The company comes from the caller's active_company_id, which another tab
+// can change while this request is in flight. So the page also sends the id
+// of the connection the admin confirmed, and nothing is revoked unless the
+// row found here IS that connection: a workspace switch mid-request must not
+// revoke another company's grant.
+//
+// Bounded: Klaviyo gets REVOKE_TIMEOUT_MS, shorter than the page's own
+// deadline, so a stalled upstream ends as `unreachable` and Remove finishes.
+export const KLAVIYO_REVOKE_URL = 'https://a.klaviyo.com/oauth/revoke';
+export const REVOKE_TIMEOUT_MS = 5000;
+
+export async function revokeKlaviyoGrant({ supabase, companyEntityId, expectedConnectionId, clientId, clientSecret, fetchImpl = fetch }) {
+  const done = (revoked, code, extra = {}) => ({ status: 200, body: { revoked, code, ...extra } });
+  const { data: connection, error } = await supabase
+    .from('klaviyo_connections')
+    .select('id, auth_mode, refresh_token')
+    .eq('company_entity_id', companyEntityId)
+    .maybeSingle();
+  if (error) return done(false, 'unreadable');
+  if (!connection) return done(false, 'no_connection');
+  if (!expectedConnectionId || String(connection.id) !== String(expectedConnectionId)) return done(false, 'target_mismatch');
+  if (connection.auth_mode !== 'oauth') return done(false, 'api_key');
+  if (!connection.refresh_token) return done(false, 'no_token');
+  if (!clientId || !clientSecret) return done(false, 'not_configured');
+
+  let res;
+  try {
+    res = await fetchImpl(KLAVIYO_REVOKE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ token_type_hint: 'refresh_token', token: connection.refresh_token }).toString(),
+      signal: AbortSignal.timeout(REVOKE_TIMEOUT_MS),
+    });
+  } catch (_) {
+    return done(false, 'unreachable');
+  }
+  if (res.ok) return done(true, 'revoked');
+  // Already gone: the customer uninstalled SILO in Klaviyo first, so the
+  // token is dead. The outcome the admin wanted is already true.
+  const text = await res.text().catch(() => '');
+  if (res.status === 400 && /invalid_grant/.test(text)) return done(true, 'already_revoked');
+  return done(false, 'klaviyo_error', { klaviyo_status: res.status });
+}

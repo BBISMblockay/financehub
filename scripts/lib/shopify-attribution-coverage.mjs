@@ -8,7 +8,10 @@ export function coverageConfig(env) {
   if (!companies.length || companies.some(s => s !== '*' && !/^[0-9a-f-]{36}$/i.test(s)) || (companies.includes('*') && companies.length !== 1)) throw Error('Explicit company allowlist or * required');
   const initialDays = Number(env.ATTRIBUTION_INITIAL_DAYS || 31);
   if (!Number.isInteger(initialDays) || initialDays < 1 || initialDays > 31) throw Error('Initial history must be 1–31 days');
-  return { companies, initialDays, excluded: new Set((env.ATTRIBUTION_EXCLUDED_CONNECTIONS || '').split(',').map(s => s.trim()).filter(Boolean)) };
+  // Historical days collected per store per run. Bounded by the widest window planDays can floor to.
+  const gapDays = Number(env.ATTRIBUTION_GAP_DAYS || 10);
+  if (!Number.isInteger(gapDays) || gapDays < 1 || gapDays > 60) throw Error('Catch-up budget must be 1–60 days');
+  return { companies, initialDays, gapDays, excluded: new Set((env.ATTRIBUTION_EXCLUDED_CONNECTIONS || '').split(',').map(s => s.trim()).filter(Boolean)) };
 }
 export function eligible(connection, config) {
   return connection.is_active === true && connection.sync_enabled === true && !config.excluded.has(connection.id)
@@ -22,7 +25,9 @@ export function canPublish(fresh, original, config, day, today) {
     && fresh.company_entity_id === original.company_entity_id && fresh.shop_domain === original.shop_domain
     && (fresh.scopes_granted.includes('read_all_orders') || day >= shiftDay(today, -59));
 }
-export function planDays({ today, state, snapshots, fullHistory }) {
+export function planDays({ today, state, snapshots, fullHistory, gapDays }) {
+  // Refuse rather than default: a missing budget would silently plan zero historical days forever.
+  if (!Number.isInteger(gapDays) || gapDays < 1) throw Error('Catch-up budget required');
   const end = shiftDay(today, -1);
   // Stay conservatively inside Shopify's 60-day rolling order-access limit.
   const floor = fullHistory ? state.start_day : [state.start_day, shiftDay(today, -59)].sort().at(-1);
@@ -36,7 +41,7 @@ export function planDays({ today, state, snapshots, fullHistory }) {
   // Cursor rotates past failures, so a permanently bad day cannot starve later gaps.
   const cursor = state.next_day >= floor && state.next_day <= end ? state.next_day : floor;
   for (const [first, last] of [[cursor, end], [floor, shiftDay(cursor, -1)]]) {
-    for (let day = first; day <= last && gaps.length < 3; day = shiftDay(day, 1)) {
+    for (let day = first; day <= last && gaps.length < gapDays; day = shiftDay(day, 1)) {
       if (!published.has(day) && !refresh.includes(day)) gaps.push(day);
     }
   }
@@ -70,7 +75,7 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
       state.last_attempt_at = now().toISOString();
       state.last_status = 'running';
       await saveState(state); // Freeze enrollment BEFORE the first remote day fetch.
-      const plan = planDays({ today, state, snapshots: await loadSnapshots(connection.id, state.start_day), fullHistory: connection.scopes_granted.includes('read_all_orders') });
+      const plan = planDays({ today, state, snapshots: await loadSnapshots(connection.id, state.start_day), fullHistory: connection.scopes_granted.includes('read_all_orders'), gapDays: config.gapDays });
       receipt.permission_limited = plan.permissionLimited;
       receipt.accessible_start = plan.floor;
       // Historical budget is separate from refresh budget; neither can consume the other.

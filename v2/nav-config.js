@@ -107,6 +107,24 @@
     ['ads/testing','Schedule','marketing-ops.html',['grandfathered']],
   ];
 
+  // The Performance suite (2026-11-11), drawn by performance-suite.js: the four
+  // places marketing results are READ, as one sidebar row with a tab strip of
+  // REAL pages at their existing URLs. Nothing is merged: each page keeps its
+  // own numbers, and the fourth element says which revenue figure that page is
+  // built on, because the four do not agree and must not be added together.
+  // Unlike the other strips, every tab here is ALSO a NAV_ITEMS row (marked
+  // `tabOf`), so each tab's visibility is its row's own, unchanged gate --
+  // Report and Attribution stay Baseballism-only, Attribution keeps its pilot
+  // companyGate -- and "Jump to" still finds every page by name. The sidebar
+  // simply does not draw a `tabOf` row (sidebarSections below).
+  const PERFORMANCE_ROW = 'reports/marketing-overview';
+  const PERFORMANCE_SUITE_PAGES = [
+    ['reports/marketing-overview','Overview','marketing-overview.html','Shopify net sales'],
+    ['reports/marketing-explorer','Explorer','marketing-explorer.html','Platform-claimed'],
+    ['reports/wow-report','Report','wow-report.html','Shopify sales + notes'],
+    ['reports/silo-attribution','Attribution','silo-attribution.html','Last click'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -339,10 +357,14 @@
     // standalone Sales pages or the report-building tools.
     // Marketing Report and Silo Attribution stay Baseballism's (grandfathered)
     // only: standard workspaces do not see them (Blake, 2026-10-07).
-    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'] },
-    { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered'], companyGate: isSiloAttributionEnabled },
+    // ONE Performance destination (2026-11-11): the Performance row is the
+    // sidebar row, and the other three are TABS of it (`tabOf`, see
+    // PERFORMANCE_SUITE_PAGES). They stay rows here so their gates and their
+    // "Jump to" entries are exactly what they were; only the sidebar skips them.
+    { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'], tabOf: PERFORMANCE_ROW },
+    { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered'], companyGate: isSiloAttributionEnabled, tabOf: PERFORMANCE_ROW },
     { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'], tabOf: PERFORMANCE_ROW },
     // Past Meta ads as baselines and an idea bank measured against them
     // (2026-09-27). It launched behind the same exec gate the SEO row started
     // with -- who sees it first, not who may read it; RLS is the boundary.
@@ -370,6 +392,15 @@
     // (the person who may switch tracking on must be able to find it). Nav is
     // discovery only; every read is RLS, every approver write re-checked.
     { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
+    // Affiliate Studio (2026-11-10): one destination, tabs inside the page.
+    // Same gate shape as SEO: execs, or an affiliate_program_managers grant.
+    // Nav is discovery only -- RLS and can_manage_affiliate_programs() decide
+    // every write. The affiliate-facing pages (join/portal/apply) are not in
+    // the nav at all: affiliates are never SILO users.
+    // Hidden from the sidebar for now (Blake, 2026-11-10): the page stays
+    // live at /v2/affiliates/index.html by URL, gated in the database as
+    // before. To bring it back, restore this row:
+    // { roles: EXEC_ROLES, grantTable: 'affiliate_program_managers', id: 'marketing/affiliates', section: 'Marketing', label: 'Affiliates', href: '/v2/affiliates/index.html', profiles: ['grandfathered', 'standard'] },
 
     // Both profiles discover shared reports and dashboards through Reports.
     // Standard workspaces discover Reports as admin-and-up (admins added
@@ -536,6 +567,16 @@
     return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds, company);
   }
 
+  // What the SIDEBAR draws: a row that is a tab of another row is reached
+  // through that row's strip, so it is not drawn twice. Everything else that
+  // reads the nav (the "Jump to" palette, the strips, tests) keeps the full
+  // list. Presentation only -- it runs after every visibility filter above.
+  function sidebarSections(sections) {
+    return sections
+      .map((s) => ({ ...s, items: s.items.filter((i) => !i.tabOf) }))
+      .filter((s) => s.items.length);
+  }
+
   global.SiloNav = {
     MODULES,
     loadModuleVisibility,
@@ -544,6 +585,9 @@
     WORKSPACE_SETTINGS_PAGES,
     SEO_SUITE_PAGES,
     AD_STUDIO_SUITE_PAGES,
+    PERFORMANCE_ROW,
+    PERFORMANCE_SUITE_PAGES,
+    sidebarSections,
     resolveNavProfile,
     isSiloAttributionEnabled,
     navSectionsForProfile,

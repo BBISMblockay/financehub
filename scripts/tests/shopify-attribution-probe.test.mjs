@@ -127,6 +127,12 @@ for(const name of ['ATTRIBUTION_JOURNEY_BATCH','ATTRIBUTION_JOURNEY_MOMENTS','AT
 // the coverage job even though it has no dispatch inputs of its own.
 assert.ok(coverage.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
 assert.ok(workflow.includes('ATTRIBUTION_CHANGE_BATCH: ${{ vars.ATTRIBUTION_CHANGE_BATCH }}'));
+// The catch-up budget is what decides how many nights a newly enrolled store needs before its
+// history is whole, so it has to reach the nightly job. It is coverage-only on purpose: the manual
+// dispatch path takes an explicit date range and never consults a per-run historical budget.
+assert.ok(coverage.includes('ATTRIBUTION_GAP_DAYS: ${{ vars.ATTRIBUTION_GAP_DAYS }}'),
+ 'the catch-up budget must be passed to the coverage job');
+assert.ok(!workflow.includes('ATTRIBUTION_GAP_DAYS'),'the manual dispatch has no historical budget');
 const ci=readFileSync(new URL('../../.github/workflows/attribution-tests.yml',import.meta.url),'utf8');
 assert.ok(ci.includes('node scripts/tests/shopify-attribution-probe.test.mjs'));
 assert.ok(ci.includes('node scripts/tests/shopify-attribution-plan-probe.test.mjs'),'the speed probe is covered in CI');

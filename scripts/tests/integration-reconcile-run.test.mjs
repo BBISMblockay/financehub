@@ -104,7 +104,12 @@ async function runPass(env = {}, rows = fixture(), { failTable = null } = {}) {
     const where = filters(url);
     seen.push({ table, where, select: url.searchParams.get('select'), order: url.searchParams.get('order') });
     const match = (rows[table] || []).filter((row) =>
-      Object.entries(where).every(([col, val]) => String(row[col]) === val));
+      Object.entries(where).every(([col, val]) => {
+        // `in.(a,b)`, which is how the sync_jobs lookup asks for its types.
+        const set = /^in\.\((.*)\)$/.exec(val);
+        if (set) return set[1].split(',').map((v) => v.replace(/^"|"$/g, '')).includes(String(row[col]));
+        return String(row[col]) === val;
+      }));
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(url.searchParams.get('limit') ? match.slice(0, 1) : match));
   });
@@ -150,6 +155,72 @@ test('the probe asks its own company, so another tenant rows are not evidence', 
   assert.ok(probe, 'the new store must be probed');
   assert.equal(probe.where.company_entity_id, CO);
   assert.equal(probe.order, 'day_date.desc', 'the newest row is the one that answers both questions');
+});
+
+// The narrowed probe (fastProbe on the sales feed). Asking the full question
+// has no index to serve it and walked ~798k rows on production, past the
+// statement timeout, so two of Baseballism's stores read 'unknown' every run.
+// What matters is that the narrowing can only ever say YES faster: these pin
+// both halves over the wire.
+test('the narrowed probe is asked first, and a hit answers without the wider one', async () => {
+  const rows = fixture();
+  // live.myshopify.com has a row carrying the narrowing's value.
+  rows.sales_by_day = [{ day_date: PACIFIC_TODAY, shop_domain: 'live.myshopify.com', company_entity_id: CO, source: 'shopify_api' }];
+  const { seen } = await runPass({}, rows);
+  const probes = seen.filter((s) => s.table === 'sales_by_day' && s.where.shop_domain === 'live.myshopify.com');
+  assert.ok(probes.length >= 1, 'the store must be probed');
+  assert.equal(probes[0].where.source, 'shopify_api', 'the narrowed ask goes first');
+  assert.equal(probes[0].where.company_entity_id, CO, 'and it is still scoped to its own company');
+  assert.equal(probes[0].order, 'day_date.desc');
+  assert.equal(probes.length, 1, 'a hit answers the question, so the unnarrowed walk is never run');
+});
+
+test('a narrowed miss proves nothing and falls through to the full question', async () => {
+  const rows = fixture();
+  // A row for this store, but NOT one the narrowing can see. The verdict must
+  // come from the wider ask, which still finds it -- a narrowed miss must
+  // never read as "this connection never produced anything".
+  rows.sales_by_day = [{ day_date: PACIFIC_TODAY, shop_domain: 'live.myshopify.com', company_entity_id: CO, source: 'legacy_csv' }];
+  const { seen, out } = await runPass({}, rows);
+  const probes = seen.filter((s) => s.table === 'sales_by_day' && s.where.shop_domain === 'live.myshopify.com');
+  assert.equal(probes.length, 2, 'narrowed first, then the full question');
+  assert.equal(probes[0].where.source, 'shopify_api');
+  assert.equal(probes[1].where.source, undefined, 'the second ask carries no narrowing');
+  assert.doesNotMatch(out, /live\.myshopify\.com[^\n]*never imported/, 'the row the wider ask found is still evidence');
+});
+
+// A sync that RAN and had nothing to write (production 2026-11-11: a store
+// with nothing stocked, snapshot success, 0 rows). inventory_on_hand holds no
+// history, so there is no watermark to read and the run record in sync_jobs is
+// the only evidence the snapshot happened -- this pins that it is read, and
+// that the pass stops calling it a failure.
+test('a feed whose data is its own watermark reads the run record when it is empty', async () => {
+  const rows = fixture();
+  rows.inventory_on_hand = [];
+  rows.sync_jobs = [{
+    company_entity_id: CO, job_type: 'inventory_snapshot', status: 'success',
+    started_at: PACIFIC_TODAY_AT, finished_at: PACIFIC_TODAY_AT, error: null,
+  }];
+  const { code, out, seen, health } = await runPass({ RECONCILE_ONLY_FEED: 'inventory' }, rows);
+  const lookup = seen.find((s) => s.table === 'sync_jobs');
+  assert.ok(lookup, 'the run record must actually be asked for');
+  assert.equal(lookup.where.job_type, 'in.(inventory_snapshot)');
+  assert.match(out, /wrote nothing/);
+  assert.doesNotMatch(out, /the sync is failing/, 'nothing is failing here');
+  const states = health.flatMap((h) => (Array.isArray(h.body) ? h.body : [h.body]))
+    .filter((r) => r.feed === 'inventory').map((r) => [r.state, r.severity]);
+  assert.ok(states.some(([state, severity]) => state === 'synced_but_empty' && severity === 'warn'),
+    `expected a warn-level synced_but_empty, got ${JSON.stringify(states)}`);
+  assert.equal(code, 0, 'and it does not fail the pass');
+});
+
+test('with no run record the same feed keeps the verdict it had', async () => {
+  const rows = fixture();
+  rows.inventory_on_hand = [];
+  rows.sync_jobs = [];
+  const { out, code } = await runPass({ RECONCILE_ONLY_FEED: 'inventory' }, rows);
+  assert.match(out, /sync is failing|never imported/, 'no evidence must change nothing');
+  assert.equal(code, 1);
 });
 
 test('with auto-start on it queues exactly one job, in the shape the drainer claims', async () => {
