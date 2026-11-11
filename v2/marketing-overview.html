@@ -449,6 +449,8 @@
       if (v == null || v === '') url.searchParams.delete(k); else url.searchParams.set(k, String(v));
     }
     if (url.href !== location.href) history.replaceState(null, '', url);
+    // Keep the Performance strip's links on the current selection.
+    window.SiloPerformanceSuite?.sync?.();
   }
   // The window is whatever the address bar says, never a quiet substitute:
   // any "last N days" (Explorer offers 1y), or a typed start/end range, which
@@ -1599,7 +1601,11 @@
     tab.addEventListener('click', () => {
       document.querySelectorAll('.bcn-tab[data-tab]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
       document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
-      setUrlParams({ tab: tab.dataset.tab === 'overview' ? null : tab.dataset.tab });
+      // Summary is normally the absence of `tab`. With a focused ad, campaign
+      // or message in the address bar it has to be written down, or a refresh
+      // would reopen that focus's tab instead of the Summary someone chose.
+      const hasFocus = ['ad','campaign','redo','klaviyo'].some(k => urlParam(k));
+      setUrlParams({ tab: tab.dataset.tab === 'overview' ? (hasFocus ? 'overview' : null) : tab.dataset.tab });
     });
   });
   // A window with no button of its own -- 1y, or a fixed range typed in
@@ -1633,7 +1639,7 @@
     }
     // An explicit tab wins; otherwise a focused ad, campaign or message opens its tab, as before.
     const wantTab = urlParam('tab');
-    if (TABS.includes(wantTab) && wantTab !== 'overview') document.querySelector(`.bcn-tab[data-tab="${wantTab}"]`).click();
+    if (TABS.includes(wantTab)){ if (wantTab !== 'overview') document.querySelector(`.bcn-tab[data-tab="${wantTab}"]`).click(); }
     else if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
     else if (focusedCampaign) document.querySelector('.bcn-tab[data-tab="campaigns"]').click();
     else if (focusedRedo||focusedKlaviyo) document.querySelector('.bcn-tab[data-tab="redo"]').click();

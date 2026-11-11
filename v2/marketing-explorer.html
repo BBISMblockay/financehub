@@ -400,6 +400,8 @@
     set('ad', state.focusAd);
     if (url.href === location.href) return;
     history[push ? 'pushState' : 'replaceState'](null, '', url);
+    // Keep the Performance strip's links on the current selection.
+    window.SiloPerformanceSuite?.sync?.();
   }
 
   // Returns true when the date range changed (the caller reloads).
@@ -932,6 +934,7 @@
     // dates moved; a drill change re-renders what is already loaded.
     window.addEventListener('popstate', () => {
       if (readUrl()) runLoad(); else { settleDrill(); render(); }
+      window.SiloPerformanceSuite?.sync?.();
     });
     await runLoad();
   }

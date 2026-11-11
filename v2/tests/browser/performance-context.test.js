@@ -27,6 +27,10 @@
  *   PERF_CTX_MUTATION=range-ignored   Overview swaps a typed range for 30d
  *   PERF_CTX_MUTATION=range-unbounded Overview reads past the end of a typed range
  *   PERF_CTX_MUTATION=range-unnamed   Overview shows a typed range's numbers under a 30d label
+ *   PERF_CTX_MUTATION=summary-forgotten  choosing Summary with a focus present is not written down
+ *   PERF_CTX_MUTATION=summary-overridden an explicit Summary loses to the focus default on refresh
+ *   PERF_CTX_MUTATION=href-bare       the strip link is the bare page URL (new-tab loses the selection)
+ *   PERF_CTX_MUTATION=href-stale      the strip link is never refreshed as the selection changes
  *   PERF_CTX_MUTATION=foreign-campaign Overview filters Campaigns by another platform's campaign
  */
 'use strict';
@@ -48,6 +52,10 @@ const MUTATIONS = {
   'range-ignored': ['/marketing-overview.html', "      return e === todayIso() ? { days: n, start: null, end: null } : { days: n, start: s, end: e };", "      return { days: 30, start: null, end: null };"],
   'range-unbounded': ['/marketing-overview.html', "  const upTo = (q, col = 'day_date') => isFixedRange() ? q.lte(col, RANGE.end) : q;", "  const upTo = (q) => q;"],
   'range-unnamed': ['/marketing-overview.html', "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = windowLabel();", "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = '30d';"],
+  'summary-forgotten': ['/marketing-overview.html', "(hasFocus ? 'overview' : null)", "null"],
+  'summary-overridden': ['/marketing-overview.html', "    if (TABS.includes(wantTab)){ if (wantTab !== 'overview')", "    if (TABS.includes(wantTab) && wantTab !== 'overview'){ if (true)"],
+  'href-bare': ['/performance-suite.js', "      link.href = hrefWithContext(active, id, path, window.location?.search);", "      link.href = '/v2/' + path;"],
+  'href-stale': ['/performance-suite.js', "      if (link.getAttribute('href') !== href) link.setAttribute('href', href);", ""],
   'foreign-campaign': ['/marketing-overview.html', "(!urlParam('platform') || urlParam('platform') === 'meta_ads') ? urlParam('campaign') : null", "urlParam('campaign')"],
 };
 const MUT = process.env.PERF_CTX_MUTATION || '';
@@ -178,8 +186,50 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
     await Promise.all([page.waitForURL(/marketing-explorer/), page.locator('.perf-suite-links a', { hasText: 'Explorer' }).click()]);
     await page.waitForFunction(explorerReady);
     R.has(await trail(page), 'Holiday Prospecting', 'and Explorer is still on the campaign on the way back');
-    R.eq(await page.locator('.perf-suite-links a', { hasText: 'Overview' }).getAttribute('href'), '/v2/marketing-overview.html',
-      'the drawn tab link stays the plain page URL');
+    R.eq(await page.locator('.perf-suite-links a', { hasText: 'Overview' }).getAttribute('href'),
+      '/v2/marketing-overview.html?days=14&platform=meta_ads&campaign=c1', 'the selection is in the real link, at rest');
+    await page.close();
+
+    // Opening the other view in a NEW TAB (middle-click, "Open link in new
+    // tab") runs no click handler, so the selection has to be in the href
+    // itself and stay current as the drill and the dates change.
+    page = await suite.open(`/v2/marketing-explorer.html?start=${day(12)}&end=${day(8)}`, TABLES, { ready: explorerReady });
+    const ovLink = page.locator('.perf-suite-links a', { hasText: 'Overview' });
+    R.eq(await ovLink.getAttribute('href'), `/v2/marketing-overview.html?start=${day(12)}&end=${day(8)}`, 'the fixed range is in the link on load');
+    await page.locator('#mainBody tr[data-idx]', { hasText: 'Meta Ads' }).click();
+    await page.locator('#mainBody tr[data-idx]', { hasText: 'Holiday Prospecting' }).click();
+    R.eq(await ovLink.getAttribute('href'), `/v2/marketing-overview.html?start=${day(12)}&end=${day(8)}&platform=meta_ads&campaign=c1`,
+      'and follows the drill without the link being touched');
+    await page.goBack(); await page.waitForFunction(() => document.getElementById('tableTitle').textContent === 'Campaigns');
+    R.eq(await ovLink.getAttribute('href'), `/v2/marketing-overview.html?start=${day(12)}&end=${day(8)}&platform=meta_ads`, 'and follows Back');
+    await page.goForward(); await page.waitForFunction(() => document.getElementById('tableTitle').textContent === 'Ad sets');
+    const [fresh] = await Promise.all([suite.context.waitForEvent('page'), ovLink.click({ button: 'middle' })]);
+    await fresh.waitForFunction(overviewReady);
+    const np = await fresh.evaluate(() => Object.fromEntries(new URLSearchParams(location.search)));
+    R.eq([np.start, np.end, np.platform, np.campaign], [day(12), day(8), 'meta_ads', 'c1'], 'a new tab opens with the same range and campaign');
+    R.ok('showing that range, not 30d', (await fresh.locator('#windowBtns button[data-fixed]').count()) === 1);
+    R.eq(await fresh.locator('.bcn-tab--active').getAttribute('data-tab'), 'campaigns', 'on that campaign');
+    await fresh.close();
+    await page.close();
+
+    // Choosing Summary while a campaign is focused is a choice a refresh keeps.
+    page = await suite.open('/v2/marketing-overview.html?days=30&platform=meta_ads&campaign=c1', TABLES, { ready: overviewReady });
+    R.eq(await page.locator('.bcn-tab--active').getAttribute('data-tab'), 'campaigns', 'a focused campaign opens Campaigns by default');
+    await page.click('.bcn-tab[data-tab="overview"]');
+    R.eq((await q(page)).tab, 'overview', 'Summary is written down while a focus is present');
+    await page.reload(); await page.waitForFunction(overviewReady);
+    R.eq(await page.locator('.bcn-tab--active').getAttribute('data-tab'), 'overview', 'and a refresh stays on Summary');
+    R.eq((await q(page)).campaign, 'c1', 'with the campaign still selected for Explorer');
+    await page.close();
+    page = await suite.open('/v2/marketing-overview.html?days=30&ad=a1', TABLES, { ready: overviewReady });
+    await page.click('.bcn-tab[data-tab="overview"]');
+    await page.reload(); await page.waitForFunction(overviewReady);
+    R.eq(await page.locator('.bcn-tab--active').getAttribute('data-tab'), 'overview', 'the same for a focused ad');
+    await page.click('.bcn-tab[data-tab="funnel"]'); await page.click('.bcn-tab[data-tab="overview"]');
+    await page.close();
+    page = await suite.open('/v2/marketing-overview.html?days=30', TABLES, { ready: overviewReady });
+    await page.click('.bcn-tab[data-tab="funnel"]'); await page.click('.bcn-tab[data-tab="overview"]');
+    R.ok('with no focus, Summary stays the absence of tab', !(await q(page)).tab);
     await page.close();
 
     // A campaign on another platform is carried, not used as Overview's Meta filter.

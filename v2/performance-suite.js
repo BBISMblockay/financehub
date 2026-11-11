@@ -52,9 +52,9 @@
   const CONTEXT_KEYS = ['days', 'start', 'end', 'platform', 'campaign', 'adset', 'ad'];
   const SHARES_CONTEXT = ['reports/marketing-overview', 'reports/marketing-explorer'];
   // A tab's href, with the current selection when BOTH ends share it. The
-  // href drawn in the strip stays the plain page URL (what a copied link or a
-  // bookmark should be); the selection is added at click time, from whatever
-  // the address bar holds at that moment.
+  // selection is in the REAL href, not added by a click handler, so a
+  // middle-click, "Open link in new tab" and a copied link all carry it the
+  // same way a plain click does. sync() below keeps it current.
   function hrefWithContext(active, id, path, search) {
     const base = '/v2/' + path;
     if (!SHARES_CONTEXT.includes(active) || !SHARES_CONTEXT.includes(id)) return base;
@@ -99,7 +99,9 @@
     links.className = 'perf-suite-links';
     for (const [id, title, path, basis] of shown) {
       const link = document.createElement('a');
-      link.href = '/v2/' + path;
+      link.href = hrefWithContext(active, id, path, window.location?.search);
+      link.dataset.perfTab = id;
+      link.dataset.perfPath = path;
       link.title = basis ? `${title}: ${basis}` : title;
       link.innerHTML = svg(id);
       const text = document.createElement('span');
@@ -113,15 +115,34 @@
         link.append(b);
       }
       if (id === active) link.setAttribute('aria-current', 'page');
-      else link.addEventListener?.('click', () => { link.href = hrefWithContext(active, id, path, window.location?.search); });
       links.append(link);
     }
     nav.append(links);
+    // The pages call sync() whenever they rewrite the address bar. These are
+    // the backstop for a rewrite that did not: every way of reaching a link
+    // (pointer, keyboard focus, context menu) refreshes it first.
+    for (const ev of ['pointerdown', 'mouseover', 'focusin', 'contextmenu']) {
+      nav.addEventListener?.(ev, () => syncNav(nav, active));
+    }
     return nav;
+  }
+
+  // Point every link at its page with the selection the address bar holds now.
+  function syncNav(nav, active) {
+    for (const link of nav.querySelectorAll?.('a[data-perf-tab]') || []) {
+      const href = hrefWithContext(active, link.dataset.perfTab, link.dataset.perfPath, window.location?.search);
+      if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+    }
+  }
+  let mountedActive = null;
+  function sync() {
+    const nav = (typeof document !== 'undefined') && document.querySelector?.('[data-perf-suite]');
+    if (nav && mountedActive) syncNav(nav, mountedActive);
   }
 
   function mount(main, active) {
     if (!contains(active) || main.querySelector('[data-perf-suite]')) return;
+    mountedActive = active;
     main.firstElementChild.after(build(active));
   }
 
@@ -130,6 +151,7 @@
   // cache already correct -- never flickers it.
   function refresh(main, active) {
     if (!contains(active)) return;
+    mountedActive = active;
     const existing = main.querySelector('[data-perf-suite]');
     if (!existing) { mount(main, active); return; }
     const wanted = visible(active).map(([id]) => id).join(',');
@@ -137,5 +159,5 @@
     existing.replaceWith(build(active));
   }
 
-  window.SiloPerformanceSuite = { contains, mount, refresh, hrefWithContext };
+  window.SiloPerformanceSuite = { contains, mount, refresh, sync, hrefWithContext };
 })();
