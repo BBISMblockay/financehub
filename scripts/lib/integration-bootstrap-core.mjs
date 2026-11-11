@@ -251,8 +251,18 @@ export const BOOTSTRAP_DEFAULTS = {
   // runLandingPagesSync for why it cannot be one window), so this is the one
   // window bounded by its own cost rather than by the source.
   shopifyLandingPagesDays: 30,
-  // A year, so a promo can be compared with last year's run of it. Also one
-  // wide ShopifyQL window clamped to SHOPIFYQL_MAX_DAYS, so it has room.
+  // A year, so a promo can be compared with last year's run of it.
+  //
+  // This stage costs one ShopifyQL query PER DAY, like landing pages -- so
+  // unlike the other numbers here, this one is not "what the source serves"
+  // but a deliberate 365 round trips, bought once per connect, because
+  // Shopify discount codes ARE affiliate codes (runDiscountCodesSync says so)
+  // and the affiliate year-over-year read has no other source. It must stay
+  // equal to DISCOUNT_CODES_MAX_DAYS in shopify-sync-core.mjs, which is a cost
+  // ceiling, not a limit of the source: when that ceiling was lower (120) it
+  // truncated this request in silence -- the worker returned normally and the
+  // stage recorded done, so a store with a promotion 200 days ago imported
+  // none of it (found in review of #1244).
   shopifyDiscountCodesDays: 365,
   // Google Ads and TikTok both serve years; GA4 returns whatever its property
   // retains. Not used for Meta -- see adStages.

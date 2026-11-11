@@ -3506,8 +3506,33 @@ const numOrNull = (v) => {
  */
 const DISCOUNT_TOP_N = 200;
 
+/** The deepest window this stage will serve, and therefore a COST ceiling
+ * rather than a limit of the source.
+ *
+ * This stage issues one ShopifyQL query PER DAY (see above: ShopifyQL clips at
+ * 1000 rows without saying so), so the bound here is the number of round trips
+ * a single run may make, not how far back Shopify will answer -- a wide
+ * `SINCE..UNTIL` would be one query and is not available to us.
+ *
+ * It was 120, chosen when the first-connect plan asked for 30. On 2026-11-11
+ * that plan was widened to ask for a year (BOOTSTRAP_DEFAULTS
+ * .shopifyDiscountCodesDays = 365) so a promo could be compared with last
+ * year's run of it -- and 120 silently truncated it: the worker returned
+ * normally, the bootstrap recorded the storefront stage done, and a store with
+ * a promotion 200 days ago imported none of it. The nightly's 30-day window
+ * cannot fill an older day, so nothing would ever have noticed.
+ *
+ * So the ceiling now matches the deepest window anything asks for. It is kept
+ * as a ceiling, rather than raised to SHOPIFYQL_MAX_DAYS like the single-query
+ * stages, precisely BECAUSE each day is a request: 730 here would be 730 round
+ * trips, and no caller wants that. A request over the ceiling is still clamped
+ * rather than refused -- but the ceiling and the widest request are now the
+ * same number, which is what stops a clamp from quietly eating a promise.
+ */
+export const DISCOUNT_CODES_MAX_DAYS = 365;
+
 export async function runDiscountCodesSync(supabase, connection, { sinceDays = 30, batchId = null } = {}) {
-  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), 120);
+  const days = Math.min(Math.max(Number(sinceDays) || 30, 1), DISCOUNT_CODES_MAX_DAYS);
   const iso = (d) => d.toISOString().slice(0, 10);
   const today = new Date();
 
