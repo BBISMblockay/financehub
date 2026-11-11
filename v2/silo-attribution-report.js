@@ -97,7 +97,11 @@ export async function loadRows(db,companyId,connectionId,start,end,windowDays) {
   }
   return summarize(rows,controls,windowDays);
 }
-export function mountReport(root,{load,evidence,journeys,spend}) {
+// `ai` is the optional AI summary card ({setData, clear}) from
+// silo-attribution-ai-summary.js. Optional on purpose: without it the page is
+// exactly what it was, which is also what happens if its configuration is
+// missing.
+export function mountReport(root,{load,evidence,journeys,spend,ai=null}) {
   let report=null,page=0,sequence=0;
   const $=id=>root.querySelector('#'+id),money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:report.currency}).format(n/100);
   function status(message,type='info'){$('status').textContent=message;$('status').className='bcn-status bcn-status--'+type;$('status').hidden=!message;}
@@ -134,8 +138,28 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
   const filters=()=>({start:$('start').value,end:$('end').value,windowDays:Number($('window').value),connectionId:$('store').value});
   function showJourneys(show){$('ordersection').hidden=!show;$('overview').hidden=show;$('overview-tables').hidden=show;for(const [id,on] of [['overview-tab',!show],['journeys-tab',show]]){$(id).classList.toggle('bcn-tab--active',on);$(id).setAttribute('aria-pressed',String(on));}}
   $('overview-tab').onclick=()=>showJourneys(false);$('journeys-tab').onclick=()=>showJourneys(true);
+  // Exactly what the tables above show, flattened for the summary prompt.
+  // Nothing is derived here that is not already on screen.
+  function summaryData(result,overview,spendSummary,args){
+    const total=spendTotal(spendSummary);
+    return {
+      store:$('store').selectedOptions[0]?.textContent||'',
+      start:args.start,end:args.end,windowDays:args.windowDays,days:result.days,
+      currency:result.currency,netCents:result.net,totalCents:result.total,orderCount:result.orders.length,
+      spend:spendSummary?{cents:total.anyKnown?total.cents:null,complete:total.complete,gaps:(total.gaps||[]).map(g=>g.channel)}:{cents:null,complete:false,gaps:[]},
+      multiChannel:overview?.share||null,
+      journeys:overview?.analysis?{eligible:overview.analysis.eligible,total:overview.analysis.total}:null,
+      channels:(overview?.rows||result.channels.map(c=>({channel:c.channel,net_cents:c.net_cents,started:c.introduced_orders,assisted:c.assisted_orders,closed:c.orders}))).map(r=>({
+        channel:r.channel,netCents:r.net_cents,sharedCents:r.shared_cents==null?null:r.shared_cents,
+        spendCents:r.spend?(r.spend.cents==null?null:r.spend.cents):null,spendStatus:r.spend?.status||null,
+        started:r.started,assisted:r.assisted,closed:r.closed,
+      })),
+      paths:(overview?.paths||[]).map(p=>({path:p.path,count:p.count,netCents:p.net_cents})),
+      findings:(overview?.findings||[]).map(f=>({title:f.title,text:f.text})),
+    };
+  }
   async function refresh(){
-    const current=++sequence,args=filters();report=null;$('results').hidden=true;$('journey').close();
+    const current=++sequence,args=filters();report=null;ai?.setData(null);$('results').hidden=true;$('journey').close();
     root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Loading…');
     try{
       const result=await load(args);if(current!==sequence)return;report=result;page=0;draw();
@@ -144,12 +168,17 @@ export function mountReport(root,{load,evidence,journeys,spend}) {
       if(current!==sequence)return;
       const why=r=>r.status==='rejected'?(r.reason?.message||String(r.reason)):null;
       drawSpend(s.value,why(s));
-      try{mountOverview($('overview'),$('trust-analysis'),{report:result,records:j.value||null,journeyError:why(j),spend:s.value||null,spendError:why(s)});}
+      let overview=null;
+      try{overview=mountOverview($('overview'),$('trust-analysis'),{report:result,records:j.value||null,journeyError:why(j),spend:s.value||null,spendError:why(s)});}
       catch(e){$('overview').textContent='Overview unavailable: '+e.message+'. Orders remain available under Journeys.';}
+      // The AI summary is handed the figures that were just rendered. An
+      // overview that failed to render leaves it with the report-level figures
+      // only rather than nothing, since those are reconciled on their own.
+      ai?.setData(summaryData(result,overview,s.value,args));
       status('');
     }catch(e){if(current===sequence)status(e.message||String(e),'neg');}
   }
-  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Press Load report.');};
+  for(const id of ['start','end','store'])$(id).onchange=()=>{++sequence;report=null;ai?.setData(null);$('results').hidden=true;$('journey').close();root.querySelectorAll('#overview dialog[open]').forEach(d=>d.close());status('Filters changed. Press Load report.');};
   $('load').onclick=refresh;$('window').onchange=refresh;$('search').oninput=()=>{page=0;drawOrders();};$('channel').onchange=$('role').onchange=()=>{page=0;drawOrders();};$('previous').onclick=()=>{page--;drawOrders();};$('next').onclick=()=>{page++;drawOrders();};$('close').onclick=()=>$('journey').close();
   root.addEventListener('click',async event=>{
     const channel=event.target.closest('[data-channel]');if(channel){showJourneys(true);if(![...$('channel').options].some(o=>o.value===channel.dataset.channel))$('channel').append(new Option(channel.dataset.channel));$('channel').value=channel.dataset.channel;$('role').value=channel.dataset.role||'any';page=0;drawOrders();$('ordersection').scrollIntoView({behavior:'smooth'});}

@@ -2,6 +2,7 @@ import {loadJourneyRecords} from './silo-attribution-overview.js';
 import {loadSpend} from './silo-attribution-spend.js';
 import {mountReport,loadRows} from './silo-attribution-report.js';
 import {periodRange,matchPeriod} from './silo-attribution-period.js';
+import {mountAISummary,askSiloSummary,aiCreditNote} from './silo-attribution-ai-summary.js';
 const cfg=window.__SILO_CONFIG__||{},root=document.querySelector('#attribution'),status=root.querySelector('#status');
 function fail(message){status.textContent=message;status.className='bcn-status bcn-status--neg';status.hidden=false;}
 async function boot(){
@@ -62,7 +63,19 @@ async function boot(){
     const only=document.createElement('p');only.className='attr-context';only.id='onlystore';
     only.textContent='Reporting on '+label(stores[0])+'.';
     root.querySelector('.attr-controls').after(only);}
-  const app=mountReport(root,{journeys:(orders,args)=>withCompany(()=>loadJourneyRecords(db,company.id,args.connectionId,orders)),spend:args=>withCompany(()=>loadSpend(db,company.id,args.start,args.end)),load:args=>withCompany(()=>loadRows(db,company.id,args.connectionId,args.start,args.end,args.windowDays)),evidence:row=>withCompany(async()=>{
+  // "Generate AI summary": the same edge function Ask SILO uses, asked about the
+  // figures this page just rendered. Built here because this is where the
+  // client, the session and the active company live. Any failure to construct
+  // it leaves the page exactly as it was -- the card is simply not mounted.
+  let ai=null;
+  try{
+    const functionsUrl=String(cfg.SUPABASE_URL||'').replace('/rest/v1','')+'/functions/v1';
+    ai=mountAISummary(root.querySelector('#aisummary'),{
+      ask:question=>withCompany(()=>askSiloSummary(db,{functionsUrl,companyId:company.id})(question)),
+      credit:aiCreditNote(db,window.SiloAICredit),
+    });
+  }catch(e){console.warn('[attribution] AI summary unavailable',e);}
+  const app=mountReport(root,{ai,journeys:(orders,args)=>withCompany(()=>loadJourneyRecords(db,company.id,args.connectionId,orders)),spend:args=>withCompany(()=>loadSpend(db,company.id,args.start,args.end)),load:args=>withCompany(()=>loadRows(db,company.id,args.connectionId,args.start,args.end,args.windowDays)),evidence:row=>withCompany(async()=>{
     const {data,error}=await db.from('shopify_attribution_orders').select('evidence,fetched_at').eq('company_entity_id',company.id).eq('connection_id',row.connection_id).eq('order_id',row.order_id).single();if(error)throw error;return data;
   })});
   const params=new URLSearchParams(location.search);
