@@ -152,6 +152,38 @@ test('the probe asks its own company, so another tenant rows are not evidence', 
   assert.equal(probe.order, 'day_date.desc', 'the newest row is the one that answers both questions');
 });
 
+// The narrowed probe (fastProbe on the sales feed). Asking the full question
+// has no index to serve it and walked ~798k rows on production, past the
+// statement timeout, so two of Baseballism's stores read 'unknown' every run.
+// What matters is that the narrowing can only ever say YES faster: these pin
+// both halves over the wire.
+test('the narrowed probe is asked first, and a hit answers without the wider one', async () => {
+  const rows = fixture();
+  // live.myshopify.com has a row carrying the narrowing's value.
+  rows.sales_by_day = [{ day_date: PACIFIC_TODAY, shop_domain: 'live.myshopify.com', company_entity_id: CO, source: 'shopify_api' }];
+  const { seen } = await runPass({}, rows);
+  const probes = seen.filter((s) => s.table === 'sales_by_day' && s.where.shop_domain === 'live.myshopify.com');
+  assert.ok(probes.length >= 1, 'the store must be probed');
+  assert.equal(probes[0].where.source, 'shopify_api', 'the narrowed ask goes first');
+  assert.equal(probes[0].where.company_entity_id, CO, 'and it is still scoped to its own company');
+  assert.equal(probes[0].order, 'day_date.desc');
+  assert.equal(probes.length, 1, 'a hit answers the question, so the unnarrowed walk is never run');
+});
+
+test('a narrowed miss proves nothing and falls through to the full question', async () => {
+  const rows = fixture();
+  // A row for this store, but NOT one the narrowing can see. The verdict must
+  // come from the wider ask, which still finds it -- a narrowed miss must
+  // never read as "this connection never produced anything".
+  rows.sales_by_day = [{ day_date: PACIFIC_TODAY, shop_domain: 'live.myshopify.com', company_entity_id: CO, source: 'legacy_csv' }];
+  const { seen, out } = await runPass({}, rows);
+  const probes = seen.filter((s) => s.table === 'sales_by_day' && s.where.shop_domain === 'live.myshopify.com');
+  assert.equal(probes.length, 2, 'narrowed first, then the full question');
+  assert.equal(probes[0].where.source, 'shopify_api');
+  assert.equal(probes[1].where.source, undefined, 'the second ask carries no narrowing');
+  assert.doesNotMatch(out, /live\.myshopify\.com[^\n]*never imported/, 'the row the wider ask found is still evidence');
+});
+
 test('with auto-start on it queues exactly one job, in the shape the drainer claims', async () => {
   const { code, out, posted } = await runPass({ RECONCILE_AUTO_START: 'true' });
   assert.equal(posted.length, 1);
