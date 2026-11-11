@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SILO · Launch Workbench</title>
+  <title>SILO · Calendar · Launch</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
@@ -90,6 +90,14 @@
     .agenda-pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
 
     /* in-page tabs */
+    /* Calendar tab strip — one nav item ("Calendar") hosts both calendar
+       views; these are links, not buttons, because each view is its own
+       Pattern-1 page with its own data layer. Deliberately NOT .pg-tab-bar:
+       launch-calendar.html moves the first .pg-tab-bar into its toolbar. */
+    .cal-switch { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
+    .cal-switch a { height:36px; display:inline-flex; align-items:center; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); text-decoration:none; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .12s, border-color .12s; }
+    .cal-switch a:hover { color:var(--bcn-ink); }
+    .cal-switch a[aria-current="page"] { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
     .pg-tab-bar { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
     .pg-tab { height:36px; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; transition:color .12s, border-color .12s; }
     .pg-tab:hover { color:var(--bcn-ink); }
@@ -602,7 +610,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
 
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
-        <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
+        <div class="bcn-header-title"><h1>Calendar</h1></div>
       </div>
       <div class="bcn-header-actions">
         <span id="wbBuildTag" class="bcn-pill" style="font-family:var(--bcn-mono);font-size:10px;opacity:.75">WB-96</span>
@@ -611,6 +619,11 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
         <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newLaunchBtn">+ NEW LAUNCH</button>
       </div>
     </header>
+
+    <nav class="cal-switch" aria-label="Calendar views">
+      <a href="/v2/launch-calendar.html" aria-current="page">LAUNCH CALENDAR</a>
+      <a href="/v2/calendar.html">ORG CALENDAR</a>
+    </nav>
 
     <div class="bcn-status" id="page-status" hidden></div>
 
@@ -1368,9 +1381,9 @@ async function boot(){
 
   if(window.SiloChrome){
     window.SiloChrome.mount({
-      appEl:'#silo-app', active:'planning/launch-calendar',
+      appEl:'#silo-app', active:'planning/calendar',
       user:{email:currentUser.email, role:'OWNER'},
-      crumbs:['Planning','Launch Workbench'],
+      crumbs:['Planning','Calendar','Launch calendar'],
       supabaseClient:db,
     });
   }
