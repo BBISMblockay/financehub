@@ -70,8 +70,9 @@ Skeleton: `.silo-app#silo-app > main.silo-main > header.bcn-header` (+ optional 
 `.bcn-filter-bar`). Mount after auth:
 `window.SiloChrome.mount({ appEl: '#silo-app', active: '<nav key>', user: { email, role }, crumbs: [...], supabaseClient: db })`.
 
-**Pattern 2** (iframe wrapper, `tool-shell.js`) — only `baseballismwholesale` remains. A wrapper's auth
-does not protect its target's own URL. **Pattern 3** (stub redirect) — URL-compat shims; add no logic.
+**Pattern 2** (iframe wrapper, `tool-shell.js`) — **no pages remain**; `baseballismwholesale`, the last
+one, was retired 2026-11-11. Do not add one. (A wrapper's auth never protected its target's own URL,
+which is why.) **Pattern 3** (stub redirect) — URL-compat shims; add no logic.
 
 Exceptions: `v2/backend.html` uses Tailwind and no chrome. `company-picker`, `company-onboarding` and
 `launch-calendar-guide` are chrome-less on purpose. Full lists: `docs/agents/architecture.md`.

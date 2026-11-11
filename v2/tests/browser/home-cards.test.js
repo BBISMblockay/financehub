@@ -102,8 +102,12 @@ async function readHome(page) {
       { cachedCompany: GRANDFATHERED, ready });
     home = await readHome(page);
     r.ok('the grandfathered heading is unchanged', home.title === 'SILO Home', home.title);
-    r.ok('BBISM Receivables is still on Baseballism Home',
-      home.home.includes('/v2/baseballismwholesale.html'), JSON.stringify(home.home));
+    // The Receivables card went with the page on 2026-11-11 (the ar_* book froze
+    // 2026-10-12; open balances come from the Shopify-fed Wholesale Tracking
+    // dashboard). The card was the last link to it anywhere in the app, so assert
+    // it is gone rather than that it is there.
+    r.ok('the retired Receivables card is gone from Baseballism Home',
+      !home.home.includes('/v2/baseballismwholesale.html'), JSON.stringify(home.home));
     r.ok('the sales reports card is still there',
       home.home.includes('/v2/bi-sales-overview.html'), JSON.stringify(home.home));
     r.ok('Baseballism\'s sidebar has no On Deck or Product Studio for now',

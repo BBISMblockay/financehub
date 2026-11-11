@@ -24,6 +24,11 @@ const retired = [
   // reachable only by typing the URL -- and the published links they carried are
   // credentials, so the pages go rather than the links alone.
   'pages/wholesale.html', 'legacy/pages/mise.html', 'legacy/pages/product-tags.html',
+  // 2026-11-11: the wholesale book itself, and with it the last Pattern 2 iframe
+  // target. Its ar_* tables froze on 2026-10-12 and open balances have come from
+  // the Shopify sync since 2026-10-20, so the page could only show a book that
+  // cannot move. The TABLES stay -- this retires a screen, not a dataset.
+  'pages/baseballismwholesale.html',
 ];
 const protectedPages = [
   'v2/inventory.html', 'v2/mailroom.html', 'v2/projections.html', 'v2/finance.html',
@@ -93,33 +98,36 @@ for (const profile of ['standard', 'grandfathered']) {
     assert.ok(fs.existsSync(path.join(root, target)), `${profile} nav has no file: ${target}`);
   }
 }
-// 2026-10-20: BBISM Receivables left the nav but the PAGE stays (it is in
-// protectedPages above). Its tables froze on 2026-10-12 when the Google Sheets
-// sync was retired, so the row would have sent anyone who clicked it to a book
-// that cannot move. The page keeps the pre-2026-05 wholesale history and the
-// collections queue/notes, so it answers at its URL until those are replaced --
-// and the only thing telling a visitor where the live balances are is the
-// frozen-book banner, so assert the link rather than trusting prose.
+// BBISM Receivables left the nav 2026-10-20 and the page was retired 2026-11-11.
+// The WRAPPER URL survives as a stub (it is in protectedPages above) because the
+// nav row was live for years and bookmarks outlive it; the wholesale book it
+// framed is in `retired` above. Assert the stub actually forwards rather than
+// trusting that a 26-line file still redirects, and that it carries no auth,
+// chrome or Supabase client of its own -- a stub with logic is the thing the
+// Pattern 3 rule exists to prevent.
 const WHOLESALE_PAGE = '/v2/baseballismwholesale.html';
-const AR_DASHBOARD_ID = '56ccb5cd-33a3-4033-bb42-8f7b4e79f5af';
 for (const profile of ['standard', 'grandfathered']) {
   const sections = context.window.SiloNav.navSectionsForProfile(profile, 'exec', 'owner', []);
   const hrefs = sections.flatMap((s) => s.items).map((i) => i.href);
   assert.equal(hrefs.includes(WHOLESALE_PAGE), false,
-    `${profile} nav still offers the frozen receivables book`);
+    `${profile} nav still offers the retired receivables book`);
 }
-const wholesaleBook = fs.readFileSync(path.join(root, 'pages/baseballismwholesale.html'), 'utf8');
-assert.ok(wholesaleBook.includes(`/v3/dashboard.html?id=${AR_DASHBOARD_ID}`),
-  'frozen receivables book must link to the Shopify-fed AR dashboard');
-// The destination alone is not a safe handoff. The Shopify connection for this
-// store only reaches back to its 2026-06-30 connect date, so some of the open
-// items on this page are open on no other screen -- a collector who read the
-// board as the whole balance would treat their absence from it as payment.
-for (const caveat of ['is not the whole balance', 'not evidence of payment']) {
-  assert.ok(wholesaleBook.includes(caveat),
-    `receivables banner must keep its coverage warning: ${caveat}`);
+const wholesaleStub = fs.readFileSync(path.join(root, 'v2/baseballismwholesale.html'), 'utf8');
+assert.match(wholesaleStub, /location\.replace\('\/v3\/dashboards\.html'\)/,
+  'retired receivables URL must forward to the reports library');
+for (const forbidden of ['tool-shell', 'silo-chrome', 'supabase-js', 'dept-guard']) {
+  assert.ok(!wholesaleStub.includes(forbidden),
+    `receivables stub must stay a bare redirect, found: ${forbidden}`);
 }
-console.log('legacy retirement: receivables book is URL-only, points at the live AR board, and warns that the board is partial');
+// Retiring the screen must not have retired the book. These tables hold the only
+// copy of the pre-2026-05 wholesale history, the collections queue and the
+// contact log; they are read through Reports / Ask SILO / MCP now. The
+// dispatch-only sheet sync is the only writer and stays wired to them.
+const arSync = fs.readFileSync(path.join(root, 'server/ar-sync.mjs'), 'utf8');
+for (const table of ['ar_customers', 'ar_invoices']) {
+  assert.ok(arSync.includes(table), `ar-sync must still address ${table}`);
+}
+console.log('legacy retirement: receivables URL is a bare stub to the reports library, ar_* tables untouched');
 
 const guide = fs.readFileSync(path.join(root, 'v2/launch-calendar-guide.html'), 'utf8');
 assert.ok(guide.includes('href="https://github.com/BBISMblockay/financehub/blob/main/CLAUDE.md"'), 'architecture link names authoritative guide');

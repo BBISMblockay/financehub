@@ -25,7 +25,8 @@
      (this page is already admin-gated by requireAdmin()):
      - public.sync_jobs, public.shopify_connections   (Shopify sync health)
      - public.ar_sync_status_v                        (AR sync freshness; view
-       bypasses job_sync_state RLS by design, same as pages/baseballismwholesale.html)
+       bypasses job_sync_state RLS by design. This is now its ONLY reader --
+       pages/baseballismwholesale.html, the other one, was retired 2026-11-11)
      - public.mail_items_v                             (mailroom queue)
      - profiles.active_company_id from the already-loaded admin_list_profiles()
        result (account activation gaps) and expires_at from list_org_invites()

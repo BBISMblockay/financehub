@@ -73,14 +73,19 @@ Never put the **service role** key in static HTML.
 
 **Retired 2026-10-13. Read this first:** BBISM receivables moved to Shopify. `shopify_orders` carries the
 wholesale book's payment terms and paid dates, read through `shopify_orders_v`; the Google Sheets pipeline
-below is history, its daily cron is removed, and `/v2/baseballismwholesale.html` shows a book frozen at the
-sheet's last order (2026-09-14). Its banner now says so, including that payments after that date are missing
-too. **So "BBISM Receivables is stale" is expected, not an incident** — nothing below needs doing unless
-somebody deliberately refreshes the old book, and a balance there may already be settled in Shopify.
-**Where to read what is owed now (2026-10-20):** the Wholesale Tracking dashboard, section "Open AR ·
+below is history and its daily cron is removed. **The page was retired 2026-11-11** —
+`/v2/baseballismwholesale.html` now redirects to the reports library, so there is no screen showing a
+balance from the frozen book. **So "BBISM Receivables is stale" is expected, not an incident** —
+nothing below needs doing unless somebody deliberately refreshes the old book.
+**Where to read what is owed now:** the Wholesale Tracking dashboard, section "Open AR ·
 from the Shopify sync" (saved report "Wholesale AR — open balances (Shopify)"). It lists every unpaid
-order carrying payment terms across all Baseballism stores. The nav row for the old page was removed
-the same day; the page still answers at its URL.
+order carrying payment terms across all Baseballism stores.
+**Where the old book went:** nowhere — the `ar_*` tables are untouched and hold the pre-2026-05
+wholesale history, the collections queue and the contact log. Query them through Reports, Ask SILO or
+the MCP connector (`ar_invoices`, `ar_customers`, `ar_contact_log`, `ar_action_queue`). The Shopify
+board reaches back only to that store's 2026-06-30 connect date, so **absence from the board is not
+evidence of payment** for anything older — in particular `#4340` ($1,359.73) and `#4656` ($157.50),
+which are open in `ar_invoices` and on no screen at all.
 `ar-sync.yml` is still dispatchable for exactly that case, and the steps below are what to check if a
 dispatch comes back stale.
 

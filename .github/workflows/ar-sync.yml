@@ -12,9 +12,10 @@ name: AR Google Sheets Sync
 # the source is retired.
 #
 # The cron is removed rather than the workflow: `ar_invoices` / `ar_customers`
-# still hold the historical wholesale book, `/pages/baseballismwholesale.html`
-# still reads them, and a dispatch is how you refresh them if the sheet is
-# ever updated again. Deleting this would also delete the only way back.
+# still hold the historical wholesale book. Its page was retired 2026-11-11, so
+# the rows are read through Reports / Ask SILO / MCP now -- and a dispatch is how
+# you refresh them if the sheet is ever updated again. Deleting this would also
+# delete the only way back.
 on:
   workflow_dispatch:
 
