@@ -415,9 +415,13 @@
   overflow-y: auto; padding-bottom: 14px;
 }
 .rb-canvas .rb-stale-bar { margin: 10px 14px 0; }
-.rb-canvas--sql .rb-preview,
+/* Advanced SQL: the guided header and the dashboard controls step aside, but
+   the RESULTS stay. Hiding them (as this rule did from 2026-10-20) meant
+   Preview ran a query and showed nothing until you left the tab. The editor
+   goes above the results in this mode, so you write, run, and read downward. */
 .rb-canvas--sql .rb-params,
 .rb-canvas--sql #canvasHead { display: none; }
+.rb-canvas--sql .rb-panes--sql { order: -1; padding-top: 14px; }
 .rb-controls {
   min-height: 0; min-width: 0; display: flex; flex-direction: column;
   border-left: 1px solid var(--bcn-border); background: var(--bcn-surface);

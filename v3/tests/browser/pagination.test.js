@@ -45,6 +45,12 @@ const ok = (n, c, x) => { if (c) { console.log('  ok   ' + n); pass++; } else { 
       (() => { const t = previewMetaText; return t.includes('2,500 rows') && t.includes('showing 1,000'); })());
     ok('a full page offers Load more',
       (await p.locator('#btnLoadMorePreview').count()) === 1);
+    // Advanced SQL hid the whole results section from 2026-10-20 until
+    // 2026-11-11: the query ran and nothing showed. The results stay, below
+    // the editor that produced them.
+    ok('the results are visible on the Advanced SQL tab', await p.locator('#previewBody').isVisible());
+    ok('with the editor above them', await p.evaluate(() =>
+      document.getElementById('sqlText').getBoundingClientRect().top < document.getElementById('previewBody').getBoundingClientRect().top));
     ok('the RPC was called with p_offset 0 for page 1',
       await p.evaluate(() => {
         const calls = window.__FAKE_DB__.rpcCalls.filter((c) => c.name === 'chat_run_readonly_query');
