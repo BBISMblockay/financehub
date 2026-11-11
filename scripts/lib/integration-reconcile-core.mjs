@@ -83,6 +83,22 @@ export const INTEGRATION_FEEDS = [
     // The data answers "has anything ever arrived"; the stamp answers "is
     // this connection still being synced", which is the question here.
     stamp: { on: 'connection', metaKey: 'last_sales_sync_at' },
+    // An index-backed narrowing to try FIRST. Asking the full question --
+    // newest row for this domain in this company -- has no index to serve it,
+    // so production walks (company_entity_id, day_date) backwards and
+    // discards ~798k rows: measured 2026-11-11 at 20.3s for
+    // baseballismdsg.myshopify.com, past the statement timeout, which is why
+    // two of Baseballism's stores read 'unknown' (treated as paused) on every
+    // run. `sales_by_day_shop_domain_day_idx` is (shop_domain, day_date)
+    // WHERE source = 'shopify_api', so adding that one equality lets the
+    // probe use it: the same answer in 2.7ms, 4 buffers instead of 98,948.
+    //
+    // Sound because it can only ever ANSWER, never deny: a row found this way
+    // IS a row this connection produced, so everProduced is true. A miss
+    // proves nothing and falls through to the unnarrowed question exactly as
+    // before, including its timeout and its 'unknown'. So this can make the
+    // probe faster and can never make it claim more than it saw.
+    fastProbe: { column: 'source', value: 'shopify_api' },
     maxLagDays: 1,
     integration: 'shopify',
     workflow: 'shopify-sync.yml',
@@ -436,6 +452,20 @@ export function reconcileConnection({
  *  that has no ordering (Redo asks only whether anything ever arrived). */
 export function probeColumn(feed) {
   return feed?.dayColumn || feed?.timestampColumn || null;
+}
+
+/**
+ * The index-backed narrowing to try before the full probe, or null.
+ *
+ * Its own function so the rule is in one place: a narrowed probe is only ever
+ * a FASTER WAY TO SAY YES. Callers must treat a miss as "no answer yet" and
+ * ask the full question, never as evidence of absence -- see `fastProbe` on
+ * the sales feed for why one exists at all.
+ */
+export function probeNarrowing(feed) {
+  const narrowing = feed?.fastProbe;
+  if (!feed?.table || !narrowing?.column || narrowing.value === undefined) return null;
+  return { column: narrowing.column, value: narrowing.value };
 }
 
 /**

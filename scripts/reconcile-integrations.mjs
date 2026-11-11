@@ -30,7 +30,7 @@ import { appendFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import {
   INTEGRATION_FEEDS, feedCovers, feedHealthRow, integrationFor, interpretProbe,
-  planFirstImport, probeColumn, reconcileConnection, reconcileExitCode,
+  planFirstImport, probeColumn, probeNarrowing, reconcileConnection, reconcileExitCode,
 } from './lib/integration-reconcile-core.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -100,12 +100,29 @@ async function probe(feed, conn) {
   // Scoped to the connection's own company as well as its match key: three
   // storefronts are connected under two companies each, and one company's
   // rows are not evidence about the other's connection.
-  let q = db.from(feed.table).select(order || 'id')
-    .eq(feed.match.dataColumn, key)
-    .eq('company_entity_id', conn.company_entity_id)
-    .limit(1);
-  if (order) q = q.order(order, { ascending: false });
-  const { data, error } = await q;
+  const ask = (narrowing) => {
+    let q = db.from(feed.table).select(order || 'id')
+      .eq(feed.match.dataColumn, key)
+      .eq('company_entity_id', conn.company_entity_id);
+    if (narrowing) q = q.eq(narrowing.column, narrowing.value);
+    q = q.limit(1);
+    return order ? q.order(order, { ascending: false }) : q;
+  };
+
+  // A narrowed, index-backed ask first where the feed declares one
+  // (probeNarrowing). A row found this way is a row this connection
+  // produced, so it answers the question outright. Anything else -- no row,
+  // or an error -- is NOT an answer and falls through to the full question
+  // below, which is what it has always been.
+  const narrowing = probeNarrowing(feed);
+  if (narrowing) {
+    const fast = await ask(narrowing);
+    if (!fast.error && (fast.data || [])[0]) {
+      return interpretProbe({ feed, connection: conn, row: fast.data[0], error: null });
+    }
+  }
+
+  const { data, error } = await ask(null);
   return interpretProbe({ feed, connection: conn, row: (data || [])[0] || null, error });
 }
 

@@ -40,6 +40,22 @@ t("a Meta ad account Meta has blocked is client-side; code 200's other members a
   // The message alone, from something that is not a Meta OAuth failure, is not it.
   assert.equal(clientSideReason('API access blocked.'), null);
 });
+t('a connection whose account was never chosen is client-side, on any platform', () => {
+  // Every platform's fetcher refuses in the same words, so one rule covers
+  // all of them -- and a platform not built yet that follows the convention.
+  for (const field of ['tiktok_advertiser_id', 'google_customer_id', 'ga4_property_id', 'meta_ad_account_id', 'some_future_account_id']) {
+    assert.match(clientSideReason(`${field} not configured on connection`), /never finished being set up/, field);
+  }
+  // It is the SHAPE that is matched, not a hardcoded field list, and it still
+  // reads inside a wrapped message.
+  assert.ok(clientSideReason('TikTok report failed: tiktok_advertiser_id not configured on connection'));
+  // A missing TOKEN is not the same thing: SILO stores that itself, so a
+  // connection that lost one is SILO's problem and must still fail the run.
+  assert.equal(clientSideReason('No access token stored on connection'), null);
+  // Neither is any other talk of configuration.
+  assert.equal(clientSideReason('Google Ads search → 500: the report is not configured'), null);
+  assert.equal(clientSideReason('not configured'), null);
+});
 t('5xx, timeouts, bugs and empty messages are SILO-side', () => {
   for (const m of ['Google Ads search → 500: internal', 'fetch failed', "TypeError: Cannot read properties of undefined (reading 'rows')", '', null, undefined]) assert.equal(clientSideReason(m), null, String(m));
 });
