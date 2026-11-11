@@ -6,6 +6,7 @@
   <title>SILO · Marketing Performance</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="performance-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -62,6 +63,10 @@
     .mo-ad-name { font-weight:600; color:var(--bcn-ink); font-size:12px; line-height:1.25; }
     a.mo-ad-name { color:inherit; text-decoration:none; }
     a.mo-ad-name:hover, a.mo-ad-name:focus-visible { color:var(--bcn-accent); text-decoration:underline; }
+    /* The next step from a row: into Explorer's drill, or into Ad Studio. */
+    .mo-next { margin-left:6px; font-size:11.5px; font-weight:600; color:var(--bcn-accent); text-decoration:none; white-space:nowrap; }
+    .mo-ad-cell .mo-next { display:inline-block; margin:3px 0 0; }
+    .mo-next:hover { text-decoration:underline; }
     .mo-ad-sub { font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-top:2px; }
     .mo-bar { display:inline-block; height:8px; border-radius:2px; background:var(--bcn-accent); opacity:.35; vertical-align:middle; margin-right:6px; }
     .mo-note { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); padding:8px 12px; }
@@ -101,7 +106,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
         <div class="bcn-header-title">
-          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Marketing</span>
         </div>
         <h1>Marketing Performance</h1>
         <div class="bcn-header-sub">Online store · blended MER · synced nightly</div>
@@ -132,7 +137,8 @@
     </div>
 
     <div class="bcn-tabs" style="padding:0 18px">
-      <button class="bcn-tab bcn-tab--active" data-tab="overview">Overview</button>
+      <!-- "Summary", not "Overview": the Performance strip above already has an Overview tab (this page). -->
+      <button class="bcn-tab bcn-tab--active" data-tab="overview">Summary</button>
       <button class="bcn-tab" data-tab="campaigns">Campaigns</button>
       <button class="bcn-tab" data-tab="creatives">Creatives</button>
       <button class="bcn-tab" data-tab="redo">Email &amp; SMS</button>
@@ -387,6 +393,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="performance-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -427,8 +434,62 @@
   function setStatus(t){ el('statusText').textContent = t; }
 
   // ── Window state ───────────────────────────────────────────────
-  let WINDOW_DAYS = 30;
-  const sinceIso = () => new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString().slice(0,10);
+  // The window, the open tab and the focus live in the address bar, so a
+  // refresh, the Back button and the Explorer tab keep them. `days` and the
+  // focus keys are shared with /v2/marketing-explorer.html
+  // (performance-suite.js carries them between the two); a key this page does
+  // not own -- Explorer's start/end, platform, adset -- is left untouched, so
+  // it is still there on the way back.
+  const WINDOWS = [7, 14, 30, 90];
+  const TABS = ['overview','campaigns','creatives','redo','funnel','channels','organic'];
+  const urlParam = k => new URLSearchParams(location.search).get(k);
+  function setUrlParams(changes){
+    const url = new URL(location.href);
+    for (const [k, v] of Object.entries(changes)){
+      if (v == null || v === '') url.searchParams.delete(k); else url.searchParams.set(k, String(v));
+    }
+    if (url.href !== location.href) history.replaceState(null, '', url);
+    // Keep the Performance strip's links on the current selection.
+    window.SiloPerformanceSuite?.sync?.();
+  }
+  // The window is whatever the address bar says, never a quiet substitute:
+  // any "last N days" (Explorer offers 1y), or a typed start/end range, which
+  // this page now reads as that exact range. A range that ends today is the
+  // same thing as a day count and is treated as one (so it keeps rolling).
+  const todayIso = () => new Date().toISOString().slice(0,10);
+  // A real calendar day, not just the shape of one (2026-02-31 is refused).
+  const isIsoDay = v => { try { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && new Date(v + 'T00:00:00Z').toISOString().slice(0,10) === v; } catch { return false; } };
+  const spanDays = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000) + 1;
+  function rangeFromUrl(){
+    const d = urlParam('days');
+    if (/^[1-9]\d{0,3}$/.test(String(d || ''))) return { days: Number(d), start: null, end: null };
+    const s = urlParam('start'), e = urlParam('end');
+    if (isIsoDay(s) && isIsoDay(e) && s <= e){
+      const n = spanDays(s, e);
+      return e === todayIso() ? { days: n, start: null, end: null } : { days: n, start: s, end: e };
+    }
+    return { days: 30, start: null, end: null };
+  }
+  // RANGE.start/end are set only for a FIXED range (one that does not end
+  // today). WINDOW_DAYS is always the number of days the page is showing.
+  let RANGE = rangeFromUrl();
+  let WINDOW_DAYS = RANGE.days;
+  const isFixedRange = () => !!RANGE.start;
+  const fmtDay = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
+  // How the window reads in a label: "30d" rolling, or the dates themselves.
+  const windowLabel = () => isFixedRange() ? `${fmtDay(RANGE.start)} – ${fmtDay(RANGE.end)}` : `${WINDOW_DAYS}d`;
+  // Into Explorer at this page's window, optionally already drilled in.
+  function explorerHref({ platform, campaign } = {}){
+    const q = new URLSearchParams(isFixedRange() ? { start: RANGE.start, end: RANGE.end } : { days: String(WINDOW_DAYS) });
+    if (platform) q.set('platform', platform);
+    if (campaign) q.set('campaign', String(campaign));
+    return `/v2/marketing-explorer.html?${q}`;
+  }
+  const sinceIso = () => isFixedRange() ? RANGE.start : new Date(Date.now() - (WINDOW_DAYS-1)*86400000).toISOString().slice(0,10);
+  // A fixed range needs a ceiling as well as a floor. A rolling window keeps
+  // exactly the queries it always had (no new upper bound), so nothing about
+  // 7d / 14d / 30d / 90d changes.
+  const upTo = (q, col = 'day_date') => isFixedRange() ? q.lte(col, RANGE.end) : q;
 
   // ── Paged loader (PostgREST caps at 1000 rows silently) ────────
   async function loadPaged(build){
@@ -451,9 +512,9 @@
   const KPI_COLS = 'platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,source,view_content,add_to_cart,initiate_checkout';
   async function loadRows(){
     const q = (cols) => loadPaged(() => scopeQ(
-      sb.from('marketing_kpis_daily')
+      upTo(sb.from('marketing_kpis_daily')
         .select(cols)
-        .gte('day_date', sinceIso())
+        .gte('day_date', sinceIso()))
         .order('day_date', { ascending:true }).order('id', { ascending:true })));
     try { return await q(KPI_COLS + ',reach,frequency'); }
     catch(e){ console.warn('marketing_kpis_daily without reach/frequency', e); return q(KPI_COLS); }
@@ -462,9 +523,9 @@
   async function loadMer(){
     try {
       return await loadPaged(() => scopeQ(
-        sb.from('v_marketing_mer_daily')
+        upTo(sb.from('v_marketing_mer_daily')
           .select('day_date,ad_spend,online_net_sales')
-          .gte('day_date', sinceIso())
+          .gte('day_date', sinceIso()))
           .order('day_date', { ascending:true })));
     } catch(e){ console.warn('v_marketing_mer_daily unavailable', e); return []; }
   }
@@ -472,9 +533,9 @@
   const AD_PERF_COLS = 'day_date,campaign_name,adset_name,ad_id,ad_name,impressions,clicks,spend,conversions,conversion_value';
   async function loadAdPerf(){
     const q = (cols) => loadPaged(() => scopeQ(
-      sb.from('meta_ad_performance_daily')
+      upTo(sb.from('meta_ad_performance_daily')
         .select(cols)
-        .gte('day_date', sinceIso())
+        .gte('day_date', sinceIso()))
         .order('day_date', { ascending:true }).order('id', { ascending:true })));
     // Same two-step as the KPI read: reach/frequency are new columns, and
     // asking for one a database does not have must not cost the creatives.
@@ -491,13 +552,13 @@
   async function loadCustomConversions(){
     try {
       return await loadPaged(() => scopeQ(
-        sb.from('meta_custom_conversion_daily_v')
+        upTo(sb.from('meta_custom_conversion_daily_v')
           .select('day_date,level,campaign_name,conversion_name,custom_conversion_id,action_type,conversions,conversion_value')
           // Campaign level only. Ad-level rows describe the SAME conversions
           // over the same spend, so loading both and summing would double
           // every number on this card.
           .eq('level', 'campaign')
-          .gte('day_date', sinceIso())
+          .gte('day_date', sinceIso()))
           .order('day_date', { ascending:true }).order('id', { ascending:true })));
     } catch(e){ console.warn('meta_custom_conversion_daily_v unavailable', e); return []; }
   }
@@ -517,9 +578,9 @@
   }
   async function loadRedo(){
     try {
-      return await loadPaged(() => scopeQ(sb.from('redo_marketing_daily_v')
+      return await loadPaged(() => scopeQ(upTo(sb.from('redo_marketing_daily_v')
         .select('kind,redo_id,name,channel,day_date,sends,orders,revenue,revenue_currency')
-        .gte('day_date',sinceIso()).order('day_date',{ascending:true}).order('redo_id',{ascending:true})));
+        .gte('day_date',sinceIso())).order('day_date',{ascending:true}).order('redo_id',{ascending:true})));
     } catch(e){ console.warn('Redo reporting unavailable',e); return []; }
   }
   // Klaviyo measures a campaign only as a TOTAL over a window, never by day,
@@ -531,9 +592,10 @@
   async function loadKlaviyo(){
     try {
       const [rows, ctx] = await Promise.all([
-        loadPaged(() => scopeQ(sb.from('klaviyo_message_performance_v')
+        // "Ending in the range": a fixed range needs the ceiling too.
+        loadPaged(() => scopeQ(upTo(sb.from('klaviyo_message_performance_v')
           .select('kind,klaviyo_id,message_name,parent_name,channel,timeframe_start,timeframe_end,conversion_metric_id,recipients,conversions,conversion_value')
-          .gte('timeframe_end',sinceIso()).order('timeframe_end',{ascending:true}).order('klaviyo_id',{ascending:true}))),
+          .gte('timeframe_end',sinceIso()), 'timeframe_end').order('timeframe_end',{ascending:true}).order('klaviyo_id',{ascending:true}))),
         loadKlaviyoContext(),
       ]);
       for (const r of rows){
@@ -614,7 +676,7 @@
           // Same upper bound as the Page series, for the same reason: a sync
           // bug once left zero-filled FUTURE rows, and a zero reads as a
           // measured value no null-check can hide.
-          .lte('day_date', new Date().toISOString().slice(0,10))
+          .lte('day_date', isFixedRange() ? RANGE.end : new Date().toISOString().slice(0,10))
           .order('day_date', { ascending:false })));
     } catch(e){ console.warn('instagram_account_insights_daily unavailable', e); return []; }
   }
@@ -638,7 +700,7 @@
           // table the card loaded 117 rows instead of 30 and reported an
           // average of 4,018/day against a true 15,535 -- and because those
           // rows held 0 rather than null, no null-check could hide them.
-          .lte('day_date', new Date().toISOString().slice(0,10))
+          .lte('day_date', isFixedRange() ? RANGE.end : new Date().toISOString().slice(0,10))
           .order('day_date', { ascending:false })));
     } catch(e){ console.warn('facebook_page_insights_daily unavailable', e); return []; }
   }
@@ -669,7 +731,7 @@
     const onlineNet = sum(merRows||[],'online_net_sales');
 
     el('kpiSpend').textContent = money(paidSpend);
-    el('kpiSpendDelta').textContent = `Paid platforms (${WINDOW_DAYS}d)`;
+    el('kpiSpendDelta').textContent = `Paid platforms (${windowLabel()})`;
     el('kpiRoas').textContent = ratioFmt(paidSpend ? paidConvValue/paidSpend : null);
     if (merSpend && merOnline){
       el('kpiMer').textContent = ratioFmt(merOnline/merSpend);
@@ -686,7 +748,7 @@
       el('kpiOrganic').textContent = money(onlineNet);
       el('kpiOrganicDelta').textContent = (capGa4 && capOnline)
         ? `GA4 sees ${Math.round(capGa4/capOnline*100)}% of it (${capDays.size}d overlap)`
-        : `Shopify, online store (${WINDOW_DAYS}d)`;
+        : `Shopify, online store (${windowLabel()})`;
     } else {
       el('kpiOrganic').textContent = money(ga4Revenue);
       el('kpiOrganicDelta').textContent = 'GA4 site revenue (no Shopify data)';
@@ -713,7 +775,7 @@
       const ctr = p.impr ? p.clicks/p.impr : null;
       const roas = p.spend ? p.value/p.spend : null;
       return `<tr>
-        <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${PLATFORM_ICON[p.platform]||''}${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span></td>
+        <td><span class="bcn-pill bcn-pill--accent mo-platform-pill">${PLATFORM_ICON[p.platform]||''}${esc(PLATFORM_LABEL[p.platform]||p.platform)}</span>${p.platform==='ga4' ? '' : ` <a class="mo-next" href="${esc(explorerHref({ platform:p.platform }))}" title="Drill into this platform's campaigns in Explorer">Campaigns →</a>`}</td>
         <td>${esc(p.account||'—')}</td><td>${money(p.spend)}</td><td>${numFmt(p.impr)}</td>
         <td>${numFmt(p.clicks)}</td><td>${pctFmt(ctr)}</td><td>${numFmt(p.conv)}</td>
         <td>${money(p.value)}</td><td>${p.platform==='ga4' ? '—' : ratioFmt(roas)}</td>
@@ -738,7 +800,7 @@
   function renderChart(rows, merRows){
     const hasShopify = (merRows||[]).some(r => Number(r.online_net_sales||0) > 0);
     const hasGa4 = rows.some(r => r.platform === 'ga4');
-    el('chartTitle').textContent = `Daily spend vs. revenue — last ${WINDOW_DAYS} days`;
+    el('chartTitle').textContent = isFixedRange() ? `Daily spend vs. revenue — ${windowLabel()}` : `Daily spend vs. revenue — last ${WINDOW_DAYS} days`;
     el('chartValueLabel').textContent =
       hasShopify ? 'Online net sales (Shopify)' : hasGa4 ? 'Site revenue (GA4)' : 'Conversion value (platform-attributed)';
 
@@ -829,7 +891,7 @@
       const deltaHtml = delta == null ? '—'
         : `<span class="bcn-pill ${delta >= 0 ? 'bcn-pill--pos' : 'bcn-pill--neg'} mo-platform-pill">${delta>=0?'+':''}${delta.toFixed(2)}x</span>`;
       return `<tr>
-        <td>${esc(c.name||'—')}</td>
+        <td>${esc(c.name||'—')}${c.id ? ` <a class="mo-next" href="${esc(explorerHref({ platform:'meta_ads', campaign:c.id }))}" title="Drill into this campaign's ad sets and ads in Explorer">Ads →</a>` : ''}</td>
         <td>${money(c.spend)}</td>
         <td><span class="mo-bar" style="width:${Math.round(c.spend/maxSpend*70)}px"></span>${totalSpend ? Math.round(c.spend/totalSpend*100) : 0}%</td>
         <td>${numFmt(c.impr)}</td>
@@ -849,7 +911,9 @@
   // ── Creatives tab ──────────────────────────────────────────────
   let _adPerf = [], _creatives = [], _redo = [], _klaviyo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
   let focusedAd = new URLSearchParams(location.search).get('ad');
-  let focusedCampaign = new URLSearchParams(location.search).get('campaign');
+  // A campaign carried over from Explorer on another platform is not this
+  // tab's to filter by: Campaigns lists Meta only.
+  let focusedCampaign = (!urlParam('platform') || urlParam('platform') === 'meta_ads') ? urlParam('campaign') : null;
   let focusedRedo = new URLSearchParams(location.search).get('redo');
   let focusedKlaviyo = new URLSearchParams(location.search).get('klaviyo');
   const CREATIVE_REF = 'meta_ad_creatives';
@@ -1079,7 +1143,7 @@
       return `<tr>
         <td><div class="mo-ad-cell">${thumb}<div><div class="mo-ad-name">${safeHref(c?.preview_shareable_link)
           ? `<a class="mo-ad-name" href="${esc(safeHref(c.preview_shareable_link))}" target="_blank" rel="noopener noreferrer" title="Open Meta's preview of this ad">${esc(a.name||a.adId)} ↗</a>`
-          : esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div></div></div></td>
+          : esc(a.name||a.adId)}</div><div class="mo-ad-sub">${esc(a.campaign||'')}</div><a class="mo-next" href="/v2/ad-studio.html?ad=${encodeURIComponent(a.adId)}" title="Open this ad in Ad Studio to start an idea from it">Work on this in Ad Studio →</a></div></div></td>
         <td>${statusPill}</td>
         <td>${money(a.spend)}</td>
         <td>${pctFmt(a.impr ? a.clicks/a.impr : null)}</td>
@@ -1109,10 +1173,10 @@
   // only those in a live flow, since a draft or manual flow sends nothing.
   // Archived messages are never listed.
   function unmeasuredKlaviyo(list, measured){
-    const since=sinceIso();
+    const since=sinceIso(), until=isFixedRange()?RANGE.end:'9999-12-31';
     return list.filter(m=>{
       if(m.archived===true||measured.has(`${m.kind}:${m.klaviyo_id}`))return false;
-      if(m.kind==='campaign')return !m.send_time||String(m.send_time).slice(0,10)>=since;
+      if(m.kind==='campaign')return !m.send_time||(String(m.send_time).slice(0,10)>=since&&String(m.send_time).slice(0,10)<=until);
       if(m.kind==='flow_message')return String(m.status||'').toLowerCase()==='live';
       return false;
     });
@@ -1522,8 +1586,14 @@
   document.getElementById('windowBtns').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-days]');
     if (!btn) return;
+    // The button that names a fixed range is a label for it, not a window to pick.
+    if (btn.dataset.fixed) return;
     WINDOW_DAYS = Number(btn.dataset.days);
+    RANGE = { days: WINDOW_DAYS, start: null, end: null };
+    document.querySelector('#windowBtns button[data-fixed]')?.remove();
     document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
+    // Choosing a window here replaces any custom range Explorer left behind.
+    setUrlParams({ days: WINDOW_DAYS, start: null, end: null });
     runLoad();
   });
 
@@ -1531,8 +1601,25 @@
     tab.addEventListener('click', () => {
       document.querySelectorAll('.bcn-tab[data-tab]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
       document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+      // Summary is normally the absence of `tab`. With a focused ad, campaign
+      // or message in the address bar it has to be written down, or a refresh
+      // would reopen that focus's tab instead of the Summary someone chose.
+      const hasFocus = ['ad','campaign','redo','klaviyo'].some(k => urlParam(k));
+      setUrlParams({ tab: tab.dataset.tab === 'overview' ? (hasFocus ? 'overview' : null) : tab.dataset.tab });
     });
   });
+  // A window with no button of its own -- 1y, or a fixed range typed in
+  // Explorer -- gets one, so the header always names the window the numbers
+  // below are for and nobody reads a custom range as the default 30d.
+  if (isFixedRange() || !WINDOWS.includes(WINDOW_DAYS)){
+    const extra = document.createElement('button');
+    extra.className = 'bcn-btn bcn-btn--ghost';
+    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = windowLabel(); extra.title = 'A fixed date range, carried from Explorer. Pick 7d–90d to go back to a rolling window.'; }
+    else { extra.dataset.days = String(WINDOW_DAYS); extra.textContent = WINDOW_DAYS === 365 ? '1y' : `${WINDOW_DAYS}d`; }
+    el('windowBtns').append(extra);
+  }
+  document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active',
+    isFixedRange() ? !!b.dataset.fixed : Number(b.dataset.days) === WINDOW_DAYS));
 
   async function boot(){
     const sess = await sb.auth.getSession();
@@ -1546,11 +1633,14 @@
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'reports/marketing-overview',
         user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Reports','Marketing Performance'],
+        crumbs:['Marketing','Performance'],
         supabaseClient:sb,
       });
     }
-    if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
+    // An explicit tab wins; otherwise a focused ad, campaign or message opens its tab, as before.
+    const wantTab = urlParam('tab');
+    if (TABS.includes(wantTab)){ if (wantTab !== 'overview') document.querySelector(`.bcn-tab[data-tab="${wantTab}"]`).click(); }
+    else if (focusedAd) document.querySelector('.bcn-tab[data-tab="creatives"]').click();
     else if (focusedCampaign) document.querySelector('.bcn-tab[data-tab="campaigns"]').click();
     else if (focusedRedo||focusedKlaviyo) document.querySelector('.bcn-tab[data-tab="redo"]').click();
     await runLoad();

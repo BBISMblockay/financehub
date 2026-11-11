@@ -216,6 +216,19 @@ jobs:
             fi
           done
 
+      # Overview and Explorer are two tabs of one Performance destination.
+      # That is only an improvement while the selection (window, platform,
+      # campaign) survives a refresh, Back and a tab switch, and a row has a
+      # next step: into Explorer's drill, into Ad Studio, and back.
+      - name: Performance selection and next-step guards (mutations)
+        run: |
+          set -u
+          for m in no-carry no-url no-back no-window no-tab no-drill-link no-studio-link no-return no-focus foreign-campaign range-ignored range-unbounded range-unnamed summary-forgotten summary-overridden href-bare href-stale; do
+            if PERF_CTX_MUTATION="$m" node v2/tests/browser/performance-context.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
       - name: Underwriting synthetic browser flow
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs

@@ -348,6 +348,12 @@ on:
       - 'v2/marketing-ops.html'
       - 'scripts/tests/ad-studio-suite.test.mjs'
       - 'v2/marketing-suite.*'
+      - 'scripts/tests/performance-suite.test.mjs'
+      - 'v2/performance-suite.*'
+      - 'v2/marketing-overview.html'
+      - 'v2/marketing-explorer.html'
+      - 'v2/wow-report.html'
+      - 'v2/silo-attribution.html'
       - 'v2/ad-studio.html'
       - 'supabase/migrations/*silo_chat_responses*.sql'
       - 'scripts/tests/silo-chat-responses-database.test.mjs'
@@ -726,6 +732,13 @@ jobs:
       # tab, is a page nobody can reach.
       - name: Ad Studio suite navigation
         run: node --test scripts/tests/ad-studio-suite.test.mjs
+
+      # ONE Performance destination (2026-11-11): Overview, Explorer, Report
+      # and Attribution are tabs of one sidebar row. No gate moved: Report and
+      # Attribution stay Baseballism-only and Attribution keeps its pilot
+      # companyGate, because each tab's visibility is its own nav row's.
+      - name: Performance suite navigation
+        run: node --test scripts/tests/performance-suite.test.mjs
 
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.

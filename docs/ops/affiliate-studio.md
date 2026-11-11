@@ -3,8 +3,8 @@
 A marketing module for any SILO company: find creators, recruit them with the
 brand's own outreach, onboard them on terms they accept, credit orders that
 carry their Shopify discount code, and pay commission by hand from an
-append-only ledger. Staff page: `/v2/affiliates/index.html` (Marketing →
-Affiliates). Affiliate-facing pages, outside SILO's navigation and never
+append-only ledger. Staff page: `/v2/affiliates/index.html` (by URL; its
+sidebar row is hidden for now). Affiliate-facing pages, outside SILO's navigation and never
 indexed: `/v2/affiliates/join.html`, `portal.html`, `apply.html`.
 
 Nothing in the module is company-specific. Every name, rate, date, niche and
@@ -39,7 +39,8 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
    `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` (repo secrets, used by the SEO SERP
    sync). With no Resend key, acceptance still works and each skipped email is
    recorded as `skipped` with the reason.
-4. An owner or executive opens Marketing → Affiliates, creates a program
+4. An owner or executive opens `/v2/affiliates/index.html` (by URL; the sidebar
+   row is hidden for now), creates a program
    (status draft), writes the terms, and optionally grants Affiliate Studio to
    others on the Program tab.
 5. Add one or more searches on the Prospects tab.

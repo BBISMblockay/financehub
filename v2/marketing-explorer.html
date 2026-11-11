@@ -6,6 +6,7 @@
   <title>SILO · Marketing Explorer</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="performance-suite.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -95,6 +96,10 @@
        both mainBody and the breadcrumb trail are fully rebuilt via innerHTML
        every render, never patched in place, so an inline <svg> is safe. */
     .mx-brand-icon { width:12px; height:12px; vertical-align:-2px; margin-right:5px; flex-shrink:0; }
+    /* The next step on an ad row, and the ad a link pointed at. */
+    .mx-act { display:inline-block; margin-top:3px; font-size:11.5px; font-weight:600; color:var(--bcn-accent); text-decoration:none; }
+    .mx-act:hover { text-decoration:underline; }
+    .mx-tbl tbody tr.mx-row-focus td, .mx-tbl tbody tr.mx-row-focus:hover td { background:var(--bcn-accent-soft); }
     .mx-sub { font-size:10.5px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); margin-top:1px; }
 
     /* Primary measure reads first; secondaries recede. */
@@ -166,7 +171,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
         <div class="bcn-header-title">
-          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Marketing</span>
         </div>
         <h1>Marketing Explorer</h1>
         <div class="bcn-header-sub">
@@ -174,7 +179,7 @@
         </div>
         <details class="silo-header-details">
           <summary>About these numbers</summary>
-          <p>The other two Marketing pages read actual online net revenue, and the two do not match
+          <p>Overview and Report read actual online net revenue, and the two do not match
           (week to 31 Aug: $122,097 claimed against $163,178 actual). Use this to compare ads
           against each other, not to size the business.</p>
           <p>Any date range, down to the day. Drill platform → campaign → ad set → ad. Every table exports.</p>
@@ -259,6 +264,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="performance-suite.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -354,6 +360,8 @@
     drill: { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null },
     sort: { key:'spend', dir:-1 },
     search: '',
+    preset: '30',     // a day count ('30'), 'ytd' or 'all' when a rolling preset is active; null for typed dates
+    focusAd: null,    // ?ad=<id>: the ad someone came here to look at (from Ad Studio or Overview)
   };
   let FACTS = [], FACTS_PRIOR = [], ADPERF = [], CREATIVES = new Map(), ADPERF_MIN = null;
 
@@ -364,6 +372,86 @@
   function priorRange(){
     const n = daysBetween(state.start, state.end);
     return { start: addDays(state.start, -n), end: addDays(state.start, -1) };
+  }
+
+  // ── URL context ─────────────────────────────────────────────────────
+  // The date range and the drill live in the address bar, so a refresh, a
+  // shared link, the Back button and the Overview tab all land on the same
+  // selection. Shared with /v2/marketing-overview.html (performance-suite.js
+  // carries these keys between the two): days | start+end, platform,
+  // campaign, adset, ad. A key this page does not own is left untouched.
+  // "Last N days" is carried as days=N whether or not this page has a button
+  // for it (Overview offers 14d; this page does not), so it stays a rolling
+  // window on both pages instead of freezing into two dates.
+  const isDays = v => /^[1-9]\d{0,3}$/.test(String(v || ''));
+  // A real calendar day, not just the shape of one (2026-02-31 is refused).
+  const isIso = v => { try { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(v + 'T00:00:00Z').toISOString().slice(0,10) === v; } catch { return false; } };
+  const emptyDrill = () => ({ platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null });
+
+  function writeUrl({ push = false } = {}){
+    const url = new URL(location.href);
+    const q = url.searchParams;
+    const set = (k, v) => { if (v == null || v === '') q.delete(k); else q.set(k, String(v)); };
+    if (isDays(state.preset)){ set('days', state.preset); q.delete('start'); q.delete('end'); }
+    else { q.delete('days'); set('start', state.start); set('end', state.end); }
+    set('platform', state.drill.platform);
+    set('campaign', state.drill.campaignId);
+    set('adset', state.drill.adsetId);
+    set('ad', state.focusAd);
+    if (url.href === location.href) return;
+    history[push ? 'pushState' : 'replaceState'](null, '', url);
+    // Keep the Performance strip's links on the current selection.
+    window.SiloPerformanceSuite?.sync?.();
+  }
+
+  // Returns true when the date range changed (the caller reloads).
+  function readUrl(){
+    const q = new URLSearchParams(location.search);
+    const today = iso(new Date());
+    const before = `${state.start}|${state.end}`;
+    const days = q.get('days'), s = q.get('start'), e = q.get('end');
+    if (isDays(days)){
+      setRange(addDays(today, -(Number(days) - 1)), today); state.preset = days;
+    } else if (isIso(s) && isIso(e) && s <= e){
+      setRange(s, e); state.preset = null;
+    } else {
+      setRange(addDays(today, -29), today); state.preset = '30';
+    }
+    document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.toggle('is-active', !!state.preset && b.dataset.days === state.preset));
+    state.drill = { ...emptyDrill(), platform: q.get('platform') || null, campaignId: q.get('campaign') || null, adsetId: q.get('adset') || null };
+    state.focusAd = q.get('ad') || null;
+    state.search = ''; el('rowSearch').value = '';
+    return before !== `${state.start}|${state.end}`;
+  }
+
+  // A link carries ids, not names, and may carry a selection this date range
+  // has no rows for. Fill in what the data knows and drop what cannot be
+  // placed, so the page never shows a drill it cannot explain.
+  function settleDrill(){
+    const d = state.drill;
+    if (state.focusAd && !d.adsetId){
+      const hit = ADPERF.find(r => String(r.ad_id) === String(state.focusAd));
+      if (hit){ d.platform = 'meta_ads'; d.campaignId = hit.campaign_id; d.campaignName = null; d.adsetId = hit.adset_id; d.adsetName = null; }
+    }
+    if (d.adsetId && !d.campaignId){
+      const hit = ADPERF.find(r => String(r.adset_id) === String(d.adsetId));
+      if (hit) d.campaignId = hit.campaign_id; else { d.adsetId = null; d.adsetName = null; }
+    }
+    if (d.campaignId && !d.platform){
+      const hit = FACTS.find(r => String(r.campaign_id) === String(d.campaignId));
+      if (hit) d.platform = hit.platform;
+      else if (ADPERF.some(r => String(r.campaign_id) === String(d.campaignId))) d.platform = 'meta_ads';
+      else { d.campaignId = null; d.campaignName = null; d.adsetId = null; d.adsetName = null; }
+    }
+    if (d.campaignId && !d.campaignName){
+      const hit = FACTS.find(r => String(r.campaign_id) === String(d.campaignId))
+        || ADPERF.find(r => String(r.campaign_id) === String(d.campaignId));
+      d.campaignName = hit?.campaign_name || `Campaign ${d.campaignId}`;
+    }
+    if (d.adsetId && !d.adsetName){
+      const hit = ADPERF.find(r => String(r.adset_id) === String(d.adsetId));
+      d.adsetName = hit?.adset_name || `Ad set ${d.adsetId}`;
+    }
   }
 
   // ── Load ────────────────────────────────────────────────────────────
@@ -437,6 +525,8 @@
       ADPERF_MIN === null ? loadAdPerfMin() : Promise.resolve(ADPERF_MIN),
     ]);
     FACTS = facts; FACTS_PRIOR = prior; ADPERF = adperf; CREATIVES = creatives; ADPERF_MIN = adMin;
+    settleDrill();
+    writeUrl();
     render();
   }
 
@@ -517,10 +607,12 @@
     el('trail').innerHTML = p.join('');
     el('trail').querySelectorAll('button[data-jump]').forEach(b => b.addEventListener('click', () => {
       const to = b.dataset.jump;
-      if (to === 'root')     state.drill = { platform:null, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
+      if (to === 'root')     state.drill = emptyDrill();
       if (to === 'platform') state.drill = { ...state.drill, campaignId:null, campaignName:null, adsetId:null, adsetName:null };
       if (to === 'campaign') state.drill = { ...state.drill, adsetId:null, adsetName:null };
       state.search = ''; el('rowSearch').value = '';
+      state.focusAd = null;
+      writeUrl({ push:true });
       render();
     }));
   }
@@ -539,7 +631,7 @@
     return rollup(selectedAdPerf(), r => r.ad_id, r => {
       const c = CREATIVES.get(r.ad_id) || {};
       return { name: r.ad_name || c.ad_name || r.ad_id, sub: c.effective_status || '', thumb: c.thumbnail_url || '',
-               preview: safeHref(c.preview_shareable_link) };
+               preview: safeHref(c.preview_shareable_link), adId: r.ad_id };
     });
   }
 
@@ -625,17 +717,22 @@
       return `<td class="${dim}">${m.fmt(r[m.key])}</td>`;
     };
 
+    // The next step for an ad worth working on: Ad Studio opens on this ad,
+    // with its baseline, and links back here. Meta ads only -- the only ad level.
+    const studioLink = (r) => r.adId
+      ? `<a class="mx-act" href="/v2/ad-studio.html?ad=${encodeURIComponent(r.adId)}" title="Open this ad in Ad Studio to start an idea from it">Work on this in Ad Studio →</a>` : '';
     el('mainBody').innerHTML = rows.map((r,i) => {
       const icon = PLATFORM_ICON[r.drillId] || '';
       // The name is linked or plain on its own terms: a preview does not
       // depend on a thumbnail (older and deleted ads often have none).
       const nameHtml = rowNameHtml(r);
       const nameInner = r.thumb
-        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${nameHtml}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}</div></div>`
+        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${nameHtml}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}${studioLink(r)}</div></div>`
         : `<div class="mx-name">${icon}${nameHtml}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
-      return `<tr class="${canDrill?'mx-drillable':''}" data-idx="${i}">
+      const focused = r.adId && state.focusAd && String(r.adId) === String(state.focusAd);
+      return `<tr class="${canDrill?'mx-drillable':''}${focused?' mx-row-focus':''}" data-idx="${i}"${focused?' data-focus-ad':''}>
         <td class="mx-c-rank">${i+1}</td>
-        <td class="mx-c-name">${nameInner}</td>
+        <td class="mx-c-name">${nameInner}${r.thumb ? '' : studioLink(r)}</td>
         ${measures.map(m => cellFor(m, r)).join('')}
       </tr>`;
     }).join('');
@@ -652,10 +749,14 @@
     if (canDrill){
       el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => {
         const r = rows[Number(tr.dataset.idx)];
+        // A row with no id (an unnamed campaign) has nowhere to drill to.
+        if (r.drillId == null) return;
         if (lv === 0) state.drill = { ...state.drill, platform: r.drillId };
         if (lv === 1) state.drill = { ...state.drill, campaignId: r.drillId, campaignName: r.name };
         if (lv === 2) state.drill = { ...state.drill, adsetId: r.drillId, adsetName: r.name };
         state.search = ''; el('rowSearch').value = '';
+        state.focusAd = null;
+        writeUrl({ push:true });
         render();
       }));
     }
@@ -664,7 +765,9 @@
   // One caveat, the one that applies here, above the numbers it qualifies.
   function renderCaveat(lv){
     let msg = '';
-    if (lv >= 2 && ADPERF_MIN)
+    if (state.focusAd && !ADPERF.some(r => String(r.ad_id) === String(state.focusAd)))
+      msg = `<b>The linked ad has no rows in this date range.</b> Try a longer range; ad-level data ${ADPERF_MIN ? `starts ${esc(ADPERF_MIN)}` : 'may not be synced yet'}.`;
+    else if (lv >= 2 && ADPERF_MIN)
       msg = `<b>Ad-level data starts ${ADPERF_MIN}.</b> Earlier days in this range have no ad rows, so these totals are lower than the campaign level above.`;
     else if (lv === 1 && state.drill.platform !== 'meta_ads')
       msg = `<b>Campaign is the deepest level here.</b> Ad set and ad detail exist for Meta only.`;
@@ -760,51 +863,6 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
 
-  // ── Date controls ───────────────────────────────────────────────────
-  function setRange(start, end, { clearPreset = true } = {}){
-    state.start = start; state.end = end;
-    el('dtStart').value = start; el('dtEnd').value = end;
-    if (clearPreset) document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.remove('is-active'));
-  }
-
-  function wireControls(){
-    document.querySelectorAll('#presetBtns .bcn-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const today = iso(new Date());
-        if (btn.dataset.days){
-          setRange(addDays(today, -(Number(btn.dataset.days) - 1)), today);
-        } else if (btn.dataset.preset === 'ytd'){
-          setRange(`${today.slice(0,4)}-01-01`, today);
-        } else {
-          const { data } = await scopeQ(sb.from('marketing_kpis_daily').select('day_date'))
-            .order('day_date', { ascending:true }).limit(1);
-          setRange(data?.[0]?.day_date || addDays(today,-365), today);
-        }
-        document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.toggle('is-active', b === btn));
-        runLoad();
-      });
-    });
-
-    const onDate = () => {
-      const s = el('dtStart').value, e = el('dtEnd').value;
-      if (!s || !e) return;
-      if (s > e){ el('dtStart').value = state.start; el('dtEnd').value = state.end; return; }
-      setRange(s, e); runLoad();
-    };
-    el('dtStart').addEventListener('change', onDate);
-    el('dtEnd').addEventListener('change', onDate);
-
-    el('cmpToggle').addEventListener('change', () => { state.compare = el('cmpToggle').checked; runLoad(); });
-    el('btnRefresh').addEventListener('click', runLoad);
-    el('btnExport').addEventListener('click', exportCsv);
-
-    let searchTimer;
-    el('rowSearch').addEventListener('input', () => {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.search = el('rowSearch').value.trim(); renderTable(); }, 180);
-    });
-  }
-
   // ── Date + control wiring ───────────────────────────────────────────
   function setRange(start, end, { clearPreset = true } = {}){
     state.start = start; state.end = end;
@@ -826,6 +884,7 @@
           setRange(data?.[0]?.day_date || addDays(today,-365), today);
         }
         document.querySelectorAll('#presetBtns .bcn-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        state.preset = btn.dataset.days || btn.dataset.preset;
         runLoad();
       });
     });
@@ -834,7 +893,7 @@
       const s = el('dtStart').value, e = el('dtEnd').value;
       if (!s || !e) return;
       if (s > e){ el('dtStart').value = state.start; el('dtEnd').value = state.end; return; }
-      setRange(s, e); runLoad();
+      setRange(s, e); state.preset = null; runLoad();
     };
     el('dtStart').addEventListener('change', onDate);
     el('dtEnd').addEventListener('change', onDate);
@@ -864,14 +923,19 @@
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'reports/marketing-explorer',
         user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Reports','Marketing Explorer'],
+        crumbs:['Marketing','Performance','Explorer'],
         supabaseClient:sb,
       });
     }
 
-    const today = iso(new Date());
-    setRange(addDays(today, -29), today, { clearPreset:false });
+    readUrl();
     wireControls();
+    // Back / Forward: the address bar is the selection. Reload only when the
+    // dates moved; a drill change re-renders what is already loaded.
+    window.addEventListener('popstate', () => {
+      if (readUrl()) runLoad(); else { settleDrill(); render(); }
+      window.SiloPerformanceSuite?.sync?.();
+    });
     await runLoad();
   }
 
