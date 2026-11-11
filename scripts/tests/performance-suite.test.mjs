@@ -115,9 +115,17 @@ test('the sidebar draws ONE row for the four pages, on both profiles', () => {
     const ids = sidebarIds(co);
     for (const tab of [EXPLORER, REPORT, ATTRIBUTION]) assert.ok(!ids.includes(tab), `${tab} drawn as a sidebar row`);
   }
-  // Only the three Performance tabs are hidden from the sidebar; nothing else.
-  assert.deepEqual(nav.NAV_ITEMS.filter((i) => i.tabOf).map((i) => i.id).sort(), [EXPLORER, REPORT, ATTRIBUTION].sort());
-  assert.ok(nav.NAV_ITEMS.filter((i) => i.tabOf).every((i) => i.tabOf === nav.PERFORMANCE_ROW));
+  // Exactly these three rows are tabs OF PERFORMANCE_ROW; nothing else is.
+  // (Other suites use the same `tabOf` mechanism -- the Calendar row's Org
+  // calendar tab, 2026-11-11 -- so this is scoped to this row's tabs rather
+  // than to every hidden row in the nav.)
+  const tabsOfPerformance = nav.NAV_ITEMS.filter((i) => i.tabOf === nav.PERFORMANCE_ROW).map((i) => i.id);
+  assert.deepEqual(tabsOfPerformance.sort(), [EXPLORER, REPORT, ATTRIBUTION].sort());
+  // Whoever the parent is, it has to be a real row: a typo'd `tabOf` would
+  // hide a page from the sidebar with no strip anywhere that draws it back.
+  for (const tab of nav.NAV_ITEMS.filter((i) => i.tabOf)) {
+    assert.ok(nav.NAV_ITEMS.some((i) => i.id === tab.tabOf), `${tab.id}: tabOf names no row`);
+  }
   assert.equal(nav.PERFORMANCE_ROW, OVERVIEW);
 });
 
