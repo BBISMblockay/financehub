@@ -117,12 +117,12 @@
           <div class="bcn-card-body" style="padding:0">
             <div class="bcn-matrix-scroll">
               <table class="bcn-table">
-                <thead><tr><th>Keyword</th><th>Source</th><th class="num">Priority</th><th>Note</th><th>Status</th><th></th></tr></thead>
-                <tbody id="kwBody"><tr><td colspan="6" class="sk-empty">Loading…</td></tr></tbody>
+                <thead><tr><th>Keyword</th><th>Source</th><th>Status</th><th></th></tr></thead>
+                <tbody id="kwBody"><tr><td colspan="4" class="sk-empty">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
-          <div class="bcn-card-foot sk-foot" id="kwFoot">A keyword being here says nothing about rankings. Priority orders which keywords are asked about first when the weekly cap is smaller than the set; blank priority sorts last.</div>
+          <div class="bcn-card-foot sk-foot" id="kwFoot">A keyword being here says nothing about rankings. When the weekly cap is smaller than the set, the oldest keywords in the set are asked about first.</div>
         </div>
       </div>
 
@@ -278,8 +278,6 @@
     <div class="bcn-card-header"><h2>Edit keyword</h2><button class="bcn-btn bcn-btn--ghost" data-close>Close</button></div>
     <div class="bcn-card-body">
       <div class="bcn-field-group"><label class="bcn-label">Keyword</label><input id="ekKeyword" class="bcn-field" /></div>
-      <div class="bcn-field-group"><label class="bcn-label">Priority (1 = first; blank = last)</label><input id="ekPriority" class="bcn-field bcn-field--mono" type="number" min="1" /></div>
-      <div class="bcn-field-group"><label class="bcn-label">Note (stock, launch context)</label><input id="ekNote" class="bcn-field" /></div>
       <label class="sk-switch" style="font-weight:500"><input type="checkbox" id="ekActive" /> Active (asked about in weekly runs)</label>
     </div>
     <div class="bcn-card-foot" style="display:flex;justify-content:flex-end;gap:8px">
@@ -395,12 +393,10 @@
   // ── Keywords ─────────────────────────────────────────────────────────────
   function renderKeywords() {
     el('kwCount').textContent = S.keywords.length ? `(${S.keywords.length})` : '';
-    if (!S.keywords.length) { el('kwBody').innerHTML = `<tr><td colspan="6" class="sk-empty">No keywords yet. Press “Suggest keywords” to build the list from Search Console, your collections and upcoming launches, or add one by hand.</td></tr>`; return; }
+    if (!S.keywords.length) { el('kwBody').innerHTML = `<tr><td colspan="4" class="sk-empty">No keywords yet. Press “Suggest keywords” to build the list from Search Console, your collections and upcoming launches, or add one by hand.</td></tr>`; return; }
     el('kwBody').innerHTML = S.keywords.map(k => `<tr data-id="${k.id}">
       <td class="kw" title="${esc(k.keyword)}">${esc(k.keyword)}</td>
       <td class="mono">${esc(SOURCE_LABEL[k.source] || k.source)}</td>
-      <td class="num">${k.priority == null ? '<span class="sk-muted">—</span>' : k.priority}</td>
-      <td class="mono">${esc(k.commercial_note || '')}</td>
       <td>${k.is_active ? '<span class="bcn-pill bcn-pill--pos">active</span>' : '<span class="bcn-pill">paused</span>'}</td>
       <td class="actions"><button class="bcn-btn bcn-btn--ghost" data-edit="${k.id}">Edit</button></td>
     </tr>`).join('');
@@ -409,7 +405,7 @@
     const b = e.target.closest('button[data-edit]'); if (!b) return;
     const k = S.keywords.find(x => x.id === b.dataset.edit); if (!k) return;
     el('dlgKw').dataset.id = k.id;
-    el('ekKeyword').value = k.keyword; el('ekPriority').value = k.priority ?? ''; el('ekNote').value = k.commercial_note || ''; el('ekActive').checked = !!k.is_active;
+    el('ekKeyword').value = k.keyword; el('ekActive').checked = !!k.is_active;
     const mine = k.created_by && k.created_by === USER_ID;
     el('btnEkSave').disabled = !(mine || CAN_APPROVE); el('btnEkDelete').disabled = !(mine || CAN_APPROVE);
     el('dlgKw').showModal();
@@ -418,8 +414,7 @@
     const id = el('dlgKw').dataset.id;
     const keyword = el('ekKeyword').value.trim();
     if (!keyword) { setStatus('Keyword cannot be blank.', 'neg', 3000); return; }
-    const pr = el('ekPriority').value === '' ? null : Number(el('ekPriority').value);
-    const { data, error } = await sb.from('seo_keyword_set').update({ keyword, priority: pr, commercial_note: el('ekNote').value.trim() || null, is_active: el('ekActive').checked }).eq('id', id).select('id');
+    const { data, error } = await sb.from('seo_keyword_set').update({ keyword, is_active: el('ekActive').checked }).eq('id', id).select('id');
     if (error) { setStatus(`Save failed: ${explain(error)}`, 'neg'); return; }
     // An RLS refusal on an UPDATE is a success with zero rows, not an error.
     if (!data?.length) { setStatus('Not saved: you can only edit keywords you added, unless you are an SEO approver.', 'neg'); return; }
@@ -434,7 +429,7 @@
     el('dlgKw').close(); setStatus('Keyword deleted.', 'pos', 2500); await loadKeywords(); renderStrip(); renderTracking();
   });
   async function addKeywords(rows) {
-    const payload = window.__SILO_CONFIG__.withCompanyRows(rows.map(r => ({ keyword: r.keyword, source: r.source, commercial_note: r.note || null, priority: r.priority ?? null })));
+    const payload = window.__SILO_CONFIG__.withCompanyRows(rows.map(r => ({ keyword: r.keyword, source: r.source })));
     const { error } = await sb.from('seo_keyword_set').insert(payload);
     if (error) throw error;
   }
