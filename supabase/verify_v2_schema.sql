@@ -8902,6 +8902,41 @@ select 'Klaviyo audiences and account currency' as check_name,
     else 'ok'
   end as status;
 
+-- Klaviyo audience on the performance report (20261111190000): the audience a
+-- campaign was sent to, on the report and the tile that already existed rather
+-- than a report of its own.
+--
+-- The last branch is the one that matters. The audience columns MUST stay
+-- per-row subqueries: written as a join the view fans out to one row per
+-- audience id, the report's DISTINCT ON collapses it back, and the result is a
+-- correct row count with the wrong audience name against it. A structural
+-- assertion is used rather than a count, because an account with one list per
+-- campaign would pass a count either way.
+select 'Klaviyo report audience' as check_name,
+  case
+    when to_regclass('public.klaviyo_message_performance_v') is null
+      then 'MISSING — run 20261109040000_klaviyo_native_integration.sql'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'klaviyo_message_performance_v'
+                        and column_name = 'audience_included')
+      then 'MISSING — klaviyo_message_performance_v has no audience columns; run 20261111190000_klaviyo_report_audience.sql'
+    when not exists (select 1 from public.silo_chat_saved_reports
+                      where id = 'c9000000-0000-4000-a000-000000000001'
+                        and queries_run::text like '%audience_included%')
+      then 'MISSING — Email & SMS Performance (Klaviyo) does not select the audience; run 20261111190000_klaviyo_report_audience.sql'
+    when (select count(*) from public.silo_report_tieouts
+           where report_id = 'c9000000-0000-4000-a000-000000000001' and enabled) < 3
+      then 'WEAK — Email & SMS Performance (Klaviyo) has lost a tie-out; re-run 20261111190000_klaviyo_report_audience.sql'
+    when not exists (select 1 from public.silo_report_tieouts
+                      where report_id = 'c9000000-0000-4000-a000-000000000001' and enabled
+                        and name = 'The audience lookup does not multiply the measured rows')
+      then 'WEAK — nothing checks that the audience lookup has not become a join, which would label a campaign with one of its lists and go unnoticed'
+    when (select count(*) from public.klaviyo_message_performance_v)
+         <> (select count(*) from public.klaviyo_message_performance)
+      then 'BROKEN — klaviyo_message_performance_v returns a different number of rows than klaviyo_message_performance, so an audience lookup has become a join and a campaign is labelled with one of its lists'
+    else 'ok'
+  end as status;
+
 -- Shopify order discount codes and refunds (20261110083000): the per-order
 -- codes and refunded merchandise subtotal Affiliate Studio credits from. NULL
 -- in either column means "not captured yet", never "none"; the view keeps that.
