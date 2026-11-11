@@ -263,6 +263,11 @@ export function applyUrl(origin, companyId, slug) {
 // simulated: only dry runs so far.
 // unconfigured: not set up for this company yet.
 // waiting: set up, but not yet seen working here (a code never used on an order).
+// Codes that are live in the store: active only. A pending code is not in
+// Shopify yet, and a retired one (including a request cancelled before it was
+// ever created) is not set up.
+export const liveCodeCount = (codes) => (codes || []).filter((c) => c?.status === 'active').length;
+
 export function stageLabels(f = {}) {
   const runs = f.discoveryRuns || [];
   // Runs are recorded 'ok' (older ones 'success').

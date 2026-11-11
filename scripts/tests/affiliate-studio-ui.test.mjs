@@ -7,6 +7,7 @@
 //   AFFILIATE_CORE_MUTATION=zerodec   zero-decimal currencies are treated as two-decimal
 //   AFFILIATE_CORE_MUTATION=rounding  extra decimals are rounded instead of refused
 //   AFFILIATE_CORE_MUTATION=href      any URL scheme becomes a link
+//   AFFILIATE_CORE_MUTATION=retiredlive a cancelled code counts as set up
 //   AFFILIATE_CORE_MUTATION=runstatus a real Find creators run (recorded 'ok') leaves Discovery unconfigured
 //   AFFILIATE_CORE_MUTATION=unhide    a photo the rep removed comes back as the one found for them
 //   AFFILIATE_CORE_MUTATION=nolinkok  an outreach message without {signup_link} is accepted
@@ -22,6 +23,7 @@ const MUTS = {
   formula: ["if (/^[=+\\-@\\t\\r]/.test(s)) s = `'${s}`;", ''],
   zerodec: ["export const minorUnits = (currency) => (ZERO_DECIMAL.has(String(currency || '').toUpperCase()) ? 1 : 100);", 'export const minorUnits = () => 100;'],
   href: ["return x.protocol === 'https:' || x.protocol === 'http:' ? x.toString() : null;", 'return x.toString();'],
+  retiredlive: ["(codes || []).filter((c) => c?.status === 'active').length", "(codes || []).filter((c) => c?.status !== 'pending').length"],
   runstatus: ["(r.status === 'ok' || r.status === 'success')", "r.status === 'success'"],
   unhide: ["  if (affiliate?.photo_hidden === true) return null;\n", ''],
   nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
@@ -164,6 +166,9 @@ await t('labels follow the data and never claim what was not observed', () => {
   assert.equal(byStage({ discoveryRuns: [{ dry_run: false, status: 'ok' }] }).Discovery, 'verified', 'runs are recorded ok');
   assert.equal(byStage({ codesTotal: 1 })['Code tracking'], 'waiting', 'a code no order has used yet is waiting, not unconfigured');
   assert.equal(none['Code tracking'], 'unconfigured');
+  assert.equal(C.liveCodeCount([{ status: 'retired' }, { status: 'pending' }]), 0, 'a cancelled or not-yet-created code is not set up');
+  assert.equal(byStage({ codesTotal: C.liveCodeCount([{ status: 'retired' }]) })['Code tracking'], 'unconfigured');
+  assert.equal(C.liveCodeCount([{ status: 'active' }, { status: 'retired' }]), 1);
   assert.equal(byStage({ notifications: [{ status: 'sent' }] })['Affiliate emails'], 'verified');
   assert.equal(byStage({ codesSeen: 2 })['Code tracking'], 'verified');
 });
