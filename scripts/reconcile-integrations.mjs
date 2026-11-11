@@ -127,6 +127,46 @@ async function probe(feed, conn) {
 }
 
 /**
+ * The newest recorded run of this feed's sync, per company.
+ *
+ * Attempt evidence of last resort, for the feeds whose connection row carries
+ * no stamp and whose data IS the watermark: with nothing written there is
+ * nothing to read, and a sync that ran and had nothing to write then looks
+ * exactly like a sync that never ran. `sync_jobs` is where every sync records
+ * itself (scripts/CLAUDE.md), skips included, so it can tell them apart.
+ *
+ * Company-grained, like the feeds that need it. One query for the whole feed,
+ * not one per connection. It never throws: no evidence must read as no
+ * evidence, which leaves the verdict exactly where it was before this existed.
+ */
+async function lastJobsByCompany(feed) {
+  const types = feed?.jobTypes;
+  if (!Array.isArray(types) || !types.length) return new Map();
+  const { data, error } = await db.from('sync_jobs')
+    .select('company_entity_id, job_type, status, started_at, finished_at, error')
+    .in('job_type', types)
+    .order('started_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    console.error(`[reconcile] ${feed.label}: sync_jobs lookup failed (${error.message}); attempts unknown`);
+    return new Map();
+  }
+  const newest = new Map();
+  for (const row of data || []) {
+    if (!row.company_entity_id || newest.has(row.company_entity_id)) continue;
+    newest.set(row.company_entity_id, {
+      status: row.status || null,
+      at: row.finished_at || row.started_at || null,
+      // A skip records WHY in `error` -- 'seo_keyword_set has no active
+      // keywords for this company' -- which is the whole answer for a person
+      // reading the report.
+      reason: row.error || null,
+    });
+  }
+  return newest;
+}
+
+/**
  * Queue one first import, exactly once in this connection's lifetime.
  *
  * Returns why it did not, rather than throwing: one connection whose queue
@@ -171,6 +211,7 @@ async function main() {
   const rows = [];
   for (const feed of feeds) {
     const connections = await loadConnections(feed);
+    const lastJobs = await lastJobsByCompany(feed);
     // Which identities more than one company holds, for this feed.
     const shared = new Map();
     if (feed.identityColumn) {
@@ -188,6 +229,7 @@ async function main() {
       const { everProduced, newestIso, note } = await probe(feed, conn);
       const verdict = reconcileConnection({
         feed, connection: conn, everProduced, newestIso, today, autoStart: AUTO_START, duplicate,
+        lastJob: lastJobs.get(conn.company_entity_id) || null,
       });
       let action = null;
       let detail = note ? `${verdict.detail} (${note})` : verdict.detail;
