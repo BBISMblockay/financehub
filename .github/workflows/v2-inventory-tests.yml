@@ -222,7 +222,7 @@ jobs:
       - name: Performance selection and next-step guards (mutations)
         run: |
           set -u
-          for m in no-carry no-url no-back no-window no-tab no-drill-link no-studio-link no-return no-focus foreign-campaign; do
+          for m in no-carry no-url no-back no-window no-tab no-drill-link no-studio-link no-return no-focus foreign-campaign range-ignored range-unbounded range-unnamed; do
             if PERF_CTX_MUTATION="$m" node v2/tests/browser/performance-context.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

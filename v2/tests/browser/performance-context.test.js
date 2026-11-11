@@ -24,6 +24,9 @@
  *   PERF_CTX_MUTATION=no-studio-link  an ad row loses its way into Ad Studio
  *   PERF_CTX_MUTATION=no-return       Ad Studio loses its way back to the result
  *   PERF_CTX_MUTATION=no-focus        Explorer no longer finds the ad a link points at
+ *   PERF_CTX_MUTATION=range-ignored   Overview swaps a typed range for 30d
+ *   PERF_CTX_MUTATION=range-unbounded Overview reads past the end of a typed range
+ *   PERF_CTX_MUTATION=range-unnamed   Overview shows a typed range's numbers under a 30d label
  *   PERF_CTX_MUTATION=foreign-campaign Overview filters Campaigns by another platform's campaign
  */
 'use strict';
@@ -42,6 +45,9 @@ const MUTATIONS = {
   'no-studio-link': ['/marketing-explorer.html', '    const studioLink = (r) => r.adId', '    const studioLink = (r) => false'],
   'no-return': ['/ad-studio.html', 'href="/v2/marketing-explorer.html?ad=${encodeURIComponent(a.ad_id)}"', 'href="/v2/marketing-explorer.html"'],
   'no-focus': ['/marketing-explorer.html', '    if (state.focusAd && !d.adsetId){', '    if (false){'],
+  'range-ignored': ['/marketing-overview.html', "      return e === todayIso() ? { days: n, start: null, end: null } : { days: n, start: s, end: e };", "      return { days: 30, start: null, end: null };"],
+  'range-unbounded': ['/marketing-overview.html', "  const upTo = (q, col = 'day_date') => isFixedRange() ? q.lte(col, RANGE.end) : q;", "  const upTo = (q) => q;"],
+  'range-unnamed': ['/marketing-overview.html', "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = windowLabel();", "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = '30d';"],
   'foreign-campaign': ['/marketing-overview.html', "(!urlParam('platform') || urlParam('platform') === 'meta_ads') ? urlParam('campaign') : null", "urlParam('campaign')"],
 };
 const MUT = process.env.PERF_CTX_MUTATION || '';
@@ -190,6 +196,35 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
     await page.click('#windowBtns button[data-days="7"]');
     await page.waitForFunction(() => new URLSearchParams(location.search).get('days') === '7');
     R.ok('choosing a window updates the address bar', true);
+    await page.close();
+
+    // A typed range that ends before today is shown AS that range -- never
+    // quietly replaced by 30d under numbers someone will read as the range.
+    page = await suite.open(`/v2/marketing-overview.html?start=${day(12)}&end=${day(8)}&platform=meta_ads`, TABLES, { ready: overviewReady });
+    const kq = await page.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'marketing_kpis_daily')
+      .map((x) => x.filters.filter((f) => f.col === 'day_date').map((f) => `${f.op}:${f.val}`).sort().join(',')));
+    R.eq([...new Set(kq)], [`gte:${day(12)},lte:${day(8)}`], 'the KPI read is bounded on both sides');
+    const fixedBounds = await page.evaluate(() => window.__QUERIES__
+      .filter((x) => ['v_marketing_mer_daily', 'meta_ad_performance_daily', 'redo_marketing_daily_v', 'meta_custom_conversion_daily_v'].includes(x.table))
+      .map((x) => [x.table, x.filters.some((f) => f.col === 'day_date' && f.op === 'lte')]));
+    R.ok('every day-keyed read has the ceiling', fixedBounds.length >= 4 && fixedBounds.every(([, ok]) => ok), JSON.stringify(fixedBounds));
+    // Only the day-10 rows fall in the range: 300 + 100 + 80.
+    R.eq(await page.locator('#kpiSpend').innerText(), '$480', 'the numbers are the range’s, not 30 days’');
+    const fixedBtn = page.locator('#windowBtns .is-active');
+    R.eq(await page.locator('#windowBtns .is-active').count(), 1, 'exactly one window is marked');
+    R.ok('and it names the dates', /\d{4}\s–\s.*\d{4}/.test(await fixedBtn.innerText()), await fixedBtn.innerText());
+    R.has(await page.locator('#kpiSpendDelta').innerText(), await fixedBtn.innerText(), 'the KPI caption names the same range');
+    R.not(await page.locator('#chartTitle').innerText(), 'last', 'the chart title does not say "last N days"');
+    R.eq(await page.locator('#platformBody tr', { hasText: 'Meta Ads' }).locator('a.mo-next').getAttribute('href'),
+      `/v2/marketing-explorer.html?start=${day(12)}&end=${day(8)}&platform=meta_ads`, 'links into Explorer keep the range');
+    await page.click('#windowBtns button[data-days="30"]');
+    await page.waitForFunction(() => document.getElementById('kpiSpend').textContent === '$1,920');
+    params = await q(page);
+    R.eq([params.days, params.start, params.end], ['30', undefined, undefined], 'choosing a window returns to rolling');
+    R.eq(await page.locator('#windowBtns button[data-fixed]').count(), 0, 'and the range label goes away');
+    const rolling = await page.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'marketing_kpis_daily').pop()
+      .filters.filter((f) => f.col === 'day_date').map((f) => f.op));
+    R.eq(rolling, ['gte'], 'a rolling window keeps the query it always had');
     await page.close();
 
     // ── 7. Ad Studio -> back to the result ───────────────────────────────
