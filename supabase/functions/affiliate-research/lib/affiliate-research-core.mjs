@@ -29,7 +29,7 @@
 // "never touch a reviewed prospect" upsert. Imported follower counts are kept
 // and labelled as coming from the person's own file.
 
-import { classifyProfileUrl, classifyWebsite, nicheTerms, scoreProspect, statedEmail } from './affiliate-discovery-core.mjs';
+import { classifyProfileUrl, classifyWebsite, nicheTerms, scoreProspect, statedEmail, PLATFORM_SITES } from './affiliate-discovery-core.mjs';
 
 export const RESEARCH_PROVIDER = 'anthropic';
 export const IMPORT_PROVIDER = 'import';
@@ -42,6 +42,37 @@ export const MAX_MODEL_CALLS = 10;
 export const MAX_PER_SOURCE = 5;
 // Google leads handed to the AI per run (profiles the program's searches found).
 export const MAX_LEADS = 40;
+// Google searches per run: one per social platform the program ticked, so one
+// busy platform cannot crowd the others out of a single combined search.
+export const MAX_LEAD_SEARCHES = 4;
+export const LEAD_SEARCH_RESULTS = 30;
+
+/**
+ * The Google searches for one run's leads: the typed words once per ticked
+ * social platform (at most MAX_LEAD_SEARCHES), or once, pinned the usual way,
+ * when the program ticks none. No words, no searches. Pure.
+ */
+export function leadSearches(program, focus) {
+  const q = String(focus || '').trim();
+  if (!q) return [];
+  const base = { id: null, query: q, max_results: LEAD_SEARCH_RESULTS, location_code: null, language_code: null };
+  const per = [...new Set((program?.platforms || []).map((p) => String(p).toLowerCase()))].filter((p) => PLATFORM_SITES[p]).slice(0, MAX_LEAD_SEARCHES);
+  return per.length > 1 ? per.map((p) => ({ ...base, platform_hint: p })) : [{ ...base, platform_hint: null }];
+}
+
+/** Leads from several searches, taken in turn so each platform gets a share of MAX_LEADS. Pure. */
+export function interleaveLeads(lists, max = MAX_LEADS) {
+  const out = []; const seen = new Set();
+  for (let i = 0; out.length < max && lists.some((l) => i < l.length); i += 1) {
+    for (const l of lists) {
+      const c = l[i]; if (!c || out.length >= max) continue;
+      const k = String(c.profile_url || '').toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k); out.push(c);
+    }
+  }
+  return out;
+}
 export const WEB_SEARCH_USES = 8;
 export const WEB_FETCH_USES = 15;
 export const FETCH_CONTENT_TOKENS = 20000;
