@@ -26,7 +26,7 @@
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
-  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS,
+  RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
 
@@ -55,23 +55,21 @@ export function createResearchHandler({
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
   // Google leads for one run: the words typed into Find creators, searched
-  // once. Leads are only handed to the AI; nothing is stored from them unless
-  // the AI checks and records the creator. A failed or unconfigured search
-  // just means fewer leads. (Saved searches are no longer read: one search,
-  // the one the person typed, so an old saved query cannot steer a new run.)
+  // once per ticked social platform (in parallel), the results taken in turn
+  // so each platform gets a share. Leads are only handed to the AI; nothing is
+  // stored from them unless the AI checks and records the creator. A failed
+  // or unconfigured search just means fewer leads.
   async function gatherLeads(program, focus) {
     if (!search) return { leads: [], searched: 0, failed: 0 };
-    const list = focus ? [{ id: null, query: focus, platform_hint: null, max_results: 30, location_code: null, language_code: null }] : [];
-    const byUrl = new Map(); let searched = 0; let failed = 0;
-    for (const src of list) {
+    let searched = 0; let failed = 0;
+    const lists = await Promise.all(leadSearches(program, focus).map(async (src) => {
       try {
         const { items } = await search(buildSerpTask(src, program));
         searched += 1;
-        const { candidates } = candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() });
-        for (const c of candidates) if (!byUrl.has(c.profile_url.toLowerCase())) byUrl.set(c.profile_url.toLowerCase(), c);
-      } catch { failed += 1; }
-    }
-    return { leads: [...byUrl.values()].slice(0, MAX_LEADS), searched, failed };
+        return candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() }).candidates;
+      } catch { failed += 1; return []; }
+    }));
+    return { leads: interleaveLeads(lists, MAX_LEADS), searched, failed };
   }
 
   async function finishRun(id, patch) {

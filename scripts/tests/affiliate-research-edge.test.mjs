@@ -28,6 +28,8 @@
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
 //   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
+//   AFFILIATE_RESEARCH_MUTATION=onesearch    the typed words are searched once for all platforms together
+//   AFFILIATE_RESEARCH_MUTATION=noshare      leads from the platform searches are not merged by profile
 //   AFFILIATE_RESEARCH_MUTATION=notopup      a short run is not topped up from creators the per-source limit held back
 //   AFFILIATE_RESEARCH_MUTATION=topupfirst   the top-up counts while searching, so the AI stops looking for variety
 //   AFFILIATE_RESEARCH_MUTATION=leadevidence a Google lead does not count as found
@@ -57,6 +59,8 @@ const MUTS = {
   oneround: [CORE, '      if (!wanted || kept >= wanted ||', '      if (true ||'],
   partial: [CORE, '    catch (err) { if (rounds) return done(call - 1, String(err?.message || err)); throw err; }', '    catch (err) { throw err; }'],
   onesource: [CORE, '{ stats.over_source += 1; heldBack.push({ c, profile, key }); continue; }', '{ stats.over_source += 0; }'],
+  onesearch: [CORE, '  return per.length > 1 ? per.map', '  return false ? per.map'],
+  noshare: ['handler.mjs', 'leads: interleaveLeads(lists, MAX_LEADS)', 'leads: lists.flat().slice(0, MAX_LEADS)'],
   notopup: ['handler.mjs', 'collectedAt: now().toISOString(), fillTo: wanted });', 'collectedAt: now().toISOString() });'],
   topupfirst: ['handler.mjs', 'evidence: ev, program, focus, collectedAt }).stats.kept;', 'evidence: ev, program, focus, collectedAt, fillTo: wanted }).stats.kept;'],
   leadevidence: [CORE, '  const evidence = leadsEvidence(leads);', '  const evidence = { urls: new Set(), text: [] };'],
@@ -76,6 +80,7 @@ async function load() {
   return import(pathToFileURL(join(tmp, 'handler.mjs')).href);
 }
 const { createResearchHandler } = await load();
+const { interleaveLeads, leadSearches } = await import(new URL(`lib/affiliate-research-core.mjs`, FN));
 
 let passed = 0;
 async function test(name, fn) {
@@ -358,7 +363,8 @@ await test('Google leads go to the AI first; only the ones it checks and records
     creator({ name: 'Lead Creator', handle: '@leadcreator', profile_url: 'https://www.tiktok.com/@leadcreator' }),
   ] } }], 'tool_use')] });
   await s.call({ action: 'research', program_id: PA, focus: 'travel ball parents', count: 5 });
-  assert.deepEqual(s.searches.map((t) => t.keyword.split(' site:')[0].split(' (site:')[0]), ['travel ball parents'], 'only the words typed for this run are searched; an old saved search does not steer it');
+  assert.deepEqual(s.searches.map((t) => t.keyword), ['travel ball parents site:tiktok.com/@', 'travel ball parents site:instagram.com', 'travel ball parents site:youtube.com/@'],
+    'the typed words, once per ticked platform; an old saved search does not steer it');
   const brief = s.calls[0].messages[0].content;
   assert.match(brief, /Leads from a Google search/);
   assert.match(brief, /https:\/\/www\.tiktok\.com\/@leadcreator/);
@@ -366,7 +372,19 @@ await test('Google leads go to the AI first; only the ones it checks and records
   const ps = s.service.tables.affiliate_prospects;
   assert.deepEqual(ps.map((p) => p.handle), ['@leadcreator'], 'a lead the AI recorded is kept on the strength of the real search result; one it dropped is never stored');
   assert.equal(ps[0].source, 'ai_research');
-  assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 Google leads checked$/);
+  assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 Google leads checked$/, 'the same profile from two searches is one lead');
+});
+
+await test('each platform search gets a share of the leads; no words means no searches', async () => {
+  const lead = (pl, i) => ({ profile_url: `https://www.${pl}.com/@${pl}${i}` });
+  const yt = Array.from({ length: 50 }, (_, i) => lead('youtube', i));
+  const tt = Array.from({ length: 3 }, (_, i) => lead('tiktok', i));
+  const out = interleaveLeads([yt, tt], 10);
+  assert.equal(out.length, 10);
+  assert.equal(out.filter((c) => c.profile_url.includes('tiktok')).length, 3, 'a quieter platform is not crowded out by a busy one');
+  assert.deepEqual(leadSearches({ platforms: ['youtube'] }, 'q').map((x) => x.platform_hint), [null], 'one platform: one search, pinned the usual way');
+  assert.equal(leadSearches({ platforms: ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest'] }, 'q').length, 4, 'at most four searches a run');
+  assert.deepEqual(leadSearches({ platforms: ['tiktok', 'youtube'] }, '  '), []);
 });
 
 await test('a failed Google search does not stop the research', async () => {
