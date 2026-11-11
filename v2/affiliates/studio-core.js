@@ -262,26 +262,31 @@ export function applyUrl(origin, companyId, slug) {
 // manual: a person does it outside SILO and records it.
 // simulated: only dry runs so far.
 // unconfigured: not set up for this company yet.
-// not measured: SILO does not and cannot claim it.
+// waiting: set up, but not yet seen working here (a code never used on an order).
+// Codes that are live in the store: active only. A pending code is not in
+// Shopify yet, and a retired one (including a request cancelled before it was
+// ever created) is not set up.
+export const liveCodeCount = (codes) => (codes || []).filter((c) => c?.status === 'active').length;
+
 export function stageLabels(f = {}) {
   const runs = f.discoveryRuns || [];
-  const liveOk = runs.some((r) => !r.dry_run && r.status === 'success');
+  // Runs are recorded 'ok' (older ones 'success').
+  const liveOk = runs.some((r) => !r.dry_run && (r.status === 'ok' || r.status === 'success'));
   const dryOnly = runs.length > 0 && runs.every((r) => r.dry_run);
   const notes = f.notifications || [];
   const mailSent = notes.some((n) => n.status === 'sent');
   const mailSkipped = notes.some((n) => n.status === 'skipped' && /RESEND/i.test(n.reason || ''));
   return [
-    { stage: 'Discovery', label: liveOk ? 'verified' : dryOnly ? 'simulated' : f.sources ? 'unconfigured' : 'unconfigured',
-      detail: liveOk ? 'Finding creators from public search results.' : dryOnly ? 'Only test runs so far.' : 'Add a search on the Prospects tab.' },
+    { stage: 'Discovery', label: liveOk ? 'verified' : dryOnly ? 'simulated' : 'unconfigured',
+      detail: liveOk ? 'Find creators is finding creators for this program.' : dryOnly ? 'Only test runs so far.' : 'Run Find creators to start.' },
     { stage: 'Outreach to prospects', label: 'manual', detail: 'You send approved messages from your own inbox.' },
     { stage: 'Affiliate emails', label: mailSent ? 'verified' : mailSkipped ? 'unconfigured' : 'unconfigured',
       detail: mailSent ? 'Signup confirmations and portal links are being delivered.' : mailSkipped ? 'Email is not set up yet.' : 'No affiliate email has been sent yet.' },
-    { stage: 'Code tracking', label: f.codesSeen > 0 ? 'verified' : 'unconfigured',
-      detail: f.codesSeen > 0 ? `${f.codesSeen} code(s) have been seen on real orders.` : 'No affiliate code has been used on an order yet.' },
+    { stage: 'Code tracking', label: f.codesSeen > 0 ? 'verified' : f.codesTotal > 0 ? 'waiting' : 'unconfigured',
+      detail: f.codesSeen > 0 ? `${f.codesSeen} code(s) have been seen on real orders.` : f.codesTotal > 0 ? 'Codes are set up. Waiting for the first order that uses one.' : 'Add a code for an affiliate to start.' },
     { stage: 'Trackable links', label: 'manual', detail: 'Tagged links to your site for your analytics.' },
     { stage: 'Commissions', label: f.ledgerEntries > 0 ? 'verified' : 'unconfigured', detail: 'Calculated after discounts and refunds, before tax and shipping.' },
     { stage: 'Payouts', label: 'manual', detail: 'You pay from your own bank or payment tool and record it here.' },
-    { stage: 'Incremental sales', label: 'not measured', detail: 'Credited sales used an affiliate’s code; that does not prove the affiliate caused them.' },
   ];
 }
 
