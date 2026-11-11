@@ -72,7 +72,7 @@ function filters(url) {
   return out;
 }
 
-async function runPass(env = {}, rows = fixture(), { failTable = null } = {}) {
+async function runPass(env = {}, rows = fixture(), { failTable = null, failWith = null } = {}) {
   const seen = [];
   const posted = [];
   const deleted = [];
@@ -80,8 +80,12 @@ async function runPass(env = {}, rows = fixture(), { failTable = null } = {}) {
     const url = new URL(req.url, 'http://x');
     const table = url.pathname.replace('/rest/v1/', '');
     if (table === failTable) {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ message: `${table} is unavailable` }));
+      // `failWith` lets a test be a SPECIFIC database refusal rather than a
+      // generic outage -- PostgREST answers "no such column" with a code, and
+      // the pass has to tell that one apart from everything else.
+      const body = failWith || { message: `${table} is unavailable` };
+      res.writeHead(failWith ? 400 : 500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
       req.resume();
       return;
     }
@@ -400,4 +404,61 @@ test('a dry run reads the flag and clears nothing', async () => {
   const { deleted, seen } = await runPass({ RECONCILE_DRY_RUN: 'true' }, rows);
   assert.ok(seen.some((s) => s.table === 'company_settings'));
   assert.deepEqual(deleted, [], 'a dry run writes nothing, demo prune included');
+});
+
+// Review cycle 1, P2. The shared-identity guard refuses to auto-start a
+// connection whose store another company also holds, because which tenant
+// owns that store's data is a person's decision. Filtering demo rows out
+// before that map is built would have disabled the guard whenever one of the
+// two companies is a demo -- and marking a company a demo settles nothing
+// about store ownership.
+test('a store shared with a demo workspace still blocks auto-start', async () => {
+  const rows = fixture();
+  rows.company_settings = [{ company_entity_id: OTHER, is_demo: true }];
+  rows.shopify_connections = [{
+    // The non-demo company's connection: eligible for a first import in
+    // every other respect.
+    id: 'conn-b', company_entity_id: CO, shop_domain: 'shared.myshopify.com',
+    display_name: null, is_active: true, sync_enabled: false,
+    last_test_status: 'ok', last_test_success: true, last_test_error: null, meta: {},
+  }, {
+    // The same store, in the demo workspace.
+    id: 'conn-a', company_entity_id: OTHER, shop_domain: 'shared.myshopify.com',
+    display_name: null, is_active: true, sync_enabled: false,
+    last_test_status: 'ok', last_test_success: true, last_test_error: null, meta: {},
+  }];
+  rows.sales_by_day = [];
+  const { posted, out, seen, health } = await runPass({ RECONCILE_AUTO_START: 'true' }, rows);
+  assert.equal(posted.length, 0, 'the duplicate guard must survive the demo skip');
+  assert.match(out, /more than one|shared|two companies/i);
+  // And the demo side is still skipped completely: seen, but only as evidence
+  // about ownership, never probed, reported or published.
+  assert.equal(seen.filter((s) => s.table === 'sales_by_day' && s.where.company_entity_id === OTHER).length, 0);
+  const published = health.flatMap((h) => (Array.isArray(h.body) ? h.body : [h.body]));
+  assert.ok(published.every((r) => r.company_entity_id !== OTHER), 'a demo workspace publishes no health row');
+});
+
+// Between the merge and the apply, this pass runs from `main` against a
+// database with no `is_demo` column. No workspace can be flagged yet, so an
+// empty set is the right answer -- the alternative is a pass that reports
+// nothing at all on the night it merges.
+test('an is_demo column that is not there yet is not a failure', async () => {
+  const { code, out } = await runPass({}, fixture(), {
+    failTable: 'company_settings',
+    failWith: { code: '42703', message: 'column company_settings.is_demo does not exist' },
+  });
+  assert.match(out, /not present yet/);
+  assert.match(out, /20261111234000/, 'it must name the migration somebody has to apply');
+  assert.match(out, /brandnew\.myshopify\.com/, 'and the pass still does its job');
+  assert.equal(code, 1, 'judging every workspace is exactly the old behaviour');
+});
+
+test('any other refusal of the demo flag still stops the run', async () => {
+  const { code, out } = await runPass({}, fixture(), {
+    failTable: 'company_settings',
+    failWith: { code: '42703', message: 'column company_settings.is_dmeo does not exist' },
+  });
+  assert.equal(code, 1);
+  assert.match(out, /company_settings load failed/, 'a typo in some other column is a real failure');
+  assert.doesNotMatch(out, /not present yet/);
 });
