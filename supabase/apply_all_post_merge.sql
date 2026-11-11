@@ -19681,4 +19681,8 @@ $c$select (select count(*) from v_po_header_summary
 -- changes or removes their photo in the portal; a program sets the message
 -- every new outreach draft starts from. Apply BEFORE deploying affiliate-portal.
 \i migrations/20261111020000_affiliate_rep_photo_outreach_message.sql
+-- Klaviyo catalog neutral name (20261111050000): the one bot-facing description
+-- that still named the data vendor. Catalog text only; no deploy.
+\i migrations/20261111050000_klaviyo_catalog_neutral_name.sql
+
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

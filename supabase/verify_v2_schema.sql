@@ -5393,8 +5393,12 @@ select 'Attribution reporting stores' as check_name,
    then 'MISSING: attribution_store_ids should be NOT NULL (null is a third state the page does not read)'
  -- A reporting preference must never have become a collection gate: the sync
  -- reads the coverage allowlist and shopify_attribution_coverage, never this.
+ -- prokind='f' is load-bearing: pg_get_functiondef() RAISES 42809 on an
+ -- aggregate ('"array_agg" is an aggregate function'), and public carries
+ -- aggregates, so without this filter the whole statement errors instead of
+ -- answering -- which is how this check went unevaluated from 2026-11-10.
  when exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-   where n.nspname='public' and pg_get_functiondef(p.oid) like '%attribution_store_ids%')
+   where n.nspname='public' and p.prokind='f' and pg_get_functiondef(p.oid) like '%attribution_store_ids%')
    then 'CRITICAL: a database function reads attribution_store_ids; it is a reporting preference, not a collection gate'
  else 'ok' end as status;
 
@@ -7648,6 +7652,10 @@ select 'developer API boundary' as check_name, case
         -- outreach:send since 20261110093000: claiming approved affiliate
         -- outreach and recording a send. Both on silo_api_path_allowed().
         'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
+        -- codes:create since 20261110160000: listing the affiliate discount
+        -- codes a person asked for, and recording the one the bot created in
+        -- the company's own Shopify. Both on silo_api_path_allowed().
+        'silo_api_codes_to_create', 'silo_api_mark_code_created',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -7666,6 +7674,7 @@ select 'developer API boundary' as check_name, case
                 'silo_api_query', 'silo_api_describe_tables',
                 'silo_api_create_task', 'silo_api_scopes',
                 'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
+                'silo_api_codes_to_create', 'silo_api_mark_code_created',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
