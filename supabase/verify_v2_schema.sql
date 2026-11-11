@@ -9341,3 +9341,51 @@ select 'Affiliate AI research' as check_name,
       then 'BROKEN — a re-added check lost an existing value, so an older feature or prospect source is refused'
     else 'ok'
   end as status;
+
+-- Stored report SQL calls the channel resolver HOISTED (20261111050000).
+-- The function check above covers pg_proc only; a SILO report's queries_run
+-- and its tie-outs are SQL text in tables, and Attribution vs Sales carried
+-- the bare call there until 2026-11-11 -- >55 s per check for Baseballism,
+-- which emptied the report in the browser and ran the nightly tie-outs out of
+-- time. Same predicate as the function check.
+select 'SILO report SQL hoists the channel resolver' as check_name,
+  case
+    when exists (
+      -- stored-sql-bare-resolver
+      select 1 from public.silo_chat_saved_reports s, unnest(s.queries_run) x
+       where s.source = 'system'
+         and x ~ '(=\s*any|<>\s*all)\s*\(\s*(public\.)?silo_channel_location_tags\('
+      union all
+      select 1 from public.silo_report_tieouts o
+       where o.enabled
+         and o.check_sql ~ '(=\s*any|<>\s*all)\s*\(\s*(public\.)?silo_channel_location_tags\(')
+      then 'CRITICAL: a SILO report or tie-out calls silo_channel_location_tags() bare in a row filter; hoist it -- any((select public.silo_channel_location_tags(...))::text[]) -- or it re-runs once per scanned row (run 20261111050000)'
+    else 'ok'
+  end as status;
+
+-- Search Console date-window reads are index-only (20261111050100). SEO
+-- Performance's Pages and Search queries parts read every detail row in the
+-- window; without these they fetch scattered heap pages (4-7 s cold for
+-- Baseballism against the browser's 8 s). The vacuum settings keep the newest
+-- month -- which the nightly sync rewrites -- visible to an index-only scan.
+select 'Search Console covering indexes' as check_name,
+  case
+    when to_regclass('public.search_console_query_daily_co_day_cover_idx') is null
+      or to_regclass('public.search_console_page_daily_co_day_cover_idx') is null
+      then 'MISSING: run 20261111050100_search_console_covering_indexes.sql'
+    when pg_get_indexdef(to_regclass('public.search_console_query_daily_co_day_cover_idx'))
+           not like '%(company_entity_id, day_date) INCLUDE (site_url, query, clicks, impressions, "position")%'
+      or pg_get_indexdef(to_regclass('public.search_console_page_daily_co_day_cover_idx'))
+           not like '%(company_entity_id, day_date) INCLUDE (site_url, page, page_path, clicks, impressions, "position")%'
+      then 'BROKEN: a Search Console covering index no longer carries every column SEO Performance reads; its window reads go back to the heap'
+    when exists (select 1 from pg_index i where i.indexrelid in (to_regclass('public.search_console_query_daily_co_day_cover_idx'),
+                                                              to_regclass('public.search_console_page_daily_co_day_cover_idx'))
+                  and not i.indisvalid)
+      then 'BROKEN: a Search Console covering index is INVALID (a failed CREATE INDEX CONCURRENTLY); drop it and re-run 20261111050100'
+    when not exists (select 1 from pg_class where oid = 'public.search_console_query_daily'::regclass
+                      and 'autovacuum_vacuum_scale_factor=0.01' = any (coalesce(reloptions, '{}')))
+      or not exists (select 1 from pg_class where oid = 'public.search_console_page_daily'::regclass
+                      and 'autovacuum_vacuum_scale_factor=0.01' = any (coalesce(reloptions, '{}')))
+      then 'MISSING: Search Console autovacuum settings -- run 20261111050100'
+    else 'ok'
+  end as status;

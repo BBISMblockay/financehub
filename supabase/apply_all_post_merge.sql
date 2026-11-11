@@ -19685,4 +19685,11 @@ $c$select (select count(*) from v_po_header_summary
 -- that still named the data vendor. Catalog text only; no deploy.
 \i migrations/20261111050000_klaviyo_catalog_neutral_name.sql
 
+-- Report speed (20261111050000, 20261111050100): Attribution vs Sales hoists
+-- its channel lookup (it timed out for the largest tenant and ran the nightly
+-- tie-outs out of time); Search Console gets covering indexes so SEO
+-- Performance's Pages and Search queries read index-only. The index build
+-- blocks Search Console WRITES for about a minute: apply outside 10:30-12:00 UTC.
+\i migrations/20261111050000_attribution_report_channel_hoist.sql
+\i migrations/20261111050100_search_console_covering_indexes.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
