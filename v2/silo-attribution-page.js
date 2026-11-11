@@ -11,7 +11,7 @@ async function boot(){
   if(!data.session){window.location.href='/pages/login.html';return;}
   const company=await cfg.ensureActiveCompany?.(db);if(!company?.id)throw Error('Select an active company first');
   const profile=await db.from('profiles').select('role,active_company_id').eq('id',data.session.user.id).single();if(profile.error)throw profile.error;
-  window.SiloChrome?.mount({appEl:'#silo-app',active:'reports/silo-attribution',user:{email:data.session.user.email,role:profile.data.role},crumbs:['Marketing','Silo Attribution'],supabaseClient:db});
+  window.SiloChrome?.mount({appEl:'#silo-app',active:'reports/silo-attribution',user:{email:data.session.user.email,role:profile.data.role},crumbs:['Marketing','Performance','Attribution'],supabaseClient:db});
   function assertCompany(profileData){
    if(profileData?.active_company_id!==company.id || !window.SiloNav?.isSiloAttributionEnabled(company)){
      root.querySelector('#load').disabled=true;root.querySelector('#results').hidden=true;root.querySelector('#journey').close();
