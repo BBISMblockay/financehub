@@ -43,6 +43,16 @@ const all = async (sql, params) => (await db.query(sql, params)).rows;
 // PGlite hands back a Date for a date column; compare on the calendar day.
 const d = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10));
 
+// The overdue report compares against current_date, so every fixture date it
+// judges is an OFFSET from the database's own today -- never a calendar date.
+// (A fixed ETA of 2026-11-06 turned this suite red on 2026-11-07, on every
+// branch.) The other dates in the file are only compared with each other, so
+// they stay fixed.
+const TODAY = (await one(`select to_char(current_date, 'YYYY-MM-DD') t`)).t;
+const day = (n) => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const SLIP = { plan: day(-119), ship: day(-50), eta: day(-40), received: day(-35) };  // eta - plan = 79; in the past
+const BOX  = { plan: day(-19), ship1: day(-15), etd: day(-14), ata: day(-1), eta: day(30) };  // eta - plan = 49; plan past, ETA ahead
+
 const CO_A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const CO_B = 'bbbbbbbb-0000-4000-8000-000000000002';
 const ALICE = '11111111-1111-4111-8111-111111111111';   // member of CO_A
@@ -286,8 +296,8 @@ await db.exec(`insert into public.factories(id, factory_name, company_entity_id)
   values ('ffffffff-0000-4000-8000-000000000001','Incotexco','${CO_A}'),
          ('ffffffff-0000-4000-8000-000000000002','Other Co Factory','${CO_B}')`);
 for (const [key, name, planned, status, company] of [
-  ['slipped',   'Healong-3',     '2026-07-15', 'In Production',   CO_A],  // arrived 79 days late
-  ['container', 'Incotexco-480', '2026-09-18', 'Sent to Factory', CO_A],  // two shipments, one booking
+  ['slipped',   'Healong-3',     SLIP.plan,    'In Production',   CO_A],  // arrived 79 days late
+  ['container', 'Incotexco-480', BOX.plan,     'Sent to Factory', CO_A],  // two shipments, one booking
   ['noShip',    'Creytex-400',   '2026-07-30', 'In Production',   CO_A],  // nothing logged
   ['noPlan',    'Incotexco-476', null,         'Received',        CO_A],  // no plan date at all
   ['stale',     'Creytex-325',   '2026-07-01', 'Received',        CO_A],  // status says Received, shipment does not
@@ -313,9 +323,9 @@ const ship = async (poKey, row) => {
 };
 
 const S = {};
-S.slipped    = await ship('slipped',   { status: 'Shipped',    ship_date: '2026-09-22', eta: '2026-10-02', received: '2026-10-07' });
-S.container1 = await ship('container', { status: 'Not Shipped', ship_date: '2026-10-28' });
-S.container2 = await ship('container', { status: 'Not Shipped', ship_date: '2026-10-29' });
+S.slipped    = await ship('slipped',   { status: 'Shipped',    ship_date: SLIP.ship, eta: SLIP.eta, received: SLIP.received });
+S.container1 = await ship('container', { status: 'Not Shipped', ship_date: BOX.ship1 });
+S.container2 = await ship('container', { status: 'Not Shipped', ship_date: BOX.etd });
 S.noPlan     = await ship('noPlan',    { status: 'Delivered',  ship_date: '2026-08-05', eta: '2026-08-19', received: '2026-08-18' });
 S.stale      = await ship('stale',     { status: 'In Transit', eta: '2026-11-20' });
 S.partialIn  = await ship('partial',   { status: 'Received',   eta: '2026-08-10', received: '2026-08-12' });
@@ -376,9 +386,9 @@ await test('every column the pages already read keeps its name, type and positio
 await test('the PO picker that Products and the launch calendar use offers the real arrival', async () => {
   const r = await one(`select expected_arrival_date, current_eta, effective_arrival_date, arrival_state
     from public.v_launch_po_product_lookup where po_header_id = $1`, [PO.slipped]);
-  assert.equal(d(r.expected_arrival_date), '2026-07-15', 'the plan is still offered');
-  assert.equal(d(r.current_eta), '2026-10-02');
-  assert.equal(d(r.effective_arrival_date), '2026-10-02', 'copying this into a launch ETA copies the real one');
+  assert.equal(d(r.expected_arrival_date), SLIP.plan, 'the plan is still offered');
+  assert.equal(d(r.current_eta), SLIP.eta);
+  assert.equal(d(r.effective_arrival_date), SLIP.eta, 'copying this into a launch ETA copies the real one');
   assert.equal(r.arrival_state, 'received');
 });
 
@@ -394,13 +404,13 @@ await test('a PO with no shipments reads its plan and says so, rather than claim
 
 await test('the 79-day slip is visible as a slip, and the plan is not overwritten', async () => {
   const r = await arrival('slipped');
-  assert.equal(d(r.planned_arrival), '2026-07-15');
-  assert.equal(d(r.current_eta), '2026-10-02');
-  assert.equal(d(r.effective_arrival_date), '2026-10-02');
+  assert.equal(d(r.planned_arrival), SLIP.plan);
+  assert.equal(d(r.current_eta), SLIP.eta);
+  assert.equal(d(r.effective_arrival_date), SLIP.eta);
   assert.equal(Number(r.arrival_variance_days), 79);
   assert.equal(r.arrival_state, 'received');
   const h = await one(`select expected_arrival_date from public.po_headers where id = $1`, [PO.slipped]);
-  assert.equal(d(h.expected_arrival_date), '2026-07-15', 'the PO plan is never written');
+  assert.equal(d(h.expected_arrival_date), SLIP.plan, 'the PO plan is never written');
 });
 
 await test('a PO is not "arrived" until its LAST shipment is: the latest ETA wins', async () => {
@@ -435,7 +445,7 @@ await test('one booking carries two POs, and its dates replace the per-shipment 
   await asUser(ALICE);
   const b = await one(`insert into public.shipment_bookings
       (booking_ref, forwarder, mode, container_ref, etd, eta, status)
-    values ('BK-1042','Flexport','Ocean','MSKU7654321','2026-10-29','2026-11-06','Booked') returning *`);
+    values ('BK-1042','Flexport','Ocean','MSKU7654321',$1,$2,'Booked') returning *`, [BOX.etd, BOX.eta]);
   booking = b.id;
   assert.equal(b.company_entity_id, CO_A, 'stamped from the active company');
   assert.equal(b.created_by, ALICE, 'stamped from the session');
@@ -443,8 +453,8 @@ await test('one booking carries two POs, and its dates replace the per-shipment 
     [booking, S.container1, S.container2, S.stale]);
 
   const r = await arrival('container');
-  assert.equal(d(r.current_eta), '2026-11-06', "the booking's ETA, not the shipments' empty one");
-  assert.equal(d(r.first_ship_date), '2026-10-29', "the booking's ETD replaces two typed ship dates");
+  assert.equal(d(r.current_eta), BOX.eta, "the booking's ETA, not the shipments' empty one");
+  assert.equal(d(r.first_ship_date), BOX.etd, "the booking's ETD replaces two typed ship dates");
   assert.equal(Number(r.arrival_variance_days), 49);
   assert.equal(r.shipment_count, 2);
   assert.equal(r.booking_count, 1);
@@ -453,16 +463,16 @@ await test('one booking carries two POs, and its dates replace the per-shipment 
   assert.equal(Number(s.po_count), 2, 'the container spans two POs -- the thing that had no object before');
   assert.equal(Number(s.shipment_count), 3);
   assert.equal(s.po_names, 'Creytex-325, Incotexco-480');
-  assert.equal(d(s.effective_eta), '2026-11-06');
+  assert.equal(d(s.effective_eta), BOX.eta);
 });
 
 await test('actual arrival beats the estimate, for every PO in the container at once', async () => {
-  await db.query(`update public.shipment_bookings set ata = '2026-11-02', status = 'Arrived' where id = $1`, [booking]);
+  await db.query(`update public.shipment_bookings set ata = $2, status = 'Arrived' where id = $1`, [booking, BOX.ata]);
   const r = await arrival('container');
-  assert.equal(d(r.current_eta), '2026-11-02');
+  assert.equal(d(r.current_eta), BOX.ata);
   assert.equal(r.arrival_state, 'received', 'the container landed, so both POs did');
   const s = await one(`select * from public.v_shipment_booking_summary where booking_id = $1`, [booking]);
-  assert.equal(d(s.effective_eta), '2026-11-02');
+  assert.equal(d(s.effective_eta), BOX.ata);
   await db.query(`update public.shipment_bookings set ata = null, status = 'Booked' where id = $1`, [booking]);
 });
 
@@ -474,7 +484,7 @@ await test('deleting a booking keeps the shipments and falls back to their own d
   const kept = await one(`select booking_id, eta from public.incoming_shipments where id = $1`, [S.slipped]);
   assert.ok(kept, 'the shipment survives its booking');
   assert.equal(kept.booking_id, null);
-  assert.equal(d((await arrival('slipped')).current_eta), '2026-10-02', 'back to its own ETA');
+  assert.equal(d((await arrival('slipped')).current_eta), SLIP.eta, 'back to its own ETA');
 });
 
 await test('a shipment cannot be joined to another company\'s booking', async () => {
@@ -524,8 +534,9 @@ await test('two companies may use the same booking reference; one company may no
 await test('planning now plans against the shipments, not the plan nobody updated', async () => {
   const r = await one(`select planning_date, month_key, current_eta, arrival_state
     from public.v_po_open_planning_lines where po_header_id = $1`, [PO.container]);
-  assert.equal(d(r.planning_date), '2026-11-06');
-  assert.equal(r.month_key, '2026-11', 'was 2026-09, the month it was never going to land in');
+  assert.equal(d(r.planning_date), BOX.eta);
+  assert.equal(r.month_key, BOX.eta.slice(0, 7), `was ${BOX.plan.slice(0, 7)}, the month it was never going to land in`);
+  assert.notEqual(BOX.eta.slice(0, 7), BOX.plan.slice(0, 7), 'the fixture keeps plan and ETA in different months');
   const noShip = await one(`select planning_date from public.v_po_open_planning_lines where po_header_id = $1`, [PO.noShip]);
   assert.equal(d(noShip.planning_date), '2026-07-30', 'no shipment: unchanged from today');
 });
@@ -549,9 +560,16 @@ await test('the overdue report actually runs, and its number moved for the right
        and effective_arrival_date is not null and effective_arrival_date < current_date
      order by effective_arrival_date`);
   const names = late.map(r => r.po_name);
-  assert.ok(names.includes('Healong-3'), 'received 2026-10-07, so still past its date -- and arrival_state says received');
-  assert.ok(!names.includes('Incotexco-480'), 'no longer late: its container is due 2026-11-06, not 2026-09-18');
+  assert.ok(names.includes('Healong-3'), `its ETA ${SLIP.eta} is before today ${TODAY}, so still past its date -- and arrival_state says received`);
+  assert.ok(!names.includes('Incotexco-480'), `no longer late: its container is due ${BOX.eta} (after today ${TODAY}), not ${BOX.plan}`);
+  // ...and it left the list BECAUSE of the booking: by its own plan date, which
+  // is what the report used to measure, it is still overdue today.
+  const byPlan = await one(`select (expected_arrival_date < current_date) late, (current_date - expected_arrival_date) days
+    from public.po_headers where id = $1`, [PO.container]);
+  assert.equal(byPlan.late, true, `by its plan ${BOX.plan} alone Incotexco-480 would still be counted late`);
+  assert.equal(Number(byPlan.days), 19);
   const slipped = late.find(r => r.po_name === 'Healong-3');
+  assert.equal(Number(slipped.days_late), 40, 'late by the days since its ETA, not since its plan');
   assert.equal(slipped.arrival_state, 'received', 'the row says it is a stale status, not a missing container');
 });
 
