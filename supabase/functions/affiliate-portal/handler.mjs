@@ -77,6 +77,13 @@ const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public
 // codes email (affiliate-invite) builds exactly the same links.
 const IMAGE_RE = /^https:\/\/[^\s"'<>]+$/;
 const PHOTO_RE = /^https:\/\/[^\s"'<>()\\]+$/;
+// The storage path of a photo this rep uploaded, from its saved address, or
+// null for anything else (the found photo, another folder, a foreign host).
+function ownPhotoPath(url, folder) {
+  const m = String(url || '').match(/\/storage\/v1\/object\/public\/affiliate-feed-images\/([^?#]+)/);
+  const path = m ? decodeURIComponent(m[1]) : '';
+  return path.startsWith(`${folder}-`) && !path.includes('..') && path.endsWith('.jpg') ? path : null;
+}
 const isJpeg = (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
 function fromBase64(v) {
   const t = String(v || '').replace(/^data:image\/jpeg;base64,/, '');
@@ -377,8 +384,17 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     // affiliate or a company. Only a joined rep's portal link may change it.
     if (action === 'photo') {
       if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
-      const path = `${t.company_entity_id}/affiliate-photos/${t.affiliate_id}.jpg`;
+      // Each upload gets its own object, and only the photo a request REPLACED
+      // is deleted after its own update lands. Two tabs racing can at worst
+      // leave an unused copy behind -- never a saved address whose image is gone.
+      const folder = `${t.company_entity_id}/affiliate-photos/${t.affiliate_id}`;
       const bucket = service.storage.from(PHOTO_BUCKET);
+      const { data: before, error: readErr } = await service.from('affiliates').select('photo_url')
+        .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).maybeSingle();
+      if (readErr) {
+        console.error('[affiliate-portal] photo read failed', readErr.message);
+        return reply({ error: 'Photos are not available yet. Please try again later.' }, 503);
+      }
       let patch;
       if (body.remove === true) {
         patch = { photo_url: null, photo_hidden: true };
@@ -386,9 +402,10 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         const bytes = fromBase64(body.image);
         if (!bytes || !isJpeg(bytes)) return reply({ error: 'That photo could not be read. Try another image.' }, 400);
         if (bytes.length > PHOTO_MAX_BYTES) return reply({ error: 'That photo is too large. Try a smaller image.' }, 413);
-        const { error: upErr } = await bucket.upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+        const path = `${folder}-${now().getTime()}-${makeToken().slice(0, 8)}.jpg`;
+        const { error: upErr } = await bucket.upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
         if (upErr) { console.error('[affiliate-portal] photo upload failed', upErr.message); return reply({ error: 'The photo could not be saved. Please try again.' }, 500); }
-        patch = { photo_url: `${bucket.getPublicUrl(path).data.publicUrl}?v=${now().getTime()}`, photo_hidden: false };
+        patch = { photo_url: bucket.getPublicUrl(path).data.publicUrl, photo_hidden: false };
       }
       const { data: rows, error } = await service.from('affiliates').update({ ...patch, updated_at: now().toISOString() })
         .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).select('id');
@@ -397,7 +414,8 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         return reply({ error: 'Photos are not available yet. Please try again later.' }, 503);
       }
       if (!rows?.length) return reply({ error: 'This link has expired or is no longer valid.', code: 'invalid_link' }, 404);
-      if (body.remove === true) await bucket.remove([path]).catch(() => {});
+      const old = ownPhotoPath(before?.photo_url, folder);
+      if (old) await bucket.remove([old]).catch(() => {});
       return reply({ photo_url: patch.photo_url, own: !!patch.photo_url });
     }
 

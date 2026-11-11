@@ -118,6 +118,7 @@
     .af-me-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .af-me-acts { display: flex; flex-wrap: wrap; gap: 6px; }
     .af-me input[type=file] { display: none; }
+    .af-me label.is-disabled { opacity: .5; pointer-events: none; }
   </style>
 </head>
 <body class="silo-brand">
@@ -284,6 +285,12 @@ async function squareJpeg(file) {
   const url = c.toDataURL('image/jpeg', 0.85);
   return url.slice(url.indexOf(',') + 1);
 }
+// One change at a time from this page: both controls wait for the answer.
+function photoBusy(on) {
+  const f = $('meFile'); if (f) f.disabled = on;
+  const r = $('meRemove'); if (r) r.disabled = on;
+  $('meCard')?.querySelector('label[for="meFile"]')?.classList.toggle('is-disabled', on);
+}
 function wirePhoto() {
   const pic = $('mePic')?.querySelector('img');
   if (pic) pic.addEventListener('error', () => { $('mePic').textContent = pic.dataset.initial || '?'; }, { once: true });
@@ -293,13 +300,14 @@ function wirePhoto() {
     if (!/^image\//.test(file.type)) { setStatus('Pick an image file.', 'neg'); return; }
     let image;
     try { image = await squareJpeg(file); } catch { setStatus('That photo could not be read. Try another image.', 'neg'); return; }
+    photoBusy(true);
     try { showPhoto(await call('photo', { token, image })); setStatus('Photo saved.', 'pos'); }
-    catch (e) { setStatus(e.message, 'neg'); }
+    catch (e) { setStatus(e.message, 'neg'); photoBusy(false); }
   });
   $('meRemove')?.addEventListener('click', async () => {
-    $('meRemove').disabled = true;
+    photoBusy(true);
     try { showPhoto(await call('photo', { token, remove: true })); setStatus('Photo removed.', 'pos'); }
-    catch (e) { setStatus(e.message, 'neg'); $('meRemove').disabled = false; }
+    catch (e) { setStatus(e.message, 'neg'); photoBusy(false); }
   });
 }
 
