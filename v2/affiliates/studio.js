@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, fillTemplate, DEFAULT_OUTREACH, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, fillTemplate, outreachTemplate, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
 } from './studio-core.js';
@@ -258,8 +258,7 @@ function personAvatar(person, size = 'lg') {
 // Initials, with the creator's photo laid over them when research found one.
 // A photo that no longer loads (platform photo links expire) is removed, so
 // the initials show again.
-function photoAvatar(person, evidence) {
-  const photo = prospectPhotoUrl(evidence);
+function photoAvatar(person, photo) {
   return personAvatar(person, 'lg') + (photo ? `<img class="af-avatar-photo" src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '');
 }
 document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
@@ -470,6 +469,8 @@ async function ensureProfiles() {
 // The automatic first code exists once 20261110180000 is applied (the
 // program rows then carry the column).
 const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));
+// The program's own outreach message exists once 20261111020000 is applied.
+const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 const settingsBlock = (title, inner) => `<section class="af-settings-block"><h3 class="af-settings-title">${esc(title)}</h3>${inner}</section>`;
 function syncCommissionFields() {
   const kind = $('pKind')?.value;
@@ -498,6 +499,9 @@ function renderProgram(isNew = S.creating) {
       ${field('Fixed amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
       ${hasAutoCode() ? field('Code % off for new affiliates', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="10" title="Blank: no automatic code" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
     </div>`)}
+    ${hasOutreachMessage() ? settingsBlock('Outreach message', `<p class="af-muted af-settings-sub">Every new message to a creator starts from this. Fill-ins: {name} {brand} {platform} {source} {commission} {sender} {signup_link}. Keep {signup_link}: it is how they join.</p>
+      ${field('Subject', input('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`))}
+      ${field('Message', `<textarea class="bcn-field" id="pOutBody" rows="9" ${dis}>${esc(outreachTemplate(p).body)}</textarea>`)}`) : ''}
     ${settingsBlock(`Program terms${p.terms_version ? ` (v${p.terms_version})` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="5" ${dis} placeholder="Commission, how orders are credited, refunds, payouts, what affiliates may not do. Editing saves a new version.">${esc(p.terms_markdown || '')}</textarea>`)}
     ${MANAGE ? `<div class="af-settings-save">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : ''}
     ${more('Advanced settings', [`<p class="af-muted af-settings-sub">Link, owner, who you recruit</p><div class="af-grid--settings">
@@ -548,6 +552,7 @@ function readProgramForm() {
     currency: val('pCur'), default_code_starts_on: val('pStart'), default_code_ends_on: val('pEnd'),
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
     ...(hasAutoCode() ? { default_discount_percent: val('pAutoPct') } : {}),
+    ...(hasOutreachMessage() ? { outreach_subject: val('pOutSubject'), outreach_body: $('pOutBody').value } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });
 }
@@ -601,7 +606,7 @@ function renderProspects() {
     const meta = x.contact_email ? esc(x.contact_email) : 'No public email yet';
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
-        <div class="af-catalog-thumb">${photoAvatar({ name: x.display_name, email: x.contact_email }, x.evidence)}</div>
+        <div class="af-catalog-thumb">${photoAvatar({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}</div>
         <div class="af-catalog-title">
           <div class="af-catalog-name">${title}</div>
           <div class="af-catalog-sub">${esc(sub)}</div>
@@ -731,7 +736,7 @@ function renderAffiliates() {
     const codeCount = codesOf(a).filter((c) => c.status !== 'retired').length;
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
-        <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, d.prospectById[a.from_prospect_id]?.evidence)}</div>
+        <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}</div>
         <div class="af-catalog-title">
           <div class="af-catalog-name">${esc(a.display_name)}</div>
           <div class="af-catalog-sub">${esc(a.contact_email)}</div>
@@ -1025,11 +1030,11 @@ const A = {
     return 'Signup link created.';
   },
   'draft-create': async ({ id }) => {
-    const x = S.d.prospectById[id]; const vars = outreachVars(x);
+    const x = S.d.prospectById[id]; const vars = outreachVars(x); const tpl = outreachTemplate(prog());
     must(await db.from('affiliate_outreach_drafts').insert({
       company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
-      subject: fillTemplate(DEFAULT_OUTREACH.subject, vars), body: fillTemplate(DEFAULT_OUTREACH.body, vars), created_by: me.id,
+      subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
     }));
     S.tab = 'outreach';
     return 'Draft created. Review it on the Outreach tab.';
