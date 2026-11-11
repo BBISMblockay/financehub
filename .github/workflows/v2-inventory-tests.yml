@@ -209,7 +209,8 @@ jobs:
       - name: Ad platform card guards (mutations)
         run: |
           set -u
-          for m in no-cards cross-card other-hidden other-empty no-source silent-choice no-sync-now sc-sync-now no-organic; do
+          for m in no-cards cross-card other-hidden other-empty no-source silent-choice no-sync-now sc-sync-now no-organic \
+                   no-failline no-retry retry-blocked no-error-text no-reload; do
             if AD_CARDS_MUTATION="$m" node v2/tests/browser/integrations-ad-platform-cards.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi

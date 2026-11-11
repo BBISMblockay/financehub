@@ -2649,3 +2649,43 @@ export async function runMetaCreativeBackfill(supabase, connection, {
   }
   return result;
 }
+
+/**
+ * The durable record of a connection's LAST sync attempt, for
+ * `ad_platform_connections.meta.last_sync`.
+ *
+ * `sync_jobs` already audits every run, but it carries no connection id --
+ * only company and job_type -- so with two Google Ads accounts in one company
+ * nothing can say which of them failed. The page needs that, because a failed
+ * NIGHTLY sync was invisible everywhere in SILO: the bootstrap band covers
+ * only the FIRST import, Test only proves the credential, and the run itself
+ * is red in GitHub Actions where no customer looks. A client's feed could go
+ * quiet for weeks with Integrations showing nothing wrong.
+ *
+ * Both writers (the nightly script and ad-platform-sync-run, Sync now) stamp
+ * this on success AND on failure, so it always describes the most recent
+ * attempt rather than the most recent SUCCESS.
+ *
+ * The message is scrubbed because it is rendered in the browser: a provider's
+ * error text can quote the request it refused, and that request carries the
+ * access token.
+ */
+export function syncOutcome({ at, ok, error = null, clientBlock = null }) {
+  const stamp = { at, ok: !!ok };
+  if (!ok) {
+    stamp.error = scrubSyncError(error);
+    // The client's to fix (their account cancelled, access revoked), so the
+    // page offers reconnecting rather than a retry that can only fail again.
+    stamp.client_block = clientBlock || null;
+  }
+  return stamp;
+}
+
+/** Strip anything token-shaped from a provider error before it is stored. */
+export function scrubSyncError(err) {
+  return String(err?.message || err || 'unknown error')
+    .replace(/access_token=[^&\s"']+/gi, 'access_token=[redacted]')
+    .replace(/(EAA[A-Za-z0-9]{20,})/g, '[redacted]')
+    .replace(/"?(access_token|refresh_token|Access-Token)"?\s*[:=]\s*"?[A-Za-z0-9._\-]{12,}"?/gi, '$1=[redacted]')
+    .slice(0, 300);
+}
