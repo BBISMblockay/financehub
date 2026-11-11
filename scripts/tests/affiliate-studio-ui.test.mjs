@@ -7,6 +7,9 @@
 //   AFFILIATE_CORE_MUTATION=zerodec   zero-decimal currencies are treated as two-decimal
 //   AFFILIATE_CORE_MUTATION=rounding  extra decimals are rounded instead of refused
 //   AFFILIATE_CORE_MUTATION=href      any URL scheme becomes a link
+//   AFFILIATE_CORE_MUTATION=unhide    a photo the rep removed comes back as the one found for them
+//   AFFILIATE_CORE_MUTATION=nolinkok  an outreach message without {signup_link} is accepted
+//   AFFILIATE_CORE_MUTATION=pindefault SILO's own message is saved as the program's, freezing it
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,6 +21,9 @@ const MUTS = {
   formula: ["if (/^[=+\\-@\\t\\r]/.test(s)) s = `'${s}`;", ''],
   zerodec: ["export const minorUnits = (currency) => (ZERO_DECIMAL.has(String(currency || '').toUpperCase()) ? 1 : 100);", 'export const minorUnits = () => 100;'],
   href: ["return x.protocol === 'https:' || x.protocol === 'http:' ? x.toString() : null;", 'return x.toString();'],
+  unhide: ["  if (affiliate?.photo_hidden === true) return null;\n", ''],
+  nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
+  pindefault: ["row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;", "row.outreach_body = body === '' ? null : body;"],
   rounding: ["const re = units === 1 ? /^-?\\d+$/ : /^-?\\d+(\\.\\d{1,2})?$/;", 'const re = /^-?\\d+(\\.\\d+)?$/;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -36,6 +42,29 @@ await t('money: NULL is a dash, zero is zero, zero-decimal currencies are not di
   assert.equal(C.formatMoney(0, 'USD'), '$0.00');
   assert.equal(C.formatMoney(-1250, 'USD'), '-$12.50');
   assert.equal(C.formatMoney(500, 'JPY'), '¥500');
+});
+
+await t('an affiliate\'s photo: removed is none, their own beats the one found, https only', () => {
+  const found = { profile_image_url: 'https://cdn.example/found.jpg' };
+  assert.equal(C.affiliatePhotoUrl({}, found), 'https://cdn.example/found.jpg', 'never touched: the photo found for them');
+  assert.equal(C.affiliatePhotoUrl({ photo_url: 'https://cdn.example/own.jpg' }, found), 'https://cdn.example/own.jpg');
+  assert.equal(C.affiliatePhotoUrl({ photo_url: 'https://cdn.example/own.jpg', photo_hidden: true }, found), null, 'removed stays removed');
+  assert.equal(C.affiliatePhotoUrl({ photo_hidden: true }, found), null);
+  assert.equal(C.affiliatePhotoUrl({ photo_url: 'javascript:alert(1)' }, null), null);
+  assert.equal(C.affiliatePhotoUrl(null, null), null);
+});
+
+await t('outreach message: SILO\'s own is stored blank, a custom one must keep {signup_link}', () => {
+  const base = { name: 'Creators', slug: 'creators', commission_kind: 'percent_of_net', commission_percent: '10', currency: 'USD' };
+  const same = C.validateProgram({ ...base, outreach_subject: C.DEFAULT_OUTREACH.subject, outreach_body: C.DEFAULT_OUTREACH.body.replace(/\n/g, '\r\n') });
+  assert.deepEqual([same.row.outreach_subject, same.row.outreach_body, same.errors], [null, null, []], 'unchanged: blank, so it follows SILO\'s wording');
+  const own = C.validateProgram({ ...base, outreach_subject: ' Hey {name} ', outreach_body: 'Come join {brand}: {signup_link}' });
+  assert.deepEqual([own.row.outreach_subject, own.row.outreach_body, own.errors], ['Hey {name}', 'Come join {brand}: {signup_link}', []]);
+  assert.match(C.validateProgram({ ...base, outreach_body: 'No link here' }).errors.join(' '), /\{signup_link\}/);
+  assert.ok(!('outreach_body' in C.validateProgram(base).row), 'a form without the box (before the migration) sends no column');
+  assert.deepEqual(C.outreachTemplate({}), C.DEFAULT_OUTREACH);
+  assert.deepEqual(C.outreachTemplate({ outreach_subject: 'Hey', outreach_body: 'Join: {signup_link}' }), { subject: 'Hey', body: 'Join: {signup_link}' });
+  assert.equal(C.outreachTemplate({ outreach_body: 'no link' }).body, C.DEFAULT_OUTREACH.body, 'a message that lost the link is never used');
 });
 
 await t('money input: refuses more decimals than the currency has', () => {

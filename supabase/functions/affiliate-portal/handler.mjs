@@ -27,6 +27,8 @@
 //                                             -> open intake: creates a PROSPECT
 //   brands    { token }                       -> the other brands this rep's email reps, for the menu
 //   switch    { token, affiliate_id }         -> a fresh portal token for one of them
+//   photo     { token, image } | { token, remove: true }
+//                                             -> the rep sets (a JPEG the page made) or removes their photo
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -41,6 +43,11 @@ export const PORTAL_LINK_DAYS = 90;
 // scripts/tests/affiliate-edge.test.mjs pins the two). Bump both together.
 export const PLATFORM_TERMS_VERSION = 1;
 const MAX_BODY = 16 * 1024;
+// A rep's photo: the page crops and re-encodes it as a small JPEG first, so a
+// real one is tens of KB. Only the `photo` action may send a body this large.
+export const PHOTO_MAX_BYTES = 300_000;
+const MAX_PHOTO_BODY = 420 * 1024;
+export const PHOTO_BUCKET = 'affiliate-feed-images';
 const TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -69,6 +76,20 @@ const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public
 // Affiliate links: affiliateLink / storeLinkFor live in affiliate-mail.mjs so the
 // codes email (affiliate-invite) builds exactly the same links.
 const IMAGE_RE = /^https:\/\/[^\s"'<>]+$/;
+const PHOTO_RE = /^https:\/\/[^\s"'<>()\\]+$/;
+// The storage path of a photo this rep uploaded, from its saved address, or
+// null for anything else (the found photo, another folder, a foreign host).
+function ownPhotoPath(url, folder) {
+  const m = String(url || '').match(/\/storage\/v1\/object\/public\/affiliate-feed-images\/([^?#]+)/);
+  const path = m ? decodeURIComponent(m[1]) : '';
+  return path.startsWith(`${folder}-`) && !path.includes('..') && path.endsWith('.jpg') ? path : null;
+}
+const isJpeg = (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+function fromBase64(v) {
+  const t = String(v || '').replace(/^data:image\/jpeg;base64,/, '');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(t)) return null;
+  try { return Uint8Array.from(atob(t), (c) => c.charCodeAt(0)); } catch { return null; }
+}
 export { affiliateLink };
 
 export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
@@ -156,15 +177,33 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     } catch { return null; }
   }
 
+  // The photo a card shows for this rep: none if they removed it, else their
+  // own, else the one SILO found for them as a prospect (20261111020000).
+  // Fail-soft: an unapplied migration or a read error is "no photo".
+  async function repPhoto(t) {
+    try {
+      const { data: a, error } = await service.from('affiliates').select('photo_url, photo_hidden, from_prospect_id')
+        .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).maybeSingle();
+      if (error || !a || a.photo_hidden === true) return { url: null, own: false };
+      if (PHOTO_RE.test(String(a.photo_url || ''))) return { url: a.photo_url, own: true };
+      if (!a.from_prospect_id) return { url: null, own: false };
+      const { data: p } = await service.from('affiliate_prospects').select('evidence')
+        .eq('id', a.from_prospect_id).eq('company_entity_id', t.company_entity_id).maybeSingle();
+      const found = p?.evidence?.profile_image_url;
+      return { url: p?.evidence?.profile_image_stored === true && PHOTO_RE.test(String(found || '')) ? found : null, own: false };
+    } catch { return { url: null, own: false }; }
+  }
+
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
 
     const raw = await req.text();
-    if (raw.length > MAX_BODY) return reply({ error: 'Request too large' }, 413);
+    if (raw.length > MAX_PHOTO_BODY) return reply({ error: 'Request too large' }, 413);
     let body;
     try { body = JSON.parse(raw || '{}'); } catch { return reply({ error: 'Invalid JSON' }, 400); }
     const action = body?.action;
+    if (action !== 'photo' && raw.length > MAX_BODY) return reply({ error: 'Request too large' }, 413);
 
     // ── open applications: no token, a public program ────────────────────
     if (action === 'apply') {
@@ -340,6 +379,46 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent' });
     }
 
+    // ── the rep's own photo ──────────────────────────────────────────────
+    // The token decides whose photo this is; nothing in the body names an
+    // affiliate or a company. Only a joined rep's portal link may change it.
+    if (action === 'photo') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      // Each upload gets its own object, and only the photo a request REPLACED
+      // is deleted after its own update lands. Two tabs racing can at worst
+      // leave an unused copy behind -- never a saved address whose image is gone.
+      const folder = `${t.company_entity_id}/affiliate-photos/${t.affiliate_id}`;
+      const bucket = service.storage.from(PHOTO_BUCKET);
+      const { data: before, error: readErr } = await service.from('affiliates').select('photo_url')
+        .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).maybeSingle();
+      if (readErr) {
+        console.error('[affiliate-portal] photo read failed', readErr.message);
+        return reply({ error: 'Photos are not available yet. Please try again later.' }, 503);
+      }
+      let patch;
+      if (body.remove === true) {
+        patch = { photo_url: null, photo_hidden: true };
+      } else {
+        const bytes = fromBase64(body.image);
+        if (!bytes || !isJpeg(bytes)) return reply({ error: 'That photo could not be read. Try another image.' }, 400);
+        if (bytes.length > PHOTO_MAX_BYTES) return reply({ error: 'That photo is too large. Try a smaller image.' }, 413);
+        const path = `${folder}-${now().getTime()}-${makeToken().slice(0, 8)}.jpg`;
+        const { error: upErr } = await bucket.upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
+        if (upErr) { console.error('[affiliate-portal] photo upload failed', upErr.message); return reply({ error: 'The photo could not be saved. Please try again.' }, 500); }
+        patch = { photo_url: bucket.getPublicUrl(path).data.publicUrl, photo_hidden: false };
+      }
+      const { data: rows, error } = await service.from('affiliates').update({ ...patch, updated_at: now().toISOString() })
+        .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).select('id');
+      if (error) {
+        console.error('[affiliate-portal] photo save failed', error.message);
+        return reply({ error: 'Photos are not available yet. Please try again later.' }, 503);
+      }
+      if (!rows?.length) return reply({ error: 'This link has expired or is no longer valid.', code: 'invalid_link' }, 404);
+      const old = ownPhotoPath(before?.photo_url, folder);
+      if (old) await bucket.remove([old]).catch(() => {});
+      return reply({ photo_url: patch.photo_url, own: !!patch.photo_url });
+    }
+
     if (action === 'statement') {
       if (t.purpose !== 'portal') return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
@@ -354,8 +433,9 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         if (Array.isArray(data.links)) data.links = data.links.map((l) => ({ ...l, link: storeLinkFor(feed?.store, feed?.code, l.destination_url) }));
       }
       if (feed) delete feed.store;
+      const photo = await repPhoto(t);
       return reply({ brand: t.company_title, brand_logo: await brandLogo(t.company_entity_id), program: t.program_name, statement: data,
-        feed,
+        feed, photo_url: photo.url, photo_own: photo.own,
         formatted: { earned: formatMoney(data?.totals?.earned_cents, data?.currency) } });
     }
 

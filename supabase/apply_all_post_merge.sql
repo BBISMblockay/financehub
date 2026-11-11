@@ -19676,4 +19676,9 @@ $c$select (select count(*) from v_po_header_summary
 -- Affiliate portal brand switcher (20261110190000): a rep who reps several
 -- brands switches in the page instead of going back to their inbox.
 \i migrations/20261110190000_affiliate_portal_brands.sql
+
+-- Affiliate rep photo and program outreach message (20261111020000): a rep
+-- changes or removes their photo in the portal; a program sets the message
+-- every new outreach draft starts from. Apply BEFORE deploying affiliate-portal.
+\i migrations/20261111020000_affiliate_rep_photo_outreach_message.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

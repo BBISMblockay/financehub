@@ -42,6 +42,11 @@
 //   AFFILIATE_EDGE_MUTATION=kickgrant     the kick forwards the connection's own token
 //   AFFILIATE_EDGE_MUTATION=handbackmailed a mailed portal link is also returned to the manager
 //   AFFILIATE_EDGE_MUTATION=unboundmail   the emailed portal link is minted unbound
+//   AFFILIATE_EDGE_MUTATION=photobodyid   a photo is saved on the affiliate the request names, not the link's
+//   AFFILIATE_EDGE_MUTATION=photosignup   a signup link (not yet joined) may set a photo
+//   AFFILIATE_EDGE_MUTATION=photonotjpeg  any bytes are stored as the rep's photo
+//   AFFILIATE_EDGE_MUTATION=photohidden   a removed photo comes back as the one found for the rep
+//   AFFILIATE_EDGE_MUTATION=photoshared   every upload overwrites one object, so a racing Remove deletes the new photo
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -78,6 +83,11 @@ async function load(fn, file) {
     anylogo: ['affiliate-portal', "return typeof u === 'string' && LOGO_RE.test(u) ? u : null;", "return typeof u === 'string' ? u : null;"],
     draftnews: ['affiliate-invite', "          const words = { approved:", "          const words = { draft: 'is drafted', approved:"],
     handbackmailed: ['affiliate-invite', "            if (mail?.status === 'sent') return reply({ portal_url: null, expires_at: sent.expires_at, email: 'sent', reason: null });", "            if (mail?.status === 'sent') return reply({ portal_url: sent.url, expires_at: sent.expires_at, email: 'sent', reason: null });"],
+    photobodyid: ['affiliate-portal', "        .eq('id', t.affiliate_id).eq('company_entity_id', t.company_entity_id).select('id');", "        .eq('id', body.affiliate_id || t.affiliate_id).eq('company_entity_id', t.company_entity_id).select('id');"],
+    photosignup: ['affiliate-portal', "      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);\n      const path", "      if (!t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);\n      const path"],
+    photonotjpeg: ['affiliate-portal', "if (!bytes || !isJpeg(bytes))", 'if (!bytes)'],
+    photoshared: ['affiliate-portal', "const path = `${folder}-${now().getTime()}-${makeToken().slice(0, 8)}.jpg`;", "const path = `${folder}-a.jpg`;"],
+    photohidden: ['affiliate-portal', "if (error || !a || a.photo_hidden === true) return", 'if (error || !a) return'],
     unboundmail: ['affiliate-invite', "            const sent = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS });", "            const sent = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });"],
   };
   const m = muts[MUT];
@@ -90,7 +100,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -132,12 +142,18 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
           log.push({ kind: 'table', table, op, filters: { ...filters }, payload });
           const t = tables[table];
           const data = typeof t === 'function' ? t({ op, filters, payload }) : (op === 'select' ? t ?? null : (op === 'insert' ? { id: `${table}-new`, status: 'invited' } : null));
-          res({ data, error: null });
+          res(data?.__error ? { data: null, error: data.__error } : { data, error: null });
         },
       };
       return b;
     },
     auth: { getUser: async () => ({ data: { user: { id: 'staff-user' } }, error: null }) },
+    uploads: [], removed: [],
+    storage: { from: (bucket) => ({
+      upload: async (path, bytes, opts) => { svc.uploads.push({ bucket, path, bytes, opts }); return { error: null }; },
+      remove: async (paths) => { svc.removed.push(...paths.map((p) => `${bucket}/${p}`)); return { error: null }; },
+      getPublicUrl: (path) => ({ data: { publicUrl: `https://ref.supabase.co/storage/v1/object/public/${bucket}/${path}` } }),
+    }) },
   };
   return svc;
 }
@@ -755,6 +771,109 @@ await test('mcp: marking a code created kicks the live notice once; a replay or 
   assert.equal(first[0].auth, 'Bearer anon-k', 'the public key, never the grant token or a service key');
   assert.equal((await run({ status: 200, body: { code_id: CODE, status: 'active', replayed: true } })).length, 0, 'a replay sends nothing new');
   assert.equal((await run({ status: 400, body: { message: 'not pending' } })).length, 0, 'a refused mark sends nothing');
+});
+
+// ── the rep's own photo (20261111020000) ─────────────────────────────────
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]).toString('base64');
+function photoSvc({ purpose = 'portal', affiliate = {}, prospect = null, failRead = false, failWrite = false } = {}) {
+  const row = { photo_url: null, photo_hidden: false, from_prospect_id: PROSPECT, ...affiliate };
+  return fakeService({
+    rpc: { affiliate_portal_resolve: { data: [resolvedRow({ purpose })], error: null },
+      affiliate_portal_statement: { data: { currency: 'USD', totals: {} }, error: null } },
+    tables: {
+      affiliates: ({ op, filters, payload }) => {
+        if (op === 'update') {
+          if (failWrite) return { __error: { code: '42703', message: 'column "photo_hidden" does not exist' } };
+          if (filters.id !== AFF || filters.company_entity_id !== CO) return [];
+          Object.assign(row, payload); return [{ id: AFF }];
+        }
+        return failRead ? { __error: { code: '42703', message: 'column "photo_url" does not exist' } } : { ...row };
+      },
+      affiliate_prospects: ({ filters }) => (filters.id === PROSPECT && filters.company_entity_id === CO ? prospect : null),
+    },
+  });
+}
+let tick = 0;
+const portalCall = async (svc, body) => { const r = await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '', now: () => new Date(Date.UTC(2026, 10, 11) + (tick += 1000)) })(post({ token: TOKEN, ...body })); return { status: r.status, body: await r.json() }; };
+const OWN = (name) => `https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/${CO}/affiliate-photos/${AFF}-${name}.jpg`;
+
+await test('portal photo: a joined rep saves a JPEG on their OWN record, whatever the request names', async () => {
+  const svc = photoSvc();
+  const out = await portalCall(svc, { action: 'photo', image: JPEG, affiliate_id: AFF2, company_id: 'other' });
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.equal(svc.uploads.length, 1);
+  assert.equal(svc.uploads[0].bucket, 'affiliate-feed-images');
+  assert.match(svc.uploads[0].path, new RegExp(`^${CO}/affiliate-photos/${AFF}-\\d+-[A-Za-z0-9_-]{8}\\.jpg$`), 'a new object for each upload, in the link\'s own folder');
+  assert.equal(svc.uploads[0].opts.upsert, false, 'never overwrites the photo being shown');
+  const upd = svc.log.find((c) => c.table === 'affiliates' && c.op === 'update');
+  assert.deepEqual([upd.filters.id, upd.filters.company_entity_id], [AFF, CO], 'the link decides whose photo it is');
+  assert.equal(upd.payload.photo_hidden, false);
+  assert.equal(upd.payload.photo_url, `https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/${svc.uploads[0].path}`);
+  assert.deepEqual(svc.removed, [], 'nothing of the rep\'s to retire yet');
+  assert.equal(out.body.photo_url, upd.payload.photo_url);
+});
+
+await test('portal photo: a signup link, a non-JPEG and an oversize photo are refused with nothing stored', async () => {
+  const signup = photoSvc({ purpose: 'signup' });
+  assert.equal((await portalCall(signup, { action: 'photo', image: JPEG })).status, 400);
+  const png = photoSvc();
+  assert.equal((await portalCall(png, { action: 'photo', image: Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2]).toString('base64') })).status, 400);
+  assert.equal((await portalCall(png, { action: 'photo', image: 'not base64!' })).status, 400);
+  const big = photoSvc();
+  const bytes = Buffer.alloc(300_001, 7); bytes[0] = 0xff; bytes[1] = 0xd8; bytes[2] = 0xff;
+  assert.equal((await portalCall(big, { action: 'photo', image: bytes.toString('base64') })).status, 413);
+  for (const s of [signup, png, big]) {
+    assert.equal(s.uploads.length, 0, 'nothing uploaded');
+    assert.ok(!s.log.some((c) => c.table === 'affiliates' && c.op === 'update'), 'nothing written');
+  }
+  const other = fakeService();
+  const r = await createPortalHandler({ service: other, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'resolve', token: TOKEN, pad: 'x'.repeat(20000) }));
+  assert.equal(r.status, 413, 'only the photo action may send a large body');
+  assert.equal(other.log.length, 0);
+});
+
+await test('portal photo: removing hides it (no found photo comes back) and deletes only the copy it replaced', async () => {
+  const svc = photoSvc({ affiliate: { photo_url: OWN('old') } });
+  const out = await portalCall(svc, { action: 'photo', remove: true });
+  assert.equal(out.status, 200);
+  const upd = svc.log.find((c) => c.table === 'affiliates' && c.op === 'update');
+  assert.deepEqual([upd.payload.photo_url, upd.payload.photo_hidden], [null, true]);
+  assert.deepEqual(svc.removed, [`affiliate-feed-images/${CO}/affiliate-photos/${AFF}-old.jpg`]);
+  const found = photoSvc({ affiliate: { photo_url: 'https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/c/creator-photos/p.jpg' } });
+  await portalCall(found, { action: 'photo', remove: true });
+  assert.deepEqual(found.removed, [], 'a photo outside the rep\'s own folder is never deleted');
+  const before = photoSvc({ failWrite: true });
+  assert.equal((await portalCall(before, { action: 'photo', remove: true })).status, 503, 'before the migration: said, not hidden');
+});
+
+await test('portal photo: an older Remove racing a newer upload never deletes the photo now saved', async () => {
+  // Remove reads the saved photo and is held after its update; an upload
+  // then lands; the Remove finishes. The upload's photo must survive.
+  const svc = photoSvc({ affiliate: { photo_url: OWN('a') } });
+  const realRemove = svc.storage.from;
+  let release; const held = new Promise((r) => { release = r; }); let first = true;
+  svc.storage.from = (b) => { const o = realRemove(b); const rm = o.remove; o.remove = async (p) => { if (first) { first = false; await held; } return rm(p); }; return o; };
+  const removing = portalCall(svc, { action: 'photo', remove: true });
+  await new Promise((r) => setTimeout(r, 20));
+  const up = await portalCall(svc, { action: 'photo', image: JPEG });
+  release(); await removing;
+  const newPath = svc.uploads[0].path;
+  assert.equal(up.body.photo_url, `https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/${newPath}`);
+  assert.ok(!svc.removed.includes(`affiliate-feed-images/${newPath}`), 'the photo the upload saved is still there');
+  assert.ok(svc.removed.every((p) => p === `affiliate-feed-images/${CO}/affiliate-photos/${AFF}-a.jpg`), 'only the photo each request replaced is deleted');
+});
+
+await test('portal statement: the photo is the rep\'s own, else the one SILO found, never one they removed', async () => {
+  const found = { evidence: { profile_image_url: 'https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/c/creator-photos/p.jpg?v=1', profile_image_stored: true } };
+  const own = 'https://ref.supabase.co/storage/v1/object/public/affiliate-feed-images/c/affiliate-photos/a.jpg?v=2';
+  const st = async (o) => (await portalCall(photoSvc(o), { action: 'statement' })).body;
+  assert.deepEqual([(await st({ affiliate: { photo_url: own }, prospect: found })).photo_url, (await st({ affiliate: { photo_url: own } })).photo_own], [own, true]);
+  assert.equal((await st({ prospect: found })).photo_url, found.evidence.profile_image_url, 'never touched: the found photo');
+  assert.equal((await st({ prospect: found })).photo_own, false);
+  assert.equal((await st({ affiliate: { photo_hidden: true }, prospect: found })).photo_url, null, 'removed stays removed');
+  assert.equal((await st({ prospect: { evidence: { profile_image_url: 'https://cdn.instagram.test/x.jpg' } } })).photo_url, null, 'only a copy SILO keeps, not an expiring platform link');
+  assert.equal((await st({ affiliate: { photo_url: 'http://plain.test/a.jpg' } })).photo_url, null, 'only https');
+  assert.equal((await st({ failRead: true, prospect: found })).photo_url, null, 'before the migration: no photo, no error');
 });
 
 await test('the mail module ships byte-identical in both functions', async () => {

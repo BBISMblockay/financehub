@@ -116,6 +116,7 @@ create function is_exec_or_owner() returns boolean language sql stable security 
       and (case when em.role is not null then em.role = 'owner_admin' else p.role = 'owner' end))
 $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
+create function refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 create table company_settings(company_entity_id uuid primary key, business_timezone text);
 create function silo_company_timezone(p uuid) returns text language sql stable security definer as
   $$ select coalesce((select business_timezone from company_settings where company_entity_id = p), 'America/Los_Angeles') $$;
@@ -154,6 +155,7 @@ const files = {
   ledger: '20261110085000_affiliate_studio_ledger.sql',
   portal: '20261110086000_affiliate_portal.sql',
   brands: '20261110190000_affiliate_portal_brands.sql',
+  photo: '20261111020000_affiliate_rep_photo_outreach_message.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -294,10 +296,12 @@ switch (MUT) {
 
   if p_period is not null then`, `
   if p_period is not null then`); break;
+  case 'photohttp': mutate('photo', "photo_url ~ '^https://[^[:space:]\"''<>()\\\\]+$'", "true"); break;
+  case 'nolink': mutate('photo', " and position('{signup_link}' in outreach_body) > 0", ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
-for (const k of ['orders', 'core', 'ledger', 'portal', 'brands']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'brands', 'photo']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1240,13 +1244,36 @@ await check('R10 accrual, payout build and approval take the program money lock'
   }
 });
 
+// ── P: a rep's photo and the program's outreach message (20261111020000) ──
+await check('P1 a rep photo must be an https address; a removed photo is a flag, not a blank', async () => {
+  await asSuper();
+  const aff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email)
+    values ($1, $2, 'Photo Rep', 'photo-rep@example.com') returning id, photo_url, photo_hidden`, [A, progA]));
+  assert.equal(aff.photo_url, null);
+  assert.equal(aff.photo_hidden, false, 'a new rep shows the photo found for them');
+  await db.query('update affiliates set photo_url = $1 where id = $2', ['https://x.supabase.co/storage/v1/object/public/affiliate-feed-images/a/b.jpg?v=1', aff.id]);
+  for (const bad of ['http://example.com/a.jpg', 'javascript:alert(1)', 'https://e.com/a.jpg" onerror="x']) {
+    await assert.rejects(db.query('update affiliates set photo_url = $1 where id = $2', [bad, aff.id]), /affiliates_photo_url_https/, bad);
+  }
+  await db.query('delete from affiliates where id = $1', [aff.id]);
+});
+
+await check('P2 a program outreach message must keep {signup_link}; blank means SILO\'s own', async () => {
+  await asSuper();
+  await db.query('update affiliate_programs set outreach_subject = null, outreach_body = null where id = $1', [progA]);
+  await db.query('update affiliate_programs set outreach_subject = $1, outreach_body = $2 where id = $3', ['Hi from us', 'Join here: {signup_link}', progA]);
+  await assert.rejects(db.query('update affiliate_programs set outreach_body = $1 where id = $2', ['No link at all', progA]), /affiliate_programs_outreach_message/);
+  await assert.rejects(db.query('update affiliate_programs set outreach_subject = $1 where id = $2', ['  ', progA]), /affiliate_programs_outreach_message/);
+  await db.query('update affiliate_programs set outreach_subject = null, outreach_body = null where id = $1', [progA]);
+});
+
 // ── N: the daily drift check reads ok on this schema ─────────────────────
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
-  for (const name of ['Shopify order discount codes', 'Affiliate Studio']) {
+  for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

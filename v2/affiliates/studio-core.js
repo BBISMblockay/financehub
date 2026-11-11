@@ -130,6 +130,19 @@ export function validateProgram(f) {
       errors.push('Code % off must be a whole number from 1 to 100, or blank for no automatic code.');
     }
   }
+  // The message every new outreach draft starts from (20261111020000). Only
+  // sent when the form carries it, so a database without the columns still
+  // saves. SILO's own wording is stored as blank, so it is never pinned to a
+  // copy of itself.
+  if (f.outreach_subject !== undefined || f.outreach_body !== undefined) {
+    const subj = String(f.outreach_subject ?? '').trim();
+    const body = String(f.outreach_body ?? '').replace(/\r\n/g, '\n').trim();
+    row.outreach_subject = subj === '' || subj === DEFAULT_OUTREACH.subject ? null : subj;
+    row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;
+    if (row.outreach_subject && row.outreach_subject.length > 200) errors.push('Keep the outreach subject under 200 characters.');
+    if (row.outreach_body && row.outreach_body.length > 5000) errors.push('Keep the outreach message under 5,000 characters.');
+    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the outreach message: it is how the creator joins.');
+  }
   if (!row.name) errors.push('Give the program a name.');
   if (!SLUG_RE.test(row.slug)) errors.push('The short name (slug) must be 3–40 lowercase letters, digits or dashes.');
   if (!/^[A-Z]{3}$/.test(currency)) errors.push('Currency must be a three-letter code such as USD.');
@@ -320,6 +333,21 @@ export function followersFrom(evidence) {
 export function prospectPhotoUrl(evidence) {
   const u = typeof evidence?.profile_image_url === 'string' ? evidence.profile_image_url.trim() : '';
   return u.length <= 2000 && /^https:\/\/[^\s"'<>()\\]+$/.test(u) ? u : null;
+}
+
+// An affiliate's photo (20261111020000): none if the rep removed it, else the
+// one they set in the portal, else the one found for them as a prospect.
+export function affiliatePhotoUrl(affiliate, prospectEvidence) {
+  if (affiliate?.photo_hidden === true) return null;
+  return prospectPhotoUrl({ profile_image_url: affiliate?.photo_url }) || prospectPhotoUrl(prospectEvidence);
+}
+
+// The subject and message a new outreach draft starts from: the program's
+// own, else SILO's.
+export function outreachTemplate(program) {
+  const subject = typeof program?.outreach_subject === 'string' && program.outreach_subject.trim() ? program.outreach_subject : DEFAULT_OUTREACH.subject;
+  const body = typeof program?.outreach_body === 'string' && program.outreach_body.includes('{signup_link}') ? program.outreach_body : DEFAULT_OUTREACH.body;
+  return { subject, body };
 }
 
 // Where a prospect came from, in words.

@@ -9183,6 +9183,23 @@ select 'Affiliate portal brands' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate rep photo and program outreach message (20261111020000): a rep's
+-- own photo is an https address, and a program's message keeps the signup link.
+select 'Affiliate rep photo and outreach message' as check_name,
+  case
+    when (select count(*) from information_schema.columns where table_schema = 'public'
+           and ((table_name = 'affiliates' and column_name in ('photo_url', 'photo_hidden'))
+             or (table_name = 'affiliate_programs' and column_name in ('outreach_subject', 'outreach_body')))) < 4
+      then 'MISSING — run 20261111020000_affiliate_rep_photo_outreach_message.sql'
+    when not exists (select 1 from pg_constraint where conname = 'affiliates_photo_url_https'
+                      and position('https://' in pg_get_constraintdef(oid)) > 0)
+      then 'BROKEN — a rep photo may be any address, not only https'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_programs_outreach_message'
+                      and position('{signup_link}' in pg_get_constraintdef(oid)) > 0)
+      then 'BROKEN — a program outreach message may drop the signup link'
+    else 'ok'
+  end as status;
+
 -- Affiliate loop (20261110180000): joining queues a code for the company's AI,
 -- a code going live owes the rep one email (claimed once, service role only),
 -- and the nightly run may calculate commissions as the service role while

@@ -40,6 +40,10 @@
  *   AFFILIATE_UI_MUTATION=photonone   a creator's researched photo is not shown on their card
  *   AFFILIATE_UI_MUTATION=photoaff    an affiliate's card ignores the photo of the prospect they came from
  *   AFFILIATE_UI_MUTATION=photobroken a photo that no longer loads leaves an empty square, not the initials
+ *   AFFILIATE_UI_MUTATION=photopng    the portal uploads the rep's photo as it is, not a small square JPEG
+ *   AFFILIATE_UI_MUTATION=photostuck   removing the photo leaves it on the card
+ *   AFFILIATE_UI_MUTATION=affownphoto an affiliate's card ignores the photo the rep set in the portal
+ *   AFFILIATE_UI_MUTATION=sillodraft  a new draft ignores the program's own outreach message
  *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
  */
 'use strict';
@@ -65,6 +69,10 @@ const MUTATIONS = {
   photonone: ['/affiliates/studio.js', '  const photo = prospectPhotoUrl(evidence);\n', '  const photo = null;\n'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
   photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
+  photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
+  affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
+  sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
   todopinch: ['/affiliates/index.html', '.silo-main.af-studio > * { flex-shrink: 0; }', ''],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
@@ -275,11 +283,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#btnSettings');
     R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
     R.ok('before the loop migration, settings has no automatic-code field (saving still works)', !(await page.$('#pAutoPct')));
+    R.ok('before 20261111020000, settings has no outreach message box (saving still works)', !(await page.$('#pOutBody')));
     await page.close();
 
     // ── the loop: after 20261110180000 ────────────────────────────────────
     const loopTables = { ...tables,
-      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 10 }],
+      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 10, outreach_subject: 'Ride with {brand}', outreach_body: 'Yo {name}! Join us: {signup_link}' }],
+      affiliates: [{ ...tables.affiliates[0], photo_url: 'https://photos.invalid/pat-own.png', photo_hidden: false }],
       affiliate_codes: [...tables.affiliate_codes, { id: 'c2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10-2', starts_on: '2026-11-10', ends_on: null, status: 'pending', discount_percent: 10 }],
       affiliate_payouts: [{ id: 'po-d', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now }] };
     const loop = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
@@ -293,16 +303,31 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
     R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
+    // The rep's own photo wins over the one found for them.
+    await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
+    await loop.click('#tabs [data-tab="affiliates"]');
+    await loop.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-catalog-thumb'), null, { timeout: 5000 });
+    R.ok('an affiliate card shows the photo the rep set in the portal', !!(await loop.$('#affiliatesBody img.af-avatar-photo[src="https://photos.invalid/pat-own.png"]')));
+    // Approving a creator drafts the program's own message, filled in.
+    await loop.click('#tabs [data-tab="prospects"]');
+    await loop.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-s="approved"]'), null, { timeout: 5000 });
+    await loop.click('#prospectsBody [data-act="prospect-status"][data-s="approved"]');
+    await loop.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+    const draft = await loop.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').pop(); const r = q?.rows; return Array.isArray(r) ? r[0] : r; });
+    R.eq([draft?.subject, draft?.body], ['Ride with Brand A', 'Yo Sam Runs! Join us: {signup_link}'], 'a new draft starts from the program\'s own message, filled in');
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
     R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
     await loop.click('#btnSettings');
     R.eq(await loop.inputValue('#pAutoPct'), '10', 'settings shows the % off for new affiliates');
     await loop.fill('#pAutoPct', '');
+    R.eq([await loop.inputValue('#pOutSubject'), await loop.inputValue('#pOutBody')], ['Ride with {brand}', 'Yo {name}! Join us: {signup_link}'], 'settings shows the program\'s own outreach message');
+    await loop.fill('#pOutBody', 'Hey {name}, here: {signup_link}');
     await loop.click('#programBody [data-act="save-program"]');
     await loop.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
     const progRow = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
     R.ok('blank saves as off (null), not 0', progRow && 'default_discount_percent' in progRow && progRow.default_discount_percent === null);
+    R.eq(progRow?.outreach_body, 'Hey {name}, here: {signup_link}', 'the edited outreach message is saved');
     await loop.close();
     const nomoney = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: false } });
     R.not(await text(nomoney, '#nextStep'), 'payout(s) to approve', 'someone who cannot approve money is not asked to');
@@ -410,13 +435,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       }
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
-      if (body.action === 'statement') return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
+      if (body.action === 'statement') return reply(200, { brand: 'Brand A', photo_url: 'https://photos.invalid/samruns.png', photo_own: false, feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
         { kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold' },
         { kind: 'launch', title: 'Holiday cap', event_on: '2026-11-12', note: 'Limited run.', image_url: 'https://cdn.invalid/cap.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fcap' },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
         { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
+      if (body.action === 'photo') return reply(200, body.remove ? { photo_url: null, own: false } : { photo_url: 'https://photos.invalid/me.jpg?v=2', own: true });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
     });
@@ -459,6 +485,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // The company's day is Nov 9 (its evening is already Nov 10 in UTC): a code
     // ending Nov 9 still works and one starting Nov 10 has not started.
     R.eq(states, { PAT10: 'Active', PATNEXT: 'Starts 2026-11-10', PATOLD: 'Ended' }, 'each code says whether it works at checkout, on the company\'s own day');
+    // The rep's photo: the one SILO found, which they can change or remove.
+    R.ok('the portal shows the photo SILO found for the rep', !!(await portal.$('#meCard img[src="https://photos.invalid/samruns.png"]')));
+    R.has(await text(portal, '#meCard'), 'We found this photo', 'and says where it came from');
+    await suite.context.route('https://photos.invalid/me.jpg?v=2', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
+    await portal.setInputFiles('#meFile', { name: 'me.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEElEQVR4nGP4z8AARww4OQD1MQv1NXv7ggAAAABJRU5ErkJggg==', 'base64') });
+    await portal.waitForFunction(() => !!document.querySelector('#meCard img[src="https://photos.invalid/me.jpg?v=2"]'), null, { timeout: 5000 }).catch(() => {});
+    const up = calls.filter((c) => c.action === 'photo' && c.image);
+    R.ok('a picked photo is sent once, as a square JPEG the page made', up.length === 1 && up[0].image.startsWith('/9j/') && up[0].token === 'P'.repeat(43) && !('affiliate_id' in up[0]));
+    R.ok('the card shows the new photo', !!(await portal.$('#meCard img[src="https://photos.invalid/me.jpg?v=2"]')));
+    await portal.click('#meRemove');
+    await portal.waitForFunction(() => (document.getElementById('meCard')?.textContent || '').includes('Add photo'), null, { timeout: 5000 }).catch(() => {});
+    R.ok('removing asks the portal to remove it', calls.some((c) => c.action === 'photo' && c.remove === true));
+    R.ok('a removed photo leaves the initial', !(await portal.$('#meCard img')) && (await text(portal, '#meCard')).includes('Add photo'));
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
