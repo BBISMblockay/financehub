@@ -71,7 +71,9 @@ checked in. **Also not in this repo, found 2026-08-17 while building sample-noti
 `notify_slack_sample_created()` (fires on every `product_samples` INSERT, posts `type: 'SAMPLE_CREATED'` to
 `notify-slack`) has no matching migration file — applied directly to prod like `notify-slack` itself, discovered
 only via `pg_get_functiondef`, not by reading this repo. **Also found in the same pass:** the deployed function
-list includes `bright-action`, `replace-product-tags`, and `oneoff-meta-sync` — none documented here, none with
+list includes `bright-action` and `oneoff-meta-sync` — both inert as of 2026-11-11 (the first is
+Supabase's Hello-World scaffold, the second's whole body answers 410 Gone) and neither invoked in any sampled
+window; `replace-product-tags` is no longer deployed at all — none documented here, none with
 an obvious source file in `supabase/functions/`. Do not assume `supabase/functions/` is the complete list of
 deployed functions, and when working on any table that already has triggers, check `pg_trigger` /
 `pg_get_functiondef` directly rather than grepping migrations — a grep-only search missed
