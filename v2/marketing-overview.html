@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="performance-suite.css" />
+  <link rel="stylesheet" href="marketing-launch-links.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -85,9 +86,6 @@
     .mo-filter-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
     /* A linked launch and its unlink control travel together: inline-flex so
        the x sits with the pill it removes, never wrapping onto its own line. */
-    .mo-link-chip { display:inline-flex; align-items:center; gap:2px; margin:2px; }
-    .mo-unlink { border:0; background:none; cursor:pointer; color:var(--bcn-ink-3); font-size:13px; line-height:1; padding:2px 5px; border-radius:4px; }
-    .mo-unlink:hover, .mo-unlink:focus-visible { color:var(--bcn-neg); background:var(--bcn-sunken); }
 
     .mo-funnel { display:flex; flex-direction:column; gap:2px; }
     .mo-funnel-row { display:grid; grid-template-columns:150px 1fr 110px 90px; align-items:center; gap:12px; padding:8px 0; }
@@ -233,32 +231,6 @@
         </div>
       </div>
 
-      <dialog id="creativeLaunchDialog" style="border:1px solid var(--bcn-border);border-radius:12px;padding:20px;max-width:min(440px,calc(100vw - 32px));width:100%;background:var(--bcn-surface);color:var(--bcn-ink);box-shadow:0 16px 48px #0004">
-        <form id="creativeLaunchForm">
-          <h2 id="creativeLaunchTitle" style="margin:0 0 6px;font-size:17px">Link to launch</h2>
-          <p id="creativeLaunchName" style="margin:0 0 16px;color:var(--bcn-ink-3);font-size:12px"></p>
-          <label for="creativeLaunchSelect" style="display:block;font-size:11px;margin-bottom:6px">Launch</label>
-          <select id="creativeLaunchSelect" required style="width:100%;padding:10px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);color:var(--bcn-ink)"></select>
-          <label for="creativeInitiativeSelect" id="creativeInitiativeLabel" style="display:block;font-size:11px;margin:12px 0 6px">Initiative (optional)</label>
-          <select id="creativeInitiativeSelect" style="width:100%;padding:10px;border:1px solid var(--bcn-border);border-radius:7px;background:var(--bcn-surface);color:var(--bcn-ink)"></select>
-          <p id="creativeLaunchError" role="alert" style="min-height:18px;color:#b42318;font-size:12px"></p>
-          <div style="display:flex;justify-content:flex-end;gap:8px">
-            <button type="button" class="bcn-btn" id="creativeLaunchCancel">Cancel</button>
-            <button type="submit" class="bcn-btn bcn-btn--primary" id="creativeLaunchSave">Link</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog id="unlinkDialog" style="border:1px solid var(--bcn-border);border-radius:12px;padding:20px;max-width:min(440px,calc(100vw - 32px));width:100%;background:var(--bcn-surface);color:var(--bcn-ink);box-shadow:0 16px 48px #0004">
-        <h2 style="margin:0 0 6px;font-size:17px">Remove this launch link?</h2>
-        <p id="unlinkName" style="margin:0 0 6px;color:var(--bcn-ink);font-size:12px;font-weight:600"></p>
-        <p id="unlinkDetail" style="margin:0 0 16px;color:var(--bcn-ink-3);font-size:12px"></p>
-        <p id="unlinkError" role="alert" style="min-height:18px;color:#b42318;font-size:12px"></p>
-        <div style="display:flex;justify-content:flex-end;gap:8px">
-          <button type="button" class="bcn-btn" id="unlinkCancel">Cancel</button>
-          <button type="button" class="bcn-btn bcn-btn--danger" id="unlinkConfirm">Unlink</button>
-        </div>
-      </dialog>
 
       <!-- ── Funnel ───────────────────────────────────────────────── -->
       <div data-panel="funnel" hidden>
@@ -394,6 +366,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
 <script src="performance-suite.js"></script>
+<script src="marketing-launch-links.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -909,120 +882,38 @@
   }
 
   // ── Creatives tab ──────────────────────────────────────────────
-  let _adPerf = [], _creatives = [], _redo = [], _klaviyo = [], _launches = [], _initiatives = [], _creativeLinks = [], _linkable = true, _initiativeReady = false;
+  let _adPerf = [], _creatives = [], _redo = [], _klaviyo = [];
   let focusedAd = new URLSearchParams(location.search).get('ad');
   // A campaign carried over from Explorer on another platform is not this
   // tab's to filter by: Campaigns lists Meta only.
   let focusedCampaign = (!urlParam('platform') || urlParam('platform') === 'meta_ads') ? urlParam('campaign') : null;
   let focusedRedo = new URLSearchParams(location.search).get('redo');
   let focusedKlaviyo = new URLSearchParams(location.search).get('klaviyo');
-  const CREATIVE_REF = 'meta_ad_creatives';
-  const CAMPAIGN_REF = 'marketing_kpis_daily';
-  const REDO_REF = 'redo_marketing_messages';
-  // Klaviyo's own identity table: one row per campaign or flow message,
-  // unique on (company, kind, klaviyo_id), so a link points at the message
-  // rather than at one measurement window or one conversion metric.
-  const KLAVIYO_REF = 'klaviyo_messages';
+  // Linking to a launch lives in marketing-launch-links.js, shared with
+  // /v2/marketing-explorer.html so both pages show and edit the same links.
+  const { CREATIVE: CREATIVE_REF, CAMPAIGN: CAMPAIGN_REF, REDO: REDO_REF, KLAVIYO: KLAVIYO_REF } = window.SiloLaunchLinks.REFS;
   // A Klaviyo message by identity, measured or not: an unmeasured one is
   // linkable to a launch too.
   const findKlaviyo = id => _klaviyo.find(r=>`${r.kind}:${r.klaviyo_id}`===id) || (_klaviyo.unmeasured||[]).find(r=>`${r.kind}:${r.klaviyo_id}`===id);
-  const launchCell = (source,id,type) => {
-    const linked = _creativeLinks.filter(l=>l.ref_table===source && String(l.ref_id)===String(id))
-      .map(l=>({link:l,launch:_launches.find(x=>String(x.id)===String(l.launch_id)),channel_item_id:l.channel_item_id})).filter(x=>x.launch);
-    return linked.map(({link,launch,channel_item_id})=>{
-      const initiative=_initiatives.find(c=>String(c.id)===String(channel_item_id));
-      const label=`${launch.title||'Launch'}${initiative?` · ${initiative.item_title}`:''}`;
-      // No link id (a pre-migration row, or an insert whose returning read was
-      // refused) means no unlink control: a delete needs the exact row.
-      const unlink = _linkable && link.id
-        ? `<button type="button" class="mo-unlink" data-unlink-id="${esc(link.id)}" title="Unlink from ${esc(label)}" aria-label="Unlink from ${esc(label)}">×</button>` : '';
-      return `<span class="mo-link-chip"><a href="/v2/launch-calendar.html?launch=${encodeURIComponent(launch.id)}" class="bcn-pill mo-platform-pill" style="color:var(--bcn-accent)" title="${esc(initiative?`Initiative: ${initiative.item_title}`:'Open launch')}">${esc(label)} ↗</a>${unlink}</span>`;
-    }).join('')
-      + (_linkable ? `<button type="button" class="bcn-btn bcn-btn--ghost" data-link-source="${esc(source)}" data-link-id="${esc(id)}" data-link-type="${esc(type)}" style="padding:3px 6px;font-size:10px">+ Link</button>` : '—');
-  };
-  async function loadLaunchLinks(){
-    try {
-      const [launches, linkResult, initiatives] = await Promise.all([
-        loadPaged(() => scopeQ(sb.from('launch_calendar').select('id,title,launch_date')
-          .order('launch_date',{ascending:false}).order('id',{ascending:true}))),
-        (async()=>{
-          const query=cols=>loadPaged(()=>scopeQ(sb.from('launch_system_links')
-            .select(cols).eq('link_type','campaign').order('id',{ascending:true})));
-          try{return {links:await query('id,launch_id,ref_table,ref_id,ref_label,channel_item_id'),ready:true};}
-          catch(e){if(e.code!=='42703') throw e;return {links:await query('id,launch_id,ref_table,ref_id,ref_label'),ready:false};}
-        })(),
-        loadPaged(()=>scopeQ(sb.from('launch_channel_items')
-          .select('id,launch_id,company_entity_id,channel,item_title,scheduled_date')
-          .order('scheduled_date',{ascending:true}).order('id',{ascending:true}))),
-      ]);
-      _launches = launches; _creativeLinks = linkResult.links; _initiatives = initiatives;
-      _initiativeReady = linkResult.ready;
-      _linkable = true;
-    } catch(e){
-      console.warn('Launch links unavailable', e);
-      _launches = []; _initiatives = []; _creativeLinks = []; _linkable = false; _initiativeReady = false;
-    }
-  }
-  let selectedMarketing = null;
-  function renderInitiativeChoices(){
-    const select=el('creativeInitiativeSelect');
-    select.replaceChildren();
-    const launchId=el('creativeLaunchSelect').value;
-    const empty=document.createElement('option');empty.value='';empty.textContent='Launch only';select.append(empty);
-    const channel=selectedMarketing?.source===REDO_REF
-      ? _redo.find(r=>`${r.kind}:${r.redo_id}`===selectedMarketing.id)?.channel?.toLowerCase()
-      : selectedMarketing?.source===KLAVIYO_REF
-      ? findKlaviyo(selectedMarketing.id)?.channel?.toLowerCase()
-      : 'meta';
-    const initiatives=_initiatives.filter(c=>String(c.launch_id)===launchId && String(c.company_entity_id)===String(_co?.id));
-    const matches=initiatives.filter(c=>channel && String(c.channel).toLowerCase()===channel);
-    for(const group of [matches,initiatives.filter(c=>!matches.includes(c))]){
-      for(const c of group){const option=document.createElement('option');option.value=c.id;
-        option.textContent=`${c.item_title||'Untitled'} · ${c.channel||'other'}${c.scheduled_date?` · ${c.scheduled_date}`:''}`;
-        select.append(option);
-      }
-    }
-    const enabled=_initiativeReady && initiatives.length>0;
-    el('creativeInitiativeLabel').hidden=!enabled;select.hidden=!enabled;select.disabled=!enabled;
-  }
-  function openMarketingLaunch(source,id,type){
-    if (!_linkable) return;
-    let name;
-    if (source===CREATIVE_REF) name=_adPerf.find(a=>String(a.ad_id)===id)?.ad_name;
-    else if (source===CAMPAIGN_REF) name=_campaignRows.find(a=>String(a.campaign_id)===id)?.campaign_name;
-    else if (source===REDO_REF) name=_redo.find(a=>`${a.kind}:${a.redo_id}`===id)?.name;
-    // Any measurement row of the message carries its name; they all share one identity.
-    else if (source===KLAVIYO_REF) { const r=findKlaviyo(id); name=r?.message_name||r?.name||r?.parent_name||r?.klaviyo_id; }
-    else return;
-    if (!name) return;
-    selectedMarketing={source,id,name,type};
-    el('creativeLaunchTitle').textContent=`Link ${type} to launch`;
-    el('creativeLaunchSave').textContent=`Link ${type}`;
-    el('creativeLaunchName').textContent = name;
-    el('creativeLaunchError').textContent = '';
-    const linked = new Set(_creativeLinks.filter(l=>l.ref_table===source && String(l.ref_id)===id).map(l=>String(l.launch_id)));
-    const choices = _launches.filter(l => !linked.has(String(l.id)));
-    const select = el('creativeLaunchSelect');
-    select.replaceChildren();
-    for (const launch of choices){
-      const option = document.createElement('option');
-      option.value = launch.id;
-      option.textContent = `${launch.title || 'Untitled launch'} · ${launch.launch_date || 'no date'}`;
-      select.append(option);
-    }
-    renderInitiativeChoices();
-    el('creativeLaunchSave').disabled = !choices.length;
-    if (!_launches.length) {
-      // No launches at all is not "already linked": say so, and where to make one.
-      const cal = document.createElement('a');
-      cal.href = '/v2/launch-calendar.html';
-      cal.textContent = 'Launch calendar';
-      el('creativeLaunchError').append('There are no launches yet. Create one in the ', cal, `, then link this ${type} to it.`);
-    } else if (!choices.length) el('creativeLaunchError').textContent = `This ${type} is already linked to every available launch.`;
-    el('creativeLaunchDialog').showModal();
-  }
-  el('creativeLaunchCancel').onclick = () => el('creativeLaunchDialog').close();
-  el('creativeLaunchSelect').addEventListener('change',renderInitiativeChoices);
+  const launchLinks = window.SiloLaunchLinks.create({
+    sb, scope: scopeQ, loadPaged, company: () => _co, esc,
+    nameOf(source, id){
+      if (source===CREATIVE_REF) return _adPerf.find(a=>String(a.ad_id)===id)?.ad_name;
+      if (source===CAMPAIGN_REF) return _campaignRows.find(a=>String(a.campaign_id)===id)?.campaign_name;
+      if (source===REDO_REF) return _redo.find(a=>`${a.kind}:${a.redo_id}`===id)?.name;
+      // Any measurement row of the message carries its name; they all share one identity.
+      if (source===KLAVIYO_REF) { const r=findKlaviyo(id); return r?.message_name||r?.name||r?.parent_name||r?.klaviyo_id; }
+    },
+    channelOf(source, id){
+      if (source===REDO_REF) return _redo.find(r=>`${r.kind}:${r.redo_id}`===id)?.channel;
+      if (source===KLAVIYO_REF) return findKlaviyo(id)?.channel;
+      return 'meta';
+    },
+    onChange(){ renderCampaigns(_campaignRows); renderCreatives(); renderRedo(); },
+    setStatus,
+  });
+  const launchCell = (source,id,type) => launchLinks.cell(source,id,type);
+  const loadLaunchLinks = () => launchLinks.load();
   el('clearCreativeFocus').onclick = () => {
     focusedAd = null;
     const url = new URL(location.href); url.searchParams.delete('ad');
@@ -1030,72 +921,7 @@
     renderCreatives();
   };
   el('clearCampaignFocus').onclick=()=>{focusedCampaign=null;const url=new URL(location.href);url.searchParams.delete('campaign');history.replaceState(null,'',url);renderCampaigns(_campaignRows);};
-  for(const body of ['creativeBody','campaignBody','redoBody']) el(body).addEventListener('click',e=>{
-    const u=e.target.closest('[data-unlink-id]');
-    if(u){ openUnlink(u.dataset.unlinkId); return; }
-    const b=e.target.closest('[data-link-source]');
-    if(b) openMarketingLaunch(b.dataset.linkSource,b.dataset.linkId,b.dataset.linkType);
-  });
-  el('creativeLaunchForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    if (!selectedMarketing || !_co?.id) return;
-    const launchId = el('creativeLaunchSelect').value;
-    if (!_launches.some(l => String(l.id) === launchId)) return;
-    const initiativeId=_initiativeReady ? el('creativeInitiativeSelect').value : '';
-    if(initiativeId && !_initiatives.some(c=>String(c.id)===initiativeId && String(c.launch_id)===launchId && String(c.company_entity_id)===String(_co.id))) return;
-    const save = el('creativeLaunchSave');
-    save.disabled = true;
-    el('creativeLaunchError').textContent = '';
-    const payload={
-      company_entity_id:_co.id, launch_id:launchId, link_type:'campaign',
-      ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, ref_label:selectedMarketing.name,
-    };
-    if(initiativeId) payload.channel_item_id=initiativeId;
-    const {data:created,error} = await sb.from('launch_system_links').insert(payload).select('id').single();
-    if (error){ el('creativeLaunchError').textContent = error.message; save.disabled = false; return; }
-    _creativeLinks.push({ id:created?.id, launch_id:launchId, ref_table:selectedMarketing.source, ref_id:selectedMarketing.id, ref_label:selectedMarketing.name, channel_item_id:initiativeId||null });
-    el('creativeLaunchDialog').close();
-    renderCampaigns(_campaignRows);
-    renderCreatives();
-    renderRedo();
-  });
-  // ── Unlink ─────────────────────────────────────────────────────
-  // Deleting a launch link removes only the association row; the Meta, Redo
-  // and Shopify numbers behind it are untouched, and the same item can be
-  // linked again. Confirmed first because the row carries which launch a
-  // result was credited to, and nothing else records that.
-  let pendingUnlink = null;
-  function openUnlink(linkId){
-    const link = _creativeLinks.find(l=>String(l.id)===String(linkId));
-    if (!link) return;
-    pendingUnlink = link;
-    const launch = _launches.find(x=>String(x.id)===String(link.launch_id));
-    el('unlinkName').textContent = link.ref_label || 'This item';
-    el('unlinkDetail').textContent = `It stops counting toward “${launch?.title || 'this launch'}” on the Launch Workbench. No performance data changes, and you can link it again from this page.`;
-    el('unlinkError').textContent = '';
-    el('unlinkConfirm').disabled = false;
-    el('unlinkDialog').showModal();
-  }
-  el('unlinkCancel').onclick = () => { el('unlinkDialog').close(); pendingUnlink = null; };
-  el('unlinkConfirm').onclick = async () => {
-    if (!pendingUnlink?.id) return;
-    const linkId = pendingUnlink.id;
-    const btn = el('unlinkConfirm');
-    btn.disabled = true;
-    el('unlinkError').textContent = '';
-    // .select() so a refusal (RLS, or the row already gone) comes back as zero
-    // rows rather than a silent success that would blank the chip anyway.
-    const {data,error} = await sb.from('launch_system_links').delete().eq('id',linkId).select();
-    if (error){ el('unlinkError').textContent = error.message; btn.disabled = false; return; }
-    if (!data || !data.length){ el('unlinkError').textContent = 'Nothing was removed. The link may already be gone, or you may not have permission to change it.'; btn.disabled = false; return; }
-    _creativeLinks = _creativeLinks.filter(l=>String(l.id)!==String(linkId));
-    pendingUnlink = null;
-    el('unlinkDialog').close();
-    renderCampaigns(_campaignRows);
-    renderCreatives();
-    renderRedo();
-    setStatus('Launch link removed.');
-  };
+  for(const body of ['creativeBody','campaignBody','redoBody']) el(body).addEventListener('click', launchLinks.onClick);
   function renderCreatives(){
     el('creativeFocus').hidden = !focusedAd;
     const activeOnly = el('activeOnly').checked;

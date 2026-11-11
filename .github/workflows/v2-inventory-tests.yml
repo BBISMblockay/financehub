@@ -229,6 +229,18 @@ jobs:
             fi
           done
 
+      # Explorer shows and edits the same launch links as Overview, from one
+      # shared module. The row a control sits in drills when clicked, the
+      # links are read back for Meta only, and the write must carry the company.
+      - name: Explorer launch-link guards (mutations)
+        run: |
+          set -u
+          for m in no-cell bare-label drill-on-link any-platform no-redraw no-company dash; do
+            if EXP_LINKS_MUTATION="$m" node v2/tests/browser/explorer-launch-links.test.js >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
       - name: Underwriting synthetic browser flow
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/v2/tests/node_modules/playwright/index.mjs

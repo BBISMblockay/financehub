@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="performance-suite.css" />
+  <link rel="stylesheet" href="marketing-launch-links.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -97,6 +98,7 @@
        every render, never patched in place, so an inline <svg> is safe. */
     .mx-brand-icon { width:12px; height:12px; vertical-align:-2px; margin-right:5px; flex-shrink:0; }
     /* The next step on an ad row, and the ad a link pointed at. */
+    .mx-launch { margin-top:3px; }
     .mx-act { display:inline-block; margin-top:3px; font-size:11.5px; font-weight:600; color:var(--bcn-accent); text-decoration:none; }
     .mx-act:hover { text-decoration:underline; }
     .mx-tbl tbody tr.mx-row-focus td, .mx-tbl tbody tr.mx-row-focus:hover td { background:var(--bcn-accent-soft); }
@@ -265,6 +267,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
 <script src="performance-suite.js"></script>
+<script src="marketing-launch-links.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -466,6 +469,33 @@
     return out;
   }
 
+  // Launch links: the same chips and "+ Link" control as Overview's Campaigns
+  // and Creatives tabs (marketing-launch-links.js), on the same items, so an
+  // ad's launch is visible -- and settable -- where the ad is being compared.
+  // Meta only, as on Overview: those are the campaigns and ads a launch link
+  // is read back for today.
+  const LINK_REFS = window.SiloLaunchLinks.REFS;
+  const launchLinks = window.SiloLaunchLinks.create({
+    sb, scope: scopeQ, loadPaged, company: () => _co, esc,
+    nameOf(source, id){
+      if (source === LINK_REFS.CREATIVE)
+        return ADPERF.find(r => String(r.ad_id) === id)?.ad_name || CREATIVES.get(id)?.ad_name;
+      if (source === LINK_REFS.CAMPAIGN)
+        return FACTS.find(r => String(r.campaign_id) === id)?.campaign_name
+          || ADPERF.find(r => String(r.campaign_id) === id)?.campaign_name;
+    },
+    onChange(){ renderTable(); },
+  });
+  let launchLinksLoaded = false;
+  // No "Launch" column heading here (the cell sits under the row's name), so
+  // the control says what it links to.
+  const LINK_OPTS = { bare:true, linkLabel:'+ Link to launch' };
+  const launchCellFor = (r, lv) => {
+    if (lv === 3 && r.adId) return launchLinks.cell(LINK_REFS.CREATIVE, r.adId, 'creative', LINK_OPTS);
+    if (lv === 1 && state.drill.platform === 'meta_ads' && r.drillId != null) return launchLinks.cell(LINK_REFS.CAMPAIGN, r.drillId, 'campaign', LINK_OPTS);
+    return '';
+  };
+
   const FACT_COLS = 'platform,account_name,day_date,campaign_id,campaign_name,impressions,clicks,spend,conversions,conversion_value,sessions,view_content,add_to_cart,initiate_checkout';
 
   async function loadFacts(from, to){
@@ -523,6 +553,9 @@
       loadAdPerf(state.start, state.end),
       CREATIVES.size ? Promise.resolve(CREATIVES) : loadCreatives(),
       ADPERF_MIN === null ? loadAdPerfMin() : Promise.resolve(ADPERF_MIN),
+      // Once per page load: a link made or removed here updates the module's
+      // own state, and the links do not depend on the date range.
+      launchLinksLoaded ? Promise.resolve() : launchLinks.load().then(() => { launchLinksLoaded = true; }),
     ]);
     FACTS = facts; FACTS_PRIOR = prior; ADPERF = adperf; CREATIVES = creatives; ADPERF_MIN = adMin;
     settleDrill();
@@ -721,18 +754,19 @@
     // with its baseline, and links back here. Meta ads only -- the only ad level.
     const studioLink = (r) => r.adId
       ? `<a class="mx-act" href="/v2/ad-studio.html?ad=${encodeURIComponent(r.adId)}" title="Open this ad in Ad Studio to start an idea from it">Work on this in Ad Studio →</a>` : '';
+    const launchRow = (r) => { const html = launchCellFor(r, lv); return html ? `<div class="mx-launch">${html}</div>` : ''; };
     el('mainBody').innerHTML = rows.map((r,i) => {
       const icon = PLATFORM_ICON[r.drillId] || '';
       // The name is linked or plain on its own terms: a preview does not
       // depend on a thumbnail (older and deleted ads often have none).
       const nameHtml = rowNameHtml(r);
       const nameInner = r.thumb
-        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${nameHtml}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}${studioLink(r)}</div></div>`
+        ? `<div class="mx-ad-cell"><img class="mx-thumb" src="${esc(r.thumb)}" alt="" loading="lazy" /><div><div class="mx-name">${icon}${nameHtml}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}${studioLink(r)}${launchRow(r)}</div></div>`
         : `<div class="mx-name">${icon}${nameHtml}${isUpperFunnel(r)?'<span class="mx-flag" title="Attributed revenue under 10% of spend — likely an awareness objective, not a ROAS play">awareness</span>':''}</div>${r.sub?`<div class="mx-sub">${esc(r.sub)}</div>`:''}`;
       const focused = r.adId && state.focusAd && String(r.adId) === String(state.focusAd);
       return `<tr class="${canDrill?'mx-drillable':''}${focused?' mx-row-focus':''}" data-idx="${i}"${focused?' data-focus-ad':''}>
         <td class="mx-c-rank">${i+1}</td>
-        <td class="mx-c-name">${nameInner}${r.thumb ? '' : studioLink(r)}</td>
+        <td class="mx-c-name">${nameInner}${r.thumb ? '' : studioLink(r) + launchRow(r)}</td>
         ${measures.map(m => cellFor(m, r)).join('')}
       </tr>`;
     }).join('');
@@ -747,7 +781,10 @@
     </tr>`);
 
     if (canDrill){
-      el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', () => {
+      el('mainBody').querySelectorAll('tr[data-idx]').forEach(tr => tr.addEventListener('click', (e) => {
+        // A launch chip, its unlink control or "+ Link" inside the row is its
+        // own action, not a drill.
+        if (e.target.closest('.mx-launch')) return;
         const r = rows[Number(tr.dataset.idx)];
         // A row with no id (an unnamed campaign) has nowhere to drill to.
         if (r.drillId == null) return;
@@ -900,6 +937,7 @@
 
     el('cmpToggle').addEventListener('change', () => { state.compare = el('cmpToggle').checked; runLoad(); });
     el('btnExport').addEventListener('click', exportCsv);
+    el('mainBody').addEventListener('click', launchLinks.onClick);
     el('btnCols').addEventListener('click', () => { showAllCols = !showAllCols; renderTable(); renderDays(); });
     el('dayDetails').addEventListener('toggle', () => { if (el('dayDetails').open) renderDays(); });
 
