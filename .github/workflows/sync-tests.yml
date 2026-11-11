@@ -1845,6 +1845,20 @@ jobs:
       - name: Execute Attribution vs Sales hoist regressions
         run: node scripts/tests/attribution-channel-hoist-database.test.mjs
 
+      # 20261111190000: the campaign audience on the Klaviyo performance report.
+      # The case that earns its keep is the lateral-join mutation: resolved by a
+      # join the view fans out, the report's DISTINCT ON collapses it back, and
+      # the two original tie-outs still pass while the campaign is labelled with
+      # one of its three lists -- only the third check catches it. Also proves
+      # the grain holds, an unnamed id shows as the id, no audience stays NULL,
+      # the tile gains the column while a tenant's clone does not, and the
+      # migration is idempotent. The second finding has its own mutation:
+      # two tie-outs owned by OTHER reports embed this report's fingerprint, so
+      # refreshing only the ones it owns turns the nightly STALE -- judged by
+      # the nightly runner's own CATALOG_SQL, imported not restated.
+      - name: Execute Klaviyo report audience regressions
+        run: node scripts/tests/klaviyo-report-audience-database.test.mjs
+
       # Materializing inventory_workboard_v. The equivalence case is the point:
       # the change is speed-only, so the matview has to return the pre-migration
       # view byte for byte. The cross-tenant cases are why the join keys carry

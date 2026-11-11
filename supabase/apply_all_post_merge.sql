@@ -19698,4 +19698,10 @@ $c$select (select count(*) from v_po_header_summary
 -- 2026-11-11: the affiliate same-company twin becomes a callable function,
 -- and affiliate_feed_items.program_id gets the twin it was missing.
 \i migrations/20261111181000_affiliate_same_company_twins_function.sql
+-- 2026-11-11: the Klaviyo performance report and its Marketing-board tile show
+-- the audience a campaign was sent to. Replaces klaviyo_message_performance_v
+-- (additive columns), rewrites that report's tie-outs (a report edit must
+-- regenerate them or the nightly run goes STALE) and adds a third that catches
+-- the audience lookup becoming a join. Catalog text only beyond that; no deploy.
+\i migrations/20261111190000_klaviyo_report_audience.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
