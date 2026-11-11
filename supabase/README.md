@@ -233,7 +233,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 7. Frontend helpers `withCompany(row)` / `withCompanyRows(rows)` in `pages/config.js` stamp inserts client-side for clarity
 
 **Key tables:** `entities` (`entity_type = 'company'`), `entity_memberships` (`entity_id`, `user_id`, `role`)  
-**Key functions:** `active_company_id()`, `set_active_company(p_entity_id uuid)`, `stamp_company_entity_id()`, `attach_stamp_company_entity_id_triggers()`  
+**Key functions:** `active_company_id()`, `set_active_company(p_entity_id uuid)`, `stamp_company_entity_id()`, `attach_stamp_company_entity_id_triggers()`, `attach_affiliate_same_company_twins()` (end any new affiliate migration with it, as a company-scoped table ends with the stamp triggers: it adds the composite `(col, company_entity_id)` foreign keys that stop one company's row pointing at another's program or affiliate)  
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
