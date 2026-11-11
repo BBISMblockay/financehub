@@ -115,23 +115,10 @@ test('the sidebar draws ONE row for the four pages, on both profiles', () => {
     const ids = sidebarIds(co);
     for (const tab of [EXPLORER, REPORT, ATTRIBUTION]) assert.ok(!ids.includes(tab), `${tab} drawn as a sidebar row`);
   }
-  // The Performance row has exactly these three tabs and no fourth. Scoped to
-  // PERFORMANCE_ROW rather than to every `tabOf` item in the nav, because
-  // `tabOf` is a shared mechanism: the Calendar row took it for Org calendar
-  // (#1245), which made the old nav-wide form fail on main for a change that
-  // was nothing to do with this suite. The guard that matters is unchanged --
-  // a page cannot become a hidden tab of THIS row without being named here.
-  assert.deepEqual(
-    nav.NAV_ITEMS.filter((i) => i.tabOf === nav.PERFORMANCE_ROW).map((i) => i.id).sort(),
-    [EXPLORER, REPORT, ATTRIBUTION].sort(),
-  );
+  // Only the three Performance tabs are hidden from the sidebar; nothing else.
+  assert.deepEqual(nav.NAV_ITEMS.filter((i) => i.tabOf).map((i) => i.id).sort(), [EXPLORER, REPORT, ATTRIBUTION].sort());
+  assert.ok(nav.NAV_ITEMS.filter((i) => i.tabOf).every((i) => i.tabOf === nav.PERFORMANCE_ROW));
   assert.equal(nav.PERFORMANCE_ROW, OVERVIEW);
-  // Whoever else uses `tabOf`, it must point at a row that really exists, or
-  // the tab is hidden from the sidebar with nothing drawing it.
-  const ids = new Set(nav.NAV_ITEMS.map((i) => i.id));
-  for (const i of nav.NAV_ITEMS.filter((x) => x.tabOf)) {
-    assert.ok(ids.has(i.tabOf), `${i.id} is a tab of ${i.tabOf}, which is not a nav row`);
-  }
 });
 
 test('no row lost a gate: the tab rows keep their profiles and the pilot companyGate', () => {
