@@ -28,7 +28,7 @@ than this section.
   back after — 74ms to open the same 106-line entry, the identical fix Card Coding's table needed
   for the same reason
 - **Mailroom** (`/v2/mail-intake.html`, `/v2/mailroom.html`) — intake, routing, email notifications
-- **Org Calendar** (`/v2/calendar.html`) — one time layer over launches, tasks, POs, AP, payroll,
+- **Org Calendar** (`/v2/calendar.html`, the Org calendar tab of the Calendar nav row) — one time layer over launches, tasks, POs, AP, payroll,
   live slots and mail via the `security_invoker` `calendar_events_v` union
 - **Task Manager** (`/v2/tasks.html`), **TikTok Live schedule** (`/v2/live-schedule.html`),
   **Products** (`/v2/products.html`, replacing the old product-manager pages)

@@ -305,10 +305,18 @@
     { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Finance', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
-    { id: 'planning/calendar', section: 'Planning', label: 'Org Calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'] },
+    // One nav row for both calendars (2026-11-11, Blake): "Calendar" is the
+    // sidebar row and the Org calendar is a TAB of it (`tabOf`, same mechanism
+    // as the Performance suite above) -- it stays a row here so its gate and
+    // its "Jump to" entry are what they were, and only the sidebar skips it.
+    // The tab strip itself is plain markup on each page (`.cal-switch`): the
+    // two views are separate Pattern-1 pages with their own data layers, so
+    // each keeps its own URL, deep links and bookmarks. Both mount chrome with
+    // active:'planning/calendar', so the one row highlights on either tab.
+    { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/org-calendar', section: 'Planning', label: 'Org calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'], tabOf: 'planning/calendar' },
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/scenarios', section: 'Planning', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'planning/launch-calendar', section: 'Planning', label: 'Launch calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] },
     { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
 
