@@ -24,7 +24,7 @@
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>Incoming PO report</h1></div>
-          <div class="bcn-header-sub">Open purchase orders, incoming units, product rollups, retail value, and estimated landed commitments. <a href="/pages/po-report.html">Classic v1</a></div>
+          <div class="bcn-header-sub">Open purchase orders, incoming units, product rollups, retail value, and estimated landed commitments.</div>
         </div>
         <div class="bcn-header-actions">
           <button id="btnRefresh" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">REFRESH</button>
@@ -322,7 +322,7 @@
   <script>
     const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
     const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
-    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || './login.html';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '/pages/login.html';
     const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
