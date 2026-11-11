@@ -167,6 +167,11 @@ await t('runs, sources and followers are named in words; a missing count is not 
   assert.equal(C.followersFrom({}), null);
   assert.deepEqual(C.followersFrom({ followers: 0 }), { count: 0, source_url: null, as_of: null, kind: null });
   assert.equal(C.followersFrom({ followers: 5, followers_source_kind: 'profile' }).kind, 'profile');
+  assert.equal(C.prospectPhotoUrl({ profile_image_url: 'https://yt3.example/a.jpg' }), 'https://yt3.example/a.jpg');
+  for (const bad of [undefined, null, '', 'http://yt3.example/a.jpg', "https://x.example/a.jpg');background:red", 'javascript:alert(1)', `https://x.example/${'a'.repeat(2000)}`]) {
+    assert.equal(C.prospectPhotoUrl({ profile_image_url: bad }), null, `no photo for ${String(bad).slice(0, 40)}`);
+  }
+  assert.equal(C.prospectPhotoUrl(null), null);
   assert.match(C.friendlySearchError('skipped: 1 likely minors, 0 not found on a page read, 0 not a profile link'), /^Left out: 1 likely minors/);
   assert.match(C.friendlySearchError('AI credit exhausted'), /Out of AI credit/);
   const shown = ['anthropic', 'Claude', 'dataforseo'].some((w) => C.friendlySearchError('model HTTP 529 anthropic').includes(w));

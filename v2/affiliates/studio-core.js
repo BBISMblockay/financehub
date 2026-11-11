@@ -315,6 +315,13 @@ export function followersFrom(evidence) {
   return { count: Number(e.followers), source_url: e.followers_source_url || null, as_of: e.followers_as_of || null, kind: e.followers_source_kind || null };
 }
 
+// A creator's profile photo, as AI research read it on their own profile page:
+// https only, and nothing that could break out of an attribute. null = none.
+export function prospectPhotoUrl(evidence) {
+  const u = typeof evidence?.profile_image_url === 'string' ? evidence.profile_image_url.trim() : '';
+  return u.length <= 2000 && /^https:\/\/[^\s"'<>()\\]+$/.test(u) ? u : null;
+}
+
 // Where a prospect came from, in words.
 export const SOURCE_LABELS = { serp: 'search', manual: 'added by hand', csv_import: 'your list', applied: 'applied', ai_research: 'AI research' };
 export const sourceLabel = (s) => SOURCE_LABELS[s] || s || '';
