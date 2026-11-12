@@ -33,8 +33,16 @@ const syncMuts = {
   syncfatal: ['      console.log(`::warning title=Affiliate commissions lagging::${affiliate.failed}', '      hadError = true; console.log(`::warning title=Affiliate commissions lagging::${affiliate.failed}'],
 };
 let mod;
-if (MUT) {
-  const m = muts[MUT]; if (!m) throw new Error(`unknown mutation ${MUT}`);
+// A name must belong to exactly one of the two maps, and an unknown name must
+// still stop the run -- but an orchestrator mutation leaves the core alone, so
+// it must NOT be looked up in `muts`. Without this split `syncfatal` died here
+// on "unknown mutation", which the workflow's wrapper (any nonzero exit, output
+// suppressed) would have reported as mutation-tested while the assertion it is
+// meant to prove never ran. Review cycle 1, P2.
+if (MUT && !muts[MUT] && !syncMuts[MUT]) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && muts[MUT] && syncMuts[MUT]) throw new Error(`mutation ${MUT} is registered twice`);
+if (MUT && muts[MUT]) {
+  const m = muts[MUT];
   const code = await readFile(SRC, 'utf8');
   assert.ok(code.includes(m[0]), `mutation ${MUT}: pattern not found`);
   const p = join(await mkdtemp(join(tmpdir(), 'acc-')), 'core.mjs');
