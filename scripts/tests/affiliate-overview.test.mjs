@@ -36,10 +36,13 @@ const MUTS = {
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
 let src = await readFile(new URL('../../v2/affiliates/studio-core.js', import.meta.url), 'utf8');
-if (MUT) {
-  assert.ok(src.includes(MUTS[MUT][0]), `mutation ${MUT}: pattern not found`);
-  src = src.split(MUTS[MUT][0]).join(MUTS[MUT][1]);
+// Every mutation's pattern is checked against the UNMUTATED source on every
+// run. A pattern that drifts out of the source still exits non-zero, so the
+// CI loop would call it "caught" while it tested nothing.
+for (const [name, [from]] of Object.entries(MUTS)) {
+  assert.ok(src.includes(from), `mutation ${name} no longer matches the source: fix its pattern, or the guard it tests is untested`);
 }
+if (MUT) src = src.split(MUTS[MUT][0]).join(MUTS[MUT][1]);
 const dir = await mkdtemp(join(tmpdir(), 'affov-'));
 await writeFile(join(dir, 'studio-core.mjs'), src);
 const C = await import(pathToFileURL(join(dir, 'studio-core.mjs')).href);

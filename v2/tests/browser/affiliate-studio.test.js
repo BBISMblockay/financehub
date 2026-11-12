@@ -317,7 +317,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
     // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
     await loop.setViewportSize({ width: 1280, height: 520 });
-    const pinch = await loop.$eval('#overviewBody', (el) => el.scrollHeight - el.clientHeight);
+    // The strip above the tabs carries the list on every tab but Overview, and
+    // it is the one that clips: measured there, because a child that shrinks to
+    // fit a short window cuts off its own last rows.
+    await loop.click('#tabs [data-tab="prospects"]');
+    await loop.waitForFunction(() => { const el = document.getElementById('nextStep'); return el && !el.hidden && el.textContent.trim().length > 0; }, null, { timeout: 5000 });
+    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
     R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
