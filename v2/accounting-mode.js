@@ -46,12 +46,12 @@
     if (mode !== 'silo') return '';
     const next = String(takeover || '').trim();
     if (!next) return '';
-    if (!DAY.test(next)) return 'Enter the day SILO starts keeping the books, as YYYY-MM-DD.';
+    if (!DAY.test(next)) return 'Use YYYY-MM-DD.';
     if (DAY.test(String(latest || '')) && next > latest) {
-      return `${longDate(next)} is after ${longDate(latest)}. SILO would post nothing until then, including the months you are working on now.`;
+      return `Latest is ${longDate(latest)}.`;
     }
     if (DAY.test(String(earliest || '')) && next < earliest) {
-      return `This company accepts a takeover date from ${longDate(earliest)} onward. Clear the date instead of setting an earlier one.`;
+      return `Earliest is ${longDate(earliest)}.`;
     }
     return '';
   }
@@ -81,7 +81,7 @@
     return (takeover
       ? `SILO will keep the books from ${longDate(takeover)} onward.\n\n`
         + 'Periods ending before that date cannot be approved or posted, and they leave On Deck. '
-        + 'Each account’s explicit date still overrides this default, even if it is earlier.\n\n'
+        + 'An account’s own date still wins, earlier or later.\n\n'
       : 'SILO will keep the books for every period it has.\n\n')
       + 'SILO codes your bank and card activity and posts it to QuickBooks. Nothing is sent by saving this.';
   }
@@ -146,7 +146,7 @@
         </div>
         <button type="button" class="bcn-btn bcn-btn--primary" data-save-mode>Save</button>
         <div data-mode-blockers hidden></div>
-        <p class="books-caption">QuickBooks remains the official book of record in both modes. SILO-only books are not enabled.</p>`;
+        <p class="books-caption">QuickBooks stays the book of record.</p>`;
     }
 
     async function save() {
@@ -187,7 +187,7 @@
         if (error) { await reportSaveError(error); return; }
         const saved = Array.isArray(data) ? data[0] : data;
         if (!saved || (checked && saved.bookkeeping_version == null)) {
-          status('Nothing was saved: the save returned no setting to confirm. Reload Books & setup and check the current setting before trying again.', true);
+          status('Nothing was saved. Reload Books & setup.', true);
           return;
         }
         settings = saved;
@@ -237,14 +237,14 @@
       const fresh = await db.from('accounting_settings').select('*')
         .eq('company_entity_id', companyId).maybeSingle();
       const left = outstanding
-        ? `${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
+        ? `${outstanding} transactions left to reconcile. Press Save to continue.`
         : 'Nothing was sent to QuickBooks.';
       /* A read that failed is not evidence about the setting either way, so
          the screen must not keep showing the last one it knew as if it were
          current. Say what was done and that the state is unconfirmed. */
       if (fresh.error || !fresh.data) {
-        host.querySelector('[data-mode-state]').textContent = 'Current setting not confirmed — reload Books & setup';
-        status(`${unchanged ? 'Ledger checked' : 'Saved'}, but SILO could not read the setting back to show you what is now in force: ${fresh.error?.message || 'no setting was returned'}. Reload Books & setup. ${left}`, true);
+        host.querySelector('[data-mode-state]').textContent = 'Setting not confirmed';
+        status(`${unchanged ? 'Ledger checked' : 'Saved'}. Could not read the setting back: ${fresh.error?.message || 'nothing returned'}. Reload Books & setup. ${left}`, true);
         return;
       }
       drifted = !!settings && (fresh.data.bookkeeping_mode !== settings.bookkeeping_mode
@@ -253,7 +253,7 @@
       render();
       status([
         drifted
-          ? 'Someone else changed this setting while SILO’s ledger was catching up, so this is the setting now in force, not the one you chose:'
+          ? 'Changed in another tab. Now in force:'
           : (unchanged ? 'Ledger checked.' : 'Saved.'),
         `${stateLabel(settings)}.`,
         left,
@@ -266,8 +266,8 @@
        different words here. */
     async function reportSaveError(error) {
       const next = (error.code === 'P0BM1' || error.code === 'P0BM4')
-        ? ' Reload Books & setup and review the current setting.'
-        : ' Nothing was saved and nothing was sent.';
+        ? ' Reload Books & setup.'
+        : ' Nothing was saved or sent.';
       status(`${error.message}${next}`, true);
       /* The two refusals a person can clear by going somewhere. Each row
          carries the page that reviews it, so this offers the action rather
@@ -286,7 +286,7 @@
       if (!rows.length) { host2.innerHTML = ''; host2.hidden = true; host2.className = ''; return; }
       host2.hidden = false;
       host2.className = 'books-blockers';
-      host2.innerHTML = `<p>${rows.length === 1 ? 'One thing is in the way' : `${rows.length} things are in the way`}</p>` + rows.map((row) => {
+      host2.innerHTML = `<p>In the way</p>` + rows.map((row) => {
         const when = row.period_end ? ` · ${longDate(row.period_end)}` : '';
         // The company travels with a page that takes a query string; a plain
         // anchor on this same page needs nothing added.
@@ -311,7 +311,7 @@
       if (!button || saving) return;
       saving = true;
       button.disabled = true;
-      save().catch((e) => status(`The operation could not be confirmed: ${e.message}. Reload Books & setup to check the saved setting.`, true))
+      save().catch((e) => status(`Not confirmed: ${e.message}. Reload Books & setup.`, true))
         .finally(() => { saving = false; button.disabled = false; });
     });
     await read();

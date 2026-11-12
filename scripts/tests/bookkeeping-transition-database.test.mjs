@@ -171,8 +171,8 @@ try {
       assert.equal(e.code,'P0BM3',`a takeover of ${takeover} must not release an unresolved post`);
       const listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='post'"));
       assert.equal(listed[0].blocks_handover,true);
-      assert.match(listed[0].reason,/may be in QuickBooks/);
-      assert.equal(listed[0].action_label,'Review this post');
+      assert.match(listed[0].reason,/may be there/);
+      assert.equal(listed[0].action_label,'Review');
       assert.match(listed[0].review_path,/accounting-books\.html#register/);
     }
     assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[old]))[0].status,'unknown',
@@ -193,7 +193,7 @@ try {
     let listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='import'"));
     assert.equal(listed[0].blocks_handover,true);
     assert.ok(String(listed[0].review_path).includes(`transactions.html?batch=${batch}`),listed[0].review_path);
-    assert.equal(listed[0].action_label,'Review this import');
+    assert.equal(listed[0].action_label,'Review');
     // The account comes under SILO later: the same import is now unsendable.
     await q("update card_sources set posting_start_on='2026-10-01' where id=$1",[c.source]);
     listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='import'"));

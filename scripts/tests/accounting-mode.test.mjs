@@ -38,9 +38,9 @@ test('a takeover date that would stop the month in hand is refused before anythi
   assert.equal(M.validate('silo', '2026-09-01', TODAY, BOOKS), '', 'the real case must pass');
   assert.equal(M.validate('silo', '', TODAY, BOOKS), '', 'no date means every period is SILO’s');
   assert.equal(M.validate('silo', TODAY, TODAY, BOOKS), '', 'today itself is a legitimate takeover day');
-  assert.match(M.validate('silo', '2026-12-01', TODAY, BOOKS), /is after October 15, 2026/,
+  assert.match(M.validate('silo', '2026-12-01', TODAY, BOOKS), /Latest is October 15, 2026/,
     'a date ahead of the window would stop SILO posting the months being worked on now');
-  assert.match(M.validate('silo', '2026-07-01', TODAY, BOOKS), /from August 1, 2026 onward/,
+  assert.match(M.validate('silo', '2026-07-01', TODAY, BOOKS), /Earliest is August 1, 2026/,
     'before the window opens it would read as a setting that did not take');
   assert.match(M.validate('silo', 'september', TODAY, BOOKS), /YYYY-MM-DD/);
   assert.equal(M.validate('qbo', '2026-12-01', TODAY, BOOKS), '',
@@ -58,7 +58,7 @@ test('the takeover window is the company\u2019s own, not a rule written twice', 
     plain(M.windowFor({ takeover_earliest_on: '2026-09-01', takeover_latest_on: '2026-09-30' }, TODAY, BOOKS)),
     ['2026-09-01', '2026-09-30']);
   assert.equal(M.validate('silo', '2026-09-15', '2026-09-30', '2026-09-01'), '', 'inside a narrowed window');
-  assert.match(M.validate('silo', '2026-08-15', '2026-09-30', '2026-09-01'), /from September 1, 2026 onward/);
+  assert.match(M.validate('silo', '2026-08-15', '2026-09-30', '2026-09-01'), /Earliest is September 1, 2026/);
 });
 
 test('handing the books back says what it costs, in full, before it happens', () => {
@@ -80,7 +80,7 @@ test('choosing SILO says what the date does, and what it does not override', () 
   assert.match(dated, /from September 1, 2026/);
   assert.match(dated, /cannot be approved or posted/);
   assert.match(dated, /leave On Deck/);
-  assert.match(dated, /explicit date.*overrides this default/, 'an account that came onboard later keeps its own date');
+  assert.match(dated, /own date still wins/, 'an account that came onboard later keeps its own date');
   assert.match(M.confirmText('silo', ''), /every period/);
   assert.match(M.confirmText('silo', ''), /Nothing is sent by saving this/,
     'saving a setting must never read as a send');
@@ -200,7 +200,7 @@ test('a setting changed during catch-up is reported as what is now in force', as
     accounting_start_date: BOOKS, bookkeeping_version: 6 } });
   ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
   ui.click(); await ui.drain();
-  assert.match(ui.text(), /Someone else changed this setting/);
+  assert.match(ui.text(), /Changed in another tab/);
   assert.match(ui.text(), /SILO keeps the books/, 'the setting in force, not the one this press chose');
   assert.doesNotMatch(ui.text(), /QuickBooks keeps the books/);
 });
@@ -213,12 +213,12 @@ test('a refused handover offers the item, not an id', async () => {
       return { data: [
         { kind: 'post', reference: 'batch-1', title: 'September bank coding', status: 'unknown',
           period_end: '2026-09-30', blocks_handover: true, account: 'Synthetic bank',
-          reason: 'SILO tried to send this entry and never learned the outcome, so it may be in QuickBooks.',
-          action_label: 'Review this post', review_path: '/v2/transactions.html?batch=batch-1' },
+          reason: 'Sent. No answer from QuickBooks, so it may be there.',
+          action_label: 'Review', review_path: '/v2/transactions.html?batch=batch-1' },
         { kind: 'import', reference: 'old-1', title: 'July setup import', status: 'approved',
           period_end: '2026-07-31', blocks_handover: false, account: 'Synthetic bank',
-          reason: 'Approved during setup, before SILO started posting this account.',
-          action_label: 'Review this import', review_path: '/v2/transactions.html?batch=old-1' },
+          reason: 'Approved during setup. Not in the way.',
+          action_label: 'Review', review_path: '/v2/transactions.html?batch=old-1' },
       ] };
     }
     return { error: { code: 'P0BM3', message: 'SILO has 1 QuickBooks post(s) still in progress: Synthetic bank was sent with no answer from QuickBooks (Sep 2026).' } };
@@ -228,11 +228,11 @@ test('a refused handover offers the item, not an id', async () => {
   assert.deepEqual(ui.calls.map((c) => c.name), ['set_bookkeeping_mode_checked', 'silo_handover_blockers'],
     'no ledger catch-up runs after a refused handover');
   assert.match(ui.list(), /September bank coding/);
-  assert.match(ui.list(), /Review this post/);
+  assert.match(ui.list(), /Review/);
   assert.match(ui.list(), /href="\/v2\/transactions\.html\?batch=batch-1&amp;company=company-a"/,
     'a direct link to the item, carrying the company');
   assert.doesNotMatch(ui.list(), /July setup import/, 'setup history is not what the reader has to go and clear');
-  assert.match(ui.text(), /Nothing was saved and nothing was sent/);
+  assert.match(ui.text(), /Nothing was saved or sent/);
   assert.doesNotMatch(ui.text(), /Reload Books/, 'reloading does not clear an unresolved post');
 });
 
@@ -254,14 +254,14 @@ test('an old stored date never blocks resuming the ledger catch-up', async () =>
   ui.controls['[data-takeover]'].value = '2026-07-15';
   ui.click(); await ui.drain();
   // The mounted harness has no SiloPostingStart, so dates stay unformatted here.
-  assert.match(ui.text(), /from (September 1, 2026|2026-09-01) onward/);
+  assert.match(ui.text(), /Earliest is (September 1, 2026|2026-09-01)/);
 });
 
 test('a setting that could not be read back is never shown as current', async () => {
   const ui = await mounted({ readFails: true });
   ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
   ui.click(); await ui.drain();
-  assert.match(ui.text(), /could not read the setting back/);
+  assert.match(ui.text(), /[Cc]ould not read the setting back/);
   assert.match(ui.state(), /not confirmed/i, 'the headline state says so too');
   assert.doesNotMatch(ui.text(), /QuickBooks keeps the books · SILO sends nothing/,
     'a state SILO could not confirm is not asserted');

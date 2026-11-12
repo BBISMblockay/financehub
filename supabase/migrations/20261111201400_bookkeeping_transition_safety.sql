@@ -139,10 +139,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
          p.period_start, p.period_end, o.owner, o.owned_from, o.account,
          b.blocks is not null,
          case when p.status = 'submitting'
-           then 'SILO is sending this entry to QuickBooks, or a send stopped before QuickBooks answered. Check QuickBooks before handing the books back.'
-           else 'SILO tried to send this entry and never learned the outcome, so it may be in QuickBooks. SILO has locked the send so it cannot post twice.'
+           then 'Sending to QuickBooks now.'
+           else 'Sent. No answer from QuickBooks, so it may be there.'
          end,
-         'Review this post',
+         'Review',
          case when p.source = 'card_import' and p.source_ref ~ '^[0-9a-fA-F-]{36}$'
            then '/v2/transactions.html?batch=' || p.source_ref
            else '/v2/accounting-books.html#register'
@@ -160,10 +160,10 @@ language sql stable security definer set search_path = public, pg_temp as $$
          null::date, coalesce(s.display_name, s.source_key),
          k.blocks is not null,
          case when k.blocks is null
-           then 'Approved during setup, before SILO started posting this account, so SILO can never send it. It is left exactly as it is and does not hold up the handover.'
-           else 'Approved in SILO and not yet sent. Post it or reopen it before handing the books back, so nothing is left approved with nowhere to go.'
+           then 'Approved during setup. Not in the way.'
+           else 'Approved in SILO, not sent.'
          end,
-         'Review this import',
+         'Review',
          '/v2/transactions.html?batch=' || i.id::text
   from public.card_import_batches i
   join public.card_sources s on s.id = i.source_id
@@ -243,7 +243,7 @@ begin
     raise exception 'Finance access required' using errcode = '42501';
   end if;
   if p_company is null or p_company <> v_company then
-    raise exception 'Your active company changed or was not supplied. Reload Books & setup and answer again.'
+    raise exception 'Your active company changed. Reload Books & setup.'
       using errcode = 'P0BM1';
   end if;
   if p_mode is null or p_mode not in ('silo', 'qbo') then
@@ -270,14 +270,14 @@ begin
   end if;
 
   if p_expected_version is null or p_expected_version <> v_row.bookkeeping_version then
-    raise exception 'The bookkeeping setting changed since you reviewed it. Reload Books & setup and review the current setting before saving.'
+    raise exception 'This setting changed since you opened it. Reload Books & setup.'
       using errcode = 'P0BM4';
   end if;
 
   if v_takeover is not null then
     select * into v_window from public.silo_takeover_window(v_company);
     if not isfinite(v_takeover) or v_takeover > v_window.latest or v_takeover < v_window.earliest then
-      raise exception 'The takeover date must be between % and %. Clear it to use the existing default.',
+      raise exception 'Pick a date between % and %, or clear it.',
         to_char(v_window.earliest, 'FMMonth FMDD, YYYY'), to_char(v_window.latest, 'FMMonth FMDD, YYYY')
         using errcode = '22023';
     end if;
@@ -289,9 +289,8 @@ begin
     -- is counted is what silo_claim_blocks_handover says stands in the way,
     -- so pre-takeover history does not make the switch impossible, and the
     -- refusal names the entries so the reader can go and resolve them.
-    select count(*), string_agg(format('%s %s%s', o.account,
-             case when p.status = 'submitting' then 'is still sending' else 'was sent with no answer from QuickBooks' end,
-             case when p.period_end is not null then format(' (%s)', to_char(p.period_end, 'FMMon YYYY')) else '' end), '; '
+    select count(*), string_agg(format('%s%s', o.account,
+             case when p.period_end is not null then format(' %s', to_char(p.period_end, 'FMMon YYYY')) else '' end), '; '
              order by p.created_at)
       into v_open, v_detail
       from public.quickbooks_journal_postings p
@@ -299,8 +298,8 @@ begin
      where p.company_entity_id = v_company
        and public.silo_claim_blocks_handover(p.*) is not null;
     if v_open > 0 then
-      raise exception 'SILO has % QuickBooks post% still in progress: %. Review % in SILO, check QuickBooks, then post it or confirm it was not posted. Do not resend blindly.',
-        v_open, case when v_open = 1 then '' else 's' end, v_detail, case when v_open = 1 then 'it' else 'each one' end
+      raise exception 'SILO has % QuickBooks post% still in progress: %.',
+        v_open, case when v_open = 1 then '' else 's' end, v_detail
         using errcode = 'P0BM3';
     end if;
     -- Only an import SILO could still send. One approved during setup, before
@@ -311,8 +310,8 @@ begin
      where b.company_entity_id = v_company
        and public.silo_batch_blocks_handover(b.*) is not null;
     if v_open > 0 then
-      raise exception 'SILO has % approved import% it has not sent. Reopen or post % in Transactions before handing the books back.',
-        v_open, case when v_open = 1 then '' else 's' end, case when v_open = 1 then 'it' else 'them' end
+      raise exception 'SILO has % approved import% it has not sent.',
+        v_open, case when v_open = 1 then '' else 's' end
         using errcode = 'P0BM2';
     end if;
   end if;
@@ -341,7 +340,7 @@ begin
     raise exception 'Finance access required' using errcode = '42501';
   end if;
   if p_company is not null and p_company <> v_company then
-    raise exception 'Your active company changed while this was open. Reload Books & setup and answer again.' using errcode = 'P0BM1';
+    raise exception 'Your active company changed. Reload Books & setup.' using errcode = 'P0BM1';
   end if;
   perform public.bookkeeping_mode_lock(v_company);
   select bookkeeping_version into v_version from public.accounting_settings where company_entity_id = v_company;

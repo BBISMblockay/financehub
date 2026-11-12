@@ -186,12 +186,12 @@ bug I introduced in the second pass; the rest are the experience.
    window tightened since. The date is now judged only when the reader is
    CHOOSING one; a press that changes nothing goes straight to the resync.
 4. **A status that could not be read back is not shown as current.** If the
-   read-back after the catch-up fails, the card says so and puts "Current
-   setting not confirmed" in the headline instead of leaving the last value it
+   read-back after the catch-up fails, the card says so and puts "Setting not
+   confirmed" in the headline instead of leaving the last value it
    knew standing as fact.
 5. **Recovery is an action.** `silo_handover_blockers()` returns both kinds of
    thing in the way with a `review_path`, and the card renders one panel --
-   "2 things are in the way" -- with the reason and a link per row
+   headed "In the way" -- with a short reason and a "Review" link per row
    (`/v2/transactions.html?batch=<id>` for an import or bank-coding post,
    `/v2/accounting-books.html#register` for any other entry). No uuid is shown.
 
@@ -322,3 +322,13 @@ three sibling claim triggers to INSERT-only together with the guard, or verify
 reads BROKEN on the four-arm assertion. A full server rollback must restore BOTH the prior guard body
 and trigger definition together under explicit approval. Leave the additive
 version column in place; dropping it is unnecessary and loses edit history.
+
+## Copy pass (2026-11-12)
+
+Every string this change adds to the Accounting card was cut to a short label
+or one short sentence. No instructional paragraphs: the refusal names what is
+in the way and each row carries a `Review` link, instead of telling the reader
+what to do about it. The blocker reasons live in
+`silo_handover_blockers()` (`Sending to QuickBooks now.`, `Sent. No answer from
+QuickBooks, so it may be there.`, `Approved during setup. Not in the way.`,
+`Approved in SILO, not sent.`), so the card renders them and adds nothing.
