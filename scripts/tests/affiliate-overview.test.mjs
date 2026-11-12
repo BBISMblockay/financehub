@@ -11,6 +11,9 @@
 //   AFFILIATE_OVERVIEW_MUTATION=quietnow  "quiet" ignores how long the window is
 //   AFFILIATE_OVERVIEW_MUTATION=stucknow  an invite is chased the day it goes out
 //   AFFILIATE_OVERVIEW_MUTATION=codefresh a code that went live today is called a failure
+//   AFFILIATE_OVERVIEW_MUTATION=capok     a read that filled every page is treated as complete
+//   AFFILIATE_OVERVIEW_MUTATION=pageerr   a page that could not be read is treated as the end
+//   AFFILIATE_OVERVIEW_MUTATION=unclaimed owed money is read as unclaimed, so a draft payout hides it
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,6 +30,9 @@ const MUTS = {
   quietnow: ['    if (silent > days) {', '    if (silent > 0) {'],
   stucknow: ['      if (age >= OV_STUCK_DAYS)', '      if (age >= 0)'],
   codefresh: ['      if (age >= OV_SILENT_CODE_DAYS)', '      if (age >= 0)'],
+  capok: ['    if (page.length < pageSize) return rows;\n  }\n  return null;', '    if (page.length < pageSize) return rows;\n  }\n  return rows;'],
+  pageerr: ['    if (!Array.isArray(page)) return null;', '    if (!Array.isArray(page)) return rows;'],
+  unclaimed: ['    .reduce((n, b) => n + (Number(b.earned_cents || 0) - Number(b.paid_cents || 0)), 0);', '    .reduce((n, b) => n + Number(b.unclaimed_cents || 0), 0);'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
 let src = await readFile(new URL('../../v2/affiliates/studio-core.js', import.meta.url), 'utf8');
@@ -39,7 +45,7 @@ await writeFile(join(dir, 'studio-core.mjs'), src);
 const C = await import(pathToFileURL(join(dir, 'studio-core.mjs')).href);
 
 let n = 0;
-const t = (name, fn) => { fn(); n += 1; console.log(`ok ${n} - ${name}`); };
+const t = async (name, fn) => { await fn(); n += 1; console.log(`ok ${n} - ${name}`); };
 
 const TODAY = '2026-11-12';
 const d = (back) => C.dayShift(TODAY, back);
@@ -93,40 +99,40 @@ const PERF = [
   { affiliate_id: 'D', first_order_day: d(200), last_order_day: d(50) },
 ];
 
-t('calendar maths are plain UTC days', () => {
+await t('calendar maths are plain UTC days', () => {
   assert.equal(C.dayDiff('2026-11-12', '2026-11-02'), 10);
   assert.equal(C.dayShift('2026-03-01', 1), '2026-02-28');
 });
 
 const cur = C.ovWindow(ROWS, W30);
-t('a window sells only what the resolver would pay on, in its own currency', () => {
+await t('a window sells only what the resolver would pay on, in its own currency', () => {
   assert.equal(cur.sales, 17000);
 });
-t('an order is counted once, however many rows it has', () => {
+await t('an order is counted once, however many rows it has', () => {
   assert.equal(cur.orders, 3);
 });
-t('sellers are the affiliates with an earning order', () => {
+await t('sellers are the affiliates with an earning order', () => {
   assert.deepEqual([...cur.sellers].sort(), ['A', 'B']);
 });
-t('the window before it is read the same way', () => {
+await t('the window before it is read the same way', () => {
   assert.equal(C.ovWindow(ROWS, P30).sales, 40000);
 });
-t('orders in another currency are counted apart', () => {
+await t('orders in another currency are counted apart', () => {
   assert.equal(C.ovOtherCurrencyOrders(ROWS, W30), 1);
 });
-t('commission comes from the ledger, dated, in the settlement currency', () => {
+await t('commission comes from the ledger, dated, in the settlement currency', () => {
   assert.equal(C.ovLedgerTotal(LEDGER, W30), 1700);
   assert.equal(C.ovLedgerTotal(LEDGER, P30), 4000);
 });
 
 const WK = { today: TODAY, weeks: 12, currency: 'USD' };
 const weekly = C.ovWeekly(ROWS, { ...WK, pick: (r) => (C.OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) });
-t('the trend is twelve weeks, oldest first, one currency', () => {
+await t('the trend is twelve weeks, oldest first, one currency', () => {
   assert.equal(weekly.length, 12);
   assert.equal(weekly.reduce((a, b) => a + b, 0), 10000 + 5000 + 2000 + 40000 + 1000);
   assert.equal(weekly[11], 10000 + 2000);
 });
-t('the weekly seller count is distinct affiliates per week', () => {
+await t('the weekly seller count is distinct affiliates per week', () => {
   const s = C.ovWeeklySellers(ROWS, WK);
   assert.equal(s.length, 12);
   assert.equal(s[11], 2);
@@ -137,14 +143,14 @@ const per = C.ovPerAffiliate({
   currency: 'USD', from: W30.from, to: W30.to, prevFrom: P30.from, prevTo: P30.to,
 });
 const by = Object.fromEntries(per.map((x) => [x.id, x]));
-t('per affiliate: this window, the one before, and the ledger', () => {
+await t('per affiliate: this window, the one before, and the ledger', () => {
   assert.equal(by.A.sales, 15000);
   assert.equal(by.A.orders, 2);
   assert.equal(by.A.comm, 1500);
   assert.ok(by.A.growth < 0);
   assert.equal(by.B.prevSales, 0);
 });
-t('an affiliate row that no longer exists is dropped, not drawn', () => {
+await t('an affiliate row that no longer exists is dropped, not drawn', () => {
   const orphan = C.ovPerAffiliate({
     rows: ROWS, ledger: [], performance: [], affiliates: [], currency: 'USD',
     from: W30.from, to: W30.to, prevFrom: P30.from, prevTo: P30.to,
@@ -154,33 +160,72 @@ t('an affiliate row that no longer exists is dropped, not drawn', () => {
 
 const reach = C.ovReachOut({ affiliates: AFFILIATES, codes: CODES, performance: PERF, perWindow: per, today: TODAY, days: 30 });
 const kinds = Object.fromEntries(reach.map((x) => [x.id, x.kind]));
-t('each reason is a fact about this program', () => {
+await t('each reason is a fact about this program', () => {
   assert.equal(kinds.A, 'drop');
   assert.equal(kinds.B, 'rise');
   assert.equal(kinds.C, 'never');
   assert.equal(kinds.D, 'quiet');
   assert.equal(kinds.E, 'stuck');
 });
-t('nobody is chased before there is something to chase', () => {
+await t('nobody is chased before there is something to chase', () => {
   assert.equal(kinds.F, undefined);
   assert.equal(kinds.G, undefined);
   assert.equal(kinds.H, undefined);
 });
-t('one affiliate gets one reason, the most urgent', () => {
+await t('one affiliate gets one reason, the most urgent', () => {
   assert.equal(reach.filter((x) => x.id === 'A').length, 1);
   assert.equal(reach[0].kind, 'stuck');
 });
-t('the quiet day count is the real one', () => {
+await t('the quiet day count is the real one', () => {
   assert.equal(reach.find((x) => x.id === 'D').days, 50);
 });
-t('the message names the code and sends nothing', () => {
+await t('the message names the code and sends nothing', () => {
   const msg = C.ovMessage(reach.find((x) => x.id === 'C'), { brand: 'Brand', code: 'CAL10' });
   assert.ok(msg.includes('CAL10'));
   assert.ok(msg.includes('Brand'));
   assert.ok(msg.startsWith('Hi Cal,'));
 });
-t('every reason has a label', () => {
+await t('every reason has a label', () => {
   for (const k of Object.keys(C.OV_REASONS)) assert.ok(C.OV_REASONS[k]);
+});
+
+// Paging: the only proof a window was read whole is a short last page.
+const pages = (total, size) => async (i) => {
+  const start = i * size;
+  if (start >= total) return [];
+  return Array.from({ length: Math.min(size, total - start) }, (_, k) => ({ id: start + k }));
+};
+await t('a short page ends the read', async () => {
+  const rows = await C.pagedCollect(pages(2500, 1000), { pageSize: 1000, maxPages: 60 });
+  assert.equal(rows.length, 2500);
+});
+await t('a window that exactly fills a page is still read whole', async () => {
+  const rows = await C.pagedCollect(pages(2000, 1000), { pageSize: 1000, maxPages: 60 });
+  assert.equal(rows.length, 2000);
+});
+await t('a read that fills every page is refused, not truncated', async () => {
+  assert.equal(await C.pagedCollect(pages(5001, 1000), { pageSize: 1000, maxPages: 5 }), null);
+  assert.equal(await C.pagedCollect(pages(5000, 1000), { pageSize: 1000, maxPages: 5 }), null);
+});
+await t('a page that could not be read refuses the whole read', async () => {
+  const fail = async (i) => (i === 1 ? null : Array.from({ length: 1000 }, (_, k) => ({ id: k })));
+  assert.equal(await C.pagedCollect(fail, { pageSize: 1000, maxPages: 60 }), null);
+});
+
+// Owed money: a draft payout claims a ledger line without paying it.
+const BAL = [
+  { affiliate_id: 'A', currency: 'USD', earned_cents: 10000, claimed_cents: 10000, paid_cents: 0, unclaimed_cents: 0 },
+  { affiliate_id: 'B', currency: 'USD', earned_cents: 5000, claimed_cents: 5000, paid_cents: 5000, unclaimed_cents: 0 },
+  { affiliate_id: 'C', currency: 'USD', earned_cents: 2000, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 2000 },
+  { affiliate_id: 'D', currency: 'CAD', earned_cents: 9999, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 9999 },
+  { affiliate_id: 'E', currency: 'USD', earned_cents: -500, claimed_cents: 0, paid_cents: 0, unclaimed_cents: -500 },
+];
+await t('owed is what is unpaid, whatever a draft payout has claimed', () => {
+  assert.equal(C.ovUnpaid(BAL, 'USD'), 10000 - 0 + 5000 - 5000 + 2000 + (-500));
+});
+await t('owed keeps a negative adjustment and ignores other currencies', () => {
+  assert.equal(C.ovUnpaid([BAL[4]], 'USD'), -500);
+  assert.equal(C.ovUnpaid(BAL, 'CAD'), 9999);
 });
 
 console.log(`\n1..${n}`);

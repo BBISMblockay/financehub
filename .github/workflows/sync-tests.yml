@@ -1327,7 +1327,7 @@ jobs:
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive
-          run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh
+          run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
 
   plaid-typecheck:
     name: Plaid Edge Function typecheck

@@ -373,6 +373,37 @@ export const OV_EARNING_BASES = ['single_affiliate_code', 'first_affiliate_code'
 const EARNING = new Set(OV_EARNING_BASES);
 const CUR = (c) => String(c || 'USD').toUpperCase();
 
+// Reading a window one page at a time. `fetchPage(i)` returns that page's
+// rows, or null if it could not be read. The loop stops at the first short
+// page, which is the only proof there is no more; a read that hits the
+// ceiling with a FULL last page cannot tell whether history was cut off, so
+// it returns null -- "could not read" -- rather than a total that silently
+// drops the oldest rows and invents growth out of the gap.
+export const OV_PAGE_SIZE = 1000;
+export const OV_MAX_PAGES = 60;
+export async function pagedCollect(fetchPage, { pageSize = OV_PAGE_SIZE, maxPages = OV_MAX_PAGES } = {}) {
+  const rows = [];
+  for (let i = 0; i < maxPages; i += 1) {
+    const page = await fetchPage(i);
+    if (!Array.isArray(page)) return null;
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+  return null;
+}
+
+// What is still owed to affiliates: everything the ledger recorded, less what
+// a payout has actually been marked PAID for. Deliberately NOT
+// `unclaimed_cents`, which the balance view reduces as soon as a DRAFT payout
+// claims a ledger line -- money sitting in an unapproved payout is still
+// money owed, and reading unclaimed here would show nothing owed the moment
+// someone pressed "build payout".
+export function ovUnpaid(balances, currency) {
+  const cur = CUR(currency);
+  return (balances || []).filter((b) => CUR(b.currency) === cur)
+    .reduce((n, b) => n + (Number(b.earned_cents || 0) - Number(b.paid_cents || 0)), 0);
+}
+
 // Calendar maths on plain YYYY-MM-DD days, in UTC, so no local clock can
 // shift a day boundary between two calls.
 export function dayShift(isoDay, back) {

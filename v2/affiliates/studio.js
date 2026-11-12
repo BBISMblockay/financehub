@@ -8,7 +8,8 @@ import {
   toCsv, fillTemplate, outreachTemplate, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
-  dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly,
+  dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
+  pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES,
 } from './studio-core.js';
 
@@ -226,26 +227,21 @@ async function loadStores() {
 // 180 days covers every window the Overview offers (30 or 90 days) plus the
 // same length again to compare it against, and the 12-week chart.
 const OV_DAYS_BACK = 180;
-const OV_PAGE = 1000;
-const OV_MAX_PAGES = 20;
-// Paged read with a deterministic order, so no row is seen twice or skipped
-// across page boundaries. A page that errors abandons the whole read: a short
-// read would understate every number on the tab.
-async function loadPaged(table, cols, since, programId) {
-  const rows = [];
-  try {
-    for (let i = 0; i < OV_MAX_PAGES; i += 1) {
+// A deterministic order, so no row is seen twice or skipped across page
+// boundaries. A page that errors abandons the whole read (pagedCollect turns
+// a null page into a null read): a short read would understate every number
+// on the tab.
+function loadPaged(table, cols, since, programId) {
+  return pagedCollect(async (i) => {
+    try {
       const { data, error } = await db.from(table).select(cols)
         .eq('company_entity_id', CO).eq('program_id', programId)
         .gte('order_day', since)
         .order('order_day', { ascending: false }).order('id', { ascending: true })
-        .range(i * OV_PAGE, i * OV_PAGE + OV_PAGE - 1);
-      if (error) return null;
-      rows.push(...(data || []));
-      if (!data || data.length < OV_PAGE) return rows;
-    }
-    return rows;
-  } catch (_) { return null; }
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
+    } catch (_) { return null; }
+  });
 }
 const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
   'id, affiliate_id, order_id, order_day, basis, gross_subtotal_cents, commissionable_cents, order_currency',
@@ -1158,14 +1154,13 @@ function renderOverview() {
       `${ovDelta(cur.sellers.length, prev.sellers.length)}<span>of ${num(active)} active</span>`,
       ovSpark(ovWeeklySellers(d.ovAttributions, opt), 'warn')),
   ].join('');
-  const owedCents = (d.balances || []).filter((x) => x.currency === p.currency)
-    .reduce((n, x) => n + Number(x.unclaimed_cents || 0), 0);
+  const owedCents = ovUnpaid(d.balances, p.currency);
   const liveCodes = d.codes.filter((c) => c.status === 'active').length;
   const otherCur = ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission owed', esc(money(owedCents)))
+    + bandItem('Commission unpaid', esc(money(owedCents)))
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
