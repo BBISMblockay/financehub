@@ -2024,13 +2024,13 @@ jobs:
       # own request path, that a browser session is not recorded as a
       # connection, that a refused call records nothing (the documented limit,
       # pinned so the screen's wording stays true), that every tool now counts
-      # as activity for the 30-day idle policy, that retention is bounded to
-      # one company's own rows, and that a colleague cannot read what somebody
+      # as activity for the 30-day idle policy, that old rows are
+      # kept (20261112040000), and that a colleague cannot read what somebody
       # else's app pulled. Mutation-tested.
       - name: Execute connection call log regressions
         run: |
           node scripts/tests/api-call-log-database.test.mjs
-          for mutation in stable-scope open-policy no-touch no-prune log-browser ignore-read-only logging-can-break-a-read stable-catalog stable-catalog-unchecked; do
+          for mutation in stable-scope open-policy no-touch still-prunes log-browser ignore-read-only logging-can-break-a-read stable-catalog stable-catalog-unchecked; do
             if CALL_LOG_MUTATION="$mutation" node scripts/tests/api-call-log-database.test.mjs; then
               echo "::error::$mutation did not fail the call log suite"
               exit 1

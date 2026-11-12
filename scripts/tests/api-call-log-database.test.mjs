@@ -23,8 +23,8 @@ const one = async (sql) => (await q(sql))[0];
 let passed = 0;
 const test = async (name, fn) => { await fn(); passed += 1; console.log(`ok ${passed} - ${name}`); };
 
-const MUTATIONS = ['', 'stable-scope', 'open-policy', 'no-touch', 'no-prune', 'log-browser', 'ignore-read-only', 'logging-can-break-a-read', 'stable-catalog', 'stable-catalog-unchecked',
-  'connect-unrecorded', 'connect-not-on-path', 'failure-no-cap', 'failure-any-tool', 'failure-touches-grant', 'failure-anon'];
+const MUTATIONS = ['', 'stable-scope', 'open-policy', 'no-touch', 'log-browser', 'ignore-read-only', 'logging-can-break-a-read', 'stable-catalog', 'stable-catalog-unchecked',
+  'connect-unrecorded', 'connect-not-on-path', 'failure-no-cap', 'failure-any-tool', 'failure-touches-grant', 'failure-anon', 'still-prunes'];
 const mutation = process.env.CALL_LOG_MUTATION || '';
 assert.ok(MUTATIONS.includes(mutation), `Unknown mutation ${mutation}`);
 const original = readFileSync('supabase/migrations/20261103240000_api_call_log.sql', 'utf8');
@@ -48,9 +48,6 @@ if (mutation === 'open-policy') {
 }
 if (mutation === 'no-touch') {
   MIGRATION = MIGRATION.replace('  perform public.silo_api_touch_grant();\n', '');
-}
-if (mutation === 'no-prune') {
-  MIGRATION = MIGRATION.replace(/    delete from public\.silo_api_call_log\n     where ctid in[\s\S]*?limit 50\);\n/, '');
 }
 if (mutation === 'log-browser') {
   // BOTH guards, because they are deliberately redundant: the gate returns
@@ -109,7 +106,35 @@ if (mutation === 'failure-anon') {
   MIGRATION3 = MIGRATION3.replace("revoke all on function public.silo_api_record_failure(text, text) from public, anon;",
     "grant execute on function public.silo_api_record_failure(text, text) to anon;");
 }
-assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3,
+// 20261112040000: the log is the usage record now, so it is kept.
+const original4 = readFileSync('supabase/migrations/20261112040000_api_call_log_keep_history.sql', 'utf8');
+let MIGRATION4 = original4;
+if (mutation === 'still-prunes') {
+  // Leave 20261103240000's 90-day delete in place.
+  MIGRATION4 = '';
+}
+// MIGRATION4 re-states silo_api_record_call(), so the recorder's own mutations
+// must break that copy too, or the re-stated body would hide them.
+if (mutation === 'no-touch') {
+  MIGRATION4 = MIGRATION4.replace('  perform public.silo_api_touch_grant();\n', '');
+}
+if (mutation === 'log-browser') {
+  MIGRATION4 = MIGRATION4.replace(
+    '  -- A person in the browser is not a connection and is not logged here.\n'
+    + '  if not public.silo_api_is_integration() then\n    return;\n  end if;\n', '');
+}
+if (mutation === 'ignore-read-only') {
+  MIGRATION4 = MIGRATION4.replace(
+    "  if current_setting('transaction_read_only', true) = 'on' then\n    return;\n  end if;\n", '');
+}
+if (mutation === 'logging-can-break-a-read') {
+  MIGRATION4 = MIGRATION4.replace('  begin\n    insert into public.silo_api_call_log', '  insert into public.silo_api_call_log')
+    .replace(/  exception when others then\n    raise warning[^\n]*\n  end;\n/, '');
+}
+for (const [m, text] of [['no-touch', original4], ['log-browser', original4], ['ignore-read-only', original4], ['logging-can-break-a-read', original4]]) {
+  if (mutation === m) assert.notEqual(MIGRATION4, text, `mutation ${m} must reach 20261112040000's recorder too`);
+}
+assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3 || MIGRATION4 !== original4,
   `mutation ${mutation} changed nothing`);
 
 const A = '00000000-0000-4000-a000-00000000000a';   // company A
@@ -227,6 +252,7 @@ const apply = async (text) => {
 await apply(MIGRATION);
 await apply(MIGRATION2);
 await apply(MIGRATION3);
+await apply(MIGRATION4);
 
 /* One tool call, as PostgREST makes it: the request path names the function,
    the connection's token resolves to a grant, and the gate runs first. */
@@ -426,19 +452,20 @@ await test('recording a call counts as activity, under the existing hourly throt
   assert.equal((await rows()).length, 2, 'both calls are recorded even though only one touched the grant');
 });
 
-// ── Retention, paid for by the call ───────────────────────────────────────
-await test('rows older than 90 days are pruned, and only for that company', async () => {
+// ── Kept, not pruned (20261112040000) ─────────────────────────────────────
+await test('old rows are kept: the log is the usage record a company is billed from', async () => {
   await db.exec('truncate public.silo_api_call_log');
   await db.exec(`insert into public.silo_api_call_log (company_entity_id, grant_id, tool, created_at) values
     ('${A}', '${G_MEMBER}', 'silo_api_query', now() - interval '91 days'),
-    ('${A}', '${G_MEMBER}', 'silo_api_query', now() - interval '89 days'),
+    ('${A}', '${G_MEMBER}', 'silo_api_query', now() - interval '400 days'),
     ('${B}', '${G_B}', 'silo_api_query', now() - interval '400 days')`);
   await call({});
-  assert.equal((await rows(`company_entity_id = '${A}' and created_at < now() - interval '90 days'`)).length, 0);
-  assert.equal((await rows(`company_entity_id = '${A}' and created_at < now() - interval '88 days'`)).length, 1,
-    '89 days old is still inside the window');
-  assert.equal((await rows(`company_entity_id = '${B}'`)).length, 1,
-    'one company\'s call must never delete another\'s record');
+  assert.equal((await rows(`created_at < now() - interval '90 days'`)).length, 3,
+    'a call older than 90 days is still there after the next recorded call');
+  assert.equal((await rows(`company_entity_id = '${A}' and created_at > now() - interval '1 minute'`)).length, 1,
+    'and the new call is recorded');
+  const body = await one(`select pg_get_functiondef('public.silo_api_record_call(text)'::regprocedure) as d`);
+  assert.ok(!/delete\s+from/i.test(body.d), 'the recorder deletes nothing');
 });
 
 // ── Who may read it ───────────────────────────────────────────────────────
@@ -591,9 +618,11 @@ await test('re-applying the migration changes nothing and keeps the rows', async
   await apply(MIGRATION);
   await apply(MIGRATION2);
   await apply(MIGRATION3);
+  await apply(MIGRATION4);
   await apply(MIGRATION);
   await apply(MIGRATION2);
   await apply(MIGRATION3);
+  await apply(MIGRATION4);
   assert.deepEqual(await q(`select count(*)::int as n from public.silo_api_call_log`), before);
   assert.equal((await q(`select 1 from pg_policy
                           where polrelid = 'public.silo_api_call_log'::regclass`)).length, 1);

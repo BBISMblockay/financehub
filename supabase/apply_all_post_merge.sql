@@ -19718,4 +19718,5 @@ $c$select (select count(*) from v_po_header_summary
 -- 'error'), which used to roll back with the call. Owes one mcp deploy; either
 -- order is safe.
 \i migrations/20261112030000_api_call_log_connect_and_failures.sql
+\i migrations/20261112040000_api_call_log_keep_history.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
