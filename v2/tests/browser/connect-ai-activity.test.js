@@ -30,6 +30,11 @@ calls.push({ id: 'q1', grant_id: 'g-quiet', tool: 'silo_api_describe_tables', sc
   created_at: stamp(5), company_entity_id: HERE });
 calls.push({ id: 'q2', grant_id: 'g-quiet', tool: 'silo_api_list_reports', scope: 'reports:read',
   created_at: stamp(400), company_entity_id: HERE });
+// 20261112030000: a handshake is its own row, and a failed call is recorded.
+calls.push({ id: 'q3', grant_id: 'g-quiet', tool: 'silo_api_connect', scope: null,
+  created_at: stamp(500), company_entity_id: HERE, outcome: 'ok' });
+calls.push({ id: 'q4', grant_id: 'g-quiet', tool: 'silo_api_query', scope: null,
+  created_at: stamp(600), company_entity_id: HERE, outcome: 'error', error_code: '57014' });
 // Nothing for g-away: the log's policy returns only the ACTIVE company's rows,
 // so a page in this company cannot see that connection's history at all.
 
@@ -67,7 +72,7 @@ calls.push({ id: 'q2', grant_id: 'g-quiet', tool: 'silo_api_list_reports', scope
 
   /* 2. A quiet connection keeps its own history whatever the busy one did. */
   const quiet = await text('.cn-app[data-grant="g-quiet"] .cn-activity');
-  r.ok('the quiet connection still shows its own two calls', /\b2 calls recorded\b/.test(quiet));
+  r.ok('the quiet connection still shows its own four calls', /\b4 calls recorded\b/.test(quiet));
   r.ok('and its newest call is its own', /read the table list/.test(quiet));
 
   /* Structural: each card asked about its own grant, rather than one query for
@@ -91,7 +96,14 @@ calls.push({ id: 'q2', grant_id: 'g-quiet', tool: 'silo_api_list_reports', scope
   r.test('Show calls lists the 20 most recent', () => r.eq(shown, 20));
   const note = await text('.cn-app[data-grant="g-busy"] .cn-note');
   r.ok('and says it is a window onto more', /20 most recent of 25/.test(note));
-  r.ok('and still says refusals are not listed', /refused is not listed/.test(note));
+  r.ok('and says failed calls are included now', /including calls that failed/.test(note));
+
+  await page.click('.cn-app[data-grant="g-quiet"] [data-activity]');
+  const quietRows = await text('.cn-app[data-grant="g-quiet"] .cn-calls-table');
+  r.ok('a handshake reads as connected, not as listing reports', /connected/.test(quietRows));
+  r.ok('a failed call says so, with its code', /ran a query — failed \(57014\)/.test(quietRows));
+  r.ok('and is marked as a failure', await page.locator('.cn-app[data-grant="g-quiet"] td.cn-call-failed').count() === 1);
+  await page.click('.cn-app[data-grant="g-quiet"] [data-activity]');
 
   await page.click('.cn-app[data-grant="g-busy"] [data-activity]');   // hide
   await page.click('.cn-app[data-grant="g-busy"] [data-ask]');        // Remove
@@ -99,6 +111,29 @@ calls.push({ id: 'q2', grant_id: 'g-quiet', tool: 'silo_api_list_reports', scope
   await page.click('.cn-app[data-grant="g-busy"] [data-activity]');
   const visible = await page.isVisible('.cn-app[data-grant="g-busy"] .cn-calls');
   r.ok('after cancelling a removal, Show calls still opens the history once', visible);
+
+  /* 5. Before 20261112030000 is applied there is no outcome column, and
+     PostgREST refuses the whole select for it. The card must keep its
+     activity line rather than lose it. */
+  const pre = await suite.open('/v2/settings-connect-ai.html', {
+    profiles: [{ id: 'test-user', email: 'test@baseballism.com', role: 'admin' }],
+    entities: [{ id: HERE, title: 'Baseballism' }],
+    silo_api_grants: [
+      { id: 'g-quiet', client_id: 'chatgpt', user_id: 'test-user', company_entity_id: HERE,
+        scopes: ['data:read'], consented_at: stamp(60 * 24 * 20), expires_at: null,
+        revoked_at: null, last_used_at: stamp(5) },
+    ],
+    silo_api_call_log: calls.filter((c) => c.grant_id === 'g-quiet')
+      .map(({ outcome, error_code, ...rest }) => rest),
+  }, {
+    rpc: { silo_api_list_reports: `function () { return { reports: [], company_reports: { count: 0 } }; }` },
+    missingColumns: { silo_api_call_log: ['outcome', 'error_code'] },
+    ready: () => !!document.querySelector('.cn-app[data-grant="g-quiet"] .cn-activity'),
+  });
+  const preLine = ((await pre.textContent('.cn-app[data-grant="g-quiet"] .cn-activity')) || '').replace(/\s+/g, ' ');
+  r.ok('before the migration, the card still shows its calls', /\b4 calls recorded\b/.test(preLine)
+    && /read the table list/.test(preLine));
+  await pre.close();
 
   const shot = process.env.CONNECT_AI_SHOT || '/opt/cursor/artifacts/connect-ai-activity.png';
   try { await page.screenshot({ path: shot, fullPage: true }); }

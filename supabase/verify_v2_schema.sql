@@ -7681,6 +7681,10 @@ select 'developer API boundary' as check_name, case
         -- codes a person asked for, and recording the one the bot created in
         -- the company's own Shopify. Both on silo_api_path_allowed().
         'silo_api_codes_to_create', 'silo_api_mark_code_created',
+        -- 20261112030000: the MCP server's connect probe and its failure
+        -- record. No scope; each touches only the connection's own log.
+        -- Both on silo_api_path_allowed().
+        'silo_api_connect', 'silo_api_record_failure',
         'silo_check_request', 'mfa_session_satisfied',
         'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
         'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -7700,6 +7704,7 @@ select 'developer API boundary' as check_name, case
                 'silo_api_create_task', 'silo_api_scopes',
                 'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
                 'silo_api_codes_to_create', 'silo_api_mark_code_created',
+                'silo_api_connect', 'silo_api_record_failure',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
                 'silo_api_require_scope', 'silo_api_path_allowed', 'active_company_id')
@@ -8732,6 +8737,23 @@ select 'connection call log' as check_name,
                     and p.proname in ('silo_api_describe_tables', 'silo_api_list_reports')
                     and p.provolatile <> 'v')
       then 'BROKEN — a catalog tool is STABLE again, so PostgREST runs it read-only and it records nothing (20261104030000)'
+    -- 20261112030000: connections counted apart from tool use, failures kept.
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'silo_api_call_log'
+                        and column_name = 'outcome')
+      or to_regprocedure('public.silo_api_connect()') is null
+      or to_regprocedure('public.silo_api_record_failure(text,text)') is null
+      then 'MISSING — call log outcomes / connect probe (20261112030000 not applied)'
+    when coalesce(has_function_privilege('anon', to_regprocedure('public.silo_api_record_failure(text,text)'), 'execute'), false)
+      or coalesce(has_function_privilege('anon', to_regprocedure('public.silo_api_connect()'), 'execute'), false)
+      then 'CRITICAL — anon can call the connect probe or write failure rows'
+    when pg_get_functiondef(to_regprocedure('public.silo_api_connect()')) not like '%silo_api_record_call%'
+      then 'BROKEN — silo_api_connect no longer records the connection'
+    when pg_get_functiondef(to_regprocedure('public.silo_api_record_failure(text,text)')) not like '%silo_api_grant()%'
+      then 'CRITICAL — silo_api_record_failure no longer takes the grant from the token'
+    when pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%/rpc/silo_api_connect%'
+      or pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%/rpc/silo_api_record_failure%'
+      then 'BROKEN — the connect probe or failure record is off the API path, so the MCP server falls back and failures go unrecorded'
     else 'ok'
   end as status;
 
