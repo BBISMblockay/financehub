@@ -3479,3 +3479,31 @@ column, one purpose: the cooldown on an automatic `/transactions/refresh`.
   same handler. Tests: `scripts/tests/plaid-finance-handler.test.mjs`,
   `scripts/tests/plaid-scheduled-sync.test.mjs`,
   `scripts/tests/plaid-sync.test.mjs`.
+
+### 20261112220000_affiliate_order_match_index.sql — the affiliate order match
+
+`shopify_orders_co_created_coded_idx`, a partial index on
+`(company_entity_id, shopify_created_at) where discount_codes is not null and
+jsonb_array_length(discount_codes) > 0`.
+
+- **What it fixes.** `affiliate_resolve_attributions` (20261110180000) scans a
+  company's orders for its window and keeps the ones that carry a discount
+  code. `shopify_orders_co_created_idx` served the company and date columns, so
+  the code test ran as a FILTER — which **detoasts `discount_codes` for every
+  order in the window**, not only the ones that used a code. Measured on
+  production 2026-11-12, 48 days of one company's orders: 8,744 rows kept,
+  35,593 removed by the filter, **12.3s cold and 6.8s warm for the scan alone**
+  against the **8s** statement timeout every caller shares (PostgREST connects
+  as `authenticator`, which sets it; `set role service_role` does not lift it).
+  Both the nightly job and Studio's "Update commissions" were cancelled every
+  time, so on a high-volume store an affiliate order could never appear — while
+  nothing went red elsewhere, because the orders themselves imported fine.
+- **The predicate must stay identical to that function's WHERE clause**, both
+  conditions. Change one and the planner stops using the index, silently.
+- The existing gin index on `discount_codes` stays: it answers containment
+  lookups (`@> '["CODE"]'`), not this range scan.
+- Index only — nothing is rewritten and no existing index changes. It holds a
+  brief ACCESS EXCLUSIVE lock on `shopify_orders` while it builds, so apply it
+  when a Shopify sync is not mid-run. **No deploy owed.**
+- Verify: `verify_v2_schema.sql` check "Affiliate Studio". Tests:
+  `scripts/tests/affiliate-commissions.test.mjs`.
