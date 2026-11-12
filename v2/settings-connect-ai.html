@@ -492,9 +492,12 @@
      the first screen on which "what did that app read" has an answer.
 
      It says plainly what it does NOT cover, because a log that looks complete
-     and is not is worse than no log: a refused call is not recorded (the
-     refusal rolls its own transaction back), and neither is what came back. */
+     and is not is worse than no log: what came back is not recorded. Since
+     20261112030000 a refused or failed call IS recorded (the MCP server
+     reports it after the fact, outcome = 'error'), and opening a connection
+     is its own "connected" row rather than a "listed reports". */
   const TOOL_NAMES = {
+    silo_api_connect: 'connected',
     silo_api_query: 'ran a query',
     silo_api_run_report: 'ran a report',
     silo_api_list_reports: 'listed reports',
@@ -503,6 +506,10 @@
     unknown: 'made a call',
   };
   const toolName = (t) => TOOL_NAMES[t] || String(t || '').replace(/^silo_api_/, '').replace(/_/g, ' ');
+  // One call, as a person reads it: what it was, and whether it failed.
+  const callLabel = (r) => toolName(r.tool) + (r.outcome === 'error'
+    ? ' — failed' + (r.error_code && r.error_code !== 'error' ? ' (' + r.error_code + ')' : '')
+    : '');
 
   /* Activity is recorded per company, and the log's policy only ever returns
      the ACTIVE company's rows. "Your apps" deliberately lists the person's
@@ -583,7 +590,7 @@
     return '<div class="cn-meta cn-activity">'
       + esc(counts.total) + ' call' + (counts.total === 1 ? '' : 's') + ' recorded'
       + (counts.day ? ', ' + esc(counts.day) + ' in the last day' : '')
-      + (newest ? ' · last: ' + esc(toolName(newest.tool))
+      + (newest ? ' · last: ' + esc(callLabel(newest))
           + ' <span title="' + esc(exact(newest.created_at)) + '">' + esc(ago(newest.created_at)) + '</span>'
         : '')
       + ' <button class="cn-link" type="button" data-activity="' + esc(g.id) + '">Show calls</button>'
@@ -599,13 +606,13 @@
     const total = (_callCounts[g.id] || {}).total || rows.length;
     box.innerHTML = '<table class="bcn-table cn-calls-table"><tbody>'
       + rows.map((r) => '<tr><td class="bcn-mono">' + esc(exact(r.created_at)) + '</td>'
-        + '<td>' + esc(toolName(r.tool)) + '</td>'
+        + '<td' + (r.outcome === 'error' ? ' class="cn-call-failed"' : '') + '>' + esc(callLabel(r)) + '</td>'
         + '<td class="bcn-mono">' + esc(r.scope || '') + '</td></tr>').join('')
       + '</tbody></table>'
       + '<div class="cn-note">'
       + (total > rows.length ? 'The ' + esc(rows.length) + ' most recent of ' + esc(total) + ' calls. ' : '')
-      + 'Calls this connection was allowed to make. A call SILO refused is not'
-      + ' listed, and neither is what the answer contained.</div>';
+      + 'What this connection asked SILO for, including calls that failed.'
+      + ' What the answer contained is not listed.</div>';
     box.hidden = false;
     if (btn) btn.textContent = 'Hide calls';
   }
@@ -661,14 +668,20 @@
     let answered = false;
     await Promise.all(here.map(async (g) => {
       try {
-        const [rows, total, day] = await Promise.all([
-          db.from('silo_api_call_log').select('grant_id, tool, scope, created_at')
-            .eq('grant_id', g.id).order('created_at', { ascending: false }).limit(CALLS_SHOWN),
+        // outcome/error_code arrive with 20261112030000. Before it is applied
+        // PostgREST answers 42703 for the whole select, so ask again without
+        // them rather than lose the card's activity line.
+        const recent = (cols) => db.from('silo_api_call_log').select(cols)
+          .eq('grant_id', g.id).order('created_at', { ascending: false }).limit(CALLS_SHOWN);
+        const [rows0, total, day] = await Promise.all([
+          recent('grant_id, tool, scope, created_at, outcome, error_code'),
           db.from('silo_api_call_log').select('id', { count: 'exact', head: true })
             .eq('grant_id', g.id),
           db.from('silo_api_call_log').select('id', { count: 'exact', head: true })
             .eq('grant_id', g.id).gte('created_at', since),
         ]);
+        const rows = rows0.error && rows0.error.code === '42703'
+          ? await recent('grant_id, tool, scope, created_at') : rows0;
         if (rows.error || total.error || day.error) return;
         answered = true;
         _calls[g.id] = Array.isArray(rows.data) ? rows.data : [];

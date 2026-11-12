@@ -19712,4 +19712,10 @@ $c$select (select count(*) from v_po_header_summary
 -- health. Column only, default false: every existing workspace keeps today's
 -- behaviour and nothing in scripts/ names a company.
 \i migrations/20261111234000_company_settings_is_demo.sql
+-- 2026-11-12: the AI-connection call log counts a connection apart from tool
+-- use (silo_api_connect, the MCP handshake's probe, which was logging as
+-- "listed reports") and keeps failed calls (silo_api_record_failure, outcome =
+-- 'error'), which used to roll back with the call. Owes one mcp deploy; either
+-- order is safe.
+\i migrations/20261112030000_api_call_log_connect_and_failures.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

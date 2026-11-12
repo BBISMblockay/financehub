@@ -127,6 +127,7 @@
 .connect-ai-page .cn-calls {margin-top:6px;}
 .connect-ai-page table.bcn-table.cn-calls-table {font-size:11px;}
 .connect-ai-page table.bcn-table.cn-calls-table td {padding:3px 8px 3px 0;border:0;}
+.connect-ai-page table.bcn-table.cn-calls-table td.cn-call-failed {color:var(--bcn-neg);}
 .connect-ai-page .cn-note {margin-top:4px;color:var(--bcn-ink-3);font-size:10px;}
 .connect-ai-page .cn-actions {grid-column:3;grid-row:1;display:flex;flex-direction:column;align-items:stretch;gap:6px;width:var(--ca-act-width);}
 .connect-ai-page .cn-actions .bcn-btn {width:100%;justify-content:center;box-sizing:border-box;}

@@ -152,9 +152,29 @@ test('initialize asks the database first, with the caller\'s own token and the p
   assert.equal(body.result.protocolVersion, '2025-03-26', 'a supported version is echoed');
   assert.deepEqual(body.result.capabilities, { tools: { listChanged: false } });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].fn, 'silo_api_list_reports');
+  assert.equal(calls[0].fn, 'silo_api_connect', 'the handshake is logged as a connection, not as listing reports');
   assert.equal(calls[0].headers.Authorization, INTEGRATION, 'the caller\'s token, verbatim');
   assert.equal(calls[0].headers.apikey, ANON, 'the PUBLIC key, never the service role');
+});
+
+test('before 20261112030000 is applied, initialize falls back to the old probe and records nothing', async () => {
+  for (const missing of [
+    [404, { code: 'PGRST202', message: 'Could not find the function public.silo_api_connect', details: null, hint: null }],
+    [403, gateRefusal('integration_not_allowed', 'This connection cannot use that feature.')],
+  ]) {
+    const { handle, calls } = harness((fn) => (fn === 'silo_api_connect' ? missing : [200, CATALOG]));
+    const res = await handle(post(rpc('initialize', { protocolVersion: '2025-03-26' })));
+    assert.equal(res.status, 200, missing[1].code || 'gate');
+    assert.deepEqual(calls.map((c) => c.fn), ['silo_api_connect', 'silo_api_list_reports'],
+      'connect, then the old probe; no failure row for a function that is not there yet');
+  }
+});
+
+test('a dead connection at initialize is told to sign in again, and costs no extra request', async () => {
+  const { handle, calls } = harness(() => [403, gateRefusal('integration_revoked', 'This connection is no longer authorized.')]);
+  const res = await handle(post(rpc('initialize', { protocolVersion: '2025-03-26' })));
+  assert.equal(res.status, 401);
+  assert.deepEqual(calls.map((c) => c.fn), ['silo_api_connect']);
 });
 
 test('an unknown protocol version gets the newest one this server speaks', async () => {
@@ -256,6 +276,60 @@ test('list_reports returns the catalog exactly as the database gave it', async (
   assert.deepEqual(body.result.structuredContent, CATALOG);
   assert.deepEqual(JSON.parse(body.result.content[0].text), CATALOG);
   assert.equal(calls[0].fn, 'silo_api_list_reports');
+});
+
+// ── failures reach the call log (20261112030000) ──────────────────────────
+// A failed tool call's own log row is rolled back with it, so the server
+// records the failure in a second request. It must never change the answer.
+
+test('a failed tool call is recorded with its tool and code, and the answer is unchanged', async () => {
+  const timeout = [500, { code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null }];
+  const answers = {};
+  // Recorded; refused with a 500; and the record request itself throwing.
+  for (const recordAnswer of [[200, null], [500, { message: 'boom' }], 'throw']) {
+    const { handle, calls } = harness((fn) => {
+      if (fn !== 'silo_api_record_failure') return timeout;
+      if (recordAnswer === 'throw') throw new TypeError('fetch failed');
+      return recordAnswer;
+    });
+    const body = await (await handle(post(rpc('tools/call', { name: 'query', arguments: { sql: 'select 1' } })))).json();
+    assert.deepEqual(calls.map((c) => c.fn), ['silo_api_query', 'silo_api_record_failure']);
+    assert.deepEqual(calls[1].body, { p_tool: 'silo_api_query', p_error_code: '57014' });
+    assert.equal(calls[1].headers.Authorization, INTEGRATION, 'recorded as the caller, never with any other key');
+    answers[recordAnswer === 'throw' ? 'throw' : recordAnswer[0]] = body;
+  }
+  assert.equal(answers[200].result.isError, true);
+  assert.deepEqual(answers[500], answers[200], 'a refused record changes nothing the bot sees');
+  assert.deepEqual(answers.throw, answers[200], 'nor does a record request that never arrives');
+});
+
+test('a failure with no code is recorded by its HTTP status', async () => {
+  const { handle, calls } = harness((fn) => (fn === 'silo_api_record_failure' ? [200, null] : [502, {}]));
+  await handle(post(rpc('tools/call', { name: 'run_report', arguments: { report_id: REPORT } })));
+  assert.deepEqual(calls[1].body, { p_tool: 'silo_api_run_report', p_error_code: 'http_502' });
+});
+
+test('a refusal that needs a new sign-in, and the scope read, are not recorded', async () => {
+  const dead = harness(() => [403, gateRefusal('integration_revoked', 'This connection is no longer authorized.')]);
+  await dead.handle(post(rpc('tools/call', { name: 'query', arguments: { sql: 'select 1' } })));
+  assert.deepEqual(dead.calls.map((c) => c.fn), ['silo_api_query'], 'the hook would refuse the record too');
+
+  const scopes = harness(() => [500, { message: 'down' }]);
+  await scopes.handle(post(rpc('tools/list')));
+  assert.deepEqual(scopes.calls.map((c) => c.fn), ['silo_api_scopes'], 'listing tools is not a tool call');
+});
+
+test('a scope refusal IS recorded: it is the bot calling a tool it was not granted', async () => {
+  const { handle, calls } = harness((fn) => (fn === 'silo_api_record_failure' ? [200, null]
+    : [403, gateRefusal('insufficient_scope', 'This connection is not allowed to do that.')]));
+  await handle(post(rpc('tools/call', { name: 'describe_tables', arguments: {} })));
+  assert.deepEqual(calls[1].body, { p_tool: 'silo_api_describe_tables', p_error_code: 'insufficient_scope' });
+});
+
+test('a successful call costs exactly one request', async () => {
+  const { handle, calls } = harness();
+  await handle(post(rpc('tools/call', { name: 'list_reports', arguments: {} })));
+  assert.equal(calls.length, 1);
 });
 
 test('list_reports kind "company" calls the saved-reports search overload, and needs a search', async () => {
@@ -553,11 +627,13 @@ test('the function never reaches for the database service role; live access adds
     assert.ok(!/createClient\(/.test(src), `${f} builds no Supabase client`);
   }
   const src = read('supabase/functions/mcp/handler.mjs');
-  const rpcs = [...src.matchAll(/callRpc\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
+  const rpcs = [...src.matchAll(/(?:callRpc|rawRpc)\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
-    ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
-     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_query',
+    ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_connect', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
+     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_query', 'silo_api_record_failure',
      'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
+  // Every PostgREST request goes through rawRpc, so that pin is the whole list.
+  assert.equal([...src.matchAll(/fetchImpl\(base \+ '\/rest\/v1\/rpc\/'/g)].length, 1);
 });
 
 test('the claims reader is the shared gate, byte for byte', () => {

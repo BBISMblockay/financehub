@@ -391,8 +391,36 @@ export function createMcpHandler({ env, fetchImpl }) {
     json(status, { jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
   /* One PostgREST call as the caller. Returns { ok, status, data } or the
-     database's own refusal, decoded. */
-  async function callRpc(authorization, fn, body) {
+     database's own refusal, decoded. A failed TOOL call is also recorded in
+     the connection's own call log (recordFailure), because the failed call's
+     own log row is rolled back with it (20261112030000). */
+  async function callRpc(authorization, fn, body, opts = {}) {
+    const out = await rawRpc(authorization, fn, body);
+    if (!out.ok && opts.record !== false) await recordFailure(authorization, fn, out);
+    return out;
+  }
+
+  /* Failures that are not worth a row, or that the record could not land for:
+     a dead token or grant is refused by the pre-request hook before any
+     function runs (so a second request would be refused the same way), and a
+     path or function the database does not have yet is the window before
+     20261112030000 is applied, when silo_api_record_failure is absent too. */
+  const UNRECORDED = new Set(['PGRST202', 'integration_not_allowed']);
+
+  /* Best effort, and never the reason a tool answers differently: any error
+     here, including the function not existing yet, is swallowed. */
+  async function recordFailure(authorization, fn, out) {
+    if (fn === 'silo_api_scopes' || fn === 'silo_api_record_failure') return;
+    if (out.reauth || UNRECORDED.has(out.code)) return;
+    try {
+      await rawRpc(authorization, 'silo_api_record_failure', {
+        p_tool: fn,
+        p_error_code: out.code || ('http_' + out.status),
+      });
+    } catch (_) { /* the log is a record, not a dependency */ }
+  }
+
+  async function rawRpc(authorization, fn, body) {
     const res = await fetchImpl(base + '/rest/v1/rpc/' + fn, {
       method: 'POST',
       headers: {
@@ -421,7 +449,7 @@ export function createMcpHandler({ env, fetchImpl }) {
   async function toolsFor(authorization) {
     let scopes = [];
     try {
-      const out = await callRpc(authorization, 'silo_api_scopes', {});
+      const out = await callRpc(authorization, 'silo_api_scopes', {}, { record: false });
       if (out.ok && Array.isArray(out.data)) scopes = out.data;
     } catch (_) { scopes = []; }
     const allowed = TOOLS.filter((t) => {
@@ -436,7 +464,16 @@ export function createMcpHandler({ env, fetchImpl }) {
     // (PostgREST does) and the grant's state (the pre-request gate does), so
     // a forged, expired, revoked or idle connection is refused here, before
     // the client believes it is connected.
-    const probe = await callRpc(authorization, 'silo_api_list_reports', {});
+    //
+    // silo_api_connect (20261112030000) logs the handshake as a connection
+    // rather than as "listed reports", which is what this probe used to be and
+    // why list_reports looked like the second-busiest tool. Before that
+    // migration is applied the function is absent or off the API path, and the
+    // old probe does the same job.
+    let probe = await callRpc(authorization, 'silo_api_connect', {});
+    if (!probe.ok && UNRECORDED.has(probe.code)) {
+      probe = await callRpc(authorization, 'silo_api_list_reports', {});
+    }
     if (!probe.ok) return refusalResponse(id, probe);
 
     const asked = params && typeof params.protocolVersion === 'string' ? params.protocolVersion : '';
@@ -485,7 +522,11 @@ export function createMcpHandler({ env, fetchImpl }) {
         result = name === 'describe_connection'
           ? describeLiveFields(await liveFields({connection:scoped.data,fetchImpl}), {search:args.search,offset})
           : await liveQuery({connection:scoped.data,fields:args.fields,datePreset:args.date_preset,dateFrom:args.date_from,dateTo:args.date_to,rollup:args.rollup ?? 'none',fetchImpl,key:String(env.WINDSOR_API_KEY || '')});
-      } catch (e) { return rpcResult(id, toolErr(e.message)); }
+      } catch (e) {
+        // The live source failed, not the database: no RPC failed, so record it here.
+        await recordFailure(authorization, 'silo_api_windsor_connections', { ok: false, code: 'live_source_error', status: 502 });
+        return rpcResult(id, toolErr(e.message));
+      }
       // Do not release an external result after publication/grant revocation.
       const again = await callRpc(authorization, 'silo_api_windsor_connections', {p_connection_id:args.connection_id,p_offset:0});
       if (!again.ok) return refusalResponse(id, dataScopeHint(again), true);
