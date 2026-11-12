@@ -130,7 +130,7 @@ const tables = {
   products_master: [{ company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: null, shopify_handle: 'trail-hat' }],
   entity_memberships: [{ entity_id: CO, user_id: 'u1' }],
 };
-const ready = () => !!document.querySelector('#prospectsBody .bcn-card');
+const ready = () => !!document.querySelector('#overviewBody .bcn-card');
 const openMore = (page) => page.evaluate(() => document.querySelectorAll('details.af-more').forEach((d) => { d.open = true; }));
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
 
@@ -148,9 +148,25 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { ad_id: 'ad2', ad_name: 'Catalog', title: 'All releases', body: 'x', image_path: `test-company/${'cd34'.repeat(16)}.jpg`, image_shared_by: 9, recent_spend: 90, last_day: '2026-11-08' },
         { ad_id: 'ad3', ad_name: 'No picture', title: 'Text only', body: 'y', image_path: null, recent_spend: 10, last_day: '2026-11-08' }] } });
     page.on('pageerror', (e) => errors.push(e.message));
-    // Simple page: five tabs (Share added for the portal feed), Find creators first, one next-step line.
-    R.ok('the page has five tabs', (await page.$$('#tabs [data-tab]')).length === 5);
-    const next = await text(page, '#nextStep');
+    // Simple page: six tabs (Overview added), Overview first, the To do list on it.
+    R.ok('the page has six tabs', (await page.$$('#tabs [data-tab]')).length === 6);
+    R.ok('the page opens on Overview', await page.evaluate(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'overview'));
+    const over = await text(page, '#overviewBody');
+    R.has(over, 'Sales from codes', 'Overview leads with how the program is doing');
+    R.has(over, '$50', 'sales come from the EARNING attribution only, not the refused one');
+    R.has(over, 'Commission unpaid', 'owed money is what has not been paid, not what no payout has claimed');
+    R.has(over, 'Top affiliates', 'Overview names who is carrying the program');
+    R.has(over, 'Reach out', 'Overview names who needs a message');
+    R.has(over, 'PAT10', 'a live code with no order is a reason to reach out');
+    R.ok('the nudge can be copied', !!(await page.$('#overviewBody [data-act="ov-copy"]')));
+    R.ok('the window can be widened', !!(await page.$('#overviewBody [data-act="ov-window"]')));
+    R.not(over, 'undefined', 'no number renders as undefined');
+    R.not(over, 'NaN', 'no number renders as NaN');
+    R.ok('the strip above the tabs does not repeat the To do list', !(await page.evaluate(() => {
+      const el = document.getElementById('nextStep');
+      return el && !el.hidden && el.textContent.trim().length > 0;
+    })));
+    const next = over;
     R.has(next, 'waiting for your review', 'the next-step line says what to do now');
     R.has(next, 'not credited', 'uncredited code orders are surfaced');
     R.has(next, 'To do', 'everything waiting on a person is one list');
@@ -295,13 +311,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       affiliate_payouts: [{ id: 'po-d', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now }] };
     const loop = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     loop.on('pageerror', (e) => errors.push(e.message));
-    const todo = await text(loop, '#nextStep');
+    const todo = await text(loop, '#overviewBody');
     R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
-    R.ok('with a prompt to copy', !!(await loop.$('#nextStep [data-act="copy-codes-prompt"]')));
+    R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
     // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
     await loop.setViewportSize({ width: 1280, height: 520 });
-    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
+    const pinch = await loop.$eval('#overviewBody', (el) => el.scrollHeight - el.clientHeight);
     R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
@@ -331,7 +347,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(progRow?.outreach_body, 'Hey {name}, here: {signup_link}', 'the edited outreach message is saved');
     await loop.close();
     const nomoney = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: false } });
-    R.not(await text(nomoney, '#nextStep'), 'payout(s) to approve', 'someone who cannot approve money is not asked to');
+    R.not(await text(nomoney, '#overviewBody'), 'payout(s) to approve', 'someone who cannot approve money is not asked to');
     await nomoney.close();
 
     // ── payout export: the file is what the database claimed ─────────────
@@ -463,6 +479,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(hero, 'Accept the terms', 'the three steps say what happens next');
     R.eq(await join.evaluate(() => document.querySelector('#hero .af-brand img.af-logo')?.getAttribute('src')), LOGO, 'the company logo heads the invitation');
     R.eq(await join.evaluate(() => document.querySelector('#hero img.af-logo')?.alt), 'Brand A', 'with the brand name as its text');
+    R.ok('the platform terms are linked next to the program terms', !!(await join.$('a[href="/legal/affiliate-terms.html"]')));
     await join.fill('#signed', 'Pat Trails');
     await join.check('#agree');
     await join.click('#go');
@@ -470,7 +487,6 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const acc = calls.find((c) => c.action === 'accept');
     R.eq(acc?.terms_version, 3, 'acceptance sends the version that was on screen');
     R.eq(acc?.platform_terms_version, 1, 'and the platform terms version');
-    R.ok('the platform terms are linked next to the program terms', !!(await join.$('a[href="/legal/affiliate-terms.html"]')));
     R.eq(acc?.signed_name, 'Pat Trails');
     await join.close();
 

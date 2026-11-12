@@ -1050,8 +1050,9 @@ function ovWhy(x) {
 function ovTodoCard() {
   const items = todoItems();
   const rows = items.map((x) => `<div class="af-ov-ro-row"><div class="af-ov-ro-b"><div class="af-ov-why">${esc(x.text)}</div></div>`
-    + `<div>${btn('Open', 'go-tab', { t: x.tab })}</div></div>`).join('');
-  return card('To do', rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>',
+    + `<div class="af-todo-acts">${x.extra || ''}${btn('Open', 'go-tab', { t: x.tab })}</div></div>`).join('');
+  const how = `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
+  return card('To do', (rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>') + how,
     items.length ? pill(`${items.length} waiting`, 'accent') : pill('clear', 'pos'));
 }
 function ovLeaderboard(list) {
