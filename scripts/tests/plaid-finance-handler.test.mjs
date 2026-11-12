@@ -26,6 +26,18 @@ const mutations = {
   // branch and clears their coding.
   backfillOverwrites: s => s.replace('.filter((entry: any) => !existing.has(entry.transaction_id))', ''),
   backfillMovesCursor: s => s.replace('p_next_cursor: claim.cursor, p_added: added', "p_next_cursor: 'cursor-moved-by-backfill', p_added: added"),
+  // The point of the cooldown is that /transactions/refresh is an add-on call,
+  // billed and rate-limited, answered asynchronously by the institution. Drop
+  // the comparison and every six-hourly run asks the same bank again.
+  autoRefreshIgnoresCooldown: s => s.replace('if (!Number.isFinite(asked) || Date.now() - asked >= AUTO_REFRESH_COOLDOWN_HOURS * 3_600_000) {', 'if (true) {'),
+  // Stamping after the request means a refused or lost call is retried on
+  // every run, which is the thing the cooldown exists to prevent.
+  autoRefreshStampsAfterCall: s => s.replace(
+    "await updateConnection(db, connection.id, companyId, { auto_refresh_requested_at: new Date().toISOString() });\n              await request('/transactions/refresh', { access_token: token });",
+    "await request('/transactions/refresh', { access_token: token });\n              await updateConnection(db, connection.id, companyId, { auto_refresh_requested_at: new Date().toISOString() });"),
+  // A feed that is delivering must never be kicked: the refresh is for the one
+  // case the reads cannot cover, a bank that has gone quiet toward Plaid.
+  autoRefreshWithoutSilence: s => s.replace('if (topUp && topUp.imported === 0 && connection.status === \'active\') {', 'if (connection.status === \'active\') {'),
   refreshResetsCursor: s => s.replace('return json({ account_id: account.id, requested: true });',
     "await db.from('plaid_accounts').update({ cursor: null }).eq('id', account.id).eq('company_entity_id', companyId);\n      return json({ account_id: account.id, requested: true });"),
 };
@@ -171,7 +183,11 @@ async function fixture(options = {}) {
       return Response.json({ item: { item_id: options.wrongItem ? 'wrong-item' : 'item-1' },
         accounts: options.accounts || [providerAccount] });
     }
-    if (parsed.pathname === '/transactions/refresh') return Response.json({ request_id: 'synthetic-refresh-request' });
+    if (parsed.pathname === '/transactions/refresh') {
+      if (options.refreshError) return Response.json({ error_code: options.refreshError,
+        error_message: `${accessToken} private data`, request_id: 'private-id' }, { status: 400 });
+      return Response.json({ request_id: 'synthetic-refresh-request' });
+    }
     if (parsed.pathname === '/transactions/get') {
       const all = options.ranged || [transaction('held-1'), transaction('missing-1', { date: '2026-10-28' })];
       const slice = all.slice(body.options.offset, body.options.offset + body.options.count);
@@ -673,6 +689,96 @@ for (const options of [{ account: { source_id: null } }, { connection: { status:
   // Reported through safePlaidError like every other provider-side failure,
   // so a top-up can never leak a provider message to the browser.
   assert.equal(out.body.top_up.failed, 'PLAID_REQUEST_FAILED');
+  assert.ok(Array.isArray(out.body.batch_ids));
+  scenarios++;
+}
+{
+  // The whole point of this change. The cursor delivered nothing and the
+  // date-range read found nothing we did not already hold, so Plaid itself
+  // does not have the days -- and only a request to the institution can
+  // recover that. It used to need a person to press a button.
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')] });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.top_up.imported, 0, 'the bank offered nothing SILO was missing');
+  assert.deepEqual(out.body.refetch, { requested: true });
+  assert.equal(f.calls('/transactions/refresh').length, 1);
+  assert.equal(f.calls('/transactions/refresh')[0].body.access_token, accessToken);
+  assert.ok(Array.isArray(out.body.batch_ids), 'the scheduled runner can still read the sync result');
+  assert.equal(f.records.plaid_accounts[0].cursor, 'cursor-next', 'kicking the feed does not touch the saved cursor');
+  assert.ok(f.records.plaid_connections[0].auto_refresh_requested_at, 'the request is remembered on the item');
+  scenarios++;
+}
+{
+  // Asked within the window, it waits. The institution answers
+  // asynchronously, so asking again six hours later buys nothing and spends
+  // the add-on again.
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')],
+    connection: { auto_refresh_requested_at: new Date(Date.now() - 3 * 3_600_000).toISOString() } });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.refetch, undefined, 'one request per item per day, not one per run');
+  assert.equal(f.calls('/transactions/refresh').length, 0);
+  scenarios++;
+}
+{
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')],
+    connection: { auto_refresh_requested_at: new Date(Date.now() - 30 * 3_600_000).toISOString() } });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.body.refetch, { requested: true }, 'past the window it asks again');
+  scenarios++;
+}
+{
+  // The date-range read recovered the days, so Plaid had them all along and
+  // the bank never needed asking.
+  const f = await fixture({ pages: [page()] });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.top_up.imported, 1);
+  assert.equal(out.body.refetch, undefined, 'a feed Plaid can still answer for is not asked to re-fetch');
+  assert.equal(f.calls('/transactions/refresh').length, 0);
+  scenarios++;
+}
+for (const options of [{ pages: [page({ added: [transaction('new-1')] })] },
+  { pages: [page()], heldDates: [new Date().toISOString().slice(0, 10)] },
+  { pages: [page()], held: [] }]) {
+  const f = await fixture(options);
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.refetch, undefined, 'a delivering, current or brand-new feed is never kicked');
+  assert.equal(f.calls('/transactions/refresh').length, 0);
+  scenarios++;
+}
+for (const status of ['error', 'login_required']) {
+  // A connection a person has to re-authorize is not a bank that went quiet.
+  // Asking it to re-fetch spends the add-on on a request Plaid cannot make.
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')], connection: { status } });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.refetch, undefined, 'a connection awaiting re-authorization is not kicked');
+  assert.equal(f.calls('/transactions/refresh').length, 0);
+  scenarios++;
+}
+{
+  // A refused request still waits out the window: the stamp is written first,
+  // so a plan without the add-on costs one call a day, not one per run. And
+  // the committed sync stays a success.
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')], refreshError: 'INVALID_PRODUCT' });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.refetch.failed, 'INVALID_PRODUCT');
+  assert.ok(Array.isArray(out.body.batch_ids), 'a failed kick does not lose the sync that committed');
+  assert.ok(f.records.plaid_connections[0].auto_refresh_requested_at, 'a refused request is still remembered');
+  scenarios++;
+}
+{
+  const f = await fixture({ pages: [page()], ranged: [transaction('held-1')],
+    account: { company_entity_id: ids.company }, connectionUpdateFails: true });
+  const out = await f.request({ action: 'sync', account_id: ids.account });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.refetch.failed, 'PLAID_REQUEST_FAILED');
+  assert.equal(f.calls('/transactions/refresh').length, 0, 'no request goes out that cannot be remembered');
   assert.ok(Array.isArray(out.body.batch_ids));
   scenarios++;
 }

@@ -31,7 +31,7 @@ test('signed identity rejects forks, other jobs, branches, subjects, expired tok
   await assert.rejects(verifySchedulerIdentity('unsigned', audience, keys.publicKey));
 });
 const account = '00000000-0000-0000-0000-000000000001';
-function fixture({ enabled = 'true', syncFails = false, empty = false, discoveryFails = false } = {}) {
+function fixture({ enabled = 'true', syncFails = false, empty = false, discoveryFails = false, body = { batch_ids: [], exceptions: 1 } } = {}) {
   const events = [];
   const query = new Proxy({}, { get(_target, name) {
     if (name === 'then') return (resolve, reject) => Promise.resolve({ data: empty ? [] : [{ id: account }], error: discoveryFails ? {} : null }).then(resolve, reject);
@@ -41,7 +41,7 @@ function fixture({ enabled = 'true', syncFails = false, empty = false, discovery
     verifyIdentity: (value, aud) => verifySchedulerIdentity(value, aud, keys.publicKey),
     createDb: () => { events.push(['db']); return { from: name => { events.push(['from', name]); return query; } }; },
     syncAccount: async id => { events.push(['sync', id]); return syncFails
-      ? Response.json({ error: 'private-bank-token' }, { status: 502 }) : Response.json({ batch_ids: [], exceptions: 1 }); },
+      ? Response.json({ error: 'private-bank-token' }, { status: 502 }) : Response.json(body); },
   });
   return { events, request: (body = {}, identity = token) => handler(new Request(audience, { method: 'POST',
     headers: { 'x-silo-scheduler-token': identity }, body: JSON.stringify(body) })) };
@@ -63,6 +63,28 @@ test('integrated signed request gates all IO, discovers mapped environment accou
   const empty = fixture({ empty: true }); assert.deepEqual(await (await empty.request()).json(), { done: true }); assert.ok(!empty.events.some(e => e[0] === 'sync'));
   const discovery = fixture({ discoveryFails: true }); assert.equal((await discovery.request()).status, 503); assert.ok(!discovery.events.some(e => e[0] === 'sync'));
   const cursor = fixture(); assert.equal((await cursor.request({ after: account })).status, 503); assert.ok(!cursor.events.some(e => e[0] === 'sync'));
+  // A sync can recover itself (a date-range top-up, a request to the bank to
+  // re-fetch). Those outcomes have to reach the run log, or a silent feed and
+  // a failed recovery look identical from outside. Bounded scalars only.
+  const recovered = fixture({ body: { batch_ids: [], exceptions: 0,
+    top_up: { imported: 0, examined: 3, start_date: '2026-11-01', end_date: '2026-11-12', batch_ids: [] },
+    refetch: { requested: true } } });
+  assert.deepEqual(await (await recovered.request()).json(), { done: false, account_id: account, ok: true,
+    status: 200, exceptions: 0, top_up: { imported: 0, examined: 3 }, refetch: { requested: true } });
+  const failedRecovery = fixture({ body: { batch_ids: [], exceptions: 0, refetch: { failed: 'INVALID_PRODUCT' } } });
+  const recoveryText = await (await failedRecovery.request()).text();
+  assert.match(recoveryText, /INVALID_PRODUCT/, 'a recovery that failed must be visible in the run log');
+  const leaky = fixture({ body: { batch_ids: [], exceptions: 0,
+    top_up: { failed: 'x'.repeat(200), error_message: 'private-bank-token', access_token: 'private-bank-token' } } });
+  const leakyBody = JSON.parse(await (await leaky.request()).text());
+  assert.deepEqual(Object.keys(leakyBody.top_up), ['failed'], 'only the named fields travel');
+  assert.equal(leakyBody.top_up.failed.length, 64, 'an unbounded code is truncated');
+  for (const shape of [{ top_up: 'provider text' }, { top_up: ['provider text'] }, { top_up: {} }, { top_up: null }]) {
+    const odd = fixture({ body: { batch_ids: [], exceptions: 0, ...shape } });
+    assert.equal(JSON.parse(await (await odd.request()).text()).top_up, undefined, 'a shape with nothing to report is omitted');
+  }
+  const unreadable = fixture({ syncFails: true, body: { refetch: { requested: true } } });
+  assert.doesNotMatch(await (await unreadable.request()).text(), /requested/, 'a sync that could not be read reports no recovery');
 });
 
 test('deployed entrypoint wires verified OIDC to fixed in-process ingestion only', async () => {
