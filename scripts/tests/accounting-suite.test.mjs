@@ -29,8 +29,9 @@ const mountNav=(active)=>{
   let mounted;
   const main={querySelector:()=>mounted,firstElementChild:{after:node=>{mounted=node;}}};
   window.SiloAccounting.mount(main,active);
-  return {window,main,nav:mounted,links:mounted.children[1].children,
-    toggle:mounted.children[2],remount:()=>window.SiloAccounting.mount(main,active)};
+  const all=node=>[...(node.tag==='a'?[node]:[]),...node.children.flatMap(all)];
+  return {window,main,nav:mounted,links:all(mounted),
+    more:mounted.children[1],remount:()=>window.SiloAccounting.mount(main,active)};
 };
 test('all accounting destinations are one click away and the current page is identified',()=>{
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
@@ -39,7 +40,7 @@ test('all accounting destinations are one click away and the current page is ide
     // updated with it, so the suite had been red on main. Kept as a literal
     // rather than pages().length -- the point is that every destination is one
     // click away, and comparing the list to itself would assert nothing.
-    assert.equal(m.links.length,8);assert.equal(m.links.filter(l=>l.attributes['aria-current']==='page').length,1);
+    assert.equal(m.links.length,10);assert.equal(m.links.filter(l=>l.attributes['aria-current']==='page').length,1);
     assert.ok(m.links.every(l=>l.href.startsWith('/v2/')));
     const first=m.nav;m.remount();assert.equal(first,m.nav);
     assert.equal(m.window.SiloAccounting.contains('inventory/overview'),false);
@@ -61,24 +62,20 @@ test('every destination draws an icon and keeps its label as the accessible name
   const drawings=new Set(links.map(l=>l.innerHTML.replace(/<span[\s\S]*$/,'')));
   assert.equal(drawings.size,links.length,'two destinations share an icon');
 });
-test('the compact toggle flips the nav and says which state it is in',()=>{
-  const {nav,toggle}=mountNav('finance/card-coding');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),false);
-  assert.equal(toggle.attributes['aria-pressed'],'false');
-  const labelled=toggle.attributes['aria-label'];
-  assert.ok(labelled&&labelled.length,'the toggle needs an accessible name of its own');
-  toggle.fire('click');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),true);
-  assert.equal(toggle.attributes['aria-pressed'],'true');
-  assert.notEqual(toggle.attributes['aria-label'],labelled,'the name must describe what the click will do next');
-  toggle.fire('click');
-  assert.equal(nav.classList.contains('accounting-suite--compact'),false);
-  assert.equal(toggle.attributes['aria-pressed'],'false');
+test('everyday work is visible and specialist links stay in a named disclosure',()=>{
+  const {nav,more}=mountNav('finance/card-coding');
+  assert.deepEqual(nav.children[0].children.map(l=>l.dataset.label),['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+  assert.equal(more.tag,'details');assert.equal(more.children[0].textContent,'More');
+  assert.deepEqual(more.children[1].children.map(l=>l.dataset.label),['Shopify journal','Schedules','Fixed assets','Cash forecast']);
+  const specialist=mountNav('finance/schedules');
+  assert.equal(specialist.more.children[0].textContent,'Schedules');
+  assert.equal(specialist.more.dataset.current,'true');
+  assert.equal(nav.children[2].href,'/v2/accounting-books.html#setup');
 });
 test('one sidebar entry retains the existing finance department visibility',()=>{
   const window={};vm.runInNewContext(nav,{window});
   const entries=window.SiloNav.NAV_ITEMS.filter(x=>['finance/accounting','finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast'].includes(x.id));
-  assert.equal(entries.length,1);assert.equal(entries[0].href,'/v2/transactions.html');
+  assert.equal(entries.length,1);assert.equal(entries[0].href,'/v2/accounting.html');
   assert.deepEqual([...entries[0].departments],['exec','finance']);
   for(const profile of ['standard','grandfathered'])for(const dept of ['finance','exec','logistics']){
     const links=window.SiloNav.navSectionsForProfile(profile,dept,'employee').flatMap(s=>s.items);

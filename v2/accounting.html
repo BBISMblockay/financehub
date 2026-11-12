@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-theme="light"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SILO · Accounting</title>
+<link rel="stylesheet" href="beacon.css"><link rel="stylesheet" href="silo-brand.css">
+<link rel="stylesheet" href="accounting-suite.css?v=e5432032e580"><link rel="stylesheet" href="accounting-workspace.css?v=4c9842e14ab7">
+<link rel="stylesheet" href="beacon-mirrors-unified.css"><link rel="stylesheet" href="v2-mobile.css">
+<script src="v2-shell.js" defer></script><script src="nav-config.js"></script><script src="avatar.js"></script>
+<script src="accounting-suite.js?v=ea5b45f00409"></script><script src="silo-chrome.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="/pages/config.js"></script>
+<script src="accounting-overview.js?v=c4a363bf3f83"></script><script src="accounting-workspace.js?v=1bff4114c205" defer></script>
+</head><body><div class="silo-app" id="silo-app"><main class="silo-main accounting-workspace" data-accounting-view="overview">
+<header class="bcn-header"><div><h1 class="bcn-header-title">Accounting</h1><p class="bcn-header-sub">Your day-to-day books, in one place.</p></div>
+<div class="bcn-header-actions"><a class="bcn-btn bcn-btn--dark" href="accounting-books.html#register">Open journal register <span aria-hidden="true">↗</span></a></div></header>
+<div class="aw-page"><div class="aw-page-tools"><p id="workspaceDate" class="aw-muted">Reading your company’s books…</p><div><label for="reviewMonth">Review month</label><input id="reviewMonth" class="bcn-field" type="month" disabled><button type="button" id="refreshOverview" class="bcn-btn" disabled>Refresh</button></div></div>
+<div id="status" class="bcn-status" role="status" aria-live="polite">Loading accounting…</div>
+<div id="workspaceContent" aria-busy="true"><div class="aw-loading">Reading connections, balances and recorded journal status…</div></div>
+<footer class="aw-footer"><span id="bookkeepingMode">Bookkeeping settings: reading…</span><a href="accounting-books.html#setup">Connections &amp; book settings <span aria-hidden="true">→</span></a></footer>
+</div></main></div></body></html>
