@@ -106,8 +106,8 @@ if (mutation === 'failure-anon') {
   MIGRATION3 = MIGRATION3.replace("revoke all on function public.silo_api_record_failure(text, text) from public, anon;",
     "grant execute on function public.silo_api_record_failure(text, text) to anon;");
 }
-// 20261112040000: the log is the usage record now, so it is kept.
-const original4 = readFileSync('supabase/migrations/20261112040000_api_call_log_keep_history.sql', 'utf8');
+// 20261112050000: the log is the usage record now, so it is kept.
+const original4 = readFileSync('supabase/migrations/20261112050000_api_call_log_keep_history.sql', 'utf8');
 let MIGRATION4 = original4;
 if (mutation === 'still-prunes') {
   // Leave 20261103240000's 90-day delete in place.
@@ -132,7 +132,7 @@ if (mutation === 'logging-can-break-a-read') {
     .replace(/  exception when others then\n    raise warning[^\n]*\n  end;\n/, '');
 }
 for (const [m, text] of [['no-touch', original4], ['log-browser', original4], ['ignore-read-only', original4], ['logging-can-break-a-read', original4]]) {
-  if (mutation === m) assert.notEqual(MIGRATION4, text, `mutation ${m} must reach 20261112040000's recorder too`);
+  if (mutation === m) assert.notEqual(MIGRATION4, text, `mutation ${m} must reach 20261112050000's recorder too`);
 }
 assert.ok(!mutation || MIGRATION !== original || MIGRATION2 !== original2 || MIGRATION3 !== original3 || MIGRATION4 !== original4,
   `mutation ${mutation} changed nothing`);
@@ -452,7 +452,7 @@ await test('recording a call counts as activity, under the existing hourly throt
   assert.equal((await rows()).length, 2, 'both calls are recorded even though only one touched the grant');
 });
 
-// ── Kept, not pruned (20261112040000) ─────────────────────────────────────
+// ── Kept, not pruned (20261112050000) ─────────────────────────────────────
 await test('old rows are kept: the log is the usage record a company is billed from', async () => {
   await db.exec('truncate public.silo_api_call_log');
   await db.exec(`insert into public.silo_api_call_log (company_entity_id, grant_id, tool, created_at) values

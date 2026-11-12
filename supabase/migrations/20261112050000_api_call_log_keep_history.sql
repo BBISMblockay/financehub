@@ -79,9 +79,9 @@ $$;
 revoke all on function public.silo_api_record_call(text) from public, anon, authenticated;
 revoke all on function public.silo_api_record_call(text) from public, anon, authenticated;
 comment on function public.silo_api_record_call(text) is
-  'Records one authorized connection call and counts it as activity for the idle policy. Called only from silo_api_require_scope(); never from a client. Rows are kept (20261112040000): no retention delete.';
+  'Records one authorized connection call and counts it as activity for the idle policy. Called only from silo_api_require_scope(); never from a client. Rows are kept (20261112050000): no retention delete.';
 
 comment on table public.silo_api_call_log is
-  'One row per AI-connection call (MCP or developer API). Written by silo_api_record_call() from inside silo_api_require_scope() for an authorized call (outcome ok), and by silo_api_record_failure() for a refused or failed one (outcome error, 20261112030000). Records the request -- connection, approver, company, tool, scope, time -- NOT the answer. Kept indefinitely (20261112040000): it is the usage record for connected AI apps.';
+  'One row per AI-connection call (MCP or developer API). Written by silo_api_record_call() from inside silo_api_require_scope() for an authorized call (outcome ok), and by silo_api_record_failure() for a refused or failed one (outcome error, 20261112030000). Records the request -- connection, approver, company, tool, scope, time -- NOT the answer. Kept indefinitely (20261112050000): it is the usage record for connected AI apps.';
 
 commit;

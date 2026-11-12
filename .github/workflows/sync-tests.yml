@@ -2025,7 +2025,7 @@ jobs:
       # connection, that a refused call records nothing (the documented limit,
       # pinned so the screen's wording stays true), that every tool now counts
       # as activity for the 30-day idle policy, that old rows are
-      # kept (20261112040000), and that a colleague cannot read what somebody
+      # kept (20261112050000), and that a colleague cannot read what somebody
       # else's app pulled. Mutation-tested.
       - name: Execute connection call log regressions
         run: |
