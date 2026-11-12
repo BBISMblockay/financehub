@@ -358,3 +358,206 @@ export function outreachTemplate(program) {
 // Where a prospect came from, in words.
 export const SOURCE_LABELS = { serp: 'search', manual: 'added by hand', csv_import: 'your list', applied: 'applied', ai_research: 'AI research' };
 export const sourceLabel = (s) => SOURCE_LABELS[s] || s || '';
+
+// ── Overview maths (Affiliate Studio's Overview tab) ─────────────────────
+// Every function here is pure: the page passes in the rows it has already
+// read, and gets back numbers. Three rules hold throughout, because they are
+// the rules the commission resolver itself follows:
+//   * only the two EARNING bases are sales; every other basis is an order the
+//     resolver refused to pay on, and is reported as such, never as revenue;
+//   * the program settles in ONE currency, so an order in another currency is
+//     counted separately and never added in;
+//   * a missing number is unknown, not zero -- which is why a window with no
+//     rows returns zero orders rather than a made-up total.
+export const OV_EARNING_BASES = ['single_affiliate_code', 'first_affiliate_code'];
+const EARNING = new Set(OV_EARNING_BASES);
+const CUR = (c) => String(c || 'USD').toUpperCase();
+
+// Reading a window one page at a time. `fetchPage(i)` returns that page's
+// rows, or null if it could not be read. The loop stops at the first short
+// page, which is the only proof there is no more; a read that hits the
+// ceiling with a FULL last page cannot tell whether history was cut off, so
+// it returns null -- "could not read" -- rather than a total that silently
+// drops the oldest rows and invents growth out of the gap.
+export const OV_PAGE_SIZE = 1000;
+export const OV_MAX_PAGES = 60;
+export async function pagedCollect(fetchPage, { pageSize = OV_PAGE_SIZE, maxPages = OV_MAX_PAGES } = {}) {
+  const rows = [];
+  for (let i = 0; i < maxPages; i += 1) {
+    const page = await fetchPage(i);
+    if (!Array.isArray(page)) return null;
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+  return null;
+}
+
+// What is still owed to affiliates: everything the ledger recorded, less what
+// a payout has actually been marked PAID for. Deliberately NOT
+// `unclaimed_cents`, which the balance view reduces as soon as a DRAFT payout
+// claims a ledger line -- money sitting in an unapproved payout is still
+// money owed, and reading unclaimed here would show nothing owed the moment
+// someone pressed "build payout".
+export function ovUnpaid(balances, currency) {
+  const cur = CUR(currency);
+  return (balances || []).filter((b) => CUR(b.currency) === cur)
+    .reduce((n, b) => n + (Number(b.earned_cents || 0) - Number(b.paid_cents || 0)), 0);
+}
+
+// Calendar maths on plain YYYY-MM-DD days, in UTC, so no local clock can
+// shift a day boundary between two calls.
+export function dayShift(isoDay, back) {
+  const d = new Date(`${isoDay}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - Number(back || 0));
+  return d.toISOString().slice(0, 10);
+}
+export const dayDiff = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+
+// The rows of one window, in the program's own currency.
+export function ovWindowRows(rows, { from, to, currency }) {
+  const cur = CUR(currency);
+  return (rows || []).filter((r) => r?.order_day && r.order_day >= from && r.order_day <= to
+    && CUR(r.order_currency || cur) === cur);
+}
+// What that window sold: sales are the merchandise subtotal of EARNING
+// attributions only, and an order is counted once however many rows it has.
+export function ovWindow(rows, opts) {
+  const earning = ovWindowRows(rows, opts).filter((r) => EARNING.has(r.basis));
+  return {
+    sales: earning.reduce((n, r) => n + Number(r.gross_subtotal_cents || 0), 0),
+    orders: new Set(earning.map((r) => r.order_id)).size,
+    sellers: [...new Set(earning.map((r) => r.affiliate_id).filter(Boolean))],
+    rows: earning,
+  };
+}
+export function ovOtherCurrencyOrders(rows, { from, to, currency }) {
+  const cur = CUR(currency);
+  return new Set((rows || []).filter((r) => r?.order_day && r.order_day >= from && r.order_day <= to
+    && CUR(r.order_currency || cur) !== cur).map((r) => r.order_id)).size;
+}
+// Commission is the ledger's own number, never a rate applied to sales: the
+// ledger already carries refund adjustments, and it is what Pay settles.
+// A ledger line with no order day (a manual adjustment) belongs to no window.
+export function ovLedgerTotal(ledger, { from, to, currency }) {
+  const cur = CUR(currency);
+  return (ledger || []).filter((r) => r?.order_day && r.order_day >= from && r.order_day <= to
+    && CUR(r.currency) === cur)
+    .reduce((n, r) => n + Number(r.amount_cents || 0), 0);
+}
+// Weekly buckets ending on `today`, oldest first, for the trend lines.
+export function ovWeekly(rows, { today, weeks, currency, pick }) {
+  const cur = CUR(currency);
+  const out = new Array(weeks).fill(0);
+  for (const r of (rows || [])) {
+    if (!r?.order_day || CUR(r.order_currency || r.currency || cur) !== cur) continue;
+    const age = dayDiff(today, r.order_day);
+    if (age < 0 || age >= weeks * 7) continue;
+    out[weeks - 1 - Math.floor(age / 7)] += Number(pick(r) || 0);
+  }
+  return out;
+}
+export function ovWeeklySellers(rows, { today, weeks, currency }) {
+  const cur = CUR(currency);
+  const sets = Array.from({ length: weeks }, () => new Set());
+  for (const r of (rows || [])) {
+    if (!r?.order_day || !r.affiliate_id || !EARNING.has(r.basis)) continue;
+    if (CUR(r.order_currency || cur) !== cur) continue;
+    const age = dayDiff(today, r.order_day);
+    if (age < 0 || age >= weeks * 7) continue;
+    sets[weeks - 1 - Math.floor(age / 7)].add(r.affiliate_id);
+  }
+  return sets.map((s) => s.size);
+}
+// Per affiliate: this window, the window before it, and the commission the
+// ledger recorded for the days in this window.
+export function ovPerAffiliate({ rows, ledger, performance, affiliates, currency, from, to, prevFrom, prevTo }) {
+  const cur = CUR(currency);
+  const perf = Object.fromEntries((performance || []).map((x) => [x.affiliate_id, x]));
+  const affById = Object.fromEntries((affiliates || []).map((a) => [a.id, a]));
+  const by = new Map();
+  const seat = (id) => {
+    if (!by.has(id)) by.set(id, { id, sales: 0, prevSales: 0, comm: 0, orderIds: new Set() });
+    return by.get(id);
+  };
+  for (const r of ovWindow(rows, { from, to, currency: cur }).rows) {
+    if (!r.affiliate_id) continue;
+    const b = seat(r.affiliate_id);
+    b.sales += Number(r.gross_subtotal_cents || 0);
+    b.orderIds.add(r.order_id);
+  }
+  for (const r of ovWindow(rows, { from: prevFrom, to: prevTo, currency: cur }).rows) {
+    if (r.affiliate_id) seat(r.affiliate_id).prevSales += Number(r.gross_subtotal_cents || 0);
+  }
+  for (const r of (ledger || [])) {
+    if (!r?.affiliate_id || !r.order_day || r.order_day < from || r.order_day > to) continue;
+    if (CUR(r.currency) !== cur) continue;
+    seat(r.affiliate_id).comm += Number(r.amount_cents || 0);
+  }
+  return [...by.values()].filter((b) => affById[b.id]).map((b) => ({
+    id: b.id,
+    sales: b.sales,
+    prevSales: b.prevSales,
+    comm: b.comm,
+    orders: b.orderIds.size,
+    aff: affById[b.id],
+    perf: perf[b.id] || null,
+    growth: b.prevSales ? (b.sales - b.prevSales) / b.prevSales : (b.sales ? 1 : 0),
+  }));
+}
+// Who to contact, and the fact that says why. One reason per affiliate, the
+// most urgent one, so the list stays a list of people rather than of events.
+export const OV_REASONS = { quiet: 'Quiet', drop: 'Dropping', never: 'No sales', rise: 'Rising', stuck: 'Stuck' };
+const OV_REASON_ORDER = { stuck: 0, drop: 1, quiet: 2, never: 3, rise: 4 };
+export const OV_STUCK_DAYS = 7;      // an invite nobody finished
+export const OV_SILENT_CODE_DAYS = 14; // a live code that has never sold
+export function ovReachOut({ affiliates, codes, performance, perWindow, today, days }) {
+  const perf = Object.fromEntries((performance || []).map((x) => [x.affiliate_id, x]));
+  const win = Object.fromEntries((perWindow || []).map((b) => [b.id, b]));
+  const out = [];
+  for (const a of (affiliates || [])) {
+    const p = perf[a.id];
+    const w = win[a.id];
+    if (a.status === 'invited' || a.status === 'pending_terms') {
+      const age = a.created_at ? dayDiff(today, String(a.created_at).slice(0, 10)) : 0;
+      if (age >= OV_STUCK_DAYS) out.push({ id: a.id, aff: a, kind: 'stuck', rank: age, days: age });
+      continue;
+    }
+    if (a.status !== 'active') continue;
+    if (!p?.last_order_day) {
+      const code = (codes || []).filter((c) => c.affiliate_id === a.id && c.status === 'active')
+        .sort((x, y) => String(x.starts_on).localeCompare(String(y.starts_on)))[0];
+      const age = code?.starts_on ? dayDiff(today, code.starts_on) : -1;
+      if (age >= OV_SILENT_CODE_DAYS) out.push({ id: a.id, aff: a, kind: 'never', rank: age, days: age, code: code.code });
+      continue;
+    }
+    const silent = dayDiff(today, p.last_order_day);
+    if (silent > days) { out.push({ id: a.id, aff: a, kind: 'quiet', rank: silent, days: silent }); continue; }
+    if (w && w.prevSales > 0 && w.sales < w.prevSales * 0.6) {
+      out.push({ id: a.id, aff: a, kind: 'drop', rank: Math.round((1 - w.sales / w.prevSales) * 100), sales: w.sales, prevSales: w.prevSales });
+      continue;
+    }
+    if (w && w.prevSales > 0 && w.sales >= w.prevSales * 1.5) {
+      out.push({ id: a.id, aff: a, kind: 'rise', rank: Math.round(w.growth * 100), sales: w.sales, growth: w.growth });
+      continue;
+    }
+    if (p.first_order_day && dayDiff(today, p.first_order_day) <= 7) {
+      out.push({ id: a.id, aff: a, kind: 'rise', rank: 0, firstSale: true });
+    }
+  }
+  return out.sort((x, y) => (OV_REASON_ORDER[x.kind] - OV_REASON_ORDER[y.kind]) || (y.rank - x.rank));
+}
+// The nudge, as text. SILO sends nothing: this goes on the clipboard and the
+// person sends it from their own mailbox, which is the same rule outreach to
+// prospects follows.
+export function ovMessage(item, { brand, code }) {
+  const name = item?.aff?.contact_name || item?.aff?.display_name || 'there';
+  const codeLine = code ? ` Your code ${code} is live.` : '';
+  const body = {
+    quiet: `it has been a while since your last order.${codeLine} Anything you need from us -- new product, fresh photos, a different offer?`,
+    drop: `your sales slowed down this month.${codeLine} Tell me what is working and what is not, and I will get you what you need.`,
+    never: `your code is live but has not had an order yet.${codeLine} Want help with a first post, or different product to feature?`,
+    rise: `your numbers are up and we noticed.${codeLine} Tell me what you would like to feature next and I will send it over.`,
+    stuck: 'you have not finished signing up yet. Open the link in your invite, accept the terms, and your code goes live.',
+  }[item?.kind] || '';
+  return `Hi ${name}, ${body}\n\n-- ${brand}`;
+}

@@ -8,6 +8,9 @@ import {
   toCsv, fillTemplate, outreachTemplate, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
+  dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
+  pagedCollect, OV_PAGE_SIZE,
+  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -122,7 +125,7 @@ function download(name, text, type = 'text/csv') {
 }
 
 // ── State ────────────────────────────────────────────────────────────────
-const S = { programs: [], programId: null, tab: 'prospects', profiles: [], brand: '' };
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all' };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -173,6 +176,11 @@ async function loadProgramData() {
   }
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
   d.prospectById = Object.fromEntries(d.prospects.map((x) => [x.id, x]));
+  // The Overview tab's windows. Both are read paged, because a program with
+  // real volume has more rows in 180 days than one PostgREST page returns.
+  // Null means "could not read": the tab then leaves those cards out rather
+  // than showing a zero it cannot stand behind.
+  [d.ovAttributions, d.ovLedger] = await Promise.all([loadOvAttributions(p), loadOvLedger(p)]);
   d.aiApps = await loadAiApps();
   d.stores = await loadStores();
   S.d = d;
@@ -214,6 +222,33 @@ async function loadStores() {
     return data.filter((x) => x.is_active !== false && /^[A-Za-z0-9.-]+$/.test(x.shop_domain || '')).map((x) => x.shop_domain.toLowerCase());
   } catch (_) { return null; }
 }
+
+// ── Overview windows ─────────────────────────────────────────────────────
+// 180 days covers every window the Overview offers (30 or 90 days) plus the
+// same length again to compare it against, and the 12-week chart.
+const OV_DAYS_BACK = 180;
+// A deterministic order, so no row is seen twice or skipped across page
+// boundaries. A page that errors abandons the whole read (pagedCollect turns
+// a null page into a null read): a short read would understate every number
+// on the tab.
+function loadPaged(table, cols, since, programId) {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from(table).select(cols)
+        .eq('company_entity_id', CO).eq('program_id', programId)
+        .gte('order_day', since)
+        .order('order_day', { ascending: false }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
+    } catch (_) { return null; }
+  });
+}
+const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
+  'id, affiliate_id, order_id, order_day, basis, gross_subtotal_cents, commissionable_cents, order_currency',
+  dayShift(today(), OV_DAYS_BACK), p.id) : null);
+const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
+  'id, affiliate_id, order_day, amount_cents, currency', dayShift(today(), OV_DAYS_BACK), p.id) : null);
+
 // Where this program's affiliate links open: the same rule as the database's
 // affiliate_program_store_url -- the store address, else the only Shopify store.
 function storeOf(p) {
@@ -303,7 +338,7 @@ function render() {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
   }
-  ({ program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
+  ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
 }
 
 function renderKpis() {
@@ -355,10 +390,12 @@ function todoItems() {
 }
 function renderNextStep() {
   const el = $('nextStep'); if (!el) return;
-  if (!S.d || !prog()) { el.hidden = true; return; }
+  // On Overview the same list is a card in the grid, so the strip above the
+  // tabs would say it twice.
+  if (!S.d || !prog() || S.tab === 'overview') { el.hidden = true; el.innerHTML = ''; return; }
   const items = todoItems();
   el.hidden = false;
-  const tabLabel = { program: 'Settings', prospects: 'Find', outreach: 'Messages', affiliates: 'Affiliates', share: 'Share', payouts: 'Pay' };
+  const tabLabel = { program: 'Settings', prospects: 'Recruiting', outreach: 'Messages', affiliates: 'Affiliates', share: 'Share', payouts: 'Pay' };
   const rows = items.map((x, i) => {
     const go = x.tab !== S.tab ? btn(`Go to ${tabLabel[x.tab] || x.tab}`, 'go-tab', { t: x.tab }, i === 0 ? 'primary' : 'surface') : '';
     return `<li class="af-todo-item"><span class="af-todo-text">${esc(x.text)}</span><div class="af-todo-acts">${x.extra || ''}${go}</div></li>`;
@@ -378,7 +415,7 @@ function renderPipeline() {
   const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
   const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
   const steps = [
-    { t: 'prospects', label: 'Find', n: Number(h.prospects_new || 0) },
+    { t: 'prospects', label: 'Recruiting', n: Number(h.prospects_new || 0) },
     { t: 'outreach', label: 'Message', n: msgN },
     { t: 'affiliates', label: 'Onboard', n: onboardN },
     { t: 'share', label: 'Share', n: 0, mute: true },
@@ -673,7 +710,7 @@ function renderOutreach() {
   const boardCol = (title, items, render, empty) => `<section class="af-board-col"><header class="af-board-head"><h3>${esc(title)}</h3>${items.length ? pill(String(items.length), 'accent') : ''}</header><div class="af-board-cards">${items.length ? items.map(render).join('') : `<p class="af-board-empty">${esc(empty)}</p>`}</div></section>`;
   $('outreachBody').innerHTML = [
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    card('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Find creators to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
+    card('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Recruiting to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
       ${aiSendBlock(d.aiApps)}
       <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
     more('More options', [
@@ -936,6 +973,208 @@ const outreachVars = (x) => {
   };
 };
 
+// ── Overview ─────────────────────────────────────────────────────────────
+// The tab an admin lands on: how the program is doing, who is carrying it,
+// and who needs a message. The maths is in studio-core.js (ovWindow,
+// ovPerAffiliate, ovReachOut and friends); this half only draws it, and only
+// from rows the page has already read under RLS.
+const OV_WEEKS = 12;
+const ovCur = () => (prog()?.currency || 'USD').toUpperCase();
+const ovDay = (back) => dayShift(today(), back);
+// The two windows the tab compares: the chosen one, and the one before it.
+function ovWindows() {
+  const days = S.ovDays;
+  return { days, from: ovDay(days - 1), to: today(), prevFrom: ovDay(days * 2 - 1), prevTo: ovDay(days) };
+}
+// Whole currency units, for the big figures. Exact amounts stay on Pay.
+function moneyRound(cents) {
+  const cur = ovCur();
+  if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return '—';
+  const v = Number(cents) / minorUnits(cur);
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(v);
+  } catch { return `${Math.round(v)} ${cur}`; }
+}
+// The program's rate in a few characters. The full sentence stays in Settings.
+function rateShort(p) {
+  if (p.commission_kind === 'percent_of_net' && p.commission_percent !== null && p.commission_percent !== undefined) return `${Number(p.commission_percent)}% of net`;
+  if (p.commission_kind === 'fixed_per_order' && p.commission_fixed_cents !== null && p.commission_fixed_cents !== undefined) return `${formatMoney(p.commission_fixed_cents, p.currency)} per order`;
+  return 'rate set per affiliate';
+}
+function ovSpark(series, tone) {
+  const w = 260; const h = 46; const pad = 4;
+  const vals = (series || []).map((v) => Number(v) || 0);
+  if (vals.length < 2 || vals.every((v) => v === 0)) return '';
+  const lo = Math.min(...vals); const hi = Math.max(...vals); const span = (hi - lo) || 1;
+  const x = (i) => (i / (vals.length - 1)) * w;
+  const y = (v) => pad + (1 - (v - lo) / span) * (h - pad * 2);
+  const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return `<svg class="af-ov-spark af-ov-spark--${tone}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">`
+    + `<path class="af-ov-ar" d="${line} L${w},${h} L0,${h} Z"></path>`
+    + `<path class="af-ov-ln" d="${line}" vector-effect="non-scaling-stroke"></path>`
+    + `<circle cx="${x(vals.length - 1).toFixed(1)}" cy="${y(vals[vals.length - 1]).toFixed(1)}" r="2.6"></circle></svg>`;
+}
+function ovDelta(cur, prev) {
+  if (!prev && !cur) return '<span class="af-ov-delta af-ov-delta--flat">—</span>';
+  if (!prev) return '<span class="af-ov-delta af-ov-delta--up">new</span>';
+  const pct = Math.round(((cur - prev) / Math.abs(prev)) * 100);
+  const kind = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+  const sign = pct > 0 ? '▲ +' : pct < 0 ? '▼ −' : '';
+  return `<span class="af-ov-delta af-ov-delta--${kind}">${sign}${Math.abs(pct)}%</span>`;
+}
+const ovPlural = (n, word) => `${num(n)} ${word}${Number(n) === 1 ? '' : 's'}`;
+const ovMetricCard = (lab, value, foot, spark) => `<article class="af-ov-metric"><div class="af-ov-lab">${esc(lab)}</div>`
+  + `<div class="af-ov-val">${esc(value)}</div><div class="af-ov-foot">${foot}</div>${spark || ''}</article>`;
+// Every per-affiliate number on the tab, computed once per render.
+function ovList() {
+  const w = ovWindows();
+  return ovPerAffiliate({
+    rows: S.d.ovAttributions, ledger: S.d.ovLedger, performance: S.d.performance,
+    affiliates: S.d.affiliates, currency: ovCur(), from: w.from, to: w.to, prevFrom: w.prevFrom, prevTo: w.prevTo,
+  });
+}
+function ovReachList() {
+  return ovReachOut({
+    affiliates: S.d.affiliates, codes: S.d.codes, performance: S.d.performance,
+    perWindow: ovList(), today: today(), days: S.ovDays,
+  });
+}
+function ovWhy(x) {
+  if (x.kind === 'stuck') return `Invited <b>${num(x.days)}</b> days ago, still has not accepted the terms.`;
+  if (x.kind === 'never') return `Code <b>${esc(x.code)}</b> has been live ${num(x.days)} days with no order.`;
+  if (x.kind === 'quiet') return `No order in <b>${num(x.days)}</b> days.`;
+  if (x.kind === 'drop') return `<b>${esc(moneyRound(x.sales))}</b> in ${num(S.ovDays)} days, down from ${esc(moneyRound(x.prevSales))}.`;
+  if (x.firstSale) return 'First sale came in this week.';
+  return `Up <b>${Math.round((x.growth || 0) * 100)}%</b> to ${esc(moneyRound(x.sales))}.`;
+}
+function ovTodoCard() {
+  const items = todoItems();
+  const rows = items.map((x) => `<div class="af-ov-ro-row"><div class="af-ov-ro-b"><div class="af-ov-why">${esc(x.text)}</div></div>`
+    + `<div class="af-todo-acts">${x.extra || ''}${btn('Open', 'go-tab', { t: x.tab })}</div></div>`).join('');
+  const how = `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
+  return card('To do', (rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>') + how,
+    items.length ? pill(`${items.length} waiting`, 'accent') : pill('clear', 'pos'));
+}
+function ovLeaderboard(list) {
+  const rank = S.ovRank;
+  const sorted = [...list].sort((a, b) => (rank === 'orders' ? b.orders - a.orders
+    : rank === 'growth' ? b.growth - a.growth : b.sales - a.sales));
+  const top = Math.max(1, ...sorted.map((x) => x.sales));
+  const rows = sorted.slice(0, 8).map((x, i) => {
+    const a = x.aff;
+    const photo = affiliatePhotoUrl(a, S.d.prospectById?.[a.from_prospect_id]?.evidence);
+    const code = liveCodeOf(a.id);
+    const sub = [a.handle ? `@${String(a.handle).replace(/^@/, '')}` : a.platform, code].filter(Boolean).join(' · ');
+    const last = x.perf?.last_order_day ? `${num(dayDiff(today(), x.perf.last_order_day))}d` : '—';
+    return `<div class="af-ov-lb-row"><div class="af-ov-rk">${i + 1}</div>`
+      + `<div class="af-ov-avatar">${photoAvatar(a, photo)}</div>`
+      + `<div class="af-ov-who"><div class="af-ov-nm">${esc(a.display_name)}</div>`
+      + `<div class="af-ov-hd">${esc(sub || '—')}</div>`
+      + `<div class="af-ov-bar"><i style="width:${Math.round((x.sales / top) * 100)}%"></i></div></div>`
+      + `<div class="af-ov-money">${esc(moneyRound(x.sales))}<span>${esc(ovPlural(x.orders, 'order'))}</span></div>`
+      + `<div class="af-ov-money af-ov-money--comm">${esc(moneyRound(x.comm))}<span>commission</span></div>`
+      + `<div class="af-ov-when">${esc(last)}</div></div>`;
+  }).join('');
+  const seg = [['sales', 'Sales'], ['orders', 'Orders'], ['growth', 'Growth']]
+    .map(([k, l]) => btn(l, 'ov-rank', { r: k }, k === rank ? 'dark' : 'surface')).join('');
+  return card('Top affiliates', sorted.length
+    ? `<div class="af-ov-lb">${rows}</div>`
+    : empty(`No affiliate sold anything in the last ${num(S.ovDays)} days.`), seg);
+}
+function ovReachOutCard(items) {
+  const counts = { all: items.length };
+  for (const k of Object.keys(OV_REASONS)) counts[k] = items.filter((x) => x.kind === k).length;
+  const chips = ['all', ...Object.keys(OV_REASONS)].filter((k) => k === 'all' || counts[k])
+    .map((k) => btn(`${k === 'all' ? 'All' : OV_REASONS[k]} ${counts[k]}`, 'ov-filter', { f: k }, k === S.ovFilter ? 'dark' : 'surface')).join('');
+  const shown = items.filter((x) => S.ovFilter === 'all' || x.kind === S.ovFilter);
+  const rows = shown.slice(0, 12).map((x) => '<div class="af-ov-ro-row">'
+    + `<span class="af-ov-dot af-ov-dot--${x.kind}"></span>`
+    + `<div class="af-ov-ro-b"><div class="af-ov-ro-top"><span class="af-ov-nm">${esc(x.aff.display_name)}</span>`
+    + `${pill(OV_REASONS[x.kind], x.kind === 'rise' ? 'pos' : x.kind === 'drop' ? 'neg' : 'accent')}</div>`
+    + `<div class="af-ov-why">${ovWhy(x)}</div></div>`
+    + `<div>${btn('Copy', 'ov-copy', { id: x.aff.id, k: x.kind })}</div></div>`).join('');
+  return card('Reach out', `<div class="af-ov-chips">${chips}</div>`
+    + (shown.length ? `<div class="af-ov-ro">${rows}</div>` : empty('Nobody needs a nudge right now.')),
+  items.length ? pill(String(items.length), 'accent') : '');
+}
+function ovChartCard() {
+  const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  const weekly = ovWeekly(S.d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) });
+  const units = minorUnits(ovCur());
+  const peak = Math.max(...weekly.map((v) => v / units), 0);
+  if (!peak) return card('Sales from affiliate codes', empty('No order has carried an affiliate code in the last 12 weeks.'));
+  const step = Math.pow(10, Math.floor(Math.log10(peak)));
+  const max = Math.ceil(peak / step) * step;
+  const W = 760; const H = 220; const L = 54; const R = 8; const T = 10; const B = 26;
+  const iw = W - L - R; const ih = H - T - B;
+  const y = (v) => T + (1 - v / max) * ih;
+  const bw = Math.min(30, (iw / OV_WEEKS) * 0.56);
+  const cx = (i) => L + (i + 0.5) * (iw / OV_WEEKS);
+  const grid = [0, 0.5, 1].map((f) => {
+    const v = max * f;
+    return `<line class="af-ov-grid" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"></line>`
+      + `<text class="af-ov-tick" x="${L - 9}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${esc(moneyRound(v * units))}</text>`;
+  }).join('');
+  const bars = weekly.map((cents, i) => {
+    const v = cents / units;
+    const top = y(v); const base = y(0);
+    return `<rect class="af-ov-bc" x="${(cx(i) - bw / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, base - top).toFixed(1)}" rx="2"></rect>`;
+  }).join('');
+  const labels = weekly.map((_, i) => (i % 2 === 0
+    ? `<text class="af-ov-tick" x="${cx(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(ovDay((OV_WEEKS - 1 - i) * 7).slice(5))}</text>` : '')).join('');
+  return card('Sales from affiliate codes', '<div class="af-ov-chart">'
+    + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly sales from affiliate codes over the last 12 weeks">`
+    + `${grid}${bars}${labels}<line class="af-ov-axis" x1="${L}" y1="${y(0).toFixed(1)}" x2="${W - R}" y2="${y(0).toFixed(1)}"></line></svg></div>`,
+  '<span class="af-ov-legend">Weekly, last 12 weeks</span>');
+}
+function renderOverview() {
+  const el = $('overviewBody'); const d = S.d; const p = prog();
+  if (!el || !d || !p) return;
+  if (d.ovAttributions === null || d.ovLedger === null) {
+    el.innerHTML = card('Overview', `<p>The order and commission history did not load, so none of these numbers are shown. Reload, or open Affiliates and Pay for the same data.</p>${btn('Reload', 'ov-reload')}`);
+    return;
+  }
+  const w = ovWindows();
+  const cur = ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
+  const prev = ovWindow(d.ovAttributions, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
+  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  const active = d.affiliates.filter((a) => a.status === 'active').length;
+  const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  const metrics = [
+    ovMetricCard('Sales from codes', moneyRound(cur.sales),
+      `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
+      ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
+    ovMetricCard('Commission earned', moneyRound(comm),
+      `${ovDelta(comm, commPrev)}<span>${esc(rateShort(p))}</span>`,
+      ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
+    ovMetricCard('Orders', num(cur.orders),
+      `${ovDelta(cur.orders, prev.orders)}<span>${esc(moneyRound(cur.orders ? cur.sales / cur.orders : 0))} average order</span>`,
+      ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? 1 : 0) }), 'accent')),
+    ovMetricCard('Selling affiliates', num(cur.sellers.length),
+      `${ovDelta(cur.sellers.length, prev.sellers.length)}<span>of ${num(active)} active</span>`,
+      ovSpark(ovWeeklySellers(d.ovAttributions, opt), 'warn')),
+  ].join('');
+  const owedCents = ovUnpaid(d.balances, p.currency);
+  const liveCodes = d.codes.filter((c) => c.status === 'active').length;
+  const otherCur = ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
+  const lastLedger = (d.ledger || [])[0]?.created_at;
+  const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
+  const band = '<div class="af-ov-band">'
+    + bandItem('Commission unpaid', esc(money(owedCents)))
+    + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
+    + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
+    + '<div class="af-ov-bsep"></div>'
+    + bandItem('Commissions updated', esc(lastLedger ? fmtTime(lastLedger) : 'not yet'))
+    + '</div>';
+  const windowSeg = [30, 90].map((n) => btn(`${n} days`, 'ov-window', { n }, n === w.days ? 'dark' : 'surface')).join('');
+  el.innerHTML = `<div class="af-row"><span class="af-muted" style="flex:1;">Last ${num(w.days)} days, through today</span>${windowSeg}</div>`
+    + `<div class="af-ov-metrics">${metrics}</div>`
+    + band
+    + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
+    + `<div>${ovReachOutCard(ovReachList())}${ovTodoCard()}</div></div>`;
+}
+
 const A = {
   'new-program': () => { S.creating = true; S.tab = 'program'; render(); },
   'cancel-new': () => { S.creating = false; render(); },
@@ -957,6 +1196,17 @@ const A = {
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; render(); },
+  'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
+  'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
+  'ov-filter': ({ f }) => { S.ovFilter = f; render(); },
+  'ov-copy': async ({ id, k }) => {
+    const item = ovReachList().find((x) => x.aff.id === id && x.kind === k);
+    if (!item) throw new Error('That affiliate is no longer on the list. Reload to see the current one.');
+    const text = ovMessage(item, { brand: S.brand || prog()?.name || 'us', code: liveCodeOf(id) });
+    try { await navigator.clipboard.writeText(text); } catch { setStatus(text, 'info'); return null; }
+    return 'Copied. Send it from your own mailbox.';
+  },
+  'ov-reload': async () => { await reload(); return null; },
   'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); },
   'prospect-status': async ({ id, s }) => {
     await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: new Date().toISOString(), changed_by: me.id }, { id });
