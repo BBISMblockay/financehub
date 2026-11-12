@@ -8763,6 +8763,9 @@ select 'connection call log' as check_name,
     when pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%/rpc/silo_api_connect%'
       or pg_get_functiondef(to_regprocedure('public.silo_api_path_allowed()')) not like '%/rpc/silo_api_record_failure%'
       then 'BROKEN — the connect probe or failure record is off the API path, so the MCP server falls back and failures go unrecorded'
+    -- 20261112050000: the log is the usage record, so the recorder deletes nothing.
+    when pg_get_functiondef('public.silo_api_record_call(text)'::regprocedure) ~* 'delete\s+from'
+      then 'BROKEN — silo_api_record_call deletes old call-log rows again (20261112050000 not applied?); the usage record must be kept'
     else 'ok'
   end as status;
 

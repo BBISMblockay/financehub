@@ -19726,4 +19726,5 @@ $c$select (select count(*) from v_po_header_summary
 -- connection; owes a plaid-finance AND a plaid-scheduled-sync deploy, because
 -- the scheduled function bundles the same handler.
 \i migrations/20261112040000_plaid_auto_refresh_requested.sql
+\i migrations/20261112050000_api_call_log_keep_history.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
