@@ -486,8 +486,21 @@ export function reconcileConnection({
         ? 'connected, never imported: queueing its first import'
         : 'connected, never imported: nothing has ever come from this connection' };
   }
+  // Same class as `client_blocked` above, and warned for the same reason: every
+  // field in a feed's `requires` is one the ACCOUNT OWNER supplies during
+  // enrolment (a Redo store id, an api_secret), so nobody at this end can
+  // finish it, and a red check every morning only trains people to ignore the
+  // check. Production 2026-11-11: STLHD's Redo connection, the last thing
+  // keeping this pass red once the demo tenants were out of it.
+  //
+  // 20261111180000 already PUBLISHES this as a warning -- the feed-health
+  // catalog it wrote says in so many words that 'not_configured' is "nobody's
+  // fault" and "carries severity 'warn'". Only the code disagreed, so a bot
+  // reading the catalog and a person reading the workflow log were told
+  // different things about the same row. The wording of `detail` is unchanged
+  // on purpose: it is what the catalog quotes.
   if (coverage === 'not_configured') {
-    return { ...base, state: 'not_configured', severity: 'action',
+    return { ...base, state: 'not_configured', severity: 'warn',
       detail: `never finished being set up: no ${missing.join(', ')}` };
   }
   if (coverage === 'enabled_but_empty') {

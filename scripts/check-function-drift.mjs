@@ -11,8 +11,8 @@
  * Both have happened here. `silo-chat` ran a version behind `main` twice in
  * two weeks (2026-08-26 and 2026-09-07) because merging a PR does not deploy,
  * and the only way anyone found out was a model being told a row cap that
- * was no longer true. Three functions (bright-action, replace-product-tags,
- * oneoff-meta-sync) are deployed with no source checked in. Those three are
+ * was no longer true. Two functions (bright-action, oneoff-meta-sync) are
+ * deployed with no source checked in. Those two are
  * KNOWN and listed
  * below so they warn rather than fail -- a new one fails, because a function
  * that exists only in production is exactly the drift this exists to catch.
@@ -33,7 +33,19 @@ const REF = process.env.SUPABASE_PROJECT_REF || 'mkquclffrvlzyecnabyf';
 // Deployed with no source in this repo, as of 2026-09-10. Documented in
 // CLAUDE.md ("Not in this repo"). Adding a slug here is a decision to keep
 // living with it; the honest fix is checking the source in.
-const KNOWN_UNSOURCED = new Set(['bright-action', 'replace-product-tags', 'oneoff-meta-sync']);
+// `replace-product-tags` was removed from this set on 2026-11-11: it is no
+// longer deployed, and a slug listed here that does not exist silently widens
+// the allowlist if the name is ever reused.
+//
+// The two that remain are both inert, checked against production 2026-11-11:
+//   bright-action     Supabase's "Hello {name}" scaffold, deployed 2026-03 and
+//                     never changed. JWT required. Zero invocations.
+//   oneoff-meta-sync  a tombstone -- its whole body answers 410 Gone. Retired
+//                     after the 2026-08-14 Google Ads backfill; the live path
+//                     is ad-platforms-sync.yml. Zero invocations.
+// Neither has source worth checking in, so the honest fix for both is deleting
+// them from the project, which is a Supabase dashboard action.
+const KNOWN_UNSOURCED = new Set(['bright-action', 'oneoff-meta-sync']);
 
 // A content difference somebody has decided not to reconcile YET.
 //

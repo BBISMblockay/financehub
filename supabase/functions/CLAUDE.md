@@ -14,8 +14,8 @@ Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](.
 - **A shared import is bundled into each function that imports it.** `card-coding-prepare-scheduled`
   imports `../card-categorize/prepare.ts`: changing that file means BOTH need redeploying
   (with approval, as above).
-- Not everything deployed has source here (`notify-slack`, `bright-action`, `replace-product-tags`,
-  `oneoff-meta-sync`), and some DB triggers call functions by URL. Check `pg_trigger` before adding a
+- Not everything deployed has source here (`bright-action`, `oneoff-meta-sync` -- both inert and
+  uninvoked as of 2026-11-11), and some DB triggers call functions by URL. Check `pg_trigger` before adding a
   trigger or notification, or you may double-send.
 
 ## Code

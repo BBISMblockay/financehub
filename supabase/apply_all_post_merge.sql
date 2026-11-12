@@ -19706,4 +19706,10 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261111190000_klaviyo_report_audience.sql
 -- 2026-11-11: serialize bookkeeping handover with every posting claim; checked mode edits.
 \i migrations/20261111201400_bookkeeping_transition_safety.sql
+-- 2026-11-11: company_settings.is_demo. A workspace kept for a vendor review
+-- or a sales demo is not a customer, so the daily integration reconcile pass
+-- skips it instead of reporting its deliberately empty connections as client
+-- health. Column only, default false: every existing workspace keeps today's
+-- behaviour and nothing in scripts/ names a company.
+\i migrations/20261111234000_company_settings_is_demo.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

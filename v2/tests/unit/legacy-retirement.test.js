@@ -37,6 +37,8 @@ const protectedPages = [
   'v2/planning-scenarios.html', 'v2/launch-calendar.html', 'v2/products.html',
   'v2/backend.html', 'v2/employeehub.html', 'v2/product-manager.html',
   'v2/baseballismwholesale.html',
+  // 2026-11-11: the iframe-era Sales Report copy, now a stub (see below).
+  'pages/sales-verification.html',
   'index.html', 'pages/login.html',
 ];
 for (const file of retired) assert.equal(fs.existsSync(path.join(root, file)), false, `retired page returned: ${file}`);
@@ -128,6 +130,21 @@ for (const table of ['ar_customers', 'ar_invoices']) {
   assert.ok(arSync.includes(table), `ar-sync must still address ${table}`);
 }
 console.log('legacy retirement: receivables URL is a bare stub to the reports library, ar_* tables untouched');
+
+// The iframe-era Sales Report. `/v2/sales-verification.html` has been the live
+// page for a long time, but this 1,479-line copy stayed behind it, was served
+// publicly, and had drifted far enough from its own markup that it threw on
+// load (`el.btnRefresh` was null). Nothing in the repo linked it. It is a stub
+// now rather than deleted, because the URL predates the v2 page and bookmarks
+// outlive a page -- the same reasoning as the receivables stub above.
+const salesStub = fs.readFileSync(path.join(root, 'pages/sales-verification.html'), 'utf8');
+assert.match(salesStub, /location\.replace\('\/v2\/sales-verification\.html'/,
+  'retired sales-verification URL must forward to the v2 page');
+for (const forbidden of ['tool-shell', 'silo-chrome', 'supabase-js', 'alert(', 'addEventListener']) {
+  assert.ok(!salesStub.includes(forbidden),
+    `sales-verification stub must stay a bare redirect, found: ${forbidden}`);
+}
+console.log('legacy retirement: sales-verification URL is a bare stub to the v2 page');
 
 const guide = fs.readFileSync(path.join(root, 'v2/launch-calendar-guide.html'), 'utf8');
 assert.ok(guide.includes('href="https://github.com/BBISMblockay/financehub/blob/main/CLAUDE.md"'), 'architecture link names authoritative guide');
