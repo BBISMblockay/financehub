@@ -18,6 +18,15 @@
  * or failed, is reported and left alone: re-queueing a failed first import
  * every morning is a paid retry loop on a credential that will never work.
  *
+ * DEMO TENANTS ARE SKIPPED. A company whose `company_settings.is_demo` is true
+ * is not a customer: it is a workspace kept for a vendor review or a sales
+ * demo, and its connections are deliberately empty shells. Judging them as
+ * client health meant this pass stayed red on work nobody owed -- seven of its
+ * eight findings on 2026-11-11 were two such workspaces -- and the alternative
+ * on offer was deactivating connections inside a tenant a vendor reviewer had
+ * been invited into. The flag lives in DATA and this file names no company:
+ * which workspaces are demos is a fact about a deployment, not about SILO.
+ *
  * Environment:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   required
  *   RECONCILE_AUTO_START      'true' to queue first imports (default off)
@@ -37,6 +46,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const AUTO_START = process.env.RECONCILE_AUTO_START === 'true';
 const DRY_RUN = process.env.RECONCILE_DRY_RUN === 'true';
+/** PostgREST and Postgres codes for "that column or table is not there yet". */
+const UNAPPLIED = ['PGRST204', 'PGRST205', '42P01', '42703'];
 const ONLY_FEED = process.env.RECONCILE_ONLY_FEED || '';
 const FAIL_ON_ACTION = process.env.RECONCILE_FAIL_ON_ACTION !== 'false';
 
@@ -75,12 +86,51 @@ function connLabel(connTable, row) {
     || row.platform || `${connTable.replace(/_connections?$/, '')} ${String(row.id).slice(0, 8)}`;
 }
 
-async function loadConnections(feed) {
+async function loadConnections(feed, demoCompanies) {
   const cols = CONN_COLUMNS[feed.connTable];
   if (!cols) throw new Error(`no column list for ${feed.connTable}`);
   const { data, error } = await db.from(feed.connTable).select(cols);
   if (error) throw new Error(`${feed.connTable} load failed: ${error.message}`);
-  return (data || []).filter((row) => feedCovers(feed, row));
+  const covered = (data || []).filter((row) => feedCovers(feed, row));
+  const kept = covered.filter((row) => !demoCompanies.has(row.company_entity_id));
+  // `covered` is returned ALONGSIDE the kept rows, not discarded, because the
+  // shared-identity guard has to see a demo company holding the same store.
+  // Review cycle 1 caught that: filter demo rows out before that map is built
+  // and two companies connecting one Shopify domain stops looking shared, so
+  // auto-start would queue a first import for the non-demo one -- and marking
+  // the other a demo settles nothing about which tenant owns that store's
+  // data, which is exactly the decision the guard reserves for a person.
+  return { connections: kept, covered, skipped: covered.length - kept.length };
+}
+
+/**
+ * The companies this pass does not judge: `company_settings.is_demo`.
+ *
+ * Read ONCE per run rather than per feed, and returned as a Set so the walk
+ * costs nothing. A failure here THROWS rather than returning empty: carrying
+ * on with no demo set would silently re-include every demo workspace and put
+ * the pass back where it was, which is the opposite of failing safe. Every
+ * company has a settings row (it is written at onboarding), and a company that
+ * somehow has none is simply not a demo -- false is the column's default and
+ * the absent row means the same thing.
+ */
+async function loadDemoCompanies() {
+  const { data, error } = await db.from('company_settings')
+    .select('company_entity_id').eq('is_demo', true);
+  // The one failure that is not a failure: this pass runs from `main`, so
+  // between the merge and the apply it meets a database with no `is_demo`
+  // column. No workspace can be flagged yet, so an empty set is the CORRECT
+  // answer there and the only alternative is a pass that reports nothing at
+  // all. Narrowed to the codes PostgREST and Postgres use for a missing
+  // column or table AND to this column's name, so a typo in some other
+  // column still throws. Same reasoning as `isUnappliedSchema` in
+  // lib/klaviyo-sync-core.mjs.
+  if (error && UNAPPLIED.includes(String(error.code || '')) && /is_demo/.test(String(error.message || ''))) {
+    console.warn('[reconcile] company_settings.is_demo not present yet (migration 20261111234000 unapplied) -- judging every workspace, as before');
+    return new Set();
+  }
+  if (error) throw new Error(`company_settings load failed: ${error.message}`);
+  return new Set((data || []).map((row) => row.company_entity_id).filter(Boolean));
 }
 
 /**
@@ -208,14 +258,20 @@ async function main() {
     process.exit(1);
   }
 
+  const demoCompanies = await loadDemoCompanies();
   const rows = [];
+  let skippedDemo = 0;
   for (const feed of feeds) {
-    const connections = await loadConnections(feed);
+    const { connections, covered, skipped } = await loadConnections(feed, demoCompanies);
+    skippedDemo += skipped;
     const lastJobs = await lastJobsByCompany(feed);
-    // Which identities more than one company holds, for this feed.
+    // Which identities more than one company holds, for this feed. Built from
+    // COVERED, not from the kept rows: a demo company is not judged, but it
+    // still holds the store, and ownership of a shared store is a person's
+    // call either way. See loadConnections().
     const shared = new Map();
     if (feed.identityColumn) {
-      for (const c of connections) {
+      for (const c of covered) {
         const key = c[feed.identityColumn];
         if (key == null) continue;
         if (!shared.has(key)) shared.set(key, new Set());
@@ -248,11 +304,37 @@ async function main() {
     }
   }
 
+  // Said out loud, every run. A pass that quietly drops connections is a pass
+  // nobody can audit, and "is_demo got set on a real customer" has to be one
+  // line of a log away rather than a thing somebody notices months later.
+  if (demoCompanies.size) {
+    console.log(`[reconcile] skipped ${skippedDemo} connection(s) in ${demoCompanies.size} demo company(ies) (company_settings.is_demo)`);
+  }
+
   report(rows, today);
   await publishHealth(rows, feeds);
+  await pruneDemoHealth(demoCompanies);
   const code = reconcileExitCode(rows.map((r) => r.verdict));
   if (code && FAIL_ON_ACTION) process.exit(code);
   if (code) console.error('[reconcile] RECONCILE_FAIL_ON_ACTION=false — reporting only.');
+}
+
+/* A company that BECOMES a demo keeps whatever rows it had: publishHealth's
+ * pruning only touches the (company, feed) pairs this run actually saw, which
+ * is deliberate -- a narrowed run must not delete the feeds it did not look at
+ * -- and a skipped company is seen by no run ever again. So its last verdicts
+ * would sit in integration_feed_health for good, ageing, and SILO would show a
+ * demo workspace's stale complaints as client health. Clearing them here is
+ * idempotent and costs one statement.
+ *
+ * Never throws, for publishHealth's reason: the log is the primary output and
+ * must survive a write failure.
+ */
+async function pruneDemoHealth(demoCompanies) {
+  if (DRY_RUN || !demoCompanies.size) return;
+  const { error } = await db.from('integration_feed_health')
+    .delete().in('company_entity_id', [...demoCompanies]);
+  if (error) console.error(`[reconcile] could not clear demo feed health: ${error.message}`);
 }
 
 /* Put this pass's verdicts where SILO can show them (integration_feed_health,

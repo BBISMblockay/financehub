@@ -87,6 +87,10 @@ test('a connection whose setup was never finished says so, not that the sync is 
   const v = reconcileConnection({ feed: feed('redo'), connection: unfinished, everProduced: false, today: '2026-11-11' });
   assert.equal(v.state, 'not_configured');
   assert.match(v.detail, /never finished being set up: no Redo store id/);
+  // WARN, not action. Nobody at this end can supply a Redo store id, so it is
+  // the same class as client_blocked -- and 20261111180000's catalog entry
+  // already told every bot it was a warning while the code still said action.
+  assert.equal(v.severity, 'warn');
   assert.equal(v.autoStart.start, false, 'finishing somebody else\'s setup is not this pass\'s job');
 });
 

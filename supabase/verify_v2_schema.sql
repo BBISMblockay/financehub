@@ -5402,6 +5402,31 @@ select 'Attribution reporting stores' as check_name,
    then 'CRITICAL: a database function reads attribution_store_ids; it is a reporting preference, not a collection gate'
  else 'ok' end as status;
 
+select 'Demo workspaces' as check_name,
+ case
+ when not exists(select 1 from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='is_demo')
+   then 'MISSING: demo workspace flag migration 20261111234000'
+ -- Defaulting to true would silence client health for every workspace at once,
+ -- which is the one failure mode of this flag that nobody would notice: the
+ -- reconcile pass would simply go quiet and stay green.
+ when coalesce((select column_default from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='is_demo'), '') not like '%false%'
+   then 'CRITICAL: company_settings.is_demo must default to false'
+ when (select is_nullable from information_schema.columns
+   where table_schema='public' and table_name='company_settings'
+     and column_name='is_demo') <> 'NO'
+   then 'MISSING: is_demo should be NOT NULL (null is a third state the pass does not read)'
+ -- It means "do not judge this workspace as client health", nothing else. If a
+ -- policy or a function ever reads it, it has quietly become a permission or a
+ -- data boundary, and RLS -- not a reporting flag -- is this app's boundary.
+ when exists(select 1 from pg_policy where pg_get_expr(polqual, polrelid) like '%is_demo%'
+    or pg_get_expr(polwithcheck, polrelid) like '%is_demo%')
+   then 'CRITICAL: an RLS policy reads company_settings.is_demo; it is a reporting flag, not a permission'
+ else 'ok' end as status;
+
 select 'Customer open applications' as check_name,
  case
  when to_regclass('public.customer_accounts') is null

@@ -3413,3 +3413,28 @@ Apply after the Affiliate Studio migrations, then deploy `affiliate-research`.
   the existing `csv_import`.
 - No new table, policy or function. Verify: `verify_v2_schema.sql` check
   "Affiliate AI research". Tests: `scripts/tests/affiliate-research-edge.test.mjs`.
+
+## Demo workspaces — `20261111234000_company_settings_is_demo.sql`
+
+Adds `company_settings.is_demo` (`boolean`, `not null default false`): true for a
+workspace kept for a vendor app review or a sales demo rather than a customer.
+
+- **It means one thing: "do not judge this workspace as client health."** The
+  daily `reconcile-integrations` pass skips it, so its deliberately empty
+  connections stop being reported as a client's sync problem. On 2026-11-11
+  seven of that pass's eight findings were two such workspaces, and it had been
+  red for six days on work nobody owed.
+- **Not a permission, not a billing state, not a data boundary.** RLS is
+  unchanged and a demo workspace's own members see exactly what they saw
+  before. `verify_v2_schema.sql` fails CRITICAL if an RLS policy ever reads the
+  column, because that would quietly make a reporting flag into a boundary.
+- **Defaults to false**, so every existing workspace keeps today's behaviour
+  and becoming a demo is always somebody's explicit act. `not null` for the
+  same reason as `attribution_store_ids`: a third, null state is one more
+  branch readers could get wrong.
+- **Which workspaces are demos is data, never code.** Nothing in `scripts/`
+  names a company; the pass reads the flag. Set it per deployment.
+- No new policies: `company_settings` already carries RLS, and a new column
+  inherits it. Verify: `verify_v2_schema.sql` check "Demo workspaces". Tests:
+  `scripts/tests/integration-reconcile.test.mjs`,
+  `scripts/tests/integration-reconcile-run.test.mjs`.
