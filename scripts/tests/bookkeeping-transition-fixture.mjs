@@ -89,7 +89,10 @@ export async function transitionSql() {
     // The three sibling guards go back to covering INSERT only, so a row moved
     // back into submitting skips the approval match, the posting start date and
     // the open bank feed exception.
-    'sibling-guards-insert-only': ['create trigger qbo_card_claim_matches_approval before insert or update of status', 'create trigger qbo_card_claim_matches_approval before insert'],
+    'sibling-guards-insert-only': ["'create trigger %I before insert or update of status on public.quickbooks_journal_postings'", "'create trigger %I before insert on public.quickbooks_journal_postings'"],
+    // The guard pair loop names a function that is missing instead of skipping
+    // it, which is what aborted the whole migration on production.
+    'missing-guard-aborts': ['if to_regprocedure(v_pair.guard) is null then', 'if false then'],
   };
   const mutation=process.env.BOOKKEEPING_TRANSITION_MUTATION || '';
   if(mutation) {

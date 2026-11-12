@@ -217,15 +217,33 @@ create trigger zz_bookkeeping_mode_claim before insert or update of status on pu
 -- this changes no current behaviour; it closes the gap rather than leaving one
 -- arm of the boundary shorter than the others. Function bodies are unchanged,
 -- so the lock order they take (plaid_accounts, then the batch) is unchanged.
-drop trigger if exists plaid_new_posting_claim on public.quickbooks_journal_postings;
-create trigger plaid_new_posting_claim before insert or update of status on public.quickbooks_journal_postings
-  for each row execute function public.plaid_guard_new_posting_claim();
-drop trigger if exists qbo_card_claim_matches_approval on public.quickbooks_journal_postings;
-create trigger qbo_card_claim_matches_approval before insert or update of status on public.quickbooks_journal_postings
-  for each row execute function public.card_import_claim_matches_approval();
-drop trigger if exists qbo_card_posting_start_claim on public.quickbooks_journal_postings;
-create trigger qbo_card_posting_start_claim before insert or update of status on public.quickbooks_journal_postings
-  for each row execute function public.card_posting_start_claim_guard();
+-- Each pair is widened only where its guard function exists in THIS database.
+-- Production does not have card_import_claim_matches_approval(): the On Deck
+-- coding review migration's objects were applied there by hand and that one
+-- never landed, so naming it unconditionally aborted this whole migration.
+-- Widening a trigger SILO does not have is not this migration's job -- and
+-- creating the guard it is missing would change what posting accepts, which is
+-- a decision of its own. Skipping it leaves that database exactly as it was.
+do $$
+declare
+  v_pair record;
+begin
+  for v_pair in
+    select * from (values
+      ('plaid_new_posting_claim', 'public.plaid_guard_new_posting_claim()'),
+      ('qbo_card_claim_matches_approval', 'public.card_import_claim_matches_approval()'),
+      ('qbo_card_posting_start_claim', 'public.card_posting_start_claim_guard()')
+    ) as t(trigger_name, guard)
+  loop
+    if to_regprocedure(v_pair.guard) is null then
+      raise notice 'skipping %: % is not in this database', v_pair.trigger_name, v_pair.guard;
+      continue;
+    end if;
+    execute format('drop trigger if exists %I on public.quickbooks_journal_postings', v_pair.trigger_name);
+    execute format('create trigger %I before insert or update of status on public.quickbooks_journal_postings'
+                   ' for each row execute function %s', v_pair.trigger_name, v_pair.guard);
+  end loop;
+end $$;
 
 create or replace function public.set_bookkeeping_mode_checked(
   p_mode text, p_takeover date, p_company uuid, p_expected_version bigint)
