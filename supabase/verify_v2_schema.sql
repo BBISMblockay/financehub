@@ -7533,7 +7533,7 @@ select 'Bookkeeping mode' as check_name,
    then 'MISSING — run 20261015190000_bookkeeping_mode.sql'
   -- Reporting-only is a statement about the whole company. Without this trigger
   -- it would only cover bank coding, and a revenue journal would still be sent.
-  when not exists (select 1 from pg_trigger where tgname = 'bookkeeping_mode_claim'
+  when not exists (select 1 from pg_trigger where tgname in ('bookkeeping_mode_claim', 'zz_bookkeeping_mode_claim')
                      and tgrelid = 'public.quickbooks_journal_postings'::regclass)
    then 'BROKEN — reporting-only does not cover every posting surface'
   when pg_get_functiondef(to_regprocedure('public.silo_posting_start_for_source(public.card_sources)')) not like '%bookkeeping_mode%'
@@ -9455,3 +9455,72 @@ select 'Search Console covering indexes' as check_name,
       then 'MISSING: Search Console autovacuum settings -- run 20261111053100'
     else 'ok'
   end as status;
+
+-- Bookkeeping handover safety (20261111201400). Keep outside Plaid fixtures.
+select 'Bookkeeping checked transition safety' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public'
+                         and table_name = 'accounting_settings' and column_name = 'bookkeeping_version'
+                         and is_nullable = 'NO')
+        or to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)') is null
+   then 'MISSING — run 20261111201400_bookkeeping_transition_safety.sql'
+  when not has_function_privilege('authenticated', 'public.set_bookkeeping_mode_checked(text,date,uuid,bigint)', 'execute')
+        or has_function_privilege('anon', 'public.set_bookkeeping_mode_checked(text,date,uuid,bigint)', 'execute')
+   then 'BROKEN — checked bookkeeping mode RPC privileges changed'
+  when pg_get_functiondef(to_regprocedure('public.silo_bookkeeping_mode_claim_guard()')) not like '%bookkeeping_mode_lock%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%bookkeeping_mode_lock%'
+   then 'BROKEN — posting claims and bookkeeping handover are not serialized'
+  when exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
+                    and tgname = 'bookkeeping_mode_claim' and tgenabled in ('O', 'A'))
+   then 'BROKEN — early bookkeeping claim trigger reverses approval lock order'
+  when not exists (select 1 from pg_trigger where tgrelid = 'public.quickbooks_journal_postings'::regclass
+                    and tgname = 'zz_bookkeeping_mode_claim' and tgenabled in ('O', 'A')
+                    and (tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16)
+   then 'BROKEN — bookkeeping guard must cover claim inserts and status updates'
+  when pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%P0BM3%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%P0BM4%'
+   then 'BROKEN — checked handover lost pending-outcome or expected-version refusal'
+  -- The three sibling claim guards cover re-entry into submitting too, or one
+  -- arm of the boundary is shorter than the others: a row moved back into
+  -- submitting would pass the mode guard while skipping the approval match,
+  -- the per-account posting start date and the open bank feed exception.
+  when (select count(*) from pg_trigger
+         where tgrelid = 'public.quickbooks_journal_postings'::regclass and tgenabled in ('O', 'A')
+           and tgname in ('plaid_new_posting_claim', 'qbo_card_claim_matches_approval',
+                          'qbo_card_posting_start_claim', 'zz_bookkeeping_mode_claim')
+           and (tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16) <> 4
+   then 'BROKEN — a posting claim guard does not cover re-entry into submitting'
+  -- The refusals and the list the card shows read ONE predicate each, so a
+  -- count and its explanation cannot disagree, and the takeover window is read
+  -- from the company row rather than fixed in the function.
+  when to_regprocedure('public.silo_claim_blocks_handover(public.quickbooks_journal_postings)') is null
+        or to_regprocedure('public.silo_batch_blocks_handover(public.card_import_batches)') is null
+        or to_regprocedure('public.silo_handover_blockers()') is null
+        or to_regprocedure('public.silo_takeover_window(uuid)') is null
+   then 'MISSING — run 20261111201400_bookkeeping_transition_safety.sql'
+  when pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_claim_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_batch_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%silo_claim_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%silo_batch_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_takeover_window%'
+   then 'BROKEN — a handover refusal, its list and the takeover window no longer share one definition'
+  -- A post SILO has already attempted is judged on its status ALONE. Any date
+  -- in this predicate means a takeover date moved forward later can stop a
+  -- live or unresolved send from blocking the handover.
+  when pg_get_functiondef(to_regprocedure('public.silo_claim_blocks_handover(public.quickbooks_journal_postings)'))
+         ~ '(period_start|period_end|takeover|accounting_start_date|silo_posting_start|claim_period_owner)'
+   then 'BROKEN — an in-progress QuickBooks post is being judged by a date again'
+  -- And the converse: an import approved before SILO started posting the
+  -- account can never be sent, so it must stay out of the count or the
+  -- company is stranded in SILO mode for good.
+  when pg_get_functiondef(to_regprocedure('public.silo_batch_blocks_handover(public.card_import_batches)')) not like '%posting_start_on%'
+   then 'BROKEN — setup imports no longer excluded from the handover count'
+  when pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%review_path%'
+   then 'BROKEN — the handover list no longer says where to review each item'
+  when pg_get_functiondef(to_regprocedure('public.silo_takeover_window(uuid)')) not like '%takeover_earliest_on%'
+        or pg_get_functiondef(to_regprocedure('public.silo_takeover_window(uuid)')) not like '%takeover_latest_on%'
+   then 'BROKEN — the takeover window is no longer configurable per company'
+  when not has_function_privilege('authenticated', 'public.silo_handover_blockers()', 'execute')
+        or has_function_privilege('anon', 'public.silo_handover_blockers()', 'execute')
+        or has_function_privilege('anon', 'public.silo_takeover_window(uuid)', 'execute')
+   then 'BROKEN — handover blocker list privileges changed'
+  else 'ok' end as status;

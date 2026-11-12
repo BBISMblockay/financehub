@@ -19704,6 +19704,8 @@ $c$select (select count(*) from v_po_header_summary
 -- regenerate them or the nightly run goes STALE) and adds a third that catches
 -- the audience lookup becoming a join. Catalog text only beyond that; no deploy.
 \i migrations/20261111190000_klaviyo_report_audience.sql
+-- 2026-11-11: serialize bookkeeping handover with every posting claim; checked mode edits.
+\i migrations/20261111201400_bookkeeping_transition_safety.sql
 -- 2026-11-11: company_settings.is_demo. A workspace kept for a vendor review
 -- or a sales demo is not a customer, so the daily integration reconcile pass
 -- skips it instead of reporting its deliberately empty connections as client
