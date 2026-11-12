@@ -88,7 +88,7 @@ test('choosing SILO says what the date does, and what it does not override', () 
 
 // Run the mounted event/RPC path, not only exported wording helpers. Database
 // responses are synthetic here; enforcement is exercised in the SQL suites.
-async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema = false, after = null } = {}) {
+async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema = false, after = null, readFails = false, stored = null } = {}) {
   const calls = [];
   const listeners = {};
   const controls = {
@@ -100,7 +100,7 @@ async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema
   };
   const host = { hidden: false, querySelector: (s) => controls[s] ||= { innerHTML: '' }, addEventListener: (type, fn) => { listeners[type] = fn; } };
   const saved = { bookkeeping_mode: 'silo', silo_takeover_on: null, accounting_start_date: BOOKS,
-    ...(oldSchema ? {} : { bookkeeping_version: version }) };
+    ...(oldSchema ? {} : { bookkeeping_version: version }), ...(stored || {}) };
   let settingsReads = 0;
   let committed = null;
   const db = {
@@ -110,7 +110,9 @@ async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema
       // run for minutes and another finance tab can commit inside it.
       const row = table === 'accounting_settings'
         ? (settingsReads > 1 ? (after || committed || saved) : saved) : null;
-      const result = { data: row || [{ id: 'source-a', display_name: 'Bank' }] };
+      const result = (table === 'accounting_settings' && readFails && settingsReads > 1)
+        ? { data: null, error: { message: 'network' } }
+        : { data: row || [{ id: 'source-a', display_name: 'Bank' }] };
       return { select() { return this; }, eq() { return this; }, maybeSingle: async () => result, order: async () => result };
     },
     async rpc(name, args) {
@@ -132,7 +134,10 @@ async function mounted({ version = 4, rpc, confirm = async () => true, oldSchema
     return button;
   };
   const drain = async () => { for (let i = 0; i < 15; i++) await new Promise(setImmediate); };
-  return { calls, controls, click, drain, reads: () => settingsReads, text: () => controls['[data-mode-status]'].innerHTML };
+  return { calls, controls, click, drain, reads: () => settingsReads,
+    text: () => controls['[data-mode-status]'].innerHTML,
+    state: () => controls['[data-mode-state]'].textContent,
+    list: () => controls['[data-mode-blockers]']?.innerHTML || '' };
 }
 
 test('mounted save binds the reviewed company/version and reports the committed setting', async () => {
@@ -200,28 +205,64 @@ test('a setting changed during catch-up is reported as what is now in force', as
   assert.doesNotMatch(ui.text(), /QuickBooks keeps the books/);
 });
 
-test('a refused handover names the open posts and where each one is resolved', async () => {
-  /* A count on its own asks the reader to go and resolve something they
-     cannot see, so P0BM3 -- the one refusal that can -- fetches the list. */
+test('a refused handover offers the item, not an id', async () => {
+  /* A count, or a uuid, asks the reader to go and find something. Each row
+     carries the page that reviews it, so the card offers the action. */
   const ui = await mounted({ rpc: async (name) => {
-    if (name === 'silo_open_posting_claims') {
+    if (name === 'silo_handover_blockers') {
       return { data: [
-        { source: 'card_import', source_ref: 'batch-1', period_end: '2026-09-30', blocks_handover: true,
-          period_owner: 'silo', reason: 'SILO owns Synthetic bank from September 1, 2026, and this post\u2019s outcome is unknown.',
-          resolve_where: 'Open the import in Transactions, check QuickBooks, then post it or confirm it was not posted.' },
-        { source: 'journal_entry', source_ref: 'old-1', period_end: '2026-07-31', blocks_handover: false,
-          period_owner: 'outside', reason: 'QuickBooks owned this period.', resolve_where: 'ignored' },
+        { kind: 'post', reference: 'batch-1', title: 'September bank coding', status: 'unknown',
+          period_end: '2026-09-30', blocks_handover: true, account: 'Synthetic bank',
+          reason: 'SILO tried to send this entry and never learned the outcome, so it may be in QuickBooks.',
+          action_label: 'Review this post', review_path: '/v2/transactions.html?batch=batch-1' },
+        { kind: 'import', reference: 'old-1', title: 'July setup import', status: 'approved',
+          period_end: '2026-07-31', blocks_handover: false, account: 'Synthetic bank',
+          reason: 'Approved during setup, before SILO started posting this account.',
+          action_label: 'Review this import', review_path: '/v2/transactions.html?batch=old-1' },
       ] };
     }
-    return { error: { code: 'P0BM3', message: 'There are 1 QuickBooks posting attempt(s) still sending or with an unknown outcome.' } };
+    return { error: { code: 'P0BM3', message: 'SILO has 1 QuickBooks post(s) still in progress: Synthetic bank was sent with no answer from QuickBooks (Sep 2026).' } };
   } });
   ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
   ui.click(); await ui.drain();
-  assert.deepEqual(ui.calls.map((c) => c.name), ['set_bookkeeping_mode_checked', 'silo_open_posting_claims'],
+  assert.deepEqual(ui.calls.map((c) => c.name), ['set_bookkeeping_mode_checked', 'silo_handover_blockers'],
     'no ledger catch-up runs after a refused handover');
-  assert.match(ui.text(), /batch-1/);
-  assert.match(ui.text(), /Open the import in Transactions/);
+  assert.match(ui.list(), /September bank coding/);
+  assert.match(ui.list(), /Review this post/);
+  assert.match(ui.list(), /href="\/v2\/transactions\.html\?batch=batch-1&amp;company=company-a"/,
+    'a direct link to the item, carrying the company');
+  assert.doesNotMatch(ui.list(), /July setup import/, 'setup history is not what the reader has to go and clear');
   assert.match(ui.text(), /Nothing was saved and nothing was sent/);
-  assert.doesNotMatch(ui.text(), /old-1/, 'setup history is not what the reader has to go and resolve');
   assert.doesNotMatch(ui.text(), /Reload Books/, 'reloading does not clear an unresolved post');
+});
+
+test('an old stored date never blocks resuming the ledger catch-up', async () => {
+  /* The input is prefilled with what is stored, and a stored date can sit
+     outside a window tightened since. Judging it on a press that changes
+     nothing would take away the only way to finish the reconciliation. */
+  // Stored two months before the window this company now accepts.
+  const ui = await mounted({ stored: { silo_takeover_on: '2026-07-01', takeover_earliest_on: '2026-09-01' } });
+  // The real card renders the input with value="2026-07-01"; the synthetic
+  // controls do not parse HTML, so the prefill is set here.
+  ui.controls['[data-takeover]'].value = '2026-07-01';
+  ui.controls['input[name="booksMode"]:checked'].value = 'silo';
+  ui.click(); await ui.drain();
+  assert.deepEqual(ui.calls.map((c) => c.name), ['silo_ledger_resync_posting_start'],
+    'it resumes the catch-up and writes nothing');
+  assert.match(ui.text(), /Ledger checked/);
+  // Choosing a NEW date out of the window is still refused.
+  ui.controls['[data-takeover]'].value = '2026-07-15';
+  ui.click(); await ui.drain();
+  // The mounted harness has no SiloPostingStart, so dates stay unformatted here.
+  assert.match(ui.text(), /from (September 1, 2026|2026-09-01) onward/);
+});
+
+test('a setting that could not be read back is never shown as current', async () => {
+  const ui = await mounted({ readFails: true });
+  ui.controls['input[name="booksMode"]:checked'].value = 'qbo';
+  ui.click(); await ui.drain();
+  assert.match(ui.text(), /could not read the setting back/);
+  assert.match(ui.state(), /not confirmed/i, 'the headline state says so too');
+  assert.doesNotMatch(ui.text(), /QuickBooks keeps the books · SILO sends nothing/,
+    'a state SILO could not confirm is not asserted');
 });

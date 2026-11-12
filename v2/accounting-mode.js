@@ -145,20 +145,26 @@
           <p class="books-caption">Leave it empty if SILO should keep every period it has. An account that came onboard later can still be given its own date below.</p>
         </div>
         <button type="button" class="bcn-btn bcn-btn--primary" data-save-mode>Save</button>
+        <div data-mode-blockers hidden></div>
         <p class="books-caption">QuickBooks remains the official book of record in both modes. SILO-only books are not enabled.</p>`;
     }
 
     async function save() {
       const mode = host.querySelector('input[name="booksMode"]:checked')?.value || 'silo';
       const takeover = String(host.querySelector('[data-takeover]')?.value || '').trim();
-      const bounds = windowFor(settings, businessToday, booksStart);
-      const problem = validate(mode, takeover, bounds.latest, bounds.earliest);
-      if (problem) { status(problem, true); return; }
-
       const was = settings?.bookkeeping_mode === 'qbo' ? 'qbo' : 'silo';
       const wasDate = settings?.silo_takeover_on || '';
       const unchanged = was === mode && (mode !== 'silo' || wasDate === takeover);
+      blockers([]);
+      /* Judge the date only when the reader is CHOOSING one. The input is
+         prefilled with what is stored, and a stored date can sit outside a
+         window tightened since -- or outside one this company narrowed on
+         purpose. Refusing the press on that would take away the only way to
+         resume a ledger catch-up, over a date nobody is changing. */
       if (!unchanged) {
+        const bounds = windowFor(settings, businessToday, booksStart);
+        const problem = validate(mode, takeover, bounds.latest, bounds.earliest);
+        if (problem) { status(problem, true); return; }
         const ok = await window.SiloFinanceDialog.ask({
           title: mode === 'qbo' ? 'Hand the books back to QuickBooks' : 'SILO keeps the books',
           message: confirmText(mode, takeover),
@@ -230,20 +236,27 @@
       let drifted = false;
       const fresh = await db.from('accounting_settings').select('*')
         .eq('company_entity_id', companyId).maybeSingle();
-      if (!fresh.error && fresh.data) {
-        drifted = !!settings && (fresh.data.bookkeeping_mode !== settings.bookkeeping_mode
-          || (fresh.data.silo_takeover_on || '') !== (settings.silo_takeover_on || ''));
-        settings = fresh.data;
-        render();
+      const left = outstanding
+        ? `${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
+        : 'Nothing was sent to QuickBooks.';
+      /* A read that failed is not evidence about the setting either way, so
+         the screen must not keep showing the last one it knew as if it were
+         current. Say what was done and that the state is unconfirmed. */
+      if (fresh.error || !fresh.data) {
+        host.querySelector('[data-mode-state]').textContent = 'Current setting not confirmed — reload Books & setup';
+        status(`${unchanged ? 'Ledger checked' : 'Saved'}, but SILO could not read the setting back to show you what is now in force: ${fresh.error?.message || 'no setting was returned'}. Reload Books & setup. ${left}`, true);
+        return;
       }
+      drifted = !!settings && (fresh.data.bookkeeping_mode !== settings.bookkeeping_mode
+        || (fresh.data.silo_takeover_on || '') !== (settings.silo_takeover_on || ''));
+      settings = fresh.data;
+      render();
       status([
         drifted
           ? 'Someone else changed this setting while SILO’s ledger was catching up, so this is the setting now in force, not the one you chose:'
           : (unchanged ? 'Ledger checked.' : 'Saved.'),
         `${stateLabel(settings)}.`,
-        outstanding
-          ? `${outstanding} transactions are still out of line in SILO’s ledger; press Save again to pick up where it stopped.`
-          : 'Nothing was sent to QuickBooks.',
+        left,
       ].join(' '), !!outstanding || drifted);
     }
 
@@ -252,19 +265,40 @@
        list. Every other refusal already says what to do; it is not restated in
        different words here. */
     async function reportSaveError(error) {
-      let extra = '';
-      if (error.code === 'P0BM3') {
-        const list = await db.rpc('silo_open_posting_claims').catch(() => null);
-        const rows = ((list && !list.error && list.data) || []).filter((r) => r.blocks_handover);
-        if (rows.length) {
-          extra = ` ${rows.map((r) => `${r.source} ${r.source_ref}`
-            + `${r.period_end ? ` for ${longDate(r.period_end)}` : ''}: ${r.reason} ${r.resolve_where}`).join(' ')}`;
-        }
-      }
       const next = (error.code === 'P0BM1' || error.code === 'P0BM4')
         ? ' Reload Books & setup and review the current setting.'
         : ' Nothing was saved and nothing was sent.';
-      status(`${error.message}${extra}${next}`, true);
+      status(`${error.message}${next}`, true);
+      /* The two refusals a person can clear by going somewhere. Each row
+         carries the page that reviews it, so this offers the action rather
+         than printing an id and leaving them to find it. */
+      if (error.code !== 'P0BM3' && error.code !== 'P0BM2') return;
+      const list = await db.rpc('silo_handover_blockers').catch(() => null);
+      if (!list || list.error) return;
+      blockers(((list.data) || []).filter((row) => row.blocks_handover));
+    }
+
+    /* One row per thing in the way: what it is, why, and a link straight to
+       it. Cleared at the start of every press. */
+    function blockers(rows) {
+      const host2 = host.querySelector('[data-mode-blockers]');
+      if (!host2) return;
+      if (!rows.length) { host2.innerHTML = ''; host2.hidden = true; host2.className = ''; return; }
+      host2.hidden = false;
+      host2.className = 'books-blockers';
+      host2.innerHTML = `<p>${rows.length === 1 ? 'One thing is in the way' : `${rows.length} things are in the way`}</p>` + rows.map((row) => {
+        const when = row.period_end ? ` · ${longDate(row.period_end)}` : '';
+        // The company travels with a page that takes a query string; a plain
+        // anchor on this same page needs nothing added.
+        const href = String(row.review_path || '').includes('?')
+          ? `${row.review_path}&company=${encodeURIComponent(companyId)}`
+          : String(row.review_path || '');
+        return `<div class="books-row">
+          <div><strong>${esc(row.title || row.account || row.reference)}</strong><span class="bcn-mono">${esc(when)}</span>
+          <p class="books-caption">${esc(row.reason)}</p></div>
+          <a class="bcn-btn bcn-btn--ghost" href="${esc(href)}">${esc(row.action_label || 'Review')}</a>
+        </div>`;
+      }).join('');
     }
 
     host.addEventListener('change', (event) => {

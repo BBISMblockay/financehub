@@ -62,71 +62,122 @@ begin
 end $$;
 revoke all on function public.silo_claim_period_owner(public.quickbooks_journal_postings) from public, anon, authenticated;
 
--- ── Which open claim actually stands in the way of a handover ──────────────
--- Returns the reason a claim blocks reporting-only, or NULL when it does not.
--- One definition, read by the handover RPC and by the list the card shows, so
--- the count and the explanation can never disagree.
+-- ── What actually stands in the way of a handover ──────────────────────────
+-- Two different things can, and they are judged on different evidence. Getting
+-- that backwards is how a customer ends up either stuck or unprotected.
 --
--- A claim blocks when SILO may still be sending it, or when its outcome is
--- uncertain for a period SILO owns. It does NOT block when the period belongs
--- to the setup history: the approval trigger refuses any new send for those
--- months, so no send can be open and nothing is in doubt about SILO's own
--- ledger. Such a claim is still listed, still says who owned the period, and
--- is never released, rewritten or treated as resolved -- it simply is not a
--- reason to refuse a company-wide answer, and counting it would block normal
--- accounting over activity that was never SILO's to post.
+-- 1. A POST ALREADY IN PROGRESS (quickbooks_journal_postings, 'submitting' or
+--    'unknown'). Every such row is an attempted send by construction:
+--    quickbooks-post-journal inserts the claim with attempt_count = 1 and
+--    last_attempt_at stamped, immediately before the Intuit write, and
+--    recovery moves it to 'unknown' when the outcome is in doubt. So the entry
+--    may be in QuickBooks right now. **No date can settle that.** This is
+--    judged on the row's status alone, deliberately ignoring every period and
+--    cut-over date: a takeover date moved forward later must NOT quietly stop
+--    a live or unresolved send from blocking the handover, and an earlier
+--    version of this function read exactly that way.
+-- 2. OLD SETUP HISTORY (card_import_batches, 'approved', never sent). This is
+--    where the Plaid backfill and the trial-balance era really do overlap the
+--    handover dates. An approved import whose activity all predates SILO
+--    posting that account can never be sent -- card_posting_start_refusal
+--    refuses it, and the resync reverses its ledger entries -- so counting it
+--    tells the reader to "post it or reopen it" when neither is possible, and
+--    normal accounting is blocked over activity that was never SILO's. Those
+--    are judged on the dates, because the same dates are what makes them
+--    unsendable, and they are still listed.
 --
--- A period that cannot be placed ('unknown': no period on the row, or no
--- settings row) is NOT read as setup history. Not knowing who owned a period
--- is not evidence that SILO did not.
+-- Nothing is ever released, rewritten or treated as resolved by either path.
 create or replace function public.silo_claim_blocks_handover(p_claim public.quickbooks_journal_postings)
-returns text language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare v_owner record;
-begin
-  if p_claim.status not in ('submitting', 'unknown') then return null; end if;
-  select * into v_owner from public.silo_claim_period_owner(p_claim);
-  if v_owner.owner = 'outside' then return null; end if;
-  return case when p_claim.status = 'submitting' then 'sending' else 'unknown' end;
-end $$;
+returns text language sql immutable security definer set search_path = public, pg_temp as $$
+  -- Status only. Adding a date test here is the bug described above.
+  select case p_claim.status when 'submitting' then 'sending' when 'unknown' then 'unknown' end;
+$$;
 revoke all on function public.silo_claim_blocks_handover(public.quickbooks_journal_postings) from public, anon, authenticated;
 
+-- An approved import SILO can still send blocks; one whose activity is all
+-- before SILO started posting the account is setup history and does not. The
+-- floor mirrors the ELSE branch of silo_posting_start_for_source for the same
+-- reason silo_claim_period_owner does: the whole function answers infinity in
+-- reporting-only, which is the answer being asked for here.
+create or replace function public.silo_batch_blocks_handover(p_batch public.card_import_batches)
+returns text language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_src public.card_sources%rowtype; v_st public.accounting_settings%rowtype;
+        v_floor date; v_last date;
+begin
+  if p_batch.status <> 'approved' then return null; end if;
+  select * into v_st from public.accounting_settings st
+   where st.company_entity_id = p_batch.company_entity_id;
+  select * into v_src from public.card_sources s where s.id = p_batch.source_id;
+  v_floor := greatest(v_st.accounting_start_date,
+                      coalesce(v_src.authoritative_from, v_st.accounting_start_date),
+                      coalesce(v_src.posting_start_on, v_st.silo_takeover_on, v_st.accounting_start_date));
+  -- The latest day this import would actually send. Its CONTENTS decide it,
+  -- as the approval trigger does: a cut-over inside a period leaves lines on
+  -- both sides, and those are still SILO's to send.
+  select max(e.txn_date) into v_last from public.card_coding_effective_lines e
+   where e.batch_id = p_batch.id and round(e.amount, 2) <> 0;
+  v_last := coalesce(v_last, p_batch.period_end, p_batch.entry_date, p_batch.period_start);
+  if v_floor is null or v_last is null then return 'approved'; end if;
+  if v_last < v_floor then return null; end if;
+  return 'approved';
+end $$;
+revoke all on function public.silo_batch_blocks_handover(public.card_import_batches) from public, anon, authenticated;
 
-create or replace function public.silo_open_posting_claims()
-returns table(claim_id uuid, source text, source_ref text, status text,
-              period_start date, period_end date, attempt_count integer,
-              last_attempt_at timestamptz, created_at timestamptz,
-              blocks_handover boolean, period_owner text, owned_from date,
-              account text, reason text, resolve_where text)
+-- ── The list the reader can act on, with somewhere to go ──────────────────
+-- A refusal that names a count, or a uuid, asks the reader to go and resolve
+-- something they cannot find. Every row here carries the page that reviews it,
+-- so the card can offer the action rather than describe it. Read-only; it
+-- releases nothing. Finance-gated to the same two narrow gates as the mode RPC
+-- rather than is_admin_user(), which nearly everyone passes.
+create or replace function public.silo_handover_blockers()
+returns table(kind text, reference text, title text, status text,
+              period_start date, period_end date, period_owner text,
+              owned_from date, account text, blocks_handover boolean,
+              reason text, action_label text, review_path text)
 language sql stable security definer set search_path = public, pg_temp as $$
-  select p.id, p.source, p.source_ref, p.status,
-         p.period_start, p.period_end, p.attempt_count,
-         p.last_attempt_at, p.created_at,
+  select 'post', p.source_ref, coalesce(p.memo, o.account), p.status,
+         p.period_start, p.period_end, o.owner, o.owned_from, o.account,
          b.blocks is not null,
-         o.owner, o.owned_from, o.account,
-         case
-           when b.blocks = 'sending'
-             then 'SILO is sending this entry, or a send stopped before QuickBooks answered. This is an unresolved post, not setup history.'
-           when b.blocks = 'unknown'
-             then format('SILO owns %s from %s, and this post''s outcome is unknown. SILO has locked the send so it cannot post twice.',
-                         o.account, to_char(o.owned_from, 'FMMonth FMDD, YYYY'))
-           else format('%s owned this period: it ends before SILO started posting %s (%s), so it is setup history rather than an unresolved post. It is not counted and does not hold up the handover.',
-                       'QuickBooks', o.account, to_char(o.owned_from, 'FMMonth FMDD, YYYY'))
+         case when p.status = 'submitting'
+           then 'SILO is sending this entry to QuickBooks, or a send stopped before QuickBooks answered. Check QuickBooks before handing the books back.'
+           else 'SILO tried to send this entry and never learned the outcome, so it may be in QuickBooks. SILO has locked the send so it cannot post twice.'
          end,
-         case when p.source = 'card_import'
-           then 'Open the import in Transactions, check QuickBooks, then post it or confirm it was not posted.'
-           else 'Open the entry in Books & setup, check QuickBooks, then post it or confirm it was not posted.'
+         'Review this post',
+         case when p.source = 'card_import' and p.source_ref ~ '^[0-9a-fA-F-]{36}$'
+           then '/v2/transactions.html?batch=' || p.source_ref
+           else '/v2/accounting-books.html#register'
          end
   from public.quickbooks_journal_postings p
   cross join lateral public.silo_claim_period_owner(p.*) o
-  -- Asked once per row: the predicate reads the owner, which reads the account.
   cross join lateral (select public.silo_claim_blocks_handover(p.*) as blocks) b
   where p.company_entity_id = public.active_company_id()
     and p.status in ('submitting', 'unknown')
     and coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false)
-  order by b.blocks is null, p.created_at;
+  union all
+  select 'import', i.id::text, coalesce(i.label, s.display_name, s.source_key), i.status,
+         i.period_start, i.period_end,
+         case when k.blocks is null then 'outside' else 'silo' end,
+         null::date, coalesce(s.display_name, s.source_key),
+         k.blocks is not null,
+         case when k.blocks is null
+           then 'Approved during setup, before SILO started posting this account, so SILO can never send it. It is left exactly as it is and does not hold up the handover.'
+           else 'Approved in SILO and not yet sent. Post it or reopen it before handing the books back, so nothing is left approved with nowhere to go.'
+         end,
+         'Review this import',
+         '/v2/transactions.html?batch=' || i.id::text
+  from public.card_import_batches i
+  join public.card_sources s on s.id = i.source_id
+  cross join lateral (select public.silo_batch_blocks_handover(i.*) as blocks) k
+  where i.company_entity_id = public.active_company_id()
+    and i.status = 'approved'
+    and coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false)
+  order by 10 desc, 5 nulls last;
 $$;
-revoke all on function public.silo_open_posting_claims() from public, anon, authenticated;
-grant execute on function public.silo_open_posting_claims() to authenticated;
+revoke all on function public.silo_handover_blockers() from public, anon, authenticated;
+grant execute on function public.silo_handover_blockers() to authenticated;
+-- An intermediate draft of this migration exposed the claim half alone. It
+-- never reached production; drop it so no caller can read a partial list.
+drop function if exists public.silo_open_posting_claims();
 
 create or replace function public.silo_bookkeeping_mode_claim_guard()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
@@ -238,24 +289,30 @@ begin
     -- is counted is what silo_claim_blocks_handover says stands in the way,
     -- so pre-takeover history does not make the switch impossible, and the
     -- refusal names the entries so the reader can go and resolve them.
-    select count(*), string_agg(format('%s %s %s%s', o.account, p.source_ref,
-             case when p.status = 'submitting' then 'is still sending' else 'has an unknown outcome' end,
-             case when p.period_end is not null then format(' for %s, a period SILO owns', to_char(p.period_end, 'FMMon YYYY')) else '' end), '; '
+    select count(*), string_agg(format('%s %s%s', o.account,
+             case when p.status = 'submitting' then 'is still sending' else 'was sent with no answer from QuickBooks' end,
+             case when p.period_end is not null then format(' (%s)', to_char(p.period_end, 'FMMon YYYY')) else '' end), '; '
              order by p.created_at)
       into v_open, v_detail
       from public.quickbooks_journal_postings p
       cross join lateral public.silo_claim_period_owner(p.*) o
      where p.company_entity_id = v_company
-       and p.status in ('submitting', 'unknown')
        and public.silo_claim_blocks_handover(p.*) is not null;
     if v_open > 0 then
-      raise exception 'There are % QuickBooks posting attempt(s) still sending or with an unknown outcome: %. Open each one, check QuickBooks, then post it or confirm it was not posted. Do not resend them blindly.', v_open, v_detail
+      raise exception 'SILO has % QuickBooks post% still in progress: %. Review % in SILO, check QuickBooks, then post it or confirm it was not posted. Do not resend blindly.',
+        v_open, case when v_open = 1 then '' else 's' end, v_detail, case when v_open = 1 then 'it' else 'each one' end
         using errcode = 'P0BM3';
     end if;
+    -- Only an import SILO could still send. One approved during setup, before
+    -- SILO started posting the account, can never be sent, so "post it or
+    -- reopen it" is impossible advice and counting it strands the company in
+    -- SILO mode for good.
     select count(*) into v_open from public.card_import_batches b
-     where b.company_entity_id = v_company and b.status = 'approved';
+     where b.company_entity_id = v_company
+       and public.silo_batch_blocks_handover(b.*) is not null;
     if v_open > 0 then
-      raise exception 'There are % approved import(s) that SILO has not sent. Reopen or post them in Transactions before handing the books back.', v_open
+      raise exception 'SILO has % approved import% it has not sent. Reopen or post % in Transactions before handing the books back.',
+        v_open, case when v_open = 1 then '' else 's' end, case when v_open = 1 then 'it' else 'them' end
         using errcode = 'P0BM2';
     end if;
   end if;

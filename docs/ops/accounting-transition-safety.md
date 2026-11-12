@@ -151,7 +151,77 @@ added.
    is now in force rather than reported as "could not be confirmed". A refusal
    that reloading cannot clear no longer tells the reader to reload.
 
+## Third pass, 2026-11-12: Blake's review of the second pass
+
+Blake reviewed the second pass and found four things. The first is a safety
+bug I introduced in the second pass; the rest are the experience.
+
+1. **An in-progress QuickBooks post is judged on its status alone, never on a
+   date.** The second pass decided "setup history" from `period_end` against a
+   floor built out of `posting_start_on`, `authoritative_from` and
+   `silo_takeover_on` -- all of which can be CHANGED later. Moving the takeover
+   date forward past an open claim's period would therefore have stopped a live
+   or unresolved send from blocking the handover. That was wrong in principle
+   as well: every `submitting`/`unknown` row IS an attempted send, because
+   `quickbooks-post-journal` inserts the claim with `attempt_count = 1` and
+   `last_attempt_at` stamped immediately before the Intuit write, so the entry
+   may be in QuickBooks whatever month it covers.
+   `silo_claim_blocks_handover` is now status-only, and `verify_v2_schema.sql`
+   fails if any date column or the owner function reappears in its body.
+2. **The setup-history distinction moved to where it belongs: approved
+   imports.** This is where the Plaid backfill and the trial-balance era really
+   do overlap the handover dates. An approved import whose activity all
+   predates SILO posting that account can never be sent --
+   `card_posting_start_refusal` refuses it and the resync reverses its ledger
+   entries -- so counting it told the reader to "post it or reopen it" when
+   neither is possible, stranding the company in SILO mode for good.
+   `silo_batch_blocks_handover` judges those on the dates, because the same
+   dates are what makes them unsendable, and it reads the batch's CONTENTS
+   (`card_coding_effective_lines`) exactly as the approval trigger does, so a
+   cut-over inside a period leaves the lines on SILO's side still blocking.
+   They are listed, and left exactly as they are.
+3. **An old stored date cannot block resuming the catch-up.** The second pass
+   fixed the RPC but left the card's own `validate()` ahead of the press, and
+   the date input is prefilled with what is stored -- which can sit outside a
+   window tightened since. The date is now judged only when the reader is
+   CHOOSING one; a press that changes nothing goes straight to the resync.
+4. **A status that could not be read back is not shown as current.** If the
+   read-back after the catch-up fails, the card says so and puts "Current
+   setting not confirmed" in the headline instead of leaving the last value it
+   knew standing as fact.
+5. **Recovery is an action.** `silo_handover_blockers()` returns both kinds of
+   thing in the way with a `review_path`, and the card renders one panel --
+   "2 things are in the way" -- with the reason and a link per row
+   (`/v2/transactions.html?batch=<id>` for an import or bank-coding post,
+   `/v2/accounting-books.html#register` for any other entry). No uuid is shown.
+
 ## Verification results for this draft
+
+Third pass (2026-11-12, PostgreSQL 16.15):
+
+- PASS 14 PGlite groups. The two that matter most here: an unresolved post
+  still blocks with the takeover date set to null, to a date inside its period
+  and to a date after it, and is never released; and an import approved during
+  setup stops blocking once the account's `posting_start_on` moves past it,
+  with the import left `approved` and untouched.
+- PASS all 10 database mutation hooks, including the two written for this
+  pass: `claim-judged-by-date` puts a date test back into the in-progress
+  question, and `setup-imports-block` makes setup imports count again.
+- PASS 9 real multi-session races and all 5 race mutations, unchanged from the
+  second pass.
+- PASS 14 accounting-mode page tests, including the three new ones: a refused
+  handover renders a link rather than an id, an old stored date still resumes
+  the catch-up (while a NEW out-of-window date is still refused), and a failed
+  read-back is not reported as the current setting.
+- PASS the real Chromium suites again (`accounting-migration-flow`,
+  `accounting-trust-surfaces`, `accounting-dialogs`, `accounting-ledger`,
+  `on-deck-coding`), all 42 v2 unit suites and the neighbouring finance
+  database suites.
+- Rendered the refused-handover panel in Chromium at 1180px and at 390px: two
+  rows, two working links, no page errors, no horizontal overflow. Screenshots
+  in the project files (`books-handover-blockers-2026-11-12-*.png`). Colours
+  are not judged from those: the isolated harness does not load the shell, so
+  the Beacon tokens and the webfont are absent.
 
 Second pass (2026-11-11, PostgreSQL 16.15 — CI's major version):
 

@@ -9464,22 +9464,38 @@ select 'Bookkeeping checked transition safety' as check_name,
                           'qbo_card_posting_start_claim', 'zz_bookkeeping_mode_claim')
            and (tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16) <> 4
    then 'BROKEN — a posting claim guard does not cover re-entry into submitting'
-  -- The blocking set and the list the card shows read ONE predicate, so the
-  -- count and the explanation cannot disagree, and the takeover window is read
+  -- The refusals and the list the card shows read ONE predicate each, so a
+  -- count and its explanation cannot disagree, and the takeover window is read
   -- from the company row rather than fixed in the function.
   when to_regprocedure('public.silo_claim_blocks_handover(public.quickbooks_journal_postings)') is null
-        or to_regprocedure('public.silo_open_posting_claims()') is null
+        or to_regprocedure('public.silo_batch_blocks_handover(public.card_import_batches)') is null
+        or to_regprocedure('public.silo_handover_blockers()') is null
         or to_regprocedure('public.silo_takeover_window(uuid)') is null
    then 'MISSING — run 20261111201400_bookkeeping_transition_safety.sql'
   when pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_claim_blocks_handover%'
-        or pg_get_functiondef(to_regprocedure('public.silo_open_posting_claims()')) not like '%silo_claim_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_batch_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%silo_claim_blocks_handover%'
+        or pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%silo_batch_blocks_handover%'
         or pg_get_functiondef(to_regprocedure('public.set_bookkeeping_mode_checked(text,date,uuid,bigint)')) not like '%silo_takeover_window%'
-   then 'BROKEN — handover refusal, its list and the takeover window no longer share one definition'
+   then 'BROKEN — a handover refusal, its list and the takeover window no longer share one definition'
+  -- A post SILO has already attempted is judged on its status ALONE. Any date
+  -- in this predicate means a takeover date moved forward later can stop a
+  -- live or unresolved send from blocking the handover.
+  when pg_get_functiondef(to_regprocedure('public.silo_claim_blocks_handover(public.quickbooks_journal_postings)'))
+         ~ '(period_start|period_end|takeover|accounting_start_date|silo_posting_start|claim_period_owner)'
+   then 'BROKEN — an in-progress QuickBooks post is being judged by a date again'
+  -- And the converse: an import approved before SILO started posting the
+  -- account can never be sent, so it must stay out of the count or the
+  -- company is stranded in SILO mode for good.
+  when pg_get_functiondef(to_regprocedure('public.silo_batch_blocks_handover(public.card_import_batches)')) not like '%posting_start_on%'
+   then 'BROKEN — setup imports no longer excluded from the handover count'
+  when pg_get_functiondef(to_regprocedure('public.silo_handover_blockers()')) not like '%review_path%'
+   then 'BROKEN — the handover list no longer says where to review each item'
   when pg_get_functiondef(to_regprocedure('public.silo_takeover_window(uuid)')) not like '%takeover_earliest_on%'
         or pg_get_functiondef(to_regprocedure('public.silo_takeover_window(uuid)')) not like '%takeover_latest_on%'
    then 'BROKEN — the takeover window is no longer configurable per company'
-  when not has_function_privilege('authenticated', 'public.silo_open_posting_claims()', 'execute')
-        or has_function_privilege('anon', 'public.silo_open_posting_claims()', 'execute')
+  when not has_function_privilege('authenticated', 'public.silo_handover_blockers()', 'execute')
+        or has_function_privilege('anon', 'public.silo_handover_blockers()', 'execute')
         or has_function_privilege('anon', 'public.silo_takeover_window(uuid)', 'execute')
-   then 'BROKEN — open posting claim list privileges changed'
+   then 'BROKEN — handover blocker list privileges changed'
   else 'ok' end as status;

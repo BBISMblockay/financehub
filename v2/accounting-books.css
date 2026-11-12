@@ -214,3 +214,14 @@
 .books-subsection .books-card { margin-bottom: 12px; }
 .books-subsection summary { font-size: 15px; font-weight: 650; cursor: pointer; }
 .books-subsection details[open] > summary { margin-bottom: 10px; }
+
+/* What is in the way of handing the books back. One panel, one row per thing,
+   and the row carries the link to it: a refusal that only names a count asks
+   the reader to go and find something. Existing Beacon tokens only. */
+.books-blockers{margin:16px 0;border:1px solid var(--bcn-border);border-radius:12px;overflow:hidden}
+.books-blockers > p{margin:0;padding:11px 14px;background:var(--bcn-band);border-bottom:1px solid var(--bcn-border);font:11px var(--bcn-mono);text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)}
+.books-blockers .books-row{padding:13px 14px;gap:14px;align-items:flex-start}
+.books-blockers .books-row + .books-row{border-top:1px solid var(--bcn-border)}
+.books-blockers .books-row > div{min-width:0}
+.books-blockers .books-caption{margin:4px 0 0}
+.books-blockers .bcn-btn{white-space:nowrap;text-decoration:none}

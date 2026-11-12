@@ -79,10 +79,12 @@ export async function transitionSql() {
     'pending-claims-ignored': ['       and public.silo_claim_blocks_handover(p.*) is not null;', '       and false;'],
     // Everything open blocks again, including the pre-takeover history the
     // approval trigger can no longer produce a send for.
-    'blocking-claims-widened': ["  if v_owner.owner = 'outside' then return null; end if;", ''],
-    // A period nobody can place is read as setup history, so an open claim
-    // with no period stops counting.
-    'unplaceable-read-as-setup': ["         when p_claim.period_end < v_floor then 'outside' else 'silo' end,", "         when p_claim.period_end < v_floor then 'outside' else 'outside' end,"],
+    // A date test is put back into the in-progress question, so moving the
+    // takeover date forward silently stops a live send from blocking.
+    'claim-judged-by-date': ["  select case p_claim.status when 'submitting' then 'sending' when 'unknown' then 'unknown' end;", "  select case when p_claim.period_end < (select coalesce(st.silo_takeover_on, st.accounting_start_date) from public.accounting_settings st where st.company_entity_id = p_claim.company_entity_id) then null else case p_claim.status when 'submitting' then 'sending' when 'unknown' then 'unknown' end end;"],
+    // Setup imports count again, so a company that approved a pre-cut-over
+    // period during setup can never hand the books back.
+    'setup-imports-block': ['  if v_last < v_floor then return null; end if;', ''],
     'update-guard-removed': ['create trigger zz_bookkeeping_mode_claim before insert or update of status', 'create trigger zz_bookkeeping_mode_claim before insert'],
     // The three sibling guards go back to covering INSERT only, so a row moved
     // back into submitting skips the approval match, the posting start date and

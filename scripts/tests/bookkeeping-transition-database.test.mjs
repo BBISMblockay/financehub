@@ -2,7 +2,7 @@
 // Mutations are applied only to local SQL by the shared fixture. Each must fail:
 // BOOKKEEPING_TRANSITION_MUTATION=claim-check-removed|stale-version-bypass
 //   |company-boundary-bypass|date-bypass|window-not-configurable|pending-claims-ignored
-//   |blocking-claims-widened|unplaceable-read-as-setup|update-guard-removed
+//   |claim-judged-by-date|setup-imports-block|update-guard-removed
 //   |sibling-guards-insert-only
 // Production auth helpers are represented by finance-db/bootstrap.sql; this is
 // regression evidence for the real finance SQL, not production policy parity.
@@ -150,62 +150,64 @@ try {
     });
     assert.equal(Number((await q('select count(*) as n from quickbooks_journal_postings'))[0].n),0);
   });
-  await test('pre-takeover history is listed, never released, and does not hold up the handover',async()=>{
+  await test('a post already in progress blocks whatever the dates say later',async()=>{
     await reset();
-    /* Leftover approved imports from the fixtures above would block the
-       handover on their own (P0BM2), which is not what this test is about. */
-    for (const b of await q("select id from card_import_batches where status in ('approved','posted')")) {
-      await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[b.id,'Synthetic cleanup before the handover tests']));
-      await q('delete from card_transactions where batch_id=$1',[b.id]);
-      await q('delete from card_import_batches where id=$1',[b.id]);
+    for (const t of await q("select id from card_import_batches where status in ('approved','posted')")) {
+      await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[t.id,'Synthetic cleanup before the handover tests']));
+      await q('delete from card_transactions where batch_id=$1',[t.id]);
+      await q('delete from card_import_batches where id=$1',[t.id]);
     }
-    /* The months handled outside SILO. The approval trigger refuses any new
-       send for them, so no send can be open and nothing is in doubt about
-       SILO's own ledger -- but the row is still there, still says why, and is
-       not rewritten. */
+    /* THE SAFETY CASE. Every submitting/unknown row is an attempted send:
+       quickbooks-post-journal stamps attempt_count and last_attempt_at and
+       inserts it immediately before the Intuit write, so the entry may be in
+       QuickBooks right now. No date can settle that -- and an earlier draft
+       read a July period as "setup history", so moving the takeover date
+       forward would have quietly stopped a live send from blocking. */
     const old=randomUUID();
     await db.exec(claimSql(c,{status:'unknown',id:old,periodStart:'2026-07-01',periodEnd:'2026-07-31'}));
-    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
-    assert.equal(listed.length,1);
+    for (const takeover of [null,'2026-09-01','2026-10-15']) {
+      await q('update accounting_settings set silo_takeover_on=$2 where company_entity_id=$1',[c.co,takeover]);
+      const e=await save('qbo',null,Number((await state()).bookkeeping_version)).catch((err)=>err);
+      assert.equal(e.code,'P0BM3',`a takeover of ${takeover} must not release an unresolved post`);
+      const listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='post'"));
+      assert.equal(listed[0].blocks_handover,true);
+      assert.match(listed[0].reason,/may be in QuickBooks/);
+      assert.equal(listed[0].action_label,'Review this post');
+      assert.match(listed[0].review_path,/accounting-books\.html#register/);
+    }
+    assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[old]))[0].status,'unknown',
+      'an uncertain post is never released');
+    await q('update accounting_settings set silo_takeover_on=null where company_entity_id=$1',[c.co]);
+    await reset();
+  });
+  await test('an import approved during setup does not strand the company, and links to itself',async()=>{
+    /* Where the Plaid backfill and the trial-balance era really do overlap the
+       handover dates: an approved period before SILO started posting the
+       account can never be sent (card_posting_start_refusal refuses it), so
+       "post it or reopen it" is impossible advice and counting it would block
+       normal accounting for good. */
+    const batch=randomUUID();
+    await db.exec(batchSeedSql(c,batch));
+    await as(c.finance,()=>q('select approve_card_import_batch($1)',[batch]));
+    await denied(()=>save('qbo',null,0),'P0BM2');
+    let listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='import'"));
+    assert.equal(listed[0].blocks_handover,true);
+    assert.ok(String(listed[0].review_path).includes(`transactions.html?batch=${batch}`),listed[0].review_path);
+    assert.equal(listed[0].action_label,'Review this import');
+    // The account comes under SILO later: the same import is now unsendable.
+    await q("update card_sources set posting_start_on='2026-10-01' where id=$1",[c.source]);
+    listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='import'"));
     assert.equal(listed[0].blocks_handover,false);
-    assert.equal(listed[0].period_owner,'outside');
-    assert.equal(day(listed[0].owned_from),'2026-08-01','the date that settles who owned the period is shown');
-    assert.equal(listed[0].account,'journal_entry');
-    assert.match(listed[0].reason,/QuickBooks owned this period/);
-    assert.match(listed[0].reason,/setup history rather than an unresolved post/);
-    await save(); assert.equal((await state()).bookkeeping_mode,'qbo');
-    assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[old]))[0].status,'unknown');
+    assert.match(listed[0].reason,/Approved during setup/);
+    await save('qbo',null,0);
+    assert.equal((await state()).bookkeeping_mode,'qbo','setup history must not strand the company');
+    assert.equal((await q('select status from card_import_batches where id=$1',[batch]))[0].status,'approved',
+      'the import is left exactly as it is');
+    await q('update card_sources set posting_start_on=null where id=$1',[c.source]);
     await reset();
-  });
-  await test('an in-scope open claim blocks, and the refusal names what to resolve',async()=>{
-    await db.exec(claimSql(c,{status:'unknown',periodStart:'2026-09-01',periodEnd:'2026-09-30'}));
-    const e=await save().catch((err)=>err);
-    assert.equal(e.code,'P0BM3');
-    assert.match(e.message,/journal_entry/);
-    assert.match(e.message,/check QuickBooks/);
-    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
-    assert.equal(listed[0].blocks_handover,true);
-    assert.equal(listed[0].period_owner,'silo');
-    assert.match(listed[0].reason,/SILO owns/);
-    assert.match(listed[0].reason,/outcome is unknown/);
-    assert.match(listed[0].resolve_where,/check QuickBooks/);
-    assert.match(e.message,/a period SILO owns/);
-    // The list is finance-only and never reaches another tenant's claims.
-    for (const user of [c.member,c.admin]) assert.deepEqual(await as(user,()=>q('select * from silo_open_posting_claims()')),[]);
-    await db.exec(claimSql(c,{status:'unknown',company:c.other,connection:c.otherConn}));
-    assert.equal((await as(c.finance,()=>q('select * from silo_open_posting_claims()'))).length,1);
-    await reset();
-  });
-  await test('a period nobody can place is not read as setup history',async()=>{
-    /* During a build the trial balance, the Plaid history and a handover date
-       overlap, and a claim can arrive with no period at all. Not knowing who
-       owned a period is not evidence that SILO did not, so it still counts. */
-    await db.exec(claimSql(c,{status:'unknown'}));
-    const listed=await as(c.finance,()=>q('select * from silo_open_posting_claims()'));
-    assert.equal(listed[0].period_owner,'unknown');
-    assert.equal(listed[0].blocks_handover,true);
-    await denied(()=>save(),'P0BM3');
-    await reset();
+    await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[batch,'Synthetic cleanup']));
+    await q('delete from card_transactions where batch_id=$1',[batch]);
+    await q('delete from card_import_batches where id=$1',[batch]);
   });
   await test('the takeover window comes from the company row, and the floor agrees with the live posting start',async()=>{
     const window=async()=>(await q('select * from silo_takeover_window($1)',[c.co]))[0];
@@ -225,14 +227,12 @@ try {
        must agree, or the claim and the ledger disagree about one date. */
     await save('silo',null,1);
     const live=(await q('select silo_posting_start_for_source(s.*) as d from card_sources s where s.id=$1',[c.source]))[0].d;
+    assert.equal(day(live),'2026-08-01','the floor is the books start when no later date is set');
     const batch=randomUUID(); await db.exec(batchSeedSql(c,batch));
-    const id=randomUUID();
-    await db.exec(claimSql(c,{status:'unknown',id,source:'card_import',sourceRef:batch,periodEnd:day(live)}));
-    assert.equal((await as(c.finance,()=>q('select blocks_handover from silo_open_posting_claims()')))[0].blocks_handover,true,
-      'a period ending ON the posting start is SILO\'s own');
-    await q("update quickbooks_journal_postings set period_end=$2 where id=$1",[id,'2026-07-31']);
-    assert.equal((await as(c.finance,()=>q('select blocks_handover from silo_open_posting_claims()')))[0].blocks_handover,false);
-    await q('delete from quickbooks_journal_postings where id=$1',[id]);
+    await as(c.finance,()=>q('select approve_card_import_batch($1)',[batch]));
+    const listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='import'"));
+    assert.equal(listed[0].blocks_handover,true,"an import whose activity is on or after the posting start is SILO's to send");
+    await as(c.finance,()=>q('select reopen_card_import_batch($1,$2)',[batch,'Synthetic cleanup']));
     await q('delete from card_transactions where batch_id=$1',[batch]);
     await q('delete from card_import_batches where id=$1',[batch]);
     await reset();
