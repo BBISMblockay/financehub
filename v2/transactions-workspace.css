@@ -606,3 +606,24 @@
 #tblCoding .txn-entity-line .cc-cell {font-size:12px;}
 #tblCoding .txn-hint {padding:1px 5px;font-size:10px;flex:none;}
 #tblCoding .txn-hint--inline {min-height:22px;height:22px;line-height:1;padding:0 5px;}
+
+/* Accounting workbench: one title, a distinct local view row, readable activity.
+   Existing IDs, controls, scopes and write handlers are intentionally unchanged. */
+.accounting-workspace .cc-page > #ccTabs{flex:none;display:flex;gap:22px;padding:0 24px;height:auto;min-height:46px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);overflow-x:auto;}
+.accounting-workspace .cc-page > #ccTabs .bcn-tab{padding:13px 0;border-radius:0;border-bottom:2px solid transparent;font-size:13px;background:transparent;}
+.accounting-workspace .cc-page > #ccTabs .bcn-tab--active{border-bottom-color:var(--bcn-accent);background:transparent;}
+.accounting-workspace .cc-content{padding:18px 24px;}
+.accounting-workspace .txn-context{padding-bottom:6px;}
+.accounting-workspace .txn-dates{gap:10px;padding-block:10px;}
+.accounting-workspace #tblCoding > tbody > .txn-row > td{padding:10px;font-size:13px;}
+.accounting-workspace #tblCoding > thead > tr > th{padding-block:12px;}
+.accounting-workspace #tblCoding .txn-amount{font-family:var(--bcn-mono);font-size:12px;}
+.accounting-workspace #tblCoding .txn-date{font-size:12px;}
+.accounting-workspace .transaction-list .cc-card-head{padding:16px;}
+.accounting-workspace .transaction-list .cc-foot{padding:12px 16px;}
+.accounting-workspace .transaction-list #codeSearch,.accounting-workspace .transaction-list #codeFilter{min-height:36px;border-radius:6px;}
+.accounting-workspace .txn-detail-drawer{width:min(580px,94vw);}
+.accounting-workspace #txnDetailBody .txn-detail-panel{gap:22px;padding:14px 8px 22px;}
+.accounting-workspace #txnDetailBody .txn-detail-panel h3{font-size:13px;}
+.accounting-workspace #txnDetailBody .txn-detail-panel p{font-size:13px;}
+@media(max-width:760px){.accounting-workspace .cc-page > #ccTabs{padding-inline:12px;gap:20px;}.accounting-workspace .cc-content{padding:12px;}.accounting-workspace .transaction-list .cc-card-head{padding:12px;}}

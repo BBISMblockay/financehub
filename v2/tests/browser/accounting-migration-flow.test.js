@@ -80,7 +80,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
   try {
     let page;
     try {
-      page = await suite.open('/v2/accounting-books.html', FIXTURES(), { ready: READY });
+      page = await suite.open('/v2/accounting-books.html#setup', FIXTURES(), { ready: READY });
     } catch (err) {
       r.ok('accounting-books.html boots and mounts the migration flow', false, err.message.split('\n')[0]);
       console.log(r.summary().fail ? '' : '');
@@ -146,6 +146,9 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       r.eq(pressed.length, 1, 'exactly one tab reads as pressed');
     });
 
+    // Migration details belong to Setup; a jump can have opened Journals.
+    await page.click('[data-surface="setup"]');
+
     /* Who keeps the books decides whether SILO posts at all, and it used to sit
        inside the Setup tab below the opening-balance machinery -- on a company
        that lands on Ledger, it was not on screen at all (Blake, 2026-10-15:
@@ -166,7 +169,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       r.eq(where.hidden, false, 'it is on screen without clicking a tab');
       r.eq(where.beforeTabs, true, 'it sits above the tabs');
       r.eq(where.insideSurface, false, 'and not inside any one tab');
-      r.has(where.heading, 'Who keeps your books');
+      r.has(where.heading, 'Bookkeeping responsibility');
     });
 
     await check('the per-account exception is one line until it is asked for', async () => {
@@ -394,7 +397,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
     /* ---- a table that cannot be read ----------------------------------
        The whole design rests on this: a missing fact must reach the screen
        as "Unknown" and must not be stepped over on the way to a later Done. */
-    const page2 = await suite.open('/v2/accounting-books.html', FIXTURES(),
+    const page2 = await suite.open('/v2/accounting-books.html#setup', FIXTURES(),
       { ready: READY, broken: ['qbo_history_imports'] });
     const broken = await page2.evaluate(readSteps);
 
@@ -440,7 +443,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
       card_coding_rules: [], card_import_batches: [], journal_adjustments: [],
       shopify_connections: [], sales_by_day: [],
     });
-    const page3 = await suite.open('/v2/accounting-books.html', FRESH(), { ready: READY });
+    const page3 = await suite.open('/v2/accounting-books.html#setup', FRESH(), { ready: READY });
     await check('a company that has not set up yet is told what to set up, not to refresh', async () => {
       const seen = await page3.evaluate(() => ({
         lead: document.querySelector('[data-migration-headline]').textContent.trim(),

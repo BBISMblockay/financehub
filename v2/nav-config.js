@@ -47,6 +47,8 @@
   // (Payment Request) are NOT gated — everyone submits those. Nav hiding is
   // UX only; the data itself is gated by department-aware RLS.
   const ACCOUNTING_PAGES = [
+    ['finance/accounting-home','Overview','accounting.html'],
+    ['finance/month-end','Month-end','accounting-month-end.html'],
     ['finance/card-coding','Transactions','transactions.html'],
     ['finance/invoicing','Invoicing','invoicing.html'],
     ['finance/accounting-export','Shopify journal','accounting-export.html'],
@@ -256,7 +258,7 @@
     { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
 
 
-    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Finance', label: 'Accounting', href: '/v2/transactions.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Finance', label: 'Accounting', href: '/v2/accounting.html', profiles: ['grandfathered', 'standard'] },
     // BBISM Receivables left the nav 2026-10-20 (Blake) and the PAGE was retired
     // 2026-11-11: same stale Google Sheets story as WPV above. Its tables
     // (ar_customers / ar_invoices) were written only by the retired sheet sync and

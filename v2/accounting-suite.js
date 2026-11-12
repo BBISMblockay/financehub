@@ -5,6 +5,8 @@
   function contains(active) { return pages().some(([id]) => id === active); }
 
   const ICONS = {
+    'finance/accounting-home': '<path d="M3 10 12 3l9 7v11h-6v-7H9v7H3z"/>',
+    'finance/month-end': '<rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 11h18m-14 5 3 3 6-6"/>',
     'finance/invoicing': '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
     'finance/card-coding': '<path d="M4 4h16v16H4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
     'finance/accounting-export': '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><line x1="12" y1="7" x2="12" y2="15"/><path d="M14.5 9H11a1.8 1.8 0 0 0 0 3.5h2a1.8 1.8 0 0 1 0 3.5H9.5"/>',
@@ -19,16 +21,9 @@
     + ' stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true" focusable="false">'
     + (ICONS[id] || FALLBACK) + '</svg>';
 
-  const COMPACT_KEY = 'silo:accounting-nav-compact';
-  function compactPreference() {
-    try { return window.localStorage?.getItem(COMPACT_KEY) === '1'; } catch { return false; }
-  }
-  function rememberCompact(on) {
-    try { window.localStorage?.setItem(COMPACT_KEY, on ? '1' : '0'); } catch {}
-  }
-
   const FRIENDLY_TITLE = {
     'finance/card-coding': 'Bank activity',
+    'finance/invoicing': 'Invoices',
     'finance/accounting-export': 'Shopify journal',
     'finance/qbo-reports': 'Financial reports',
   };
@@ -74,11 +69,11 @@
 
   function refreshNav(main, nav, active) {
     removeInsetBand(main);
-    const linkNodes = nav?.querySelectorAll?.('.accounting-suite-links a');
+    const linkNodes = nav?.querySelectorAll?.('a');
     if (linkNodes) {
       for (const link of linkNodes) {
         const href = link.getAttribute?.('href') || link.href || '';
-        const id = pages().find(([, , path]) => href === `/v2/${path}`)?.[0];
+        const id = pages().find(([, , path]) => href.split('#')[0] === `/v2/${path}`)?.[0];
         if (id === active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       }
@@ -86,20 +81,17 @@
     applyPageHelp(main, active);
   }
 
+  const PRIMARY = ['finance/accounting-home', 'finance/card-coding', 'finance/invoicing', 'finance/qbo-reports', 'finance/month-end'];
   function buildNav(active) {
     const nav = document.createElement('nav');
     nav.className = 'accounting-suite';
     nav.dataset.accountingSuite = '';
     nav.setAttribute('aria-label', 'Accounting workspace');
-    const label = document.createElement('span');
-    label.className = 'accounting-suite-label';
-    label.textContent = 'Accounting';
-    nav.append(label);
     const links = document.createElement('div');
     links.className = 'accounting-suite-links';
-    for (const [id, title, path] of pages()) {
+    const makeLink = ([id, title, path]) => {
       const link = document.createElement('a');
-      link.href = `/v2/${path}`;
+      link.href = `/v2/${path}` + (id === 'finance/books' ? '#setup' : '');
       const display = FRIENDLY_TITLE[id] || title;
       link.dataset.label = display;
       if (id === 'finance/accounting-export') link.dataset.accountingHint = SHOPIFY_JOURNAL_HINT;
@@ -110,31 +102,34 @@
       text.textContent = display;
       link.append(text);
       if (id === active) link.setAttribute('aria-current', 'page');
-      links.append(link);
+      return link;
+    };
+    for (const id of PRIMARY) {
+      const item = pages().find(([key]) => key === id);
+      if (item) links.append(makeLink(item));
     }
     nav.append(links);
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'accounting-suite-compact';
-    const apply = (on) => {
-      nav.classList.toggle('accounting-suite--compact', on);
-      toggle.setAttribute('aria-pressed', String(on));
-      toggle.setAttribute('aria-label', on
-        ? 'Show accounting navigation labels'
-        : 'Show accounting navigation as icons only');
-      toggle.title = toggle.getAttribute('aria-label');
-    };
-    toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"'
-      + ' stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true" focusable="false">'
-      + '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/>'
-      + '<line x1="4" y1="18" x2="14" y2="18"/></svg>';
-    toggle.addEventListener('click', () => {
-      const on = !nav.classList.contains('accounting-suite--compact');
-      apply(on);
-      rememberCompact(on);
+    const more = document.createElement('details');
+    more.className = 'accounting-suite-more';
+    const summary = document.createElement('summary');
+    const secondary = pages().filter(([id]) => !PRIMARY.includes(id) && id !== 'finance/books');
+    const selected = secondary.find(([id]) => id === active);
+    summary.textContent = selected ? (FRIENDLY_TITLE[selected[0]] || selected[1]) : 'More';
+    if (selected) more.dataset.current = 'true';
+    const menu = document.createElement('div');
+    menu.className = 'accounting-suite-menu';
+    secondary.forEach(item => menu.append(makeLink(item)));
+    more.append(summary, menu);
+    more.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { more.open = false; summary.focus(); }
     });
-    apply(compactPreference());
-    nav.append(toggle);
+    // Native disclosure, with ordinary links: no custom menu keyboard model.
+    document.addEventListener?.('click', event => {
+      if (more.open && !more.contains(event.target)) more.open = false;
+    });
+    nav.append(more);
+    const setup = pages().find(([id]) => id === 'finance/books');
+    if (setup) { const link = makeLink(setup); link.className = 'accounting-suite-setup'; nav.append(link); }
     return nav;
   }
 

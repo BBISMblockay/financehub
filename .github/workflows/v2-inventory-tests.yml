@@ -162,6 +162,15 @@ jobs:
       - name: Run browser suites
         run: node v2/tests/run.js --browser
 
+      - name: Upload synthetic accounting screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accounting-workspace-synthetic-screenshots
+          path: /tmp/accounting-qa/*.png
+          if-no-files-found: warn
+
+
       # The Email & SMS tab serves two vendors whose numbers look alike, so its
       # suite serves a deliberately broken copy of the real page to the browser
       # and must fail on each break. A mutation that leaves it green means the

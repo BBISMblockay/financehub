@@ -617,116 +617,27 @@ const TABLES = {
         'the active destination is marked');
     });
 
-    await check('compact hides the label visually but keeps it as the name', async () => {
-      await page.click('.accounting-suite-compact');
-      await page.waitForTimeout(120);
-      const compact = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
-        name: a.textContent.trim(),
-        width: a.querySelector('.accounting-suite-text').getBoundingClientRect().width,
-      })));
-      r.truthy(compact.every((c) => c.width <= 1), 'label widths: ' + compact.map((c) => c.width).join(','));
-      r.truthy(compact.every((c) => c.name.length > 0), 'the text node is still in the DOM');
+    await check('More keeps specialist tools reachable and Escape returns focus', async () => {
+      await page.click('.accounting-suite-more > summary');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), true);
+      r.truthy(await page.locator('.accounting-suite-menu a[href="/v2/schedules.html"]').isVisible());
+      await page.locator('.accounting-suite-menu a').first().focus();
+      await page.keyboard.press('Escape');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
+      r.eq(await page.evaluate(() => document.activeElement.matches('.accounting-suite-more > summary')),true);
     });
-
-    /* Cycle-1 review finding. Opacity and content prove the tooltip is STYLED,
-       not that it is painted: the links row scrolls horizontally, a scrollable
-       axis forces the other axis from visible to auto, and the tooltip sits
-       4px below each link -- outside that scrollport. Measured before the fix:
-       scrollport bottom 74px, tooltip top 78px, fully clipped while every
-       assertion below still passed. So this walks every ancestor and asks
-       whether any of them clips at the tooltip's own box. */
-    await check('the compact tooltip is not clipped by any ancestor', async () => {
-      const seen = await page.evaluate(() => {
-        const links = document.querySelector('.accounting-suite-links');
-        const a = links.querySelector('a');
-        const after = getComputedStyle(a, '::after');
-        const box = a.getBoundingClientRect();
-        // The tooltip's own box: 4px below the link (margin-top), its own height.
-        const top = box.bottom + 4;
-        const bottom = top + parseFloat(after.fontSize) * 2;
-        let node = a.parentElement;
-        let clippedBy = null;
-        while (node && node !== document.documentElement) {
-          const cs = getComputedStyle(node);
-          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
-            const b = node.getBoundingClientRect();
-            if (bottom > b.bottom + 0.5 || top < b.top - 0.5) {
-              clippedBy = (node.className && String(node.className)) || node.tagName;
-              break;
-            }
-          }
-          node = node.parentElement;
-        }
-        return { clippedBy, overflowX: getComputedStyle(links).overflowX,
-          overflowY: getComputedStyle(links).overflowY };
-      });
-      r.eq(seen.clippedBy, null, 'the tooltip is clipped by an ancestor');
-      // The cause, pinned directly: neither axis may establish a scrollport
-      // while the tooltip hangs below the row.
-      r.eq(seen.overflowY, 'visible');
-      r.eq(seen.overflowX, 'visible');
+    await check('More dismisses outside and primary links keep visible names', async () => {
+      await page.click('.accounting-suite-more > summary');
+      await page.click('.bcn-header-title');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
+      r.eq(await page.$$eval('.accounting-suite-links a', links=>links.map(a=>a.textContent.trim())),['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+      r.eq(await page.$eval('.accounting-suite-links', n=>getComputedStyle(n).overflowX),'auto');
     });
-
-    await check('the links row still scrolls when full labels are shown', async () => {
-      // The scrollport is only dropped in compact mode; with labels the row
-      // can be long enough to need it, and there is no tooltip to clip.
-      const overflow = await page.evaluate(() => {
-        const nav = document.querySelector('[data-accounting-suite]');
-        const links = nav.querySelector('.accounting-suite-links');
-        const wasCompact = nav.classList.contains('accounting-suite--compact');
-        nav.classList.remove('accounting-suite--compact');
-        const value = getComputedStyle(links).overflowX;
-        if (wasCompact) nav.classList.add('accounting-suite--compact');
-        return value;
-      });
-      r.eq(overflow, 'auto');
-    });
-
-    await check('compact draws its tooltip from data-label, on hover AND keyboard focus', async () => {
-      const content = await page.$eval('[data-accounting-suite] a',
-        (a) => getComputedStyle(a, '::after').content);
-      r.has(content, 'Bank activity');
-      /* :focus-visible needs focus to ARRIVE by keyboard -- a programmatic
-         .focus() right after a click does not match it in Chromium, which is
-         the same rule a real keyboard user gets. So: focus the first link,
-         then Tab to the second. */
-      await page.focus('[data-accounting-suite] a');
-      await page.keyboard.press('Tab');
-      // The tooltip fades in; wait past the transition rather than racing it.
-      await page.waitForTimeout(400);
-      const focused = await page.evaluate(() => {
-        const a = document.activeElement;
-        return { label: a.dataset && a.dataset.label,
-          matches: a.matches(':focus-visible'),
-          opacity: getComputedStyle(a, '::after').opacity };
-      });
-      // 'Invoicing', not 'Shopify journal': it joined ACCOUNTING_PAGES at
-      // index 1 and this assertion was not moved with it, so the suite had
-      // been red on main. Kept as the literal second destination -- reading
-      // the name out of SiloNav here would assert nothing about tab order.
-      r.eq(focused.label, 'Invoicing', 'Tab landed on the next destination');
-      r.truthy(focused.matches, 'the link is :focus-visible');
-      r.eq(focused.opacity, '1');
-    });
-
-    await check('toggling back restores the labels', async () => {
-      await page.click('.accounting-suite-compact');
-      await page.waitForTimeout(120);
-      const width = await page.$eval('[data-accounting-suite] .accounting-suite-text',
-        (n) => n.getBoundingClientRect().width);
-      r.truthy(width > 1, 'label width ' + width);
-    });
-
-    console.log('\n\u2500\u2500 touch and small screens \u2500\u2500');
-    await check('on a phone the labels show and the compact toggle is not offered', async () => {
-      await page.setViewportSize({ width: 390, height: 780 });
+    await check('on a phone primary navigation retains readable labels', async () => {
+      await page.setViewportSize({ width:390, height:780 });
       await page.waitForTimeout(200);
-      const seen = await page.evaluate(() => ({
-        toggleShown: getComputedStyle(document.querySelector('.accounting-suite-compact')).display !== 'none',
-        labelWidth: document.querySelector('[data-accounting-suite] .accounting-suite-text').getBoundingClientRect().width,
-      }));
-      r.eq(seen.toggleShown, false);
-      r.truthy(seen.labelWidth > 1, 'label width ' + seen.labelWidth);
+      r.truthy(await page.$eval('.accounting-suite-text', n=>n.getBoundingClientRect().width)>1);
+      r.truthy(await page.locator('.accounting-suite-setup').isVisible());
     });
 
     await check('filter controls stay inside a 390px screen with touch-sized targets', async () => {

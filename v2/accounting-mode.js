@@ -90,6 +90,8 @@
     const host = el('booksMode');
     if (!host) return;
     const status = (message, bad = false) => {
+      // Errors and unfinished catch-up must expose the existing Save/retry action.
+      if (bad) { const disclosure = host.querySelector('[data-mode-disclosure]'); if (disclosure) disclosure.open = true; }
       host.querySelector('[data-mode-status]').innerHTML = message ? `<span class="${bad ? 'books-flag' : ''}">${esc(message)}</span>` : '';
     };
     let settings = null;
@@ -133,7 +135,7 @@
       const bounds = windowFor(settings, businessToday, booksStart);
       host.querySelector('[data-mode-state]').textContent = stateLabel(settings);
       host.querySelector('[data-mode-body]').innerHTML = `
-        <p>You’ve connected QuickBooks and SILO has your history. Pick one — running both at once is how the same month ends up recorded twice.</p>
+        <p>Choose where activity is categorized and posted. Saving this setting does not connect QuickBooks or accept your opening balances.</p>
         <label class="books-choice"><input type="radio" name="booksMode" value="qbo"${mode === 'qbo' ? ' checked' : ''} />
           <span><strong>QuickBooks keeps the books.</strong> You categorize and post in QuickBooks, as you do now. SILO reads your activity and gives you reporting, but never sends anything to QuickBooks.</span></label>
         <label class="books-choice"><input type="radio" name="booksMode" value="silo"${mode === 'silo' ? ' checked' : ''} />
@@ -145,7 +147,6 @@
           <p class="books-caption">Leave it empty if SILO should keep every period it has. An account that came onboard later can still be given its own date below.</p>
         </div>
         <button type="button" class="bcn-btn bcn-btn--primary" data-save-mode>Save</button>
-        <div data-mode-blockers hidden></div>
         <p class="books-caption">QuickBooks stays the book of record.</p>`;
     }
 
