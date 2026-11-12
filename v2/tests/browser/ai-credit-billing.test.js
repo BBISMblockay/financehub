@@ -24,18 +24,30 @@ const active = {
   on_deck: { enabled: true, cap_state: 'within', attempts_this_month: 12 },
 };
 const packs = [{ pack_key: 'p50', title: '$50 credit', unit_amount_cents: 5000, credit_micros: 50000000, is_active: true, sort_order: 1 }];
-const withCredit = (summary, packRows = packs) => ({ ...tables(), ai_credit_packs: packRows });
+// Connected AI app calls (silo_api_call_log): three tool calls in the period,
+// one of them failed, a handshake that is not a tool call, and one call from
+// before the period.
+const mcpCalls = [
+  { id: 'm1', company_entity_id: 'test-company', tool: 'silo_api_query', outcome: 'ok', created_at: '2026-09-20T10:00:00Z' },
+  { id: 'm2', company_entity_id: 'test-company', tool: 'silo_api_list_reports', outcome: 'ok', created_at: '2026-10-01T10:00:00Z' },
+  { id: 'm3', company_entity_id: 'test-company', tool: 'silo_api_query', outcome: 'error', created_at: '2026-10-02T10:00:00Z' },
+  { id: 'm4', company_entity_id: 'test-company', tool: 'silo_api_connect', outcome: 'ok', created_at: '2026-10-02T09:59:00Z' },
+  { id: 'm5', company_entity_id: 'test-company', tool: 'silo_api_query', outcome: 'ok', created_at: '2026-09-01T10:00:00Z' },
+];
+const withCredit = (summary, packRows = packs, calls = mcpCalls) => ({ ...tables(), ai_credit_packs: packRows, silo_api_call_log: calls });
 // Fixture functions are serialised into the page, so the value is inlined.
-const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
+const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'error'
   ? () => ({ __error: { message: 'Could not find the function public.ai_credit_summary', code: 'PGRST202' } })
-  : Function('return () => (' + JSON.stringify(summary) + ')')() });
+  : Function('return () => (' + JSON.stringify(summary) + ')')(),
+  is_exec_or_owner: Function('return () => ' + JSON.stringify(exec))() });
 
 (async () => {
   const suite = await startSuite();
   let passed = 0;
   const check = async (name, fn) => { await fn(); passed++; console.log('PASS ' + name); };
-  const open = (summary, packRows) => suite.open('/v2/billing.html', withCredit(summary, packRows), {
-    rpc: rpcFor(summary),
+  const open = (summary, packRows, opts = {}) => suite.open('/v2/billing.html', withCredit(summary, packRows, opts.calls), {
+    rpc: rpcFor(summary, opts.exec !== false),
+    ...(opts.broken ? { broken: opts.broken } : {}),
     ready: () => !document.querySelector('#credit .bil-empty'),
   });
   try {
@@ -58,6 +70,15 @@ const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
       assert.match(usage, /Card coding.*0 suggestion batches.*\$0\.00/s);
       assert.match(usage, /Invoice reading.*0 documents read.*\$0\.00/s);
       assert.match(usage, /Total AI credit used\s*\$15\.20/);
+    });
+    await check('connected AI apps: a count for the period, never a charge', async () => {
+      const row = (await page.locator('[data-usage="mcp"]').textContent()).replace(/\s+/g, ' ');
+      assert.match(row, /Connected AI apps/);
+      assert.match(row, /3 tool calls · 1 failed/, 'the handshake and the call before the period are not counted');
+      assert.match(row, /Not charged/);
+      assert.doesNotMatch(row, /\$/, 'no dollar figure beside credit');
+      assert.doesNotMatch(row, /your connections only/, 'an owner sees the whole company');
+      assert.match(await page.locator('#usage').textContent(), /Total AI credit used\s*\$15\.20/, 'and the total is unchanged');
     });
     await check('On Deck cap shows its state, never a dollar amount beside credit', async () => {
       const cap = await page.locator('#cap').textContent();
@@ -137,6 +158,19 @@ const rpcFor = (summary) => ({ ai_credit_summary: summary === 'error'
       assert.match(await page.locator('#credit').textContent(), /A workspace owner can add credit/);
       assert.equal(await page.locator('#usageCard').isVisible(), false);
       assert.equal(await page.locator('#capCard').isVisible(), false);
+    });
+    await page.close();
+
+    page = await open(active, packs, { exec: false });
+    await check('connected AI apps: an admin who is not an owner is told it is their own connections', async () => {
+      assert.match(await page.locator('[data-usage="mcp"]').textContent(), /your connections only/);
+    });
+    await page.close();
+
+    page = await open(active, packs, { broken: ['silo_api_call_log'] });
+    await check('connected AI apps: an unreadable log leaves the row out, never a 0', async () => {
+      assert.equal(await page.locator('[data-usage="mcp"]').count(), 0);
+      assert.match(await page.locator('#usage').textContent(), /Ask SILO/, 'the rest of usage still renders');
     });
     await page.close();
 
