@@ -257,6 +257,30 @@ try {
     assert.equal((await q('select status from quickbooks_journal_postings where id=$1',[id]))[0].status,'failed');
     await q('delete from quickbooks_journal_postings where id=$1',[id]);
   });
+  await test('a database missing one claim guard still applies, and verify agrees',async()=>{
+    /* Production has no card_import_claim_matches_approval(): the On Deck
+       coding review objects were applied there by hand and that one never
+       landed. Naming it unconditionally aborted the whole migration, so the
+       guard pair loop skips a function this database does not have -- and the
+       schema check judges the guards present rather than demanding four. */
+    await reset();
+    await db.exec('drop trigger if exists qbo_card_claim_matches_approval on quickbooks_journal_postings;'
+      +' drop function if exists card_import_claim_matches_approval();');
+    await db.exec(await transitionSql());
+    const arms=await q(`select tgname, (tgtype::integer & 4)=4 as ins, (tgtype::integer & 16)=16 as upd
+      from pg_trigger where tgrelid='quickbooks_journal_postings'::regclass and not tgisinternal
+        and tgname in ('plaid_new_posting_claim','qbo_card_claim_matches_approval',
+                       'qbo_card_posting_start_claim','zz_bookkeeping_mode_claim') order by tgname`);
+    assert.deepEqual(arms.map((r)=>r.tgname),
+      ['plaid_new_posting_claim','qbo_card_posting_start_claim','zz_bookkeeping_mode_claim'],
+      'the missing guard is skipped, not created');
+    for (const row of arms) assert.ok(row.ins && row.upd, `${row.tgname} covers both arms`);
+    const verify=await readFile(new URL('supabase/verify_v2_schema.sql',root),'utf8');
+    const from=verify.indexOf("select 'Bookkeeping checked transition safety' as check_name");
+    const statement=verify.slice(from,verify.indexOf(';\n',from)+1);
+    assert.equal((await q(statement))[0].status,'ok','verify reads ok without that guard');
+    await reset();
+  });
   await test('the production schema check agrees with this migration: both blocks read ok',async()=>{
     /* Nothing else runs these before production does, so a check that no
        longer matches the migration first shows up as a red drift run. */

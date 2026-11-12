@@ -1776,7 +1776,7 @@ jobs:
       - name: Execute checked bookkeeping transition regressions
         run: |
           node scripts/tests/bookkeeping-transition-database.test.mjs
-          for mutation in claim-check-removed stale-version-bypass company-boundary-bypass date-bypass window-not-configurable pending-claims-ignored claim-judged-by-date setup-imports-block update-guard-removed sibling-guards-insert-only; do
+          for mutation in claim-check-removed stale-version-bypass company-boundary-bypass date-bypass window-not-configurable pending-claims-ignored claim-judged-by-date setup-imports-block update-guard-removed sibling-guards-insert-only missing-guard-aborts; do
             if BOOKKEEPING_TRANSITION_MUTATION="$mutation" node scripts/tests/bookkeeping-transition-database.test.mjs > /tmp/bookkeeping-transition.log 2>&1; then
               cat /tmp/bookkeeping-transition.log; echo "Survived transition mutation: $mutation"; exit 1
             fi

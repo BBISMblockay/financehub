@@ -9483,11 +9483,15 @@ select 'Bookkeeping checked transition safety' as check_name,
   -- arm of the boundary is shorter than the others: a row moved back into
   -- submitting would pass the mode guard while skipping the approval match,
   -- the per-account posting start date and the open bank feed exception.
-  when (select count(*) from pg_trigger
+  -- Judged over the guards this database HAS: production never received
+  -- card_import_claim_matches_approval(), so demanding four here would read
+  -- BROKEN for a trigger that does not exist and cannot be created by this
+  -- migration. Every claim guard present must cover both arms.
+  when exists (select 1 from pg_trigger
          where tgrelid = 'public.quickbooks_journal_postings'::regclass and tgenabled in ('O', 'A')
            and tgname in ('plaid_new_posting_claim', 'qbo_card_claim_matches_approval',
                           'qbo_card_posting_start_claim', 'zz_bookkeeping_mode_claim')
-           and (tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16) <> 4
+           and not ((tgtype::integer & 4) = 4 and (tgtype::integer & 16) = 16))
    then 'BROKEN — a posting claim guard does not cover re-entry into submitting'
   -- The refusals and the list the card shows read ONE predicate each, so a
   -- count and its explanation cannot disagree, and the takeover window is read

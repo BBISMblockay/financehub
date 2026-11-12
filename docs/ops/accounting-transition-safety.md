@@ -332,3 +332,29 @@ what to do about it. The blocker reasons live in
 `silo_handover_blockers()` (`Posting to QuickBooks`, `Check in QuickBooks`,
 `Approved during setup. Not in the way.`, `Approved in SILO, not sent.`), so
 the card renders them and adds nothing.
+
+## Production gap found on apply (2026-11-12)
+
+The first apply of `20261111201400` to production aborted with
+`42883: function public.card_import_claim_matches_approval() does not exist`.
+Production has the rest of the On Deck coding review's objects (its table and
+27 functions) but never received that guard function or its
+`qbo_card_claim_matches_approval` trigger, and `20261004120000` is not in
+`supabase_migrations.schema_migrations` — those objects were applied by hand.
+Nothing of this migration had applied; the editor's transaction rolled back.
+
+Two changes came out of it:
+
+- The three sibling claim guards are now widened inside a loop over
+  (trigger, guard function) pairs that **skips a pair whose function is not in
+  this database**, with a notice. Widening a trigger SILO does not have is not
+  this migration's job, and creating the missing guard would change what
+  posting accepts — a decision of its own, left to Blake.
+- `verify_v2_schema.sql` judges the guards that are **present**: every claim
+  guard that exists must cover both the INSERT and the UPDATE arm. Demanding
+  four would read BROKEN on production for a trigger that is not there.
+
+A separate, pre-existing gap worth deciding on: without
+`qbo_card_claim_matches_approval`, production does not refuse a posting claim
+whose approval snapshot has moved on. `card_posting_start_claim_guard` and the
+Plaid guard are in place; the stale-approval match is not.
