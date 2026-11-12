@@ -16,19 +16,35 @@ export function dayOffset(at, days) {
   return new Date(at.getTime() - days * 86400000).toISOString().slice(0, 10);
 }
 
-export async function runCommissions({ supabase, now = () => new Date(), deliverNotices = null, log = () => {}, onlyProgramId = '' }) {
+// How far back a run chained to a data sync looks. It is SHORT on purpose:
+// that call runs on every sync (up to twelve times a day), its only job is to
+// pick up orders placed since the last one, and it shares the same 8s API
+// statement timeout as every other caller. The reversals that land weeks after
+// an order -- refunds, cancellations -- are the nightly LOOKBACK_DAYS sweep's
+// job, which is why the chained call never replaces it.
+export const CHAINED_LOOKBACK_DAYS = 3;
+
+export async function runCommissions({ supabase, now = () => new Date(), deliverNotices = null, log = () => {}, onlyProgramId = '', onlyCompanyIds = null, lookbackDays = LOOKBACK_DAYS, source = 'nightly' }) {
   const summary = { programs: 0, failed: 0, entries_accrued: 0, entries_reduced: 0, notices: null };
+  // An EMPTY company list means "no company in this run has an affiliate
+  // program to update", which is not the same as "every company": filtering
+  // on nothing would quietly resolve the whole platform on a single store's
+  // sync.
+  if (Array.isArray(onlyCompanyIds) && onlyCompanyIds.length === 0) return summary;
   let q = supabase.from('affiliate_programs').select('id, company_entity_id, name').eq('status', 'active');
   if (onlyProgramId) q = q.eq('id', onlyProgramId);
+  if (Array.isArray(onlyCompanyIds)) q = q.in('company_entity_id', onlyCompanyIds);
   const { data: programs, error } = await q;
   if (error) throw new Error(`affiliate_programs: ${error.message}`);
 
   const to = dayOffset(now(), -1);            // tomorrow (UTC) covers every zone's today
-  const from = dayOffset(now(), LOOKBACK_DAYS);
+  const from = dayOffset(now(), lookbackDays);
   for (const p of programs || []) {
     summary.programs += 1;
     const started = now().toISOString();
-    let status = 'success', result = { program_id: p.id, from, to };
+    // `source` is in the stored record so a short chained run cannot be read
+    // as the nightly sweep having covered 45 days.
+    let status = 'success', result = { program_id: p.id, from, to, source };
     try {
       const r1 = await supabase.rpc('affiliate_resolve_attributions', { p_program: p.id, p_from: from, p_to: to });
       if (r1.error) throw new Error(`resolve: ${r1.error.message}`);
