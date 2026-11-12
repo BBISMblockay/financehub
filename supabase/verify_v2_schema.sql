@@ -6737,6 +6737,15 @@ select name as plaid_table,
     else 'ok' end as status
 from expected left join pg_class c on c.oid=to_regclass('public.'||name);
 
+-- The cooldown that lets a scheduled sync ask the institution to re-fetch.
+-- Without the column the write fails, every attempt is reported as a failed
+-- recovery, and the feed stays silent exactly as it did before (20261112040000).
+select 'plaid_connections.auto_refresh_requested_at' as plaid_auto_refresh,
+  case when not exists(select 1 from pg_attribute a
+      where a.attrelid=to_regclass('public.plaid_connections') and a.attname='auto_refresh_requested_at' and not a.attisdropped)
+    then 'MISSING — scheduled bank re-fetch cannot record its cooldown'
+  else 'ok' end as status;
+
 with expected(signature,browser) as (values
   ('public.plaid_finance_context()',true),
   ('public.configure_plaid_account(uuid,uuid,text,date,uuid)',true),

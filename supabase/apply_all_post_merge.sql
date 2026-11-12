@@ -19718,4 +19718,12 @@ $c$select (select count(*) from v_po_header_summary
 -- 'error'), which used to roll back with the call. Owes one mcp deploy; either
 -- order is safe.
 \i migrations/20261112030000_api_call_log_connect_and_failures.sql
+-- 2026-11-12: plaid_connections.auto_refresh_requested_at. A bank can stop
+-- answering Plaid while every sync stays green, and only /transactions/refresh
+-- makes Plaid go and ask it -- which was reachable only from a button. This
+-- column is the cooldown that lets the scheduled sync make that request
+-- itself, once per item per day. Column only, null for every existing
+-- connection; owes a plaid-finance AND a plaid-scheduled-sync deploy, because
+-- the scheduled function bundles the same handler.
+\i migrations/20261112040000_plaid_auto_refresh_requested.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
