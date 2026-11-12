@@ -693,6 +693,53 @@ const TABLES = {
       });
     }
     await page.evaluate(() => document.getElementById('btnBulkClear')?.click());
+    await check('local transaction views stay above the feed and remain reachable at every size', async () => {
+      for(const width of [390,768,1000,1440]) {
+        await page.setViewportSize({width,height:1000}); await page.keyboard.press('Escape');
+        if(width<=900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+        if(await page.locator('#codeFilterPanel').isVisible()) await page.click('#btnFilterToggle');
+        const geometry=await page.evaluate(()=>({tabs:document.getElementById('ccTabs').getBoundingClientRect().toJSON(),content:document.querySelector('.cc-content').getBoundingClientRect().toJSON()}));
+        r.truthy(geometry.tabs.bottom<=geometry.content.top+1,`${width}px local views precede feed`);
+        for(const pane of ['entry','rules','cards','coding']) {
+          const tab=page.locator(`#ccTabs [data-pane="${pane}"]`);
+          await tab.click();
+          r.eq(await tab.getAttribute('aria-selected'),'true',`${width}px ${pane} is selected`);
+          r.truthy(await page.locator(`.cc-content > .cc-pane[data-pane="${pane}"]`).isVisible(),`${pane} content available`);
+        }
+      }
+    });
+    await check('stacked transaction cells do not overlap and category/location remain editable', async () => {
+      await page.keyboard.press('Escape');
+      for (const width of [390,768,1000]) {
+        await page.setViewportSize({width,height:1000});
+        if(width<=900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+        const cells=await page.locator('#tblCoding tbody tr.txn-row').first().evaluate(row =>
+          [...row.querySelectorAll('.txn-merchant,.txn-treatment,.txn-category,.txn-location,.txn-entity')]
+            .map(n=>({name:n.className,...n.getBoundingClientRect().toJSON()})));
+        r.eq(cells.length,5,'all coding fields are still rendered');
+        for(const [i,a] of cells.entries()) for(const b of cells.slice(i+1)) {
+          const overlap=Math.min(a.right,b.right)-Math.max(a.left,b.left)>1
+            && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>1;
+          r.truthy(!overlap,`${width}px: ${a.name} overlaps ${b.name}`);
+        }
+      }
+      await page.setViewportSize({width:390,height:1000});
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+      const row=page.locator('#tblCoding tbody tr.txn-row').first();
+      const writes=()=>page.evaluate(()=>window.__QUERIES__.filter(q=>['insert','update','upsert','delete'].includes(q._op)).length);
+      const before=await writes();
+      for(const [field,option] of [['account','Lease & Rent'],['location','HQ']]) {
+        const button=row.locator(`[data-edit="${field}"]`),label=await button.innerText();
+        await button.click();
+        const editor=row.locator(`select[data-field="${field}"]`);
+        await editor.waitFor({state:'visible'});
+        r.truthy((await editor.locator('option').allTextContents()).includes(option),`${field} choices available`);
+        await page.locator('#codeTitle').click();
+        r.eq(await row.locator(`[data-edit="${field}"]`).innerText(),label,'opening and leaving preserves the existing value');
+      }
+      r.eq(await writes(),before,'inspecting fields makes no financial write');
+    });
     await check('desktop and phone captures show unobscured working transactions', async () => {
       fs.mkdirSync('/tmp/accounting-qa', {recursive:true});
       if (await page.locator('#codeFilterPanel').isVisible()) await page.click('#btnFilterToggle');

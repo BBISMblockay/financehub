@@ -535,8 +535,11 @@
     as the second line of "what was this" rather than a floating column. */
  #tblCoding .txn-merchant {grid-column:2;grid-row:3;width:auto;font-size:11px;}
  #tblCoding .txn-treatment {grid-column:2;grid-row:4;}
- #tblCoding .txn-category {grid-column:2;grid-row:5;}
- #tblCoding .txn-entity {grid-column:2;grid-row:6;}
+ /* Merchant adds a row: category, location and entity must keep distinct
+    slots. Sharing row 5 hid Choose category beneath Account default. */
+ #tblCoding .txn-category {grid-column:2/4;grid-row:5;}
+ #tblCoding .txn-location {grid-column:2/4;grid-row:6;}
+ #tblCoding .txn-entity {grid-column:2/4;grid-row:7;}
 }
 
 /* The selection / save toolbar floats over the list, pinned to the bottom of
@@ -609,7 +612,7 @@
 
 /* Accounting workbench: one title, a distinct local view row, readable activity.
    Existing IDs, controls, scopes and write handlers are intentionally unchanged. */
-.accounting-workspace .cc-page > #ccTabs{flex:none;display:flex;gap:22px;padding:0 24px;height:auto;min-height:46px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);overflow-x:auto;}
+.accounting-workspace .cc-page > #ccTabs{order:0;flex:none;display:flex;gap:22px;padding:0 24px;height:auto;min-height:46px;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);overflow-x:auto;}
 .accounting-workspace .cc-page > #ccTabs .bcn-tab{padding:13px 0;border-radius:0;border-bottom:2px solid transparent;font-size:13px;background:transparent;}
 .accounting-workspace .cc-page > #ccTabs .bcn-tab--active{border-bottom-color:var(--bcn-accent);background:transparent;}
 .accounting-workspace .cc-content{padding:18px 24px;}

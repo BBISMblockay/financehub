@@ -35,6 +35,8 @@ const ready=()=>window.SiloBooks&&document.getElementById('setupMappingStatus').
   // The real shell handles Escape; never remove drawer classes in a fixture.
   await p.keyboard.press('Escape');
   await p.waitForFunction(()=>!document.getElementById('silo-app').classList.contains('silo-nav-open'));
+  // Wait for the mobile drawer transition itself, not just its state class.
+  if(width<=900)await p.waitForFunction(()=>document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
   const clearAtCenter=selector=>p.waitForFunction(sel=>{
    const n=document.querySelector(sel);if(!n)return false;const r=n.getBoundingClientRect();
    const x=r.left+r.width/2,y=r.top+r.height/2;
