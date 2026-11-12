@@ -7,6 +7,7 @@ import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
 import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
+import { runCommissions, CHAINED_LOOKBACK_DAYS } from './lib/affiliate-commissions-core.mjs';
 import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting.mjs';
 import {
@@ -607,6 +608,52 @@ async function main() {
       hadError = true;
       console.error(`[error] ${connection.shop_domain}: ${err.message || err}`);
       allResults.push({ shop_domain: connection.shop_domain, error: String(err) });
+    }
+  }
+
+  // Affiliate Studio reads matched orders, not raw ones: an order that used an
+  // affiliate code shows up only once affiliate_resolve_attributions has
+  // matched it and affiliate_accrue_commissions has priced it. Those ran on a
+  // nightly job alone, so a code's first sale sat invisible for up to a day
+  // and a person had to press "Update commissions" to see it at all. They run
+  // HERE too, for the companies this run just synced, so the orders this run
+  // imported are matched in the same pass that imported them -- twelve times a
+  // day on the light schedule.
+  //
+  // Short window (CHAINED_LOOKBACK_DAYS), and the nightly 45-day sweep STAYS:
+  // refunds and cancellations land weeks after an order and only the long
+  // window reverses them.
+  //
+  // It is a WARNING, not an error: a sales sync that imported every order
+  // should not go red because commissions are an hour behind, and the nightly
+  // job plus the sync_jobs row each program writes are how a real failure is
+  // found. Nothing here moves money -- accrual only writes ledger lines, and
+  // payouts stay with a person in Studio.
+  if (stageEnabled('incremental_sales') || stageEnabled('history_import')) {
+    // Only the companies whose stores actually synced in THIS run: a store
+    // that errored or was skipped imported nothing, so resolving its company
+    // would spend the window on orders that are not there yet.
+    const synced = new Set(allResults.filter((r) => !r.error && !r.skipped).map((r) => r.shop_domain));
+    const syncedCompanyIds = [...new Set(connections
+      .filter((c) => synced.has(c.shop_domain))
+      .map((c) => c.company_entity_id)
+      .filter(Boolean))];
+    try {
+      const affiliate = await runCommissions({
+        supabase,
+        onlyCompanyIds: syncedCompanyIds,
+        lookbackDays: CHAINED_LOOKBACK_DAYS,
+        source: 'shopify_sync',
+        log: console.log,
+      });
+      if (affiliate.programs) {
+        console.log(`[shopify-sync] affiliate commissions: ${JSON.stringify(affiliate)}`);
+      }
+      if (affiliate.failed) {
+        console.log(`::warning title=Affiliate commissions lagging::${affiliate.failed} affiliate program(s) did not update on this sync; the nightly run is the backstop (see sync_jobs job_type=affiliate_commissions)`);
+      }
+    } catch (err) {
+      console.log(`::warning title=Affiliate commissions lagging::${err.message || err}`);
     }
   }
 

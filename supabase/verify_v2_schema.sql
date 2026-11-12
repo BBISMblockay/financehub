@@ -9039,6 +9039,16 @@ select 'Affiliate Studio' as check_name,
     -- thing standing between a new table and a cross-company reference.
     when to_regprocedure('public.attach_affiliate_same_company_twins()') is null
       then 'MISSING — run 20261111181000_affiliate_same_company_twins_function.sql'
+    -- Without this partial index the order -> code match detoasts
+    -- discount_codes for EVERY order in its window, not only the ones that
+    -- used a code: measured at 6.8-12.3s for 48 days of one company's orders
+    -- against the 8s API statement timeout every caller shares. The nightly
+    -- job and Studio's "Update commissions" are both cancelled, so an
+    -- affiliate order never appears -- and nothing else goes red, because the
+    -- orders themselves imported fine.
+    when not exists (select 1 from pg_index i join pg_class c on c.oid = i.indexrelid
+                      where c.relname = 'shopify_orders_co_created_coded_idx')
+      then 'MISSING — run 20261112220000_affiliate_order_match_index.sql (affiliate orders cannot be matched without it)'
     when exists (select 1 from pg_class c join pg_namespace s on s.oid = c.relnamespace
                   where s.nspname = 'public' and c.relkind = 'r' and c.relname like 'affiliate%' and not c.relrowsecurity)
       then 'CRITICAL — RLS is off on an affiliate table'
