@@ -3441,3 +3441,41 @@ workspace kept for a vendor app review or a sales demo rather than a customer.
   inherits it. Verify: `verify_v2_schema.sql` check "Demo workspaces". Tests:
   `scripts/tests/integration-reconcile.test.mjs`,
   `scripts/tests/integration-reconcile-run.test.mjs`.
+
+## `20261112040000_plaid_auto_refresh_requested.sql` — a scheduled sync can ask the bank to re-fetch
+
+`plaid_connections.auto_refresh_requested_at` (nullable `timestamptz`). One
+column, one purpose: the cooldown on an automatic `/transactions/refresh`.
+
+- **The gap it closes.** A Plaid feed can stop delivering while nothing looks
+  wrong: the cursor returns empty pages, the item stays `active`, balances keep
+  refreshing, `plaid_sync_exceptions` is empty and every scheduled run reports
+  success. The date-range top-up covers the case where *Plaid* holds days our
+  cursor missed. It cannot cover the case where Plaid was never given them,
+  because the institution went quiet toward Plaid — and only
+  `/transactions/refresh` makes Plaid go and ask. That was reachable only from
+  the "Ask bank to re-fetch" button, so the feed stayed stale until a person
+  noticed. One production feed sat silent for eight days that way.
+- **When it fires.** Only on the one signature nothing else can fix: the cursor
+  delivered nothing, AND the date-range read found nothing we did not already
+  hold, AND the account has been silent at least `SILENT_DAYS_BEFORE_TOP_UP`
+  days, AND the connection is `active`. A delivering, current or brand-new feed
+  is never kicked.
+- **Stamped before the request, not after**, so a refused or lost call waits out
+  the window instead of being retried every six hours. The add-on is billed per
+  call and rate-limited, and a plan without it rejects with `INVALID_PRODUCT`.
+- **The grain is the connection, not the account**, because
+  `/transactions/refresh` takes an access token and refreshes the whole item.
+  Per account would fire the same refresh once per mapped account.
+- **The rows arrive later.** The institution answers asynchronously, so the
+  request returns before any transaction does and the next ordinary sync
+  collects them. Nothing waits.
+- A person pressing the button does not stamp the column: that path still
+  writes nothing at all, which its own test pins.
+- No new policies: `plaid_connections` already carries RLS and a new column
+  inherits it. Verify: `verify_v2_schema.sql` check
+  "plaid_connections.auto_refresh_requested_at". Owes a `plaid-finance` **and**
+  a `plaid-scheduled-sync` deploy, because the scheduled function bundles the
+  same handler. Tests: `scripts/tests/plaid-finance-handler.test.mjs`,
+  `scripts/tests/plaid-scheduled-sync.test.mjs`,
+  `scripts/tests/plaid-sync.test.mjs`.

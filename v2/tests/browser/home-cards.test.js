@@ -65,7 +65,7 @@ async function readHome(page) {
       && titles.includes('Insights'), JSON.stringify(titles));
     r.ok('Marketing is reachable from Home', home.home.includes('/v2/marketing-overview.html'));
     r.ok('Setup and Accounting are on Home for the founder',
-      home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/transactions.html'));
+      home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/accounting.html'));
     r.ok('no Baseballism-only link leaks onto a standard Home',
       !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report|silo-attribution/.test(h)),
       JSON.stringify(home.home));

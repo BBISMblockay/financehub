@@ -35,8 +35,8 @@ const { tables, plan } = require('../lib/payments-fixtures');
     const invoices = await suite.open('/v2/invoicing.html', tables(), {
       ready: () => document.querySelector('#invoiceCount')?.textContent === '4 of 4',
     });
-    await check('Accounting workspace selects Invoicing once', async () => {
-      assert.equal(await invoices.locator('[data-accounting-suite] [aria-current="page"]').textContent(), 'Invoicing');
+    await check('Accounting workspace selects Invoices once', async () => {
+      assert.equal(await invoices.locator('[data-accounting-suite] [aria-current="page"]').textContent(), 'Invoices');
       assert.equal(await invoices.locator('[data-accounting-suite] a[href="/v2/invoicing.html"]').count(), 1);
     });
     await check('search, status selection, and empty result combine', async () => {

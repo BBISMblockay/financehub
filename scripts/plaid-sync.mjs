@@ -43,8 +43,16 @@ export async function runPlaidSync({ url, getToken = githubIdentityToken, fetchI
         typeof body.ok !== 'boolean' || !Number.isInteger(body.exceptions) || body.exceptions < 0 ||
         !(body.status === 'unconfirmed' || (Number.isInteger(body.status) && body.status >= 100 && body.status <= 599)) ||
         (body.ok && (body.status < 200 || body.status >= 300 || body.status === 'unconfirmed'))) throw new Error('Invalid scheduled sync response');
+    // A recovery the sync attempted for itself (a date-range top-up, a request
+    // to the institution to re-fetch). Logged because a feed can go silent
+    // while every run stays green: without these the log cannot say whether a
+    // recovery ran, found nothing, or failed. Already reduced to bounded
+    // scalars by the function, and carried through only as an object.
+    const recovery = value => (value && typeof value === 'object' && !Array.isArray(value) ? value : undefined);
     results.push({ account_id: body.account_id, ok: body.ok, status: body.status, exceptions: body.exceptions,
-      ...(body.ok ? {} : { error_code: safeCodes.has(body.error_code) ? body.error_code : 'account_sync_failed' }) });
+      ...(body.ok ? {} : { error_code: safeCodes.has(body.error_code) ? body.error_code : 'account_sync_failed' }),
+      ...(recovery(body.top_up) ? { top_up: recovery(body.top_up) } : {}),
+      ...(recovery(body.refetch) ? { refetch: recovery(body.refetch) } : {}) });
     after = body.account_id;
   }
   return { accounts: results.length, failed: results.filter(row => !row.ok).length,

@@ -225,3 +225,29 @@
 .books-blockers .books-row > div{min-width:0}
 .books-blockers .books-caption{margin:4px 0 0}
 .books-blockers .bcn-btn{white-space:nowrap;text-decoration:none}
+
+/* Connection-first setup. History remains a deliberate, accessible disclosure. */
+.accounting-workspace .books-card,.accounting-workspace .migration-flow,.accounting-workspace .migration-step-btn{border-radius:6px;}
+.accounting-workspace .books-hero p,.accounting-workspace .books-card p,.accounting-workspace .books-card label,.accounting-workspace .books-card td{font-size:13px;}
+.accounting-workspace .books-badge{font-size:12px;}
+.books-setup-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin:20px 0 16px;}
+.books-setup-heading h2{font-size:20px;letter-spacing:-.025em;margin:4px 0 8px;}
+.books-setup-heading p{font-size:14px;margin:0;}
+.books-setup-heading .bcn-btn{white-space:nowrap;}
+.books-connection-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.accounting-workspace .books-connection-grid .books-card{display:flex;flex-direction:column;padding:18px;}
+.books-connection-grid [role=status]{flex:1;margin-bottom:16px;overflow-wrap:anywhere;}
+.books-step{font:11px var(--bcn-mono);letter-spacing:.08em;color:var(--bcn-ink-3);margin-bottom:18px;}
+.books-connection-grid .bcn-btn{align-self:flex-start;}
+.books-text-link{font-size:13px;margin-top:12px;}
+.accounting-workspace .books-mode{padding:12px 16px;border-left:3px solid var(--bcn-accent);}
+.accounting-workspace .books-mode h2{font-size:12px;color:var(--bcn-ink-3);margin-bottom:4px;}
+.accounting-workspace .books-mode [data-mode-state]{font-size:14px;font-weight:600;margin:0 0 8px;color:var(--bcn-ink);}
+.books-mode [data-mode-status]:empty{display:none;}
+.books-advanced>summary{display:flex;align-items:center;gap:12px;list-style:revert;}
+.books-advanced>summary::before{content:'+';font:16px var(--bcn-mono);}
+.books-advanced[open]>summary::before{content:'−';}
+#openingSetupState{margin-left:auto;font:12px var(--bcn-mono);color:var(--bcn-ink-2);}
+.books-advanced>.books-columns{margin-top:16px;}
+.accounting-workspace .books-advanced .books-card{padding:14px;}
+@media(max-width:900px){.books-connection-grid{grid-template-columns:1fr}.books-setup-heading{align-items:flex-start;flex-direction:column;}.books-step{margin-bottom:10px}.books-connection-grid [role=status]{margin-bottom:10px;}}

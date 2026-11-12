@@ -14,11 +14,19 @@ const result = await runPlaidSync({ url: 'https://synthetic.supabase.co',
     if (calls === 102) return Response.json({ done: true });
     return Response.json({ done: false, account_id: id(calls), ok: calls !== 2,
       status: calls === 2 ? 502 : 200, exceptions: calls === 1 ? 2 : 0,
-      error_code: 'private-provider-message' });
+      error_code: 'private-provider-message',
+      // A recovery the sync attempted for itself. It has to reach the log, or
+      // a feed that went silent and a recovery that failed read the same.
+      ...(calls === 1 ? { top_up: { imported: 0, examined: 3 }, refetch: { requested: true } } : {}),
+      ...(calls === 3 ? { top_up: 'provider text', refetch: ['provider text'] } : {}) });
   },
 });
 assert.deepEqual([result.accounts, result.failed, result.exceptions, tokens], [101, 1, 2, 102]);
 assert.doesNotMatch(JSON.stringify(result), /private-provider-message|token-/);
+assert.deepEqual(result.results[0].top_up, { imported: 0, examined: 3 }, 'a recovery outcome reaches the run log');
+assert.deepEqual(result.results[0].refetch, { requested: true });
+assert.deepEqual([result.results[2].top_up, result.results[2].refetch], [undefined, undefined],
+  'only an object is carried through, never loose provider text');
 for (const body of [{ done: false }, { done: false, account_id: id(1), ok: true, status: 500, exceptions: 0 }]) {
   await assert.rejects(runPlaidSync({ url: 'https://synthetic.supabase.co', getToken: async () => 'token',
     fetchImpl: async () => Response.json(body) }), /Invalid scheduled sync response/);

@@ -1,5 +1,20 @@
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 const reply = (body, status = 200) => Response.json(body, { status });
+// A recovery attempt's outcome, reduced to bounded scalars for the run log.
+// The sync reports its own recoveries (a date-range top-up, a request to the
+// institution to re-fetch) alongside the counts, and this used to read only
+// the counts -- so "the bank had nothing" and "the recovery itself failed"
+// looked identical in the log and in the database. Only these fields travel,
+// so a provider message can never reach a workflow log through here.
+const recovery = source => {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const summary = {};
+  if (Number.isInteger(source.imported)) summary.imported = source.imported;
+  if (Number.isInteger(source.examined)) summary.examined = source.examined;
+  if (source.requested === true) summary.requested = true;
+  if (typeof source.failed === 'string' && source.failed) summary.failed = source.failed.slice(0, 64);
+  return Object.keys(summary).length ? summary : null;
+};
 
 // One account per invocation bounds runtime. Account selection and the service
 // credential remain server-side. The caller cannot submit an action or payload.
@@ -36,8 +51,11 @@ export function createScheduledHandler({ env, verifyIdentity, createDb, syncAcco
         const result = await syncAccount(id);
         const body = await result.json().catch(() => null);
         const ok = result.ok && Array.isArray(body?.batch_ids) && Number.isInteger(body?.exceptions) && body.exceptions >= 0;
+        const topUp = ok ? recovery(body.top_up) : null;
+        const refetch = ok ? recovery(body.refetch) : null;
         return reply({ done: false, account_id: id, ok, status: result.status,
-          exceptions: ok ? body.exceptions : 0, ...(ok ? {} : { error_code: 'account_sync_failed' }) });
+          exceptions: ok ? body.exceptions : 0, ...(ok ? {} : { error_code: 'account_sync_failed' }),
+          ...(topUp ? { top_up: topUp } : {}), ...(refetch ? { refetch } : {}) });
       } catch {
         // The existing ingestion lease/cursor protocol governs uncertain writes.
         return reply({ done: false, account_id: id, ok: false, status: 'unconfirmed', exceptions: 0,

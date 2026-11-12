@@ -34,10 +34,11 @@
       soft(db.from('accounting_location_map').select('location_tag,qbo_location_id').eq('company_entity_id',company.id))]);
     baseline=opening;booksSettings=settings;
     const accepted=opening?.status==='accepted';
-    el('booksTitle').textContent=accepted?'Books & setup':'Set up your books';
-    el('booksIntro').textContent=accepted?'Your accounts, opening balances and journal history.':'Start with QuickBooks. Review your opening balances before accepting.';
+    el('booksTitle').textContent='Books & setup';
+    el('booksIntro').textContent='Connections, accounts and the settings behind your books.';
     el('booksBadge').textContent=accepted?'Opening balances accepted':opening?'Review opening balances':'Setup needed';
     el('setupInputs').open=!accepted;
+    el('openingSetupState').textContent=accepted?'Accepted':opening?'Review needed':'Not prepared';
     el('setupInputsLabel').textContent=accepted?'Connection & opening settings':'Prepare opening balances';
     el('accept').hidden=accepted;
     if(opening?.snapshot?.as_of)el('cutoff').value=opening.snapshot.as_of;
@@ -73,7 +74,7 @@
     el('accept').disabled=!opening||opening.status==='accepted';el('seed').disabled=opening?.status==='accepted';el('seedForm').inert=opening?.status==='accepted';
   }
   async function prepare(reportId){if(!reportId)throw new Error('Select a trial balance first');
-    await result(db.rpc('seed_accounting_from_qbo',{p_report_id:reportId,p_fiscal_month:Number(el('fiscal').value)}));await load();status('Opening balances prepared. Review every account below before accepting. Nothing was posted to QuickBooks.');}
+    await result(db.rpc('seed_accounting_from_qbo',{p_report_id:reportId,p_fiscal_month:Number(el('fiscal').value)}));await load();el('openingSetup').open=true;status('Opening balances prepared. Review every account below before accepting. Nothing was posted to QuickBooks.');}
   // Discard and Void live here (moved from Reports) so the register is the one
   // place a close is checked: Discard only a draft adjustment (RLS refuses the
   // rest), Void only a posted entry, through the same RPCs the source pages use.
@@ -109,6 +110,27 @@
     el('registerTable').insertAdjacentHTML('beforeend',rows.length?table(['Date','Source','Description','Review','QBO delivery','Action'],rows.map(r=>`<tr><td>${esc(r.entry_date)}</td><td>${esc(r.source||r.kind)}</td><td>${esc(r.memo)}</td><td>${esc(r.status)}</td><td>${esc(r.posting_status||'Not sent')}</td><td>${registerActions(r)}</td></tr>`)):'');
     registerOffset+=rows.length;el('more').hidden=rows.length<50;
   }
+  // Setup reads reuse the same company boundary as the existing Books data.
+  // Provider errors are local to their card; a failed read is never “connected”.
+  async function setupConnections(connections){
+    const qbo=el('setupQboStatus');
+    qbo.innerHTML=connections.length
+      ?connections.map(c=>`<p><strong>${esc(c.company_name||c.realm_id)}</strong> · ${esc(c.environment||'QBO')}</p><p class="books-caption">Connection saved · ${c.accounts_synced_at?'accounts synced '+esc(day(c.accounts_synced_at)):'account sync not yet recorded'}</p>`).join('')
+      :'<p><strong>QuickBooks is not connected</strong></p><p>Connect your company in Integrations to bring in your chart of accounts.</p>';
+    const [banks,sources]=await Promise.all([
+      allRows('plaid_connections','id,institution_name,status','institution_name').then(data=>({data}),e=>({error:e.message})),
+      allRows('card_sources','id,display_name,is_active,ingest_mode,qbo_connection_id,credit_qbo_account_id','display_name').then(data=>({data}),e=>({error:e.message}))
+    ]);
+    el('setupBankStatus').innerHTML=banks.error?`<p class="books-flag">Bank connections could not be read: ${esc(banks.error)}</p>`
+      :banks.data.length?banks.data.map(b=>`<p><strong>${esc(b.institution_name||'Bank connection')}</strong> · ${esc(b.status||'Status unknown')}</p>`).join('')
+      :'<p><strong>No Plaid connections yet</strong></p><p>Connect a bank or card in Bank activity. Statement imports are also available.</p>';
+    const active=(sources.data||[]).filter(a=>a.is_active);
+    const connected=new Set(connections.map(c=>c.id));
+    const mapped=active.filter(a=>a.credit_qbo_account_id&&connected.has(a.qbo_connection_id));
+    el('setupMappingStatus').innerHTML=sources.error?`<p class="books-flag">Account mappings could not be read: ${esc(sources.error)}</p>`
+      :active.length?`<p><strong>${mapped.length} of ${active.length} active accounts mapped</strong></p><p>${active.length===mapped.length?'Bank-to-QBO account links are saved. Review categories and approvals in Bank activity.':`${active.length-mapped.length} need a QBO account or an active QuickBooks connection. Open Bank activity, then bank connections and mapping.`}</p>`
+      :'<p><strong>No active bank accounts yet</strong></p><p>Add a bank or imported account, then match it to your QuickBooks chart.</p>';
+  }
   async function boot(){
     if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY)throw new Error('Missing configuration; contact your Silo administrator');
     db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
@@ -118,6 +140,7 @@
     const permitted=await result(db.rpc('can_manage_journal_entries'));const executive=await result(db.rpc('is_exec_or_owner'));if(!permitted&&!executive)throw new Error('Finance access is required; ask your company owner for access');
     window.SiloChrome.mount({appEl:'#silo-app',active:'finance/books',user:{email:data.session.user.email},crumbs:['Accounting','Books & setup'],supabaseClient:db});
     const connections=await result(db.rpc('accounting_qbo_connections'));
+    setupConnections(connections).catch(e=>{el('setupBankStatus').textContent=`Connection details unavailable: ${e.message}`;el('setupMappingStatus').textContent='Account mapping status unavailable. Open Bank activity to review.';});
     el('connection').innerHTML=connections.length?connections.map(c=>`<option value="${esc(c.id)}">${esc(c.company_name||c.realm_id)} · ${esc(c.environment)}</option>`).join(''):'<option value="">Connect QuickBooks first</option>';
     el('fiscal').innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i,1).toLocaleString('en-US',{month:'long'})}</option>`).join('');
     // Use Silo's business date, not the browser's UTC date near Pacific midnight.
@@ -125,7 +148,7 @@
     if(!/^\d{4}-\d{2}-\d{2}$/.test(businessToday))throw new Error('Could not resolve the company business date');
     const yesterday=new Date(businessToday+'T00:00:00Z');yesterday.setUTCDate(yesterday.getUTCDate()-1);el('cutoff').value=yesterday.toISOString().slice(0,10);
     await load();await register(true);
-    status(baseline?.status==='accepted'?`Opening balances accepted · Silo starts ${baseline.snapshot.accounting_start_date}.`:connections.length?'Fetch a trial balance, then review and accept your opening balances.':'Ask your company administrator to connect QuickBooks, then return here.');
+    status(baseline?.status==='accepted'?`Opening balances accepted · Silo starts ${baseline.snapshot.accounting_start_date}.`:connections.length?'Review your connections below. Historical balances and their acceptance live under Opening balances & migration settings.':'Connect QuickBooks in Integrations, then connect and map your banks.');
     el('seedForm').addEventListener('submit',e=>{e.preventDefault();work(async()=>{status('Fetching a read-only trial balance from QuickBooks…');
       const cutoff=el('cutoff').value;const fiscal=Number(el('fiscal').value);const year=Number(cutoff.slice(0,4))-(Number(cutoff.slice(5,7))<fiscal?1:0);
       const startDate=String(year)+'-'+String(fiscal).padStart(2,'0')+'-01';
@@ -148,15 +171,22 @@
     document.querySelectorAll('.books-tabs [data-surface]').forEach(button=>button.addEventListener('click',()=>showTab(button)));
     // Opens the tab that owns a surface, opens that surface's own disclosure if
     // it has one, and scrolls to it. This is what a deep link or a jump means.
-    window.SiloBooks=Object.assign(window.SiloBooks||{},{showSurface(id){const tab=tabFor(id);if(!tab)return false;
+    window.SiloBooks=Object.assign(window.SiloBooks||{},{showSurface(id){const nested=document.getElementById(id);const owner=nested?.closest?.('.books-surface');const tab=tabFor(id)||tabFor(owner?.id);if(!tab)return false;
       showTab(tab);const section=document.getElementById(id);
       const fold=section?.querySelector('[data-subsection]');if(fold)fold.open=true;
+      if(id==='setup')el('openingSetup').open=true;
+      for(let parent=section;parent;parent=parent.parentElement){if(parent.tagName==='DETAILS')parent.open=true;}
       section?.scrollIntoView?.({block:'start'});return true;}});
     // Reports links here as "Journals"; a #surface hash opens its tab.
     // Before acceptance the work is Setup; after it, the ledger comes first.
-    const surface=String(location.hash||'').slice(1)||(baseline?.status==='accepted'?'ledger':'');
-    const linked=location.hash&&/^[a-z]+$/.test(surface)?document.getElementById(surface):null;
-    if(/^[a-z]+$/.test(surface)){if(location.hash)window.SiloBooks.showSurface(surface);else showTab(tabFor(surface));}
+    const readSurfaceHash=()=>{try{return decodeURIComponent(String(location.hash||'').slice(1));}catch{return '';}};
+    // Use the same route on initial load and browser Back/Forward. A target
+    // must resolve to an owned surface; camelCase control IDs are valid too.
+    const routeSurface=id=>{if(id==='setup')showTab(tabFor(id));else if(id)window.SiloBooks.showSurface(id);};
+    const surface=readSurfaceHash()||(baseline?.status==='accepted'?'ledger':'setup');
+    const linked=location.hash?document.getElementById(surface):null;
+    routeSurface(surface);
+    window.addEventListener?.('hashchange',()=>routeSurface(readSurfaceHash()||(baseline?.status==='accepted'?'ledger':'setup')));
     // A reclass (card_reclass) is staged by Transactions and must post exactly as staged: review only.
     const openJournal=(id,reviewOnly=false)=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,reviewOnly,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
     el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal,b.hasAttribute('data-review-only'));return;}
@@ -180,7 +210,7 @@
     // The company-wide answer is mounted before the per-account table so the
     // page reads top-down as one question, then its exceptions. It degrades
     // to its own message and hides itself where the migration is not applied.
-    window.SiloBooksMode?.mount({db,companyId:company.id,el,businessToday,booksStart:booksSettings?.accounting_start_date}).catch(e=>{el('booksMode').querySelector('[data-mode-body]').textContent=`This could not be read: ${e.message}.`;});
+    window.SiloBooksMode?.mount({db,companyId:company.id,el,businessToday,booksStart:booksSettings?.accounting_start_date}).catch(e=>{el('booksMode').querySelector('[data-mode-state]').textContent='Bookkeeping responsibility could not be read';el('booksMode').querySelector('[data-mode-status]').textContent=`This could not be read: ${e.message}. Reload to retry.`;});
     // The cut-over control writes, but only to card_sources.posting_start_on and
     // only through its own confirmation, so a failure to mount it leaves the
     // rest of Books usable and says so in its own card.

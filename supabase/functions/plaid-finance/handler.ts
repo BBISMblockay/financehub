@@ -22,6 +22,11 @@ const fail = (code: string, status = 502) => { throw Object.assign(new Error(cod
 // no business-day activity; the overlap is wider because institutions post late.
 const OVERLAP_DAYS = 7;
 const SILENT_DAYS_BEFORE_TOP_UP = 4;
+// How long an item waits between two scheduled requests to the institution to
+// re-fetch. A day, because the institution answers asynchronously and the rows
+// arrive through a later sync: asking again every six hours would spend the
+// add-on four times over on a bank that has not finished answering the first.
+const AUTO_REFRESH_COOLDOWN_HOURS = 24;
 const validId = (id: unknown) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 async function checked(result: any, code: string) {
   const { data, error } = await result;
@@ -421,7 +426,56 @@ export async function handlePlaidFinance(req: Request) {
             }
           } catch (error) { topUp = { failed: safePlaidError(error).code }; }
         }
-        return json({ ...result, ...(topUp ? { top_up: topUp } : {}) });
+        // The cursor delivered nothing AND the date-range read found nothing
+        // we did not already hold. That pair is the one signature the reads
+        // above cannot fix: Plaid itself does not have the days, because the
+        // institution went quiet toward PLAID. No amount of asking Plaid for
+        // what it has will recover that -- only /transactions/refresh makes
+        // Plaid go and ask the bank. Until now that was reachable only from a
+        // button, so a feed could sit stale for days with every scheduled run
+        // green and no error recorded anywhere.
+        //
+        // The request returns before the data does: the institution fetches
+        // asynchronously and the rows arrive through the NEXT ordinary sync.
+        // So this kicks the feed and ends; it never waits for transactions.
+        //
+        // One request per item per cooldown window, stamped on the connection
+        // because /transactions/refresh refreshes the whole item -- per
+        // account would fire the same refresh once per mapped account. Like
+        // the top-up, its failure is reported and never thrown: the sync
+        // above has committed, and a recovery attempt must not make a
+        // scheduled run red.
+        //
+        // Two other bounds, both deliberate. Only an 'active' connection is
+        // kicked: a connection in 'error' or 'login_required' is fixed by a
+        // person re-authorizing it, not by asking the bank for data Plaid
+        // cannot currently request. And the window is read then written rather
+        // than compared and set, so two accounts on one item syncing at the
+        // same moment could both pass it -- worth at most one extra request
+        // per item, where a compare-and-set would report a harmless lost race
+        // as a failed recovery. The scheduled runner takes one account per
+        // invocation in id order, so it never races itself.
+        //
+        // Before the migration is applied the column does not exist, the
+        // stamp write is rejected, and the request is never sent: the attempt
+        // is reported as a failed recovery and the sync is untouched. So the
+        // migration goes first and a deploy ahead of it only keeps today's
+        // behaviour.
+        let refetch = null;
+        if (topUp && topUp.imported === 0 && connection.status === 'active') {
+          const asked = Date.parse(connection.auto_refresh_requested_at || '');
+          if (!Number.isFinite(asked) || Date.now() - asked >= AUTO_REFRESH_COOLDOWN_HOURS * 3_600_000) {
+            try {
+              // Stamped BEFORE the call, so a refused or lost request waits
+              // out the window instead of being retried every six hours. The
+              // add-on is billed per call and rate-limited by Plaid.
+              await updateConnection(db, connection.id, companyId, { auto_refresh_requested_at: new Date().toISOString() });
+              await request('/transactions/refresh', { access_token: token });
+              refetch = { requested: true };
+            } catch (error) { refetch = { failed: safePlaidError(error).code }; }
+          }
+        }
+        return json({ ...result, ...(topUp ? { top_up: topUp } : {}), ...(refetch ? { refetch } : {}) });
       } catch (error) {
         const safe = safePlaidError(error);
         const release = await db.rpc('plaid_release_sync', {

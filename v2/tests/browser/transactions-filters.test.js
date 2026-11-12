@@ -11,6 +11,7 @@
  */
 'use strict';
 
+const fs = require('node:fs');
 const { createReporter } = require('../lib/assert');
 const { startSuite } = require('../lib/harness');
 
@@ -617,116 +618,27 @@ const TABLES = {
         'the active destination is marked');
     });
 
-    await check('compact hides the label visually but keeps it as the name', async () => {
-      await page.click('.accounting-suite-compact');
-      await page.waitForTimeout(120);
-      const compact = await page.$$eval('[data-accounting-suite] a', (links) => links.map((a) => ({
-        name: a.textContent.trim(),
-        width: a.querySelector('.accounting-suite-text').getBoundingClientRect().width,
-      })));
-      r.truthy(compact.every((c) => c.width <= 1), 'label widths: ' + compact.map((c) => c.width).join(','));
-      r.truthy(compact.every((c) => c.name.length > 0), 'the text node is still in the DOM');
+    await check('More keeps specialist tools reachable and Escape returns focus', async () => {
+      await page.click('.accounting-suite-more > summary');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), true);
+      r.truthy(await page.locator('.accounting-suite-menu a[href="/v2/schedules.html"]').isVisible());
+      await page.locator('.accounting-suite-menu a').first().focus();
+      await page.keyboard.press('Escape');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
+      r.eq(await page.evaluate(() => document.activeElement.matches('.accounting-suite-more > summary')),true);
     });
-
-    /* Cycle-1 review finding. Opacity and content prove the tooltip is STYLED,
-       not that it is painted: the links row scrolls horizontally, a scrollable
-       axis forces the other axis from visible to auto, and the tooltip sits
-       4px below each link -- outside that scrollport. Measured before the fix:
-       scrollport bottom 74px, tooltip top 78px, fully clipped while every
-       assertion below still passed. So this walks every ancestor and asks
-       whether any of them clips at the tooltip's own box. */
-    await check('the compact tooltip is not clipped by any ancestor', async () => {
-      const seen = await page.evaluate(() => {
-        const links = document.querySelector('.accounting-suite-links');
-        const a = links.querySelector('a');
-        const after = getComputedStyle(a, '::after');
-        const box = a.getBoundingClientRect();
-        // The tooltip's own box: 4px below the link (margin-top), its own height.
-        const top = box.bottom + 4;
-        const bottom = top + parseFloat(after.fontSize) * 2;
-        let node = a.parentElement;
-        let clippedBy = null;
-        while (node && node !== document.documentElement) {
-          const cs = getComputedStyle(node);
-          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') {
-            const b = node.getBoundingClientRect();
-            if (bottom > b.bottom + 0.5 || top < b.top - 0.5) {
-              clippedBy = (node.className && String(node.className)) || node.tagName;
-              break;
-            }
-          }
-          node = node.parentElement;
-        }
-        return { clippedBy, overflowX: getComputedStyle(links).overflowX,
-          overflowY: getComputedStyle(links).overflowY };
-      });
-      r.eq(seen.clippedBy, null, 'the tooltip is clipped by an ancestor');
-      // The cause, pinned directly: neither axis may establish a scrollport
-      // while the tooltip hangs below the row.
-      r.eq(seen.overflowY, 'visible');
-      r.eq(seen.overflowX, 'visible');
+    await check('More dismisses outside and primary links keep visible names', async () => {
+      await page.click('.accounting-suite-more > summary');
+      await page.click('.bcn-header-title');
+      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
+      r.eq(await page.$$eval('.accounting-suite-links a', links=>links.map(a=>a.textContent.trim())),['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+      r.eq(await page.$eval('.accounting-suite-links', n=>getComputedStyle(n).overflowX),'auto');
     });
-
-    await check('the links row still scrolls when full labels are shown', async () => {
-      // The scrollport is only dropped in compact mode; with labels the row
-      // can be long enough to need it, and there is no tooltip to clip.
-      const overflow = await page.evaluate(() => {
-        const nav = document.querySelector('[data-accounting-suite]');
-        const links = nav.querySelector('.accounting-suite-links');
-        const wasCompact = nav.classList.contains('accounting-suite--compact');
-        nav.classList.remove('accounting-suite--compact');
-        const value = getComputedStyle(links).overflowX;
-        if (wasCompact) nav.classList.add('accounting-suite--compact');
-        return value;
-      });
-      r.eq(overflow, 'auto');
-    });
-
-    await check('compact draws its tooltip from data-label, on hover AND keyboard focus', async () => {
-      const content = await page.$eval('[data-accounting-suite] a',
-        (a) => getComputedStyle(a, '::after').content);
-      r.has(content, 'Bank activity');
-      /* :focus-visible needs focus to ARRIVE by keyboard -- a programmatic
-         .focus() right after a click does not match it in Chromium, which is
-         the same rule a real keyboard user gets. So: focus the first link,
-         then Tab to the second. */
-      await page.focus('[data-accounting-suite] a');
-      await page.keyboard.press('Tab');
-      // The tooltip fades in; wait past the transition rather than racing it.
-      await page.waitForTimeout(400);
-      const focused = await page.evaluate(() => {
-        const a = document.activeElement;
-        return { label: a.dataset && a.dataset.label,
-          matches: a.matches(':focus-visible'),
-          opacity: getComputedStyle(a, '::after').opacity };
-      });
-      // 'Invoicing', not 'Shopify journal': it joined ACCOUNTING_PAGES at
-      // index 1 and this assertion was not moved with it, so the suite had
-      // been red on main. Kept as the literal second destination -- reading
-      // the name out of SiloNav here would assert nothing about tab order.
-      r.eq(focused.label, 'Invoicing', 'Tab landed on the next destination');
-      r.truthy(focused.matches, 'the link is :focus-visible');
-      r.eq(focused.opacity, '1');
-    });
-
-    await check('toggling back restores the labels', async () => {
-      await page.click('.accounting-suite-compact');
-      await page.waitForTimeout(120);
-      const width = await page.$eval('[data-accounting-suite] .accounting-suite-text',
-        (n) => n.getBoundingClientRect().width);
-      r.truthy(width > 1, 'label width ' + width);
-    });
-
-    console.log('\n\u2500\u2500 touch and small screens \u2500\u2500');
-    await check('on a phone the labels show and the compact toggle is not offered', async () => {
-      await page.setViewportSize({ width: 390, height: 780 });
+    await check('on a phone primary navigation retains readable labels', async () => {
+      await page.setViewportSize({ width:390, height:780 });
       await page.waitForTimeout(200);
-      const seen = await page.evaluate(() => ({
-        toggleShown: getComputedStyle(document.querySelector('.accounting-suite-compact')).display !== 'none',
-        labelWidth: document.querySelector('[data-accounting-suite] .accounting-suite-text').getBoundingClientRect().width,
-      }));
-      r.eq(seen.toggleShown, false);
-      r.truthy(seen.labelWidth > 1, 'label width ' + seen.labelWidth);
+      r.truthy(await page.$eval('.accounting-suite-text', n=>n.getBoundingClientRect().width)>1);
+      r.truthy(await page.locator('.accounting-suite-setup').isVisible());
     });
 
     await check('filter controls stay inside a 390px screen with touch-sized targets', async () => {
@@ -781,6 +693,79 @@ const TABLES = {
       });
     }
     await page.evaluate(() => document.getElementById('btnBulkClear')?.click());
+    await check('local transaction views stay above the feed and remain reachable at every size', async () => {
+      for(const width of [390,768,1000,1440]) {
+        await page.setViewportSize({width,height:1000}); await page.keyboard.press('Escape');
+        if(width<=900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+        if(await page.locator('#codeFilterPanel').isVisible()) await page.click('#btnFilterToggle');
+        const geometry=await page.evaluate(()=>({tabs:document.getElementById('ccTabs').getBoundingClientRect().toJSON(),content:document.querySelector('.cc-content').getBoundingClientRect().toJSON()}));
+        r.truthy(geometry.tabs.bottom<=geometry.content.top+1,`${width}px local views precede feed`);
+        for(const pane of ['entry','rules','cards','coding']) {
+          const tab=page.locator(`#ccTabs [data-pane="${pane}"]`);
+          await tab.click();
+          r.eq(await tab.getAttribute('aria-selected'),'true',`${width}px ${pane} is selected`);
+          r.truthy(await page.locator(`.cc-content > .cc-pane[data-pane="${pane}"]`).isVisible(),`${pane} content available`);
+        }
+      }
+    });
+    await check('stacked transaction cells do not overlap and category/location remain editable', async () => {
+      await page.keyboard.press('Escape');
+      for (const width of [390,768,1000]) {
+        await page.setViewportSize({width,height:1000});
+        if(width<=900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+        const cells=await page.locator('#tblCoding tbody tr.txn-row').first().evaluate(row =>
+          [...row.querySelectorAll('.txn-merchant,.txn-treatment,.txn-category,.txn-location,.txn-entity')]
+            .map(n=>({name:n.className,...n.getBoundingClientRect().toJSON()})));
+        r.eq(cells.length,5,'all coding fields are still rendered');
+        for(const [i,a] of cells.entries()) for(const b of cells.slice(i+1)) {
+          const overlap=Math.min(a.right,b.right)-Math.max(a.left,b.left)>1
+            && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>1;
+          r.truthy(!overlap,`${width}px: ${a.name} overlaps ${b.name}`);
+        }
+      }
+      await page.setViewportSize({width:390,height:1000});
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
+      const row=page.locator('#tblCoding tbody tr.txn-row').first();
+      const writes=()=>page.evaluate(()=>window.__QUERIES__.filter(q=>['insert','update','upsert','delete'].includes(q._op)).length);
+      const before=await writes();
+      for(const [field,option] of [['account','Lease & Rent'],['location','HQ']]) {
+        const button=row.locator(`[data-edit="${field}"]`),label=await button.innerText();
+        await button.click();
+        const editor=row.locator(`select[data-field="${field}"]`);
+        await editor.waitFor({state:'visible'});
+        r.truthy((await editor.locator('option').allTextContents()).includes(option),`${field} choices available`);
+        await page.locator('#codeTitle').click();
+        r.eq(await row.locator(`[data-edit="${field}"]`).innerText(),label,'opening and leaving preserves the existing value');
+      }
+      r.eq(await writes(),before,'inspecting fields makes no financial write');
+    });
+    await check('desktop and phone captures show unobscured working transactions', async () => {
+      fs.mkdirSync('/tmp/accounting-qa', {recursive:true});
+      if (await page.locator('#codeFilterPanel').isVisible()) await page.click('#btnFilterToggle');
+      for (const theme of ['light','dark']) for (const width of [1440,390]) {
+        await page.evaluate(t => document.documentElement.dataset.theme=t,theme);
+        await page.setViewportSize({width,height:1000});
+        await page.keyboard.press('Escape');
+        if(width <= 900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 1);
+        await page.locator('#codeTitle').scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => {
+          const n=document.getElementById('codeTitle'),r=n.getBoundingClientRect();
+          const x=r.left+r.width/2,y=r.top+r.height/2;
+          return x>0&&x<innerWidth&&y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
+        });
+        r.truthy(await page.locator('#tblCoding tbody tr').count()>0,'transaction rows remain available');
+        await page.screenshot({path:`/tmp/accounting-qa/transactions-${theme}-${width}.png`,fullPage:true});
+        // Scroll the real app pane to a working row, rather than capture only navigation.
+        await page.locator('#tblCoding tbody tr').first().scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => {
+          const n=document.querySelector('#tblCoding tbody tr'),r=n.getBoundingClientRect();
+          const x=Math.min(innerWidth-16,Math.max(16,r.left+32)),y=r.top+r.height/2;
+          return y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
+        });
+        await page.screenshot({path:`/tmp/accounting-qa/transactions-${theme}-${width}-rows.png`,fullPage:true});
+      }
+    });
 
   } catch (err) {
     r.test('suite ran to completion', () => { throw err; });
