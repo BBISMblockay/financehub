@@ -141,14 +141,73 @@ await test('test function: list mode empties the account field and records no te
     assert.ok(tester.includes(f), f);
   }
 });
-await test('Integrations: loads the picker, Reconnect on Google rows only, lists with list_accounts', () => {
+await test('Integrations: loads the picker, offers Reconnect where there is an authorization to renew, lists with list_accounts', () => {
   const page = read('v2/integrations.html');
   assert.ok(page.indexOf('<script src="ad-account-picker.js"></script>') > 0);
   assert.match(page, /<dialog class="int-picker" id="acct-picker"/);
   assert.match(page, /GOOGLE_PLATFORMS\.includes\(row\.platform\) \? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection/);
+  // Meta earns Reconnect from the oauth stamp the callback writes, never from
+  // the platform: a pasted System User token row has no authorization to
+  // renew and must keep Replace token as its only way back.
+  assert.match(page, /row\.platform === 'meta_ads' && row\.meta\?\.oauth\?\.connected_via \? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection/);
   assert.match(page, /body: JSON\.stringify\(\{ connection_id: id, list_accounts: true \}\)/);
-  assert.match(page, /startAdOauth\('google-oauth-start', \{ company_entity_id: _co\.id, platform, connection_id: id \}/);
   assert.match(page, /afterAdOauth\(oauthPlatform, urlParams\.get\('connection_id'\)/);
+});
+
+await test('Integrations: Reconnect goes to the platform\'s own start function, and Meta sends no platform', () => {
+  const page = read('v2/integrations.html');
+  const map = page.match(/const OAUTH_START_FN = \{[\s\S]*?\n    \};/)[0];
+  const fn = page.match(/function reconnectAdConnection\(id, platform, btn\) \{[\s\S]*?\n    \}/)[0];
+  const src = `${map}\n${fn}`;
+  const calls = [];
+  const ctx = {
+    _co: { id: 'co-1' },
+    setStatus: (m) => calls.push(['status', m]),
+    startAdOauth: (fn, body) => calls.push([fn, J(body)]),
+  };
+  vm.runInNewContext(`${src}; reconnectAdConnection(id, platform, null);`, { ...ctx, id: 'r1', platform: 'meta_ads' });
+  assert.deepEqual(calls.pop(), ['meta-oauth-start', { company_entity_id: 'co-1', connection_id: 'r1' }]);
+  vm.runInNewContext(`${src}; reconnectAdConnection(id, platform, null);`, { ...ctx, id: 'r2', platform: 'ga4' });
+  assert.deepEqual(calls.pop(), ['google-oauth-start', { company_entity_id: 'co-1', platform: 'ga4', connection_id: 'r2' }]);
+  vm.runInNewContext(`${src}; reconnectAdConnection(id, platform, null);`, { ...ctx, id: 'r3', platform: 'tiktok_ads' });
+  assert.deepEqual(calls.pop(), ['tiktok-oauth-start', { company_entity_id: 'co-1', platform: 'tiktok_ads', connection_id: 'r3' }]);
+  // An unknown platform says so rather than sending the row to Google's flow,
+  // which would refuse it with a message about a Google account.
+  vm.runInNewContext(`${src}; reconnectAdConnection(id, platform, null);`, { ...ctx, id: 'r4', platform: 'shopify' });
+  assert.equal(calls.pop()[0], 'status');
+});
+
+await test('Meta Pages: the Page and its Instagram account are one choice', () => {
+  const o = P.options('meta_pages', { pages: [
+    { page_id: '105', page_name: 'Acme', instagram_business_account_id: '178', instagram_username: 'acme' },
+    { page_id: '106', page_name: 'Acme Outlet', instagram_business_account_id: null, instagram_username: null },
+  ] });
+  assert.equal(o.length, 2);
+  assert.equal(o[0].value, '105');
+  assert.equal(o[0].label, 'Acme');
+  assert.match(o[0].sub, /@acme/);
+  assert.equal(o[1].disabled, false, 'a Page with no Instagram account is still worth syncing');
+  assert.match(o[1].sub, /no linked Instagram account/);
+  assert.deepEqual(P.options('meta_pages', {}), []);
+  // Both ids move together, and choosing a Page with no Instagram account
+  // BLANKS the previous one -- otherwise the nightly sync reads one
+  // business's Instagram against another's Page.
+  assert.deepEqual(P.patchFor('meta_pages', o[0]),
+    { facebook_page_id: '105', instagram_business_account_id: '178' });
+  assert.deepEqual(P.patchFor('meta_pages', o[1]),
+    { facebook_page_id: '106', instagram_business_account_id: null });
+  // A Page choice is not a decision to sync ads.
+  assert.ok(!('sync_enabled' in P.patchFor('meta_pages', o[0])));
+});
+
+await test('Integrations: the Page picker saves both ids and never kicks the ad backfill', () => {
+  const page = read('v2/integrations.html');
+  assert.match(page, /SiloAdPicker\.options\('meta_pages', data\)/);
+  const src = page.match(/async function choosePage\(row, option\) \{[\s\S]*?\n    \}/)[0];
+  assert.ok(!/firstConnectBootstrap|syncAdConnection/.test(src), 'choosing a Page starts no sync');
+  // Asked once, straight after the ad account is chosen through OAuth.
+  const chose = page.match(/async function chooseAccount\(row, option, afterConnect = false\) \{[\s\S]*?\n    \}/)[0];
+  assert.match(chose, /afterConnect && row\.platform === 'meta_ads' && !row\.facebook_page_id/);
 });
 
 await test('Integrations: after OAuth, a returned connection id is never guessed past', async () => {

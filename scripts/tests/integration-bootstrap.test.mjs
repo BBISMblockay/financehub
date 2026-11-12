@@ -469,7 +469,7 @@ await test('connecting a store runs the deployed per-connection sync immediately
 
 await test('choosing an ad account runs that platform\'s own sync immediately where one exists', () => {
   const html = fs.readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
-  const chooser = html.slice(html.indexOf('async function chooseAccount(row, option)'));
+  const chooser = html.slice(html.indexOf('async function chooseAccount(row, option'));
   const body = chooser.slice(0, chooser.indexOf('\n    async function startAdOauth'));
   assert.match(body, /kick: SYNC_NOW_PLATFORMS\.includes\(row\.platform\)\s*\n\s*\? \(\) => syncAdConnection\(row\.id\)/);
   // Search Console and TikTok have no Sync now function; for them the queued

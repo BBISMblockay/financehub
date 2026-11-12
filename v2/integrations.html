@@ -796,10 +796,11 @@
               <tr class="int-add-row">
                 <td colspan="5">
                   <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
-                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-add-meta">Add Meta Ads token…</button>
+                    <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-connect-meta">Connect Meta →</button>
+                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-meta">Use a System User token instead</button>
                     <button type="button" class="ig-open-btn" data-guide="meta_ads">Meta setup guide</button>
                   </div>
-                  <div class="int-muted" style="padding-bottom:10px;">Meta is connected with a System User token you create in your own Business settings, not a sign-in. SILO reads reporting only. After the token is saved, SILO imports the last 90 days and then syncs nightly.</div>
+                  <div class="int-muted" style="padding-bottom:10px;">Signing in sends you to Facebook, where you pick the ad account, Page and Instagram account SILO may read. SILO reads reporting only — it never creates, edits, pauses or spends anything in your Meta account. After you choose them, SILO imports the last 90 days and then syncs nightly.</div>
                   <div class="int-add-form add-form" id="meta-add-form">
                     <div class="int-muted" style="margin-bottom:10px;">Meta needs a System User token created in your Business settings first.
                       <button type="button" class="ig-open-btn" data-guide="meta_ads" style="margin-left:4px;">How to get one</button></div>
@@ -2867,7 +2868,7 @@
       google_ads: 'Choose which Google Ads account SILO reads — nothing syncs until you do.',
       ga4: 'Choose which GA4 property SILO reads — nothing syncs until you do.',
       search_console: 'Choose which property SILO reads — nothing syncs until you do.',
-      meta_ads: 'Enter the ad account ID SILO reads — nothing syncs until you do.',
+      meta_ads: 'Choose which Meta ad account SILO reads — nothing syncs until you do.',
       tiktok_ads: 'Choose which advertiser SILO reads — nothing syncs until you do.',
     };
 
@@ -2899,7 +2900,7 @@
     function emptyCardRow(card, withPlatform) {
       const EMPTY = {
         google: 'Connect Google Ads, GA4 or Search Console below',
-        meta_ads: 'Add your Meta ad account below',
+        meta_ads: 'Connect Meta below to sync ads, Page and Instagram',
         tiktok_ads: 'Connect your TikTok ad account below',
       };
       return `<tr><td colspan="${withPlatform ? 6 : 5}"><div class="empty-state"><strong>Not connected</strong>${EMPTY[card] || 'Connect it below'}</div></td></tr>`;
@@ -2960,6 +2961,7 @@
           <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
           ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">Sync now</button>` : ''}
           ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
+          ${row.platform === 'meta_ads' && row.meta?.oauth?.connected_via ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Meta again and renew THIS connection's authorization — keeps its ad account, Page, sync setting and history">Reconnect</button>` : ''}
           ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
           <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
         </td>
@@ -2990,7 +2992,8 @@
             <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
               value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
               onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
-            <span>— needs pages_show_list / pages_read_engagement / instagram_basic / instagram_manage_insights on the token + Page asset assignment</span>
+            <button class="int-btn ${row.facebook_page_id ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openPagePicker('${row.id}')">${row.facebook_page_id ? 'Change Page' : 'Choose Page…'}</button>
+            <span>— the Page's Instagram account comes with it</span>
           </div>
         </td>
       </tr>`;
@@ -3190,9 +3193,21 @@
       return err;
     }
 
+    const OAUTH_START_FN = {
+      google_ads: 'google-oauth-start', ga4: 'google-oauth-start', search_console: 'google-oauth-start',
+      meta_ads: 'meta-oauth-start', tiktok_ads: 'tiktok-oauth-start',
+    };
+
     function reconnectAdConnection(id, platform, btn) {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
-      startAdOauth('google-oauth-start', { company_entity_id: _co.id, platform, connection_id: id }, btn);
+      const fn = OAUTH_START_FN[platform];
+      if (!fn) { setStatus('That connection cannot be reconnected here.', 'neg', 6000); return; }
+      // meta-oauth-start takes no platform: it only ever makes meta_ads rows,
+      // and it rejects a body it does not recognise.
+      const body = fn === 'meta-oauth-start'
+        ? { company_entity_id: _co.id, connection_id: id }
+        : { company_entity_id: _co.id, platform, connection_id: id };
+      startAdOauth(fn, body, btn);
     }
 
     async function afterAdOauth(platform, connectionId, reconnected) {
@@ -3254,7 +3269,7 @@
       }
       const opts = SiloAdPicker.options(row.platform, data);
       const only = afterConnect ? SiloAdPicker.autoPick(opts) : null;
-      if (only) { pickerEl().close(); return chooseAccount(row, only); }
+      if (only) { pickerEl().close(); return chooseAccount(row, only, afterConnect); }
       showAccountPicker(row, opts, afterConnect);
     }
 
@@ -3271,12 +3286,62 @@
           <span>${escAttr(o.label)}</span>${o.sub ? `<small>${escAttr(o.sub)}</small>` : ''}</button>`).join('');
       list.querySelectorAll('.int-picker-opt').forEach((b) => b.addEventListener('click', () => {
         pickerEl().close();
-        chooseAccount(row, opts[Number(b.dataset.i)]);
+        chooseAccount(row, opts[Number(b.dataset.i)], afterConnect);
       }));
       if (!pickerEl().open) pickerEl().showModal();
     }
 
-    async function chooseAccount(row, option) {
+    // The Facebook Page (and its linked Instagram account) this Meta
+    // connection reads for organic. It is a second choice on the SAME
+    // connection, so it reuses the dialog but never the ad-account path:
+    // choosing a Page must not switch the nightly ad sync on or kick a
+    // backfill. Works for a pasted-token connection as well as an OAuth one
+    // -- the list comes from whatever token the row holds.
+    async function openPagePicker(id) {
+      const row = _adRows.find((r) => r.id === id);
+      if (!row || !window.SiloAdPicker) return;
+      document.getElementById('acct-picker-title').textContent = 'Choose the Facebook Page to sync';
+      document.getElementById('acct-picker-note').textContent = 'Asking Meta which Pages this connection can read…';
+      document.getElementById('acct-picker-list').innerHTML = '';
+      if (!pickerEl().open) pickerEl().showModal();
+      let data;
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/test-ad-platform-connection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await currentAccessToken()}` },
+          body: JSON.stringify({ connection_id: id, list_accounts: true }),
+        });
+        data = await res.json();
+      } catch (err) { data = { ok: false, error: err.message }; }
+      if (!data.ok) {
+        document.getElementById('acct-picker-note').textContent = '✗ ' + adTestAdvice(data.error || 'Could not list Pages');
+        return;
+      }
+      const opts = SiloAdPicker.options('meta_pages', data);
+      const note = document.getElementById('acct-picker-note');
+      const list = document.getElementById('acct-picker-list');
+      note.textContent = opts.length
+        ? `This connection can read ${opts.length} Page${opts.length === 1 ? '' : 's'}. Click the one this company posts from.`
+        : 'This connection can read no Pages. Assign the Page to it in Meta Business settings, then try again.';
+      list.innerHTML = opts.map((o, i) => `<button class="int-picker-opt" data-i="${i}">
+          <span>${escAttr(o.label)}</span><small>${escAttr(o.sub)}</small></button>`).join('');
+      list.querySelectorAll('.int-picker-opt').forEach((b) => b.addEventListener('click', () => {
+        pickerEl().close();
+        choosePage(row, opts[Number(b.dataset.i)]);
+      }));
+    }
+
+    async function choosePage(row, option) {
+      const patch = SiloAdPicker.patchFor('meta_pages', option);
+      if (!patch) return;
+      const { error } = await db.from('ad_platform_connections')
+        .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', row.id);
+      if (error) { setStatus('Could not save the Page: ' + error.message, 'neg'); return; }
+      setStatus(`✓ ${option.label} selected${patch.instagram_business_account_id ? ' with its Instagram account' : ' (no linked Instagram account)'} — its Page and Instagram insights arrive with tonight's sync.`, 'pos', 12000);
+      await loadAdConnections();
+    }
+
+    async function chooseAccount(row, option, afterConnect = false) {
       const patch = SiloAdPicker.patchFor(row.platform, option);
       if (!patch) return;
       const { error } = await db.from('ad_platform_connections')
@@ -3296,7 +3361,14 @@
           ? () => syncAdConnection(row.id)
           : null,
       });
-      testAdConnection(row.id);
+      await testAdConnection(row.id);
+      // Meta only, and only straight after connecting: the Page and its
+      // Instagram account are a SECOND choice on the same connection, and an
+      // admin who has just been sent to Facebook and back will not come back
+      // later to make it. Asked once, here; the row's own Choose Page button
+      // is the way in afterwards. Skipped when the row already names a Page
+      // (a reconnect, or a connection set up by hand).
+      if (afterConnect && row.platform === 'meta_ads' && !row.facebook_page_id) openPagePicker(row.id);
     }
 
     async function startAdOauth(fn, body, btn) {
@@ -3331,6 +3403,10 @@
     document.getElementById('btn-connect-search-console').addEventListener('click', (e) => {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
       startAdOauth('google-oauth-start', { company_entity_id: _co.id, platform: 'search_console' }, e.target);
+    });
+    document.getElementById('btn-connect-meta').addEventListener('click', (e) => {
+      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
+      startAdOauth('meta-oauth-start', { company_entity_id: _co.id }, e.target);
     });
     document.getElementById('btn-connect-tiktok').addEventListener('click', (e) => {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }

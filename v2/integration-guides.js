@@ -171,7 +171,7 @@
 
     meta_ads: {
       title: 'Connect Meta Ads with a System User token',
-      summary: 'Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.',
+      summary: '<strong>Most people should use Connect Meta instead</strong> — it takes a minute and sets up the ad account, Page and Instagram for you. Follow this guide only if you need a System User token of your own.<br><br>Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.',
       time: 'About 15 minutes',
       needs: [
         '<strong>Admin</strong> access to the Meta Business portfolio that owns the ad account',
