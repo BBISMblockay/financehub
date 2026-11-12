@@ -20,7 +20,13 @@
 -- grant, view, report or tie-out changes: plaid_connections already has RLS and
 -- the column is covered by the existing policies.
 --
--- Idempotent: add if not exists.
+-- No catalog refresh: plaid_connections is deliberately hidden from Ask SILO
+-- (feeds are read through silo_feed_health_v), so it has no catalog row for a
+-- new column to appear in -- the same reason 20261103070000 and
+-- 20261103200000 do not refresh it either.
+--
+-- Idempotent: add if not exists, applied twice by
+-- scripts/tests/plaid-bank-feed-database.test.mjs.
 
 begin;
 
@@ -31,6 +37,3 @@ comment on column public.plaid_connections.auto_refresh_requested_at is
   'When a scheduled sync last asked the institution to re-fetch (/transactions/refresh), stamped before the request. Null means never. Only the automatic cooldown reads it; a person pressing "Ask bank to re-fetch" does not stamp it.';
 
 commit;
-
--- The catalog rewrites columns only and preserves every description.
-select public.refresh_chat_schema_catalog();

@@ -186,6 +186,7 @@
   let _sub = null;
   let _plans = [];
   let _credit = null;      // ai_credit_summary() result, or null
+  let _mcp = null;         // connected AI app counts for the period, or null
   let _creditError = null; // why it could not be read
   let _packs = [];
   // ai-credit.js is a separate file; if it failed to load, the credit card
@@ -460,9 +461,55 @@
         <div class="bil-usage-bar"><span style="width:${share}%"></span></div>
       </div>`;
     };
-    el('usage').innerHTML = line('ask_silo') + line('on_deck') + line('card_coding') + line('payment_request_extract') + `
+    el('usage').innerHTML = line('ask_silo') + line('on_deck') + line('card_coding') + line('payment_request_extract') + mcpLine() + `
       <div class="bil-usage-total"><span>Total AI credit ${preview ? 'priced (not deducted)' : 'used'}</span><strong>${AI.fmtMicros(total, { exact: true })}</strong></div>
       ${(_credit.purchases || []).length ? `<div class="bil-note" style="margin-top:12px">Recent top-ups: ${_credit.purchases.slice(0, 3).map((x) => `${esc(dateText(x.at))} ${AI.fmtMicros(x.credit_micros, { exact: true })}`).join(' · ')}</div>` : ''}`;
+  }
+
+  /* Connected AI apps (Claude, ChatGPT, Cursor... through SILO's MCP server).
+     They run on the customer's own AI account, so they never draw credit: the
+     row is a count, not a charge, and says so. From silo_api_call_log, whose
+     policy shows an owner or executive every connection in the company and
+     anyone else only their own -- the label says which the viewer is seeing.
+     A handshake (silo_api_connect) is a connection, not a tool call, so it is
+     not counted (20261112030000). */
+  function mcpLine() {
+    if (!_mcp) return '';
+    const n = _mcp.calls;
+    const meta = [`${n} tool call${n === 1 ? '' : 's'}`,
+      _mcp.failed ? `${_mcp.failed} failed` : '',
+      _mcp.everyone ? '' : 'your connections only'].filter(Boolean).join(' · ');
+    return `<div class="bil-usage-row" data-usage="mcp">
+        <span class="pay-symbol" style="width:32px;height:32px">${icon('send')}</span>
+        <div><div class="bil-usage-name">Connected AI apps</div><div class="bil-usage-meta">${esc(meta)}</div></div>
+        <div><div class="bil-usage-amt">Not charged</div><div class="bil-usage-meta" style="text-align:right">Runs on your own AI</div></div>
+        <div class="bil-usage-bar"><span style="width:0%"></span></div>
+      </div>`;
+  }
+
+  // Best effort: a missing table, column or policy leaves the row out rather
+  // than showing a zero that was never measured.
+  async function loadMcp() {
+    _mcp = null;
+    const p = _credit?.period;
+    if (!p?.start || !p?.end || !Array.isArray(_credit?.usage_by_feature)) return;
+    try {
+      const base = () => {
+        let q = sb.from('silo_api_call_log').select('id', { count: 'exact', head: true })
+          .gte('created_at', p.start).lt('created_at', p.end).neq('tool', 'silo_api_connect');
+        if (_co?.id) q = q.eq('company_entity_id', _co.id);
+        return q;
+      };
+      const [calls, failed, exec] = await Promise.all([
+        base(), base().eq('outcome', 'error'), sb.rpc('is_exec_or_owner'),
+      ]);
+      if (calls.error) return;
+      _mcp = {
+        calls: Number(calls.count || 0),
+        failed: failed.error ? 0 : Number(failed.count || 0),
+        everyone: exec.data === true,
+      };
+    } catch (_) { _mcp = null; }
   }
 
   // The cap is an OPERATIONAL limit in provider terms, so the database returns
@@ -533,6 +580,7 @@
     _plans = plans || [];
 
     await loadCredit();
+    await loadMcp();
     renderCredit();
     renderCap();
     renderCurrent();
