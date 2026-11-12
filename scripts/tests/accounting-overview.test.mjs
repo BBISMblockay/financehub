@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../../v2/accounting-overview.js',import.meta.url),'utf8');
 function api(text = source) { const window = {}; vm.runInNewContext(text,{window,Date,Map,Number,Array,Object,Promise,Error,String}); return {api:window.SiloAccountingOverview,window}; }
 const {api:A} = api();
-const facts = () => ({ today:'2026-11-12',settings:{bookkeeping_mode:'silo'},opening:null,accountCount:0,qbo:[],bankAccounts:[],bankConnections:[],sources:[],batches:[],journals:[] });
+const facts = () => ({ today:'2026-11-12',settings:{bookkeeping_mode:'silo'},opening:null,accountCount:0,qbo:[],bankAccounts:[],bankConnections:[],sources:[],batches:[],claims:[],journals:[] });
 const assess = f => A.assess(f,{period:'2026-11'});
 test('unknown, empty and reporting-only are distinct',() => {
   const absent = assess({});
@@ -22,7 +22,7 @@ test('currencies and liabilities stay separate, missing balances never become ze
   assert.equal(A.balances([{iso_currency_code:'USD',type:'depository',current_balance:''}])[0].total,null);
 });
 test('month queues use inclusive period overlap and distinguish categorization from delivery',() => {
-  const model = assess({...facts(),batches:[{id:'a',period_start:'2026-10-01',period_end:'2026-11-30',status:'categorized'}, {id:'b',entry_date:'2026-11-30',status:'approved'}, {id:'c',entry_date:'2026-12-01',status:'posted'}, {id:'d',entry_date:'2026-11-03',status:'draft'}]});
+  const model = assess({...facts(),batches:[{id:'a',txn_count:1,period_start:'2026-10-01',period_end:'2026-11-30',status:'categorized'}, {id:'b',txn_count:1,entry_date:'2026-11-30',status:'approved'}, {id:'c',txn_count:1,entry_date:'2026-12-01',status:'posted'}, {id:'d',txn_count:1,entry_date:'2026-11-03',status:'draft'}]});
   assert.equal(model.queues.count,3); assert.equal(model.queues.categorized,1); assert.equal(model.queues.posted,0); assert.equal(model.queues.needsReview,2);
   assert.throws(() => A.periodBounds('2026-13')); assert.equal(A.periodBounds('2024-02').end,'2024-02-29');
 });
@@ -36,7 +36,7 @@ test('journal totals count full month but show latest eight rows',() => {
   assert.equal(m.journals.count,12); assert.equal(m.journals.rows.length,8); assert.equal(m.journals.rows[0].entry_date,'2026-11-12');
 });
 function client({failure, denied = false, cap = 500, companyChanges = false, failAfter = 0, nullCount = false} = {}) {
-  const calls = [], company = {id:'company-a'}, tables = {accounting_settings:{bookkeeping_mode:'silo'},accounting_opening_balances:null,accounting_accounts:[],plaid_connections:[],plaid_accounts:[],card_sources:[],card_import_batches_v:[],accounting_journal_register:[]};
+  const calls = [], company = {id:'company-a'}, tables = {accounting_settings:{bookkeeping_mode:'silo'},accounting_opening_balances:null,accounting_accounts:[],plaid_connections:[],plaid_accounts:[],card_sources:[],card_import_batches_v:[],quickbooks_journal_postings:[],accounting_journal_register:[]};
   let resolutions = 0;
   const config = {async ensureActiveCompany() { calls.push(['resolve']); return companyChanges && resolutions++ ? {id:'company-b'} : company; }};
   const db = {
@@ -48,6 +48,7 @@ function client({failure, denied = false, cap = 500, companyChanges = false, fai
       const q = {
         select(columns,options) { log.push(['select',columns,options]); head = options?.head; return q; },
         eq(column,value) { log.push(['eq',column,value]); return q; },
+        in(column,values) { filters.push(r => values.includes(r[column])); return q; },
         order(column) { log.push(['order',column]); return q; },
         gte(column,value) { filters.push(r => r[column] >= value); return q; },
         lte(column,value) { filters.push(r => r[column] <= value); return q; },
@@ -145,8 +146,8 @@ test('stale company reconciliation blocks before reads and discards a later snap
   }
 });
 test('mutation evidence: categorized review, connection mapping and both stale guards',async () => {
-  const f = {...facts(),batches:[{id:'a',entry_date:'2026-11-12',status:'categorized'}]};
-  const badQueue = api(source.replace("needsReview:countStatus('draft') + countStatus('categorized')","needsReview:countStatus('draft')")).api;
+  const f = {...facts(),batches:[{id:'a',txn_count:1,entry_date:'2026-11-12',status:'categorized'}]};
+  const badQueue = api(source.replace("if (!['draft','categorized'].includes(row.status)) continue;", "if (row.status !== 'draft') continue;")).api;
   assert.equal(A.assess(f,{period:'2026-11'}).queues.needsReview,1);
   assert.equal(badQueue.assess(f,{period:'2026-11'}).queues.needsReview,0);
   const badMap = api(source.replace(" && source.qbo_connection_id && facts.qbo.some(qbo => qbo.id === source.qbo_connection_id)",'')).api;
@@ -160,5 +161,53 @@ test('mutation evidence: categorized review, connection mapping and both stale g
     // Removing either specific guard incorrectly permits a snapshot. The
     // preceding regression requires this same input to reject.
     assert.equal((await mutant.load(c)).company.id,'company-a');
+  }
+});
+
+test('review count excludes reporting-only, pre-cutover and empty imports but retains records',() => {
+  const batch = {id:'b',status:'categorized',txn_count:2,period_start:'2026-11-01',period_end:'2026-11-30'};
+  const model = (b,settings={bookkeeping_mode:'silo'}) => assess({...facts(),settings,batches:[b]});
+  assert.equal(model(batch).queues.needsReview,1);
+  assert.equal(model(batch,{bookkeeping_mode:'qbo'}).queues.needsReview,0);
+  assert.equal(model({...batch,source_posting_start_on:'2026-12-01'}).queues.needsReview,0);
+  assert.equal(model({...batch,source_posting_start_on:'2026-11-15'}).queues.needsReview,1);
+  assert.equal(model({...batch,txn_count:0}).queues.needsReview,0);
+  assert.equal(model({...batch,txn_count:null}).queues.needsReview,0);
+  assert.equal(model(batch,null).queues.needsReview,1,'missing settings row retains database silo default');
+  const history = model({...batch,source_posting_start_on:'2026-12-01'});
+  assert.equal(history.queues.count,1); assert.equal(history.queues.rows.length,1);
+  assert.equal(model(batch,A.UNMEASURED).queues.needsReview,null);
+});
+test('approved unresolved recovery survives reporting-only and cutover; failed claims read is Unknown',() => {
+  const batch = {id:'b',status:'approved',txn_count:2,entry_date:'2026-11-30',source_posting_start_on:'2026-12-01'};
+  const f = {...facts(),settings:{bookkeeping_mode:'qbo'},batches:[batch]};
+  assert.equal(assess(f).queues.needsReview,0);
+  for (const status of ['submitting','unknown']) assert.equal(assess({...f,claims:[{source_ref:'b',status}]}).queues.needsReview,1);
+  assert.equal(assess({...f,claims:[{source_ref:'other',status:'unknown'}]}).queues.needsReview,0);
+  assert.equal(assess({...f,claims:A.UNMEASURED}).queues.needsReview,null);
+  assert.equal(assess({...f,claims:[{source_ref:'b',status:'failed'}]}).queues.needsReview,0);
+});
+test('real loader reads scoped active recovery claims and fails safely',async () => {
+  const c = client(); c.tables.card_import_batches_v=[{id:'b',txn_count:1,status:'approved',entry_date:'2026-11-30'}];
+  c.tables.quickbooks_journal_postings=[{id:'claim',source_ref:'b',status:'unknown'}];
+  assert.equal((await A.load(c)).queues.needsReview,1);
+  const q = c.calls.find(c => c[1] === 'quickbooks_journal_postings');
+  assert.ok(q.some(v => Array.isArray(v) && v[0] === 'eq' && v[1] === 'source' && v[2] === 'card_import'));
+  const failed = client({failure:'quickbooks_journal_postings'}); failed.tables.card_import_batches_v=c.tables.card_import_batches_v;
+  const m = await A.load(failed); assert.equal(m.queues.needsReview,null); assert.equal(m.queues.count,1); assert.equal(m.errors[0].source,'claims');
+});
+test('mutation evidence catches reporting-only, cutover, empty and unresolved recovery regressions',() => {
+  const batch = {id:'b',txn_count:1,status:'draft',entry_date:'2026-11-30'};
+  const run = (module,b,settings={bookkeeping_mode:'silo'},claims=[]) => module.reviewCount([b],settings,claims);
+  const mutations = [
+    ["      if (settings?.bookkeeping_mode === 'qbo') continue;",batch,{bookkeeping_mode:'qbo'},[]],
+    ["      if (row.source_posting_start_on && ends && ends < row.source_posting_start_on) continue;",{...batch,source_posting_start_on:'2026-12-01'},undefined,[]],
+    ["      if (!(number(row.txn_count) > 0)) continue;",{...batch,txn_count:0},undefined,[]],
+    ["        if (claims.some(c => c.source_ref === row.id && ['submitting','unknown'].includes(c.status))) count += 1;",{...batch,status:'approved'},{bookkeeping_mode:'qbo'},[{source_ref:'b',status:'unknown'}]]
+  ];
+  for (const [guard,b,settings,claims] of mutations) {
+    assert.ok(source.includes(guard));
+    const mutant = api(source.replace(guard,'')).api;
+    assert.notEqual(run(mutant,b,settings,claims),run(A,b,settings,claims));
   }
 });

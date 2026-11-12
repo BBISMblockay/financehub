@@ -18,11 +18,12 @@ function fixtures() {
     ]),
     card_sources:scoped([{id:'source',qbo_connection_id:'qbo',display_name:'Operating checking',is_active:true,credit_qbo_account_id:'cash',posting_enabled:true}]),
     card_import_batches_v:scoped([
-      {id:'nov-draft',source_id:'source',source_name:'November operating',label:'November',status:'draft',period_start:'2026-11-01',period_end:'2026-11-30',entry_date:'2026-11-30',posting_status:null},
-      {id:'nov-coded',source_id:'source',source_name:'November coded',status:'categorized',period_start:'2026-11-01',period_end:'2026-11-30',entry_date:'2026-11-30',posting_status:null},
-      {id:'oct-approved',source_id:'source',source_name:'October operating',status:'approved',period_start:'2026-10-01',period_end:'2026-10-31',entry_date:'2026-10-31',posting_status:null},
+      {id:'nov-draft',source_id:'source',txn_count:2,source_name:'November operating',label:'November',status:'draft',period_start:'2026-11-01',period_end:'2026-11-30',entry_date:'2026-11-30',posting_status:null},
+      {id:'nov-coded',source_id:'source',txn_count:2,source_name:'November coded',status:'categorized',period_start:'2026-11-01',period_end:'2026-11-30',entry_date:'2026-11-30',posting_status:null},
+      {id:'oct-approved',source_id:'source',txn_count:2,source_name:'October operating',status:'approved',period_start:'2026-10-01',period_end:'2026-10-31',entry_date:'2026-10-31',posting_status:null},
       {id:'foreign',company_entity_id:'other-company',source_name:'OTHER TENANT SECRET',status:'draft',entry_date:'2026-11-30'}
     ]),
+    quickbooks_journal_postings:[],
     accounting_journal_register:scoped([
       {id:'nov-journal',kind:'journal_adjustment',entry_date:'2026-11-10',memo:'November adjustment',status:'draft',source:'manual',posting_status:null},
       {id:'nov-posted',kind:'journal_adjustment',entry_date:'2026-11-09',memo:'November posted entry',status:'posted',source:'manual',posting_status:'posted'},

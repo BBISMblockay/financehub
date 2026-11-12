@@ -179,10 +179,14 @@
       section?.scrollIntoView?.({block:'start'});return true;}});
     // Reports links here as "Journals"; a #surface hash opens its tab.
     // Before acceptance the work is Setup; after it, the ledger comes first.
-    const surface=String(location.hash||'').slice(1)||(baseline?.status==='accepted'?'ledger':'');
-    const linked=location.hash&&/^[a-z]+$/.test(surface)?document.getElementById(surface):null;
-    if(/^[a-z]+$/.test(surface)){if(location.hash&&surface!=='setup')window.SiloBooks.showSurface(surface);else showTab(tabFor(surface));}
-    window.addEventListener?.('hashchange',()=>{let id;try{id=decodeURIComponent(location.hash.slice(1));}catch{return;}if(id==='setup')showTab(tabFor(id));else window.SiloBooks.showSurface(id);});
+    const readSurfaceHash=()=>{try{return decodeURIComponent(String(location.hash||'').slice(1));}catch{return '';}};
+    // Use the same route on initial load and browser Back/Forward. A target
+    // must resolve to an owned surface; camelCase control IDs are valid too.
+    const routeSurface=id=>{if(id==='setup')showTab(tabFor(id));else if(id)window.SiloBooks.showSurface(id);};
+    const surface=readSurfaceHash()||(baseline?.status==='accepted'?'ledger':'setup');
+    const linked=location.hash?document.getElementById(surface):null;
+    routeSurface(surface);
+    window.addEventListener?.('hashchange',()=>routeSurface(readSurfaceHash()||(baseline?.status==='accepted'?'ledger':'setup')));
     // A reclass (card_reclass) is staged by Transactions and must post exactly as staged: review only.
     const openJournal=(id,reviewOnly=false)=>window.SiloJE.open({db,companyId:company.id,context:'accounting:register',adjustmentId:id,reviewOnly,onStaged:()=>work(()=>register(true)),onPosted:()=>work(()=>register(true))});
     el('newJournal').addEventListener('click',()=>openJournal());el('registerTable').addEventListener('click',e=>{const b=e.target.closest('[data-journal]');if(b){openJournal(b.dataset.journal,b.hasAttribute('data-review-only'));return;}

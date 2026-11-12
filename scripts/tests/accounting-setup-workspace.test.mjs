@@ -8,6 +8,7 @@ const settle=async()=>{for(let i=0;i<30;i++)await new Promise(setImmediate);};
 async function boot({hash='#setup',failure='',connections=[{id:'qbo',company_name:'Example & Co',environment:'sandbox'}],sources}={}){
  const elements=new Map(),reads=[],calls=[],events={};
  const el=id=>{if(!elements.has(id))elements.set(id,{id,tagName:'SECTION',open:false,hidden:false,dataset:{},events:{},value:'',innerHTML:'',textContent:'',setAttribute(k,v){this[k]=v;},addEventListener(k,v){this.events[k]=v;},insertAdjacentHTML(_,s){this.innerHTML+=s;},querySelector(){return this.fold||null;},closest(){return ['setup','ledger','register','history','accounts','locations'].includes(id)?this:null;},scrollIntoView(){this.scrolled=true;}});return elements.get(id);};
+ el('openingSetup').tagName='DETAILS';el('openingSetup').parentElement=el('setup');el('openingSetup').closest=()=>el('setup');
  const surfaces=['setup','ledger','register','history','accounts','locations'].map(el);
  for(const id of ['history','accounts','locations'])el(id).fold={open:false};
  const tabs=['ledger','register','setup'].map(id=>({dataset:{surface:id,owns:id==='setup'?'setup accounts locations history':id},setAttribute(k,v){this[k]=v;},addEventListener(){}}));
@@ -50,4 +51,17 @@ test('mode blockers and save failure feedback are not inside the folded editor',
  assert.match(html,/<details data-mode-disclosure>[\s\S]*?<\/details>\s*<div data-mode-blockers hidden><\/div><div class="books-caption" data-mode-status/);
  assert.match(mode,/if \(bad\)[\s\S]*?disclosure.open = true/);
  assert.doesNotMatch(mode,/You’ve connected QuickBooks and SILO has your history/);
+});
+
+test('opening history direct URL and hash changes open the enclosing Setup disclosure',async()=>{
+ const h=await boot({hash:'#openingSetup'});
+ assert.equal(h.el('setup').hidden,false);
+ assert.equal(h.el('openingSetup').open,true);
+ assert.equal(h.el('openingSetup').scrolled,true);
+ h.el('openingSetup').open=false;h.location.hash='#ledger';h.events.hashchange();
+ assert.equal(h.el('setup').hidden,true);
+ h.location.hash='#openingSetup';h.events.hashchange();
+ assert.equal(h.el('setup').hidden,false);assert.equal(h.el('openingSetup').open,true);
+ const encoded=await boot({hash:'#opening%53etup'});assert.equal(encoded.el('openingSetup').open,true);
+ const malformed=await boot({hash:'#%E0%A4%A'});assert.ok(malformed.window.SiloBooks);assert.equal(malformed.el('setup').hidden,false);
 });

@@ -44,6 +44,29 @@
     const countStatus = value => rows.filter(r => r.status === value).length;
     return { state:'known', rows, count:rows.length, draft:countStatus('draft'), needsReview:countStatus('draft') + countStatus('categorized'), categorized:countStatus('categorized'), approved:countStatus('approved'), posted:countStatus('posted') };
   }
+  // Mirrors on_deck_coding_items() eligibility, without its 500-work-item /
+  // 12-receipt caps. Raw period rows remain available as recorded history.
+  // Approved attempts awaiting recovery outrank mode/cutover, as Transactions
+  // does: turning posting off cannot settle an already-submitted request.
+  function reviewCount(rows, settings, claims) {
+    if (!listKnown(rows)) return null;
+    let count = 0;
+    for (const row of rows) {
+      if (!(number(row.txn_count) > 0)) continue;
+      if (row.status === 'approved') {
+        if (!listKnown(claims)) return null;
+        if (claims.some(c => c.source_ref === row.id && ['submitting','unknown'].includes(c.status))) count += 1;
+        continue;
+      }
+      if (!['draft','categorized'].includes(row.status)) continue;
+      if (settings === undefined || settings?.unmeasured) return null;
+      if (settings?.bookkeeping_mode === 'qbo') continue;
+      const ends = row.period_end || row.entry_date || row.period_start;
+      if (row.source_posting_start_on && ends && ends < row.source_posting_start_on) continue;
+      count += 1;
+    }
+    return count;
+  }
   function assess(facts, { company = null, period } = {}) {
     const bounds = periodBounds(period);
     const settingsKnown = facts.settings !== undefined && !facts.settings?.unmeasured;
@@ -60,6 +83,7 @@
         mapped:mappingKnown ? !!(source && source.credit_qbo_account_id && source.qbo_connection_id && facts.qbo.some(qbo => qbo.id === source.qbo_connection_id)) : null };
     }) : [];
     const queues = summary(listKnown(facts.batches) ? facts.batches.filter(row => inPeriod(row,bounds)) : UNMEASURED);
+    queues.needsReview = reviewCount(listKnown(facts.batches) ? queues.rows : UNMEASURED, facts.settings, facts.claims);
     // These are import/review statuses, never transaction totals or proof of
     // ledger inclusion. Unresolved QBO attempts are reviewed in Transactions.
     const journals = summary(listKnown(facts.journals) ? facts.journals.filter(r => r.entry_date >= bounds.start && r.entry_date <= bounds.end) : UNMEASURED);
@@ -128,6 +152,7 @@
       // multiple CSV uploads and Plaid feed sequences, and entry_date alone
       // would omit multi-month uploads that need review in the selected month.
       batches:() => allRows(db,company.id,'card_import_batches_v','id,source_id,source_name,label,status,entry_date,period_start,period_end,txn_count,uncoded_count,posting_status,source_posting_enabled,source_posting_start_on'),
+      claims:() => allRows(db,company.id,'quickbooks_journal_postings','id,source_ref,status',q => q.eq('source','card_import').in('status',['submitting','unknown'])),
       journals:() => allRows(db,company.id,'accounting_journal_register','id,kind,entry_date,memo,status,source,posting_status',q => q.gte('entry_date',bounds.start).lte('entry_date',bounds.end),['entry_date','kind','id'])
     };
     const facts = { today,errors };
@@ -166,5 +191,5 @@
       return controller;
     } catch (error) { if (!errorReported) onError?.(error); throw error; }
   }
-  window.SiloAccountingOverview = { UNMEASURED, assess, periodBounds, balances, load, boot };
+  window.SiloAccountingOverview = { UNMEASURED, assess, periodBounds, balances, reviewCount, load, boot };
 })();

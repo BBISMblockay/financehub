@@ -19,7 +19,11 @@ const ready=()=>window.SiloBooks&&document.getElementById('setupMappingStatus').
  assert.equal(await p.locator('#seedForm').isVisible(),false);
  await p.click('#openingSetup > summary');assert.equal(await p.locator('#seedForm').isVisible(),true);
  await p.click('#openingSetup > summary');
- await p.click('a[href="#accounts"]');assert.equal(await p.locator('#accountsTable').isVisible(),true);
+ await p.click('a[href="#accounts"]');await p.locator('#accountsTable').waitFor({state:'visible'});
+ await p.goBack();await p.waitForURL(/#setup$/);await p.locator('#setupQboStatus').waitFor({state:'visible'});
+ // Collapse before Forward so this verifies that hash routing opens it again.
+ await p.locator('#accounts [data-subsection] > summary').click();
+ await p.goForward();await p.waitForURL(/#accounts$/);await p.locator('#accountsTable').waitFor({state:'visible'});
  await p.click('[data-surface="ledger"]');assert.equal(await p.locator('#ledger').isVisible(),true);
  await p.click('[data-surface="register"]');assert.equal(await p.locator('#register').isVisible(),true);
  await p.click('[data-surface="setup"]');
@@ -28,9 +32,24 @@ const ready=()=>window.SiloBooks&&document.getElementById('setupMappingStatus').
  fs.mkdirSync('/tmp/accounting-qa',{recursive:true});
  for(const theme of ['light','dark'])for(const width of [1440,390]){
   await p.evaluate(t=>document.documentElement.dataset.theme=t,theme);await p.setViewportSize({width,height:1000});
+  // The real shell handles Escape; never remove drawer classes in a fixture.
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(()=>!document.getElementById('silo-app').classList.contains('silo-nav-open'));
+  const clearAtCenter=selector=>p.waitForFunction(sel=>{
+   const n=document.querySelector(sel);if(!n)return false;const r=n.getBoundingClientRect();
+   const x=r.left+r.width/2,y=r.top+r.height/2;
+   return x>0&&x<innerWidth&&y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
+  },selector);
+  await p.locator('#setupQboStatus').scrollIntoViewIfNeeded();await clearAtCenter('#setupQboStatus');
   assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${theme} ${width} overflow`);
   await p.screenshot({path:`/tmp/accounting-qa/setup-${theme}-${width}.png`,fullPage:true});
+  await p.locator('#openingSetup > summary').scrollIntoViewIfNeeded();await clearAtCenter('#openingSetup > summary');
+  await p.screenshot({path:`/tmp/accounting-qa/setup-${theme}-${width}-lower.png`,fullPage:true});
  }
+ const linked=await suite.open('/v2/accounting-books.html#openingSetup',fixtures(),{ready});
+ await linked.locator('#seedForm').waitFor({state:'visible'});
+ assert.equal(await linked.locator('#openingSetup').getAttribute('open'),'');
+ await linked.close();
  const failed=await suite.open('/v2/accounting-books.html#setup',fixtures(),{broken:['plaid_connections'],ready:()=>document.getElementById('setupBankStatus').textContent.includes('could not be read')});
  assert.equal(await failed.locator('#setupMappingStatus').isVisible(),true);
  assert.match(await failed.locator('#setupBankStatus').innerText(),/could not be read/);

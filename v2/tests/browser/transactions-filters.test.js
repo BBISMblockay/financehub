@@ -11,6 +11,7 @@
  */
 'use strict';
 
+const fs = require('node:fs');
 const { createReporter } = require('../lib/assert');
 const { startSuite } = require('../lib/harness');
 
@@ -692,6 +693,32 @@ const TABLES = {
       });
     }
     await page.evaluate(() => document.getElementById('btnBulkClear')?.click());
+    await check('desktop and phone captures show unobscured working transactions', async () => {
+      fs.mkdirSync('/tmp/accounting-qa', {recursive:true});
+      if (await page.locator('#codeFilterPanel').isVisible()) await page.click('#btnFilterToggle');
+      for (const theme of ['light','dark']) for (const width of [1440,390]) {
+        await page.evaluate(t => document.documentElement.dataset.theme=t,theme);
+        await page.setViewportSize({width,height:1000});
+        await page.keyboard.press('Escape');
+        if(width <= 900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 1);
+        await page.locator('#codeTitle').scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => {
+          const n=document.getElementById('codeTitle'),r=n.getBoundingClientRect();
+          const x=r.left+r.width/2,y=r.top+r.height/2;
+          return x>0&&x<innerWidth&&y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
+        });
+        r.truthy(await page.locator('#tblCoding tbody tr').count()>0,'transaction rows remain available');
+        await page.screenshot({path:`/tmp/accounting-qa/transactions-${theme}-${width}.png`,fullPage:true});
+        // Scroll the real app pane to a working row, rather than capture only navigation.
+        await page.locator('#tblCoding tbody tr').first().scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => {
+          const n=document.querySelector('#tblCoding tbody tr'),r=n.getBoundingClientRect();
+          const x=Math.min(innerWidth-16,Math.max(16,r.left+32)),y=r.top+r.height/2;
+          return y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
+        });
+        await page.screenshot({path:`/tmp/accounting-qa/transactions-${theme}-${width}-rows.png`,fullPage:true});
+      }
+    });
 
   } catch (err) {
     r.test('suite ran to completion', () => { throw err; });

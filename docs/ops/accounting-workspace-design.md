@@ -67,13 +67,29 @@ Mutation checks cover missing company scope, zero coercion, stale mapping and
 opening-history visibility. A separate source review identified and corrected
 stale company reconciliation, categorized-period counts and disconnected mappings.
 
-Browser verification is pending, not passed: local Chromium exits before opening
-any page because socket creation is prohibited. The installed cloud browser also
-refused local file previews under its URL policy. No screenshots of the implemented
-UI are represented as verified. Synthetic real-page tests are checked in for the
-Overview, Month-end and Setup; they capture light/dark desktop/mobile images when
-run in an environment that supports Chromium. Existing transaction dialog and
-filter suites remain part of CI.
+Initial CI browser execution passed the real-page Overview/Month-end, transaction
+filters (48 checks), accounting dialogs, ledger, migration and trust-surface suites.
+Three failures were found: Setup asserted chart visibility before native hashchange
+completed; Home still expected the old Accounting destination; payments expected
+the old Invoicing tab label. The correction pass awaits actual visibility, covers
+Back/Forward, and updates the two intentional navigation expectations. Full browser
+verification remains pending on the corrected commit.
+
+Independent review reproduced false actionable counts for reporting-only,
+pre-source-cutover and empty imports. The count now mirrors existing On Deck
+eligibility and retains approved imports with unresolved submission claims for
+recovery. Recorded history is unchanged. Regression and mutation checks cover
+these cases and unknown reads. Opening history now links directly to its folded
+section, with shared initial/hashchange handling for camelCase and encoded IDs.
+
+Initial CI screenshots showed coherent desktop Overview/Month-end, but mobile
+images did not establish unobscured content. Updated captures close the actual
+navigation drawer, wait for content hit-testing, and scroll the app's internal
+pane to capture substantive lower content. Setup and Transactions now provide
+light/dark desktop/mobile captures too. Local Chromium remains unavailable due
+to prohibited socket creation; its separate cloud-browser local-file preview
+route is also disallowed. Neither restriction was bypassed. All browser fixtures
+are synthetic and do not establish live tenant RLS or provider health.
 
 Before merge: run the full v2 browser suite in a working Chromium environment,
 review the generated screenshots and exercise setup disclosure/hash navigation,
