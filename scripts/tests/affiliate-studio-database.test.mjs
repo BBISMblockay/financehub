@@ -323,8 +323,14 @@ switch (MUT) {
   // its window and is cancelled at 8s, so no affiliate order can ever reach
   // Studio -- and nothing else goes red. The verify block (check N1) is what
   // makes that visible on production.
+  // The identifier is replaced EVERYWHERE in that migration, its
+  // `comment on index` target included: renaming only the `create index`
+  // left the comment pointing at an index that no longer exists, so setup
+  // threw before check N1 ran and the mutation passed for the wrong reason --
+  // which the CI wrapper (any nonzero exit, output suppressed) cannot tell
+  // apart. Review cycle 1, P2.
   case 'nomatchindex':
-    mutate('matchindex', 'create index if not exists shopify_orders_co_created_coded_idx', 'create index if not exists shopify_orders_unused_idx'); break;
+    mutate('matchindex', 'shopify_orders_co_created_coded_idx', 'shopify_orders_unused_idx'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
