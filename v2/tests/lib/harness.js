@@ -158,8 +158,15 @@ window.__QUERIES__ = [];
           if (f.op === 'lte') return String(v) <= String(f.val);
           if (f.op === 'eq')  return String(v) === String(f.val);
           if (f.op === 'neq') return String(v) !== String(f.val);
-          if (f.op === 'lt')  return Number(v) < Number(f.val);
-          if (f.op === 'gt')  return Number(v) > Number(f.val);
+          // Numbers compare as numbers; anything else (ISO timestamps) as
+          // text, the way gte/lte already do. Number('2026-...') is NaN, so
+          // a timestamp lt/gt used to drop every row.
+          if (f.op === 'lt' || f.op === 'gt') {
+            var nv = Number(v), nf = Number(f.val);
+            var numeric = isFinite(nv) && isFinite(nf) && String(v).trim() !== '' && String(f.val).trim() !== '';
+            if (f.op === 'lt') return numeric ? nv < nf : String(v) < String(f.val);
+            return numeric ? nv > nf : String(v) > String(f.val);
+          }
           if (f.op === 'ilike') return matchIlike(v, f.val);
           if (f.op === 'in') return (f.vals || []).map(String).indexOf(String(v)) !== -1;
           if (f.op === 'is') {
