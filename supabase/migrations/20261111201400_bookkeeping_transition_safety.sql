@@ -139,8 +139,8 @@ language sql stable security definer set search_path = public, pg_temp as $$
          p.period_start, p.period_end, o.owner, o.owned_from, o.account,
          b.blocks is not null,
          case when p.status = 'submitting'
-           then 'Sending to QuickBooks now.'
-           else 'Sent. No answer from QuickBooks, so it may be there.'
+           then 'Posting to QuickBooks'
+           else 'Check in QuickBooks'
          end,
          'Review',
          case when p.source = 'card_import' and p.source_ref ~ '^[0-9a-fA-F-]{36}$'

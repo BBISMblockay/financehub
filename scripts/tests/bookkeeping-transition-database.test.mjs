@@ -171,7 +171,7 @@ try {
       assert.equal(e.code,'P0BM3',`a takeover of ${takeover} must not release an unresolved post`);
       const listed=await as(c.finance,()=>q("select * from silo_handover_blockers() where kind='post'"));
       assert.equal(listed[0].blocks_handover,true);
-      assert.match(listed[0].reason,/may be there/);
+      assert.equal(listed[0].reason,'Check in QuickBooks');
       assert.equal(listed[0].action_label,'Review');
       assert.match(listed[0].review_path,/accounting-books\.html#register/);
     }

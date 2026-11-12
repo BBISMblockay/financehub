@@ -329,6 +329,6 @@ Every string this change adds to the Accounting card was cut to a short label
 or one short sentence. No instructional paragraphs: the refusal names what is
 in the way and each row carries a `Review` link, instead of telling the reader
 what to do about it. The blocker reasons live in
-`silo_handover_blockers()` (`Sending to QuickBooks now.`, `Sent. No answer from
-QuickBooks, so it may be there.`, `Approved during setup. Not in the way.`,
-`Approved in SILO, not sent.`), so the card renders them and adds nothing.
+`silo_handover_blockers()` (`Posting to QuickBooks`, `Check in QuickBooks`,
+`Approved during setup. Not in the way.`, `Approved in SILO, not sent.`), so
+the card renders them and adds nothing.

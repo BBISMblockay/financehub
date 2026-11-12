@@ -213,7 +213,7 @@ test('a refused handover offers the item, not an id', async () => {
       return { data: [
         { kind: 'post', reference: 'batch-1', title: 'September bank coding', status: 'unknown',
           period_end: '2026-09-30', blocks_handover: true, account: 'Synthetic bank',
-          reason: 'Sent. No answer from QuickBooks, so it may be there.',
+          reason: 'Check in QuickBooks',
           action_label: 'Review', review_path: '/v2/transactions.html?batch=batch-1' },
         { kind: 'import', reference: 'old-1', title: 'July setup import', status: 'approved',
           period_end: '2026-07-31', blocks_handover: false, account: 'Synthetic bank',
