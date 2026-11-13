@@ -60,6 +60,10 @@ function freshConfig(seedCompany) {
   return g.window.__SILO_CONFIG__;
 }
 
+// Read the current cache version off config.js itself, so this test cannot
+// drift from it the next time a new entity field starts driving the UI.
+const CV = freshConfig().COMPANY_CACHE_VERSION;
+
 function fakeClient({
   uid = 'u1', activeCompanyId, entity, profErr, entityErr, entityFailTimes = 0,
   throwOnAuth, throwOnProfiles,
@@ -121,14 +125,41 @@ function fakeClient({
     r.ok('the resolved company is cached for next time', cfg.getActiveCompany()?.id === 'co-1');
   }
 
-  // 2. Cache already matches server -> returned as-is, no entities fetch.
+  // 2. Cache already matches server AND is current -> returned as-is, no fetch.
   {
-    const cfg = freshConfig({ id: 'co-1', title: 'Baseballism', entity_key: 'baseballism' });
+    const cfg = freshConfig({ id: 'co-1', title: 'Baseballism', entity_key: 'baseballism', _cv: CV });
     const client = fakeClient({ activeCompanyId: 'co-1' });
     const co = await cfg.ensureActiveCompany(client);
     r.ok('a matching cache is returned unchanged', co?.id === 'co-1');
     r.ok('no entities round trip when the cache already matches', client._calls.entities === 0,
       `entities calls: ${client._calls.entities}`);
+  }
+
+  // 2b. Same company, cache written before a field the UI now reads existed
+  // (the 2026-11-13 nav_profile rollout). One re-read, then current forever.
+  {
+    const cfg = freshConfig({ id: 'co-1', title: 'Baseballism', entity_key: 'baseballism', role: 'owner_admin' });
+    const client = fakeClient({
+      activeCompanyId: 'co-1',
+      entity: { id: 'co-1', title: 'Baseballism', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } },
+    });
+    const co = await cfg.ensureActiveCompany(client);
+    r.ok('a cache behind the version is refreshed', co?.meta?.nav_profile === 'grandfathered', JSON.stringify(co));
+    r.ok('the refresh keeps fields the entities row does not carry', co?.role === 'owner_admin');
+    r.ok('the refresh costs exactly one entities read', client._calls.entities === 1,
+      `entities calls: ${client._calls.entities}`);
+    const again = await cfg.ensureActiveCompany(client);
+    r.ok('and it is not re-read on the next call', client._calls.entities === 1 && again?.id === 'co-1',
+      `entities calls: ${client._calls.entities}`);
+  }
+
+  // 2c. A failed refresh leaves a confirmed-correct cache exactly as it was.
+  {
+    const cfg = freshConfig({ id: 'co-1', title: 'Baseballism', entity_key: 'baseballism', role: 'owner_admin' });
+    const client = fakeClient({ activeCompanyId: 'co-1', entityErr: { message: 'network' } });
+    const co = await cfg.ensureActiveCompany(client);
+    r.ok('a failed refresh still returns the right company', co?.id === 'co-1', JSON.stringify(co));
+    r.ok('a failed refresh does not drop cached fields', co?.role === 'owner_admin');
   }
 
   // 3. THE BUG: cache names a different company than the server.

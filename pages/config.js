@@ -17,9 +17,18 @@ window.__SILO_CONFIG__ = {
     } catch { return null; }
   },
 
+  // Bump this whenever a NEW field of the entity row starts driving UI, so a
+  // tab holding a company cached under the old shape re-reads it once instead
+  // of serving a record that predates the field. 2 = entities.meta began
+  // deciding the sidebar profile (2026-11-13): a tab that cached its company
+  // before that migration has no meta.nav_profile, and without this it would
+  // keep drawing the smaller menu for the life of the tab.
+  COMPANY_CACHE_VERSION: 2,
+
   // Call this to store the active company (used by login + company-picker).
   setActiveCompany(company) {
-    if (company) sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(company));
+    if (company) sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(
+      { ...company, _cv: this.COMPANY_CACHE_VERSION }));
     else sessionStorage.removeItem('__SILO_COMPANY__');
   },
 
@@ -70,7 +79,19 @@ window.__SILO_CONFIG__ = {
         if (existing?.id) this.setActiveCompany(null);
         return null;
       }
-      if (existing?.id === serverId) return existing;
+      if (existing?.id === serverId) {
+        // Right company, but possibly a record cached before a field the UI
+        // now reads existed. Re-read it ONCE and re-stamp; a failed read
+        // leaves the cache exactly as it was, so this cannot make a working
+        // tab worse.
+        if (existing._cv === this.COMPANY_CACHE_VERSION) return existing;
+        const { data: fresh } = await supabaseClient.from('entities')
+          .select('id, title, entity_key, meta').eq('id', serverId).single();
+        if (!fresh) return existing;
+        const merged = { ...existing, ...fresh };
+        this.setActiveCompany(merged);
+        return merged;
+      }
       // The server has DEFINITIVELY named a different company than the
       // cache -- this is a known mismatch, not a maybe. One retry gives a
       // transient blip (the common cause of one failed read) a real

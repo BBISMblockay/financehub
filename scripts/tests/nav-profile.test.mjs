@@ -189,3 +189,97 @@ test('Ad Studio reaches the whole marketing team, and nobody who had it loses it
     }
   }
 });
+
+// The rollout case for 20261113040000 (found in review of PR #1267).
+//
+// resolveNavProfile now reads entities.meta.nav_profile and nothing else, and
+// the company it is handed comes from ensureActiveCompany(). That function
+// short-circuits on `existing.id === serverId` -- right company, serve the
+// cache -- which was correct while the only field the sidebar read
+// (entity_key) had always been in the cache. It is not correct across this
+// migration: a tab that cached its company BEFORE the flag was set holds a
+// record with no meta.nav_profile, and would draw the smaller menu for the
+// life of the tab even though the server says grandfathered.
+//
+// pages/config.js now stamps a cache version and re-reads once when it is
+// behind. These tests drive the REAL config.js against a fake sessionStorage
+// and a fake PostgREST, not a re-implementation.
+const configSource = await readFile(new URL('pages/config.js', root), 'utf8');
+
+function loadConfig({ cached, serverCompanyId, entity }) {
+  const store = new Map();
+  if (cached) store.set('__SILO_COMPANY__', JSON.stringify(cached));
+  const win = {
+    sessionStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, v),
+      removeItem: (k) => store.delete(k),
+    },
+  };
+  new Function('window', 'sessionStorage', configSource)(win, win.sessionStorage);
+  let entityReads = 0;
+  const db = {
+    auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
+    from(table) {
+      return {
+        select: () => ({
+          eq: () => ({
+            single: async () => {
+              if (table === 'profiles') return { data: { active_company_id: serverCompanyId }, error: null };
+              entityReads += 1;
+              return { data: entity, error: null };
+            },
+          }),
+        }),
+      };
+    },
+  };
+  return { cfg: win.__SILO_CONFIG__, db, reads: () => entityReads, store };
+}
+
+const BB = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7';
+const GRANDFATHERED = { id: BB, title: 'Baseballism', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } };
+
+test('a company cached before the migration is re-read, so the fuller menu survives the rollout', async () => {
+  // Exactly the rollout: cached under the old shape (no meta), server active
+  // company unchanged, server row now carrying the flag.
+  const stale = { id: BB, title: 'Baseballism', entity_key: 'baseballism', role: 'owner_admin' };
+  const { cfg, db, reads, store } = loadConfig({ cached: stale, serverCompanyId: BB, entity: GRANDFATHERED });
+  const company = await cfg.ensureActiveCompany(db);
+  assert.equal(resolveNavProfile(company), 'grandfathered');
+  assert.equal(reads(), 1, 'the entity row is read once, not on every call');
+  // and the repaired record is written back, so the next page load in this
+  // tab costs nothing extra...
+  assert.equal(JSON.parse(store.get('__SILO_COMPANY__')).meta.nav_profile, 'grandfathered');
+  // ...which this proves on a second, independent load of the same cache.
+  const second = loadConfig({ cached: JSON.parse(store.get('__SILO_COMPANY__')), serverCompanyId: BB, entity: GRANDFATHERED });
+  assert.equal(resolveNavProfile(await second.cfg.ensureActiveCompany(second.db)), 'grandfathered');
+  assert.equal(second.reads(), 0, 'an up-to-date cache is served without a read');
+});
+
+test('the re-read preserves fields the entities row does not carry, and never blanks the cache', async () => {
+  const stale = { id: BB, title: 'Baseballism', entity_key: 'baseballism', role: 'owner_admin' };
+  const ok = loadConfig({ cached: stale, serverCompanyId: BB, entity: GRANDFATHERED });
+  const merged = await ok.cfg.ensureActiveCompany(ok.db);
+  assert.equal(merged.role, 'owner_admin', 'role is not on the entities row and must survive');
+
+  // A failed re-read leaves a correct cache exactly as it was: the company id
+  // is confirmed, so returning null or a stale flag here would break ~60 call
+  // sites that only need an id to scope their own query by.
+  const failed = loadConfig({ cached: stale, serverCompanyId: BB, entity: null });
+  const kept = await failed.cfg.ensureActiveCompany(failed.db);
+  assert.equal(kept.id, BB);
+  assert.equal(kept.role, 'owner_admin');
+  assert.equal(resolveNavProfile(kept), 'standard', 'fails closed to the smaller menu, as everywhere else');
+});
+
+test('a standard workspace is not promoted by the re-read', async () => {
+  const other = '00000000-0000-4000-8000-00000000beef';
+  const stale = { id: other, title: 'State Forty Eight', entity_key: 'statefortyeight' };
+  const { cfg, db } = loadConfig({
+    cached: stale,
+    serverCompanyId: other,
+    entity: { id: other, title: 'State Forty Eight', entity_key: 'statefortyeight', meta: {} },
+  });
+  assert.equal(resolveNavProfile(await cfg.ensureActiveCompany(db)), 'standard');
+});
