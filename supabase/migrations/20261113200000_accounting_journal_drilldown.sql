@@ -396,6 +396,18 @@ join public.schedule_item_amortization_v am
   on am.company_entity_id = a.company_entity_id
  and am.period_start >= a.period_start
  and am.period_start <= a.period_end
+ -- The SAME eligibility the posting builder applies (buildAmortLines in
+ -- v2/schedules.html): prepaid schedules only, never a closed one, and no row
+ -- the builder would have skipped. The amortization view generates rows for
+ -- every schedule type and status, so without this a deferred-revenue
+ -- schedule in the same month is attributed to the prepaid journal as if it
+ -- were behind it. 'recomputed' says the figures are today's, not that the
+ -- POPULATION may differ -- a source the builder could never have used is a
+ -- wrong answer, not a stale one. (Raised in review on PR #1278.)
+ and am.schedule_type = 'prepaid'
+ and am.status is distinct from 'closed'
+ and am.period_amount > 0.004          -- builder: `if (amt <= 0.004) continue;`
+ and am.qbo_expense_account_id is not null  -- builder reports these unmapped and posts no line
 where a.accounting_source = 'prepaid_amortization'
 
 union all
@@ -427,6 +439,14 @@ join public.fixed_asset_depreciation_v d
   on d.company_entity_id = a.company_entity_id
  and d.period_start >= a.period_start
  and d.period_start <= a.period_end
+ -- Same rule, from buildDepreciationLines in v2/fixed-assets.html. Note the
+ -- near-zero test is ABS here and not in the prepaid builder above: that
+ -- difference is deliberate there (a contra-asset month is a negative
+ -- period_amount by design), so it is mirrored rather than tidied.
+ and d.status is distinct from 'closed'
+ and abs(d.period_amount) > 0.004
+ and d.qbo_depreciation_expense_account_id is not null
+ and d.qbo_accum_depreciation_account_id is not null
 where a.accounting_source = 'fixed_asset_depreciation'
 
 union all
@@ -526,7 +546,26 @@ grant select on public.accounting_journal_sources_v to authenticated;
 -- batches post, so a ledger built from both would count them twice.
 create or replace view public.accounting_ledger_v
 with (security_invoker = true) as
-with cutover as (
+with posted as (
+  -- A GENERAL LEDGER holds what was posted, and nothing else. The lines view
+  -- above is deliberately all-state, because a reconciler starts from "which
+  -- entries do not tie" and a draft that will not balance is exactly what they
+  -- are looking for. Summing that same all-state set into monthly account
+  -- totals is a different thing and it is wrong: a saved $100 draft, or an
+  -- approved reclass not yet sent to QuickBooks, would move a month's totals
+  -- although nothing has been booked, and a voided entry would keep counting.
+  -- The month-by-month report groups status away, so the reader could not even
+  -- see it. (Raised in review on PR #1278.)
+  --
+  -- `status = 'posted'` is SILO's own word for it, and the posting row is
+  -- checked too: an entry SILO believes it posted but whose QuickBooks posting
+  -- later failed or was voided is not in the books either. coalesce, because a
+  -- posted entry need not have a posting row at all.
+  select l.*
+    from public.accounting_journal_lines_v l
+   where l.status = 'posted'
+     and coalesce(l.posting_status, 'posted') not in ('failed', 'voided')
+), cutover as (
   select
     coalesce(
       -- max(), not a bare scalar: a second settings row for one company would
@@ -536,7 +575,12 @@ with cutover as (
         where s.company_entity_id = public.active_company_id()),
       (select max(s.accounting_start_date) from public.accounting_settings s
         where s.company_entity_id = public.active_company_id()),
-      (select min(l.entry_date) from public.accounting_journal_lines_v l)
+      -- POSTED entries only, for the same reason and one more: this date is
+      -- the floor on imported history, so a draft dated before the real
+      -- cut-over would silently hide a month of QuickBooks history behind an
+      -- entry nobody booked. (The 'no imported history is hidden' tie-out
+      -- would go red, which is the alarm, not the fix.)
+      (select min(l.entry_date) from posted l)
     ) as on_date
 )
 -- ── What SILO posted ──────────────────────────────────────────────────────
@@ -563,7 +607,7 @@ select
   l.status,
   l.posting_status,
   true                                   as has_source_detail
-from public.accounting_journal_lines_v l
+from posted l
 
 union all
 
@@ -611,7 +655,7 @@ where h.row_kind = 'transaction'
   and h.transaction_date < coalesce((select on_date from cutover), 'infinity'::date);
 
 comment on view public.accounting_ledger_v is
-  'One continuous general ledger across the move to SILO, so a reconciliation that spans the cut-over needs no stitching. origin is ''qbo_history'' for the ledger the company kept in QuickBooks before it migrated (line by line, with transaction_type, document_number, counterparty, memo and the split account) and ''silo'' for every line SILO has posted since. cutover_on is on every row and is derived from the company''s silo_takeover_on, else accounting_start_date, else the earliest entry SILO posted -- imported rows are taken only before it, so the two halves add up rather than overlap. signed_amount is +debit/-credit on BOTH sides: imported amounts are stored in the account''s natural sign and are converted here by QuickBooks'' account-type map, which is proved by a tie-out (every multi-line imported transaction balances once converted); an account type the map does not know leaves posting_type, amount and signed_amount NULL rather than guessing a side. has_source_detail is true where SILO holds the records behind the line -- join accounting_journal_sources_v on journal_id for them -- and false for imported history, where QuickBooks holds them. Opening balances and the export''s running-balance rows are excluded: a position is not activity. The imported half is visible only to a finance user: qbo_history_lines'' own RLS adds can_manage_journal_entries() / is_exec_or_owner() on top of the company scope, so for anyone else the ledger simply starts at the cut-over -- that is access, not an absence of records. security_invoker, so RLS decides what is visible. 20261113200000.';
+  'One continuous general ledger across the move to SILO, so a reconciliation that spans the cut-over needs no stitching. origin is ''qbo_history'' for the ledger the company kept in QuickBooks before it migrated (line by line, with transaction_type, document_number, counterparty, memo and the split account) and ''silo'' for every line SILO has POSTED since -- a draft, an approved-but-unsent entry and a voided one are all absent, because a general ledger holds what was booked (the all-state register is accounting_journal_lines_v). cutover_on is on every row and is derived from the company''s silo_takeover_on, else accounting_start_date, else the earliest entry SILO posted -- imported rows are taken only before it, so the two halves add up rather than overlap. signed_amount is +debit/-credit on BOTH sides: imported amounts are stored in the account''s natural sign and are converted here by QuickBooks'' account-type map, which is proved by a tie-out (every multi-line imported transaction balances once converted); an account type the map does not know leaves posting_type, amount and signed_amount NULL rather than guessing a side. has_source_detail is true where SILO holds the records behind the line -- join accounting_journal_sources_v on journal_id for them -- and false for imported history, where QuickBooks holds them. Opening balances and the export''s running-balance rows are excluded: a position is not activity. The imported half is visible only to a finance user: qbo_history_lines'' own RLS adds can_manage_journal_entries() / is_exec_or_owner() on top of the company scope, so for anyone else the ledger simply starts at the cut-over -- that is access, not an absence of records. security_invoker, so RLS decides what is visible. 20261113200000.';
 
 grant select on public.accounting_ledger_v to authenticated;
 
@@ -627,13 +671,13 @@ update public.silo_chat_schema_catalog set
 where relname = 'accounting_journal_lines_v';
 
 update public.silo_chat_schema_catalog set
-  description = $d$The records behind each journal entry -- the breakdown SILO used when it posted. One row per source record, carrying journal_id so it joins accounting_journal_lines_v. source_kind is 'card_transaction' / 'card_split_line' (the bank and card rows in a batch), 'shopify_sales_day' (one row per location per day, with gross, discounts, refunds, shipping and taxes), 'shopify_payout' (amount is that payout's fee), 'prepaid_schedule_item', 'fixed_asset' or 'card_reclass_transaction'. ALWAYS READ source_basis: 'as_posted' rows are frozen with the entry; 'recomputed' rows are today's data read over period_start..period_end, so they are the other side of a reconciliation and never what was posted -- the posted figures are in accounting_journal_lines_v. An entry with no stored breakdown (a hand-written manual_adjustment) has no rows here, which means no source, not missing data.$d$,
+  description = $d$The records behind each journal entry -- the breakdown SILO used when it posted. One row per source record, carrying journal_id so it joins accounting_journal_lines_v. source_kind is 'card_transaction' / 'card_split_line' (the bank and card rows in a batch), 'shopify_sales_day' (one row per location per day, with gross, discounts, refunds, shipping and taxes), 'shopify_payout' (amount is that payout's fee), 'prepaid_schedule_item', 'fixed_asset' or 'card_reclass_transaction'. The schedule and asset branches apply the SAME eligibility the posting builders do (prepaid schedules only, never closed, nothing the builder would have skipped as near-zero or unmapped), so a schedule of another type in the same month is never attributed to the entry. ALWAYS READ source_basis: 'as_posted' rows are frozen with the entry; 'recomputed' rows are today's data read over period_start..period_end, so they are the other side of a reconciliation and never what was posted -- the posted figures are in accounting_journal_lines_v. An entry with no stored breakdown (a hand-written manual_adjustment) has no rows here, which means no source, not missing data.$d$,
   keywords = array['reconcile','reconciliation','journal breakdown','what is behind this entry','drill down','source of a journal','tie out','audit trail','backup'],
   updated_at = now()
 where relname = 'accounting_journal_sources_v';
 
 update public.silo_chat_schema_catalog set
-  description = $d$One continuous general ledger across the move to SILO, so a reconciliation that spans the cut-over needs no stitching. origin is 'qbo_history' for the ledger the company kept in QuickBooks BEFORE it migrated -- line by line, with transaction_type, document_number, counterparty, memo and the split account -- and 'silo' for every line SILO has posted since. cutover_on is on every row and is derived (the company's silo_takeover_on, else accounting_start_date, else the earliest entry SILO posted); imported rows are taken only before it, so the two halves add up rather than overlap. signed_amount is +debit/-credit on BOTH sides: imported amounts are stored in the account's natural sign and are converted here by QuickBooks' account-type map, and an account type the map does not know leaves posting_type, amount and signed_amount NULL rather than guessing a side. has_source_detail is true where SILO holds the records behind the line -- join accounting_journal_sources_v on journal_id -- and false for imported history, where QuickBooks holds them. Opening balances and the export's running-balance rows are excluded: a position is not activity. If the ledger starts at cutover_on with no 'qbo_history' rows at all, the connected user may simply not have finance access to the imported history (qbo_history_lines requires can_manage_journal_entries() or is_exec_or_owner()) -- say that, rather than reporting that the company has no records before the cut-over. USE THIS for a balance sheet or GL reconciliation covering a period that starts before the company moved to SILO.$d$,
+  description = $d$One continuous general ledger across the move to SILO, so a reconciliation that spans the cut-over needs no stitching. origin is 'qbo_history' for the ledger the company kept in QuickBooks BEFORE it migrated -- line by line, with transaction_type, document_number, counterparty, memo and the split account -- and 'silo' for every line SILO has POSTED since -- a draft, an approved-but-unsent entry and a voided one are all absent, because a general ledger holds what was booked; for the all-state register use accounting_journal_lines_v. cutover_on is on every row and is derived (the company's silo_takeover_on, else accounting_start_date, else the earliest entry SILO posted); imported rows are taken only before it, so the two halves add up rather than overlap. signed_amount is +debit/-credit on BOTH sides: imported amounts are stored in the account's natural sign and are converted here by QuickBooks' account-type map, and an account type the map does not know leaves posting_type, amount and signed_amount NULL rather than guessing a side. has_source_detail is true where SILO holds the records behind the line -- join accounting_journal_sources_v on journal_id -- and false for imported history, where QuickBooks holds them. Opening balances and the export's running-balance rows are excluded: a position is not activity. If the ledger starts at cutover_on with no 'qbo_history' rows at all, the connected user may simply not have finance access to the imported history (qbo_history_lines requires can_manage_journal_entries() or is_exec_or_owner()) -- say that, rather than reporting that the company has no records before the cut-over. USE THIS for a balance sheet or GL reconciliation covering a period that starts before the company moved to SILO.$d$,
   keywords = array['general ledger','gl','full year','balance sheet','reconcile across the migration','before silo','quickbooks history','cutover','continuous ledger','trial balance'],
   updated_at = now()
 where relname = 'accounting_ledger_v';

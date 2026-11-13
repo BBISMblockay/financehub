@@ -546,7 +546,7 @@ await test('the ledger runs across the cut-over, imported before and SILO after'
   assert.deepEqual(rows, [
     { origin: 'qbo_history', first_day: '2026-07-15', last_day: '2026-07-20', n: 4,
       cutovers: 1, cutover: '2026-08-01', detail: false },
-    { origin: 'silo', first_day: '2026-08-31', last_day: '2026-10-31', n: 18,
+    { origin: 'silo', first_day: '2026-08-31', last_day: '2026-10-31', n: 16,
       cutovers: 1, cutover: '2026-08-01', detail: true },
   ]);
 });
@@ -610,6 +610,100 @@ await test('an account type the map does not know gets no side, rather than a gu
   assert.equal(side.pass, false, 'an unmapped account type must turn its check red');
   assert.equal(side.left, 1);
   await db.exec(`delete from qbo_history_lines where qbo_transaction_id = 'H-C'`);
+});
+
+await test('only POSTED entries reach the ledger; the register still shows them all', async () => {
+  // The approved reclass is already in the fixture and is the live case: it
+  // has lines, it is not in QuickBooks, and it must not move a month's totals.
+  const [{ n: inLedger }] = await q(
+    `select count(*)::int n from accounting_ledger_v where journal_id = '${JE_RECLASS}'`);
+  assert.equal(inLedger, 0, 'an approved, unposted entry is not in the general ledger');
+  const [{ n: inRegister }] = await q(
+    `select count(*)::int n from accounting_journal_lines_v where journal_id = '${JE_RECLASS}'`);
+  assert.equal(inRegister, 2, 'but the all-state register still carries it');
+
+  // A draft and a voided entry, each with real lines.
+  await db.exec(`
+    insert into journal_adjustments(id, company_entity_id, entry_date, memo, source_context, status,
+                                    posting_id, accounting_source, accounting_source_ref)
+    values ('30000000-0000-4000-a000-000000000007', '${CO}', '2026-10-20', 'Draft', 'manual', 'draft', null, null, null),
+           ('30000000-0000-4000-a000-000000000008', '${CO}', '2026-10-21', 'Voided', 'manual', 'voided', null, null, null);
+    insert into journal_adjustment_lines(company_entity_id, adjustment_id, line_no, qbo_account_id,
+      qbo_account_name, posting_type, amount)
+    values ('${CO}', '30000000-0000-4000-a000-000000000007', 1, '10', 'Software Expense', 'Debit', 100),
+           ('${CO}', '30000000-0000-4000-a000-000000000007', 2, '20', 'Credit Card', 'Credit', 100),
+           ('${CO}', '30000000-0000-4000-a000-000000000008', 1, '10', 'Software Expense', 'Debit', 900),
+           ('${CO}', '30000000-0000-4000-a000-000000000008', 2, '20', 'Credit Card', 'Credit', 900)`);
+  const [{ n }] = await q(`select count(*)::int n from accounting_ledger_v
+                            where journal_id in ('30000000-0000-4000-a000-000000000007',
+                                                 '30000000-0000-4000-a000-000000000008')`);
+  assert.equal(n, 0, 'a draft or voided entry must not reach the general ledger');
+  const [{ n: reg }] = await q(`select count(*)::int n from accounting_journal_lines_v
+                                 where journal_id in ('30000000-0000-4000-a000-000000000007',
+                                                      '30000000-0000-4000-a000-000000000008')`);
+  assert.equal(reg, 4);
+});
+
+await test('an unposted entry dated early does not drag the cut-over back over history', async () => {
+  // The dangerous shape: with no settings row the cut-over falls back to the
+  // first SILO entry, so a draft dated before the real cut-over would hide a
+  // month of imported QuickBooks history behind an entry nobody booked.
+  await db.exec(`delete from accounting_settings where company_entity_id = '${CO}';
+    update journal_adjustments set entry_date = '2026-07-01'
+     where id = '30000000-0000-4000-a000-000000000007'`);
+  const rows = await q(`select distinct cutover_on::text c from accounting_ledger_v`);
+  assert.deepEqual(rows, [{ c: '2026-08-31' }], 'the draft must not become the cut-over');
+  const [{ n }] = await q(`select count(*)::int n from accounting_ledger_v where origin = 'qbo_history'`);
+  assert.equal(n, 4, 'and no imported history may disappear behind it');
+  await db.exec(`update journal_adjustments set entry_date = '2026-10-20'
+                  where id = '30000000-0000-4000-a000-000000000007';
+                 insert into accounting_settings(company_entity_id, accounting_start_date)
+                 values ('${CO}', '2026-08-01')`);
+});
+
+await test('a source the posting builder could never have used is not a source', async () => {
+  // The amortization view generates a row for every schedule type and status.
+  // The prepaid builder selects schedule_type = 'prepaid', excludes closed,
+  // skips amounts at or below 0.004 and skips a schedule with no expense
+  // account. Anything else in the month is a different schedule's business.
+  await db.exec(`insert into schedule_item_amortization_v values
+    ('80000000-0000-4000-a000-000000000002', '${CO}', 'deferred_revenue', 'Deferred rev', '40', 'Deferred', '41', 'active',
+     '2026-10-01', '2026-10-31', 3, 12, 2400, 200),
+    ('80000000-0000-4000-a000-000000000003', '${CO}', 'prepaid', 'Closed policy', '30', 'Prepaid', '10', 'closed',
+     '2026-10-01', '2026-10-31', 3, 12, 1200, 100),
+    ('80000000-0000-4000-a000-000000000004', '${CO}', 'prepaid', 'Unmapped', '30', 'Prepaid', null, 'active',
+     '2026-10-01', '2026-10-31', 3, 12, 1200, 100),
+    ('80000000-0000-4000-a000-000000000005', '${CO}', 'prepaid', 'Rounding dust', '30', 'Prepaid', '10', 'active',
+     '2026-10-01', '2026-10-31', 3, 12, 12, 0.002)`);
+  const rows = await q(`select source_id, round(amount, 2)::text amt
+                          from accounting_journal_sources_v
+                         where journal_id = '${JE_PREPAID}' order by source_id`);
+  assert.deepEqual(rows, [{ source_id: '80000000-0000-4000-a000-000000000001', amt: '500.00' }],
+    'only the row the builder would have posted is a source');
+
+  await db.exec(`insert into fixed_asset_depreciation_v values
+    ('90000000-0000-4000-a000-000000000002', '${CO}', 'Retired rig', '30', 'Vehicles', '10', '31', 'closed', 9000,
+     '2026-10-01', '2026-10-31', 4, 36, 9000, 250),
+    ('90000000-0000-4000-a000-000000000003', '${CO}', 'No accounts', '30', 'Vehicles', null, '31', 'active', 9000,
+     '2026-10-01', '2026-10-31', 4, 36, 9000, 250)`);
+  const assets = await q(`select source_id from accounting_journal_sources_v
+                           where journal_id = '${JE_DEPREC}' order by source_id`);
+  assert.deepEqual(assets, [{ source_id: '90000000-0000-4000-a000-000000000001' }]);
+
+  // The depreciation builder keeps a NEGATIVE period_amount (a contra-asset
+  // month is negative by design) where the prepaid one drops it. Mirrored,
+  // not tidied -- so a negative asset row IS a source.
+  await db.exec(`insert into fixed_asset_depreciation_v values
+    ('90000000-0000-4000-a000-000000000004', '${CO}', 'TI reimbursement', '30', 'Vehicles', '10', '31', 'active', -6000,
+     '2026-10-01', '2026-10-31', 4, 36, -6000, -150)`);
+  const withNeg = await q(`select source_id from accounting_journal_sources_v
+                            where journal_id = '${JE_DEPREC}' order by source_id`);
+  assert.equal(withNeg.length, 2, 'a negative depreciation month is still a source');
+
+  await db.exec(`delete from schedule_item_amortization_v
+                  where schedule_item_id <> '80000000-0000-4000-a000-000000000001';
+                 delete from fixed_asset_depreciation_v
+                  where fixed_asset_id <> '90000000-0000-4000-a000-000000000001'`);
 });
 
 await test('the GL report is month by account by origin, and shows the cut-over month as both', async () => {

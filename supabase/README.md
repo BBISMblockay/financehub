@@ -3726,7 +3726,12 @@ What this adds, all additive and read-only:
   its lines, from `card_coding_effective_lines`); a monthly Shopify summary gives each location's
   sales day — the same `sales_by_day_verification_v` buckets `accounting_sales_buckets()` reads —
   and each payout's fee; prepaid and depreciation entries give the schedule items and assets for
-  the period; a reclass gives the transaction moved. **`source_basis` is the safety property:**
+  the period, **filtered exactly as the posting builders filter them** (`buildAmortLines` in
+  `v2/schedules.html`, `buildDepreciationLines` in `v2/fixed-assets.html`): prepaid schedules only,
+  never a closed one, and nothing the builder would have skipped as near-zero or unmapped — the
+  amortization view generates a row for every schedule type and status, so without that a
+  deferred-revenue schedule in the same month would be attributed to the prepaid journal.
+  `recomputed` says the figures are today's, not that the population may differ; a reclass gives the transaction moved. **`source_basis` is the safety property:**
   `as_posted` rows are frozen with the entry, `recomputed` rows are today's data over
   `period_start..period_end`, which is what makes reconciliation useful (October 2026's recomputed
   gross is $204.00 above what was posted — that difference IS the finding) and exactly why it must
@@ -3757,7 +3762,15 @@ What this adds, all additive and read-only:
   every line posted since. `cutover_on` is on every row and is **derived, never a constant**: the
   company's `silo_takeover_on`, else `accounting_start_date`, else the earliest entry SILO posted
   (2026-08-01 here). Imported rows are taken only BEFORE it, so the two eras add up rather than
-  overlap.
+  overlap. **A general ledger holds what was BOOKED**, so the SILO half takes
+  posted entries only (`status = 'posted'`, and not a posting QuickBooks later
+  failed or voided) — a saved draft or an approved-but-unsent reclass would
+  otherwise move a month's account totals with nothing booked, and the monthly
+  report groups status away so the reader could not see it. The fallback
+  cut-over is derived from posted entries for the same reason plus one more: a
+  draft dated before the real cut-over would hide imported history behind an
+  entry nobody booked. The all-state register stays `accounting_journal_lines_v`,
+  where a draft that will not balance is exactly what a reconciler is after.
   **The sign conversion is the whole risk and it is proved, not assumed.**
   `qbo_history_lines.natural_amount` is in the ACCOUNT'S natural sign — income positive means a
   credit — so reading it as debit-signed silently flips every liability, equity and income line.
@@ -3794,7 +3807,7 @@ Run `refresh_chat_schema_catalog()` — the migration calls it itself. Verify bl
 catalog-coverage list. That last block reads the view with `to_regclass`, never a `::regclass`
 cast, which is resolved at PARSE time and would abort the whole verify script on a database where
 the view is absent — the database the check exists for. Tests:
-`scripts/tests/journal-drilldown-database.test.mjs` (35 checks; every tie-out shown to fail when
+`scripts/tests/journal-drilldown-database.test.mjs` (40 checks; every tie-out shown to fail when
 what it guards breaks, including a deliberately wrong account-type side and an import reaching
 past the cut-over). **No edge-function deploy is required** — `describe_tables` and `list_reports`
 read the catalog and the report table live — but deploying `mcp` adds the guidance in `guide.mjs`
