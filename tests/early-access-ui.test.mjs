@@ -17,9 +17,11 @@ test('home and shared config retain their explicit baselines', () => {
     // Deliberately changed 2026-11-13: get-silo.com index uses the early-access landing (like
     // redo-welcome/demo) and the public intake form instead of the invitation-only onboarding link.
     // Auth router (#router, data-mode script, signed-in redirect) is unchanged in purpose.
-    'index.html': '61bd4dbca9c93634df385cc3ee894bff995af0fcfe5de4647d2c7931525d9385',
+    'index.html': '4614d4a8c8a4eecfb310f1f0db444743f65d99cc918fc3a7ff49478a3577c36e',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
-    'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
+    // Deliberately changed 2026-11-13: COMPANY_CACHE_VERSION, so a tab holding a company
+    // cached before entities.meta started driving the sidebar re-reads it once.
+    'pages/config.js': '08f727a5d8d426605b8d9a948378b71db8a54dc2b7017c7b776ba539033f1c21',
   };
   for (const [file, hash] of Object.entries(unchanged)) {
     const bytes = readFileSync(new URL('../' + file, import.meta.url));
