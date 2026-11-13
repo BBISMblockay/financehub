@@ -24,7 +24,18 @@
   'use strict';
   // Tolerate a cached nav-config from before PERFORMANCE_SUITE_PAGES existed.
   const pages = () => window.SiloNav?.PERFORMANCE_SUITE_PAGES || [];
-  function contains(active) { return pages().some(([id]) => id === active); }
+
+  // Ad Studio and SEO are tabs of this strip, and each is itself a small suite
+  // of pages (the Schedule; Search performance, Keywords, Tasks). Their inner
+  // pages resolve to the tab they belong to, so the Marketing strip is drawn
+  // on every marketing page -- with that tab marked current -- and the inner
+  // strip draws underneath it (2026-11-13).
+  function resolve(active) {
+    if (window.SiloSeoSuite?.contains?.(active)) return 'reports/seo';
+    if (window.SiloAdStudioSuite?.contains?.(active)) return 'reports/ad-studio';
+    return active;
+  }
+  function contains(active) { const a = resolve(active); return pages().some(([id]) => id === a); }
 
   // Fails to the SMALLER strip, as resolveNavProfile(null) does: a deep-linked
   // tab has no cached company (sessionStorage is per-tab, the auth session is
@@ -45,7 +56,8 @@
   // the open page would leave no way back out of it.
   function visible(active) {
     const ok = allowed();
-    return pages().filter(([id]) => id === active || ok.has(id));
+    const a = resolve(active);
+    return pages().filter(([id]) => id === a || ok.has(id));
   }
 
   // The keys Overview and Explorer both understand (or keep for each other).
@@ -76,6 +88,10 @@
     'reports/wow-report': '<path d="M14 3H6v18h12V7z"/><polyline points="14 3 14 7 18 7"/><path d="M9 12h6"/><path d="M9 16h6"/>',
     // Joined points: the path to a purchase.
     'reports/silo-attribution': '<circle cx="5" cy="17" r="2"/><circle cx="12" cy="8" r="2"/><circle cx="19" cy="15" r="2"/><path d="M6.3 15.4l4.4-5.8"/><path d="M13.6 9.4l3.9 4.2"/>',
+    // A spark: the ads being made.
+    'reports/ad-studio': '<path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3z"/><path d="M18 16.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
+    // A magnifier over a globe: search.
+    'reports/seo': '<circle cx="11" cy="11" r="6"/><path d="M5 11h12"/><path d="M11 5c2 2.2 2 9.8 0 12"/><path d="M20 20l-4.5-4.5"/>',
   };
   const FALLBACK = '<path d="M14 3H6v18h12V7z"/><polyline points="14 3 14 7 18 7"/>';
   const svg = (id) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"'
@@ -84,16 +100,19 @@
 
   function build(active) {
     const shown = visible(active);
+    // The tab that is current may be the one this page sits UNDER: an SEO
+    // keyword page marks the SEO tab, not a tab of its own.
+    const current = resolve(active);
     const nav = document.createElement('nav');
     nav.className = 'perf-suite-nav';
     nav.dataset.perfSuite = '';
     // Which tabs this strip was drawn with, so refresh() can tell a changed
     // set from an unchanged one without re-reading the DOM's links.
     nav.dataset.perfSuiteTabs = shown.map(([id]) => id).join(',');
-    nav.setAttribute('aria-label', 'Performance');
+    nav.setAttribute('aria-label', 'Marketing');
     const label = document.createElement('span');
     label.className = 'perf-suite-label';
-    label.textContent = 'Performance';
+    label.textContent = 'Marketing';
     nav.append(label);
     const links = document.createElement('div');
     links.className = 'perf-suite-links';
@@ -112,7 +131,7 @@
       // the link's tooltip, not a caption. Printed beside every tab it made
       // the strip read as four tabs with four grey footnotes rather than a
       // tab row (2026-11-13).
-      if (id === active) link.setAttribute('aria-current', 'page');
+      if (id === current) link.setAttribute('aria-current', 'page');
       links.append(link);
     }
     nav.append(links);

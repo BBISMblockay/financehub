@@ -81,9 +81,14 @@ async function readHome(page) {
     const insights = home.cards.find((c) => c.title === 'Insights');
     r.ok('On Deck leads Insights for a finance/exec founder',
       !!insights && insights.links[0] === '/v2/on-deck.html', JSON.stringify(insights));
+    // 2026-11-13: Product & inventory collapsed to one row (Inventory
+    // Manager), with Products and Product Studio as tabs of it -- so Home,
+    // which mirrors the sidebar exactly, carries the row and not the tabs.
+    // Same shape as Attribution above.
     const products = home.cards.find((c) => c.title === 'Product & inventory');
-    r.ok('Product Studio sits in Product & inventory',
-      !!products && products.links.includes('/v3/product-workflow.html'), JSON.stringify(products));
+    r.ok('Product & inventory is one Home link, as it is one sidebar row',
+      !!products && products.links.includes('/v2/inventory.html')
+      && !products.links.includes('/v3/product-workflow.html'), JSON.stringify(products));
     await page.close();
 
     console.log('\n── standard member: Home narrows with the sidebar ──');
@@ -100,8 +105,11 @@ async function readHome(page) {
       !home.home.includes('/v2/request_manager.html'), JSON.stringify(home.home));
     r.ok('nor On Deck, which follows the finance gate',
       !home.home.includes('/v2/on-deck.html'), JSON.stringify(home.home));
-    r.ok('Product Studio is offered to a member (writes are refused server-side)',
-      home.home.includes('/v3/product-workflow.html'), JSON.stringify(home.home));
+    // Product Studio is a tab of Inventory Manager now, and a member still
+    // reaches it: the row is offered, and the tab strip on that page carries
+    // the tab (writes are refused server-side either way).
+    r.ok('the Product & inventory row is offered to a member',
+      home.home.includes('/v2/inventory.html'), JSON.stringify(home.home));
     await page.close();
 
     console.log('\n── grandfathered workspace: static cards unchanged ──');
