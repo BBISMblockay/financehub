@@ -27,6 +27,13 @@ body.v2-mirror--po .silo-main {
   flex-shrink: 0;
 }
 
+/* The PO card's title bar carries a title and four actions. It could not
+   wrap, so on a phone it ran past the card. */
+.po-header-card .bcn-card-header {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
 .po-lines-card {
   flex: 1;
   min-height: 0;
@@ -57,7 +64,18 @@ body.v2-mirror--po .silo-main {
   .po-notes-grid { grid-template-columns: 1fr; }
 }
 
+/* The two flags are a row of their own, under the field grid. In the
+   grid's 148px cells "Wholesale triggered" wrapped to two lines beside a
+   one-line twin, which is the odd wrap this page was reported for. */
+.po-flag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .po-flag-chip {
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -88,6 +106,15 @@ body.v2-mirror--po .silo-main {
 }
 
 /* Line matrix inputs inside bcn-table */
+/* The empty row spans the matrix's full 1280px, so its centred text used
+   to sit off-screen until you scrolled. Pin it to the viewport instead. */
+.bcn-table.po-lines-table td.bcn-empty {
+  position: sticky;
+  left: 0;
+  text-align: left;
+  padding-left: 16px;
+}
+
 .bcn-table.po-lines-table {
   min-width: 1280px;
   table-layout: fixed;
