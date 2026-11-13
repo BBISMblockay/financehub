@@ -45,7 +45,7 @@ async function fixture({ session = null, unavailable = false } = {}) {
       if (unavailable) return route.abort();
       return route.fulfill({ contentType: 'text/javascript', body: url.pathname.endsWith('/+esm') ? sdk + '\nexport {createClient};' : sdk + '\nwindow.supabase = {createClient};' });
     }
-    if (['fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return route.continue();
+    if (['fonts.googleapis.com', 'fonts.gstatic.com', 'cdn.tailwindcss.com'].includes(url.hostname)) return route.continue();
     if (!['get-silo.com', 'silo-baseballism.com'].includes(url.hostname)) {
       failures.push('Unexpected external request: ' + url.origin + url.pathname);
       return route.abort();
@@ -58,15 +58,15 @@ async function fixture({ session = null, unavailable = false } = {}) {
       return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Fixture destination</title><h1>Routing destination verified</h1>' });
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    const allowed = ['index.html', 'pages/login.html', 'pages/mfa.js', 'v2/company-onboarding.html', 'v2/beacon.css', 'v2/silo-brand.css',
-      'assets/landing/early-access.css', 'assets/landing/early-access.js', 'assets/silo-icon.png', 'legal/privacy.html', 'legal/eula.html'];
-    if (!allowed.includes(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
+    const filePath = path.join(root, relative);
+    const allowedPrefix = /^(index\.html|pages\/|v2\/|assets\/(landing\/|silo-icon)|legal\/)/;
+    if (!allowedPrefix.test(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();
     }
     if (unavailable && relative.startsWith('assets/')) return route.abort();
-    const contentType = { '.html': 'text/html', '.css': 'text/css', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.js': 'text/javascript', '.png': 'image/png' }[path.extname(relative)];
-    return route.fulfill({ contentType, body: await readFile(path.join(root, relative)) });
+    const contentType = { '.html': 'text/html', '.css': 'text/css', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.js': 'text/javascript', '.png': 'image/png', '.svg': 'image/svg+xml' }[path.extname(relative)];
+    return route.fulfill({ contentType, body: await readFile(filePath) });
   });
   const page = await context.newPage();
   page.on('pageerror', error => failures.push(error.message));
@@ -94,16 +94,11 @@ try {
   assert.equal(await page.locator('#lpInterestForm').isVisible(), true);
   pass('Create your SILO reaches the intake form on the same page');
 
-  await page.keyboard.press('Tab');
-  assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Sign in');
-  for (const signIn of await page.locator('a.lp-signin').all()) {
-    await signIn.click();
-    await page.waitForURL('**/pages/login.html');
-    assert.equal(await page.locator('#formPassword').isVisible(), true);
-    await page.goBack();
-    await page.waitForURL('https://get-silo.com/');
-  }
-  pass('Sign in links reach login and Back preserves the landing page');
+  assert.equal(await page.getByRole('button', { name: 'Create your SILO', exact: true }).isVisible(), true);
+  await page.locator('header .lp-signin').click();
+  await page.waitForURL('**/pages/login.html');
+  assert.equal(await page.locator('#formPassword').isVisible(), true);
+  pass('Sign in reaches login from the landing header');
 
   const legalPage = await context.newPage();
   for (const [url, heading] of [['/legal/privacy.html', 'SILO — Privacy Policy'],

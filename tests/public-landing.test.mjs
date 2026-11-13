@@ -124,7 +124,10 @@ test('non-public router still reports config/session errors without looping', as
 test('welcome actions route guests to early access and sign-in', () => {
   assert.match(html, /<a\b[^>]*class="bcn-btn lp-signin"[^>]*href="\/pages\/login\.html"[^>]*>Sign in<\/a>/);
   assert.match(html, /<a\b[^>]*class="bcn-btn[^"]* lp-create"[^>]*href="#lpAccess"[^>]*>Create your SILO/);
-  assert.match(html, /<form\b[^>]*id="lpInterestForm"/);
+  assert.match(html, /<form\b[^>]*id="lpInterestForm"[^>]*data-ack-success=/);
+  assert.match(html, /lp-connects--chips/);
+  assert.match(html, /id="lpAsk"/);
+  assert.doesNotMatch(html, /icon-redo|Redo Marketing/);
   assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
   assert.doesNotMatch(html, /company-onboarding\.html|lpInviteNote|silo-hero-motion\.js/);
   for (const file of ['pages/login.html', 'legal/privacy.html', 'legal/eula.html']) assert.ok(existsSync(root + file));

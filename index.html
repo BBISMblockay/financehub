@@ -22,7 +22,7 @@
   </script>
 
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/early-access.css?v=8" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=9" />
 
   <style>
     :root {
@@ -203,8 +203,9 @@
         </figure>
         <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
           <h2 id="lpAccessHeading">Create your SILO</h2>
-          <p class="lp-access-intro">Tell us about your company. We&rsquo;ll email you a link to sign in and start workspace setup.</p>
-          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
+          <p class="lp-access-intro">Enter your work email below. We&rsquo;ll send a secure link to <strong>create your account</strong> and walk through company setup&mdash;usually within a few minutes. Check spam if you don&rsquo;t see it.</p>
+          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote"
+            data-ack-success="Check your inbox — we sent a link to create your account and set up your company. The link is tied to this email and expires in 14 days.">
             <div class="bcn-field-group">
               <label class="bcn-label" for="lpName">Name</label>
               <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required />
@@ -221,22 +222,73 @@
               <label for="lpWebsite">Leave this field empty</label>
               <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
             </div>
-            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Request early access</button>
-            <p class="lp-privacy" id="lpPrivacyNote">We&rsquo;ll use these details to contact you about Silo onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Create your SILO</button>
+            <p class="lp-privacy" id="lpPrivacyNote">We process name, company and email only to send your signup link and onboard your workspace. <a href="/legal/privacy.html">Privacy policy</a></p>
             <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
             <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
           </form>
         </section>
       </div>
 
-      <div class="bcn-card lp-connects">
+      <div class="bcn-card lp-connects lp-connects--chips">
         <div class="bcn-card-body lp-connects-body">
-          <span class="lp-connects-label bcn-mono">Connects to</span>
+          <span class="lp-connects-label bcn-mono">Works with</span>
           <ul class="lp-connects-list" role="list">
-            <li>Shopify</li><li>QuickBooks</li><li>Google &amp; Meta ads</li><li>TikTok ads</li><li>Bank feeds</li>
+            <li class="lp-int-chip">
+              <svg class="lp-int-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/landing/integration-icons.svg#icon-shopify"/></svg>
+              <span>Shopify</span>
+            </li>
+            <li class="lp-int-chip">
+              <svg class="lp-int-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/landing/integration-icons.svg#icon-quickbooks"/></svg>
+              <span>QuickBooks</span>
+            </li>
+            <li class="lp-int-chip">
+              <svg class="lp-int-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/landing/integration-icons.svg#icon-meta"/></svg>
+              <span>Meta Ads</span>
+            </li>
+            <li class="lp-int-chip">
+              <svg class="lp-int-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/landing/integration-icons.svg#icon-google-ads"/></svg>
+              <span>Google Ads</span>
+            </li>
+            <li class="lp-int-chip lp-int-chip--tiktok">
+              <svg class="lp-int-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/landing/integration-icons.svg#icon-tiktok"/></svg>
+              <span>TikTok</span>
+            </li>
+            <li class="lp-int-chip">
+              <span class="lp-int-icon lp-int-icon--mark bcn-mono" aria-hidden="true">$</span>
+              <span>Bank feeds</span>
+            </li>
           </ul>
         </div>
       </div>
+
+      <section class="lp-ask" id="lpAsk" aria-labelledby="lpAskHeading">
+        <div class="lp-ask-copy">
+          <p class="lp-eyebrow">Ask Silo</p>
+          <h2 id="lpAskHeading">Plain-language answers from your live data.</h2>
+          <p class="lp-ask-lead">In the workspace, Ask Silo runs read-only queries on sales, inventory, ads, and finance&mdash;with the queries shown behind every answer.</p>
+          <p class="lp-ask-note"><strong>SILO MCP.</strong> Admins can optionally publish read-only access for a connected AI client (Claude, Cursor, and others). Your workspace approves each connection; live queries still verify identity.</p>
+        </div>
+        <article class="bcn-card lp-ask-card lp-ask-preview" aria-label="Example Ask Silo answer">
+          <div class="lp-ac-log">
+            <div class="ac-msg ac-msg--user">
+              <div class="ac-avatar" aria-hidden="true">You</div>
+              <div class="ac-bubble">Which product types grew fastest last quarter, and where are we understocked?</div>
+            </div>
+            <div class="ac-msg ac-msg--assistant">
+              <div class="ac-avatar" aria-hidden="true">S</div>
+              <div class="ac-bubble ac-bubble--md">
+                <p><strong>Fastest growth:</strong> Outerwear and headwear velocity up 18&ndash;24% vs the prior quarter on Shopify sales.</p>
+                <p><strong>Understock risk:</strong> 11 SKUs under 14-day cover at the main fulfillment location; three are repeat top sellers.</p>
+                <details class="ac-queries">
+                  <summary>4 queries run</summary>
+                  <pre>sales_by_product_title_daily_v · inventory_on_hand_current_v · sales_velocity_by_sku_location_v · …</pre>
+                </details>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
 
       <section class="lp-features" aria-labelledby="lpFeaturesHeading">
         <div class="lp-section-head">

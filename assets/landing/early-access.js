@@ -126,7 +126,10 @@
         return;
       }
       submitted = true;
-      showStatus('Thanks! Your early-access request has been received. We’ll email you a link to get started.', 'pos');
+      const ack = form.getAttribute('data-ack-success');
+      showStatus(ack && ack.trim()
+        ? ack.trim()
+        : 'Thanks! Your early-access request has been received. We’ll email you a link to get started.', 'pos');
       status.focus();
     } catch (_) {
       // Never render server/body error details or imply a failed transport
