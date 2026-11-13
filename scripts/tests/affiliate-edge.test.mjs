@@ -38,6 +38,8 @@
 //   AFFILIATE_EDGE_MUTATION=utcday        the codes email picks today's code by the UTC date
 //   AFFILIATE_EDGE_MUTATION=noticesweep   anyone (no service key) may sweep every company's live-code notices
 //   AFFILIATE_EDGE_MUTATION=noticepaused  a paused rep is mailed that their code is live
+//   AFFILIATE_EDGE_MUTATION=probeopen     any key that reaches the probe may sweep, whatever Auth answers
+//   AFFILIATE_EDGE_MUTATION=probethrow    a probe that fails lets the sweep through
 //   AFFILIATE_EDGE_MUTATION=kickreplay    a replayed code mark kicks the notice again
 //   AFFILIATE_EDGE_MUTATION=kickgrant     the kick forwards the connection's own token
 //   AFFILIATE_EDGE_MUTATION=handbackmailed a mailed portal link is also returned to the manager
@@ -74,6 +76,8 @@ async function load(fn, file) {
     linkquery: ['affiliate-portal', "  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);", "  return affiliateLink(store, code, u.pathname || '/');", 'affiliate-mail.mjs'],
     utcday: ['affiliate-invite', "    const today = localDay(now(), tz);", "    const today = now().toISOString().slice(0, 10);"],
     noticesweep: ['affiliate-invite', "      if (!codeId && !isService) return reply({ error: 'Unauthorized' }, 401);\n", ''],
+    probeopen: ['affiliate-invite', "(await isServiceToken(authHeader.replace(/^Bearer\\s+/, ''))) === true;", "(await isServiceToken(authHeader.replace(/^Bearer\\s+/, ''))) !== undefined;"],
+    probethrow: ['affiliate-invite', "        catch { isService = false; }\n", "        catch { isService = true; }\n"],
     noticepaused: ['affiliate-invite', "        if (!a || a.status !== 'active') {", '        if (!a) {'],
     kickreplay: ['mcp', "      if (r.data && r.data.replayed === false) await kickCodeNotice(code);", '      if (r.data) await kickCodeNotice(code);'],
     kickgrant: ['mcp', "        headers: { apikey: anonKey, Authorization: 'Bearer ' + anonKey, 'Content-Type': 'application/json' },", "        headers: { apikey: anonKey, Authorization: authorization, 'Content-Type': 'application/json' },"],
@@ -102,7 +106,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'seedsignup', 'seedtitle'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -783,6 +787,59 @@ await test('invite: code notices -- a sweep needs the service key; a code_id nee
   res = await k.h(post({ action: 'deliver_code_notices', code_id: CODE }, { Authorization: 'Bearer anon.key' }));
   assert.deepEqual((await res.json()).delivered, [{ code_id: CODE, email: 'skipped' }]);
   assert.equal(k.mail.sent.length, 0);
+});
+
+await test('invite: code notices -- a different but genuine service key may sweep; Auth decides, and any doubt refuses', async () => {
+  // The nightly workflow's key and the runtime's injected key are both service
+  // keys but not the same string; comparing bytes refused every sweep from the
+  // first run. Auth answers instead, and only for a sweep that missed the fast path.
+  const notice = { code_id: '3f000000-0000-4000-8000-000000000009', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10' };
+  const mk = (probe) => {
+    const mail = fakeResend();
+    const asked = [];
+    const svc = fakeService({ rpc: { ...noSuppression, affiliate_claim_code_notices: { data: [notice], error: null },
+      affiliate_program_store_url: { data: 'https://shop.brand.test', error: null } }, tables: {
+      affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
+      entities: { title: 'Brand A' },
+      affiliate_codes: [{ code: 'PAT10', starts_on: '2026-01-01', ends_on: null, status: 'active' }],
+      affiliate_links: [],
+    } });
+    const c = caller({ gate: { data: null, error: { message: 'should not be asked' } } });
+    const h = createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: 're_x', serviceKey: 'svc-key',
+      fetchImpl: mail.fetchImpl, isServiceToken: async (t) => { asked.push(t); return probe(t); } });
+    return { mail, svc, h, asked };
+  };
+  const claimed = (k) => k.svc.log.some((x) => x.name === 'affiliate_claim_code_notices');
+
+  let k = mk((t) => t === 'other-genuine-key');
+  let res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer other-genuine-key' }));
+  assert.equal(res.status, 200, 'a genuine service key that is not byte-identical sweeps');
+  assert.deepEqual(k.asked, ['other-genuine-key'], 'Auth is asked about exactly the presented key');
+  assert.equal(k.mail.sent.length, 1);
+
+  k = mk(() => false);
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 401, 'a key Auth does not admit is refused');
+  assert.ok(!claimed(k), 'and nothing is claimed');
+
+  k = mk(() => { throw new Error('auth down'); });
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 401, 'a probe that fails refuses');
+  assert.ok(!claimed(k));
+
+  k = mk(() => 'yes');
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 401, 'only a literal true admits');
+
+  // The fast path and the one-code kick never reach Auth.
+  k = mk(() => true);
+  res = await k.h(post({ action: 'deliver_code_notices' }, { Authorization: 'Bearer svc-key' }));
+  assert.equal(res.status, 200);
+  assert.equal(k.asked.length, 0, 'the runtime key matches without asking');
+  k = mk(() => true);
+  res = await k.h(post({ action: 'deliver_code_notices', code_id: notice.code_id }, { Authorization: 'Bearer anon.key' }));
+  assert.equal(res.status, 200);
+  assert.equal(k.asked.length, 0, 'a one-code kick is not a sweep and is never probed');
 });
 
 await test('mcp: marking a code created kicks the live notice once; a replay or refusal does not', async () => {

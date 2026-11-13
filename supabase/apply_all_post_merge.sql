@@ -19794,4 +19794,13 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261113080000_affiliate_auto_share_launches.sql
 \i migrations/20261113093000_affiliate_product_seeding.sql
 \i migrations/20261113094000_affiliate_seed_codes_via_ai.sql
+-- 2026-11-13: the journal -> source drill-down a connected AI reconciles with.
+-- Two security_invoker views (every journal line of both kinds, and the
+-- records behind each entry) plus the "Journal entries and their sources"
+-- system report and its two tie-outs. Additive and read-only: no table, no
+-- RPC, no scope, and no posting path changes. Calls
+-- refresh_chat_schema_catalog() itself. No edge-function deploy is required
+-- for it to work -- describe_tables and list_reports read the catalog live --
+-- but deploying `mcp` adds the guidance that points a bot at it.
+\i migrations/20261113200000_accounting_journal_drilldown.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
