@@ -567,3 +567,23 @@ export function ovMessage(item, { brand, code }) {
   }[item?.kind] || '';
   return `Hi ${name}, ${body}\n\n-- ${brand}`;
 }
+
+// An image an affiliate will see on a card, not a thumbnail the brand's own
+// page asked for. An image CDN that takes a width hint in the address serves
+// whatever was asked for, so a 100px thumbnail scaled into a 300px card is
+// soft -- ask that CDN for the size the card actually uses. Only a host whose
+// width parameter is documented is touched, and only upwards; every other
+// address is returned exactly as it came.
+const WIDTH_PARAM_HOSTS = new Set(['cdn.shopify.com']);
+export function displayImage(url, px = 800) {
+  const s = String(url || '');
+  if (!/^https:\/\//.test(s)) return url;
+  let u;
+  try { u = new URL(s); } catch { return url; }
+  if (!WIDTH_PARAM_HOSTS.has(u.hostname)) return url;
+  const w = Number(u.searchParams.get('width'));
+  if (!Number.isFinite(w) || w <= 0 || w >= px) return url;
+  u.searchParams.set('width', String(px));
+  u.searchParams.delete('height');
+  return u.toString();
+}

@@ -31,6 +31,9 @@
 //   AFFILIATE_DB_MUTATION=mailedonly    the brand menu answers a portal token its requester holds
 //   AFFILIATE_DB_MUTATION=boundaddress  a mailed token follows a later edit of its affiliate's address
 //   AFFILIATE_DB_MUTATION=rls           RLS left off affiliate_attributions
+//   AFFILIATE_DB_MUTATION=pausedclaim   a paused affiliate can claim a launch
+//   AFFILIATE_DB_MUTATION=anylaunch     an affiliate can claim another program's launch
+//   AFFILIATE_DB_MUTATION=anyorders     the order list is the program's, not the affiliate's
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
@@ -110,6 +113,9 @@ const U = {
 // Affiliate Studio comes from the repository SQL. ─────────────────────────
 await db.exec(`
 create role anon; create role authenticated; create role service_role bypassrls;
+-- The MCP/API role. Production has it, and the verify blocks ask whether it
+-- can call a portal function, so it must exist here or the check errors.
+create role silo_integration;
 create schema auth;
 grant usage on schema auth to anon, authenticated, service_role;
 create table auth.users(id uuid primary key);
@@ -156,6 +162,14 @@ create policy shopify_orders_active_select on shopify_orders for select to authe
 create table sync_jobs (id uuid primary key default gen_random_uuid(), company_entity_id uuid,
   job_type text not null, status text,
   constraint sync_jobs_job_type_check check (job_type = any (array['shopify'::text, 'klaviyo'::text])));
+-- The store the portal builds an affiliate's links against. Only the four
+-- columns affiliate_portal_feed() reads.
+create table shopify_connections (
+  id uuid primary key default gen_random_uuid(), company_entity_id uuid not null,
+  shop_domain text not null, is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table shopify_connections enable row level security;
 -- Supabase's own defaults: every client role is granted everything on every
 -- table. The migrations must revoke what they mean to withhold.
 grant all on all tables in schema public to anon, authenticated, service_role;
@@ -184,6 +198,10 @@ const files = {
   matchindex: '20261112220000_affiliate_order_match_index.sql',
   // The first payout rail that actually sends money (20261113050000).
   paypal: '20261113050000_affiliate_paypal_payouts.sql',
+  // Affiliates claim a launch, and read their own orders (20261113070000).
+  // Last, as in production: its tail CALLS attach_affiliate_same_company_twins(),
+  // so the function 20261111181000 creates has to exist first.
+  claims: '20261113070000_affiliate_launch_claims_and_orders.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -196,6 +214,26 @@ function mutate(key, from, to) {
 switch (MUT) {
   case '': break;
   case 'rls': mutate('ledger', 'alter table public.affiliate_attributions enable row level security;', ''); break;
+  // A paused affiliate may read their portal but must not raise a hand: the
+  // brand's launch page would then name someone who is not earning.
+  case 'pausedclaim':
+    mutate('claims', `     and a.status = 'active';
+  if not found then
+    raise exception 'affiliate_portal_claim: link is not valid'`, `     and a.status in ('active', 'paused');
+  if not found then
+    raise exception 'affiliate_portal_claim: link is not valid'`); break;
+  // The claim must be checked against the token's OWN program, or one
+  // company's affiliate claims another's launch.
+  case 'anylaunch':
+    mutate('claims', `     and f.company_entity_id = v_tok.company_entity_id
+     and f.program_id = v_tok.program_id
+     and f.kind = 'launch';`, `     and f.kind = 'launch';`); break;
+  // The order list is one affiliate's own, not the program's.
+  case 'anyorders':
+    mutate('claims', `               where l.company_entity_id = v_tok.company_entity_id
+                 and l.affiliate_id = v_tok.affiliate_id
+                 and l.order_id is not null`, `               where l.company_entity_id = v_tok.company_entity_id
+                 and l.order_id is not null`); break;
   case 'company':
     mutate('core', `create policy affiliate_programs_select on public.affiliate_programs
   for select to authenticated
@@ -398,7 +436,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1688,13 +1726,142 @@ await check('L8 the rail is a value the schema accepts, and junk still is not', 
 });
 
 // ── N: the daily drift check reads ok on this schema ─────────────────────
+// ── L: claiming a launch, and the affiliate's own orders (20261113070000) ──
+// A claim is a SIGNAL -- it pays nothing and is not exclusive. The order list
+// is the one line 20261110086000 drew and Blake asked to move: the
+// affiliate's own side of each order, and nothing of the customer's.
+let feedLaunch; let feedPast; let feedProduct;
+await check('L1 a launch shared with a program carries its products and its claim state', async () => {
+  await as(U.ownerA, A);
+  feedLaunch = (await one(
+    `insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, event_on)
+     values ($1,$2,'launch','L1','Spring drop', current_date + 20) returning id`, [A, progA])).id;
+  feedPast = (await one(
+    `insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, event_on)
+     values ($1,$2,'launch','L2','Old drop', current_date - 20) returning id`, [A, progA])).id;
+  feedProduct = (await one(
+    `insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, parent_source_id)
+     values ($1,$2,'product','launch:L1:Wool cap','Wool cap','L1') returning id`, [A, progA])).id;
+  await as(null, null);
+  const f = (await one(`select public.affiliate_portal_feed('hash-pat') as f`)).f;
+  const titles = f.items.map((i) => i.title);
+  assert.deepEqual(titles, ['Spring drop'], 'the past launch is gone and the product is not a card of its own');
+  assert.equal(f.items[0].claimed, false);
+  assert.deepEqual(f.items[0].push.map((x) => x.title), ['Wool cap']);
+  assert.ok(f.items[0].id, 'each item carries its id, so the portal can claim it');
+});
+
+await check('L2 claiming is idempotent, reversible, and records the launch it was for', async () => {
+  await as(null, null);
+  assert.equal((await one(`select public.affiliate_portal_claim('hash-pat',$1,true) as r`, [feedLaunch])).r.claimed, true);
+  assert.equal((await one(`select public.affiliate_portal_claim('hash-pat',$1,true) as r`, [feedLaunch])).r.claimed, true);
+  await asSuper();
+  const rows = await all('select affiliate_id, launch_source_id from affiliate_launch_claims');
+  assert.equal(rows.length, 1, 'claiming twice is one claim');
+  assert.deepEqual([rows[0].affiliate_id, rows[0].launch_source_id], [affPat, 'L1']);
+  await as(null, null);
+  const f = (await one(`select public.affiliate_portal_feed('hash-pat') as f`)).f;
+  assert.equal(f.items[0].claimed, true, 'the feed says so');
+  assert.equal((await one(`select public.affiliate_portal_claim('hash-pat',$1,false) as r`, [feedLaunch])).r.claimed, false);
+  await asSuper();
+  assert.equal(Number((await one('select count(*) as n from affiliate_launch_claims')).n), 0);
+  await as(null, null);
+  await db.query(`select public.affiliate_portal_claim('hash-pat',$1,true)`, [feedLaunch]);
+});
+
+await check('L3 a claim is refused for a past launch, a product, a paused rep and another program', async () => {
+  await as(null, null);
+  await assert.rejects(db.query(`select public.affiliate_portal_claim('hash-pat',$1,true)`, [feedPast]), /already happened/);
+  await assert.rejects(db.query(`select public.affiliate_portal_claim('hash-pat',$1,true)`, [feedProduct]), /no such launch/);
+  // Company B's affiliate, holding their own valid portal link, cannot claim
+  // company A's launch -- the id being guessable is the whole point.
+  await asSuper();
+  const affB = (await one(
+    `insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Bee','bee@b.test','active',1,now()) returning id`, [B, progB])).id;
+  await db.query(`select public.affiliate_issue_access_token($1,$2,'portal','hash-bee',now() + interval '30 days',$3)`, [B, progB, affB]);
+  await as(null, null);
+  await assert.rejects(db.query(`select public.affiliate_portal_claim('hash-bee',$1,true)`, [feedLaunch]), /no such launch/);
+  // A paused rep may look at their portal, but not put their hand up.
+  await asSuper();
+  await db.query(`update affiliates set status = 'paused' where id = $1`, [affPat]);
+  await as(null, null);
+  assert.ok((await one(`select public.affiliate_portal_feed('hash-pat') as f`)).f, 'a paused rep still has a feed');
+  await assert.rejects(db.query(`select public.affiliate_portal_claim('hash-pat',$1,true)`, [feedLaunch]), /link is not valid/);
+  await asSuper();
+  await db.query(`update affiliates set status = 'active' where id = $1`, [affPat]);
+});
+
+await check('L4 the order list is this affiliate\'s own orders, and carries no customer data', async () => {
+  await as(null, null);
+  const o = (await one(`select public.affiliate_portal_orders('hash-pat') as o`)).o;
+  assert.ok(Array.isArray(o.orders) && o.orders.length > 0, 'orders are returned');
+  assert.equal(Number(o.total), o.orders.length, 'the total counts orders, not ledger lines');
+  for (const row of o.orders) {
+    assert.ok(row.order_id, 'every row is an order');
+    assert.ok(Array.isArray(row.entries) && row.entries.length > 0, 'with the lines behind it');
+  }
+  const text = JSON.stringify(o);
+  assert.ok(!text.includes('customer'), 'no customer data');
+  // Another company's affiliate sees nothing of A's.
+  const mine = o.orders.map((x) => x.order_id).sort();
+  const theirs = ((await one(`select public.affiliate_portal_orders('hash-bee') as o`)).o.orders || []).map((x) => x.order_id);
+  for (const id of theirs) assert.ok(!mine.includes(id), 'no cross-company order');
+  // The source is the ledger: this function must never read the orders table.
+  const src = (await one(`select pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure) as d`)).d;
+  assert.ok(!src.includes('shopify_orders'), 'built on the ledger, not the orders table');
+});
+
+await check('L5 paging is bounded and stable', async () => {
+  await as(null, null);
+  const page = async (lim, off) => (await one(`select public.affiliate_portal_orders('hash-pat',$1,$2) as o`, [lim, off])).o;
+  const full = await page(50, 0);
+  if (full.orders.length > 1) {
+    const first = await page(1, 0);
+    const second = await page(1, 1);
+    assert.equal(first.orders.length, 1);
+    assert.notEqual(first.orders[0].order_id, second.orders[0].order_id, 'page two is not page one');
+  }
+  const wild = await page(100000, -5);
+  assert.equal(Number(wild.limit), 200, 'the page size is capped');
+  assert.equal(Number(wild.offset), 0, 'a negative offset is zero');
+  assert.deepEqual((await page(1, 9999)).orders, [], 'past the end is empty, not an error');
+});
+
+await check('L6 no client role may claim, read orders or read the feed', async () => {
+  for (const role of ['anon', 'authenticated']) {
+    for (const fn of ['public.affiliate_portal_feed(text)', 'public.affiliate_portal_claim(text, uuid, boolean)',
+      'public.affiliate_portal_orders(text, integer, integer)']) {
+      await asSuper();
+      const r = await one(`select has_function_privilege($1, $2, 'execute') as can`, [role, fn]);
+      assert.equal(r.can, false, `${role} can call ${fn}`);
+    }
+  }
+  // And a signed-in member cannot write a claim for themselves.
+  await as(U.memberA, A);
+  await assert.rejects(db.query(
+    `insert into affiliate_launch_claims(company_entity_id, program_id, affiliate_id, feed_item_id, launch_source_id)
+     values ($1,$2,$3,$4,'L1')`, [A, progA, affPat, feedLaunch]), 'a member can write a claim');
+  const seen = await all('select id from affiliate_launch_claims');
+  assert.equal(seen.length, 1, 'but a member of the company may read them, for the launch page');
+  await as(U.ownerB, B);
+  assert.equal((await all('select id from affiliate_launch_claims')).length, 0, 'and another company reads none');
+});
+
+await check('L7 unsharing a launch withdraws its claims and its products', async () => {
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_feed_items where id = $1', [feedLaunch]);
+  await asSuper();
+  assert.equal(Number((await one('select count(*) as n from affiliate_launch_claims')).n), 0);
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

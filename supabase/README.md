@@ -3650,3 +3650,38 @@ PayPal is not in the path, holds nothing and funds nothing. Full reasoning in
 
 Verify block: `Affiliate PayPal payouts`. Deploy `affiliate-payouts` (new) and
 `affiliate-portal` after applying.
+
+### `migrations/20261113070000_affiliate_launch_claims_and_orders.sql` — affiliates claim a launch, and see their own orders
+
+From a session Blake and his boss spent in Affiliate Studio (2026-11-13). Two
+things an affiliate program needs that SILO did not have.
+
+- **`affiliate_feed_items.parent_source_id`** — a product shared UNDER a launch
+  (the launch's own attached products, `launch_product_readiness`, snapshotted
+  like every other feed row). The portal shows them on the launch, not as loose
+  cards; a launch itself can never carry one. Unsharing the launch removes them.
+- **`affiliate_launch_claims`** — an affiliate put their hand up for a launch
+  their program shared with them. It is a SIGNAL, not a grant: nothing is
+  exclusive and commission still comes only from the code on the order. It
+  gives the affiliate that launch's product list in their portal, and the brand
+  an Affiliates tab on the launch (`/v2/launch-calendar.html`). Read: any member
+  of the company, because the launch drawer is for whoever runs the launch.
+  Write from a browser: `can_manage_affiliate_programs()` only, to withdraw one;
+  the claim itself is made through the portal under the service role.
+- **`affiliate_portal_claim(text, uuid, boolean)`** — service role only. Active
+  affiliates only (a paused one may look but not raise a hand), launches their
+  own program shared, never one that has already run on the company's calendar.
+- **`affiliate_portal_orders(text, integer, integer)`** — service role only, and
+  the deliberate reversal of one line in `20261110086000`, which withheld the
+  order list because "the merchant's per-order customer data is not theirs to
+  read". Blake asked for the orders, so this opens the affiliate's own side of
+  each one — day, the shop's order number, what the order was worth, what they
+  earned, how much is paid, and the ledger entries behind it. It is built on
+  `affiliate_commission_ledger` and never touches `shopify_orders`: no customer
+  name, email, address or line items. The verify block fails CRITICAL if that
+  ever changes.
+- `affiliate_portal_feed()` is replaced: each item now carries its id, whether
+  this affiliate claimed it, and for a launch the products shared under it.
+
+Verify block: `Affiliate launch claims`. Deploy `affiliate-portal` after
+applying.
