@@ -69,6 +69,8 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  // Autosave reads the form and the program when it fires, not when edited.
+  savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
   tokenurl: ['/affiliates/public.js', "if (url.searchParams.has('t')) { url.searchParams.delete('t'); history.replaceState(null, '', url.pathname + url.search); }", ''],
@@ -503,6 +505,35 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await openRecords(pay);
     R.has(await text(pay, '#recordsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
+
+    // ── autosave belongs to the program it was made on ────────────────────
+    // Edit program A's name, then switch to B before the save fires. The edit
+    // must land on A, with A's values -- never on B, and never be dropped.
+    const two = await suite.open('/v2/affiliates/index.html', payTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    two.on('pageerror', (e) => errors.push(e.message));
+    await two.click('#tabs [data-tab="program"]');
+    await two.waitForSelector('#pName', { timeout: 5000 });
+    await two.fill('#pName', 'Edited A');
+    await two.press('#pName', 'Tab');
+    await two.selectOption('#programSel', PROG2);
+    await two.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 }).catch(() => {});
+    await two.waitForTimeout(500);
+    const twoUps = await two.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update')
+      .map((q) => ({ id: (q.filters.find((f) => f.col === 'id') || {}).val, name: q.patch?.name })));
+    R.ok('the edit is saved to the program it was made on', twoUps.some((u) => u.id === PROG && u.name === 'Edited A'));
+    R.ok('and nothing is written to the program switched to', !twoUps.some((u) => u.id === PROG2));
+    // Starting a new program right after an edit: the edit still lands on the
+    // program it was made on, not read from the blank form that replaced it.
+    await two.waitForFunction(() => document.getElementById('programSel')?.value === '55555555-5555-4555-8555-555555555555' && !!document.getElementById('pName'), null, { timeout: 5000 });
+    await two.evaluate(() => { window.__QUERIES__.length = 0; });
+    await two.fill('#pName', 'Edited again');
+    await two.press('#pName', 'Tab');
+    await two.click('#btnNewProgram');
+    await two.waitForTimeout(700);
+    const newUps = await two.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update')
+      .map((q) => ({ id: (q.filters.find((f) => f.col === 'id') || {}).val, name: q.patch?.name })));
+    R.ok('an edit made just before New program is saved as it was made', newUps.length === 1 && newUps[0].id === PROG2 && newUps[0].name === 'Edited again');
+    await two.close();
 
     // ── staff page, as a member who cannot manage ─────────────────────────
     // Send/code allowed on a SILO grant; tab copy stays vendor-neutral (no app name).
