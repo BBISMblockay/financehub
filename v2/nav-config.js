@@ -150,6 +150,22 @@
     ['purchasing/factories', 'Factories', 'factories.html'],
   ];
 
+  // The Revenue projection suite (2026-11-13), drawn by projections-suite.js:
+  // the projection and the scenarios built on it as ONE sidebar row with a two
+  // tab strip. Blake: "Revenue projection and planning scenarios should go
+  // under accounting in menu ... rev proj (tabbed with planning scenario not as
+  // own tab in finance)". Both pages keep their own URL and bookmarks; only
+  // where they are FOUND moves, from Planning into Finance.
+  //
+  // Same mechanism as the Performance and Purchasing strips: each tab is also
+  // a NAV_ITEMS row (marked `tabOf`), so its visibility is its row's own gate
+  // with no second copy, and "Jump to" still finds both pages by name.
+  const PROJECTIONS_ROW = 'planning/revenue-projections';
+  const PROJECTIONS_SUITE_PAGES = [
+    ['planning/revenue-projections', 'Revenue projections', 'projections.html'],
+    ['planning/scenarios', 'Scenarios', 'planning-scenarios.html'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -281,7 +297,7 @@
     { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
 
 
-    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Accounting', sectionStandard: 'Finance', label: 'Accounting', href: '/v2/accounting.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Finance', label: 'Accounting', href: '/v2/accounting.html', profiles: ['grandfathered', 'standard'] },
     // BBISM Receivables left the nav 2026-10-20 (Blake) and the PAGE was retired
     // 2026-11-11: same stale Google Sheets story as WPV above. Its tables
     // (ar_customers / ar_invoices) were written only by the retired sheet sync and
@@ -296,7 +312,15 @@
 
     // Customer onboarding and Connect routing are deployed. Keep discovery
     // aligned with the finance authorization used by the page's RPCs.
-    { departments: FINANCE_DEPTS, id: 'finance/customers', section: 'Accounting', sectionStandard: 'Finance', label: 'Customers', href: '/v2/customers.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/customers', section: 'Finance', label: 'Customers', href: '/v2/customers.html', profiles: ['grandfathered', 'standard'] },
+
+    // Revenue projection sits in Finance, not Planning, and the scenarios are
+    // a TAB of it rather than a row of their own (Blake, 2026-11-13). The ids
+    // keep their `planning/` prefix: they are what every page mounts, what the
+    // module map and "Jump to" index, and renaming them would move a URL for
+    // no gain. The id is a key, not the menu it appears in.
+    { id: 'planning/revenue-projections', section: 'Finance', label: 'Revenue projections', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/scenarios', section: 'Finance', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'], tabOf: PROJECTIONS_ROW },
 
     // Requests (AP intake/approval + mail handling) was split out of
     // Accounting once that section reached nine items and stopped reading as
@@ -340,8 +364,6 @@
     // active:'planning/calendar', so the one row highlights on either tab.
     { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/org-calendar', section: 'Planning', label: 'Org calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'], tabOf: 'planning/calendar' },
-    { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'planning/scenarios', section: 'Planning', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] },
     { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
 
@@ -514,7 +536,13 @@
   // People management lives under Workspace settings → Team, not here.
   const MODULES = [
     { id: 'marketing', label: 'Marketing & SEO', sections: ['Marketing'] },
-    { id: 'finance', label: 'Finance', sections: ['Accounting', 'Requests'] },
+    // 'Finance' here is the SECTION name, which these rows carry on both
+    // profiles since 2026-11-13 (it was 'Accounting' for grandfathered).
+    // moduleVisible() matches on item.section, so this list and the rows'
+    // `section` have to move together or the module switch stops reaching
+    // them. Revenue projection and its scenarios are in this section now,
+    // so they follow the Finance switch rather than the Planning one.
+    { id: 'finance', label: 'Finance', sections: ['Finance', 'Requests'] },
     { id: 'purchasing_inventory', label: 'Purchasing & Inventory', sections: ['Purchasing', 'Inventory', 'Product & inventory'] },
     { id: 'planning', label: 'Planning', sections: ['Planning'] },
   ];
@@ -638,6 +666,8 @@
     PERFORMANCE_SUITE_PAGES,
     PURCHASING_ROW,
     PURCHASING_SUITE_PAGES,
+    PROJECTIONS_ROW,
+    PROJECTIONS_SUITE_PAGES,
     sidebarSections,
     resolveNavProfile,
     navSectionsForProfile,
