@@ -529,6 +529,7 @@
     else if (window.SiloAdStudioSuite?.contains(navActive)) navActive = 'reports/ad-studio';
     else if (window.SiloPerformanceSuite?.contains(navActive)) navActive = Nav.PERFORMANCE_ROW || navActive;
     else if (window.SiloPurchasingSuite?.contains(navActive)) navActive = Nav.PURCHASING_ROW || navActive;
+    else if (window.SiloProjectionsSuite?.contains(navActive)) navActive = Nav.PROJECTIONS_ROW || navActive;
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     // What first paint's sidebar LABEL actually shows, so the reconciliation
     // below only touches the DOM when ensureActiveCompany() resolves a
@@ -563,6 +564,7 @@
       window.SiloAdStudioSuite?.mount(mainEl, opts.active);
       window.SiloPerformanceSuite?.mount(mainEl, opts.active);
       window.SiloPurchasingSuite?.mount(mainEl, opts.active);
+      window.SiloProjectionsSuite?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -736,6 +738,7 @@
           if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
           if (mainEl) window.SiloPerformanceSuite?.refresh(mainEl, opts.active);
           if (mainEl) window.SiloPurchasingSuite?.refresh(mainEl, opts.active);
+          if (mainEl) window.SiloProjectionsSuite?.refresh(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {

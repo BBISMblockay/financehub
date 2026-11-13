@@ -226,6 +226,7 @@
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="projections-suite.css" />
   <script src="v2-shell.js" defer></script>
 </head>
 <body class="silo-brand">
@@ -465,6 +466,7 @@
 
 <script src="report-filters.js"></script>
 <script src="nav-config.js"></script>
+  <script src="projections-suite.js"></script>
   <script src="silo-chrome.js"></script>
 <script>
 /* ---- DEMO MODE -------------------------------------------------------- */
@@ -626,7 +628,7 @@ async function boot() {
     window.SiloChrome.mount({
       appEl: '#silo-app', active: 'planning/revenue-projections',
       user: { email: state.user?.email, role: 'OWNER' },
-      crumbs: ['Planning', 'Revenue projections'],
+      crumbs: ['Finance', 'Revenue projections'],
       supabaseClient: db,
     });
   }

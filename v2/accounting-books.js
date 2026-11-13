@@ -138,7 +138,7 @@
     if(!data.session){location.href='/pages/login.html?next='+encodeURIComponent(location.pathname);return;}
     company=await cfg.ensureActiveCompany(db);if(!company?.id)throw new Error('Select a company first');
     const permitted=await result(db.rpc('can_manage_journal_entries'));const executive=await result(db.rpc('is_exec_or_owner'));if(!permitted&&!executive)throw new Error('Finance access is required; ask your company owner for access');
-    window.SiloChrome.mount({appEl:'#silo-app',active:'finance/books',user:{email:data.session.user.email},crumbs:['Accounting','Books & setup'],supabaseClient:db});
+    window.SiloChrome.mount({appEl:'#silo-app',active:'finance/books',user:{email:data.session.user.email},crumbs:['Finance','Accounting','Books & setup'],supabaseClient:db});
     const connections=await result(db.rpc('accounting_qbo_connections'));
     setupConnections(connections).catch(e=>{el('setupBankStatus').textContent=`Connection details unavailable: ${e.message}`;el('setupMappingStatus').textContent='Account mapping status unavailable. Open Bank activity to review.';});
     el('connection').innerHTML=connections.length?connections.map(c=>`<option value="${esc(c.id)}">${esc(c.company_name||c.realm_id)} · ${esc(c.environment)}</option>`).join(''):'<option value="">Connect QuickBooks first</option>';
