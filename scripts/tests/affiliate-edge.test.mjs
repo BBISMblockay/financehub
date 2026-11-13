@@ -63,6 +63,8 @@ async function load(fn, file) {
     bodyaddress: ['affiliate-portal', "        kind, to: subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,", "        kind, to: globalThis.__bodyEmail || subject.contact_email, subject: `${brand}: your affiliate portal link`, html, text,"],
     mailedmint: ['affiliate-portal', "  async function mintPortalLink(subject, { mailed = false } = {}) {", "  async function mintPortalLink(subject, { mailed = true } = {}) {"],
     switchany: ['affiliate-portal', "      const { error } = await service.rpc('affiliate_portal_switch_token', {", "      const { error } = await service.rpc('affiliate_issue_access_token', { p_purpose: 'portal', p_company_entity_id: t.company_entity_id, p_program_id: t.program_id, p_affiliate_id: wanted, p_prospect_id: null, p_created_by: null,"],
+    seedsignup: ['affiliate-portal', "    if (action === 'seed_request') {\n      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);", "    if (action === 'seed_request') {"],
+    seedtitle: ['affiliate-portal', "        p_token_hash: hash, p_feed_item_id: rawItem, p_title: rawItem ? null : title, p_note: note || null,", "        p_token_hash: hash, p_feed_item_id: rawItem, p_title: title || null, p_note: note || null,"],
     signinleak: ['affiliate-portal', "      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {", "      if (Array.isArray(data) && data.length) return reply({ status: 'sent' });\n      for (const subject of (Array.isArray(data) ? data : []).slice(0, 10)) {"],
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
@@ -100,7 +102,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'seedsignup', 'seedtitle'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -224,10 +226,13 @@ await test('portal: the feed gives each shared item a link on the brand\'s store
     affiliate_portal_feed: { data: { store_url: 'https://shop.brand.test', codes: ['PAT 10'], items: [
       { kind: 'product', title: 'Hat', product_path: '/products/hat', image_url: 'https://cdn.test/h.png' },
       { kind: 'ad', title: 'Spring', note: 'Say spring', product_path: '//evil.test/x', image_url: 'javascript:x' },
-      { kind: 'launch', title: 'Drop', event_on: '2026-11-20', product_path: null }] }, error: null },
+      { kind: 'launch', title: 'Drop', event_on: '2026-11-20', product_path: null,
+        push: [{ id: AFF2, title: 'Drop tee', product_path: '/products/drop-tee' }] }] }, error: null },
   } });
   const h = createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' });
   const out = await (await h(post({ action: 'statement', token: TOKEN }))).json();
+  // A launch's product keeps its id, so the rep can ask for it at the seeding price.
+  assert.equal(out.feed.items.find((i) => i.title === 'Drop').push[0].id, AFF2);
   const hat = out.feed.items.find((i) => i.title === 'Hat');
   const u = new URL(hat.link);
   assert.equal(u.origin, 'https://shop.brand.test');
@@ -475,6 +480,40 @@ await test('portal: email sign-in answers the same either way, mails each record
   const empty = fakeService();
   assert.equal((await createPortalHandler({ service: empty, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'signin', email: 'nope' }))).status, 400);
   assert.equal(empty.log.length, 0);
+});
+
+await test('portal: product seeding goes through the token only; a signup link and a bad item are refused before the database', async () => {
+  const mk = (purpose) => fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose, affiliate_status: 'active' })], error: null },
+    affiliate_portal_seeds: { data: { offer: { enabled: true, percent: 50, multiple: 3 }, claims: [] }, error: null },
+    affiliate_portal_seed_request: { data: { id: 'c1', state: 'requested', replayed: false }, error: null },
+  } });
+  const run = (svc, body) => createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ token: TOKEN, ...body }));
+  const signup = mk('signup');
+  assert.equal((await run(signup, { action: 'seed_request', title: 'Cap' })).status, 400);
+  assert.equal((await run(signup, { action: 'seeds' })).status, 400);
+  assert.equal(signup.log.filter((e) => /seed/.test(e.name || '')).length, 0, 'a signup link reaches no seeding function');
+  const svc = mk('portal');
+  assert.equal((await run(svc, { action: 'seed_request', item_id: 'nope' })).status, 400);
+  assert.equal((await run(svc, { action: 'seed_request' })).status, 400, 'a request must name something');
+  assert.equal(svc.log.filter((e) => e.name === 'affiliate_portal_seed_request').length, 0);
+  const shared = await (await run(svc, { action: 'seed_request', item_id: AFF2, title: 'ignored' })).json();
+  assert.deepEqual(shared, { requested: true, replayed: false, id: 'c1' });
+  const privateAsk = await run(svc, { action: 'seed_request', title: '  Gray hoodie  ', note: 'size L' });
+  assert.equal(privateAsk.status, 200);
+  const calls = svc.log.filter((e) => e.name === 'affiliate_portal_seed_request');
+  assert.deepEqual(calls.map((c) => [c.args.p_feed_item_id, c.args.p_title, c.args.p_note]), [[AFF2, null, null], [null, 'Gray hoodie', 'size L']],
+    'a shared item is asked for by its id alone; another product by its name');
+  assert.ok(calls.every((c) => c.args.p_token_hash.length === 64), 'the database sees only the hash');
+  const seeds = await (await run(svc, { action: 'seeds' })).json();
+  assert.equal(seeds.offer.percent, 50);
+  const refused = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal', affiliate_status: 'active' })], error: null },
+    affiliate_portal_seed_request: { data: null, error: { code: '22023', message: 'affiliate_portal_seed_request: seeding is off for this program' } },
+  } });
+  const r = await run(refused, { action: 'seed_request', title: 'Cap' });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'seeding is off for this program');
 });
 
 await test('portal: the application honeypot writes nothing; a bad company id is refused', async () => {

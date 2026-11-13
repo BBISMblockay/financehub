@@ -19792,4 +19792,6 @@ $c$select (select count(*) from v_po_header_summary
 -- name, email, address or line items. Apply BEFORE deploying affiliate-portal.
 \i migrations/20261113070000_affiliate_launch_claims_and_orders.sql
 \i migrations/20261113080000_affiliate_auto_share_launches.sql
+\i migrations/20261113093000_affiliate_product_seeding.sql
+\i migrations/20261113094000_affiliate_seed_codes_via_ai.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

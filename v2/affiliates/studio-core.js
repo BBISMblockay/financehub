@@ -606,3 +606,22 @@ export function suggestCode(name, percent, taken = []) {
   }
   return `${base}${Date.now().toString().slice(-4)}`.slice(0, 20);
 }
+
+// Product seeding (20261113093000): one claim -> what both the rep and the
+// brand see. pct is null until there is a goal (no purchase yet), never 0.
+export const SEED_LABEL = {
+  requested: 'Waiting for the brand', approved: 'Code on its way', code_ready: 'Code ready',
+  purchased: 'Bought', earned: 'Paid back', expired: 'Time ran out', declined: 'Declined', cancelled: 'Cancelled',
+};
+export const SEED_TONE = { requested: 'accent', approved: 'accent', code_ready: 'pos', purchased: '', earned: 'pos', expired: '', declined: 'neg', cancelled: '' };
+export function seedView(c = {}) {
+  const goal = Number(c.goal_cents ?? c.goal);
+  const prog = Number(c.progress_cents ?? 0) || 0;
+  const hasGoal = Number.isFinite(goal) && goal > 0;
+  return {
+    label: SEED_LABEL[c.state] || String(c.state || ''),
+    tone: SEED_TONE[c.state] ?? '',
+    open: ['requested', 'approved', 'code_ready', 'purchased'].includes(c.state),
+    pct: c.state === 'earned' ? 100 : (hasGoal ? Math.max(0, Math.min(100, Math.round(prog / goal * 100))) : null),
+  };
+}
