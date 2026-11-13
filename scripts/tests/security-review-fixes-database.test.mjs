@@ -148,12 +148,18 @@ await db.exec(`
   grant select on public.ar_sync_status_v to anon, authenticated, service_role;
 `);
 
-// The real production row, shortened: the two things that matter are that
-// payload.sources holds the publish-to-web URLs and that the four keys the Ops
-// panel reads sit beside them.
+// The real production row, shortened. The two things that matter are that
+// payload.sources holds a URL and that the four keys the Ops panel reads sit
+// beside it -- the URL itself is a PLACEHOLDER on a .invalid host, never the
+// real one. scripts/tests/ar-sync-source-urls.test.mjs (from PR #984) fails
+// the build if a real publish-to-web sheet URL is committed anywhere in the
+// tree, and it caught the first version of this fixture. Keeping the guard
+// strict matters more than fixture realism: what is under test is that a
+// value stored in payload.sources never reaches a reader, and any distinctive
+// string proves that.
 const STORED_PAYLOAD = {
   stale: true,
-  sources: ['https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtz.../pub?gid=0&single=true&output=csv'],
+  sources: ['https://docs.example.invalid/spreadsheets/d/e/REDACTED-SHEET-ID/pub?gid=0&single=true&output=csv'],
   source_stats: { google_sheet_1: { rows: 10 } },
   company_entity_id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',
   sync_run_id: 'run-1',
@@ -182,7 +188,7 @@ await q(`insert into public.job_sync_state
 }
 {
   const r = await asRole('anon', `select payload from public.ar_sync_status_v`);
-  assert.ok(JSON.stringify(r.rows[0].payload).includes('docs.google.com'),
+  assert.ok(JSON.stringify(r.rows[0].payload).includes('docs.example.invalid'),
     'pre-migration: anon could read the sheet URLs out of the view');
   t('before: anon reads the retired sheet URLs out of ar_sync_status_v');
 }
@@ -300,7 +306,7 @@ await db.exec(SQL);
 }
 {
   const txt = JSON.stringify(await q(`select * from public.ar_sync_status_v`));
-  assert.ok(!txt.includes('docs.google.com'), 'the sheet URLs must not come through the view');
+  assert.ok(!txt.includes('docs.example.invalid'), 'the sheet URLs must not come through the view');
   assert.ok(!txt.includes('3bd934c9'), 'company_entity_id must not come through the view');
   assert.ok(!txt.includes('google_sheet_1'), 'source_stats must not come through the view');
   t('PART 2: no sheet URL, company id or source_stats reaches a reader');
