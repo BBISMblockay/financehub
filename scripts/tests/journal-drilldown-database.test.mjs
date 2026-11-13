@@ -261,7 +261,7 @@ await db.exec(MIGRATION);
 // 2026-11-13. Reproduce the default here, then apply the grants migration
 // that takes it back.
 const GRANTS = readFileSync(
-  new URL('../../supabase/migrations/20261113220000_accounting_drilldown_grants.sql', import.meta.url), 'utf8');
+  new URL('../../supabase/migrations/20261113230000_accounting_drilldown_grants.sql', import.meta.url), 'utf8');
 const SUPABASE_DEFAULT_GRANTS = `
 grant all on public.accounting_journal_lines_v, public.accounting_journal_sources_v,
               public.accounting_ledger_v to anon, authenticated;`;

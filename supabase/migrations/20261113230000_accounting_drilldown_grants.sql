@@ -1,4 +1,4 @@
--- 20261113220000 — take the default grants back off the three drill-down views
+-- 20261113230000 — take the default grants back off the three drill-down views
 --
 -- 20261113200000 created `accounting_journal_lines_v`,
 -- `accounting_journal_sources_v` and `accounting_ledger_v` and granted SELECT

@@ -3831,7 +3831,7 @@ on a date literal or a company id in the view), and a company with no Shopify, s
 those kinds. RLS is still the boundary — both views are `security_invoker`, so a person who cannot
 see an entry sees none of its sources.
 
-**`20261113220000_accounting_drilldown_grants.sql`** is the follow-up that takes Supabase's default
+**`20261113230000_accounting_drilldown_grants.sql`** is the follow-up that takes Supabase's default
 grants back off the three views. 20261113200000 granted SELECT to `authenticated` but did not
 REVOKE, and `alter default privileges` hands every new object in `public` the full privilege set to
 BOTH `anon` and `authenticated` — so the views landed on production readable by `anon`, which this
