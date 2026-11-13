@@ -98,6 +98,11 @@ const MUTATIONS = {
   sendallskips: ['/affiliates/studio.js', '    .filter((x) => sendState(x).sendable);', '    .filter(() => true);'],
   // One check per page load. Without the flag, every render calls PayPal.
   autocheck: ['/affiliates/studio.js', '  if (ppAutoChecked) return;', '  if (false) return;'],
+  // Each check names its payout: the untargeted refresh reads only the oldest
+  // 50 open attempts, so a newer one can starve behind them (review cycle 1).
+  untargeted: ['/affiliates/studio.js', "await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });", "await invoke('affiliate-payouts', { action: 'refresh' });"],
+  checkfirst: ['/affiliates/studio.js', '    .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])\n', ''],
+  checkotherenv: ['/affiliates/studio.js', "    .filter((sn) => sn.state in OPEN_RANK && (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)", '    .filter((sn) => sn.state in OPEN_RANK)'],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!st.email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -775,6 +780,37 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const twice = await ppTwice.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh'));
     R.ok('the automatic check does not repeat on every render', twice.length === 1);
     await ppTwice.close();
+
+    // The endpoint's untargeted refresh reads only the OLDEST 50 open attempts
+    // across the company, so the page must ask for each payout by id: a newer
+    // attempt behind 50 long-unclaimed items is otherwise never checked
+    // (review cycle 1). Fifty old unclaimed, one new `unknown`, plus one open
+    // SANDBOX attempt that the live account must leave alone.
+    const old50 = Array.from({ length: 50 }, (_, i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const NEWEST = 'bbbbbbbb-0000-4000-8000-000000000051';
+    const SBX = 'cccccccc-0000-4000-8000-000000000052';
+    const manyPayouts = [...old50, NEWEST, SBX].map((id) => ({ ...ppPayout[0], id }));
+    const manySends = [
+      ...old50.map((id, i) => ({ id: `s-${i}`, payout_id: id, attempt: 1, state: 'unclaimed', provider_status: 'UNCLAIMED', provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: '2026-10-01T00:00:00Z' })),
+      { id: 's-new', payout_id: NEWEST, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: now },
+      { id: 's-sbx', payout_id: SBX, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now },
+    ];
+    const ppMany = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: manyPayouts,
+        affiliate_payout_connection_status_v: [{ ...connected[0], environment: 'live' }],
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: manySends },
+      { ready, rpc: ppRpc, edge: { 'affiliate-payouts': { status: 200, body: { checked: 1, results: [{ state: 'unclaimed' }] } } } });
+    ppMany.on('pageerror', (e) => errors.push(e.message));
+    await ppMany.click('#tabs [data-tab="payouts"]');
+    const refreshes = () => ppMany.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh').map((c) => c.body.payout_id || null));
+    await ppMany.waitForFunction(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh').length >= 51, null, { timeout: 15000 }).catch(() => {});
+    const auto51 = await refreshes();
+    R.ok('every automatic check names its payout', auto51.length > 0 && auto51.every(Boolean));
+    R.ok('the newest open attempt is checked even behind fifty older ones', auto51.includes(NEWEST));
+    R.ok('and the one that blocks a send is checked first', auto51[0] === NEWEST);
+    R.ok('an attempt on the other account is not checked against this one', !auto51.includes(SBX));
+    await ppMany.close();
 
     // A sandbox test settles nothing, so it does not stand in the way of the
     // real payment either -- and the database would allow that payment, so a

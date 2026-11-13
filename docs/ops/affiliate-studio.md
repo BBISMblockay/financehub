@@ -345,7 +345,11 @@ Connect platform and SILO orchestrates it. Design:
   key returns the original batch rather than paying again. The page offers no
   second *Send*, and checks the attempt itself: an open attempt on the
   connected account is reconciled once per page load, so nobody has to know to
-  press anything. PayPal also refuses a `sender_batch_id`
+  press anything. The page asks for each payout BY ID, the ones blocking a send
+  first: the endpoint's untargeted refresh reads only the oldest 50 open
+  attempts across the company, with no rotation, so a newer attempt behind 50
+  long-unclaimed items would otherwise never be checked. The card's *Check
+  payment status* runs the same loop. PayPal also refuses a `sender_batch_id`
   reused within 30 days: that is a 4xx, and it is read as "the batch already
   exists" (the original id comes out of the error's own links), never as a
   refusal -- a refusal would release the payout for a second attempt while the
