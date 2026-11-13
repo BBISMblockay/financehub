@@ -20,12 +20,11 @@
   <script src="purchasing-suite.js"></script>
   <script src="silo-chrome.js"></script>
   <style>
-    .bcn-header-sub { display: none; }
-    .bcn-header { padding-top: 8px; padding-bottom: 8px; }
-    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi-value { font-size: 15px !important; }
-    .bcn-kpi-delta { display: none; }
+    /* The header, KPI band and their sub-lines are Beacon's own sizes here,
+       as on the Purchasing overview. They used to be shrunk and the
+       sub-lines hidden, which left this page looking like a different
+       product from the rest of the suite -- and left the delta lines the
+       page still writes (kpiUnitsSub, costingPhaseMeta) invisible. */
 
     /* Header collapse */
     .po-header-card--collapsed .bcn-card-body { display: none; }
@@ -42,16 +41,18 @@
     <main class="silo-main">
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
-          <div class="bcn-header-title"><h1>PO builder</h1></div>
-          <div class="bcn-header-sub">Catalog-linked purchase orders · line matrix · bulk SKU · vendor PDF</div>
+          <h1 class="bcn-header-title">PO Builder</h1>
+          <p class="bcn-header-sub">Write a purchase order and its lines.</p>
         </div>
+        <!-- The cross-tab links that used to sit here (REPORT, LANDED COST)
+             are gone: the suite strip above is the way across. #btnCosting
+             stays, moved into the PO card below, because it is not a tab --
+             it carries ?po_id= to the open PO. -->
         <div class="bcn-header-actions">
-          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">PO LIST <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
-          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-report.html">REPORT</a>
-          <a id="btnCosting" class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-costing.html">LANDED COST</a>
-          <button id="btnPriorFob" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" title="Apply prior FOB by SKU">PRIOR FOB</button>
-          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">REFRESH</button>
-          <button id="btnNewPO" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button">+ NEW PO</button>
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
+          <button id="btnPriorFob" class="bcn-btn bcn-btn--ghost" type="button" title="Apply prior FOB by SKU">Prior FOB</button>
+          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
+          <button id="btnNewPO" class="bcn-btn bcn-btn--dark" type="button">New PO</button>
         </div>
       </header>
 
@@ -66,7 +67,7 @@
         <div class="bcn-kpi">
           <div class="bcn-kpi-label">RETAIL VALUE</div>
           <div class="bcn-kpi-value bcn-mono" id="kpiRetail">$0.00</div>
-          <div class="bcn-kpi-delta bcn-mono" id="kpiRetailSub">EXTENDED retail</div>
+          <div class="bcn-kpi-delta bcn-mono" id="kpiRetailSub">Extended retail</div>
         </div>
         <div class="bcn-kpi">
           <div class="bcn-kpi-label">FOB COST</div>
@@ -134,6 +135,7 @@
             <span class="bcn-pill bcn-pill--dark">HEADER</span>
             <h2 id="detailTitle">No PO selected</h2>
             <div style="flex:1"></div>
+            <a id="btnCosting" class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-costing.html" style="color:#fff;border-color:rgba(255,255,255,.2);">LANDED COST</a>
             <button id="btnToggleHeader" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" title="Toggle header fields">▲ COLLAPSE</button>
             <button id="btnSaveHeader" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" disabled>SAVE</button>
             <button id="btnGeneratePdf" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled style="color:#fff;border-color:rgba(255,255,255,.2);">PDF</button>
@@ -173,6 +175,8 @@
                 <label class="bcn-label">Status</label>
                 <select id="status" class="bcn-field bcn-field--mono"></select>
               </div>
+            </div>
+            <div class="po-flag-row">
               <label class="po-flag-chip"><input id="wholesaleTriggered" type="checkbox" /><span>Wholesale triggered</span></label>
               <label class="po-flag-chip"><input id="isNewProductPO" type="checkbox" /><span>New product PO</span></label>
             </div>

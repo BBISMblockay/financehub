@@ -108,12 +108,10 @@
       text.className = 'perf-suite-text';
       text.textContent = title;
       link.append(text);
-      if (basis) {
-        const b = document.createElement('span');
-        b.className = 'perf-suite-basis';
-        b.textContent = basis;
-        link.append(b);
-      }
+      // The basis -- which revenue figure the tab's page is built on -- is
+      // the link's tooltip, not a caption. Printed beside every tab it made
+      // the strip read as four tabs with four grey footnotes rather than a
+      // tab row (2026-11-13).
       if (id === active) link.setAttribute('aria-current', 'page');
       links.append(link);
     }
