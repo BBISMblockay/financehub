@@ -125,7 +125,8 @@ function download(name, text, type = 'text/csv') {
 }
 
 // ── State ────────────────────────────────────────────────────────────────
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all' };
+const PROSPECT_LIST_CAP = 20;
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -335,12 +336,51 @@ const statusPill = (s) => pill(s, ({ active: 'pos', approved: 'pos', signed_up: 
 // Secondary tools stay one click away, closed by default, so each tab shows
 // only what most people need.
 const more = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<details class="af-more"><summary>${esc(label)}</summary><div class="af-stack">${p.join('')}</div></details>` : ''; };
+const surface = (title, body, meta = '', id = '') => {
+  const idAttr = id ? ` id="${esc(id)}"` : '';
+  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
+};
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (c) => formatMoney(c, prog()?.currency);
 
+function scrollWorkflowTo(id) {
+  requestAnimationFrame(() => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+}
+function workflowFocusTab(t) {
+  if (t === 'prospects') {
+    S.prospectFilter = 'new';
+    S.prospectShowAll = false;
+    scrollWorkflowTo('afCreatorsList');
+    return;
+  }
+  if (t === 'payouts') scrollWorkflowTo('payoutsBody');
+  else scrollWorkflowTo(`${t}Body`);
+}
+function renderWorkflowTabCounts() {
+  const p = prog(); const d = S.d; const h = d?.health;
+  if (!p || !h) return;
+  const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
+  const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
+  const counts = { prospects: Number(h.prospects_new || 0), outreach: msgN, affiliates: onboardN, payouts: payN };
+  for (const b of document.querySelectorAll('#tabs [data-tab]')) {
+    const n = counts[b.dataset.tab];
+    let badge = b.querySelector('.af-tab-count');
+    if (n > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'af-tab-count'; b.appendChild(badge); }
+      badge.textContent = num(n);
+    } else if (badge) badge.remove();
+  }
+}
 function render() {
   const p = prog();
+  const main = document.querySelector('.silo-main.af-studio');
+  main?.classList.toggle('af-studio--ready', !!p);
+  main?.classList.toggle('af-studio--workflow', !!p && S.tab !== 'overview' && S.tab !== 'program');
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const on = b.dataset.tab === S.tab;
@@ -348,14 +388,12 @@ function render() {
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   renderKpis();
-  renderNextStep();
-  renderPipeline();
-  renderAiHub();
   if (!p && S.tab !== 'program') {
     $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
   }
-  ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
+  ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: renderPayoutsTab })[S.tab]();
+  renderWorkflowTabCounts();
 }
 
 function renderKpis() {
@@ -405,46 +443,6 @@ function todoItems() {
   if (!items.length && !d.prospects.length) items.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects', extra: '' });
   return items;
 }
-function renderNextStep() {
-  const el = $('nextStep'); if (!el) return;
-  // On Overview the same list is a card in the grid, so the strip above the
-  // tabs would say it twice.
-  if (!S.d || !prog() || S.tab === 'overview') { el.hidden = true; el.innerHTML = ''; return; }
-  const items = todoItems();
-  el.hidden = false;
-  const tabLabel = { program: 'Settings', prospects: 'Recruiting', outreach: 'Messages', affiliates: 'Affiliates', share: 'Share', payouts: 'Pay' };
-  const rows = items.map((x, i) => {
-    const go = x.tab !== S.tab ? btn(`Go to ${tabLabel[x.tab] || x.tab}`, 'go-tab', { t: x.tab }, i === 0 ? 'primary' : 'surface') : '';
-    return `<li class="af-todo-item"><span class="af-todo-text">${esc(x.text)}</span><div class="af-todo-acts">${x.extra || ''}${go}</div></li>`;
-  }).join('');
-  el.innerHTML = `<header class="af-todo-head"><h2 class="af-todo-title">To do</h2>${items.length ? pill(String(items.length), 'accent') : ''}</header>`
-    + (rows ? `<ul class="af-todo">${rows}</ul>` : '<p class="af-muted af-todo-none">Nothing waiting on you.</p>')
-    + `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
-}
-function renderPipeline() {
-  const el = $('afPipeline');
-  if (!el) return;
-  const p = prog();
-  const h = S.d?.health;
-  if (!p || !h) { el.hidden = true; return; }
-  const d = S.d;
-  const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
-  const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
-  const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
-  const steps = [
-    { t: 'prospects', label: 'Recruiting', n: Number(h.prospects_new || 0) },
-    { t: 'outreach', label: 'Message', n: msgN },
-    { t: 'affiliates', label: 'Onboard', n: onboardN },
-    { t: 'share', label: 'Share', n: 0, mute: true },
-    { t: 'payouts', label: 'Pay', n: payN },
-  ];
-  el.hidden = false;
-  el.innerHTML = steps.map((s) => {
-    const on = S.tab === s.t;
-    const badge = s.n > 0 && !s.mute ? `<span class="af-pipe-count">${num(s.n)}</span>` : '';
-    return `<button type="button" class="af-pipe-step${on ? ' af-pipe-step--on' : ''}" data-act="go-tab" data-t="${s.t}" aria-current="${on ? 'step' : 'false'}"><span class="af-pipe-label">${esc(s.label)}</span>${badge}</button>`;
-  }).join('');
-}
 function aiEnabledRow(label, apps, enabled, waiting) {
   const state = apps === null ? pill('Unknown', '') : enabled ? pill('Allowed', 'pos') : pill('Not allowed', '');
   const wait = waiting ? `<span class="af-wait">${num(waiting)} waiting</span>` : '';
@@ -457,10 +455,8 @@ function aiHubIntro(canSend, canCode) {
   return 'Connect SILO MCP for this company and allow send outreach and Shopify codes on that connection.';
 }
 const AI_HUB_SCOPE_NOTE = 'Allowed = you ticked it on your SILO connection. SILO does not see Shopify, Gmail, or other MCPs in your agent.';
-function renderAiHub() {
-  const el = $('afAiHub');
-  if (!el) return;
-  if (!MANAGE || !prog() || !S.d) { el.hidden = true; return; }
+function aiHubOverviewSection() {
+  if (!MANAGE || !prog() || !S.d) return '';
   const apps = S.d.aiApps;
   const canSend = (apps || []).some((a) => a.canSend);
   const canCode = (apps || []).some((a) => a.canCode);
@@ -486,8 +482,7 @@ function renderAiHub() {
     ? `<details class="af-ai-hint"><summary>${hintSummary}</summary><div class="af-ai-hint-body">${hintLines}</div></details>`
     : '';
   const manageKind = connectPrimary ? 'primary' : '';
-  el.hidden = false;
-  el.innerHTML = card('Your AI', `
+  return card('Your AI', `
     <p class="af-muted" style="margin:0;">${esc(aiHubIntro(canSend, canCode))}</p>
     <div class="af-ai-status">
       ${aiEnabledRow('Send outreach', apps, canSend, approvedMsgs)}
@@ -688,13 +683,21 @@ function renderProspects() {
       <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
   };
+  const capped = S.prospectShowAll ? list : list.slice(0, PROSPECT_LIST_CAP);
+  const listFoot = list.length > PROSPECT_LIST_CAP
+    ? (S.prospectShowAll
+      ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
+      : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
+    : '';
+  const findRow = MANAGE
+    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`
+    : '';
   $('prospectsBody').innerHTML = [
-    MANAGE ? card('Find creators', `
-      <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`, '', 'af-card-hero') : '',
-    card('Creators', `<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
-      ${itemList(list, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
-      <div id="signupOut"></div>`, `${d.prospects.length} total`),
-    more('More options', [
+    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
+      ${itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
+      ${listFoot}
+      <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
+    more('Tools', [
     MANAGE ? card('Creator photos', `<p class="af-muted">SILO keeps a copy of each creator's profile photo after every search.</p><div class="af-row" style="margin-top:8px;">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">CSV, one creator per row with a profile link.</p>
@@ -729,10 +732,10 @@ function renderOutreach() {
   const boardCol = (title, items, render, empty) => `<section class="af-board-col"><header class="af-board-head"><h3>${esc(title)}</h3>${items.length ? pill(String(items.length), 'accent') : ''}</header><div class="af-board-cards">${items.length ? items.map(render).join('') : `<p class="af-board-empty">${esc(empty)}</p>`}</div></section>`;
   $('outreachBody').innerHTML = [
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    card('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Recruiting to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
+    surface('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Recruiting to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
       ${aiSendBlock(d.aiApps)}
       <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
-    more('More options', [
+    more('History', [
     card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' }, 'surface')}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' }, 'surface')}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' }, 'surface')}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
     card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
     ]),
@@ -819,9 +822,10 @@ function renderAffiliates() {
     </article>`;
   };
   $('affiliatesBody').innerHTML = [
-    card('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`),
+    surface('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on the Share tab to turn on affiliate links.</div>` : '',
-    MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
+    more('Codes and links', [
+      MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
       ${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}
       ${field('Code', input('cCode', 'class="bcn-field bcn-field--mono"'))}
       ${field('% off', input('cPct', 'type="number" min="1" max="100" step="1" value="10"'))}
@@ -829,7 +833,6 @@ function renderAffiliates() {
     </div>
       <details class="af-more"><summary>Code options</summary><div class="af-grid--settings">${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="exists"${canCode ? '' : ' selected'}>I made it</option><option value="ai"${canCode ? ' selected' : ''}>My AI makes it</option></select>`)}</div></details>
       ${aiCodesBlock(d.aiApps)}`) : '',
-    more('Codes and links', [
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
         const shop = c.status === 'pending' ? `${pill('waiting for AI', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
         const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
@@ -918,7 +921,7 @@ async function renderShare() {
 }
 
 // ── Commissions ──────────────────────────────────────────────────────────
-function renderCommissions() {
+function commissionsBodyHtml() {
   const d = S.d; const p = prog();
   const from = S.rangeFrom || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const to = S.rangeTo || today();
@@ -936,7 +939,7 @@ function renderCommissions() {
     return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)} ${statusPill(x.status)}</div><div class="af-kv-line">Total ${total}${x.approved_at ? ` · approved ${fmtTime(x.approved_at)}` : ''}</div></div><div class="af-item-foot"><div class="af-actions">${MANAGE && x.status === 'open' ? btn('Submit', 'period-submit', { id: x.id }, 'surface') : ''}${MONEY && x.status === 'under_review' ? btn('Approve', 'period-approve', { id: x.id }, 'primary', { confirm: true }) : ''}</div></div></article>`;
   };
   const ledgerRow = (l) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[l.affiliate_id]?.display_name || '—')} · ${formatMoney(l.amount_cents, l.currency)}</div><div class="af-muted">${fmtTime(l.created_at)} · ${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? ` · <span class="af-mono">${esc(l.order_id)}</span>` : ''}</div>${l.memo ? `<div class="af-kv-line">${esc(l.memo)}</div>` : ''}</div></article>`;
-  $('commissionsBody').innerHTML = [
+  return [
     card('Commissions', `<p class="af-muted">Commissions update every night.</p>
       <div class="af-grid--settings" style="margin-top:10px;">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
       ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">open period for each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
@@ -955,6 +958,9 @@ function renderCommissions() {
 }
 
 // ── Payouts ──────────────────────────────────────────────────────────────
+function renderPayoutsTab() {
+  $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
+}
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
 // button never appears on a rail that is in fact connected.
@@ -966,7 +972,7 @@ function payConnLive(conn) {
   return Boolean(conn && conn.is_active !== false && conn.credentials_set);
 }
 
-function renderPayouts() {
+function payoutPayHtml() {
   const d = S.d; const p = prog();
   const bal = d.balances.map((b) => ({ ...b, a: d.affById[b.affiliate_id] }));
   const act = (x) => {
@@ -1055,15 +1061,15 @@ function renderPayouts() {
   };
   const balanceRow = (r) => `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')}</div><div class="af-item-stats">${formatMoney(r.unclaimed_cents, r.currency)}<span class="af-muted" style="font-size:12px;font-weight:400;"> not yet in a payout</span></div><div class="af-muted" style="margin-top:4px;">Earned ${formatMoney(r.earned_cents, r.currency)} · Paid ${formatMoney(r.paid_cents, r.currency)}</div></div><div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[x.affiliate_id]?.display_name || '—')} ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
-  $('payoutsBody').innerHTML = [
-    paypalRail
-      ? `<p class="af-muted">Approve a payout, then send it from your own PayPal. Payable ${num(p.refund_hold_days)} days after the order.</p>`
-      : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
-    payConnCard(),
-    card('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
-    card('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
+  return [
+  paypalRail
+    ? `<p class="af-muted">Approve a payout, then send it from your own PayPal. Payable ${num(p.refund_hold_days)} days after the order.</p>`
+    : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
+  payConnCard(),
+  surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
+  surface('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
     ${MANAGE && approved.length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, 'primary', { confirm: true })}</div>` : ''}`),
-    more('Balance detail', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+  more('Balance detail', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
 
@@ -1279,7 +1285,7 @@ function renderOverview() {
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
-    + `<div>${ovReachOutCard(ovReachList())}${ovTodoCard()}</div></div>`;
+    + `<div>${ovReachOutCard(ovReachList())}${ovTodoCard()}${aiHubOverviewSection()}</div></div>`;
 }
 
 const A = {
@@ -1302,7 +1308,7 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  'prospect-filter': ({ f }) => { S.prospectFilter = f; render(); },
+  'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
   'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
   'ov-filter': ({ f }) => { S.ovFilter = f; render(); },
@@ -1314,7 +1320,9 @@ const A = {
     return 'Copied. Send it from your own mailbox.';
   },
   'ov-reload': async () => { await reload(); return null; },
-  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); },
+  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); workflowFocusTab(t); },
+  'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
+  'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-status': async ({ id, s }) => {
     await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: new Date().toISOString(), changed_by: me.id }, { id });
     if (s !== 'approved') return `Creator ${s}.`;
@@ -1610,7 +1618,7 @@ const A = {
 // click arms the button for four seconds.
 document.addEventListener('click', async (ev) => {
   const tab = ev.target.closest('#tabs [data-tab]');
-  if (tab) { S.tab = tab.dataset.tab; S.creating = false; render(); return; }
+  if (tab) { S.tab = tab.dataset.tab; S.creating = false; render(); workflowFocusTab(S.tab); return; }
   const b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
   if (b.dataset.confirm && !b.dataset.armed) {
