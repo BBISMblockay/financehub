@@ -3651,6 +3651,16 @@ PayPal is not in the path, holds nothing and funds nothing. Full reasoning in
 Verify block: `Affiliate PayPal payouts`. Deploy `affiliate-payouts` (new) and
 `affiliate-portal` after applying.
 
+### `migrations/20261113080000_affiliate_auto_share_launches.sql` — a launch shares itself with the affiliates
+
+Adds `affiliate_programs.auto_share_launches` (default on) and triggers on `launch_calendar` and
+`launch_product_readiness` that put an upcoming launch, and the products attached to it, into the feed
+of every active program of the same company that asks for it. The rows are the same snapshot rows the
+Share tab writes, keyed by `affiliate_feed_items_once`, so nothing is duplicated. A launch is shared
+once (on creation, or when it first gets a date): unsharing it by hand is final. Every share is
+best-effort; a failure raises a warning and never fails the launch save. `affiliate_autoshare_launch()`
+is executable by no client role.
+
 ### `migrations/20261113070000_affiliate_launch_claims_and_orders.sql` — affiliates claim a launch, and see their own orders
 
 From a session Blake and his boss spent in Affiliate Studio (2026-11-13). Two
