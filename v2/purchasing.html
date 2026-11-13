@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · Purchasing</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="purchasing-suite.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="purchasing-suite.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <script src="purchasing-overview.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <h1 class="bcn-header-title">Purchasing</h1>
+          <p class="bcn-header-sub">Purchase orders, landed cost and factories.</p>
+        </div>
+        <div class="bcn-header-actions">
+          <button type="button" id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+          <a class="bcn-btn bcn-btn--dark" href="/v2/po-builder.html">New PO</a>
+        </div>
+      </header>
+
+      <section class="bcn-kpi-band" aria-label="Purchasing totals">
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Open POs</div><div class="bcn-kpi-value bcn-mono" id="kpiOpen">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Incoming units</div><div class="bcn-kpi-value bcn-mono" id="kpiUnits">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Est. cost</div><div class="bcn-kpi-value bcn-mono" id="kpiCost">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Past due</div><div class="bcn-kpi-value bcn-mono" id="kpiLate">—</div></div>
+      </section>
+
+      <div class="purch-page">
+        <div class="bcn-status" id="status" hidden></div>
+        <p class="purch-muted" id="asOf">Loading…</p>
+
+        <div class="purch-grid">
+          <section class="purch-card">
+            <div class="purch-card-head"><h2>PO Builder</h2><a href="/v2/po-builder.html">Open →</a></div>
+            <div class="purch-rows" id="cardBuilder"><div class="purch-empty">—</div></div>
+          </section>
+
+          <section class="purch-card">
+            <div class="purch-card-head"><h2>PO Report</h2><a href="/v2/po-report.html">Open →</a></div>
+            <div class="purch-rows" id="cardIncoming"><div class="purch-empty">—</div></div>
+          </section>
+
+          <section class="purch-card">
+            <div class="purch-card-head"><h2>Landed Cost</h2><a href="/v2/po-costing.html">Open →</a></div>
+            <div class="purch-rows" id="cardCosting"><div class="purch-empty">—</div></div>
+          </section>
+
+          <section class="purch-card">
+            <div class="purch-card-head"><h2>Factories</h2><a href="/v2/factories.html">Open →</a></div>
+            <div class="purch-rows" id="cardFactories"><div class="purch-empty">—</div></div>
+          </section>
+        </div>
+
+        <section class="purch-card">
+          <div class="purch-card-head"><h2>Next arrivals</h2><a href="/v2/po-report.html">All POs →</a></div>
+          <div id="cardArrivals"><div class="purch-empty">—</div></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      const Model = window.SiloPurchasingOverview;
+      const el = (id) => document.getElementById(id);
+      const statusEl = el('status');
+      let statusTimer = null;
+
+      function setStatus(msg, type, ms) {
+        if (!statusEl) return;
+        clearTimeout(statusTimer);
+        if (!msg) { statusEl.hidden = true; statusEl.textContent = ''; return; }
+        statusEl.className = 'bcn-status bcn-status--' + (type || 'info');
+        statusEl.textContent = msg;
+        statusEl.hidden = false;
+        if (ms) statusTimer = setTimeout(() => { statusEl.hidden = true; }, ms);
+      }
+
+      const nf = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+      const n = (v) => (Number.isFinite(Number(v)) ? nf.format(Number(v)) : '—');
+      function money(v, currency) {
+        if (!Number.isFinite(Number(v))) return '—';
+        if (!currency) return nf.format(Number(v));
+        return new Intl.NumberFormat(undefined, {
+          style: 'currency', currency, maximumFractionDigits: 0,
+        }).format(Number(v));
+      }
+
+      // One row: a short label and its figure. `tone` colours only the figure.
+      function rows(target, items) {
+        const host = el(target);
+        if (!host) return;
+        host.textContent = '';
+        const shown = items.filter(Boolean);
+        if (!shown.length) {
+          const empty = document.createElement('div');
+          empty.className = 'purch-empty';
+          empty.textContent = 'Nothing yet';
+          host.append(empty);
+          return;
+        }
+        for (const [label, value, tone] of shown) {
+          const row = document.createElement('div');
+          row.className = 'purch-row';
+          const l = document.createElement('span');
+          l.className = 'purch-row-label';
+          l.textContent = label;
+          const v = document.createElement('span');
+          v.className = 'purch-row-value' + (tone ? ' purch-row-value--' + tone : '');
+          v.textContent = value;
+          row.append(l, v);
+          host.append(row);
+        }
+      }
+
+      function renderArrivals(model) {
+        const host = el('cardArrivals');
+        if (!host) return;
+        host.textContent = '';
+        if (!model.incoming.rows.length) {
+          const empty = document.createElement('div');
+          empty.className = 'purch-empty';
+          empty.textContent = 'No dated arrivals on open POs';
+          host.append(empty);
+          return;
+        }
+        const table = document.createElement('table');
+        table.className = 'purch-table';
+        const head = document.createElement('tr');
+        for (const [text, cls] of [['PO'], ['Factory'], ['Arrives'], ['Units', 'purch-num'], ['Shipment']]) {
+          const th = document.createElement('th');
+          th.textContent = text;
+          if (cls) th.className = cls;
+          head.append(th);
+        }
+        const thead = document.createElement('thead');
+        thead.append(head);
+        const tbody = document.createElement('tbody');
+        for (const row of model.incoming.rows) {
+          const tr = document.createElement('tr');
+          const name = document.createElement('td');
+          const link = document.createElement('a');
+          link.href = '/v2/po-builder.html?po_id=' + encodeURIComponent(row.id);
+          link.textContent = row.name;
+          name.append(link);
+          const factory = document.createElement('td');
+          factory.textContent = row.factory || '—';
+          const date = document.createElement('td');
+          date.textContent = row.date || '—';
+          if (row.late) date.className = 'purch-late';
+          const units = document.createElement('td');
+          units.className = 'purch-num';
+          units.textContent = n(row.units);
+          const state = document.createElement('td');
+          state.textContent = row.state;
+          tr.append(name, factory, date, units, state);
+          tbody.append(tr);
+        }
+        table.append(thead, tbody);
+        host.append(table);
+      }
+
+      function render(model) {
+        const cur = model.currency;
+        el('kpiOpen').textContent = n(model.builder.open);
+        el('kpiUnits').textContent = n(model.incoming.units);
+        el('kpiCost').textContent = money(model.incoming.estimatedCost, cur);
+        el('kpiLate').textContent = n(model.incoming.late);
+
+        const co = model.company?.title || model.company?.entity_key || '';
+        el('asOf').textContent = [model.today ? 'As of ' + model.today : null, co]
+          .filter(Boolean).join(' · ') || '';
+
+        rows('cardBuilder', [
+          ['Drafts', n(model.builder.drafts)],
+          ['Open', n(model.builder.open)],
+          ['All POs', n(model.builder.total)],
+        ]);
+
+        rows('cardIncoming', [
+          ['Units incoming', n(model.incoming.units)],
+          model.incoming.next30 === null ? null : ['Arriving in 30 days', n(model.incoming.next30)],
+          ['Past due', n(model.incoming.late), model.incoming.late ? 'neg' : null],
+          ['No shipment logged', n(model.incoming.noShipment), model.incoming.noShipment ? 'warn' : null],
+          ['No arrival date', n(model.incoming.undated), model.incoming.undated ? 'warn' : null],
+          model.incoming.conflicts ? ['Status conflicts', n(model.incoming.conflicts), 'warn'] : null,
+        ]);
+
+        rows('cardCosting', model.costing.state === 'known' ? [
+          ['Not started', n(model.costing.notStarted)],
+          [Model.PHASE_LABEL.fob, n(model.costing.fob)],
+          [Model.PHASE_LABEL.freight, n(model.costing.freight)],
+          [Model.PHASE_LABEL.final, n(model.costing.final)],
+        ] : []);
+
+        rows('cardFactories', [
+          model.factories.count === null ? null : ['Factories', n(model.factories.count)],
+          ['With open POs', n(model.factories.withOpen)],
+          ...model.factories.rows.map((f) => [f.factory, n(f.units) + ' units']),
+        ]);
+
+        renderArrivals(model);
+
+        if (model.errors.length) {
+          setStatus('Some figures could not be read: '
+            + model.errors.map((e) => e.source).join(', '), 'warn');
+        } else {
+          setStatus('', null);
+        }
+      }
+
+      Model.boot({
+        active: 'purchasing/home',
+        crumbs: ['Purchasing', 'Overview'],
+        onModel: render,
+        onError: (error) => setStatus(error.message || 'Could not load purchasing', 'neg'),
+      }).then((controller) => {
+        el('btnRefresh')?.addEventListener('click', () => {
+          setStatus('Refreshing…', 'info');
+          controller?.refresh().catch(() => {});
+        });
+      }).catch(() => {});
+    })();
+  </script>
+</body>
+</html>

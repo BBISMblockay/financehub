@@ -124,7 +124,7 @@ exhaustive either. Anything in `v2/` that loads `silo-chrome.js` but **not**
 `bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`,
 `integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
 `marketing-ops`, `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
-`products`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
+`products`, `purchasing`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
 `settings-company`, `settings-team`, `settings-notifications`, `platform-admin`,
 `review-editor`, `review-templates`, `reviews`, `sales-verification`, `seo-keywords`, `seo-overview`, `seo-studio`, `seo-tasks`, `setup-checklist`, `silo-chat`, `tasks`.
 

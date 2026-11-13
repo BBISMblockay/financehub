@@ -528,6 +528,7 @@
     else if (window.SiloSeoSuite?.contains(navActive)) navActive = 'reports/seo';
     else if (window.SiloAdStudioSuite?.contains(navActive)) navActive = 'reports/ad-studio';
     else if (window.SiloPerformanceSuite?.contains(navActive)) navActive = Nav.PERFORMANCE_ROW || navActive;
+    else if (window.SiloPurchasingSuite?.contains(navActive)) navActive = Nav.PURCHASING_ROW || navActive;
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     // What first paint's sidebar LABEL actually shows, so the reconciliation
     // below only touches the DOM when ensureActiveCompany() resolves a
@@ -561,6 +562,7 @@
       window.SiloSeoSuite?.mount(mainEl, opts.active);
       window.SiloAdStudioSuite?.mount(mainEl, opts.active);
       window.SiloPerformanceSuite?.mount(mainEl, opts.active);
+      window.SiloPurchasingSuite?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -733,6 +735,7 @@
           // deep link has no company yet, so it drew the smaller strip.
           if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
           if (mainEl) window.SiloPerformanceSuite?.refresh(mainEl, opts.active);
+          if (mainEl) window.SiloPurchasingSuite?.refresh(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {
