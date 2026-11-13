@@ -3479,3 +3479,56 @@ column, one purpose: the cooldown on an automatic `/transactions/refresh`.
   same handler. Tests: `scripts/tests/plaid-finance-handler.test.mjs`,
   `scripts/tests/plaid-scheduled-sync.test.mjs`,
   `scripts/tests/plaid-sync.test.mjs`.
+
+### `migrations/20261113010000_security_review_fixes.sql` — four findings from the 2026-11-12 security review
+
+Read-only review; nothing here changes a row a person sees, a page, or a permission the app uses.
+Each part was verified against production before it was written.
+
+- **The read-only report engine refuses outbound HTTP.** `silo_sql_refused_function`
+  (20261030100000) refused `set_config` and the SQL-executing functions, but not the ones that make
+  the *database itself* issue a request. `select net.http_post('https://…', <rows>)` is a SELECT, so
+  it passed every shape check, and the guard returned null for it (called with that exact string on
+  production). `authenticated` and `anon` hold EXECUTE on `net.http_*` and every `extensions.http*`
+  function **and** USAGE on both schemas. Reachable from Ask SILO, every saved report, every v3 tile
+  and the developer API's `query`. Not cross-tenant read — the runners are SECURITY INVOKER and RLS
+  still bounds the rows — but egress for rows the caller may read, out of a channel SILO does not
+  log, plus SSRF from inside the database. **Not exercised:** proving it means a real outbound
+  request from production. The grants are deliberately *not* revoked: that was tried on 2026-10-14
+  and the correct `from PUBLIC` form kills `trg_sample_notify`, because `net.http_post` has
+  `proacl = null` and `postgres` holds it only through PUBLIC. The patterns are shaped to avoid one
+  specific false positive — a bare `\mhttp\M` also matches the `http` in `'http://shop/' || handle`,
+  so any report with a link column would stop running.
+- **`ar_sync_status_v` stops disclosing the retired sheet URLs.** `GET /rest/v1/ar_sync_status_v`
+  with only the public anon key answered 200 / 1198 bytes including `payload.sources` — the Google
+  Sheets publish-to-web CSV URLs that were Critical 1 of the 2026-10-14 audit. Latent rather than
+  live: those URLs 401 since Blake unpublished both workbooks. `job_sync_state` has no
+  `company_entity_id`, so there is no tenant filter to add — the column list is the boundary.
+  `payload` is now an **allowlist** built with `jsonb_build_object` from the four keys
+  `v2/backend.html` reads, so a key written into that row later is not disclosed by default; anon
+  loses SELECT (the page is `requireAdmin()`-gated and is the view's only reader since #1241); and
+  the stored `sources` key is cleared. `security_invoker = false` is restated — this view has been
+  flipped by a blanket pass once before (20260805030000) and returns zero rows to everyone when it is.
+- **Integration credentials stop being browser-readable.** `quickbooks_connections`,
+  `klaviyo_connections` and `ad_platform_connections` granted SELECT on `access_token` /
+  `refresh_token` / `api_key` to `authenticated`, behind a policy that admits any admin — and
+  `is_admin_user()` passes for nearly every profile. Closed the way `shopify_connections` was in
+  20260928120000: **revoke the TABLE grant, re-grant every column except the credentials**, computed
+  at apply time. A column-level revoke on its own is a no-op while a table-level grant stands, which
+  is how the first draft of this migration was written. INSERT and UPDATE stay — the admin pastes a
+  Meta token and a Klaviyo key into `v2/integrations.html` — so a credential can be handed in and
+  never handed back. Covers the MCP path too: `silo_api_exec`, which owns the SECURITY DEFINER
+  `silo_api_query`, is a member of `authenticated` with inheritance and holds no grant of its own.
+- **One SELECT policy stops applying to PUBLIC.** `ad_platform_connections_admin_select` had
+  `polroles = null` while its two siblings name `authenticated`. Not a leak — an anon request got
+  `42501` from `active_company_id()` rather than rows — but a role-less permissive policy should not
+  sit next to two that name their role.
+
+**Ships with `v2/integrations.html`**, which must name the QuickBooks card's columns before the
+revoke lands or `loadQboConnection`'s `select('*')` fails with "permission denied for column
+access_token". Both are in the same PR and the page is live on merge, so the order is safe either
+way. **No function deploy.** Verify: `verify_v2_schema.sql` checks "readonly_query_egress_guard",
+"ar_sync_status_v_no_credentials", "connection_credentials_not_browser_readable",
+"ad_platform_select_policy_roles" — all four return CRITICAL/MISSING on production until it is
+applied. Tests: `scripts/tests/security-review-fixes-database.test.mjs` (20 checks, 9 mutations),
+`v2/tests/unit/connection-credentials-not-selected.test.js`.

@@ -32,8 +32,11 @@ most carry a decision that looks like a bug and is not.
   `sales_velocity_by_sku_location_v`, `sales_by_product_title_daily_v`,
   `sales_monthly_product_type_rollup_v`, `wow_sales_daily_type_v`, `search_console_query_rollup_v`,
   `search_console_query_rollup_28d_v`, `demand_coverage_base_v`, `product_type_forecastable_v`,
-  `stripe_connect_status_v`, and `inventory_workboard_v` (eleventh, 2026-10-12, `20261012210000`). One more, `ar_sync_status_v`, is definer with NO company filter and is
-  readable by `anon` — a known gap, not a pattern to copy.
+  `stripe_connect_status_v`, and `inventory_workboard_v` (eleventh, 2026-10-12, `20261012210000`). One more, `ar_sync_status_v`, is definer with NO company filter —
+  `job_sync_state` has no `company_entity_id`, so there is nothing to filter on. Since
+  `20261113010000` its COLUMN LIST is the boundary instead: `payload` is an allowlist built with
+  `jsonb_build_object`, never the stored column (which held the retired Google Sheets URLs), and
+  `anon` no longer reads it. Still not a pattern to copy — a new wrapper filters by company.
 - **Materialized views have no RLS.** Read them only through their wrapper view (above). Never grant a matview to
   `authenticated`, and never point a global (`source = 'system'`) report at a matview.
 - **`chat_run_readonly_query` returns `json`, not `jsonb`** — jsonb reorders columns. Leave it.

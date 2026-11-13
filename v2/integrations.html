@@ -4021,10 +4021,23 @@
         </tr>`;
     }
 
+    // Every column this card reads, named: access_token and refresh_token are
+    // not columns a member may select (20261113010000), so select('*') is
+    // refused outright -- the same reason SHOPIFY_BASE_COLUMNS above is a list.
+    // refresh_token_expires_at IS here: the EXPIRY is what renderQboConnection
+    // shows ("reconnect needed"), and an expiry is not a credential.
+    const QBO_CONNECTION_COLUMNS = [
+      'id', 'company_entity_id', 'realm_id', 'company_name', 'environment',
+      'token_expires_at', 'refresh_token_expires_at', 'is_active', 'accounts_synced_at',
+      'last_tested_at', 'last_test_status', 'last_test_success', 'last_test_error',
+      'meta', 'created_at', 'updated_at', 'created_by', 'updated_by',
+      'location_tracking_enabled',
+    ].join(',');
+
     async function loadQboConnection() {
       if (!_co?.id) return;
       const { data, error } = await db.from('quickbooks_connections')
-        .select('*')
+        .select(QBO_CONNECTION_COLUMNS)
         .eq('company_entity_id', _co.id)
         .order('created_at')
         .limit(1);
