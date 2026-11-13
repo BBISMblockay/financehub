@@ -223,10 +223,23 @@ update public.job_sync_state
 -- v2/integrations.html, which writes them straight to these columns
 -- (`saveMetaToken` and the Klaviyo api_key connect/reconnect paths --
 -- named by function, not line: that page moved ~200 lines between this
--- migration being written and merged). Those writes do not
--- return the column -- supabase-js only returns rows when .select()
--- is chained -- so write-without-read is exactly right here: a
--- credential can be handed in and never handed back.
+-- migration being written and merged). A plain INSERT or UPDATE of a
+-- credential does not return it -- supabase-js only returns rows when
+-- .select() is chained -- so write-without-read is exactly right here:
+-- a credential can be handed in and never handed back.
+--
+-- BUT AN UPSERT IS NOT A PLAIN INSERT, and one call site had to change
+-- in this same PR. PostgREST resolves .upsert() to
+-- `ON CONFLICT DO UPDATE SET api_key = EXCLUDED.api_key`, and
+-- PostgreSQL requires SELECT on a column whose EXCLUDED value is read,
+-- whether or not anything is returned. Retaining INSERT and UPDATE
+-- does NOT keep such a statement working: it is refused outright with
+-- "permission denied for table klaviyo_connections". The Klaviyo
+-- Connect button used exactly that shape, so it now inserts and falls
+-- back to an update on 23505. Proven both ways in
+-- scripts/tests/security-review-fixes-database.test.mjs, which asserts
+-- the upsert IS still refused -- so if anyone reintroduces one, a test
+-- says so rather than a tenant admin discovering it at Connect.
 --
 -- ONE READER HAD TO CHANGE FIRST, in this same PR: the QuickBooks
 -- card called .select('*') on quickbooks_connections

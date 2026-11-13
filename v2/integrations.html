@@ -3963,15 +3963,39 @@
         setStatus('That does not look like a Klaviyo PRIVATE key — those start with “pk_”. The short company ID is the public key and cannot read reports.', 'neg', 12000);
         return;
       }
-      const { error } = await db.from('klaviyo_connections').upsert({
-        company_entity_id: _co.id,
+      // Deliberately NOT .upsert(). PostgREST resolves an upsert to
+      // ON CONFLICT DO UPDATE SET api_key = EXCLUDED.api_key, and PostgreSQL
+      // requires SELECT on api_key to read that EXCLUDED value -- the grant
+      // 20261113010000 revokes. The whole statement is then refused and Connect
+      // dies with "permission denied for table klaviyo_connections", even
+      // though INSERT and UPDATE are both still allowed. So: insert first, and
+      // fall back to an update when this company already has a row.
+      const fields = {
         display_name: 'Klaviyo',
         auth_mode: 'api_key',
         api_key: key,
         is_active: true,
         sync_enabled: false,
-      }, { onConflict: 'company_entity_id' });
+      };
+      let { error } = await db.from('klaviyo_connections')
+        .insert({ company_entity_id: _co.id, ...fields });
+      if (error && error.code === '23505') {
+        ({ error } = await db.from('klaviyo_connections')
+          .update({ ...fields, updated_at: new Date().toISOString() })
+          .eq('company_entity_id', _co.id));
+      }
       if (error) { setStatus('Connect failed: ' + error.message, 'neg', 8000); return; }
+      // An RLS-refused UPDATE affects zero rows without raising, so confirm the
+      // row is actually there before anyone is told they are connected. Names
+      // only columns the browser may still read.
+      const { data: saved } = await db.from('klaviyo_connections')
+        .select('id, auth_mode')
+        .eq('company_entity_id', _co.id)
+        .maybeSingle();
+      if (!saved) {
+        setStatus('Connect failed: the key could not be saved to this workspace.', 'neg', 8000);
+        return;
+      }
       input.value = '';
       document.getElementById('klaviyo-add-form').style.display = 'none';
       // The test is what proves the key and resolves the conversion metric, so

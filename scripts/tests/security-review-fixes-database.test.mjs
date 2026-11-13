@@ -42,7 +42,8 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const MUTATIONS = ['no-net', 'no-extensions-http', 'bare-http', 'view-denylist', 'view-anon',
-  'view-keeps-payload', 'column-revoke-only', 'no-regrant', 'policy-roleless'];
+  'view-keeps-payload', 'column-revoke-only', 'no-regrant', 'policy-roleless',
+  'regrant-api-key'];
 const mutation = process.env.SEC_MUTATION || '';
 assert.ok(mutation === '' || MUTATIONS.includes(mutation), `Unknown mutation: ${mutation}`);
 
@@ -95,8 +96,13 @@ await db.exec(`
     location_tracking_enabled boolean
   );
   create table public.klaviyo_connections (
-    id uuid primary key default gen_random_uuid(), company_entity_id uuid, display_name text,
-    auth_mode text, api_key text, access_token text, refresh_token text, is_active boolean
+    id uuid primary key default gen_random_uuid(),
+    -- Mirrors production's klaviyo_connections_company_key (verified 2026-11-13).
+    -- The Connect button's fallback depends on this raising 23505.
+    company_entity_id uuid constraint klaviyo_connections_company_key unique,
+    display_name text,
+    auth_mode text, api_key text, access_token text, refresh_token text, is_active boolean,
+    sync_enabled boolean, updated_at timestamptz
   );
   create table public.ad_platform_connections (
     id uuid primary key default gen_random_uuid(), company_entity_id uuid, platform text,
@@ -218,6 +224,10 @@ const mutate = {
   'no-regrant': (s) => s.replace(
     /\n\s*execute format\('grant select \(%s\) on public\.%I to authenticated', cols, t\);/, ''),
   'policy-roleless': (s) => s.replace(/alter policy ad_platform_connections_admin_select[\s\S]*?to authenticated;/, ''),
+  // Hands back SELECT on the one column the EXCLUDED read needs. The upsert then
+  // succeeds, which is precisely what must NOT be true -- it is what made the
+  // credential browser-readable in the first place.
+  'regrant-api-key': (s) => `${s}\ngrant select (api_key) on public.klaviyo_connections to authenticated;`,
 };
 if (mutation) {
   const before = SQL;
@@ -408,6 +418,57 @@ const SECRETS = {
   const stored = await one(`select api_key from public.klaviyo_connections where auth_mode = 'api_key'`);
   assert.equal(stored.api_key, 'pk_rotated', 'the credential was written and can be rotated');
   t('PART 3: a credential can still be pasted in and rotated -- write without read');
+}
+{
+  // The shape the BROWSER actually sends matters, not just INSERT and UPDATE in
+  // isolation. PostgREST resolves .upsert({...}, { onConflict }) to
+  // ON CONFLICT DO UPDATE SET api_key = EXCLUDED.api_key, and PostgreSQL
+  // requires SELECT on a column whose EXCLUDED value is read -- the grant this
+  // migration revokes -- so the statement is refused OUTRIGHT despite INSERT and
+  // UPDATE both being held. v2/integrations.html's Klaviyo Connect used exactly
+  // that shape; it now inserts and falls back to an update. This asserts the
+  // upsert stays refused, so reintroducing one fails here rather than at Connect.
+  const CO = '00000000-0000-0000-0000-00000000c0c0';
+  const upsert = (k) => `insert into public.klaviyo_connections
+      (company_entity_id, display_name, auth_mode, api_key, is_active, sync_enabled)
+    values ('${CO}', 'Klaviyo', 'api_key', '${k}', true, false)
+    on conflict (company_entity_id) do update
+      set api_key = excluded.api_key, auth_mode = excluded.auth_mode,
+          display_name = excluded.display_name, is_active = excluded.is_active`;
+  const refused = await deniedAs('authenticated', upsert('pk_via_upsert'));
+  assert.match(String(refused), /permission denied/i,
+    'a PostgREST-shaped upsert of a credential must be refused, not silently work');
+  t('PART 3: the browser upsert shape is refused -- which is why Connect no longer uses it');
+}
+{
+  // ...and the shape Connect uses INSTEAD must work, both ways round.
+  const CO = '00000000-0000-0000-0000-00000000c0c0';
+  const insert = (k) => `insert into public.klaviyo_connections
+      (company_entity_id, display_name, auth_mode, api_key, is_active, sync_enabled, updated_at)
+    values ('${CO}', 'Klaviyo', 'api_key', '${k}', true, false, now())`;
+  const update = (k) => `update public.klaviyo_connections
+      set display_name = 'Klaviyo', auth_mode = 'api_key', api_key = '${k}',
+          is_active = true, sync_enabled = false, updated_at = now()
+    where company_entity_id = '${CO}'`;
+
+  // First connect: no row yet, the insert lands.
+  await asRole('authenticated', insert('pk_first_connect'));
+  let stored = await one(`select api_key from public.klaviyo_connections where company_entity_id = $1`, [CO]);
+  assert.equal(stored.api_key, 'pk_first_connect', 'the first Connect writes the key');
+
+  // Replacement: the insert raises 23505 and the page falls back to the update.
+  const dup = await deniedAs('authenticated', insert('pk_replacement'));
+  assert.match(String(dup), /duplicate key value/i,
+    'a second Connect must raise 23505 -- that is the signal the page branches on');
+  await asRole('authenticated', update('pk_replacement'));
+  stored = await one(`select api_key from public.klaviyo_connections where company_entity_id = $1`, [CO]);
+  assert.equal(stored.api_key, 'pk_replacement', 'the fallback update replaces the key');
+
+  // And the read-back the page does after writing names only granted columns.
+  const back = await asRole('authenticated',
+    `select id, auth_mode from public.klaviyo_connections where company_entity_id = '${CO}'`);
+  assert.equal(back.rows.length, 1, 'the page can confirm the row landed without reading the key');
+  t('PART 3: insert-then-update replaces the upsert, for both first connect and replacement');
 }
 {
   // A column added later is granted by the apply-time list, not left dark.

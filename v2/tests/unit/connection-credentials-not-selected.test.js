@@ -152,7 +152,36 @@ for (const file of files) {
   }
 }
 
+// ── Third pass: no .upsert() on a credential-bearing table ─────────────────
+// An upsert is not a plain insert. PostgREST resolves
+// .upsert({...}, { onConflict }) to ON CONFLICT DO UPDATE SET col = EXCLUDED
+// .col, and PostgreSQL requires SELECT on a column whose EXCLUDED value is
+// read -- regardless of whether anything is returned. So on these tables an
+// upsert is refused OUTRIGHT ("permission denied for table ..."), even though
+// INSERT and UPDATE are both still granted. v2/integrations.html's Klaviyo
+// Connect button used exactly that shape and would have started failing the
+// moment 20261113010000 applied; it now inserts and falls back to an update on
+// 23505. This is the guard that stops the shape coming back, because the
+// failure is invisible until a real admin pastes a real key.
+let upserts = 0;
+for (const file of files) {
+  const source = fs.readFileSync(file, 'utf8');
+  const rel = path.relative(root, file).replaceAll(path.sep, '/');
+  for (const table of GUARDED) {
+    const call = new RegExp(`from\\(\\s*['"\`]${table}['"\`]\\s*\\)([\\s\\S]{0,400})`, 'g');
+    for (const m of source.matchAll(call)) {
+      upserts += 1;
+      const verb = /\.(upsert|insert|update|delete|select)\s*\(/.exec(m[1]);
+      if (verb && verb[1] === 'upsert') {
+        offences.push(`${rel} ${table} -> uses .upsert(); credential SELECT is revoked, so ` +
+          `ON CONFLICT DO UPDATE is refused outright. Insert, then update on 23505.`);
+      }
+    }
+  }
+}
+
 assert.deepEqual(offences, [], `a browser page asks for a stored credential, or for every column of a table that holds one:\n  ${offences.join('\n  ')}`);
 assert.ok(checked >= 6, `expected to find the known selects on these tables, found ${checked} -- did the scan stop matching?`);
 assert.ok(constants >= 3, `expected to read the known *_COLUMNS constants, found ${constants} -- did the scan stop matching?`);
-console.log(`connection credentials: ${checked} select(s) and ${constants} column-list constant(s) on ${GUARDED.length} credential-bearing tables across ${files.length} files, none names a credential or '*'`);
+assert.ok(upserts >= 10, `expected to find the known calls on these tables, found ${upserts} -- did the scan stop matching?`);
+console.log(`connection credentials: ${checked} select(s), ${constants} column-list constant(s) and ${upserts} call(s) on ${GUARDED.length} credential-bearing tables across ${files.length} files, none names a credential or '*' and none upserts`);
