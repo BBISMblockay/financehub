@@ -53,6 +53,7 @@
  *   AFFILIATE_UI_MUTATION=pushalways a drop says what to push before anyone claimed it
  *   AFFILIATE_UI_MUTATION=ordersrestart Show more asks for the first page again
  *   AFFILIATE_UI_MUTATION=ordersshut   Show more closes an order the rep had opened
+ *   AFFILIATE_UI_MUTATION=ordersgid    an order with no shop number shows its raw store id
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -99,6 +100,8 @@ const MUTATIONS = {
   claimany: ['/affiliates/portal.html', '    const item = (FEED?.items || []).find((x) => x.id === id);', '    const item = (FEED?.items || [])[0];'],
   pushalways: ['/affiliates/portal.html', '    const push = i.claimed && (i.push || []).length', '    const push = (i.push || []).length'],
   ordersshut: ['/affiliates/portal.html', "${ORD.open.has(o.order_id) ? ' open' : ''}", ''],
+  // The raw Shopify id, shown to the rep as it is stored.
+  ordersgid: ['/affiliates/portal.html', '${esc(orderLabel(o))}', '${esc(o.order_number || o.order_id)}'],
   ordersrestart: ['/affiliates/portal.html', "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: ORD.rows.length });", "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: 0 });"],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
@@ -613,7 +616,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const ords2 = await text(portal, '#ordersCard');
     R.has(ords2, 'partial refund', 'a refund on an order is shown as its own line');
     R.ok('an order the rep opened stays open when more arrive', !!(await portal.$('#ordersCard .af-ord-row[open]')));
-    R.has(ords2, '1001', 'an order with no shop number falls back to its id');
+    R.has(ords2, '#1001', 'an order with no shop number is numbered from its id');
+    R.ok('and the raw store id is not shown', !(await text(portal, '#ordersCard')).includes('gid://'));
     R.ok('the portal never asks for customer data', !calls.some((c) => c.action === 'orders' && ('customer' in c)));
     // The shot is taken with a drop claimed and an order open, which is what
     // the two new surfaces look like in use.

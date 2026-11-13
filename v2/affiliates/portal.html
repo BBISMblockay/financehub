@@ -290,12 +290,19 @@ function renderOrders() {
       : e.rate_kind === 'fixed_per_order' ? 'fixed per order' : '';
     return `<div class="af-ord-line"><span>${esc(what)}${rate ? ` · ${esc(rate)}` : ''}${e.memo ? ` · ${esc(e.memo)}` : ''}</span><span class="af-ord-amt">${m(e.amount_cents)}</span></div>`;
   };
+  // The shop's own order number when it synced one. Otherwise the id's last
+  // segment, because a raw Shopify gid is noise to the person reading it.
+  const orderLabel = (o) => {
+    if (o.order_number) return String(o.order_number).startsWith('#') ? String(o.order_number) : `#${o.order_number}`;
+    const tail = String(o.order_id || '').split('/').pop();
+    return /^\d+$/.test(tail) ? `#${tail}` : String(o.order_id || '');
+  };
   const row = (o) => {
     const paid = Number(o.paid_cents) || 0;
     const state = paid >= Number(o.earned_cents) && Number(o.earned_cents) > 0 ? 'paid' : paid > 0 ? `${m(paid)} paid` : 'coming to you';
     return `<details class="af-ord-row" data-order="${esc(o.order_id)}"${ORD.open.has(o.order_id) ? ' open' : ''}><summary>
       <span class="af-ord-day">${esc(day(o.order_day))}</span>
-      <span><span class="af-ord-no">${esc(o.order_number || o.order_id)}</span>${o.code ? `<span class="af-ord-code">${esc(o.code)}</span>` : ''}</span>
+      <span><span class="af-ord-no">${esc(orderLabel(o))}</span>${o.code ? `<span class="af-ord-code">${esc(o.code)}</span>` : ''}</span>
       <span class="af-ord-val">${o.order_value_cents == null ? '' : m(o.order_value_cents)}</span>
       <span class="af-ord-earn">${m(o.earned_cents)}<span>${esc(state)}</span></span>
     </summary><div class="af-ord-detail">${(o.entries || []).map(line).join('')}</div></details>`;
