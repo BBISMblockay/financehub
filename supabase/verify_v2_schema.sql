@@ -6934,6 +6934,7 @@ select 'Accounting register invoker' as check_name,
  where n.nspname='public' and c.relname='accounting_journal_register' and c.reloptions @> array['security_invoker=true'])
  then 'ok' else 'MISSING: accounting register invoker view' end as status;
 
+
 -- QBO historical ledger: retained evidence, no journal posting destination.
 with expected(name) as (values ('qbo_history_imports'),('qbo_history_lines'))
 select name as history_table,case when c.oid is null then 'MISSING: QBO history migration'
@@ -7317,6 +7318,84 @@ select case
 -- below this line test schema the Plaid fixture does not build (it would
 -- report MISSING for them), so they are covered by their own database suites.
 -- Keep this line exactly as written: the test locates it by text.
+
+-- Below the marker ON PURPOSE: the Plaid fixture does not apply 20261113200000,
+-- so these would report MISSING there and turn the finance-database job red on
+-- every push to main -- the trap the note above this marker describes.
+
+-- 20261113200000: the journal -> source drill-down a connected AI reconciles
+-- with. Both views are security_invoker (RLS is the boundary; a definer
+-- wrapper here would hand one company's ledger to another), neither is
+-- writable by a client, and each report carries all of its tie-outs.
+with expected(name) as (values ('accounting_journal_lines_v'),('accounting_journal_sources_v'),
+                               ('accounting_ledger_v'))
+select e.name as journal_drilldown_view,
+ case when c.oid is null then 'MISSING: journal drill-down migration 20261113200000'
+ when not (c.reloptions @> array['security_invoker=true'])
+   then 'CRITICAL: journal drill-down view is not security_invoker -- it would cross tenants'
+ when has_table_privilege('anon',c.oid,'SELECT')
+   then 'CRITICAL: journal drill-down view readable by anon'
+ when not has_table_privilege('authenticated',c.oid,'SELECT')
+   then 'BROKEN: journal drill-down view not readable by authenticated'
+ when has_table_privilege('authenticated',c.oid,'INSERT,UPDATE,DELETE')
+   then 'CRITICAL: journal drill-down view is writable'
+ else 'ok' end as status
+ from expected e left join pg_class c
+   on c.relname=e.name and c.relnamespace='public'::regnamespace;
+select 'Journal drill-down report tie-outs' as check_name,
+ case when not exists(select 1 from public.silo_chat_saved_reports
+   where id='c7000000-0000-4000-a000-000000000004' and source='system' and archived_at is null)
+   then 'MISSING: Journal entries and their sources report'
+ when (select count(*) from public.silo_report_tieouts
+        where report_id='c7000000-0000-4000-a000-000000000004' and enabled) <> 2
+   then 'BROKEN: the journal drill-down report lost a tie-out'
+ when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+               where r.id='c7000000-0000-4000-a000-000000000004' and q ~ '_mv\M')
+   then 'BROKEN: the journal drill-down report reads a materialized view, which has no RLS'
+ when exists (select 1 from public.silo_chat_saved_reports r
+                join public.silo_report_tieouts t on t.report_id=r.id
+               where r.id='c7000000-0000-4000-a000-000000000004' and t.enabled
+                 and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+   then 'BROKEN: the journal drill-down report tie-outs guard the previous definition, so report-tieouts-nightly reads NO DATA'
+ else 'ok' end as status;
+-- The continuous ledger's own report. Its four checks are what make the
+-- natural-sign conversion and the cut-over rule safe to rely on, so losing
+-- one is losing the proof, not just a check.
+select 'General ledger by month tie-outs' as check_name,
+ case when not exists(select 1 from public.silo_chat_saved_reports
+   where id='c7000000-0000-4000-a000-000000000005' and source='system' and archived_at is null)
+   then 'MISSING: General ledger by month report'
+ when (select count(*) from public.silo_report_tieouts
+        where report_id='c7000000-0000-4000-a000-000000000005' and enabled) <> 4
+   then 'BROKEN: the general ledger report lost a tie-out'
+ when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+               where r.id='c7000000-0000-4000-a000-000000000005' and q ~ '_mv\M')
+   then 'BROKEN: the general ledger report reads a materialized view, which has no RLS'
+ when exists (select 1 from public.silo_chat_saved_reports r
+                join public.silo_report_tieouts t on t.report_id=r.id
+               where r.id='c7000000-0000-4000-a000-000000000005' and t.enabled
+                 and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+   then 'BROKEN: the general ledger report tie-outs guard the previous definition, so report-tieouts-nightly reads NO DATA'
+ else 'ok' end as status;
+-- The cut-over must stay DERIVED. A literal date, or a company id used to
+-- pick one, is the project's one standing rule broken in the worst place:
+-- every other tenant's ledger would then hinge on one company's calendar.
+-- to_regclass, never ::regclass: a regclass cast is resolved when the
+-- statement is PARSED, so it aborts this whole script on a database where
+-- the view is absent instead of reporting MISSING -- which is exactly the
+-- database this check exists for.
+with def as (select pg_get_viewdef(to_regclass('public.accounting_ledger_v'), true) as d)
+select 'Ledger cut-over is derived, not hardcoded' as check_name,
+ case when (select d from def) is null
+   then 'MISSING: accounting_ledger_v'
+ when (select d from def) ~ '''[0-9]{4}-[0-9]{2}-[0-9]{2}'''
+   then 'CRITICAL: accounting_ledger_v has a hardcoded cut-over date'
+ when (select d from def) ~* '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+   then 'CRITICAL: accounting_ledger_v names a company id'
+ when (select d from def) not like '%active_company_id()%'
+   then 'BROKEN: accounting_ledger_v does not scope its settings read by company'
+ else 'ok' end as status;
+
 
 -- ── Card import approval: entity KIND on AR/AP lines (20261007180000) ──────
 -- QuickBooks rejects a payable line whose entity is a customer (and the
@@ -8640,6 +8719,8 @@ select 'chat catalog coverage' as check_name,
          and relname in (
            'ledger_entries', 'ledger_lines', 'silo_ledger_lines_v',
            'accounting_accounts', 'accounting_coa_map', 'accounting_journal_register',
+           'accounting_journal_lines_v', 'accounting_journal_sources_v',
+           'accounting_ledger_v',
            'journal_adjustments_v', 'journal_adjustment_lines', 'schedule_items',
            'schedule_item_balances_v', 'fixed_asset_balances_v',
            'card_transactions_v', 'card_coding_effective_lines',

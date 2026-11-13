@@ -139,6 +139,20 @@ export const GLOSSARY = {
     + 'means.',
   'journal entry': 'An accounting entry in SILO. It is drafted, approved, then posted to QuickBooks; those '
     + 'are three separate states and the close report counts each.',
+  reconciliation: 'Checking a posted journal entry against the records SILO built it from. SILO posted the '
+    + 'entry, so it holds that breakdown: accounting_journal_lines_v is every line of every entry (both '
+    + 'hand-written adjustments and card/bank batches), and accounting_journal_sources_v is the records '
+    + 'behind each one -- the bank rows in a batch, the sales days and payout fees behind a monthly Shopify '
+    + 'summary, the schedule items and assets behind an amortization or depreciation. Join them on '
+    + 'journal_id. Read source_basis before calling a difference an error: as_posted rows are frozen with '
+    + 'the entry, recomputed rows are today\'s data over the entry\'s period, so a difference there is the '
+    + 'finding. An entry with no rows in the sources view has no stored breakdown, which is an answer. '
+    + 'For a period that starts BEFORE the company moved to SILO -- a full-year balance sheet or GL recon '
+    + '-- use accounting_ledger_v, which is both eras in one stream: origin \'qbo_history\' is the ledger '
+    + 'kept in QuickBooks before the move (imported line by line, so real transactions, not one-line '
+    + 'summaries) and \'silo\' is everything posted since, with cutover_on on every row. Do not stitch two '
+    + 'reports together by hand, and do not report that the company has no records before the cut-over: if '
+    + 'no qbo_history rows appear at all, the connected user may simply lack finance access to them.',
   'owed / open balance': 'Money a customer still has to pay on an order that carries payment terms. An '
     + 'unpaid balance on an order with NO payment terms is not a receivable: marketplace and platform-paid '
     + 'orders are commonly settled outside the store and left sitting unpaid in it, and abandoned checkouts '
@@ -199,6 +213,14 @@ export const HOW_TO_CHOOSE = [
     why: 'Tasks, initiatives, payment requests and On Deck drafts in one list, with is_mine.' },
   { ask: 'What is launching soon', use: 'Launches next 30 days' },
   { ask: 'Are the books current? What is holding the close?', use: 'Accounting close status' },
+  { ask: 'Reconcile the books. What is behind this journal entry? Does it tie?',
+    use: 'Journal entries and their sources',
+    why: 'Then drill into one entry by its journal_id in accounting_journal_lines_v and '
+      + 'accounting_journal_sources_v.' },
+  { ask: 'Reconcile the general ledger for the year. Balance sheet across the move to SILO.',
+    use: 'General ledger by month',
+    why: 'One continuous ledger over both eras, so a year that spans the company\'s move to SILO is one '
+      + 'answer rather than two reports stitched by hand. origin says which side each row came from.' },
 ];
 
 /* ── Per-report advice, keyed by the report's stable id ─────────────────────
@@ -362,6 +384,22 @@ export const REPORT_NOTES = {
       'What is holding the books: uncategorised bank and card rows, and journal entries awaiting approval or '
       + 'posting. Drafted, approved and posted are three states -- do not collapse them.',
   },
+  'c7000000-0000-4000-a000-000000000004': {
+    title: 'Journal entries and their sources',
+    when_to_use:
+      'Reconciliation. One row per journal entry with its debits, credits and the records SILO built it '
+      + 'from; start here, then drill into one entry by its journal_id in accounting_journal_lines_v and '
+      + 'accounting_journal_sources_v. source_total only compares to the entry within one source_kind, and '
+      + 'source_basis says whether a difference is a finding or just frozen-versus-current.',
+  },
+  'c7000000-0000-4000-a000-000000000005': {
+    title: 'General ledger by month',
+    when_to_use:
+      'Any GL or balance-sheet reconciliation whose period starts before the company moved to SILO: month '
+      + 'by account by origin across both eras, with cutover_on on every row. Amounts are debit-positive on '
+      + 'both sides, and unmapped_lines above zero means that month is understated -- flag it, do not sum '
+      + 'past it. For what is behind a silo-origin line, use Journal entries and their sources.',
+  },
 };
 
 /* ── Where things are in SILO ───────────────────────────────────────────────
@@ -411,7 +449,7 @@ export const WHERE_IN_SILO = {
 
     { section: 'Planning', page: 'Org calendar', path: '/v2/calendar.html', what: 'The company-wide calendar: the Org calendar tab of Calendar.' },
     { section: 'Planning', page: 'Calendar', path: '/v2/launch-calendar.html', what: 'The Launch calendar tab: each dated launch with its tasks and marketing initiatives.' },
-    { section: 'Planning', page: 'Task Manager', path: '/v2/tasks.html', what: 'Tasks: raising them, assigning them and following them.' },
+    { section: 'Planning', page: 'Planning', path: '/v2/tasks.html', what: 'The planning suite. It opens on Tasks -- raising them, assigning them and following them -- and the Calendar, Org calendar and TikTok Live Schedule pages are tabs of it.' },
     { section: 'Planning', page: 'TikTok Live Schedule', path: '/v2/live-schedule.html', what: 'The TikTok live schedule.' },
 
     { section: 'Team', page: 'Performance Reviews', path: '/v2/reviews.html', what: 'Performance reviews.' },
