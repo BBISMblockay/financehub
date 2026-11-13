@@ -6960,6 +6960,14 @@ select 'Journal drill-down report tie-outs' as check_name,
  when (select count(*) from public.silo_report_tieouts
         where report_id='c7000000-0000-4000-a000-000000000004' and enabled) <> 2
    then 'BROKEN: the journal drill-down report lost a tie-out'
+ when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+               where r.id='c7000000-0000-4000-a000-000000000004' and q ~ '_mv\M')
+   then 'BROKEN: the journal drill-down report reads a materialized view, which has no RLS'
+ when exists (select 1 from public.silo_chat_saved_reports r
+                join public.silo_report_tieouts t on t.report_id=r.id
+               where r.id='c7000000-0000-4000-a000-000000000004' and t.enabled
+                 and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+   then 'BROKEN: the journal drill-down report tie-outs guard the previous definition, so report-tieouts-nightly reads NO DATA'
  else 'ok' end as status;
 -- The continuous ledger's own report. Its four checks are what make the
 -- natural-sign conversion and the cut-over rule safe to rely on, so losing
@@ -6971,6 +6979,14 @@ select 'General ledger by month tie-outs' as check_name,
  when (select count(*) from public.silo_report_tieouts
         where report_id='c7000000-0000-4000-a000-000000000005' and enabled) <> 4
    then 'BROKEN: the general ledger report lost a tie-out'
+ when exists (select 1 from public.silo_chat_saved_reports r, unnest(r.queries_run) q
+               where r.id='c7000000-0000-4000-a000-000000000005' and q ~ '_mv\M')
+   then 'BROKEN: the general ledger report reads a materialized view, which has no RLS'
+ when exists (select 1 from public.silo_chat_saved_reports r
+                join public.silo_report_tieouts t on t.report_id=r.id
+               where r.id='c7000000-0000-4000-a000-000000000005' and t.enabled
+                 and t.check_sql not like '%' || md5(r.queries_run::text || r.parameters::text) || '%')
+   then 'BROKEN: the general ledger report tie-outs guard the previous definition, so report-tieouts-nightly reads NO DATA'
  else 'ok' end as status;
 -- The cut-over must stay DERIVED. A literal date, or a company id used to
 -- pick one, is the project's one standing rule broken in the worst place:

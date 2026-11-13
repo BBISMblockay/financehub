@@ -529,9 +529,12 @@ with (security_invoker = true) as
 with cutover as (
   select
     coalesce(
-      (select s.silo_takeover_on from public.accounting_settings s
+      -- max(), not a bare scalar: a second settings row for one company would
+      -- make a scalar subquery RAISE, taking the whole ledger down. There is
+      -- one row per company today; the ledger does not depend on that holding.
+      (select max(s.silo_takeover_on) from public.accounting_settings s
         where s.company_entity_id = public.active_company_id()),
-      (select s.accounting_start_date from public.accounting_settings s
+      (select max(s.accounting_start_date) from public.accounting_settings s
         where s.company_entity_id = public.active_company_id()),
       (select min(l.entry_date) from public.accounting_journal_lines_v l)
     ) as on_date
@@ -902,14 +905,19 @@ begin
      0.01,
      'The report''s net, summed back up, against the ledger view read directly over the same window. A grouping that fans rows out or drops an origin moves one side and not the other. NO DATA means the report changed and this check must be regenerated in the same migration.'),
 
+    -- Guarded like the rest even though it reads the views rather than the
+    -- report SQL: verify asserts that EVERY enabled tie-out on a report
+    -- carries that report's current fingerprint, so an unguarded one would
+    -- read as a check left behind by an older definition.
     (r.id, 'No imported history is hidden by the cut-over', 'reconciliation',
-     'select (select count(*) from public.qbo_history_lines h where h.row_kind = ''transaction'' '
+     format('select case when %s then (select count(*) from public.qbo_history_lines h where h.row_kind = ''transaction'' '
        || 'and h.transaction_date is not null '
        || 'and h.transaction_date >= (select public.silo_business_today()) - 365 '
-       || 'and h.transaction_date <= (select public.silo_business_today()))::numeric as left_value, '
+       || 'and h.transaction_date <= (select public.silo_business_today()))::numeric end as left_value, '
        || '(select count(*) from public.accounting_ledger_v g where g.origin = ''qbo_history'' '
        || 'and g.entry_date >= (select public.silo_business_today()) - 365 '
        || 'and g.entry_date <= (select public.silo_business_today()))::numeric as right_value',
+            guard),
      0,
      'Imported QuickBooks lines in the window, against the ones the ledger actually shows. The ledger takes imported rows only BEFORE the cut-over so the two eras cannot double-count, and this is what makes that rule safe: if an import reaches past the cut-over date, those lines would vanish from the ledger silently, and instead this goes red. The fix is the cut-over date or the import, never this check.');
   end loop;

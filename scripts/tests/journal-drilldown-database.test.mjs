@@ -586,6 +586,18 @@ await test('with no accounting_settings the cut-over falls back to the first SIL
                  values ('${CO}', '2026-08-01')`);
 });
 
+await test('a duplicate settings row does not take the whole ledger down', async () => {
+  // A scalar subquery would raise 21000 here and the ledger would return
+  // nothing at all, which is the worst possible answer for a recon.
+  await db.exec(`alter table accounting_settings drop constraint accounting_settings_pkey;
+                 insert into accounting_settings(company_entity_id, accounting_start_date)
+                 values ('${CO}', '2026-07-01')`);
+  const rows = await q(`select distinct cutover_on::text c from accounting_ledger_v`);
+  assert.deepEqual(rows, [{ c: '2026-08-01' }]);   // the later of the two, not an error
+  await db.exec(`delete from accounting_settings where accounting_start_date = '2026-07-01';
+                 alter table accounting_settings add primary key (company_entity_id)`);
+});
+
 await test('an account type the map does not know gets no side, rather than a guessed one', async () => {
   await db.exec(`insert into qbo_history_lines(company_entity_id, row_no, row_kind, qbo_account_id,
     account_name, account_type, transaction_date, qbo_transaction_id, natural_amount)
@@ -654,6 +666,20 @@ await test('imported history reaching past the cut-over fails rather than vanish
   assert.equal(hidden.left, 5);
   assert.equal(hidden.right, 4);
   await db.exec(`delete from qbo_history_lines where qbo_transaction_id = 'H-D'`);
+});
+
+await test('every enabled tie-out carries its report\'s current fingerprint', async () => {
+  // The invariant verify_v2_schema.sql asserts on production: a tie-out that
+  // does not embed the md5 of the report it guards reads as one left behind
+  // by an older definition, and report-tieouts-nightly would see NO DATA.
+  const rows = await q(`select r.id, t.name from silo_chat_saved_reports r
+                          join silo_report_tieouts t on t.report_id = r.id
+                         where r.id in ('${REPORT}', '${GL_REPORT}') and t.enabled
+                           and position(md5(r.queries_run::text || r.parameters::text) in t.check_sql) = 0`);
+  assert.deepEqual(rows, [], 'a tie-out is not guarded by its report definition');
+  const [{ n }] = await q(`select count(*)::int n from silo_report_tieouts
+                            where report_id in ('${REPORT}', '${GL_REPORT}') and enabled`);
+  assert.equal(n, 6);
 });
 
 await test('the cut-over stays derived: no date literal, no company id in the view', async () => {
