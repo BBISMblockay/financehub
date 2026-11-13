@@ -9727,6 +9727,10 @@ select 'Affiliate PayPal payouts' as check_name,
   -- request body, so p_company is the tenant boundary, not RLS.
   when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid)')) not like '%belongs to another company%'
    then 'CRITICAL — the payout send claim no longer checks the payout''s company'
+  -- Voiding releases the payout's ledger entries for the next build. With an
+  -- attempt at the provider that is the same commission paid twice.
+  when pg_get_functiondef(to_regprocedure('public.affiliate_void_payout(uuid,text)')) not like '%attempt in state%'
+   then 'CRITICAL — affiliate_void_payout no longer refuses a payout whose provider attempt is still in flight'
   when not exists (select 1 from pg_indexes
                     where schemaname = 'public' and tablename = 'affiliate_payout_sends'
                       and indexdef like '%UNIQUE%' and indexdef like '%request_id%')

@@ -1336,7 +1336,7 @@ jobs:
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
-          run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch
+          run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay
 
   plaid-typecheck:
     name: Plaid Edge Function typecheck
@@ -2700,7 +2700,7 @@ jobs:
       - name: The Affiliate Studio database guards, removed, must break it
         run: |
           set -u
-          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail mailedonly boundaddress photohttp nolink nomatchindex connread payoutsecret sendinflight sendunknown unclaimedpaid terminalrewrite sendtenant sendgrant; do
+          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail mailedonly boundaddress photohttp nolink nomatchindex connread payoutsecret sendinflight sendunknown unclaimedpaid terminalrewrite sendtenant sendgrant voidinflight; do
             if AFFILIATE_DB_MUTATION="$m" node scripts/tests/affiliate-studio-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

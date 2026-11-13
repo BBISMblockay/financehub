@@ -28,6 +28,10 @@
 //   AFFILIATE_PAYOUTS_MUTATION=secretout    the status reply carries the credentials
 //   AFFILIATE_PAYOUTS_MUTATION=zerodecimal  a zero-decimal currency is divided by 100
 //   AFFILIATE_PAYOUTS_MUTATION=dupebatch    a duplicate-batch rejection is recorded as a refusal
+//   AFFILIATE_PAYOUTS_MUTATION=envmix      a sandbox attempt is reconciled against the live account
+//   AFFILIATE_PAYOUTS_MUTATION=wrongbatch  a batch carrying somebody else's key is read as ours
+//   AFFILIATE_PAYOUTS_MUTATION=wrongitem   any item in the batch is read as this attempt's
+//   AFFILIATE_PAYOUTS_MUTATION=stalereplay an attempt older than PayPal's 30-day window is replayed
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,6 +74,23 @@ const MUTS = {
   secretout: [
     '  const publicStatus = (c) => (c ? {',
     '  const publicStatus = (c) => (c ? {\n    client_id: c.client_id, client_secret: c.client_secret,',
+  ],
+  stalereplay: [
+    '      if (ageDays > 29) {',
+    '      if (false) {',
+  ],
+  wrongbatch: [
+    '    if (theirs && send.sender_batch_id && theirs !== send.sender_batch_id) {',
+    '    if (false) {',
+  ],
+  wrongitem: [
+    `    const item = items.find((x) => senderItemId(x) === send.request_id)
+      || (items.length === 1 && !senderItemId(items[0]) ? items[0] : null);`,
+    '    const item = items[0] || null;',
+  ],
+  envmix: [
+    '    if (send.environment && creds.environment && send.environment !== creds.environment) {',
+    '    if (false) {',
   ],
   dupebatch: [
     '      if (r.status >= 400 && r.status < 500 && isDuplicate(e)) {',
@@ -255,6 +276,14 @@ await test('a status PayPal does not define is not paid', async () => {
   assert.equal(itemState('PENDING'), 'sent');
   assert.equal(itemState('SOMETHING_NEW'), 'sent');
   assert.equal(itemState(null), 'sent');
+});
+
+await test('a negative amount is not silently turned positive', async () => {
+  // Unreachable through the real path -- affiliate_payouts refuses an amount
+  // that is not > 0 -- and asserted so it cannot become wrong money later.
+  assert.equal(majorAmount(-5, 'USD'), '-0.05');
+  assert.equal(majorAmount(-1999, 'USD'), '-19.99');
+  assert.equal(majorAmount(-100, 'JPY'), '-100');
 });
 
 // ── Authority ─────────────────────────────────────────────────────────────
@@ -471,6 +500,113 @@ await test('a duplicate rejection with no recoverable batch id stays unknown', a
   assert.equal((await r.json()).results[0].state, 'unknown');
   const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
   assert.deepEqual(states, [], 'nothing is asserted about a batch whose id we could not recover');
+});
+
+// Sandbox first, live later, is exactly how this gets used. An attempt with
+// no batch id is RE-POSTED to find out what happened to it, so reconciling a
+// sandbox attempt against the live account would be a real payment.
+await test('a sandbox attempt is never replayed against the live account', async () => {
+  const service = fakeService({
+    connection: { ...CONN, environment: 'live' },
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown', environment: 'sandbox' }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCHLIVE', batch_status: 'PENDING' } }) },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  const body = await r.json();
+  assert.equal(body.results[0].state, 'unknown', 'the attempt is left exactly as it was');
+  assert.match(body.results[0].error, /sandbox PayPal account/);
+  assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')),
+    'no batch was created on the live account');
+  const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
+  assert.deepEqual(states, [], 'and nothing was recorded about it');
+});
+
+// A batch id can reach this code from PayPal's own duplicate error, so it is
+// checked against the key SILO chose before anything in it is believed.
+await test('a batch carrying somebody else\'s key is not read as this payout\'s', async () => {
+  const service = fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHX', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: {
+      '/v1/payments/payouts/BATCHX': res(200, {
+        batch_header: { payout_batch_id: 'BATCHX', batch_status: 'SUCCESS', sender_batch_header: { sender_batch_id: 'someone-elses-batch' } },
+        items: [{ payout_item_id: 'NOTOURS', transaction_status: 'SUCCESS', payout_item: { sender_item_id: 'someone-elses-item' } }],
+      }),
+    },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  const body = await r.json();
+  assert.equal(body.results[0].state, 'sent', 'the attempt is left as it was');
+  assert.equal(body.results[0].code, 'BATCH_NOT_OURS');
+  const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
+  assert.deepEqual(states, [], 'nothing was recorded from a batch that is not ours');
+});
+
+await test('an item that is not this attempt\'s is not read as paid', async () => {
+  const service = fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHM', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: {
+      // Our batch, but the item ids do not include ours -- the shape a batch
+      // with more than one item takes.
+      '/v1/payments/payouts/BATCHM': res(200, {
+        batch_header: { payout_batch_id: 'BATCHM', batch_status: 'SUCCESS', sender_batch_header: { sender_batch_id: 'silo-abc-1' } },
+        items: [
+          { payout_item_id: 'OTHER1', transaction_status: 'SUCCESS', payout_item: { sender_item_id: 'silo-other-1' } },
+          { payout_item_id: 'OTHER2', transaction_status: 'SUCCESS', payout_item: { sender_item_id: 'silo-other-2' } },
+        ],
+      }),
+    },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  const body = await r.json();
+  assert.equal(body.results[0].state, 'sent');
+  assert.equal(body.results[0].code, 'ITEM_NOT_OURS');
+  assert.deepEqual(service.log.filter((e) => e.name === 'affiliate_payout_send_record'), []);
+});
+
+await test('our own item is found by the id we sent it with', async () => {
+  const service = fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHO', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: {
+      '/v1/payments/payouts/BATCHO': res(200, {
+        batch_header: { payout_batch_id: 'BATCHO', batch_status: 'SUCCESS', sender_batch_header: { sender_batch_id: 'silo-abc-1' } },
+        items: [
+          { payout_item_id: 'OTHER', transaction_status: 'FAILED', payout_item: { sender_item_id: 'silo-other-1' } },
+          { payout_item_id: 'OURS', transaction_status: 'SUCCESS', payout_item: { sender_item_id: 'silo-abc-1' }, payout_item_fee: { value: '0.25', currency: 'USD' } },
+        ],
+      }),
+    },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  assert.equal((await r.json()).results[0].state, 'paid');
+  const rec = service.log.find((e) => e.name === 'affiliate_payout_send_record');
+  assert.equal(rec.args.p_provider_item_id, 'OURS', 'and it is OUR item, not the first one in the list');
+});
+
+// The replay is only safe inside PayPal's 30-day duplicate window.
+await test('an attempt older than the duplicate window is not replayed', async () => {
+  const old = new Date(Date.parse('2026-11-13T00:00:00Z') - 40 * 86400000).toISOString();
+  const service = fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown', environment: 'sandbox', created_at: old }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCHNEW', batch_status: 'PENDING' } }) },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl, now: () => new Date('2026-11-13T00:00:00Z') })(post({ action: 'refresh' }));
+  const body = await r.json();
+  assert.equal(body.results[0].state, 'unknown');
+  assert.equal(body.results[0].code, 'KEY_EXPIRED');
+  assert.match(body.results[0].message, /silo-abc-1/, 'and it names the key to look up');
+  assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')),
+    'no second batch was created');
+  assert.deepEqual(service.log.filter((e) => e.name === 'affiliate_payout_send_record'), []);
 });
 
 await test('sending is refused before PayPal is connected', async () => {

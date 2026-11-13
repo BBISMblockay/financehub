@@ -487,6 +487,78 @@ revoke execute on function public.affiliate_payout_send_record(uuid, text, text,
 grant execute on function public.affiliate_payout_send_record(uuid, text, text, text, text, text, text, bigint, uuid)
   to service_role;
 
+-- ── 6b. Voiding a payout that is already with the provider ────────────────
+-- A void releases the payout's ledger entries so the next build can claim
+-- them. With a PayPal attempt in flight that is a second payment for the same
+-- commission: void, rebuild, send, and the first one lands too. The money
+-- rail is new, so this guard belongs to it rather than to the ledger
+-- migration that wrote the function. Everything else about the function is
+-- unchanged (20261110085000).
+create or replace function public.affiliate_void_payout(p_payout uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid;
+  v_open    text;
+begin
+  select company_entity_id into v_company from public.affiliate_payouts where id = p_payout;
+  if not found then raise exception 'affiliate_void_payout: no such payout'; end if;
+  if v_company is distinct from public.active_company_id()
+     or not public.can_approve_affiliate_commissions() then
+    raise exception 'affiliate_void_payout: voiding a payout needs can_approve_affiliate_commissions()'
+      using errcode = '42501';
+  end if;
+  if btrim(coalesce(p_reason, '')) = '' then
+    raise exception 'affiliate_void_payout: a reason is required';
+  end if;
+
+  -- An attempt that is with the provider, or that never answered, has to be
+  -- settled before this payout can be let go of. The ONE exception is an
+  -- attempt that never answered and is older than the provider's 30-day
+  -- duplicate window: nothing can reconcile it any more (asking again would
+  -- be a fresh payment, not a replay), so a void with a reason is the only
+  -- way out, and by then the person has had a month to see it in their
+  -- provider activity. Both halves of that are deliberate: a FRESH unknown
+  -- attempt must be checked, not voided.
+  select state into v_open
+    from public.affiliate_payout_sends
+   where payout_id = p_payout
+     and (state in ('sent','unclaimed')
+          or (state = 'unknown' and created_at > now() - interval '30 days'))
+   order by attempt desc
+   limit 1;
+  if v_open is not null then
+    raise exception 'affiliate_void_payout: this payout has a provider attempt in state % -- check its status first, because voiding it would free the same commission to be paid a second time', v_open
+      using errcode = '55006';
+  end if;
+
+  -- A payout recorded as paid is history. Correcting one is a negative
+  -- manual_adjustment on the ledger, not a void that silently frees entries
+  -- somebody has already been paid for.
+  update public.affiliate_payouts
+     set status = 'void', void_reason = p_reason
+   where id = p_payout and status in ('draft','approved','exported');
+  if not found then
+    raise exception 'affiliate_void_payout: only a draft, approved or exported payout can be voided';
+  end if;
+
+  -- Releasing the claims is the whole point of a void: those entries must be
+  -- available to the next build.
+  delete from public.affiliate_payout_items where payout_id = p_payout;
+end;
+$$;
+
+comment on function public.affiliate_void_payout(uuid, text) is
+  'Voids a draft, approved or exported payout and releases its ledger entries. Refuses while a provider attempt is unknown, sent or unclaimed: freeing those entries would let the same commission be paid twice. A paid payout is corrected with a negative manual_adjustment, never a void.';
+
+-- A `create or replace` keeps the existing grants, but say them anyway so the
+-- function's authority does not depend on what ran before it.
+revoke execute on function public.affiliate_void_payout(uuid, text) from public, anon;
+grant execute on function public.affiliate_void_payout(uuid, text) to authenticated;
+
 -- ── 7. The company stamp backstop, and the same-company twins ──────────────
 -- affiliate_payout_sends.payout_id references affiliate_payouts, so it needs
 -- the composite twin that makes it impossible for a send to name company A

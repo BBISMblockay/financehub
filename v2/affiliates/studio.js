@@ -169,7 +169,10 @@ async function loadProgramData() {
       .eq('company_entity_id', CO).eq('provider', 'paypal'),
     sends: db.from('affiliate_payout_sends')
       .select('id, payout_id, attempt, state, provider_status, provider_item_id, error_code, error_message, environment, created_at')
-      .eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(200),
+      .eq('company_entity_id', CO)
+      // Newest first, and `attempt` breaks a tie: two attempts stamped in the
+      // same instant must not leave the row describing the older one.
+      .order('created_at', { ascending: false }).order('attempt', { ascending: false }).limit(200),
   };
   const keys = Object.keys(q);
   const res = await Promise.all(Object.values(q));
@@ -955,6 +958,10 @@ function renderCommissions() {
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
 // button never appears on a rail that is in fact connected.
+// Actions that can change stored state and then fail. The page re-reads after
+// one, so the buttons describe the database and not what was true before.
+const RELOAD_AFTER_FAILURE = new Set(['pp-send', 'pp-refresh']);
+
 function payConnLive(conn) {
   return Boolean(conn && conn.is_active !== false && conn.credentials_set);
 }
@@ -1596,6 +1603,14 @@ document.addEventListener('click', async (ev) => {
     }
   } catch (e) {
     setStatus(friendly(e), 'neg');
+    // A send that FAILED may still have left an attempt on file -- that is
+    // what `unknown` means, and the row must stop offering Send over stale
+    // data, or the person clicks again at a payment that may already have
+    // gone. Only the payment actions need this; everything else failed
+    // before it changed anything.
+    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {
+      try { await reload(); } catch { /* the message above is already shown */ }
+    }
   } finally { b.disabled = false; }
 });
 $('programSel').addEventListener('change', async (e) => { S.programId = e.target.value; S.creating = false; await loadProgramData(); render(); });

@@ -345,6 +345,29 @@ Connect platform and SILO orchestrates it. Design:
   refusal -- a refusal would release the payout for a second attempt while the
   first may already have paid. If the id cannot be recovered the attempt stays
   `unknown`, which is the state that refuses another send.
+- **A batch is only read as ours if it carries our own key.** A batch id can
+  reach the reconcile path from PayPal's own duplicate-rejection error, so the
+  batch is checked against the `sender_batch_id` SILO chose, and the item
+  against the `sender_item_id` it was sent with, before a word of the answer is
+  believed. A batch or item that is not this attempt's changes nothing.
+- **The replay has a 30-day shelf life.** PayPal collapses a repeated batch id
+  for 30 days; past that, re-posting would create a SECOND payment, so it is
+  refused and the key is named for someone to look up in their PayPal
+  activity. The way out of an attempt that old is to check PayPal, then void
+  the payout and build it again -- which is the one case `affiliate_void_payout()`
+  lets through with an attempt still `unknown` (see below).
+- **An attempt belongs to the account it was made on.** Each attempt stores its
+  environment, and reconciling it against a connection for the other one is
+  refused: a company that tests in sandbox and then connects live would
+  otherwise have its sandbox attempts re-posted to the live account.
+- **A payout with an attempt in flight cannot be voided.** A void releases the
+  payout's ledger entries for the next build, which with a payment at the
+  provider is the same commission paid twice. `affiliate_void_payout()` refuses
+  while an attempt is `sent`, `unclaimed`, or `unknown` and less than 30 days
+  old; a returned or refused one lets it through. The exception is deliberate:
+  an `unknown` attempt past the duplicate window can no longer be reconciled by
+  asking again, so a void with a reason is the only way out of it, and by then
+  the person has had a month to see it in their PayPal activity.
 - **"Paid" is the provider's word.** Only
   `affiliate_payout_send_record(state => 'paid')` marks a payout paid, with
   PayPal's own batch and item ids as the evidence. A terminal answer cannot be

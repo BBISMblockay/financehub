@@ -30,6 +30,7 @@
  *   AFFILIATE_UI_MUTATION=sendwhileopen a payout with an attempt in flight is offered another Send
  *   AFFILIATE_UI_MUTATION=sendnoaddress a payout is offered Send before the affiliate gave an address
  *   AFFILIATE_UI_MUTATION=connflag   the page looks for a `connected` flag the status view does not have
+ *   AFFILIATE_UI_MUTATION=nostalereload a failed send leaves the row offering Send over stale data
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
@@ -85,6 +86,7 @@ const MUTATIONS = {
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
   // The PayPal rail (20261113040000).
   sendwhileopen: ['/affiliates/studio.js', "      const open = sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state);", '      const open = false;'],
+  nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
@@ -658,6 +660,32 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('it offers Check status instead', !!(await ppFlight.$('#payoutsBody [data-act="pp-refresh"]')));
     R.has(flight, 'no answer yet', 'and the row says so in words');
     await ppFlight.close();
+
+    // A send that fell over mid-call. The attempt is on file as `unknown`, so
+    // the page must re-read after the failure: the row that still offers Send
+    // is an invitation to pay twice.
+    const ppFail = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [] },
+      { ready,
+        rpc: ppRpc,
+        edge: { 'affiliate-payouts': { status: 502, body: { state: 'unknown', error: 'PayPal did not answer (socket hang up). The payment may have gone through — use Check status before trying again.' } } } });
+    ppFail.on('pageerror', (e) => errors.push(e.message));
+    await ppFail.click('#tabs [data-tab="payouts"]');
+    // What the failed call left behind at the database.
+    await ppFail.evaluate((row) => { window.__FIXTURE_TABLES__.affiliate_payout_sends = [row]; }, {
+      id: 'send-f', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null,
+      error_code: null, error_message: null, environment: 'sandbox', created_at: now,
+    });
+    await ppFail.click('#payoutsBody [data-act="pp-send"]');
+    await ppFail.click('#payoutsBody [data-act="pp-send"]');   // the confirm
+    await ppFail.waitForFunction(() => !document.querySelector('#payoutsBody [data-act="pp-send"]'), { timeout: 5000 }).catch(() => {});
+    R.has(await text(ppFail, '#status'), 'may have gone through', 'the person is told the money may have moved');
+    R.ok('and the row stops offering Send', !(await ppFail.$('#payoutsBody [data-act="pp-send"]')));
+    R.ok('offering Check status instead', !!(await ppFail.$('#payoutsBody [data-act="pp-refresh"]')));
+    R.ok('and it was sent to PayPal exactly once', (await ppFail.evaluate(() => window.__EDGE_CALLS__.length)) === 1);
+    await ppFail.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

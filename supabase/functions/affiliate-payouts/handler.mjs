@@ -66,9 +66,13 @@ export function majorAmount(cents, currency) {
   const units = minorUnits(currency);
   const n = BigInt(cents);
   if (units === 1) return n.toString();
-  const whole = n / 100n;
-  const rest = (n < 0n ? -n : n) % 100n;
-  return `${whole.toString()}.${rest.toString().padStart(2, '0')}`;
+  // The sign is carried separately. BigInt division truncates toward zero, so
+  // -5n / 100n is 0n and a naive version would turn -5 cents into "0.05".
+  // Nothing should hand this a negative amount (affiliate_payouts refuses one),
+  // which is exactly why it must not be quietly wrong if anything ever does.
+  const neg = n < 0n;
+  const a = neg ? -n : n;
+  return `${neg ? '-' : ''}${(a / 100n).toString()}.${(a % 100n).toString().padStart(2, '0')}`;
 }
 
 // PayPal's transaction_status vocabulary -> SILO's narrower one. Anything
@@ -92,9 +96,10 @@ export const ITEM_STATE = {
 };
 export const itemState = (status) => ITEM_STATE[String(status || '').toUpperCase()] || 'sent';
 
-// A batch PayPal refused outright. DENIED means nothing moved, so another
-// attempt is safe; anything else about the batch we treat as still open,
-// because the money may have gone.
+// A batch PayPal refused or cancelled outright, with no items to read: in
+// those states nothing was paid, so recording a refusal (which frees another
+// attempt) is safe. Every OTHER batch status with no items is treated as still
+// open, because the money may have gone.
 export const BATCH_REFUSED = ['DENIED', 'CANCELED', 'CANCELLED'];
 
 export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch, now = () => new Date() }) {
@@ -146,8 +151,9 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
       const m = /\/v1\/payments\/payouts\/([A-Za-z0-9_-]+)/.exec(String(l?.href || ''));
       if (m) return m[1];
     }
-    const d = Array.isArray(body?.details) ? body.details : [];
-    for (const x of d) if (x?.value && /^[A-Z0-9]{10,}$/.test(String(x.value))) return String(x.value);
+    // Nothing else. A value GUESSED out of an error body could be any token
+    // PayPal happened to name, and a wrong batch id here would be read as
+    // this payout's own payment below.
     return body?.batch_header?.payout_batch_id || null;
   }
 
@@ -223,7 +229,33 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
   // One open attempt, re-read from PayPal and recorded. Used by `refresh` and
   // straight after a send, so the page never has to guess.
   async function reconcile(creds, send, actor) {
+    // The attempt and the connection must be the same PayPal account. A
+    // company that tests in sandbox and then connects live still has its
+    // sandbox attempts open, and an attempt with no batch id is RE-POSTED
+    // below: re-posting a sandbox attempt to the live host would be a real
+    // payment nobody asked for, and polling a sandbox batch id on live just
+    // 404s forever. Neither is allowed to be silent.
+    if (send.environment && creds.environment && send.environment !== creds.environment) {
+      throw Object.assign(
+        new Error(`This attempt was made on the ${send.environment} PayPal account. Reconnect that account to check it.`),
+        { status: 409 },
+      );
+    }
     if (!send.provider_batch_id) {
+      // PayPal collapses a repeated batch id for THIRTY DAYS and no longer.
+      // Past that the replay below would not be answered with the original
+      // batch, it would create a second payment -- so it is refused, and the
+      // key is named for someone to look up in their PayPal activity.
+      const ageDays = send.created_at
+        ? (now().getTime() - new Date(send.created_at).getTime()) / 86400000
+        : 0;
+      if (ageDays > 29) {
+        return {
+          state: send.state,
+          code: 'KEY_EXPIRED',
+          message: `This attempt is ${Math.floor(ageDays)} days old. PayPal stops recognising a repeated batch id after 30 days, so asking again could pay a second time. Look up ${send.sender_batch_id} in your PayPal activity, then void this payout and build it again if nothing was sent.`,
+        };
+      }
       // The attempt never got as far as a batch id. We cannot tell from here
       // whether PayPal accepted it, and the key is what makes asking safe:
       // re-POSTing the same PayPal-Request-Id returns the original batch
@@ -257,9 +289,36 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
       const e = paypalError(r);
       return { state: send.state, ...e };
     }
+    // Is this batch this attempt's? The id can reach here from PayPal's own
+    // duplicate error, so it is checked against the key WE chose before a
+    // single word of it is believed. Marking a payout paid from somebody
+    // else's batch is the worst outcome available to this function.
+    const theirs = r.body?.batch_header?.sender_batch_header?.sender_batch_id || null;
+    if (theirs && send.sender_batch_id && theirs !== send.sender_batch_id) {
+      return {
+        state: send.state,
+        code: 'BATCH_NOT_OURS',
+        message: `PayPal batch ${send.provider_batch_id} belongs to ${theirs}, not to this attempt. Nothing was changed.`,
+      };
+    }
     const batchStatus = r.body?.batch_header?.batch_status;
-    const item = (r.body?.items || [])[0] || null;
+    const items = r.body?.items || [];
+    // The item we sent, by our own sender_item_id. A batch already proved to
+    // be ours (its sender_batch_id is the key we chose) and holding exactly
+    // one item is that item, whatever PayPal calls the field -- otherwise a
+    // field moving in their response would leave the attempt stuck in `sent`
+    // forever. A batch holding several items is only ever read by the id.
+    const senderItemId = (x) => x?.payout_item?.sender_item_id ?? x?.sender_item_id ?? null;
+    const item = items.find((x) => senderItemId(x) === send.request_id)
+      || (items.length === 1 && !senderItemId(items[0]) ? items[0] : null);
     if (!item) {
+      if (items.length) {
+        return {
+          state: send.state,
+          code: 'ITEM_NOT_OURS',
+          message: `PayPal batch ${send.provider_batch_id} holds no item for this attempt. Nothing was changed.`,
+        };
+      }
       if (BATCH_REFUSED.includes(String(batchStatus || '').toUpperCase())) {
         await record(send.id, 'refused', { providerStatus: batchStatus, errorCode: batchStatus, errorMessage: 'PayPal refused the batch.', actor });
         return { state: 'refused', providerStatus: batchStatus };
@@ -430,6 +489,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           amount_cents: claim.amount_cents,
           currency: claim.currency,
           payout_email: claim.payout_email,
+          environment: c.environment,
           provider_batch_id: null,
           state: 'unknown',
         };
@@ -464,7 +524,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const c = await connectionFor(company);
         if (!c?.client_id || !c?.client_secret) return reply({ error: 'PayPal is not connected yet.' }, 400);
         let q = service.from('affiliate_payout_sends')
-          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state')
+          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state, environment, created_at')
           .eq('company_entity_id', company)
           .in('state', ['unknown', 'sent', 'unclaimed'])
           .order('created_at', { ascending: true })

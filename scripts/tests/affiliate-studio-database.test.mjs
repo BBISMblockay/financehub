@@ -72,6 +72,7 @@
 //   AFFILIATE_DB_MUTATION=terminalrewrite a later poll may rewrite a terminal attempt
 //   AFFILIATE_DB_MUTATION=sendtenant    a payout belonging to another company may be sent
 //   AFFILIATE_DB_MUTATION=sendgrant     authenticated may execute the send functions
+//   AFFILIATE_DB_MUTATION=voidinflight a payout with an attempt in flight may still be voided
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -366,6 +367,14 @@ switch (MUT) {
     raise exception 'affiliate_payout_send_claim: that payout belongs to another company'
       using errcode = '42501';
   end if;`, '  -- tenant check removed'); break;
+  case 'voidinflight':
+    mutate('paypal', `  select state into v_open
+    from public.affiliate_payout_sends
+   where payout_id = p_payout
+     and state in ('unknown','sent','unclaimed')
+   order by attempt desc
+   limit 1;
+  if v_open is not null then`, "  select null into v_open;\n  if false then"); break;
   case 'sendgrant':
     mutate('paypal', 'grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) to service_role;',
       'grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) to service_role, authenticated;'); break;
@@ -1430,6 +1439,21 @@ await check('L4b another company\'s payout cannot be sent, even by the service r
     'no attempt was reserved');
 });
 
+await check('L4c nothing can be sent for an amount of nothing', async () => {
+  // There is no guard for this in the send path ON PURPOSE: affiliate_payouts
+  // refuses the row itself, so a zero or negative payout cannot exist to be
+  // sent. That is the invariant the send path leans on, so it is asserted here.
+  await asSuper();
+  await assert.rejects(db.query(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status)
+    values ($1, $2, $3, 'USD', 0, 'paypal_payouts', 'draft')`, [A, payProg, payAff]),
+    /amount_cents/, 'a payout of zero cannot be stored');
+  await assert.rejects(db.query(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status)
+    values ($1, $2, $3, 'USD', -500, 'paypal_payouts', 'draft')`, [A, payProg, payAff]),
+    /amount_cents/, 'nor a negative one');
+});
+
 await check('L5 one payout is never in flight twice', async () => {
   await db.exec('reset role; set role service_role');
   const claim = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [payPayout, 'sandbox', U.finA, A])).r;
@@ -1460,6 +1484,53 @@ await check('L5 one payout is never in flight twice', async () => {
     [claim.send_id, 'unclaimed', 'BATCH1', 'ITEM1', 'UNCLAIMED']);
   assert.equal((await one('select status from affiliate_payouts where id = $1', [payPayout])).status, 'approved',
     'an unclaimed payment is not a paid payout');
+});
+
+await check('L5b a payout with an attempt in flight cannot be voided', async () => {
+  // Voiding releases the commission entries so the next build can claim them.
+  // With a payment at the provider that is the same commission paid twice.
+  // Its own payout, so L6 still has the attempt above to finish with.
+  await asSuper();
+  const vp = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 700, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
+  await db.exec('set role service_role');
+  const vc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [vp, A, 'sandbox', U.finA])).r;
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)', [vc.send_id, 'sent', 'BATCHV', 'ITEMV', 'PENDING']);
+
+  await as(U.finA, A);
+  await assert.rejects(db.query(`select public.affiliate_void_payout($1, 'changed my mind')`, [vp]),
+    /attempt in state sent/);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [vp])).status, 'approved',
+    'and it is still the payout it was');
+
+  // Once the attempt is settled -- here the money came back -- the payout is
+  // ordinary again, and can be voided or sent afresh.
+  await db.exec('reset role; set role service_role');
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)', [vc.send_id, 'returned', 'BATCHV', 'ITEMV', 'RETURNED']);
+  await as(U.finA, A);
+  await db.query(`select public.affiliate_void_payout($1, 'came back from PayPal')`, [vp]);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [vp])).status, 'void');
+
+  // An attempt that never answered and is older than the provider's 30-day
+  // duplicate window can no longer be reconciled by asking again, so a void
+  // with a reason is the only way out of it. A FRESH one still cannot.
+  await asSuper();
+  const sp = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 800, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
+  await db.exec('set role service_role');
+  const sc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [sp, A, 'sandbox', U.finA])).r;
+  await as(U.finA, A);
+  await assert.rejects(db.query(`select public.affiliate_void_payout($1, 'give up')`, [sp]),
+    /attempt in state unknown/, 'an attempt that has just been made is checked, not voided');
+  await asSuper();
+  await db.query(`update affiliate_payout_sends set created_at = now() - interval '45 days' where id = $1`, [sc.send_id]);
+  await as(U.finA, A);
+  await db.query(`select public.affiliate_void_payout($1, 'never showed up at PayPal')`, [sp]);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [sp])).status, 'void',
+    'and a month later it can be let go of');
+  await asSuper();
 });
 
 await check('L6 only the provider confirming it marks a payout paid, with its own ids as evidence', async () => {

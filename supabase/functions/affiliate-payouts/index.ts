@@ -10,11 +10,17 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
-const service = createClient(SUPABASE_URL, SERVICE_KEY);
+// persistSession / autoRefreshToken off, as every other function here does:
+// there is no browser storage in Deno and nothing should try to refresh a
+// service-role key.
+const service = createClient(SUPABASE_URL, SERVICE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 const handle = createPayoutsHandler({
   service,
   userClientFor: (jwt: string) => createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { Authorization: `Bearer ${jwt}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
   }),
 });
 

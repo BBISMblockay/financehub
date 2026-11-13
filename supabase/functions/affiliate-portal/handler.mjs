@@ -431,6 +431,11 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return reply({ error: 'That does not look like an email address.' }, 400);
       }
+      // PayPal's receiver field takes 127 single-byte characters. Refuse a
+      // longer one here, rather than at the moment someone tries to pay.
+      if (email.length > 127) {
+        return reply({ error: 'That address is too long for PayPal (127 characters).' }, 400);
+      }
       const { error } = await service.from('affiliate_payout_accounts').upsert({
         company_entity_id: t.company_entity_id,
         affiliate_id: t.affiliate_id,
