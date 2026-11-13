@@ -127,6 +127,28 @@
     ['reports/silo-attribution','Attribution','silo-attribution.html','Last click'],
   ];
 
+  // The Purchasing suite (2026-11-12), drawn by purchasing-suite.js: the five
+  // purchasing surfaces as one sidebar row with a tab strip of REAL pages at
+  // their existing URLs. Nothing is merged and nothing moves: po-builder.html,
+  // po-costing.html, po-report.html and factories.html keep their own URLs,
+  // bookmarks and deep links, and the only new page is the Overview.
+  //
+  // As in the Performance strip, every tab is ALSO a NAV_ITEMS row (marked
+  // `tabOf`), so each tab's visibility is its row's own gate with no second
+  // copy of it, and "Jump to" still finds every page by name. The sidebar
+  // simply does not draw a `tabOf` row (sidebarSections below).
+  //
+  // Order is the order of the work: the overview, then building a PO, then
+  // what is coming in, then what it cost, then who makes it.
+  const PURCHASING_ROW = 'purchasing/home';
+  const PURCHASING_SUITE_PAGES = [
+    ['purchasing/home', 'Overview', 'purchasing.html'],
+    ['purchasing/po-builder', 'PO Builder', 'po-builder.html'],
+    ['purchasing/po-report', 'PO Report', 'po-report.html'],
+    ['purchasing/po-costing', 'Landed Cost', 'po-costing.html'],
+    ['purchasing/factories', 'Factories', 'factories.html'],
+  ];
+
   const FINANCE_DEPTS = ['exec', 'finance'];
 
   // profiles.role values that see exec-only links (e.g. Ask SILO during its
@@ -339,10 +361,15 @@
     // Hidden from the menu 2026-10-05 (page still reachable by URL). Back
     // for STANDARD workspaces only, under Product & inventory below (Blake,
     // 2026-10-06); Baseballism's menu stays without it for now.
-    { id: 'purchasing/po-builder', section: 'Purchasing', label: 'PO Builder', href: '/v2/po-builder.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'purchasing/po-costing', section: 'Purchasing', label: 'PO Landed Cost', href: '/v2/po-costing.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/v2/factories.html', profiles: ['grandfathered', 'standard'] },
+    // One Purchasing sidebar row (2026-11-12). The four working pages are TABS
+    // of it (`tabOf`, the Calendar and Performance mechanism), so each keeps
+    // its own URL, its own row and its own gate, and the sidebar draws one row
+    // instead of four. See PURCHASING_SUITE_PAGES above.
+    { id: 'purchasing/home', section: 'Purchasing', label: 'Purchasing', href: '/v2/purchasing.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'purchasing/po-builder', section: 'Purchasing', label: 'PO Builder', href: '/v2/po-builder.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
+    { id: 'purchasing/po-costing', section: 'Purchasing', label: 'PO Landed Cost', href: '/v2/po-costing.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
+    { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
+    { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/v2/factories.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
 
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
@@ -597,6 +624,8 @@
     AD_STUDIO_SUITE_PAGES,
     PERFORMANCE_ROW,
     PERFORMANCE_SUITE_PAGES,
+    PURCHASING_ROW,
+    PURCHASING_SUITE_PAGES,
     sidebarSections,
     resolveNavProfile,
     isSiloAttributionEnabled,
