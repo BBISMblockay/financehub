@@ -2,8 +2,10 @@
 //
 // The nightly pulls a trailing 30 days, so before this a client who connected
 // Meta saw a month of data and anything older needed someone to run
-// ad-platforms-sync.yml by hand with a larger days_back. Now Integrations
-// marks a NEW Meta connection `meta.history_backfill_pending = true`, and the
+// ad-platforms-sync.yml by hand with a larger days_back. Now a new Meta
+// connection is born carrying `meta.history_backfill_pending = true` (stamped
+// by newConnectionMeta() in the OAuth callback; before 2026-11-13 the
+// pasted-token form on Integrations stamped it too), and the
 // next FULL scheduled run (the 2-hourly refresh skips organic, so it cannot
 // finish the import and leaves the flag alone) pulls META_HISTORY_DAYS for
 // that one connection: daily campaign totals, ad-level rows and Page posts.

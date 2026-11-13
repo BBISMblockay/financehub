@@ -86,6 +86,7 @@ await test('a run that was not an import leaves meta untouched', () => {
 // ── wiring: the nightly orchestrator and the page ─────────────────────────
 const sync = readFileSync(new URL('../ad-platforms-sync.mjs', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../v2/integrations.html', import.meta.url), 'utf8');
+const oauthLib = readFileSync(new URL('../lib/meta-oauth-lib.mjs', import.meta.url), 'utf8');
 
 await test('the orchestrator plans with the organic-skip flag and the dispatch window', () => {
   assert.match(sync, /planMetaHistory\(connection, \{ skipOrganic: SKIP_ORGANIC, daysBack: DAYS_BACK \}\)/);
@@ -110,12 +111,17 @@ await test('success and failure both write the history state back', () => {
   assert.match(sync, /: \{ \.\.\.\(connection\.meta \|\| \{\}\) \};/);
 });
 
-await test('Integrations flags a NEW Meta connection, and only on insert', () => {
-  const inserts = page.match(/meta: \{ history_backfill_pending: true \}/g) || [];
-  assert.equal(inserts.length, 1);
-  const i = page.indexOf('meta: { history_backfill_pending: true }');
-  const before = page.slice(Math.max(0, i - 600), i);
-  assert.match(before, /\.from\('ad_platform_connections'\)\.insert\(\{[\s\S]*platform: 'meta_ads'/);
+await test('a NEW Meta connection is flagged where it is created: the OAuth callback', () => {
+  // Until 2026-11-13 the flag was stamped by the pasted-token insert on the
+  // Integrations page. That form is gone -- Connect Meta is the only way to
+  // make a Meta connection -- so newConnectionMeta() is now the single place
+  // a new row is born, and it must still carry the flag or a company that
+  // connects Meta gets 30 days of history instead of a year.
+  assert.match(oauthLib, /export function newConnectionMeta\(\{[\s\S]{0,200}?history_backfill_pending: true,/);
+  assert.equal(page.includes('history_backfill_pending'), false,
+    'the page no longer creates Meta connections, so it must not stamp the flag either');
+  assert.equal(/\.from\('ad_platform_connections'\)\s*\.insert\(/.test(page), false,
+    'no insert path survives on the page');
 });
 
 console.log(`\nmeta-history-backfill: ${passed} passed`);

@@ -221,7 +221,9 @@ update public.job_sync_state
 -- INSERT and UPDATE are deliberately LEFT IN PLACE. The admin pastes
 -- a Meta System User token and a Klaviyo private key into
 -- v2/integrations.html, which writes them straight to these columns
--- (integrations.html:3376 and :3702 / :3895). Those writes do not
+-- (`saveMetaToken` and the Klaviyo api_key connect/reconnect paths --
+-- named by function, not line: that page moved ~200 lines between this
+-- migration being written and merged). Those writes do not
 -- return the column -- supabase-js only returns rows when .select()
 -- is chained -- so write-without-read is exactly right here: a
 -- credential can be handed in and never handed back.

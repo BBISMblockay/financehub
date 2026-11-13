@@ -19727,6 +19727,14 @@ $c$select (select count(*) from v_po_header_summary
 -- the scheduled function bundles the same handler.
 \i migrations/20261112040000_plaid_auto_refresh_requested.sql
 \i migrations/20261112050000_api_call_log_keep_history.sql
+-- 2026-11-12: a partial index on the orders that carry a discount code. The
+-- affiliate order -> code match filtered on that condition, which detoasted
+-- discount_codes for every order in the window and took 6.8-12.3s against the
+-- 8s statement timeout every caller shares, so on a high-volume store no
+-- affiliate order could ever reach Studio. Index only, nothing rewritten; it
+-- holds a brief ACCESS EXCLUSIVE lock on shopify_orders while it builds, so
+-- apply it when a Shopify sync is not mid-run. No deploy owed.
+\i migrations/20261112220000_affiliate_order_match_index.sql
 -- 2026-11-13: four findings from the read-only security review of 2026-11-12.
 -- (1) the shared read-only report engine now refuses the functions that make
 -- the DATABASE issue an outbound request (pg_net, extensions.http*) or sleep,

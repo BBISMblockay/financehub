@@ -375,6 +375,149 @@
       .af-items--grid { grid-template-columns: 1fr; }
       .af-studio .af-item--tile:hover { transform: none; }
     }
+
+    /* ── Overview tab ─────────────────────────────────────────────────── */
+    .af-ov { display: flex; flex-direction: column; gap: 14px; }
+    .af-ov-metrics {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+    }
+    .af-studio .af-ov-metric {
+      position: relative; overflow: hidden; min-width: 0;
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 14px; padding: 14px 15px 0;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+    }
+    .af-ov-metric .af-ov-lab {
+      font-size: 11px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--bcn-ink-3);
+    }
+    .af-ov-metric .af-ov-val {
+      font-family: var(--bcn-mono); font-size: 26px; font-weight: 600;
+      letter-spacing: -.02em; line-height: 1.1; margin-top: 7px;
+    }
+    .af-ov-metric .af-ov-foot {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-top: 6px; font-size: 11.5px; color: var(--bcn-ink-3);
+    }
+    .af-ov-delta {
+      font-family: var(--bcn-mono); font-size: 11.5px; font-weight: 600;
+      border-radius: 99px; padding: 2px 7px;
+    }
+    .af-ov-delta--up { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
+    .af-ov-delta--down { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
+    .af-ov-delta--flat { background: var(--bcn-sunken); color: var(--bcn-ink-3); }
+    .af-ov-spark { display: block; width: calc(100% + 30px); margin: 8px -15px 0; height: 46px; }
+    .af-ov-spark .af-ov-ln { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .af-ov-spark .af-ov-ar { stroke: none; opacity: .18; }
+    .af-ov-spark circle { stroke: none; }
+    .af-ov-spark--accent .af-ov-ln { stroke: var(--bcn-accent); }
+    .af-ov-spark--accent .af-ov-ar, .af-ov-spark--accent circle { fill: var(--bcn-accent); }
+    .af-ov-spark--pos .af-ov-ln { stroke: var(--bcn-pos); }
+    .af-ov-spark--pos .af-ov-ar, .af-ov-spark--pos circle { fill: var(--bcn-pos); }
+    .af-ov-spark--warn .af-ov-ln { stroke: var(--bcn-warn); }
+    .af-ov-spark--warn .af-ov-ar, .af-ov-spark--warn circle { fill: var(--bcn-warn); }
+
+    .af-studio .af-ov-band {
+      background: var(--bcn-band); border: 1px solid var(--bcn-border-strong);
+      border-radius: 14px; padding: 13px 16px;
+      display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center;
+    }
+    .af-ov-band .af-ov-bi { min-width: 0; }
+    .af-ov-band .af-ov-bl {
+      font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--bcn-band-ink-2);
+    }
+    .af-ov-band .af-ov-bv {
+      font-family: var(--bcn-mono); font-size: 15px; font-weight: 600;
+      color: var(--bcn-band-ink); margin-top: 2px;
+    }
+    .af-ov-band .af-ov-bv button {
+      font-family: var(--bcn-mono); font-size: 15px; font-weight: 600;
+      background: none; border: 0; padding: 0; cursor: pointer;
+      color: var(--bcn-band-ink); border-bottom: 1px dotted var(--bcn-band-ink-2);
+    }
+    .af-ov-band .af-ov-bsep { flex: 1; }
+
+    .af-ov-cols {
+      display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+      gap: 14px; align-items: start;
+    }
+    .af-ov-cols > div { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    .af-ov-lb { display: flex; flex-direction: column; }
+    .af-ov-lb-row {
+      display: grid; grid-template-columns: 20px 34px minmax(0, 1fr) 92px 74px 56px;
+      gap: 12px; align-items: center; padding: 10px 0;
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .af-ov-lb-row:last-child { border-bottom: 0; }
+    .af-ov-rk { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-3); text-align: right; }
+    .af-ov-who { min-width: 0; }
+    .af-ov-who .af-ov-nm {
+      font-size: 13px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .af-ov-who .af-ov-hd {
+      font-size: 11.5px; color: var(--bcn-ink-3); margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .af-ov-bar {
+      height: 5px; border-radius: 99px; background: var(--bcn-sunken);
+      overflow: hidden; margin-top: 6px;
+    }
+    .af-ov-bar i { display: block; height: 100%; border-radius: 99px; background: var(--bcn-accent); }
+    .af-ov-money {
+      font-family: var(--bcn-mono); font-size: 13px; font-weight: 600; text-align: right;
+    }
+    .af-ov-money span {
+      display: block; font-family: var(--bcn-font); font-size: 11px;
+      font-weight: 400; color: var(--bcn-ink-3); margin-top: 2px;
+    }
+    .af-ov-when { font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink-3); text-align: right; }
+    .af-ov-avatar { display: grid; width: 34px; height: 34px; }
+    .af-ov-avatar > * { grid-area: 1 / 1; }
+    .af-ov-avatar > *, .af-ov-avatar .af-avatar-photo {
+      width: 34px; height: 34px; font-size: 12.5px;
+      border-radius: 99px; object-fit: cover; box-shadow: none; border: none;
+    }
+
+    .af-ov-ro { display: flex; flex-direction: column; }
+    .af-ov-ro-row {
+      display: flex; gap: 10px; align-items: flex-start; padding: 11px 0;
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .af-ov-ro-row:last-child { border-bottom: 0; }
+    .af-ov-dot { flex: none; width: 7px; height: 7px; border-radius: 99px; margin-top: 6px; }
+    .af-ov-dot--quiet { background: var(--bcn-warn); }
+    .af-ov-dot--drop { background: var(--bcn-neg); }
+    .af-ov-dot--never { background: var(--bcn-ink-4); }
+    .af-ov-dot--rise { background: var(--bcn-pos); }
+    .af-ov-dot--stuck { background: var(--bcn-accent); }
+    .af-ov-ro-b { flex: 1; min-width: 0; }
+    .af-ov-ro-top { display: flex; gap: 7px; align-items: baseline; flex-wrap: wrap; }
+    .af-ov-ro-top .af-ov-nm { font-size: 13px; font-weight: 600; }
+    .af-ov-why { font-size: 12px; color: var(--bcn-ink-2); margin-top: 3px; line-height: 1.45; }
+    .af-ov-why b { font-family: var(--bcn-mono); font-weight: 600; color: var(--bcn-ink); }
+    .af-ov-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+    .af-ov-chart svg { display: block; width: 100%; height: auto; }
+    .af-ov-chart .af-ov-grid { stroke: var(--bcn-border); stroke-width: 1; }
+    .af-ov-chart .af-ov-axis { stroke: var(--bcn-border-strong); stroke-width: 1; }
+    .af-ov-chart .af-ov-tick { font-family: var(--bcn-mono); font-size: 10.5px; fill: var(--bcn-ink-3); }
+    .af-ov-chart .af-ov-bc { fill: var(--bcn-accent); }
+    .af-ov-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--bcn-ink-3); }
+    .af-ov-legend i {
+      display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+      margin-right: 6px; vertical-align: -1px;
+    }
+    @media (max-width: 1080px) {
+      .af-ov-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .af-ov-cols { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 620px) {
+      .af-ov-metrics { grid-template-columns: minmax(0, 1fr); }
+      .af-ov-lb-row { grid-template-columns: 18px 34px minmax(0, 1fr) 80px; row-gap: 4px; }
+      .af-ov-lb-row .af-ov-when, .af-ov-lb-row .af-ov-money--comm { display: none; }
+    }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -406,7 +549,8 @@
     <div class="af-ai-hub" id="afAiHub" hidden aria-label="Use your AI with SILO MCP"></div>
 
     <nav class="bcn-tabs af-tabs--workflow" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="prospects" id="tab-prospects">Find creators</button>
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Overview</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="prospects" id="tab-prospects">Recruiting</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
@@ -414,7 +558,8 @@
     </nav>
 
     <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
-    <section class="af-panel" data-panel="prospects"><div class="af-stack" id="prospectsBody"></div></section>
+    <section class="af-panel" data-panel="overview"><div class="af-ov" id="overviewBody"></div></section>
+    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack" id="prospectsBody"></div></section>
     <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
     <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
     <section class="af-panel" data-panel="share" hidden><div class="af-stack" id="shareBody"></div></section>

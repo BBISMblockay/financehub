@@ -151,10 +151,27 @@ by hand is the secondary button.
   ads with a picture, catalog templates excluded) to show in the portal.
   Sharing an ad copies its picture from the private `ad-creative-images`
   bucket to the public `affiliate-feed-images` bucket at the same path.
-- **Commissions**: after an order sync, run *1. Match orders* then
-  *2. Calculate commissions* for a date range (re-running is safe). Open a
-  review period, submit it, and have someone with journal-entry approval
-  approve it.
+- **Commissions**: matching and pricing run **automatically** -- at the end of
+  every Shopify sync for the companies that run synced (short 3-day window,
+  `CHAINED_LOOKBACK_DAYS`), and in the nightly `affiliate-commissions`
+  workflow over 45 days, which is the pass that reverses refunds and
+  cancellations that land weeks after an order. *1. Match orders* and
+  *2. Calculate commissions* are still there for a date range you want now;
+  re-running is always safe. Then open a review period, submit it, and have
+  someone with journal-entry approval approve it.
+  - Both steps are capped at **8 seconds** (PostgREST sets
+    `statement_timeout=8s` on the role it connects as, and the service role
+    does not lift it). `shopify_orders_co_created_coded_idx`
+    (20261112220000) is what keeps the match inside that on a high-volume
+    store: without it the scan detoasts `discount_codes` for every order in
+    the window and is cancelled every time, in the nightly job and behind the
+    button alike, so no affiliate order ever appears. If Studio shows no
+    orders for a code you know sold, check that index first and look for
+    `canceling statement due to statement timeout` in
+    `sync_jobs` (`job_type = 'affiliate_commissions'`, whose `result.source`
+    says whether it was the sync-chained or the nightly pass).
+  - A lagging chained run is a GitHub Actions **warning**, not a red sync:
+    the orders still imported, and the nightly run is the backstop.
 - **Payouts**: build a draft payout per affiliate, approve (journal-entry
   approval), export the CSV, pay it in the bank or payment tool, then record
   the reference and evidence. Tell the affiliate from the same row.
