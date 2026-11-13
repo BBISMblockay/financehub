@@ -113,13 +113,19 @@ export function validateProgram(f) {
     code_precedence: f.code_precedence === 'single_code_only' ? 'single_code_only' : 'first_affiliate_code',
     refund_hold_days: intOr(f.refund_hold_days, 30),
     payout_minimum_cents: 0,
-    payout_method: 'manual',
     discovery_max_cost_usd: f.discovery_max_cost_usd === '' || f.discovery_max_cost_usd === undefined ? 0.5 : Number(f.discovery_max_cost_usd),
     default_code_starts_on: f.default_code_starts_on || null,
     default_code_ends_on: f.default_code_ends_on || null,
     owner_user_id: f.owner_user_id || null,
     terms_markdown: String(f.terms_markdown || '').trim() || null,
   };
+  // The payout rail (20261113040000). Sent ONLY when the form carries it: a
+  // caller that does not know about the field must not silently reset a
+  // program that pays through PayPal back to paying by hand. A new program
+  // takes the column default, which is manual.
+  if (f.payout_method !== undefined) {
+    row.payout_method = f.payout_method === 'paypal_payouts' ? 'paypal_payouts' : 'manual';
+  }
   // Percent off on the code queued when someone joins (blank = off). Only
   // sent when the form carries it, so a database without the column
   // (before 20261110180000) still saves.

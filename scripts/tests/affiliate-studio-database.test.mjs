@@ -63,6 +63,15 @@
 //   AFFILIATE_DB_MUTATION=exportconfirm the export confirms payouts that are no longer approved
 //   AFFILIATE_DB_MUTATION=managedco     the staff gate returns the company without judging it
 //   AFFILIATE_DB_MUTATION=moneylock     accrual takes no program lock
+//   PayPal payouts (20261113040000):
+//   AFFILIATE_DB_MUTATION=connread      a client role may read the company's PayPal credentials
+//   AFFILIATE_DB_MUTATION=payoutsecret  the status view discloses client_secret
+//   AFFILIATE_DB_MUTATION=sendinflight  a payout already in flight may be sent again
+//   AFFILIATE_DB_MUTATION=sendunknown   an attempt that never answered may be retried blind
+//   AFFILIATE_DB_MUTATION=unclaimedpaid an unclaimed payment is recorded as paid
+//   AFFILIATE_DB_MUTATION=terminalrewrite a later poll may rewrite a terminal attempt
+//   AFFILIATE_DB_MUTATION=sendtenant    a payout belonging to another company may be sent
+//   AFFILIATE_DB_MUTATION=sendgrant     authenticated may execute the send functions
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -168,6 +177,8 @@ const files = {
   // without the index -- which is the point: a database without it cannot
   // match an affiliate order inside the 8s statement timeout.
   matchindex: '20261112220000_affiliate_order_match_index.sql',
+  // The first payout rail that actually sends money (20261113040000).
+  paypal: '20261113040000_affiliate_paypal_payouts.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -331,12 +342,39 @@ switch (MUT) {
   // apart. Review cycle 1, P2.
   case 'nomatchindex':
     mutate('matchindex', 'shopify_orders_co_created_coded_idx', 'shopify_orders_unused_idx'); break;
+  // PayPal payouts (20261113040000):
+  case 'connread':
+    mutate('paypal', 'revoke all on public.affiliate_payout_connections from anon, authenticated;',
+      'grant select on public.affiliate_payout_connections to authenticated;'); break;
+  case 'payoutsecret':
+    mutate('paypal', `    (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set`,
+      `    c.client_secret,
+    (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set`); break;
+  case 'sendinflight':
+    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+      `     and state in ('definitely-not-a-state')`); break;
+  case 'sendunknown':
+    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+      `     and state in ('sent','unclaimed','paid')`); break;
+  case 'unclaimedpaid':
+    mutate('paypal', `  if p_state <> 'paid' then`, `  if p_state not in ('paid','unclaimed') then`); break;
+  case 'terminalrewrite':
+    mutate('paypal', `  if v_send.state in ('paid','returned','refused') and p_state <> v_send.state then`,
+      '  if false then'); break;
+  case 'sendtenant':
+    mutate('paypal', `  if p_company is null or v_payout.company_entity_id is distinct from p_company then
+    raise exception 'affiliate_payout_send_claim: that payout belongs to another company'
+      using errcode = '42501';
+  end if;`, '  -- tenant check removed'); break;
+  case 'sendgrant':
+    mutate('paypal', 'grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) to service_role;',
+      'grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) to service_role, authenticated;'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1302,13 +1340,197 @@ await check('P2 a program outreach message must keep {signup_link}; blank means 
   await db.query('update affiliate_programs set outreach_subject = null, outreach_body = null where id = $1', [progA]);
 });
 
+
+// ── L: PayPal payouts -- the first rail that moves money ─────────────────
+// The money is the COMPANY's, from their own PayPal to their own affiliates.
+// What is tested here is the three things that make that safe: the credential
+// is unreadable by every client role, one payout can never be in flight
+// twice, and "paid" is something the provider said rather than something a
+// person clicked.
+const payProg = await seedProgram(U.ownerA, A, 'paypal-rail', { payout_method: 'paypal_payouts' });
+let payAff;
+let payPayout;
+
+await check('L1 the company PayPal credential is readable by no client role', async () => {
+  await asSuper();
+  await db.query(`insert into affiliate_payout_connections
+      (company_entity_id, provider, environment, client_id, client_secret, account_email, payouts_enabled)
+    values ($1, 'paypal', 'sandbox', 'client-abc', 'secret-xyz', 'pay@a.test', true)`, [A]);
+  for (const role of ['authenticated', 'anon']) {
+    await db.exec(`reset role; set role ${role};`);
+    await assert.rejects(db.query('select client_secret from affiliate_payout_connections'),
+      /permission denied/, `${role} may not read the credential`);
+  }
+  await asSuper();
+});
+
+await check('L2 members see whether payouts are connected, never the credential', async () => {
+  await as(U.memberA, A);
+  const row = await one('select * from affiliate_payout_connection_status_v');
+  assert.equal(row.credentials_set, true, 'the view says it is configured');
+  assert.equal(row.account_email, 'pay@a.test');
+  assert.ok(!('client_secret' in row), 'client_secret is not a column of the status view');
+  assert.ok(!('client_id' in row), 'client_id is not a column of the status view');
+  // Another company's connection is not visible through the definer view.
+  await as(U.ownerB, B);
+  assert.equal((await all('select * from affiliate_payout_connection_status_v')).length, 0);
+});
+
+await check('L3 the send functions are service-role only', async () => {
+  for (const user of [U.ownerA, U.finA]) {
+    await as(user, A);
+    for (const fn of ['affiliate_payout_send_claim', 'affiliate_payout_send_record']) {
+      assert.equal(
+        (await one(`select has_function_privilege($1, p.oid, 'execute') as can
+                      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'public' and p.proname = $2`, ['authenticated', fn])).can,
+        false, `${fn} is not executable by authenticated`);
+    }
+  }
+  await asSuper();
+});
+
+await check('L4 a payout cannot be sent before it is approved, or without an address', async () => {
+  await asSuper();
+  payAff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status,
+      terms_version_accepted, terms_accepted_at)
+    values ($1, $2, 'PayPal Rep', 'rep@paypal.test', 'active', 1, now()) returning id`, [A, payProg])).id;
+  payPayout = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status)
+    values ($1, $2, $3, 'USD', 5000, 'paypal_payouts', 'draft') returning id`, [A, payProg, payAff])).id;
+
+  await db.exec('set role service_role');
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $4, $2, $3)', [payPayout, 'sandbox', U.finA, A]),
+    /only once it is approved/, 'a draft is not sendable');
+
+  await asSuper();
+  await db.query(`update affiliate_payouts set status = 'approved', approved_by = $2, approved_at = now()
+    where id = $1`, [payPayout, U.finA]);
+
+  await db.exec('set role service_role');
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $4, $2, $3)', [payPayout, 'sandbox', U.finA, A]),
+    /has not given a PayPal address/, 'no address, no payment');
+
+  await asSuper();
+  await db.query(`insert into affiliate_payout_accounts
+      (company_entity_id, affiliate_id, provider, payout_email) values ($1, $2, 'paypal', $3)`,
+    [A, payAff, 'rep@paypal.test']);
+});
+
+await check('L4b another company\'s payout cannot be sent, even by the service role', async () => {
+  await db.exec('reset role; set role service_role');
+  // The id reaches this function from a request body and RLS does not apply to
+  // the service role, so the company it was given is the only thing standing
+  // between company B and paying company A's affiliate out of B's PayPal.
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $2, $3, $4)', [payPayout, B, 'sandbox', U.ownerB]),
+    /belongs to another company/);
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $2, $3, $4)', [payPayout, null, 'sandbox', U.finA]),
+    /belongs to another company/, 'and no company at all is not a pass');
+  assert.equal((await one('select count(*)::int as n from affiliate_payout_sends where payout_id = $1', [payPayout])).n, 0,
+    'no attempt was reserved');
+});
+
+await check('L5 one payout is never in flight twice', async () => {
+  await db.exec('reset role; set role service_role');
+  const claim = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [payPayout, 'sandbox', U.finA, A])).r;
+  assert.equal(claim.attempt, 1);
+  assert.equal(claim.payout_email, 'rep@paypal.test');
+  assert.equal(claim.amount_cents, 5000);
+  // Deterministic, so the same attempt replayed is the same request to PayPal.
+  assert.match(claim.request_id, /^silo-[0-9a-f]{32}-1$/);
+  assert.equal(claim.sender_batch_id, claim.request_id);
+
+  // The row exists BEFORE the provider is called, and it is state unknown:
+  // the call may have been accepted, so another attempt is refused until it
+  // has been reconciled.
+  const send = await one('select * from affiliate_payout_sends where id = $1', [claim.send_id]);
+  assert.equal(send.state, 'unknown');
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $4, $2, $3)', [payPayout, 'sandbox', U.finA, A]),
+    /never reported an answer/, 'a timed-out attempt blocks a blind retry');
+
+  // Accepted but not yet successful: still no second attempt.
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)',
+    [claim.send_id, 'sent', 'BATCH1', 'ITEM1', 'PENDING']);
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $4, $2, $3)', [payPayout, 'sandbox', U.finA, A]),
+    /already has an attempt in state sent/);
+
+  // Sent to an address with no PayPal account. Money has left, nobody has it,
+  // and it comes back after 30 days -- so this is NOT paid.
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)',
+    [claim.send_id, 'unclaimed', 'BATCH1', 'ITEM1', 'UNCLAIMED']);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [payPayout])).status, 'approved',
+    'an unclaimed payment is not a paid payout');
+});
+
+await check('L6 only the provider confirming it marks a payout paid, with its own ids as evidence', async () => {
+  await db.exec('reset role; set role service_role');
+  const send = await one('select id from affiliate_payout_sends where payout_id = $1 order by attempt desc limit 1', [payPayout]);
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5, null, null, $6, $7)',
+    [send.id, 'paid', 'BATCH1', 'ITEM1', 'SUCCESS', 25, U.finA]);
+  const p = await one('select * from affiliate_payouts where id = $1', [payPayout]);
+  assert.equal(p.status, 'marked_paid');
+  assert.equal(p.external_reference, 'ITEM1');
+  assert.match(p.paid_evidence, /PayPal Payouts \(sandbox\): item ITEM1 in batch BATCH1/);
+  assert.equal(p.marked_paid_by, U.finA);
+  assert.equal(Number((await one('select fee_cents from affiliate_payout_sends where id = $1', [send.id])).fee_cents), 25);
+
+  // A later poll must not rewrite a fact. This is how a paid payout would
+  // otherwise quietly become unpaid.
+  await assert.rejects(db.query('select affiliate_payout_send_record($1, $2)', [send.id, 'returned']),
+    /already paid and cannot become returned/);
+});
+
+await check('L7 a refused attempt is safe to try again; the manual path still refuses this method', async () => {
+  await asSuper();
+  const aff2 = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status,
+      terms_version_accepted, terms_accepted_at)
+    values ($1, $2, 'Second Rep', 'rep2@paypal.test', 'active', 1, now()) returning id`, [A, payProg])).id;
+  await db.query(`insert into affiliate_payout_accounts
+      (company_entity_id, affiliate_id, provider, payout_email) values ($1, $2, 'paypal', $3)`,
+    [A, aff2, 'rep2@paypal.test']);
+  const po = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 1200, 'paypal_payouts', 'approved', $4, now()) returning id`,
+    [A, payProg, aff2, U.finA])).id;
+
+  await db.exec('set role service_role');
+  const first = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [po, 'sandbox', U.finA, A])).r;
+  await db.query('select affiliate_payout_send_record($1, $2, null, null, $3, $4, $5)',
+    [first.send_id, 'refused', 'DENIED', 'RECEIVER_UNREGISTERED', 'that address is not a PayPal account']);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [po])).status, 'approved',
+    'a refusal leaves the payout approved, ready to try again');
+  const second = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [po, 'sandbox', U.finA, A])).r;
+  assert.equal(second.attempt, 2, 'a refused attempt may be followed by another');
+  assert.notEqual(second.request_id, first.request_id, 'and it is a NEW key, because PayPal rejects a reused one');
+
+  // The human path is unchanged: nobody may assert a machine payment happened.
+  await as(U.finA, A);
+  await assert.rejects(
+    db.query('select affiliate_mark_payout_paid($1, $2, $3)', [po, 'ref', 'evidence']),
+    /is not implemented/, 'a PayPal payout cannot be marked paid by hand');
+  await asSuper();
+});
+
+await check('L8 the rail is a value the schema accepts, and junk still is not', async () => {
+  await asSuper();
+  await assert.rejects(db.query(`update affiliate_programs set payout_method = 'venmo-vibes' where id = $1`, [payProg]),
+    /payout_method/);
+  await assert.rejects(db.query(`insert into affiliate_payout_accounts
+      (company_entity_id, affiliate_id, provider, payout_email) values ($1, $2, 'carrier-pigeon', $3)`,
+    [A, payAff, 'x@y.test']), /provider/);
+  await assert.rejects(db.query(`insert into affiliate_payout_accounts
+      (company_entity_id, affiliate_id, provider, payout_email) values ($1, $2, 'paypal', $3)`,
+    [A, payAff, 'not-an-address']), /payout_email|email_shape/);
+});
+
 // ── N: the daily drift check reads ok on this schema ─────────────────────
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
-  for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message']) {
+  for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
+    'Affiliate PayPal payouts']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

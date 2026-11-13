@@ -82,14 +82,22 @@ await t('money input: refuses more decimals than the currency has', () => {
 });
 
 await t('program form: valid input becomes a row the CHECKs accept; invalid input says why', () => {
-  const { row, errors } = C.validateProgram({ name: 'Creator Program', commission_percent: '12.5', currency: 'usd', platforms: ['youtube'], payout_minimum: '25', terms_markdown: 'x', status: 'active' });
+  const ok = { name: 'Creator Program', commission_percent: '12.5', currency: 'usd', platforms: ['youtube'], payout_minimum: '25', terms_markdown: 'x', status: 'active' };
+  const { row, errors } = C.validateProgram(ok);
   assert.deepEqual(errors, []);
   assert.equal(row.slug, 'creator-program');
   assert.equal(row.currency, 'USD');
   assert.equal(row.commission_percent, 12.5);
   assert.equal(row.payout_minimum_cents, 2500);
   assert.equal(row.attribution_window_days, 0, 'no silent grace by default');
-  assert.equal(row.payout_method, 'manual', 'the form cannot choose an unbuilt payout method');
+  // The payout rail (20261113040000). A form that does not carry the field
+  // must not send one: that is what stops an older caller silently resetting a
+  // program that pays through PayPal back to paying by hand.
+  assert.equal('payout_method' in row, false, 'a form without the field sends no method');
+  assert.equal(C.validateProgram({ ...ok, payout_method: 'paypal_payouts' }).row.payout_method, 'paypal_payouts');
+  assert.equal(C.validateProgram({ ...ok, payout_method: 'manual' }).row.payout_method, 'manual');
+  assert.equal(C.validateProgram({ ...ok, payout_method: 'stripe_connect_express' }).row.payout_method, 'manual',
+    'a rail that is not built is not a choice the form can make');
   const bad = C.validateProgram({ name: '', commission_percent: '120', currency: 'dollars', attribution_window_days: '400', status: 'active' });
   assert.ok(bad.errors.length >= 4, bad.errors.join(' | '));
   assert.ok(bad.errors.some((e) => /terms/.test(e)), 'an active program needs terms');

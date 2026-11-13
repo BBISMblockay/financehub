@@ -3559,3 +3559,42 @@ way. **No function deploy.** Verify: `verify_v2_schema.sql` checks "readonly_que
 "ad_platform_select_policy_roles" — all four return CRITICAL/MISSING on production until it is
 applied. Tests: `scripts/tests/security-review-fixes-database.test.mjs` (20 checks, 9 mutations),
 `v2/tests/unit/connection-credentials-not-selected.test.js`.
+
+### `migrations/20261113040000_affiliate_paypal_payouts.sql` — affiliate payouts through the company's own PayPal
+
+The first payout rail that actually sends money. **The money is the COMPANY's**,
+from their own PayPal business account to their own affiliates; SILO's platform
+PayPal is not in the path, holds nothing and funds nothing. Full reasoning in
+`docs/ops/affiliate-studio.md`.
+
+- **`affiliate_payout_connections`** — the company's own PayPal credentials, one
+  row per company. **No grant to any client role**: `client_secret` can move the
+  company's money. Written only by the `affiliate-payouts` edge function.
+- **`affiliate_payout_connection_status_v`** — what a member may know: whether
+  the rail is connected and working. `security_invoker = false` with an explicit
+  `active_company_id()` filter (that filter IS the tenant boundary) and no
+  credential columns (the column list IS the disclosure boundary). Same split as
+  `stripe_connect_accounts` / `stripe_connect_status_v`.
+- **`affiliate_payout_accounts`** — gains `'paypal'` as a provider and a
+  `payout_email`, set by the AFFILIATE in their own portal. Deliberately not
+  `affiliates.contact_email`.
+- **`affiliate_payout_sends`** — one row per ATTEMPT, written BEFORE the call
+  with a deterministic request id (unique index). A call that never answered is
+  state `unknown` and blocks another attempt.
+- **`affiliate_payout_send_claim()` / `affiliate_payout_send_record()`** —
+  service role only. The claim takes the program money lock and refuses a payout
+  that is not approved, an affiliate with no address, and anything already in
+  flight. The record marks the payout paid ONLY on the provider's confirmation,
+  with PayPal's own ids as the evidence, and refuses to rewrite a terminal
+  answer. `affiliate_mark_payout_paid()` is unchanged and still refuses every
+  non-manual method.
+- `affiliate_programs.payout_method` and `affiliate_payouts.method` gain
+  `'paypal_payouts'`. Both CHECKs are dropped BY DEFINITION, not by a guessed
+  name, because production holds hand-applied objects whose names may differ.
+- Ends with `attach_stamp_company_entity_id_triggers()` and
+  `attach_affiliate_same_company_twins()` — the new table references
+  `affiliate_payouts`, so it needs the composite twin, and the twins function
+  last ran before this table existed.
+
+Verify block: `Affiliate PayPal payouts`. Deploy `affiliate-payouts` (new) and
+`affiliate-portal` after applying.

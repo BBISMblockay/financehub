@@ -419,6 +419,28 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       return reply({ photo_url: patch.photo_url, own: !!patch.photo_url });
     }
 
+    // Where this affiliate takes money. Set by THE AFFILIATE, from their own
+    // portal link, and by nobody else: the person who owns the address is the
+    // only one who can be right about it, and a payout sent to an address a
+    // manager typed is a payment to whoever holds it. Deliberately separate
+    // from contact_email -- where someone reads mail and where they take
+    // money are different facts.
+    if (action === 'payout_email') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const email = String(body?.email ?? '').trim().toLowerCase();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return reply({ error: 'That does not look like an email address.' }, 400);
+      }
+      const { error } = await service.from('affiliate_payout_accounts').upsert({
+        company_entity_id: t.company_entity_id,
+        affiliate_id: t.affiliate_id,
+        provider: 'paypal',
+        payout_email: email || null,
+      }, { onConflict: 'company_entity_id,affiliate_id,provider' });
+      if (error) return dbError(error);
+      return reply({ payout_email: email || null });
+    }
+
     if (action === 'statement') {
       if (t.purpose !== 'portal') return reply({ error: 'Finish signing up first.' }, 400);
       const { data, error } = await service.rpc('affiliate_portal_statement', { p_token_hash: hash });
@@ -434,8 +456,16 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       }
       if (feed) delete feed.store;
       const photo = await repPhoto(t);
+      // Only this affiliate's own payout address, and only the address.
+      let payoutEmail = null;
+      if (t.affiliate_id) {
+        const { data: acct } = await service.from('affiliate_payout_accounts')
+          .select('payout_email').eq('company_entity_id', t.company_entity_id)
+          .eq('affiliate_id', t.affiliate_id).eq('provider', 'paypal').maybeSingle();
+        payoutEmail = acct?.payout_email || null;
+      }
       return reply({ brand: t.company_title, brand_logo: await brandLogo(t.company_entity_id), program: t.program_name, statement: data,
-        feed, photo_url: photo.url, photo_own: photo.own,
+        feed, photo_url: photo.url, photo_own: photo.own, payout_email: payoutEmail,
         formatted: { earned: formatMoney(data?.totals?.earned_cents, data?.currency) } });
     }
 

@@ -19748,4 +19748,15 @@ $c$select (select count(*) from v_po_header_summary
 -- change that makes the QuickBooks card name its columns -- apply this AFTER
 -- that merges, or the card breaks on select('*') until it does.
 \i migrations/20261113010000_security_review_fixes.sql
+-- 2026-11-13: affiliate payouts through PayPal -- the first rail that actually
+-- sends money. The COMPANY's own PayPal business credentials pay the COMPANY's
+-- affiliates; SILO's platform PayPal is never in the path and funds nothing.
+-- Adds affiliate_payout_connections (credential, no client role may read it),
+-- its status view, affiliate_payout_sends (one row per ATTEMPT, written before
+-- the call so a timeout leaves evidence and blocks a blind retry), and two
+-- service-role functions. affiliate_mark_payout_paid() still refuses every
+-- non-manual method: a provider payout is recorded paid only from what the
+-- provider answered. Apply BEFORE deploying affiliate-payouts and
+-- affiliate-portal.
+\i migrations/20261113040000_affiliate_paypal_payouts.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -9687,3 +9687,61 @@ select 'Bookkeeping checked transition safety' as check_name,
         or has_function_privilege('anon', 'public.silo_takeover_window(uuid)', 'execute')
    then 'BROKEN — handover blocker list privileges changed'
   else 'ok' end as status;
+
+-- Affiliate payouts through PayPal (20261113040000). The rail sends the
+-- COMPANY's money from the COMPANY's own PayPal, so what this checks is the
+-- three things that make that safe: the credential is unreadable, a payout
+-- cannot be in flight twice, and "paid" is the provider's word rather than a
+-- person's.
+select 'Affiliate PayPal payouts' as check_name,
+  case
+  when to_regclass('public.affiliate_payout_connections') is null
+        or to_regclass('public.affiliate_payout_sends') is null
+        or to_regclass('public.affiliate_payout_connection_status_v') is null
+        or to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid)') is null
+        or to_regprocedure('public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)') is null
+   then 'MISSING — 20261113040000 is not applied'
+  -- client_secret can move the company's money. No client role reads it, and
+  -- the status view members DO read must not carry it either.
+  when has_table_privilege('authenticated', 'public.affiliate_payout_connections', 'select')
+        or has_table_privilege('anon', 'public.affiliate_payout_connections', 'select')
+   then 'CRITICAL — a client role can read a company''s PayPal credentials'
+  when exists (select 1 from information_schema.columns
+                where table_schema = 'public'
+                  and table_name = 'affiliate_payout_connection_status_v'
+                  and column_name in ('client_id','client_secret'))
+   then 'CRITICAL — the payout status view discloses the PayPal credentials'
+  when pg_get_viewdef('public.affiliate_payout_connection_status_v'::regclass) not like '%active_company_id()%'
+   then 'CRITICAL — the payout status view lost its company filter, which IS its tenant boundary'
+  -- Causing a payment is not something a browser session may do directly.
+  when has_function_privilege('authenticated', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid)', 'execute')
+        or has_function_privilege('anon', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid)', 'execute')
+        or has_function_privilege('authenticated', 'public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)', 'execute')
+   then 'BROKEN — a client role may execute the affiliate payout send functions'
+  -- The retry guards. An attempt with no answer may already have been
+  -- accepted, so sending again is how an affiliate gets paid twice.
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid)')) not like '%unknown%'
+        or pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid)')) not like '%affiliate_lock_program_money%'
+   then 'BROKEN — the payout send claim no longer refuses an attempt already in flight'
+  -- This function runs as the service role over a payout id that came from a
+  -- request body, so p_company is the tenant boundary, not RLS.
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid)')) not like '%belongs to another company%'
+   then 'CRITICAL — the payout send claim no longer checks the payout''s company'
+  when not exists (select 1 from pg_indexes
+                    where schemaname = 'public' and tablename = 'affiliate_payout_sends'
+                      and indexdef like '%UNIQUE%' and indexdef like '%request_id%')
+   then 'BROKEN — the payout idempotency key is no longer unique'
+  -- Only the provider's confirmation marks a payout paid, and a terminal
+  -- answer cannot be rewritten by a later poll.
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)')) not like '%cannot become%'
+   then 'BROKEN — a settled payout attempt can be rewritten by a later poll'
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)')) not like '%marked_paid%'
+   then 'BROKEN — the provider''s confirmation no longer records the payout as paid'
+  -- And the human path still refuses to assert a machine payment happened.
+  when pg_get_functiondef(to_regprocedure('public.affiliate_mark_payout_paid(uuid,text,text)')) not like '%is not implemented%'
+   then 'CRITICAL — a person may now mark a provider payout paid by hand'
+  when not exists (select 1 from pg_constraint
+                    where conrelid = 'public.affiliate_payouts'::regclass and contype = 'c'
+                      and pg_get_constraintdef(oid) like '%paypal_payouts%')
+   then 'BROKEN — affiliate_payouts.method no longer accepts paypal_payouts'
+  else 'ok' end as status;

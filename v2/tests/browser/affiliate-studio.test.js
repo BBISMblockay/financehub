@@ -27,6 +27,9 @@
  *                                     so a program switch mid-claim mislabels it
  *   AFFILIATE_UI_MUTATION=periodtotal a period total is summed from the 300
  *                                     ledger lines the page holds
+ *   AFFILIATE_UI_MUTATION=sendwhileopen a payout with an attempt in flight is offered another Send
+ *   AFFILIATE_UI_MUTATION=sendnoaddress a payout is offered Send before the affiliate gave an address
+ *   AFFILIATE_UI_MUTATION=connflag   the page looks for a `connected` flag the status view does not have
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
@@ -80,6 +83,10 @@ const MUTATIONS = {
   silentswitch: ['/affiliates/portal.html', '  if (!brands.length) {', '  if (false) {'],
   codeblame: ['/affiliates/portal.html', '      : `<span class="af-sub">${feed?.code', '      : `<span class="af-sub">${false'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
+  // The PayPal rail (20261113040000).
+  sendwhileopen: ['/affiliates/studio.js', "      const open = sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state);", '      const open = false;'],
+  connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
+  sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -594,6 +601,63 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       { ready: () => /Only a workspace owner can change the logo/.test(document.getElementById('logoHint').textContent) });
     R.ok('only an owner is offered the upload', await viewer.$eval('#btnLogo', (b) => b.disabled));
     await viewer.close();
+
+    // ── the PayPal rail (20261113040000) ──────────────────────────────────
+    // The page's job here is to never offer a second payment for the same
+    // commission. The database refuses one anyway; the UI must not invite it.
+    const PP = '66666666-6666-4666-8666-666666666666';
+    const ppProgram = [{ ...tables.affiliate_programs[0], payout_method: 'paypal_payouts' }];
+    const ppPayout = [{ id: PP, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', method: 'paypal_payouts', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now, approved_at: now }];
+    const ppRpc = { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true };
+
+    const ppOff = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout }, { ready, rpc: ppRpc });
+    ppOff.on('pageerror', (e) => errors.push(e.message));
+    await ppOff.click('#tabs [data-tab="payouts"]');
+    const offText = await text(ppOff, '#payoutsBody');
+    R.has(offText, 'Connect PayPal', 'an unconnected program is asked to connect');
+    R.ok('with somewhere to get Payouts access', !!(await ppOff.$('#payoutsBody a[href*="payoutsweb/landing"]')));
+    R.ok('no Send button before PayPal is connected', !(await ppOff.$('#payoutsBody [data-act="pp-send"]')));
+    R.has(offText, 'Connect PayPal first', 'and the payout says why it cannot be sent');
+    await ppOff.close();
+
+    const connected = [{ company_entity_id: CO, provider: 'paypal', environment: 'sandbox', is_active: true, account_email: 'brand@pay.invalid', payouts_enabled: true, credentials_set: true, last_tested_at: now, last_test_success: true, last_test_error: null, last_send_at: null }];
+
+    const ppNoAddr = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected },
+      { ready, rpc: ppRpc });
+    ppNoAddr.on('pageerror', (e) => errors.push(e.message));
+    await ppNoAddr.click('#tabs [data-tab="payouts"]');
+    const noAddr = await text(ppNoAddr, '#payoutsBody');
+    R.has(noAddr, 'brand@pay.invalid', 'a connected rail names the account it pays from');
+    R.has(noAddr, 'No PayPal address from them yet', 'an affiliate who has not given an address cannot be paid');
+    R.ok('and there is nothing to click', !(await ppNoAddr.$('#payoutsBody [data-act="pp-send"]')));
+    await ppNoAddr.close();
+
+    const ppReady = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }] },
+      { ready, rpc: ppRpc });
+    ppReady.on('pageerror', (e) => errors.push(e.message));
+    await ppReady.click('#tabs [data-tab="payouts"]');
+    R.ok('an approved payout with an address can be sent', !!(await ppReady.$('#payoutsBody [data-act="pp-send"]')));
+    await ppReady.close();
+
+    // The case the whole design is built around: an attempt that never
+    // answered. PayPal may already have taken the money, so the page offers
+    // Check status and NOT another Send.
+    const ppFlight = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [{ id: 'send-1', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now }] },
+      { ready, rpc: ppRpc });
+    ppFlight.on('pageerror', (e) => errors.push(e.message));
+    await ppFlight.click('#tabs [data-tab="payouts"]');
+    const flight = await text(ppFlight, '#payoutsBody');
+    R.ok('an attempt with no answer is never offered another Send', !(await ppFlight.$('#payoutsBody [data-act="pp-send"]')));
+    R.ok('it offers Check status instead', !!(await ppFlight.$('#payoutsBody [data-act="pp-refresh"]')));
+    R.has(flight, 'no answer yet', 'and the row says so in words');
+    await ppFlight.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

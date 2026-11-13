@@ -24,8 +24,8 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 | Code tracking | **verified** once a code is seen on an order | Existing Shopify discount codes, read from synced orders. No Shopify write scope; SILO never creates or edits a discount |
 | Trackable links | **manual** | UTM-tagged destinations. No redirector, no click counting, no commission on a link |
 | Commissions | **verified** once a ledger line exists | Computed in Postgres from synced orders |
-| Payouts | **manual** | SILO builds, approves and exports; a person pays elsewhere and records the reference. **SILO moves no money** |
-| Stripe Connect payouts | **unconfigured** | Designed, not built (see below) |
+| Payouts | **manual, or PayPal** | Manual: SILO builds, approves and exports; a person pays elsewhere and records the reference. PayPal (20261113040000): the company's own PayPal business account pays their affiliates |
+| Stripe Connect payouts | **unconfigured** | Designed, not built -- it would make SILO the payer of record (see below) |
 | Incremental sales | **not measured** | A code on an order credits the affiliate. That is not proof the affiliate caused the sale |
 
 ## Setup (per company)
@@ -282,32 +282,100 @@ by hand is the secondary button.
   at signup-link creation, by discovery, by applications and before every
   affiliate email. Any member may add; only a manager may remove; nobody may edit.
 
-## Stripe Connect payouts: investigation
+## Paying affiliates: the rails
 
-SILO already uses Stripe Connect, with each tenant's own **Standard** account
-connected to SILO's platform (`stripe_connect_accounts`, for invoicing). That
-row is never touched by this module.
+| Rail | State | How |
+|------|-------|-----|
+| Manual | **live** | SILO builds, approves and exports; a person pays elsewhere and records the reference. SILO moves no money |
+| PayPal Payouts | **live (20261113040000)** | The COMPANY's own PayPal business account pays their own affiliates. See below |
+| Stripe Connect | **designed, not built** | Would need the company to run its own Connect platform. See below |
 
-Paying affiliates through Stripe would need affiliates as **Express** connected
-accounts and a `Transfer` to each. Stripe transfers move money from the
-**platform's** balance to a connected account; they do not move money from one
-connected account (the tenant) to another (the affiliate). So within SILO's
-current setup, a Stripe payout would mean SILO's own platform balance funds
-every affiliate payment, which makes SILO a party to the tenant's payments.
-That needs a decision before any code:
+### Why PayPal and not Stripe
 
-1. **Who funds transfers**: SILO collects from the tenant first, or the tenant
-   runs its own Connect platform (outside SILO's keys).
-2. **Tax forms**: who issues 1099-NEC for affiliates (US), and collecting W-9s
-   during Express onboarding.
-3. **Capabilities and countries**: `transfers` capability per affiliate country.
-4. **Webhooks**: `account.updated` to mirror `payouts_enabled` into
-   `affiliate_payout_accounts` (re-fetched, per the Stripe rule), and
-   `transfer.*` / `payout.*` for status.
+A Stripe `Transfer` can only move money out of the **platform's** balance, and
+there is no connected-account-to-connected-account transfer and no nested
+platform. So a Stripe rail inside SILO's platform would mean SILO's balance
+funds every affiliate payment: SILO fronts the cash, files the 1099-NECs (the
+platform controls the pricing, so the filing obligation is the platform's),
+carries loss liability on negative balances and holds a Stripe reserve. That is
+SILO becoming a party to its customers' payroll, and it was rejected.
 
-The schema is ready for it (`affiliate_payout_accounts`,
-`payout_method = 'stripe_connect_express'`), and every path refuses to record a
-non-manual payout as paid until it is built and verified in test mode.
+PayPal's Payouts API has no such constraint: a business sends from its own
+balance, and the affiliate gives an **email address** rather than onboarding
+with identity, bank details and a tax form. That is the step every affiliate
+programme actually dies on, which is why this rail shipped first.
+
+A Stripe rail is still possible in the shape where the **company** runs its own
+Connect platform and SILO orchestrates it. Design:
+`/mnt/project-files/specs/affiliate-stripe-payouts-design-2026-11-12.md`.
+
+### How the PayPal rail works
+
+1. The company requests Payouts access on their own PayPal business account
+   (paypal.com/payoutsweb/landing -- PayPal emails a decision), creates an app
+   in their PayPal developer dashboard, and pastes the client ID and secret
+   into Pay -> Connect PayPal. Sandbox and live are separate credentials, so
+   the whole flow can be proven before anything real moves.
+2. The affiliate sets their payout address **in their own portal**. Staff
+   cannot: the person who owns the address is the only one who can be right
+   about it, and a payout sent to an address a manager typed is a payment to
+   whoever holds it. It is deliberately not `affiliates.contact_email` -- where
+   someone reads mail and where they take money are different facts.
+3. A payout is built and approved exactly as before. *Send with PayPal* then
+   sends it. Authority is `can_approve_affiliate_commissions()`, the
+   journal-entry gate, asked of the database AS THE CALLER before any
+   service-role call.
+
+### What makes it safe
+
+- **The credential is unreadable.** `affiliate_payout_connections` has no grant
+  to any client role. Members read `affiliate_payout_connection_status_v`, a
+  definer view with an explicit `active_company_id()` filter and no credential
+  columns -- the same split as `stripe_connect_accounts` /
+  `stripe_connect_status_v`.
+- **A payout is never in flight twice.** An HTTP call to a payment API has
+  three outcomes, not two. `affiliate_payout_sends` holds one row per ATTEMPT,
+  written BEFORE the call, carrying a deterministic `PayPal-Request-Id`. A call
+  that never answered is state `unknown`, and `affiliate_payout_send_claim()`
+  REFUSES another attempt until it has been reconciled -- re-POSTing the same
+  key returns the original batch rather than paying again. The page offers
+  *Check status*, not another *Send*. PayPal also refuses a `sender_batch_id`
+  reused within 30 days: that is a 4xx, and it is read as "the batch already
+  exists" (the original id comes out of the error's own links), never as a
+  refusal -- a refusal would release the payout for a second attempt while the
+  first may already have paid. If the id cannot be recovered the attempt stays
+  `unknown`, which is the state that refuses another send.
+- **"Paid" is the provider's word.** Only
+  `affiliate_payout_send_record(state => 'paid')` marks a payout paid, with
+  PayPal's own batch and item ids as the evidence. A terminal answer cannot be
+  rewritten by a later poll. `affiliate_mark_payout_paid()` still refuses every
+  non-manual method, so nobody can assert by hand that a machine payment
+  happened.
+- **Sent is not paid.** PayPal pays an email address, and an address with no
+  PayPal account leaves the item UNCLAIMED for 30 days before the money comes
+  back. The payout stays unpaid and the page says what it is waiting for.
+- **Money conversion.** The handler's zero-decimal currency set is pinned
+  identical to `affiliate_currency_minor_units()` by a test: a mismatch would
+  send 100x or a hundredth of the amount owed, in real money, silently.
+
+### Open, and worth knowing
+
+- **PayPal does not document a platform sending payouts on a merchant's
+  behalf.** Their hosted onboarding grant is documented for taking payments.
+  Refersion has PayPal's "Log in with PayPal" connect flow for exactly this,
+  which is a partner arrangement rather than a public API, and SILO has applied
+  for it. Until then the company pastes credentials from their own app, which is
+  what AffiliateWP does. The credentials are just credentials, so the connect
+  screen is the only thing that changes if the application succeeds.
+- **Fees** are PayPal's and the company's: a flat fee per domestic payout and a
+  percentage capped per currency for international. Do not put a figure in the
+  product -- PayPal's own fee page is the only authority.
+- **Tax** is the company's. PayPal's own reporting does not discharge a payer's
+  1099 obligation, and the product says nothing about either.
+- **Webhooks are not wired.** Status is read on demand (*Check payment status*,
+  and automatically straight after a send). `PAYMENT.PAYOUTS-ITEM.*` would make
+  an unclaimed item that later settles update itself; until then someone has to
+  press the button.
 
 ## Limitations
 
