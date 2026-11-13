@@ -121,6 +121,30 @@ scheduled runs skip while coverage is enabled. API load is up to10 existing day
 collections/store/run (paginated ShopifyQL plus per-order journeys,9999-row/day
 cap unchanged); production capacity is not yet measured.
 
+Deep history fills itself in. Once `history_day` exists on the checkpoint row
+(migration `20261113060000_attribution_history_cursor.sql`), each run also walks
+BACKWARDS from the day before the frozen start_day, `ATTRIBUTION_HISTORY_BUDGET`
+days per store per run (default20, allowed1-60), down to a floor of
+`ATTRIBUTION_HISTORY_DAYS` before today (default730, allowed0-1095; 0 switches the
+walk off). The floor never passes the day the shop itself was created, which is read
+best-effort from Shopify. Only stores granting read_all_orders walk at all; the rest
+log `history_scope_missing` once a run, since their deep history is not readable.
+Backwards keeps the covered history contiguous: a short night makes it shorter,
+never holed. Already-published days are stepped over without spending budget, so an
+earlier manual backfill is never republished. The cursor advances past every day it
+attempts, success or failure, so one unreadable old day costs one attempt instead of
+wedging the walk, and a deep-history failure is recorded (`history_failed`) without
+failing the workflow that keeps every store current. The run takes TWO passes: every
+store's gaps and trailing refresh first, then deep history across the stores that
+have any, sharing out what time the first pass left. That ordering is what keeps
+history from starving a current refresh -- `runDay` carries no deadline and one large
+historical day can run for half an hour, so a per-store time slice alone could still
+return past the admission deadline and leave a later store unvisited. Within the
+second pass each store gets an equal share of the time remaining, so a store at the
+end of the list still deepens. Days are collected
+and reconciled through exactly the same penny-checked publish as every other day, and
+are allocated against TODAY's catalog and launch windows, as any backfill is.
+
 The service-only shopify_attribution_coverage row records frozen start_day,
 next_day, last_attempt_at, last_status, last_failed_day/at and attempted/succeeded/
 failed counts. Upstream error bodies are never stored. Snapshot rows identify
