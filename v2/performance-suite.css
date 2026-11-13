@@ -1,7 +1,8 @@
 /* The Performance suite tab strip. Visually the Ad Studio, SEO, accounting and
    settings strips -- one tab row is one tab row -- kept in its own file so a
-   change to one strip cannot silently restyle another. The one addition is the
-   basis caption: which revenue figure the tab's page is built on. */
+   change to one strip cannot silently restyle another. Each tab's basis --
+   which revenue figure its page is built on -- is the link's tooltip; it was
+   a grey caption beside every tab until 2026-11-13. */
 .perf-suite-nav {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;
   background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
 .perf-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
@@ -19,9 +20,4 @@
   .perf-suite-nav {padding:0 12px;gap:14px;}
   .perf-suite-label {display:none;}
   .perf-suite-links {gap:18px;width:100%;}
-}
-.perf-suite-basis {font-family:var(--bcn-mono);font-size:10px;font-weight:400;color:var(--bcn-ink-3);
-  padding-left:7px;border-left:1px solid var(--bcn-border);}
-@media(max-width:980px) {
-  .perf-suite-basis {display:none;}
 }

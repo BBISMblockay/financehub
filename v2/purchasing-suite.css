@@ -117,3 +117,29 @@
 .purch-sr {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;border:0;}
 .bcn-header-actions #periodPicker {min-height:32px;font-size:12px;max-width:170px;}
+
+/* ── Suite page chrome ────────────────────────────────────────────────
+   Loaded only by the five Purchasing pages, so these rules reach the
+   suite and nothing else. They make the four tab pages read like the
+   Overview: a header that wraps instead of crushing its own title, and
+   tables that scroll instead of running off the right edge.
+
+   The bug they fix: .bcn-header-actions is flex-shrink:0 with no wrap,
+   so a page with several buttons squeezes the title block until the
+   heading and its sub-line wrap mid-phrase. PO Builder's title box fell
+   to 170px at 1024px wide. */
+.bcn-header {flex-wrap:wrap;row-gap:8px;}
+.bcn-header > div:first-child {flex:1 1 280px;}
+.bcn-header-actions {flex-wrap:wrap;row-gap:6px;justify-content:flex-end;}
+
+/* The context strip is a row of chips; on a phone it scrolls rather than
+   pushing the page wider than the viewport. */
+.bcn-filter-bar {overflow-x:auto;}
+
+/* A wide table is a scroller, not an overflow. */
+.purch-scroll {overflow-x:auto;max-width:100%;}
+
+/* An empty panel says so in the middle of itself, not in a footer note. */
+.purch-blank {display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;padding:48px 20px;text-align:center;color:var(--bcn-ink-3);font-size:12.5px;}
+.purch-blank strong {font-size:13.5px;font-weight:650;color:var(--bcn-ink-2);}

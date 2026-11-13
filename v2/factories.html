@@ -13,16 +13,22 @@
   <style>
     [hidden] { display: none !important; }
 
+    /* Filters sit above the table, not in a 280px sidebar: two fields do
+       not need a column of their own, and the table wants the width. */
     .fac-layout {
-      display: grid;
-      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-      gap: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
       padding: 14px 18px 28px;
-      align-items: start;
+      min-width: 0;
     }
-    @media (max-width: 960px) {
-      .fac-layout { grid-template-columns: 1fr; }
+    .fac-filters .bcn-card-body {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px 12px;
+      align-items: end;
     }
+    .fac-filters .bcn-card-body > .bcn-btn { justify-self: start; }
 
     .fac-table-wrap {
       overflow: auto;
@@ -124,16 +130,13 @@
 
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
-        <div class="bcn-header-title">
-          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Purchasing</span>
-        </div>
-        <h1>Factories</h1>
-        <div class="bcn-header-sub bcn-header-sub--trimmed">Vendor master for PO Builder</div>
+        <h1 class="bcn-header-title">Factories</h1>
+        <p class="bcn-header-sub">The vendors POs are written against.</p>
       </div>
       <div class="bcn-header-actions">
-        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRefresh">Refresh</button>
-        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnExport">Export CSV</button>
-        <button type="button" class="bcn-btn bcn-btn--primary" id="btnNewFactory">New factory</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh">Refresh</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnExport">Export CSV</button>
+        <button type="button" class="bcn-btn bcn-btn--dark" id="btnNewFactory">New factory</button>
       </div>
     </header>
 
@@ -146,8 +149,7 @@
     <div class="bcn-status" id="status" hidden></div>
 
     <div class="fac-layout">
-      <aside class="bcn-card">
-        <div class="bcn-card-header"><span>Filters</span></div>
+      <section class="bcn-card fac-filters" aria-label="Filters">
         <div class="bcn-card-body">
           <div class="bcn-field-group">
             <label class="bcn-label" for="searchInput">Search</label>
@@ -162,15 +164,15 @@
               <option value="missing_email">Missing email</option>
             </select>
           </div>
-          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearFilters" style="width:100%;margin-top:4px">Clear filters</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearFilters">Clear filters</button>
         </div>
-      </aside>
+      </section>
 
       <section class="bcn-card">
         <div class="bcn-card-header">
           <span>Factory master</span>
           <div class="bcn-card-header-actions">
-            <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveAllChanged" disabled>Save changed rows</button>
+            <button type="button" class="bcn-btn bcn-btn--dark" id="btnSaveAllChanged" disabled>Save changed rows</button>
           </div>
         </div>
         <div class="bcn-card-body" style="padding:0">

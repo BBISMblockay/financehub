@@ -96,15 +96,23 @@ test('four tabs in order, each on its existing page at its existing URL', () => 
   }
 });
 
+// The basis is the link's TOOLTIP, not a printed caption. It was a grey
+// caption beside every tab until 2026-11-13 (Blake: the strip was "wierd
+// with the extra light grey notes next to suite tabs ... or remove the
+// extra notes, simplify"), so four tabs read as four footnotes. The fact
+// each tab still names its basis is what this pins; where it is drawn is
+// the second assertion, so removing the caption cannot come back by
+// accident and neither can losing the basis itself.
 test('every tab names the revenue figure its page is built on', () => {
   const h = harness(BASEBALLISM);
   h.mount(EXPLORER);
-  for (const a of h.links()) {
-    const basis = a.children.find((c) => c.className === 'perf-suite-basis');
-    assert.ok(basis && basis.textContent.trim(), 'a tab without a basis caption');
+  for (const [i, a] of h.links().entries()) {
+    const [, label, , basis] = nav.PERFORMANCE_SUITE_PAGES[i];
+    assert.ok(basis, 'a tab without a basis');
+    assert.equal(a.title, `${label}: ${basis}`, 'a tab whose tooltip does not name its basis');
+    assert.ok(!a.children.some((c) => c.className === 'perf-suite-basis'), 'the basis is printed again as a caption');
   }
-  const explorer = h.links()[1].children.find((c) => c.className === 'perf-suite-basis');
-  assert.match(explorer.textContent, /claimed/i);
+  assert.match(h.links()[1].title, /claimed/i);
 });
 
 test('the sidebar draws ONE row for the four pages, on both profiles', () => {

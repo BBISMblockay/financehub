@@ -77,14 +77,21 @@ body.po-report-page.v2-mirror--po .silo-main {
   box-shadow: 0 1px 0 var(--bcn-line, #e2e8f0);
 }
 
+/* Seven fixed tracks could not hold their own content: the scope segment
+   is four nowrap buttons (~336px) in a 240px track, so the row overflowed
+   its card at 1440px and the factory select was cut mid-word. Auto-fit
+   tracks wrap instead, and the segment always takes a row of its own. */
 .po-report-filters-grid {
   display: grid;
-  grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(110px, 0.9fr)) repeat(2, minmax(112px, 0.7fr)) minmax(240px, 1.2fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px 12px;
   align-items: end;
   position: relative;
   z-index: 1;
 }
+
+.po-report-filters-grid .po-report-field--search { grid-column: span 2; }
+.po-report-filters-grid .po-report-field--scope { grid-column: 1 / -1; }
 
 .po-report-filters .bcn-field,
 .po-report-filters select.bcn-field,
@@ -92,13 +99,9 @@ body.po-report-page.v2-mirror--po .silo-main {
   pointer-events: auto;
 }
 
-@media (max-width: 1200px) {
-  .po-report-filters-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .po-report-filters-grid .po-report-field--scope {
-    grid-column: 1 / -1;
-  }
+@media (max-width: 560px) {
+  .po-report-filters-grid .po-report-field--search { grid-column: 1 / -1; }
+  .po-report-seg-btn { flex: 1 1 45%; }
 }
 
 .po-report-field .bcn-label {
@@ -111,11 +114,17 @@ body.po-report-page.v2-mirror--po .silo-main {
   background: var(--bcn-surface-2, #f1f5f9);
   border-radius: var(--bcn-radius, 10px);
   gap: 2px;
-  width: 100%;
+  /* Hugs its four buttons. On its own full-width row, stretching them
+     across the card left a segment mostly made of gap. */
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .po-report-seg-btn {
-  flex: 1;
+  flex: 0 0 auto;
+  padding-left: 14px;
+  padding-right: 14px;
   border: none;
   background: transparent;
   border-radius: 7px;
@@ -140,8 +149,12 @@ body.po-report-page.v2-mirror--po .silo-main {
 }
 
 /* Tabs */
+/* fit-content with no scroller meant five tabs pushed the page 230px wider
+   than a phone. The row scrolls on its own instead. */
 .po-report-tabs.bcn-tabs {
   width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0;
 }
 
