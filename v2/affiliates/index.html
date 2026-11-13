@@ -63,7 +63,11 @@
     .af-next { margin: 12px 18px 0; padding: 0; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); overflow: hidden; font-size: 13px; }
     .af-next[hidden] { display: none; }
     /* .silo-main is a scrolling flex column: a child with overflow:hidden would
-       otherwise shrink to fit the window and cut off its own last rows. */
+       otherwise shrink to fit the window and cut off its own last rows. The
+       To do strip that first hit this is gone, so no child clips today and
+       nothing in the suite can prove the rule -- it stays as insurance for the
+       next child that does, and the mutation that used to pin it was dropped
+       rather than left passing for the wrong reason. */
     .silo-main.af-studio > * { flex-shrink: 0; }
     .af-todo-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-bg); }
     .af-todo-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--bcn-ink); flex: 1; }

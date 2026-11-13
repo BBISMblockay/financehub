@@ -49,7 +49,6 @@
  *   AFFILIATE_UI_MUTATION=photostuck   removing the photo leaves it on the card
  *   AFFILIATE_UI_MUTATION=affownphoto an affiliate's card ignores the photo the rep set in the portal
  *   AFFILIATE_UI_MUTATION=sillodraft  a new draft ignores the program's own outreach message
- *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -78,7 +77,6 @@ const MUTATIONS = {
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
   sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
-  todopinch: ['/affiliates/index.html', '.silo-main.af-studio > * { flex-shrink: 0; }', ''],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
@@ -337,6 +335,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const el = document.getElementById('nextStep');
       return el && !el.hidden && el.textContent.trim().length > 0;
     })));
+    // ...and the panel it leads with is still shown whole. `.silo-main` is a
+    // scrolling flex column, so a tall panel in a short window shrinks to fit
+    // and cuts off its own last rows unless its children refuse to shrink.
+    // The strip this was first measured on is gone; the rule that saved it
+    // still covers every panel, so measure it where it now applies.
+    const pinch = await loop.$eval('.af-panel[data-panel="prospects"]', (el) => el.scrollHeight - el.clientHeight);
+    R.ok(`a tall panel is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
     await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
