@@ -329,7 +329,10 @@ let BASE;
     await standard.addInitScript(PERSIST_FAKE_DB);
     const config = fs.readFileSync(path.join(FIXTURES, 'fake-config.js'), 'utf8');
     await standard.route('**/pages/config.js', (route) => route.fulfill({
-      contentType: 'text/javascript', body: config.replace("entity_key: 'baseballism'", "entity_key: 'another-company'"),
+      // entity_key no longer decides the nav profile: it is company data
+      // (entities.meta.nav_profile), so the flag is what makes this standard.
+      contentType: 'text/javascript', body: config.replace("entity_key: 'baseballism'", "entity_key: 'another-company'")
+        .replace("meta: { nav_profile: 'grandfathered' }", "meta: {}"),
     }));
     await standard.goto(`${BASE}/v3/dashboards.html?tab=silo`);
     await standard.waitForSelector('#siloBody .lib-card');
