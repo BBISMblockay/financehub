@@ -59,6 +59,7 @@ const B_DRAFT      = '40000000-0000-4000-a000-000000000003'; // draft, neither
 
 await db.exec(`
 create role authenticated;
+create role anon;
 create schema auth;
 create function auth.uid() returns uuid language sql as $$ select '${CO}'::uuid $$;
 create function active_company_id() returns uuid language sql as $$ select '${CO}'::uuid $$;
@@ -253,6 +254,20 @@ const MIGRATION = readFileSync(
   new URL('../../supabase/migrations/20261113200000_accounting_journal_drilldown.sql', import.meta.url), 'utf8');
 await db.exec(MIGRATION);
 
+// Supabase's `alter default privileges` hands every new object in `public`
+// the full privilege set to BOTH anon and authenticated. pglite does not, so
+// a fixture that only applies the migration tests a friendlier database than
+// production -- which is how three anon-readable views reached production on
+// 2026-11-13. Reproduce the default here, then apply the grants migration
+// that takes it back.
+const GRANTS = readFileSync(
+  new URL('../../supabase/migrations/20261113220000_accounting_drilldown_grants.sql', import.meta.url), 'utf8');
+const SUPABASE_DEFAULT_GRANTS = `
+grant all on public.accounting_journal_lines_v, public.accounting_journal_sources_v,
+              public.accounting_ledger_v to anon, authenticated;`;
+await db.exec(SUPABASE_DEFAULT_GRANTS);
+await db.exec(GRANTS);
+
 // ── The lines view ─────────────────────────────────────────────────────────
 await test('every journal line appears once, from the right place', async () => {
   const rows = await q(`select kind, lines_basis, count(*)::int n, count(distinct journal_id)::int entries
@@ -396,6 +411,27 @@ await test("the ambiguous 'accounting-export:' prefix recovers nothing", async (
 });
 
 // ── The catalog, the report and its tie-outs ───────────────────────────────
+await test('no view is readable by anon, or writable by anyone, after the default grants', async () => {
+  // The production defect of 2026-11-13: Supabase's default privileges made
+  // all three views anon-readable (and nominally writable), which this
+  // project's own verify block calls CRITICAL. Nothing leaked -- they are
+  // security_invoker and anon has no company -- but the grant was real.
+  const rows = await q(`select c.relname,
+                               has_table_privilege('anon', c.oid, 'SELECT') anon_read,
+                               has_table_privilege('authenticated', c.oid, 'SELECT') auth_read,
+                               has_table_privilege('authenticated', c.oid, 'INSERT, UPDATE, DELETE') auth_write
+                          from pg_class c
+                         where c.relnamespace = 'public'::regnamespace
+                           and c.relname in ('accounting_journal_lines_v',
+                                             'accounting_journal_sources_v', 'accounting_ledger_v')
+                         order by 1`);
+  assert.deepEqual(rows, [
+    { relname: 'accounting_journal_lines_v',   anon_read: false, auth_read: true, auth_write: false },
+    { relname: 'accounting_journal_sources_v', anon_read: false, auth_read: true, auth_write: false },
+    { relname: 'accounting_ledger_v',          anon_read: false, auth_read: true, auth_write: false },
+  ]);
+});
+
 await test('both views are security_invoker, granted to authenticated and described in the catalog', async () => {
   const rows = await q(`select c.relname, c.reloptions @> array['security_invoker=true'] invoker,
                                has_table_privilege('authenticated', c.oid, 'SELECT') granted,
@@ -508,6 +544,9 @@ await test('the migration is idempotent', async () => {
       {"Amount":160,"Description":"Acme CC settlement","JournalEntryLineDetail":{"AccountRef":{"value":"20"},"PostingType":"Credit"}}]}}'::jsonb
     where id = '${B_SNAP}'`);
   await db.exec(MIGRATION);
+  await db.exec(SUPABASE_DEFAULT_GRANTS);
+  await db.exec(GRANTS);
+  await db.exec(GRANTS);   // twice: the grants migration is idempotent too
   const rows = await tieouts();
   assert.equal(rows.length, 2);
   assert.ok(rows.every((r) => r.pass), JSON.stringify(rows));

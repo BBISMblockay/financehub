@@ -3831,13 +3831,26 @@ on a date literal or a company id in the view), and a company with no Shopify, s
 those kinds. RLS is still the boundary — both views are `security_invoker`, so a person who cannot
 see an entry sees none of its sources.
 
+**`20261113220000_accounting_drilldown_grants.sql`** is the follow-up that takes Supabase's default
+grants back off the three views. 20261113200000 granted SELECT to `authenticated` but did not
+REVOKE, and `alter default privileges` hands every new object in `public` the full privilege set to
+BOTH `anon` and `authenticated` — so the views landed on production readable by `anon`, which this
+file's own `journal_drilldown_view` check calls CRITICAL. Nothing was exposed: all three are
+`security_invoker`, `anon` has no `active_company_id()` and every underlying policy requires a
+membership, so an anonymous select returned zero rows. The end state matches
+`accounting_journal_register`: `authenticated=r` and nothing else. The database suite missed it
+because pglite has no default privileges — a fresh view there starts with no grants, so the grant
+alone produced the intended state. **The fixture now applies the Supabase default to both roles
+first and asserts the migration takes it back**, so it reproduces production rather than a
+friendlier version of it.
+
 Run `refresh_chat_schema_catalog()` — the migration calls it itself. Verify blocks:
 `journal_drilldown_view` (all three views), `Journal drill-down report tie-outs`,
 `General ledger by month tie-outs`, `Ledger cut-over is derived, not hardcoded`, and the
 catalog-coverage list. That last block reads the view with `to_regclass`, never a `::regclass`
 cast, which is resolved at PARSE time and would abort the whole verify script on a database where
 the view is absent — the database the check exists for. Tests:
-`scripts/tests/journal-drilldown-database.test.mjs` (40 checks; every tie-out shown to fail when
+`scripts/tests/journal-drilldown-database.test.mjs` (41 checks; every tie-out shown to fail when
 what it guards breaks, including a deliberately wrong account-type side and an import reaching
 past the cut-over). **No edge-function deploy is required** — `describe_tables` and `list_reports`
 read the catalog and the report table live — but deploying `mcp` adds the guidance in `guide.mjs`
