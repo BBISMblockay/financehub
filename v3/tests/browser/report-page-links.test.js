@@ -57,7 +57,10 @@ const { startSuite, FIXTURES, REPO_ROOT } = require('../lib/harness');
 
     const config = fs.readFileSync(path.join(FIXTURES, 'fake-config.js'), 'utf8');
     await page.route('**/pages/config.js', (r) => r.fulfill({
-      contentType: 'text/javascript', body: config.replace("entity_key: 'baseballism'", "entity_key: 'another-company'"),
+      // A standard workspace is one WITHOUT the grandfathered flag -- the nav
+      // profile is company data now (20261113040000), so swapping entity_key
+      // would change nothing.
+      contentType: 'text/javascript', body: config.replace("meta: { nav_profile: 'grandfathered' }", "meta: {}"),
     }));
     await page.goto(`${suite.BASE}/v3/dashboards.html?tab=silo`);
     await page.waitForFunction(() => document.getElementById('siloBody').textContent.includes('fixture unavailable'));

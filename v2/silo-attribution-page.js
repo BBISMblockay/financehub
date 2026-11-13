@@ -13,11 +13,19 @@ async function boot(){
   const company=await cfg.ensureActiveCompany?.(db);if(!company?.id)throw Error('Select an active company first');
   const profile=await db.from('profiles').select('role,active_company_id').eq('id',data.session.user.id).single();if(profile.error)throw profile.error;
   window.SiloChrome?.mount({appEl:'#silo-app',active:'reports/silo-attribution',user:{email:data.session.user.email,role:profile.data.role},crumbs:['Marketing','Performance','Attribution'],supabaseClient:db});
+  // Open to every workspace since 2026-11-13; it was a Baseballism pilot, gated
+  // on that company's entity id. What this guard still enforces is the part
+  // that was never about the pilot: the company the page loaded with must be
+  // the one the SERVER says is active, and it must be RESOLVED. An unresolved
+  // company (_staleReconcile) is not the same as a company -- every other page
+  // that reads money refuses it too -- and the server's answer wins over the
+  // per-tab cache, so switching workspace in another tab stops reads here
+  // instead of relabelling one company's journeys with another's name.
   function assertCompany(profileData){
-   if(profileData?.active_company_id!==company.id || !window.SiloNav?.isSiloAttributionEnabled(company)){
+   if(profileData?.active_company_id!==company.id || company._staleReconcile){
      root.querySelector('#load').disabled=true;root.querySelector('#results').hidden=true;root.querySelector('#journey').close();
      root.querySelectorAll?.('#overview dialog[open]').forEach(d=>d.close());
-     throw Error('Silo Attribution is available only in the Baseballism pilot workspace. Select that workspace and reload.');
+     throw Error('This workspace changed, or could not be confirmed. Reload the page to continue.');
    }
  }
  assertCompany(profile.data);

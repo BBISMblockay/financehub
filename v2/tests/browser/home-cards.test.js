@@ -17,7 +17,10 @@ const { startSuite } = require('../lib/harness');
 const r = createReporter('home-cards');
 
 const STANDARD = { id: 'acme-co', title: 'Acme Co', entity_key: 'acme' };
-const GRANDFATHERED = { id: 'test-company', title: 'Baseballism', entity_key: 'baseballism' };
+// Grandfathered by company DATA (entities.meta.nav_profile, 20261113040000);
+// nav-config.js no longer reads entity_key, so the flag is what makes this
+// fixture the fuller menu.
+const GRANDFATHERED = { id: 'test-company', title: 'Baseballism', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } };
 
 function tables({ role, department, membership }) {
   return {
@@ -66,9 +69,14 @@ async function readHome(page) {
     r.ok('Marketing is reachable from Home', home.home.includes('/v2/marketing-overview.html'));
     r.ok('Setup and Accounting are on Home for the founder',
       home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/accounting.html'));
-    r.ok('no Baseballism-only link leaks onto a standard Home',
-      !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report|silo-attribution/.test(h)),
+    r.ok('no grandfathered-only link leaks onto a standard Home',
+      !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report/.test(h)),
       JSON.stringify(home.home));
+    // Attribution is open to every workspace since 2026-11-13, and it is a TAB
+    // of Performance (`tabOf`), so it is reached through that row rather than
+    // from Home -- which is why it is absent here without being withheld.
+    r.ok('Attribution is a Performance tab, not its own Home link',
+      !home.home.includes('/v2/silo-attribution.html'), JSON.stringify(home.home));
     r.ok('Home does not link to itself', !home.home.includes('/v2/finance.html'));
     const insights = home.cards.find((c) => c.title === 'Insights');
     r.ok('On Deck leads Insights for a finance/exec founder',

@@ -6,7 +6,10 @@ let source = await readFile(new URL('../../v2/nav-config.js', import.meta.url), 
 if (process.env.MODULE_MUTATION === 'filter') source = source.replace('&& moduleVisible(item, company)', '');
 if (process.env.MODULE_MUTATION === 'late') source = source.replace("if (generation !== moduleLoad || global.__SILO_CONFIG__?.getActiveCompany?.()?.id !== company.id) return null;", '');
 function setup() {
-  let company = { id: 'a', entity_key: 'baseballism' };
+  // The nav profile is company DATA since 20261113040000, so the fixture that
+  // stands in for the grandfathered workspace carries the flag rather than an
+  // entity_key the code no longer looks at.
+  let company = { id: 'a', meta: { nav_profile: 'grandfathered' } };
   const window = { __SILO_CONFIG__: { getActiveCompany: () => company } };
   vm.runInNewContext(source, { window });
   const nav = window.SiloNav;
@@ -22,8 +25,8 @@ function setup() {
   return { nav, db, ids, co: () => company, switch: co => { company = co; } };
 }
 test('every toggle only removes its own links; all-on restores exact existing permissions', async () => {
-  for (const profile of ['baseballism', 'standard']) for (const role of ['owner','admin','member','viewer']) for (const dept of ['exec','marketing','logistics']) {
-    const s = setup(); s.switch({ id: 'a', entity_key: profile });
+  for (const profile of ['grandfathered', 'standard']) for (const role of ['owner','admin','member','viewer']) for (const dept of ['exec','marketing','logistics']) {
+    const s = setup(); s.switch({ id: 'a', meta: { nav_profile: profile } });
     const before = s.ids(dept, role);
     for (const module of s.nav.MODULES) {
       await s.nav.loadModuleVisibility(s.db([{ company_entity_id: 'a', module_id: module.id, visible: false }]), s.co());
@@ -53,7 +56,7 @@ test('missing, malformed, wrong-company and failed settings fail open', async ()
 test('late old-company response cannot affect new company, including same module ids', async () => {
   const s = setup(); let resolve;
   const old = s.nav.loadModuleVisibility({from:()=>({select:()=>({eq:()=>new Promise(r=>{resolve=r;})})})},s.co());
-  s.switch({id:'b',entity_key:'standard'});
+  s.switch({id:'b',meta:{nav_profile:'standard'}});
   const baseline = s.ids();
   await s.nav.loadModuleVisibility(s.db([]),s.co());
   resolve({data:[{company_entity_id:'a',module_id:'finance',visible:false}]});

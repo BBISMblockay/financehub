@@ -37,26 +37,27 @@ test('an unresolved company fails closed to the standard menu', () => {
   assert.equal(resolveNavProfile(undefined), 'standard');
 });
 
-test('Baseballism still resolves to its grandfathered menu', () => {
-  // The fail-closed default must not cost the existing tenant its menu once the
-  // company IS known -- that is what the silo-chrome.js repaint restores.
-  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism' }), 'grandfathered');
+test('entities.meta.nav_profile is the ONLY thing that grants the fuller menu', () => {
+  // 20261113040000 moved the profile into company data. entity_key used to
+  // decide it, which meant one tenant was named in code every tenant loads and
+  // no second workspace could ever be grandfathered without a code change.
+  assert.equal(resolveNavProfile({ id: 'y', entity_key: 'acme-commerce', meta: { nav_profile: 'grandfathered' } }), 'grandfathered');
+  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } }), 'grandfathered');
+  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism', meta: { nav_profile: 'standard' } }), 'standard');
 });
 
-test('any other company gets the standard menu', () => {
+test('no entity_key gets the fuller menu on its own, including the one that used to', () => {
+  // The flag is unset here. This is also what Baseballism looks like until the
+  // migration is applied: the SMALLER menu, which is the safe direction.
+  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism' }), 'standard');
   assert.equal(resolveNavProfile({ id: 'y', entity_key: 'acme-commerce' }), 'standard');
   assert.equal(resolveNavProfile({ id: 'z', entity_key: 'test-co' }), 'standard');
-});
-
-test('entities.meta.nav_profile remains the explicit override', () => {
-  // This is the configuration seam that keeps a new tenant from needing code:
-  // a company that genuinely wants the fuller menu is a data change, not a
-  // branch in nav-config.js.
-  assert.equal(resolveNavProfile({ id: 'y', entity_key: 'acme-commerce', meta: { nav_profile: 'grandfathered' } }), 'grandfathered');
-  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism', meta: { nav_profile: 'standard' } }), 'standard');
-  // An unrecognised override value must not be honoured -- fall through to the
-  // entity_key rules rather than trusting arbitrary metadata.
-  assert.equal(resolveNavProfile({ id: 'y', entity_key: 'acme-commerce', meta: { nav_profile: 'everything' } }), 'standard');
+  assert.equal(resolveNavProfile({ id: 'x', title: 'Baseballism' }), 'standard');
+  // An unrecognised flag value is not honoured either, and there is no longer
+  // an entity_key rule to fall through to.
+  assert.equal(resolveNavProfile({ id: 'x', entity_key: 'baseballism', meta: { nav_profile: 'everything' } }), 'standard');
+  assert.equal(resolveNavProfile({ id: 'y', meta: { nav_profile: 'grandfathered ' } }), 'standard');
+  assert.equal(resolveNavProfile({ id: 'y', meta: {} }), 'standard');
 });
 
 test('standard workspaces use Finance and surface Customers', () => {
@@ -90,8 +91,11 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   // Keywords is where a client switches weekly rank tracking on for THEIR
   // company; the row carries the exec soft-launch gate OR a seo_approvers
   // grant, and every write is approver-gated by RLS.
-  // Marketing Report and Silo Attribution are Baseballism-only (2026-10-07).
+  // Marketing Report stays grandfathered-only (2026-10-07). Silo Attribution
+  // is open to every workspace since 2026-11-13 -- it was a pilot gated on one
+  // company's entity id, and the page was always company-scoped.
   assert.deepEqual(marketing.items.map((item) => item.id), [
+    'reports/silo-attribution',
     'reports/marketing-overview',
     'reports/marketing-explorer',
     // Ad Studio's exec soft-launch gate came off 2026-10-13 (Blake:
@@ -106,25 +110,27 @@ test('standard workspaces surface Insights and the proven Marketing pages only',
   assert.ok(!ids.includes('reports/library'));
   assert.ok(!ids.includes('reports/builder'));
   assert.ok(!ids.includes('reports/wow-report'));
-  assert.ok(!ids.includes('reports/silo-attribution'));
+  assert.ok(ids.includes('reports/silo-attribution'), 'Attribution is open to standard workspaces');
   // The Schedule tab is Baseballism-only for now (Blake, 2026-10-13): the
   // page is being shaped around how Baseballism runs tests, so a standard
   // workspace is not offered it yet.
   assert.ok(!ids.includes('reports/marketing-ops'));
 });
 
-test('Marketing Report and Silo Attribution: Baseballism keeps them, no standard role sees them', () => {
-  const bb = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism' };
-  const bbIds = globalStub.SiloNav.navSectionsForCompany(bb, 'marketing', 'owner_admin', new Set())
+test('Marketing Report stays grandfathered-only; Attribution is open to everyone', () => {
+  const grandfathered = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', meta: { nav_profile: 'grandfathered' } };
+  const bbIds = globalStub.SiloNav.navSectionsForCompany(grandfathered, 'marketing', 'owner_admin', new Set())
     .flatMap((s) => s.items.map((i) => i.id));
-  assert.ok(bbIds.includes('reports/wow-report'), 'Baseballism keeps Marketing Report');
-  assert.ok(bbIds.includes('reports/silo-attribution'), 'Baseballism keeps Silo Attribution');
+  assert.ok(bbIds.includes('reports/wow-report'), 'the grandfathered menu keeps Marketing Report');
+  assert.ok(bbIds.includes('reports/silo-attribution'), 'and keeps Silo Attribution');
   for (const role of ['owner', 'owner_admin', 'executive', 'admin', 'member', 'viewer', 'user']) {
     for (const dept of ['marketing', 'exec', 'finance']) {
       const ids = navSectionsForProfile('standard', dept, role, new Set(['seo_approvers', 'silo_chat_managers', 'platform_admins']))
         .flatMap((s) => s.items.map((i) => i.id));
       assert.ok(!ids.includes('reports/wow-report'), `${role}/${dept} standard sees Marketing Report`);
-      assert.ok(!ids.includes('reports/silo-attribution'), `${role}/${dept} standard sees Silo Attribution`);
+      // Attribution has no role or department gate of its own, so every one of
+      // these combinations gets it -- that is the unlock.
+      assert.ok(ids.includes('reports/silo-attribution'), `${role}/${dept} standard lost Silo Attribution`);
     }
   }
 });

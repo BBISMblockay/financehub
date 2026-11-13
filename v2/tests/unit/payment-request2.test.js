@@ -252,5 +252,30 @@ const { pathToFileURL } = require('node:url');
     }
   });
 
+  // loadLookups() lives in payment-request2.js, which runs against the DOM and
+  // the live client, so this is a source assertion rather than an execution --
+  // stated plainly because a source assertion proves the code says this, not
+  // that it behaves this way. The behaviour it guards is specific: before
+  // 20261113030000 is applied, reading payment_request_vendor_suggestions
+  // fails, and that must not put "some suggestions could not load" in front of
+  // everyone filing a request. The database side is executed for real in
+  // scripts/tests/vendor-suggestions-nav-profile-database.test.mjs.
+  await test('curated vendor suggestions are read, company-scoped, and feature-detected', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../payment-request2.js'), 'utf8');
+    const read = /db\.from\('payment_request_vendor_suggestions'\)[^\n]*/.exec(source);
+    assert.ok(read, 'the curated list is read at all');
+    assert.match(read[0], /\.eq\('company_entity_id', company\.id\)/, 'scoped to the active company');
+    assert.match(read[0], /\.limit\(/, 'bounded like every other lookup');
+    // allSettled, so one failing lookup cannot take the others down with it.
+    assert.match(source, /Promise\.allSettled\(\[/);
+    // A missing table is tolerated; anything else is still reported.
+    assert.match(source, /42P01/);
+    assert.match(source, /PGRST205/);
+    assert.match(source, /const failed = reads\.filter\(/);
+    // And the names themselves are nowhere in the page or its module.
+    assert.doesNotMatch(source, /Ambassador/i);
+    assert.doesNotMatch(fs.readFileSync(path.resolve(__dirname, '../../purchase_request2.html'), 'utf8'), /Ambassador/i);
+  });
+
   console.log(`${checks} Payment Request 2 checks passed.`);
 })().catch(error => { console.error(error); process.exit(1); });

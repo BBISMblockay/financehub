@@ -19,11 +19,24 @@ test('customer-facing settings do not link to implementation docs or expose secr
   assert.doesNotMatch(notifications, /SILO_MAIL_FROM|edge-function secret|comp-request-notify|sample-notify/);
 });
 
-test('Baseballism vendor seeds are applied only to the Baseballism company', async () => {
+test('vendor suggestions ship as data, not as one company\'s names inside the page', async () => {
   const html = await read('v2/purchase_request.html');
-  assert.match(html, /const BASEBALLISM_VENDORS = \[/);
-  assert.match(html, /_co\?\.entity_key === 'baseballism' \? BASEBALLISM_VENDORS : \[\]/);
-  assert.doesNotMatch(html, /\[\.\.\.priorVendors, \.\.\.VENDORS\]/);
+  // The 195-name array that used to live here went into
+  // payment_request_vendor_suggestions (20261113030000). The gate on it was
+  // never a boundary: a static array reaches EVERY tenant's browser whatever
+  // company they are in, and the repo is public, so those names were readable
+  // in devtools and on GitHub. RLS on the table is the boundary now.
+  assert.doesNotMatch(html, /BASEBALLISM_VENDORS/);
+  assert.doesNotMatch(html, /entity_key === 'baseballism'/);
+  // No vendor or ambassador names left in the page at all, under any name.
+  assert.doesNotMatch(html, /Baseballism Ambassador/i);
+  assert.match(html, /from\("payment_request_vendor_suggestions"\)/);
+  // Scoped to the active company on the way out as well as by RLS.
+  assert.match(html, /payment_request_vendor_suggestions[\s\S]{0,200}company_entity_id/);
+  // And a missing table or a failed read must not stop someone filing a
+  // request: both suggestion reads fall back to an empty list.
+  assert.match(html, /fetchSuggestedVendors\(\)\.catch\(/);
+  assert.match(html, /fetchPriorVendors\(\)\.catch\(/);
 });
 
 test('shared chrome displays friendly workspace roles without storage jargon', async () => {
