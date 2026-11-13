@@ -767,11 +767,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(calls.filter((c) => c.action === 'seed_request').pop()?.item_id, 'f4', 'the request names the product the rep pressed');
     R.has(await text(seedPage, '#feed'), 'Waiting for the brand', 'the button becomes its state, in place');
     R.has(await text(seedPage, '#seedCard'), 'Trail Hat', 'and it is listed under Your products');
-    await seedPage.fill('#seedTitle', 'Gray hoodie');
-    await seedPage.click('#seedAsk button');
-    await seedPage.waitForFunction(() => /Gray hoodie/.test(document.getElementById('seedCard')?.textContent || ''), null, { timeout: 5000 });
-    const ask = calls.filter((c) => c.action === 'seed_request').pop();
-    R.eq([ask?.title, ask?.item_id], ['Gray hoodie', undefined], 'another product is asked for by name');
+    R.ok('a product cannot be typed in: only what the brand shared is asked for', !(await seedPage.$('#seedCard input, #seedAsk, #seedTitle')));
     // Where the rep gets paid: right under their photo, shown as their
     // PayPal account once set, with the field only while changing it.
     const side = await seedPage.evaluate(() => [...document.querySelectorAll('.af-side h2')].map((h) => h.textContent));
