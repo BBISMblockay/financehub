@@ -556,6 +556,21 @@
     .int-picker-opt small { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); }
     .int-picker-note { font-size:12px; color:var(--bcn-ink-3); }
     .int-acct { display:flex; align-items:center; gap:6px; }
+    /* A connection's own settings, open only while someone is changing them.
+       Everything a customer reads at a glance stays in the row itself; this
+       holds what they act on once, and the controls that are dangerous to
+       put a stray click on (Remove, Replace token). */
+    .int-detail-panel { border:1px solid var(--bcn-band); border-radius:8px; padding:12px 14px; margin:0 0 6px; }
+    .int-detail-grp { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    /* bcn-field fills its container by default, which in a flex row means one
+       input takes the whole line and pushes its own button under it. In here
+       a field is one item among several, so it is sized rather than greedy. */
+    .int-detail-grp .bcn-field { width:auto; flex:0 1 auto; }
+    .int-detail-grp:last-child { margin-bottom:0; }
+    .int-detail-lbl { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); min-width:92px; }
+    .int-detail-note { font-size:10.5px; color:var(--bcn-ink-3); }
+    .int-acct-read { font-family:var(--bcn-mono); font-size:12px; color:var(--bcn-ink-2); }
+    .int-conn-name { font-weight:600; }
   </style>
 </head>
 <body>
@@ -757,7 +772,7 @@
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--ga4" id="btn-connect-ga4">Connect GA4 →</button>
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--search-console" id="btn-connect-search-console">Connect Search Console →</button>
                   </div>
-                  <div class="int-muted" style="padding-bottom:10px;">Each button is its own Google sign-in, so connecting one does not connect the others. SILO reads reporting only — it never creates, edits, pauses or spends anything. Google Ads and GA4 import the last 90 days; Search Console imports the 16 months Google will return, and has no "Sync now" because one run fills three tables and rebuilds a rollup.</div>
+                  <div class="int-muted" style="padding-bottom:10px;">Each button is its own Google sign-in. SILO reads only.</div>
                 </td>
               </tr>
             </tfoot>
@@ -790,35 +805,15 @@
               </tr>
             </thead>
             <tbody id="meta_ads-connections-list">
-              <tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Add your Meta ad account below</div></td></tr>
+              <tr><td colspan="5"><div class="empty-state"><strong>Not connected</strong>Connect Meta below to sync ads, Page and Instagram</div></td></tr>
             </tbody>
             <tfoot>
               <tr class="int-add-row">
                 <td colspan="5">
                   <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--meta" id="btn-connect-meta">Connect Meta →</button>
-                    <button class="bcn-btn bcn-btn--ghost" id="btn-add-meta">Use a System User token instead</button>
-                    <button type="button" class="ig-open-btn" data-guide="meta_ads">Meta setup guide</button>
                   </div>
-                  <div class="int-muted" style="padding-bottom:10px;">Signing in sends you to Facebook, where you pick the ad account, Page and Instagram account SILO may read. SILO reads reporting only — it never creates, edits, pauses or spends anything in your Meta account. After you choose them, SILO imports the last 90 days and then syncs nightly.</div>
-                  <div class="int-add-form add-form" id="meta-add-form">
-                    <div class="int-muted" style="margin-bottom:10px;">Meta needs a System User token created in your Business settings first.
-                      <button type="button" class="ig-open-btn" data-guide="meta_ads" style="margin-left:4px;">How to get one</button></div>
-                    <div class="bcn-field-group">
-                      <label class="bcn-label" for="meta-token">Meta System User access token</label>
-                      <input class="bcn-field bcn-field--mono" id="meta-token" type="password"
-                        placeholder="EAAB…" autocomplete="off" spellcheck="false" />
-                    </div>
-                    <div class="bcn-field-group">
-                      <label class="bcn-label" for="meta-account-id">Ad account ID</label>
-                      <input class="bcn-field bcn-field--mono" id="meta-account-id" type="text"
-                        placeholder="act_1234567890" autocomplete="off" spellcheck="false" />
-                    </div>
-                    <div class="form-row">
-                      <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-meta">Cancel</button>
-                      <button class="bcn-btn bcn-btn--primary" id="btn-save-meta">Save Meta connection</button>
-                    </div>
-                  </div>
+                  <div class="int-muted" style="padding-bottom:10px;">SILO reads only. It never posts, edits or spends.</div>
                 </td>
               </tr>
             </tfoot>
@@ -859,7 +854,7 @@
                   <div class="form-row" style="padding:10px 0;gap:12px;align-items:center;flex-wrap:wrap;">
                     <button class="bcn-btn bcn-btn--ghost int-brand-btn int-brand-btn--tiktok" id="btn-connect-tiktok">Connect TikTok Ads →</button>
                   </div>
-                  <div class="int-muted" style="padding-bottom:10px;">Signing in sends you to TikTok, where you pick which ad account SILO may read. SILO reads reporting only — it never creates, edits, pauses or spends anything in your TikTok account. After you choose the advertiser, SILO imports the last 90 days and then syncs nightly.</div>
+                  <div class="int-muted" style="padding-bottom:10px;">SILO reads only. It never posts, edits or spends.</div>
                 </td>
               </tr>
             </tfoot>
@@ -1866,9 +1861,6 @@
           document.getElementById('shop-access-token').closest('details').open = true;
         }
         reveal(document.getElementById(document.getElementById('shop-domain').value.trim() ? (action === 'shopify_token_form' ? 'shop-access-token' : 'shop-client-id') : 'shop-domain'));
-      } else if (action === 'meta_form') {
-        document.getElementById('meta-add-form').classList.add('open');
-        reveal(document.getElementById('meta-token'));
       } else if (action === 'redo_row') {
         reveal(document.getElementById('redo-connections-list').closest('section'));
       } else if (action === 'klaviyo_row') {
@@ -2790,6 +2782,12 @@
       tiktok_ads: 'tiktok_advertiser_id', ga4: 'ga4_property_id',
       search_console: 'search_console_site_url',
     };
+    // What the account field IS, for the drill-in's label. The row itself
+    // names it in the column header, which the panel is below and apart from.
+    const AD_ACCOUNT_NOUN = {
+      google_ads: 'Ads account', meta_ads: 'Ad account', tiktok_ads: 'Advertiser',
+      ga4: 'GA4 property', search_console: 'Property',
+    };
     const AD_ACCOUNT_PLACEHOLDER = {
       google_ads: '123-456-7890', meta_ads: 'act_1234567890',
       // Nothing is stored here until the picker is used, and a digit string
@@ -2924,14 +2922,19 @@
       // so its inputs give that width back rather than pushing the row's
       // buttons off the right edge of the table.
       const wide = withPlatform ? 112 : 160;
-      const acctCell = acctField
-        ? `<div class="int-acct">
-            <input class="bcn-field bcn-field--mono" style="min-width:${wide}px;" value="${escAttr(acctVal)}"
-              placeholder="${escAttr(AD_ACCOUNT_PLACEHOLDER[row.platform] || '')}"
-              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
-            <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
-          </div>${needsChoice}`
-        : '<span class="int-muted">—</span>';
+      // The account a connection reads is worth SEEING at a glance and is
+      // changed about once in its life, so the row shows it as text and the
+      // editable field moves into the panel. The one exception stays in the
+      // row: a connection with no account chosen cannot sync at all, so its
+      // Choose button is the thing the page is asking for and must not be a
+      // click deeper than everything else.
+      const acctCell = !acctField
+        ? '<span class="int-muted">—</span>'
+        : acctVal
+          ? `<span class="int-acct-read">${escHtml(acctVal)}</span>`
+          : `<div class="int-acct">
+              <button class="int-btn int-btn--primary" onclick="openAccountPicker('${row.id}')">Choose…</button>
+            </div>${needsChoice}`;
       // What the LAST sync attempt did, written by both the nightly script and
       // Sync now (meta.last_sync, see syncOutcome in the shared sync core).
       // Until this line existed a failed nightly sync was invisible to the
@@ -2949,8 +2952,7 @@
 
       const mainRow = `<tr data-platform="${row.platform}">
         ${withPlatform ? `<td style="width:1%;"><span class="int-platform-label">${AD_PLATFORM_ICON[row.platform] || ''}${AD_PLATFORM_LABELS[row.platform] || row.platform}</span></td>` : ''}
-        <td><input class="bcn-field" style="min-width:${withPlatform ? 112 : 150}px;" value="${escAttr(row.display_name)}"
-          onchange="updateAdConnection('${row.id}', { display_name: this.value })" /></td>
+        <td><span class="int-conn-name">${escHtml(row.display_name || '')}</span></td>
         <td>${acctCell}</td>
         <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"${nightlyTitle}>
           <input type="checkbox" ${row.sync_enabled ? 'checked' : ''}
@@ -2958,42 +2960,71 @@
           ${row.sync_enabled ? 'On' : 'Off'}</label></td>
         <td>${test}</td>
         <td style="white-space:nowrap;">
-          <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
-          ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">Sync now</button>` : ''}
-          ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
-          ${row.platform === 'meta_ads' && row.meta?.oauth?.connected_via ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Meta again and renew THIS connection's authorization — keeps its ad account, Page, sync setting and history">Reconnect</button>` : ''}
-          ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
-          <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
+          <button class="int-btn int-btn--ghost" id="conn-manage-${row.id}" aria-expanded="false"
+            aria-controls="conn-detail-${row.id}"
+            onclick="toggleConnectionDetail('${row.id}', this)">Manage</button>
         </td>
       </tr>`;
-      // Organic (Instagram + Facebook Page) rides this SAME Meta
-      // connection's token — no separate connect flow — but needs its own two
-      // IDs once the token has pages_read_engagement / instagram_basic /
+      // Everything that is not "is it connected and is it syncing" lives
+      // here, hidden until Manage is pressed. Blake 2026-11-13: "customer
+      // won't care, they want to see their meta account created, connected,
+      // and that's about it". It is one panel for every platform rather than
+      // a Meta-only branch, so no platform grows its own layout.
+      //
+      // Organic (Instagram + Facebook Page) rides this SAME Meta connection's
+      // token -- no separate connect flow -- but needs its own two IDs once
+      // the token has pages_read_engagement / instagram_basic /
       // instagram_manage_insights and the System User is assigned to the Page
       // in Business Manager. See docs/ops/ad-platform-api-setup.md.
       const span = withPlatform ? 6 : 5;
-      const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>
-        <td colspan="${span}" style="padding-top:0;">
-          <div id="meta-token-${row.id}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;" hidden>
-            <span style="font-family:var(--bcn-mono);font-size:10.5px;color:var(--bcn-ink-3);">New System User token:</span>
+      const acctRow = !acctField ? '' : `<div class="int-detail-grp">
+            <span class="int-detail-lbl">${escHtml(AD_ACCOUNT_NOUN[row.platform] || 'Account')}</span>
+            <input class="bcn-field bcn-field--mono" style="min-width:${wide}px;" value="${escAttr(acctVal)}"
+              placeholder="${escAttr(AD_ACCOUNT_PLACEHOLDER[row.platform] || '')}"
+              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
+            <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
+          </div>`;
+      // Organic is Meta's alone: no other platform carries a Page.
+      const organicGrp = row.platform !== 'meta_ads' ? '' : `
+          <div id="meta-token-${row.id}" class="int-detail-grp" hidden>
+            <span class="int-detail-lbl">New token</span>
             <input class="bcn-field bcn-field--mono" style="min-width:260px;font-size:11px;" type="password"
               placeholder="EAAB…" autocomplete="off" spellcheck="false"
               onkeydown="if (event.key === 'Enter') saveMetaToken('${row.id}')" />
             <button class="int-btn int-btn--primary" onclick="saveMetaToken('${row.id}')">Save token</button>
             <button class="int-btn int-btn--ghost" onclick="toggleMetaTokenForm('${row.id}')">Cancel</button>
-            <span style="font-size:10.5px;color:var(--bcn-ink-3);">— replaces the token on THIS connection; never add a second one for the same account</span>
+            <span class="int-detail-note">— replaces this connection's token</span>
             <button type="button" class="ig-open-btn" data-guide="meta_ads">How to generate one</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--bcn-ink-3);">
-            <span style="font-family:var(--bcn-mono);">Organic (optional):</span>
+          <div class="int-detail-grp">
+            <span class="int-detail-lbl">Page</span>
+            <button class="int-btn ${row.facebook_page_id ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openPagePicker('${row.id}')">${row.facebook_page_id ? 'Change Page' : 'Choose Page…'}</button>
             <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
               value="${escAttr(row.facebook_page_id || '')}" placeholder="Facebook Page ID"
               onchange="updateAdConnection('${row.id}', { facebook_page_id: this.value.trim() || null })" />
             <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
               value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
               onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
-            <button class="int-btn ${row.facebook_page_id ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openPagePicker('${row.id}')">${row.facebook_page_id ? 'Change Page' : 'Choose Page…'}</button>
-            <span>— the Page's Instagram account comes with it</span>
+            <span class="int-detail-note">— the Page's Instagram account comes with it</span>
+          </div>`;
+      const detailRow = `<tr class="int-detail" id="conn-detail-${row.id}" hidden>
+        <td colspan="${span}" style="padding-top:0;">
+          <div class="int-detail-panel">
+            <div class="int-detail-grp">
+              <span class="int-detail-lbl">Name</span>
+              <input class="bcn-field" style="min-width:${withPlatform ? 112 : 180}px;" value="${escAttr(row.display_name)}"
+                onchange="updateAdConnection('${row.id}', { display_name: this.value })" />
+            </div>
+            ${acctRow}${organicGrp}
+            <div class="int-detail-grp">
+              <span class="int-detail-lbl">Connection</span>
+              <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
+              ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">Sync now</button>` : ''}
+              ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
+              ${row.platform === 'meta_ads' && row.meta?.oauth?.connected_via ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Meta again and renew THIS connection's authorization — keeps its ad account, Page, sync setting and history">Reconnect</button>` : ''}
+              ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
+              <button class="int-btn int-btn--danger" onclick="removeAdConnection('${row.id}')">Remove</button>
+            </div>
           </div>
         </td>
       </tr>`;
@@ -3012,7 +3043,23 @@
           </div>
         </td>
       </tr>`;
-      return mainRow + failRow + organicRow;
+      return mainRow + failRow + detailRow;
+    }
+
+    // One connection's settings, opened from its own row. Collapsed is the
+    // resting state: a customer reads the page to see that a connection is
+    // there and syncing, and everything else is something they do once.
+    // Nothing is destroyed or saved by opening it, so it needs no confirm --
+    // but Remove and Replace token now take a deliberate click to reach,
+    // which they did not before.
+    function toggleConnectionDetail(id, btn) {
+      const el = document.getElementById(`conn-detail-${id}`);
+      if (!el) return;
+      el.hidden = !el.hidden;
+      if (btn) {
+        btn.textContent = el.hidden ? 'Manage' : 'Done';
+        btn.setAttribute('aria-expanded', el.hidden ? 'false' : 'true');
+      }
     }
 
     // Regenerating a Meta System User token used to have no home in this UI:
@@ -3411,58 +3458,6 @@
     document.getElementById('btn-connect-tiktok').addEventListener('click', (e) => {
       if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
       startAdOauth('tiktok-oauth-start', { company_entity_id: _co.id }, e.target);
-    });
-
-    document.getElementById('btn-add-meta').addEventListener('click', () => {
-      document.getElementById('meta-add-form').classList.add('open');
-    });
-    document.getElementById('btn-cancel-meta').addEventListener('click', () => {
-      document.getElementById('meta-add-form').classList.remove('open');
-    });
-    document.getElementById('btn-save-meta').addEventListener('click', async () => {
-      if (!_co?.id) { setStatus('No active company set', 'neg', 5000); return; }
-      const token = document.getElementById('meta-token').value.trim();
-      const acct = document.getElementById('meta-account-id').value.trim();
-      if (!token) { setStatus('Paste the System User access token first', 'neg', 5000); return; }
-
-      // A refreshed token for an account that is already connected belongs on
-      // the EXISTING row (Replace token), not in a new one. Compare account
-      // ids normalized, since "act_51281951" and "51281951" are the same
-      // account typed two ways. A blank account id is treated as a clash too:
-      // the overwhelmingly common reason to leave it blank is that this is the
-      // same single account being re-pasted.
-      const { data: existingMeta, error: existErr } = await db.from('ad_platform_connections')
-        .select('id, display_name, meta_ad_account_id')
-        .eq('company_entity_id', _co.id)
-        .eq('platform', 'meta_ads');
-      if (existErr) { setStatus('Could not check existing connections: ' + existErr.message, 'neg', 8000); return; }
-      const normAcct = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^act/, '');
-      const clash = (existingMeta || []).find((r) => !acct || normAcct(r.meta_ad_account_id) === normAcct(acct));
-      if (clash) {
-        setStatus(`Meta account ${clash.meta_ad_account_id || '(no account set)'} is already connected as "${clash.display_name}". `
-          + 'Use "Replace token" on that row instead — a second connection for the same account double-pulls it nightly.',
-          'neg', 15000);
-        return;
-      }
-
-      const { error } = await db.from('ad_platform_connections').insert({
-        company_entity_id: _co.id,
-        platform: 'meta_ads',
-        display_name: 'Meta Ads account',
-        access_token: token,
-        meta_ad_account_id: acct || null,
-        is_active: true,
-        sync_enabled: false,
-        // The next full nightly imports a year of history for this new
-        // connection, then clears the flag (scripts/lib/meta-history-backfill.mjs).
-        meta: { history_backfill_pending: true },
-      });
-      if (error) { setStatus('Save failed: ' + error.message, 'neg', 8000); return; }
-      document.getElementById('meta-token').value = '';
-      document.getElementById('meta-account-id').value = '';
-      document.getElementById('meta-add-form').classList.remove('open');
-      setStatus('✓ Meta connection saved — run Test, then enable sync.', 'pos', 8000);
-      loadAdConnections();
     });
 
     // ══ Redo returns (webhook-driven, one connection per company) ═════════

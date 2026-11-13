@@ -56,7 +56,12 @@ const MUTATIONS = {
   'retry-blocked': [['      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform) && !clientBlock;', '      const canRetrySync = SYNC_NOW_PLATFORMS.includes(row.platform);']],
   'no-error-text': [["${escHtml(lastSync.error || 'No reason recorded.')}", '']],
   'no-reload': [['      await loadAdConnections();\n    }\n\n    // A failed test says what to DO', '    }\n\n    // A failed test says what to DO']],
-  'no-organic': [["      const organicRow = row.platform !== 'meta_ads' ? '' : `<tr>", '      const organicRow = true ? \'\' : `<tr>']],
+  'no-organic': [["      const organicGrp = row.platform !== 'meta_ads' ? '' : `", "      const organicGrp = true ? '' : `"]],
+  // The drill-in is only a simplification while it is CLOSED on arrival. A
+  // panel that renders open puts Remove and Replace token back under a stray
+  // click and undoes the whole change, silently.
+  'detail-open': [['      const detailRow = `<tr class="int-detail" id="conn-detail-${row.id}" hidden>',
+                   '      const detailRow = `<tr class="int-detail" id="conn-detail-${row.id}">']],
 };
 const MUT = process.env.AD_CARDS_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -168,7 +173,13 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
     R.not(await page.evaluate(htmlOf, 'google'), 'nothing syncs until you do');
 
     // ── Per-platform actions, each on the row it belongs to.
-    const rowHtml = (platform) => document.querySelector(`tr[data-platform="${platform}"]`)?.innerHTML || '';
+    const rowHtml = (platform) => {
+      const tr = document.querySelector(`tr[data-platform="${platform}"]`);
+      if (!tr) return '';
+      let html = tr.innerHTML;
+      for (let n = tr.nextElementSibling; n && !n.dataset.platform; n = n.nextElementSibling) html += n.innerHTML;
+      return html;
+    };
     R.has(await page.evaluate(htmlOf, 'tiktok_ads'), 'syncAdConnection',
       'TikTok offers Sync now, so the first pull does not wait for the nightly');
     R.has(await page.evaluate(htmlOf, 'tiktok_ads'), 'openAccountPicker');
@@ -185,8 +196,24 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
     R.has(await page.evaluate(htmlOf, 'meta_ads'), 'Instagram Business Account ID',
       'organic rides the same Meta token and needs its two IDs here');
 
+    // ── A row says whether it is connected and syncing, and nothing else.
+    // Everything a person does once lives behind Manage, CLOSED on arrival.
+    for (const platform of PLATFORMS) {
+      const id = await page.evaluate((pf) => document.querySelector(`tr[data-platform="${pf}"]`)
+        ?.querySelector('[id^="conn-manage-"]')?.id || '', platform);
+      R.eq(!!id, true, `${platform} offers Manage`);
+      R.eq(await page.evaluate((pf) => {
+        const tr = document.querySelector(`tr[data-platform="${pf}"]`);
+        const panel = tr && tr.parentElement.querySelector(`#conn-detail-${tr.querySelector('[id^="conn-manage-"]').id.replace('conn-manage-', '')}`);
+        return panel ? panel.hidden : null;
+      }, platform), true, `${platform}'s settings panel starts closed`);
+      R.not(await page.evaluate((pf) => document.querySelector(`tr[data-platform="${pf}"]`)?.innerHTML || '', platform),
+        'removeAdConnection',
+        `${platform} does not put Remove one stray click from a working connection`);
+    }
+
     // ── Every platform can be connected, by anyone who can see the page.
-    for (const id of ['btn-connect-google-ads', 'btn-connect-ga4', 'btn-connect-search-console', 'btn-add-meta', 'btn-connect-tiktok']) {
+    for (const id of ['btn-connect-google-ads', 'btn-connect-ga4', 'btn-connect-search-console', 'btn-connect-meta', 'btn-connect-tiktok']) {
       R.eq(await page.evaluate((i) => !!document.getElementById(i) && !document.getElementById(i).hidden, id),
         true, `${id} is offered`);
     }
