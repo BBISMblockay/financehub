@@ -641,7 +641,7 @@ async function startSuite(options = {}) {
     Object.entries((opts && opts.rpc) || {}).forEach(([k, v]) => { rpcSrc[k] = String(v); });
     // Re-runs on every navigation of this page, reload included, so the
     // company fixtures below survive a reload the way real server state does.
-    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate, gateTables }) => {
+    await page.addInitScript(({ t, rpc, broken, missingColumns, cachedCompany, serverCompany, ensureGate, gateTables, edge }) => {
       window.__FIXTURE_TABLE_GATES__ = {};
       window.__TABLE_RELEASERS__ = {};
       gateTables.forEach((name) => {
@@ -661,8 +661,38 @@ async function startSuite(options = {}) {
         // eslint-disable-next-line no-eval
         window.__FIXTURE_RPC__[k] = eval('(' + src + ')');
       });
+      // Opt-in (opts.edge): answers for edge functions a page calls with its
+      // own fetch(), which supabase.functions.invoke does not see. Keyed by
+      // function name; the value is { status, body } or an ARRAY of them, one
+      // per call in order, so a first attempt can fail and a second succeed.
+      // Anything not named here goes to the real fetch untouched.
+      if (edge) {
+        window.__EDGE_CALLS__ = [];
+        const realFetch = window.fetch.bind(window);
+        const seen = {};
+        window.fetch = function (url, init) {
+          const u = String((url && url.url) || url || '');
+          const m = /\/functions\/v1\/([A-Za-z0-9_-]+)/.exec(u);
+          const name = m && m[1];
+          if (!name || !(name in edge)) return realFetch(url, init);
+          let body = null;
+          try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = init && init.body; }
+          window.__EDGE_CALLS__.push({ name: name, body: body });
+          const answers = edge[name];
+          const n = (seen[name] = (seen[name] || 0) + 1);
+          const a = Array.isArray(answers) ? (answers[n - 1] || answers[answers.length - 1]) : answers;
+          const status = a && a.status ? a.status : 200;
+          return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            json: function () { return Promise.resolve((a && a.body) || {}); },
+            text: function () { return Promise.resolve(JSON.stringify((a && a.body) || {})); },
+          });
+        };
+      }
     }, {
       t: tables, rpc: rpcSrc, broken: (opts && opts.broken) || [],
+      edge: (opts && opts.edge) || null,
       missingColumns: (opts && opts.missingColumns) || {},
       cachedCompany: (opts && 'cachedCompany' in opts) ? opts.cachedCompany : '__unset__',
       serverCompany: (opts && opts.serverCompany) || null,

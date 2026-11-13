@@ -203,12 +203,36 @@ async function load() {
     card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c, t.today)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
     links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<span class="af-copy">${esc(u)}</span>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
+    payoutEmailCard(st.payout_email),
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
   $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
   brandSwitcher();
   wirePhoto();
+  wirePayoutEmail();
+}
+
+// Where this rep takes money. It is their own answer: a brand that types an
+// address for them is paying whoever holds it, and nobody else can know this.
+function payoutEmailCard(email) {
+  return `<div id="payEmailCard">${card('Where you get paid', `<div class="af-row">
+    <input class="bcn-field" id="payEmail" type="email" inputmode="email" autocomplete="email" placeholder="your PayPal email" value="${esc(email || '')}" />
+    <button class="bcn-btn bcn-btn--primary" id="payEmailSave" type="button">Save</button>
+  </div>`)}</div>`;
+}
+function wirePayoutEmail() {
+  const btn = $('payEmailSave'); const input = $('payEmail');
+  if (!btn || !input) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const r = await call('payout_email', { token, email: input.value });
+      input.value = r.payout_email || '';
+      setStatus(r.payout_email ? 'Saved.' : 'Removed.', 'pos');
+    } catch (e) { setStatus(e.message, 'neg'); }
+    btn.disabled = false;
+  });
 }
 
 // A rep who reps more than one brand gets a menu instead of a trip back to
