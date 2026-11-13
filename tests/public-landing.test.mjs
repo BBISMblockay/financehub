@@ -127,7 +127,12 @@ test('welcome actions route guests to early access and sign-in', () => {
   assert.match(html, /<form\b[^>]*id="lpInterestForm"[^>]*data-ack-success=/);
   assert.match(html, /lp-connects--chips/);
   assert.match(html, /id="lpAsk"/);
-  assert.doesNotMatch(html, /icon-redo|Redo Marketing/);
+  assert.match(html, /icon-redo/);
+  assert.match(html, /Redo Marketing/);
+  assert.match(html, /icon-stripe/);
+  assert.match(html, /icon-plaid/);
+  assert.match(html, /klaviyo-logo\.png/);
+  assert.match(html, /lp-int-chip--more/);
   assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
   assert.doesNotMatch(html, /company-onboarding\.html|lpInviteNote|silo-hero-motion\.js/);
   for (const file of ['pages/login.html', 'legal/privacy.html', 'legal/eula.html']) assert.ok(existsSync(root + file));

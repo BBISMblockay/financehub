@@ -59,7 +59,7 @@ async function fixture({ session = null, unavailable = false } = {}) {
     }
     const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     const filePath = path.join(root, relative);
-    const allowedPrefix = /^(index\.html|pages\/|v2\/|assets\/(landing\/|silo-icon)|legal\/)/;
+    const allowedPrefix = /^(index\.html|pages\/|v2\/|assets\/(landing\/|silo-icon|brands\/)|legal\/)/;
     if (!allowedPrefix.test(relative) && !/^assets\/landing\/silo-hero(?:-1080)?\.(webp|jpg)$/.test(relative)) {
       failures.push('Unexpected fixture path: ' + relative);
       return route.abort();

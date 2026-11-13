@@ -274,6 +274,19 @@
 }
 #landing .lp-int-chip--tiktok { color: #eef2fb; }
 #landing .lp-int-chip--tiktok .lp-int-icon { color: #fff; }
+#landing .lp-int-icon--redo { width: 40px; height: 16px; }
+#landing .lp-int-logo {
+  display: block;
+  height: 16px;
+  width: auto;
+  max-width: 54px;
+}
+#landing .lp-int-chip--klaviyo { color: var(--bcn-ink-2); }
+#landing .lp-int-chip--more {
+  color: var(--bcn-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
 #landing .lp-int-icon--mark {
   display: grid;
   place-items: center;

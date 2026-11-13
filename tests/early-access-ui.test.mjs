@@ -17,7 +17,7 @@ test('home and shared config retain their explicit baselines', () => {
     // Deliberately changed 2026-11-13: get-silo.com index uses the early-access landing (like
     // redo-welcome/demo) and the public intake form instead of the invitation-only onboarding link.
     // Auth router (#router, data-mode script, signed-in redirect) is unchanged in purpose.
-    'index.html': 'e08f56af46fe032ed05b8484f29a32f9241dd4b86d111eabcdec7d234eef87bd',
+    'index.html': '61bd4dbca9c93634df385cc3ee894bff995af0fcfe5de4647d2c7931525d9385',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
     'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
   };
