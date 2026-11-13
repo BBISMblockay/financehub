@@ -40,7 +40,7 @@ async function test(name, fn) {
  * filters it carried -- the guard that keeps a cancelled job cancelled is a
  * filter, so it can only be asserted by looking at them.
  */
-function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: true, company_entity_id: 'co-1' }, priorSyncJobs = [], jobRow = null } = {}) {
+function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: true, company_entity_id: 'co-1' }, priorSyncJobs = [], jobRow = null, lostLease = false } = {}) {
   const writes = [];
   const reads = [];
   const builder = (table, op, payload) => {
@@ -49,6 +49,7 @@ function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: tr
       select() { return self; },
       eq(col, val) { (filters[col] = filters[col] || []).push(val); return self; },
       neq(col, val) { filters[`not.${col}`] = val; return self; },
+      gt(col, val) { filters[`gt.${col}`] = val; return self; },
       lt(col, val) { filters[`lt.${col}`] = val; return self; },
       limit() { return self; },
       maybeSingle() { return self.then(); },
@@ -58,7 +59,7 @@ function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: tr
             writes.push({ table, patch: payload, filters });
             // The real policy-free service-role update returns no error and
             // the runner does not read row counts, so neither does this.
-            return { data: null, error: null };
+            return { data: lostLease ? [] : [{id: 'job-1'}], error: null };
           }
           reads.push({ table, filters });
           if (table === 'sync_jobs') return { data: priorSyncJobs, error: null };
@@ -146,13 +147,22 @@ await test('every terminal write is guarded on the row still being running', asy
   }
 });
 
-await test('progress writes during a stage are not guarded, so they survive a lease renewal race', async () => {
+await test('all progress writes are fenced by attempt, running status and unexpired lease', async () => {
   const db = fakeDb();
   const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
   await runJob(job());
   const progress = db.writes.filter((w) => w.patch.stages && !w.patch.status);
   assert.ok(progress.length >= 2, 'each stage records running then its result');
-  assert.equal(progress[0].filters.status, undefined);
+  assert.deepEqual(progress[0].filters.status, ['running']);
+  assert.deepEqual(progress[0].filters.attempts, [1]);
+  assert.ok(progress[0].filters['gt.lease_until']);
+});
+
+await test('a stale owner cannot write progress or start another stage', async () => {
+  const db = fakeDb({ lostLease: true }); let ran = 0;
+  const { runJob } = createRunner({ db, runStage: async () => { ran++; return {ok:true}; }, log: silent });
+  await assert.rejects(runJob(job()), /Bootstrap lease lost/);
+  assert.equal(ran, 0);
 });
 
 // ── Resume, failure and the attempt cap ───────────────────────────────────

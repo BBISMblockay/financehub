@@ -101,7 +101,7 @@ export function planSyncRun(conn) {
  * @param deps.clientSideReason  the shared allowlist of failures the CLIENT owns
  */
 export function createHandler({
-  service, userClientFor, googleEnv, runConnectionSync, syncOutcome, clientSideReason, now = () => new Date(),
+  service, userClientFor, googleEnv, runConnectionSync, syncOutcome, clientSideReason, withAdSyncLease, now = () => new Date(),
 }) {
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -124,17 +124,29 @@ export function createHandler({
       .from('ad_platform_connections').select('id').eq('id', connectionId).maybeSingle();
     if (visErr || !visible) return json({ error: 'Connection not found' }, 404);
 
-    const { data: conn, error: connErr } = await service
+    const { data: loadedConnection, error: connErr } = await service
       .from('ad_platform_connections').select('*').eq('id', connectionId).maybeSingle();
+    let conn = loadedConnection;
     if (connErr || !conn) return json({ error: 'Connection not found' }, 404);
 
-    const plan = planSyncRun(conn);
+    let plan = planSyncRun(conn);
     if (!plan.ok) return json({ ok: false, error: plan.error }, plan.status);
     if (GOOGLE_PLATFORMS.includes(conn.platform) && (!googleEnv.GOOGLE_CLIENT_ID || !googleEnv.GOOGLE_CLIENT_SECRET
         || (conn.platform === 'google_ads' && !googleEnv.GOOGLE_ADS_DEVELOPER_TOKEN))) {
       return json({ ok: false, error: 'Google sync is not configured on the server' }, 503);
     }
 
+    if (conn.platform === 'meta_ads' && !withAdSyncLease) return json({ ok: false, error: 'Sync locking is not configured' }, 503);
+    try {
+      const leaseRunner = conn.platform === 'meta_ads' ? withAdSyncLease : ({ run }) => run();
+      const response = await leaseRunner({ db: service, connection: conn, run: async () => {
+        // Never stamp a pre-lock metadata snapshot over a completed import.
+        const fresh = await service.from('ad_platform_connections').select('*')
+          .eq('id', conn.id).eq('company_entity_id', conn.company_entity_id).maybeSingle();
+        if (fresh.error || !fresh.data) throw new Error('Could not reload leased connection');
+        conn = fresh.data;
+        plan = planSyncRun(conn);
+        if (!plan.ok) return json({ ok: false, error: plan.error }, plan.status);
     const { data: job, error: jobErr } = await service.from('sync_jobs').insert({
       company_entity_id: conn.company_entity_id,
       job_type: JOB_TYPES[conn.platform],
@@ -242,5 +254,11 @@ export function createHandler({
         ? { scope: 'campaign_totals', nightly_only: ['ad-level rows', 'creative images', 'Page posts'] }
         : {}),
     });
+      }});
+      if (response?.skipped === 'sync_already_running') return json({ ok: false, error: 'An import is already running for this connection. Its progress remains available in Integrations.' }, 409);
+      return response;
+    } catch (_err) {
+      return json({ ok: false, error: 'Could not safely acquire or maintain the sync lock; retry after the active import finishes.' }, 503);
+    }
   };
 }

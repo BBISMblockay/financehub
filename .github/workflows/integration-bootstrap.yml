@@ -15,6 +15,8 @@ name: Integration Bootstrap
 # entry-point scripts the scheduled workflows run, scoped to one connection.
 # Nothing here is a second implementation of a sync.
 #
+# Meta connect now requests a scoped workflow dispatch through the server-only
+# integration-bootstrap-wake endpoint. This schedule is its recovery fallback.
 # ON THE SCHEDULE. Every 15 minutes, which is as close to "on connect" as a
 # GitHub cron gets -- and it is NOT what makes the feature feel immediate:
 # the page kicks the already-deployed per-connection sync functions itself the
@@ -36,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: Optional integration_bootstrap_jobs.id (one row, ignores the lease)
+        description: Optional integration_bootstrap_jobs.id (one row, respects its lease)
         required: false
       max_jobs:
         description: Jobs to claim this run (default 5)

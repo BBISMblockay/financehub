@@ -29,7 +29,7 @@
     ],
     google_ads: [['kpis', 'daily performance']],
     ga4: [['kpis', 'daily traffic']],
-    meta_ads: [['kpis', 'daily performance']],
+    meta_ads: [['recent_data', 'recent campaign and ad performance'], ['history', '365-day history']],
     tiktok_ads: [['kpis', 'daily performance']],
     search_console: [['backfill', 'search history']],
     redo: [
@@ -133,6 +133,25 @@
       && (connectionId ? j.connection_id === connectionId : !j.connection_id)) || null;
   }
 
+  // load() returns newest first. A superseded failure is not a current
+  // blocker after this connection's replacement import has succeeded.
+  function currentJobs(jobs) {
+    const seen = new Set();
+    return (jobs || []).filter((job) => {
+      const key = `${job.integration}:${job.connection_id || 'company'}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function wakeMessage(out) {
+    if (out.requested) return 'Meta connected — full import requested. Recent campaign and ad data load first, then history. You can leave this page.';
+    if (out.status === 'done') return 'Meta import is already finished. Refreshing its recorded status.';
+    if (['error', 'partial', 'cancelled'].includes(out.status)) return 'Meta import is not running. Review its recorded status below.';
+    return 'Meta import is already requested or running. Progress appears below; you can leave this page.';
+  }
+
   /** One line for the row: what is happening, and what is left.
    *
    * A stage recorded `skipped` counts as finished, because it is: Redo
@@ -152,6 +171,9 @@
 
     if (job.status === 'cancelled') {
       return { tone: 'warn', text: `${name} first sync stopped — ${job.last_error || 'cancelled'}` };
+    }
+    if (job.status === 'done' && job.integration === 'meta_ads' && finished.length < stages.length) {
+      return { tone: 'info', text: 'Meta previous import recorded — detailed history status is unavailable' };
     }
     if (job.status === 'done') {
       const skipped = stages.filter(([k]) => recorded[k]?.status === 'skipped');
@@ -175,6 +197,9 @@
         text: `${name} partly set up (${of}) — ${errored.map(([, l]) => l).join(', ')} did not import`,
       };
     }
+    if (job.status === 'pending' && errored.length) {
+      return { tone: 'warn', text: `${name}: automatic retry queued (${of}) — ${errored.map(([, l]) => l).join(', ')} did not finish; completed stages are kept` };
+    }
     if (running) {
       return { tone: 'info', text: `${name}: importing ${running[1]} (${of})` };
     }
@@ -184,5 +209,5 @@
     return { tone: 'info', text: `${name} first sync queued (${of}) — it runs on the server, you can close this page` };
   }
 
-  window.SiloBootstrap = { STAGES, LABEL, enqueue, latest, wasSkipped, load, forConnection, describe };
+  window.SiloBootstrap = { STAGES, LABEL, enqueue, latest, wasSkipped, load, forConnection, currentJobs, wakeMessage, describe };
 })();

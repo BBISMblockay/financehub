@@ -11,7 +11,9 @@
 // when those envs are absent, so the workflow is safe to schedule before the
 // dev-portal setup is finished; Meta/TikTok connections sync regardless.
 
+import { assertMetaBootstrapComplete } from './lib/meta-bootstrap-result.mjs';
 import { createClient } from '@supabase/supabase-js';
+import { withAdSyncLease } from './lib/ad-sync-lease.mjs';
 import { clientSideReason, makeFinishJob, runConnections } from './lib/ad-sync-client-errors.mjs';
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, syncOutcome, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
@@ -30,6 +32,7 @@ const GOOGLE_ENV = {
 const ONLY_COMPANY_ID = process.env.ADS_ONLY_COMPANY_ID || '';
 const ONLY_PLATFORM = (process.env.ADS_ONLY_PLATFORM || '').toLowerCase();
 const ONLY_CONNECTION_ID = process.env.ADS_ONLY_CONNECTION_ID || '';
+const BOOTSTRAP_STRICT = process.env.ADS_BOOTSTRAP_STRICT === 'true';
 const DAYS_BACK = process.env.ADS_DAYS_BACK ? Number(process.env.ADS_DAYS_BACK) : null;
 // Instagram history is walked post-by-post, not by date window, so it needs
 // its own knob -- ADS_DAYS_BACK has no effect on it. Each post costs an extra
@@ -190,6 +193,9 @@ async function syncConnection(connection) {
 
   // A new Meta connection's first full run imports a year (meta-history-backfill.mjs).
   const history = planMetaHistory(connection, { skipOrganic: SKIP_ORGANIC, daysBack: DAYS_BACK });
+  // The durable bootstrap owns its retry budget. Its explicit history stage
+  // remains a history attempt even after the legacy nightly flag gave up.
+  if (BOOTSTRAP_STRICT && connection.platform === 'meta_ads' && !SKIP_ORGANIC) history.backfill = true;
   const runDaysBack = history.daysBack;
   if (history.backfill) console.log(`[ok] ${label}: importing ${runDaysBack} days of history (new connection)`);
 
@@ -268,6 +274,10 @@ async function syncConnection(connection) {
           console.error(`[warn] ${label}: organic sync failed: ${result.organic.error}`);
         }
       }
+    }
+
+    if (BOOTSTRAP_STRICT && connection.platform === 'meta_ads') {
+      assertMetaBootstrapComplete(result, { skipOrganic: SKIP_ORGANIC });
     }
 
     const meta = {
@@ -359,6 +369,7 @@ async function main() {
   const connections = await loadConnections();
   if (!connections.length) {
     console.log('[ad-platforms-sync] no active connections with sync_enabled=true');
+    if (BOOTSTRAP_STRICT) throw new Error('Initial import connection is no longer eligible');
     return;
   }
 
@@ -366,9 +377,24 @@ async function main() {
   // revoked) is recorded and reported but does not fail the run -- see
   // lib/ad-sync-client-errors.mjs. Anything else is SILO's and does.
   const label = (c) => `${c.display_name || c.id} (${c.platform})`;
-  const { hadError, clientSide, results: allResults } = await runConnections(connections, (connection) => {
+  const { hadError, clientSide, results: allResults } = await runConnections(connections, async (connection) => {
     console.log(`[ad-platforms-sync] → ${label(connection)}`);
-    return syncConnection(connection);
+    if (connection.platform !== 'meta_ads') return syncConnection(connection);
+    const leased = await withAdSyncLease({
+      db: supabase, connection, run: async () => {
+        const { data: fresh, error } = await supabase.from('ad_platform_connections')
+          .select('*').eq('id', connection.id).eq('company_entity_id', connection.company_entity_id).maybeSingle();
+        if (error || !fresh) throw new Error('Could not reload leased ad connection');
+        if (fresh.is_active !== true || fresh.sync_enabled !== true) {
+          throw new Error('Leased ad connection is no longer active and sync-enabled');
+        }
+        return syncConnection(fresh);
+      },
+      // No stale runner may continue provider/database writes after losing ownership.
+      onLost: (err) => { console.error(err.message); process.exit(1); },
+    });
+    if (BOOTSTRAP_STRICT && leased?.skipped) throw new Error('Initial import waiting: another sync owns this connection');
+    return leased;
   }, label);
 
   // The keyword-candidate rollup (search_console_query_rollup_mv,
@@ -391,7 +417,8 @@ async function main() {
     console.log(`::warning title=Client-side ad connection problem::${msg}`);
     console.error(`[client-side] ${msg} -- not a SILO failure; the client must fix or disconnect it`);
   }
-  if (hadError) process.exit(1);
+  // A customer-fixable error still means this initial import is unfinished.
+  if (hadError || (BOOTSTRAP_STRICT && clientSide.length)) process.exit(1);
 }
 
 main().catch((err) => {

@@ -49,7 +49,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
  * next one's, and means a stage that hangs can be killed without taking the
  * drainer with it.
  */
-function runStage(stage, extraEnv) {
+function runStage(stage, extraEnv, signal) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [stage.script], {
       // GITHUB_EVENT_NAME is dropped rather than inherited: the drainer uses
@@ -59,30 +59,35 @@ function runStage(stage, extraEnv) {
       // SHOPIFY_RUN_KIND in integration-bootstrap-core.mjs).
       env: { ...process.env, GITHUB_EVENT_NAME: '', ...extraEnv },
       stdio: ['ignore', 'inherit', 'inherit'],
+      signal,
     });
+    const onAbort = () => { child.kill('SIGKILL'); };
+    signal?.addEventListener('abort', onAbort, { once: true });
     let timedOut = false;
+    const timeoutMs = stage.timeoutMs || STAGE_TIMEOUT_MS;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
       // A stage that ignores SIGTERM still has to end, or the drainer never
       // releases the row.
       setTimeout(() => child.kill('SIGKILL'), 20_000).unref?.();
-    }, STAGE_TIMEOUT_MS);
+    }, timeoutMs);
     timer.unref?.();
     child.on('error', (err) => {
       clearTimeout(timer);
       resolve({ ok: false, detail: `could not start: ${err.message}` });
     });
-    child.on('close', (code, signal) => {
+    child.on('close', (code, exitSignal) => {
+      signal?.removeEventListener('abort', onAbort);
       clearTimeout(timer);
       if (timedOut) {
-        resolve({ ok: false, detail: `timed out after ${Math.round(STAGE_TIMEOUT_MS / 60000)}m` });
+        resolve({ ok: false, detail: `timed out after ${Math.round(timeoutMs / 60000)}m` });
         return;
       }
       if (code === 0) { resolve({ ok: true, detail: null }); return; }
       resolve({
         ok: false,
-        detail: signal ? `killed by ${signal}` : `exit code ${code}`,
+        detail: exitSignal ? `killed by ${exitSignal}` : `exit code ${code}`,
       });
     });
   });
@@ -106,16 +111,8 @@ const { runJob } = createRunner({
  * intends to. The lease is only honest if it starts when the work does.
  */
 async function claimJob() {
-  if (ONLY_JOB_ID) {
-    const { data, error } = await db
-      .from('integration_bootstrap_jobs')
-      .select('*')
-      .eq('id', ONLY_JOB_ID)
-      .maybeSingle();
-    if (error) throw new Error(`Could not read job ${ONLY_JOB_ID}: ${error.message}`);
-    return data || null;
-  }
-  const { data, error } = await db.rpc('claim_integration_bootstrap_jobs', {
+  const { data, error } = await db.rpc('claim_integration_bootstrap_job', {
+    p_job_id: ONLY_JOB_ID || null,
     p_limit: 1,
     p_lease_seconds: LEASE_SECONDS,
     p_max_attempts: MAX_ATTEMPTS,

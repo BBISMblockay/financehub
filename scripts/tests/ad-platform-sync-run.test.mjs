@@ -12,6 +12,7 @@
  *   unclassified-failure
  */
 import assert from 'node:assert/strict';
+import { withAdSyncLease } from '../lib/ad-sync-lease.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -107,6 +108,7 @@ function makeDb({ rows, visibleIds = null, failUpdate = () => false }) {
     return api;
   }
   const service = {
+    rpc: async () => ({ data: true }),
     auth: { getUser: async (t) => (t === 'good-jwt' ? { data: { user: USER }, error: null } : { data: { user: null }, error: { message: 'bad' } }) },
     from: (t) => query(t, { rls: false }),
   };
@@ -151,13 +153,13 @@ function fakeGoogle({ adsStatus = 200 } = {}) {
 }
 const handlerFor = (db, env = ENV) => H.createHandler({
   service: db.service, userClientFor: db.userClientFor, googleEnv: env, runConnectionSync: core.runConnectionSync,
-  syncOutcome: core.syncOutcome, clientSideReason,
+  syncOutcome: core.syncOutcome, clientSideReason, withAdSyncLease,
   now: () => new Date('2026-09-30T20:00:00Z'),
 });
 
 // ── tests ───────────────────────────────────────────────────────────────────
 await test('the function ships exact copies of the nightly sync libraries', () => {
-  for (const f of ['ad-platforms-sync-core.mjs', 'shopify-sync-core.mjs', 'shopify-scopes.mjs', 'ad-sync-client-errors.mjs']) {
+  for (const f of ['ad-platforms-sync-core.mjs', 'shopify-sync-core.mjs', 'shopify-scopes.mjs', 'ad-sync-client-errors.mjs', 'ad-sync-lease.mjs']) {
     assert.equal(read(`${FN}/lib/${f}`), read(`scripts/lib/${f}`), `${FN}/lib/${f} has drifted from scripts/lib/${f}`);
   }
 });
@@ -453,3 +455,18 @@ await test('a manual failure the CLIENT owns is classified, as the nightly class
 });
 
 console.log(`\n${n} passed`);
+
+await test('an active import refuses a manual overlap without writes', async () => {
+  const db = makeDb({ rows: [metaConn()], visibleIds: ['c-meta'] });
+  db.service.rpc = async () => ({ data: false });
+  const response = await handlerFor(db)(req({ connection_id: 'c-meta' }));
+  assert.equal(response.status, 409);
+  assert.equal(db.log.inserts.length, 0);
+});
+await test('missing locking migration fails closed without provider writes', async () => {
+  const db = makeDb({ rows: [metaConn()], visibleIds: ['c-meta'] });
+  db.service.rpc = async () => ({ error: { message: 'function missing' } });
+  const response = await handlerFor(db)(req({ connection_id: 'c-meta' }));
+  assert.equal(response.status, 503);
+  assert.equal(db.log.inserts.length, 0);
+});

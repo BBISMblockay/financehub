@@ -103,41 +103,33 @@ export function createRunner({
     return { found: !!data, row: data || null, src };
   }
 
-  /** Update the row the drainer holds.
-   *
-   * `onlyWhileRunning` is for the writes that END a job: somebody may have
-   * cancelled it from the Integrations page while a stage was running, and a
-   * terminal status written over that would resurrect work the person asked to
-   * stop. Those writes therefore match on `status = 'running'` as well, and a
-   * zero-row result is the cancellation standing.
-   */
-  async function patchJob(id, patch, { onlyWhileRunning = false } = {}) {
+  // attempts is incremented atomically by claim and serves as the ownership
+  // generation. An expired owner cannot renew or overwrite its successor,
+  // even when both processes still hold the same job id.
+  async function patchJob(job, patch, { onlyWhileRunning = false } = {}) {
     let q = db
       .from('integration_bootstrap_jobs')
       .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq('id', id);
-    if (onlyWhileRunning) q = q.eq('status', 'running');
-    const { error } = await q;
-    // A failed write here is worth saying out loud but is not worth abandoning
-    // the stage that already ran: the next attempt re-reads the row and the
-    // stage records are idempotent.
-    if (error) log.error(`[bootstrap] Could not update job ${id}: ${error.message}`);
+      .eq('id', job.id)
+      .eq('attempts', job.attempts)
+      .eq('status', 'running')
+      .gt('lease_until', new Date().toISOString());
+    const { data, error } = await q.select('id');
+    if (error || !data?.length) throw new Error(`Bootstrap lease lost for ${job.id}; no further stages may run`);
   }
 
-  /** Push the lease out while a stage is still running.
-   *
-   * Without this a stage longer than the lease (a 60-day order history can be)
-   * becomes claimable by the next drainer while this one is still working, and
-   * both would then spend the same API calls. The renewal is deliberately
-   * unconditional on status: this drainer holds the row, and the only thing
-   * that should take it away is this process dying.
-   */
-  function startLeaseRenewal(id) {
+  function startLeaseRenewal(job, controller) {
     const everyMs = Math.max(30_000, Math.floor((leaseSeconds * 1000) / 3));
-    const timer = setInterval(() => {
-      patchJob(id, {
-        lease_until: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
-      }).catch(() => {});
+    let renewing = false;
+    const timer = setInterval(async () => {
+      if (renewing || controller.signal.aborted) return;
+      renewing = true;
+      try {
+        await patchJob(job, {
+          lease_until: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+        });
+      } catch (error) { controller.abort(error); }
+      finally { renewing = false; }
     }, everyMs);
     timer.unref?.();
     return () => clearInterval(timer);
@@ -149,7 +141,7 @@ export function createRunner({
     try {
       conn = await loadConnection(job);
     } catch (err) {
-      await patchJob(job.id, { last_error: err.message, lease_until: null });
+      await patchJob(job, { last_error: err.message, lease_until: null });
       log.error(`[bootstrap] ${label}: ${err.message}`);
       return { job, status: 'error' };
     }
@@ -176,7 +168,7 @@ export function createRunner({
       return null;
     })();
     if (why) {
-      await patchJob(job.id, {
+      await patchJob(job, {
         status: 'cancelled',
         lease_until: null,
         finished_at: new Date().toISOString(),
@@ -209,7 +201,7 @@ export function createRunner({
         .lt('created_at', job.created_at)
         .limit(1);
       if (!priorErr && (prior || []).length) {
-        await patchJob(job.id, {
+        await patchJob(job, {
           status: 'cancelled',
           lease_until: null,
           finished_at: new Date().toISOString(),
@@ -226,7 +218,7 @@ export function createRunner({
     } catch (err) {
       // A job we cannot plan is a job no drainer will ever do. Recording it as
       // an error with the reason beats leaving it pending for ever.
-      await patchJob(job.id, {
+      await patchJob(job, {
         status: 'error',
         lease_until: null,
         finished_at: new Date().toISOString(),
@@ -237,9 +229,10 @@ export function createRunner({
     }
 
     const owed = pendingStages(job, planned);
-    let stages = job.stages || {};
+    // Discard obsolete plan keys (e.g. Meta's former single kpis stage).
+    let stages = Object.fromEntries(Object.entries(job.stages || {}).filter(([key]) => planned.some((s) => s.stage === key)));
     if (!owed.length) {
-      await patchJob(job.id, {
+      await patchJob(job, {
         status: bootstrapOutcome(stages) === 'error' ? 'error' : 'done',
         lease_until: null,
         finished_at: new Date().toISOString(),
@@ -249,19 +242,22 @@ export function createRunner({
     }
 
     log.log(`[bootstrap] ${label}: ${owed.length} stage(s) owed of ${planned.length}`);
-    const stopRenewal = startLeaseRenewal(job.id);
+    const controller = new AbortController();
+    const stopRenewal = startLeaseRenewal(job, controller);
     try {
       for (const stage of owed) {
+        controller.signal.throwIfAborted();
         if (stage.skip) {
           stages = withStageResult(stages, stage.stage, 'skipped', stage.skip);
-          await patchJob(job.id, { stages });
+          await patchJob(job, { stages });
           log.log(`[bootstrap] ${label}: ${stage.stage} skipped (${stage.skip})`);
           continue;
         }
         stages = withStageResult(stages, stage.stage, 'running', null);
-        await patchJob(job.id, { stages });
+        await patchJob(job, { stages });
         const started = Date.now();
-        const res = await runStage(stage, stage.env);
+        const res = await runStage(stage, stage.env, controller.signal);
+        controller.signal.throwIfAborted();
         const secs = Math.round((Date.now() - started) / 1000);
         stages = withStageResult(
           stages,
@@ -269,7 +265,7 @@ export function createRunner({
           res.ok ? 'done' : 'error',
           res.ok ? `${secs}s` : res.detail,
         );
-        await patchJob(job.id, { stages, ...(res.ok ? {} : { last_error: `${stage.stage}: ${res.detail}` }) });
+        await patchJob(job, { stages, ...(res.ok ? {} : { last_error: `${stage.stage}: ${res.detail}` }) });
         log.log(`[bootstrap] ${label}: ${stage.stage} ${res.ok ? 'done' : 'FAILED'} in ${secs}s${res.ok ? '' : ` -- ${res.detail}`}`);
         // Stages are independent on purpose: a ShopifyQL wobble in the
         // analytics stage must not cost the store its stock levels. The outcome
@@ -281,12 +277,13 @@ export function createRunner({
 
     const outcome = bootstrapOutcome(stages);
     const settled = outcome === 'done' || job.attempts >= maxAttempts;
-    await patchJob(job.id, {
+    await patchJob(job, {
       stages,
       // Not settled means there is an errored stage and attempts left: the row
       // goes back to pending (lease cleared) so the next run retries only the
       // stages that failed, since the successful ones are recorded done.
       status: settled ? outcome : 'pending',
+      ...(outcome === 'done' ? { last_error: null } : {}),
       lease_until: null,
       ...(settled ? { finished_at: new Date().toISOString() } : {}),
     }, { onlyWhileRunning: true });
