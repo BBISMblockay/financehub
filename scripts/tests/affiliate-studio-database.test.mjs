@@ -198,10 +198,10 @@ const files = {
   matchindex: '20261112220000_affiliate_order_match_index.sql',
   // The first payout rail that actually sends money (20261113050000).
   paypal: '20261113050000_affiliate_paypal_payouts.sql',
-  // Affiliates claim a launch, and read their own orders (20261113060000).
+  // Affiliates claim a launch, and read their own orders (20261113070000).
   // Last, as in production: its tail CALLS attach_affiliate_same_company_twins(),
   // so the function 20261111181000 creates has to exist first.
-  claims: '20261113060000_affiliate_launch_claims_and_orders.sql',
+  claims: '20261113070000_affiliate_launch_claims_and_orders.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -1726,7 +1726,7 @@ await check('L8 the rail is a value the schema accepts, and junk still is not', 
 });
 
 // ── N: the daily drift check reads ok on this schema ─────────────────────
-// ── L: claiming a launch, and the affiliate's own orders (20261113060000) ──
+// ── L: claiming a launch, and the affiliate's own orders (20261113070000) ──
 // A claim is a SIGNAL -- it pays nothing and is not exclusive. The order list
 // is the one line 20261110086000 drew and Blake asked to move: the
 // affiliate's own side of each order, and nothing of the customer's.

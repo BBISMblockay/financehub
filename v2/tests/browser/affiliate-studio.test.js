@@ -49,7 +49,6 @@
  *   AFFILIATE_UI_MUTATION=photostuck   removing the photo leaves it on the card
  *   AFFILIATE_UI_MUTATION=affownphoto an affiliate's card ignores the photo the rep set in the portal
  *   AFFILIATE_UI_MUTATION=sillodraft  a new draft ignores the program's own outreach message
- *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
  *   AFFILIATE_UI_MUTATION=claimany   claiming one drop marks a different one
  *   AFFILIATE_UI_MUTATION=pushalways a drop says what to push before anyone claimed it
  *   AFFILIATE_UI_MUTATION=ordersrestart Show more asks for the first page again
@@ -82,7 +81,6 @@ const MUTATIONS = {
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
   sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
-  todopinch: ['/affiliates/index.html', '.silo-main.af-studio > * { flex-shrink: 0; }', ''],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
@@ -97,7 +95,7 @@ const MUTATIONS = {
   envblock: ['/affiliates/studio.js', "      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);", '      const blocking = openAttempt;'],
   nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
-  // Claims and the order list (20261113060000).
+  // Claims and the order list (20261113070000).
   claimany: ['/affiliates/portal.html', '    const item = (FEED?.items || []).find((x) => x.id === id);', '    const item = (FEED?.items || [])[0];'],
   pushalways: ['/affiliates/portal.html', '    const push = i.claimed && (i.push || []).length', '    const push = (i.push || []).length'],
   ordersshut: ['/affiliates/portal.html', "${ORD.open.has(o.order_id) ? ' open' : ''}", ''],
@@ -214,10 +212,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     const ab = await text(page, '#affiliatesBody');
     R.has(ab, 'Connect your AI', 'with no AI that can make codes, Affiliates offers to connect one');
+    await openMore(page);
     R.eq(await page.inputValue('#cPct'), '10', 'percent off defaults to 10');
     R.eq(await page.inputValue('#cHow'), 'exists', 'with no AI that can make codes, the code is one you made');
     await page.fill('#cCode', 'pat15');
-    await openMore(page);
     await page.selectOption('#cHow', 'ai');
     await page.fill('#cPct', '');
     await page.click('#affiliatesBody [data-act="code-add"]');
@@ -341,15 +339,21 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
     R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
-    // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
+    // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
-    // The strip above the tabs carries the list on every tab but Overview, and
-    // it is the one that clips: measured there, because a child that shrinks to
-    // fit a short window cuts off its own last rows.
     await loop.click('#tabs [data-tab="prospects"]');
-    await loop.waitForFunction(() => { const el = document.getElementById('nextStep'); return el && !el.hidden && el.textContent.trim().length > 0; }, null, { timeout: 5000 });
-    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
-    R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
+    await loop.waitForFunction(() => !!document.querySelector('#afCreatorsList'), null, { timeout: 5000 });
+    R.ok('prospects tab does not repeat the Overview To do strip', !(await loop.evaluate(() => {
+      const el = document.getElementById('nextStep');
+      return el && !el.hidden && el.textContent.trim().length > 0;
+    })));
+    // ...and the panel it leads with is still shown whole. `.silo-main` is a
+    // scrolling flex column, so a tall panel in a short window shrinks to fit
+    // and cuts off its own last rows unless its children refuse to shrink.
+    // The strip this was first measured on is gone; the rule that saved it
+    // still covers every panel, so measure it where it now applies.
+    const pinch = await loop.$eval('.af-panel[data-panel="prospects"]', (el) => el.scrollHeight - el.clientHeight);
+    R.ok(`a tall panel is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
     await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
@@ -447,6 +451,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await ai.click('#tabs [data-tab="affiliates"]');
+    await openMore(ai);
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
     R.has(await text(ai, '#aiCodesHow'), 'Shopify codes', 'Affiliates explains codes via MCP without naming an app');

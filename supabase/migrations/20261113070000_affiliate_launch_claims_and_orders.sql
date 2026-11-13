@@ -45,7 +45,7 @@ create index if not exists affiliate_feed_items_parent
   where parent_source_id is not null;
 
 comment on column public.affiliate_feed_items.parent_source_id is
-  'The source_id of the LAUNCH this item was shared under (affiliate_feed_items.source_id of kind launch). Set on the products a launch asks affiliates to push; NULL for anything shared on its own. A launch itself can never carry one. 20261113060000.';
+  'The source_id of the LAUNCH this item was shared under (affiliate_feed_items.source_id of kind launch). Set on the products a launch asks affiliates to push; NULL for anything shared on its own. A launch itself can never carry one. 20261113070000.';
 
 -- ── 2. Claims ─────────────────────────────────────────────────────────────
 create table if not exists public.affiliate_launch_claims (
@@ -97,7 +97,7 @@ revoke all on public.affiliate_launch_claims from anon;
 grant select, insert, update, delete on public.affiliate_launch_claims to authenticated;
 
 comment on table public.affiliate_launch_claims is
-  'An affiliate put their hand up to push a launch their program shared with them. It grants nothing and pays nothing -- commission still comes only from the code on the order. It gives the affiliate the launch''s product list in their portal, and the brand the Affiliates tab on that launch. Written by the portal through the service role; a program manager may withdraw one. 20261113060000.';
+  'An affiliate put their hand up to push a launch their program shared with them. It grants nothing and pays nothing -- commission still comes only from the code on the order. It gives the affiliate the launch''s product list in their portal, and the brand the Affiliates tab on that launch. Written by the portal through the service role; a program manager may withdraw one. 20261113070000.';
 
 -- ── 3. The portal's feed, with claims and the launch's products ───────────
 create or replace function public.affiliate_portal_feed(p_token_hash text)
@@ -181,7 +181,7 @@ end;
 $$;
 
 comment on function public.affiliate_portal_feed(text) is
-  'For the affiliate-portal function: the feed of a valid portal link of an active or paused affiliate -- the items its program shared (each with its id, whether this affiliate claimed it, and for a launch the products shared under it), the store address, and the affiliate''s codes in effect today. NULL for anything else. Service role only. 20261110150000, claims 20261113060000.';
+  'For the affiliate-portal function: the feed of a valid portal link of an active or paused affiliate -- the items its program shared (each with its id, whether this affiliate claimed it, and for a launch the products shared under it), the store address, and the affiliate''s codes in effect today. NULL for anything else. Service role only. 20261110150000, claims 20261113070000.';
 
 revoke all on function public.affiliate_portal_feed(text) from public, anon, authenticated;
 grant execute on function public.affiliate_portal_feed(text) to service_role;
@@ -249,7 +249,7 @@ end;
 $$;
 
 comment on function public.affiliate_portal_claim(text, uuid, boolean) is
-  'The portal''s claim on a shared launch: p_claim true puts this affiliate''s hand up, false takes it down. Active affiliates only, launches their own program shared, and never one that has already run. Returns the resulting state. Service role only. 20261113060000.';
+  'The portal''s claim on a shared launch: p_claim true puts this affiliate''s hand up, false takes it down. Active affiliates only, launches their own program shared, and never one that has already run. Returns the resulting state. Service role only. 20261113070000.';
 
 revoke all on function public.affiliate_portal_claim(text, uuid, boolean) from public, anon, authenticated;
 grant execute on function public.affiliate_portal_claim(text, uuid, boolean) to service_role;
@@ -334,7 +334,7 @@ end;
 $$;
 
 comment on function public.affiliate_portal_orders(text, integer, integer) is
-  'The affiliate''s own orders for their portal: one row per order their code was credited on -- day, the shop''s order number, what the order was worth, what they earned, how much of it is paid, and the ledger entries behind it. Built from affiliate_commission_ledger only; it carries no customer name, email, address or line items, which stay the merchant''s. Service role only. 20261113060000.';
+  'The affiliate''s own orders for their portal: one row per order their code was credited on -- day, the shop''s order number, what the order was worth, what they earned, how much of it is paid, and the ledger entries behind it. Built from affiliate_commission_ledger only; it carries no customer name, email, address or line items, which stay the merchant''s. Service role only. 20261113070000.';
 
 revoke all on function public.affiliate_portal_orders(text, integer, integer) from public, anon, authenticated;
 grant execute on function public.affiliate_portal_orders(text, integer, integer) to service_role;

@@ -35,7 +35,7 @@ const TABLES = {
   launch_product_readiness: [{ id: 'pr-1', launch_id: 'l-products', product_title: 'Tee', company_entity_id: 'test-company', created_at: '2026-09-01' }],
   launch_tasks: [], launch_assets: [], launch_comments: [], launch_system_links: [],
   launch_channel_items: [], product_tracker: [], profiles: [],
-  // Affiliates who claimed a launch in their portal (20261113060000). The
+  // Affiliates who claimed a launch in their portal (20261113070000). The
   // drawer's AFFILIATES tab reads these, keyed by the launch's own id.
   affiliate_launch_claims: [
     { id: 'c-1', company_entity_id: 'test-company', affiliate_id: 'a-1', launch_source_id: 'l-products', claimed_at: '2026-11-12T10:00:00Z' },

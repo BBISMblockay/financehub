@@ -8,6 +8,10 @@ select 'shopify_attribution_coverage service-only state' as check_name,
  then 'ok' else 'MISSING' end as status
 from (values(to_regclass('public.shopify_attribution_coverage'))) t(oid)
 left join pg_class c on c.oid=t.oid;
+select 'shopify_attribution_coverage history cursor' as check_name,
+ case when exists(select 1 from information_schema.columns
+  where table_schema='public' and table_name='shopify_attribution_coverage' and column_name='history_day')
+ then 'ok' else 'MISSING' end as status;
 -- =============================================================================
 -- SILO schema check (run in Supabase SQL Editor after migrations)
 -- All "ok" rows should show status = 'ok'. Anything "missing" needs apply SQL.
@@ -9361,7 +9365,7 @@ select 'Affiliate portal feed' as check_name,
     else 'ok'
   end as status;
 
--- Affiliate launch claims and the affiliate's own orders (20261113060000):
+-- Affiliate launch claims and the affiliate's own orders (20261113070000):
 -- claiming is the affiliate's act through the portal, the order list is
 -- service role only, and the launch calendar reads claims under RLS.
 select 'Affiliate launch claims' as check_name,
@@ -9371,7 +9375,7 @@ select 'Affiliate launch claims' as check_name,
       or to_regprocedure('public.affiliate_portal_orders(text, integer, integer)') is null
       or not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'affiliate_feed_items' and column_name = 'parent_source_id')
-      then 'MISSING — run 20261113060000_affiliate_launch_claims_and_orders.sql'
+      then 'MISSING — run 20261113070000_affiliate_launch_claims_and_orders.sql'
     when not (select relrowsecurity from pg_class where oid = 'public.affiliate_launch_claims'::regclass)
       then 'BROKEN — affiliate_launch_claims has RLS off'
     when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_launch_claims'::regclass

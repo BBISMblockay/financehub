@@ -19779,6 +19779,10 @@ $c$select (select count(*) from v_po_header_summary
 -- provider answered. Apply BEFORE deploying affiliate-payouts and
 -- affiliate-portal.
 \i migrations/20261113050000_affiliate_paypal_payouts.sql
+-- 2026-11-13: one nullable cursor column for the automatic backward attribution
+-- history walk. Additive; until it is applied the coverage script plans no
+-- history days and writes no such column.
+\i migrations/20261113060000_attribution_history_cursor.sql
 -- 2026-11-13: affiliates claim a launch, and see their own orders. A claim is
 -- a hand up on a launch the brand SHARED -- it pays nothing and is not
 -- exclusive -- which gives the affiliate that launch's product list and the
@@ -19786,5 +19790,5 @@ $c$select (select count(*) from v_po_header_summary
 -- order list 20261110086000 deliberately withheld, limited to the affiliate's
 -- own side of each order (day, order number, value, earned, paid): no customer
 -- name, email, address or line items. Apply BEFORE deploying affiliate-portal.
-\i migrations/20261113060000_affiliate_launch_claims_and_orders.sql
+\i migrations/20261113070000_affiliate_launch_claims_and_orders.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
