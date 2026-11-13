@@ -245,6 +245,9 @@ const files = {
   autoshare: '20261113080000_affiliate_auto_share_launches.sql',
   // Product seeding (20261113093000).
   seeding: '20261113093000_affiliate_product_seeding.sql',
+  // The sweep, corrected on review (20261113220000): refunds per product,
+  // the seed order re-read before the payback.
+  seedsweep: '20261113220000_affiliate_seed_sweep_refunds.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -289,19 +292,19 @@ switch (MUT) {
   case 'seedgate': mutate('seeding', `  if v_company is null or not public.can_manage_affiliate_programs() then
     raise exception 'affiliate_seed_decide:`, `  if v_company is null then
     raise exception 'affiliate_seed_decide:`); break;
-  case 'seedcountsseed': mutate('seeding', '       and at.order_id <> v_c.seed_order_id\n', '\n'); break;
-  case 'seedrefund': mutate('seeding', 'least(v_today - v_c.refund_days, v_c.goal_by)', 'v_c.goal_by'); break;
-  case 'seedanyproduct': mutate('seeding', `           and upper(o.currency) = v_c.currency
+  case 'seedcountsseed': mutate('seedsweep', '       and at.order_id <> v_c.seed_order_id\n', '\n'); break;
+  case 'seedrefund': mutate('seedsweep', 'least(v_today - v_c.refund_days, v_c.goal_by)', 'v_c.goal_by'); break;
+  case 'seedanyproduct': mutate('seedsweep', `           and upper(o.currency) = v_c.currency
            and lower(btrim(l.title)) = lower(btrim(v_c.product_title))
          group by`, `           and upper(o.currency) = v_c.currency
          group by`); break;
-  case 'seedotheraff': mutate('seeding', '       and at.affiliate_id = v_c.affiliate_id\n', '\n'); break;
-  case 'seedwholeorder': mutate('seeding', `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id
+  case 'seedotheraff': mutate('seedsweep', '       and at.affiliate_id = v_c.affiliate_id\n', '\n'); break;
+  case 'seedwholeorder': mutate('seedsweep', `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id
        and lower(btrim(l.title)) = lower(btrim(v_c.product_title));`, `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id;`); break;
-  case 'seedprorate': mutate('seeding', 'greatest(0, x.product_net - x.refunded)', 'x.product_net * (1 - x.refunded / 400.0)'); break;
-  case 'seedrefunded': mutate('seeding', 'if v_seen and v_kept <= 0 then', 'if false then'); break;
-  case 'seedpaystored': mutate('seeding', "'manual_adjustment', v_kept,", "'manual_adjustment', v_c.seed_paid_cents,"); break;
-  case 'seedtwice': mutate('seeding', `       and c.state = 'purchased'
+  case 'seedprorate': mutate('seedsweep', 'greatest(0, x.product_net - x.refunded)', 'x.product_net * (1 - x.refunded / 400.0)'); break;
+  case 'seedrefunded': mutate('seedsweep', 'if v_seen and v_kept <= 0 then', 'if false then'); break;
+  case 'seedpaystored': mutate('seedsweep', "'manual_adjustment', v_kept,", "'manual_adjustment', v_c.seed_paid_cents,"); break;
+  case 'seedtwice': mutate('seedsweep', `       and c.state = 'purchased'
      for update`, `       and c.state in ('purchased', 'earned')
      for update`); break;
   case 'autosharefails': mutate('autoshare', `  exception when others then
@@ -509,7 +512,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }

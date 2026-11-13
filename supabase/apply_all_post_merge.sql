@@ -19794,6 +19794,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261113080000_affiliate_auto_share_launches.sql
 \i migrations/20261113093000_affiliate_product_seeding.sql
 \i migrations/20261113094000_affiliate_seed_codes_via_ai.sql
+\i migrations/20261113220000_affiliate_seed_sweep_refunds.sql
 -- 2026-11-13: the journal -> source drill-down a connected AI reconciles with.
 -- Two security_invoker views (every journal line of both kinds, and the
 -- records behind each entry) plus the "Journal entries and their sources"

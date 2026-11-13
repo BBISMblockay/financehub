@@ -9532,6 +9532,8 @@ select 'Affiliate product seeding' as check_name,
     when position('affiliate_seed_claims' in pg_get_functiondef((select p.oid from pg_proc p where p.proname = 'affiliate_resolve_attributions'
                                                                  and p.pronamespace = 'public'::regnamespace limit 1))) > 0
       then 'CRITICAL — a seed code can earn commission'
+    when position('v_kept' in pg_get_functiondef('public.affiliate_seed_sweep(uuid)'::regprocedure)) = 0
+      then 'STALE — run 20261113220000_affiliate_seed_sweep_refunds.sql (a refunded seed order can still be paid back)'
     when position('''id'', g.id' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
       then 'MISSING — a launch''s products carry no id, so a rep cannot ask for one; run 20261113093000'
     else 'ok'
