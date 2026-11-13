@@ -29,6 +29,8 @@
 //   AFFILIATE_PAYOUTS_MUTATION=zerodecimal  a zero-decimal currency is divided by 100
 //   AFFILIATE_PAYOUTS_MUTATION=dupebatch    a duplicate-batch rejection is recorded as a refusal
 //   AFFILIATE_PAYOUTS_MUTATION=envmix      a sandbox attempt is reconciled against the live account
+//   AFFILIATE_PAYOUTS_MUTATION=connver     an attempt is replayed against a different PayPal app
+//   AFFILIATE_PAYOUTS_MUTATION=noconnver   the attempt does not record which PayPal app made it
 //   AFFILIATE_PAYOUTS_MUTATION=wrongbatch  a batch carrying somebody else's key is read as ours
 //   AFFILIATE_PAYOUTS_MUTATION=wrongitem   any item in the batch is read as this attempt's
 //   AFFILIATE_PAYOUTS_MUTATION=stalereplay an attempt older than PayPal's 30-day window is replayed
@@ -88,6 +90,14 @@ const MUTS = {
       || (items.length === 1 && !senderItemId(items[0]) ? items[0] : null);`,
     '    const item = items[0] || null;',
   ],
+  noconnver: [
+    '          p_connection_version: c.credential_version ?? null,',
+    '          p_connection_version: null,',
+  ],
+  connver: [
+    '      && (send.connection_version == null || send.connection_version !== creds.credential_version)',
+    '      && false',
+  ],
   envmix: [
     '    if (send.environment && creds.environment && send.environment !== creds.environment) {',
     '    if (false) {',
@@ -135,7 +145,7 @@ const USER = '4f000000-0000-4000-8000-000000000004';
 
 const CONN = {
   company_entity_id: CO, provider: 'paypal', environment: 'sandbox',
-  client_id: 'CID', client_secret: 'SECRET', is_active: true,
+  client_id: 'CID', client_secret: 'SECRET', is_active: true, credential_version: 3,
   payouts_enabled: true, account_email: 'brand@pay.test',
   last_tested_at: '2026-11-13T00:00:00Z', last_test_success: true, last_test_error: null,
   last_send_at: null,
@@ -157,7 +167,7 @@ function fakeService({ connection = CONN, claim, sends = [], profile } = {}) {
           data: claim?.data ?? {
             send_id: SEND, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1',
             attempt: 1, amount_cents: 1999, currency: 'USD',
-            payout_email: 'rep@pay.test', company_entity_id: CO,
+            payout_email: 'rep@pay.test', company_entity_id: CO, connection_version: 3,
           },
           error: null,
         };
@@ -388,6 +398,9 @@ await test('a send carries the reserved attempt\'s own idempotency key and the r
   assert.equal(create.body.items[0].amount.value, '19.99');
   assert.equal(create.body.items[0].amount.currency, 'USD');
 
+  const claimed = service.log.find((e) => e.name === 'affiliate_payout_send_claim');
+  assert.equal(claimed.args.p_connection_version, 3,
+    'the attempt records WHICH PayPal app made it, or no replay can ever prove it is the same one');
   const recorded = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
   assert.deepEqual(recorded, ['sent', 'paid'], 'accepted first, then confirmed');
   const paid = service.log.find((e) => e.name === 'affiliate_payout_send_record' && e.args.p_state === 'paid');
@@ -428,7 +441,7 @@ await test('a refusal is recorded as a refusal, so it can be tried again', async
 
 await test('an unclaimed payment is not a paid payout', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCH1', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCH1', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'sent' }],
   });
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts/BATCH1': res(200, { batch_header: { payout_batch_id: 'BATCH1', batch_status: 'SUCCESS' }, items: [{ payout_item_id: 'ITEM1', transaction_status: 'UNCLAIMED' }] }) },
@@ -451,7 +464,7 @@ await test('check status only looks at attempts that are still open', async () =
 
 await test('an attempt with no batch id is retried with the SAME key, not a new one', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown' }],
   });
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCH9', batch_status: 'PENDING' } }) },
@@ -467,7 +480,7 @@ await test('an attempt with no batch id is retried with the SAME key, not a new 
 // the first batch may already have paid.
 await test('a duplicate-batch rejection picks the original batch up instead of refusing', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown' }],
   });
   const fetchImpl = fakePaypal({
     paths: {
@@ -491,7 +504,7 @@ await test('a duplicate-batch rejection picks the original batch up instead of r
 
 await test('a duplicate rejection with no recoverable batch id stays unknown', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown' }],
   });
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(400, { name: 'VALIDATION_ERROR', details: [{ issue: 'SENDER_BATCH_ID_ALREADY_EXISTS', description: 'already used' }] }) },
@@ -508,7 +521,7 @@ await test('a duplicate rejection with no recoverable batch id stays unknown', a
 await test('a sandbox attempt is never replayed against the live account', async () => {
   const service = fakeService({
     connection: { ...CONN, environment: 'live' },
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown', environment: 'sandbox' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown', environment: 'sandbox' }],
   });
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCHLIVE', batch_status: 'PENDING' } }) },
@@ -527,7 +540,7 @@ await test('a sandbox attempt is never replayed against the live account', async
 // checked against the key SILO chose before anything in it is believed.
 await test('a batch carrying somebody else\'s key is not read as this payout\'s', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHX', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHX', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'sent' }],
   });
   const fetchImpl = fakePaypal({
     paths: {
@@ -547,7 +560,7 @@ await test('a batch carrying somebody else\'s key is not read as this payout\'s'
 
 await test('an item that is not this attempt\'s is not read as paid', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHM', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHM', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'sent' }],
   });
   const fetchImpl = fakePaypal({
     paths: {
@@ -571,7 +584,7 @@ await test('an item that is not this attempt\'s is not read as paid', async () =
 
 await test('our own item is found by the id we sent it with', async () => {
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHO', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'sent' }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHO', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'sent' }],
   });
   const fetchImpl = fakePaypal({
     paths: {
@@ -594,7 +607,7 @@ await test('our own item is found by the id we sent it with', async () => {
 await test('an attempt older than the duplicate window is not replayed', async () => {
   const old = new Date(Date.parse('2026-11-13T00:00:00Z') - 40 * 86400000).toISOString();
   const service = fakeService({
-    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', state: 'unknown', environment: 'sandbox', created_at: old }],
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown', environment: 'sandbox', created_at: old }],
   });
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCHNEW', batch_status: 'PENDING' } }) },
@@ -607,6 +620,52 @@ await test('an attempt older than the duplicate window is not replayed', async (
   assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')),
     'no second batch was created');
   assert.deepEqual(service.log.filter((e) => e.name === 'affiliate_payout_send_record'), []);
+});
+
+// The same environment is not the same account. Connecting a different PayPal
+// app changes the sender, and the duplicate protection belongs to the app that
+// accepted the batch.
+await test('an attempt is never replayed against a different PayPal app', async () => {
+  const service = fakeService({
+    connection: { ...CONN, credential_version: 4 },
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: 3, state: 'unknown', environment: 'sandbox' }],
+  });
+  const fetchImpl = fakePaypal({
+    paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCHNEW', batch_status: 'PENDING' } }) },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  const body = await r.json();
+  assert.equal(body.results[0].state, 'unknown');
+  assert.match(body.results[0].error, /different PayPal app/);
+  assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')),
+    'no batch was created with the new app');
+  assert.deepEqual(service.log.filter((e) => e.name === 'affiliate_payout_send_record'), []);
+});
+
+await test('an attempt that predates the snapshot is not replayed either', async () => {
+  const service = fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: 'BATCHOLD', amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_version: null, state: 'sent', environment: 'sandbox' }],
+  });
+  const fetchImpl = fakePaypal({ paths: { '/v1/payments/payouts/BATCHOLD': res(200, { batch_header: { payout_batch_id: 'BATCHOLD', batch_status: 'SUCCESS', sender_batch_header: { sender_batch_id: 'silo-abc-1' } }, items: [{ payout_item_id: 'I', transaction_status: 'SUCCESS' }] }) } });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh' }));
+  assert.match((await r.json()).results[0].error, /different PayPal app/,
+    'an attempt with no snapshot cannot prove which app made it');
+  assert.deepEqual(service.log.filter((e) => e.name === 'affiliate_payout_send_record'), []);
+});
+
+await test('connecting the SAME credentials again keeps the version, so a send in flight stays recoverable', async () => {
+  const service = fakeService();
+  const fetchImpl = fakePaypal({ paths: { '/v1/payments/payouts/SILO0PROBE0NOTABATCH': res(404, { name: 'RESOURCE_NOT_FOUND' }) } });
+  await build({ service, caller: fakeCaller().client, fetchImpl })(post({
+    action: 'connect', environment: 'sandbox', client_id: 'CID', client_secret: 'SECRET',
+  }));
+  assert.equal(service.state.connection.credential_version, 3, 'unchanged credentials are not a rotation');
+
+  const service2 = fakeService();
+  await build({ service: service2, caller: fakeCaller().client, fetchImpl })(post({
+    action: 'connect', environment: 'sandbox', client_id: 'OTHER', client_secret: 'SECRET2',
+  }));
+  assert.equal(service2.state.connection.credential_version, 4, 'a different app bumps it');
 });
 
 await test('sending is refused before PayPal is connected', async () => {

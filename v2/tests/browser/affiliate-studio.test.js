@@ -31,6 +31,7 @@
  *   AFFILIATE_UI_MUTATION=sendnoaddress a payout is offered Send before the affiliate gave an address
  *   AFFILIATE_UI_MUTATION=connflag   the page looks for a `connected` flag the status view does not have
  *   AFFILIATE_UI_MUTATION=nostalereload a failed send leaves the row offering Send over stale data
+ *   AFFILIATE_UI_MUTATION=sandboxlabel a sandbox send is presented as a real payment
  *   AFFILIATE_UI_MUTATION=logoignored the join and portal pages ignore the company logo
  *   AFFILIATE_UI_MUTATION=logoanyurl  the pages show a logo from any address
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
@@ -86,6 +87,7 @@ const MUTATIONS = {
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
   // The PayPal rail (20261113040000).
   sendwhileopen: ['/affiliates/studio.js', "      const open = sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state);", '      const open = false;'],
+  sandboxlabel: ['/affiliates/studio.js', "        const test = S.d.payConn?.environment !== 'live';", '        const test = false;'],
   nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
@@ -643,7 +645,24 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     ppReady.on('pageerror', (e) => errors.push(e.message));
     await ppReady.click('#tabs [data-tab="payouts"]');
     R.ok('an approved payout with an address can be sent', !!(await ppReady.$('#payoutsBody [data-act="pp-send"]')));
+    // A sandbox connection pays nobody, and the page must not let anyone
+    // believe otherwise: the card says so and the button says which it is.
+    const readyText = await text(ppReady, '#payoutsBody');
+    R.has(readyText, 'Sandbox: test payments only', 'a sandbox rail says it pays nobody');
+    R.has(readyText, 'Test send (sandbox)', 'and the button says which kind of send it is');
     await ppReady.close();
+
+    const ppLive = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout,
+        affiliate_payout_connection_status_v: [{ ...connected[0], environment: 'live' }],
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }] },
+      { ready, rpc: ppRpc });
+    ppLive.on('pageerror', (e) => errors.push(e.message));
+    await ppLive.click('#tabs [data-tab="payouts"]');
+    const liveText = await text(ppLive, '#payoutsBody');
+    R.has(liveText, 'Send with PayPal', 'a live rail sends for real');
+    R.ok('and says nothing about sandbox', !/Sandbox: test payments only/.test(liveText));
+    await ppLive.close();
 
     // The case the whole design is built around: an attempt that never
     // answered. PayPal may already have taken the money, so the page offers

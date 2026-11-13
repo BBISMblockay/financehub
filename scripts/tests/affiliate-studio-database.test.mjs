@@ -73,6 +73,10 @@
 //   AFFILIATE_DB_MUTATION=sendtenant    a payout belonging to another company may be sent
 //   AFFILIATE_DB_MUTATION=sendgrant     authenticated may execute the send functions
 //   AFFILIATE_DB_MUTATION=voidinflight a payout with an attempt in flight may still be voided
+//   AFFILIATE_DB_MUTATION=voidlock    voiding does not serialise against the send claim
+//   AFFILIATE_DB_MUTATION=sandboxpaid a sandbox result marks a real payout paid
+//   AFFILIATE_DB_MUTATION=sandboxblock a sandbox attempt blocks the real payment
+//   AFFILIATE_DB_MUTATION=recordlock  the attempt is judged without being locked
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -367,6 +371,17 @@ switch (MUT) {
     raise exception 'affiliate_payout_send_claim: that payout belongs to another company'
       using errcode = '42501';
   end if;`, '  -- tenant check removed'); break;
+  case 'voidlock':
+    mutate('paypal', `  perform public.affiliate_lock_program_money(
+    (select program_id from public.affiliate_payouts where id = p_payout));`, '  -- lock removed'); break;
+  case 'sandboxpaid':
+    mutate('paypal', `  if v_send.environment <> 'live' then
+    return;
+  end if;`, '  -- sandbox settles too'); break;
+  case 'sandboxblock':
+    mutate('paypal', "     and (environment = 'live' or environment = p_environment)", '     and true'); break;
+  case 'recordlock':
+    mutate('paypal', 'where id = p_send for update;', 'where id = p_send;'); break;
   case 'voidinflight':
     mutate('paypal', `  select state into v_open
     from public.affiliate_payout_sends
@@ -1486,16 +1501,16 @@ await check('L5 one payout is never in flight twice', async () => {
     'an unclaimed payment is not a paid payout');
 });
 
-await check('L5b a payout with an attempt in flight cannot be voided', async () => {
+await check('L5b a payout with a LIVE attempt in flight cannot be voided', async () => {
   // Voiding releases the commission entries so the next build can claim them.
-  // With a payment at the provider that is the same commission paid twice.
-  // Its own payout, so L6 still has the attempt above to finish with.
+  // With a real payment at the provider that is the same commission paid
+  // twice. Its own payout, so L6 still has the attempt above to finish with.
   await asSuper();
   const vp = (await one(`insert into affiliate_payouts
       (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
     values ($1, $2, $3, 'USD', 700, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
   await db.exec('set role service_role');
-  const vc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [vp, A, 'sandbox', U.finA])).r;
+  const vc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [vp, A, 'live', U.finA])).r;
   await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)', [vc.send_id, 'sent', 'BATCHV', 'ITEMV', 'PENDING']);
 
   await as(U.finA, A);
@@ -1512,6 +1527,19 @@ await check('L5b a payout with an attempt in flight cannot be voided', async () 
   await db.query(`select public.affiliate_void_payout($1, 'came back from PayPal')`, [vp]);
   assert.equal((await one('select status from affiliate_payouts where id = $1', [vp])).status, 'void');
 
+  // A SANDBOX attempt does not hold a payout hostage: no money moved, and
+  // nothing was settled from it (review cycle 1, finding 3).
+  await asSuper();
+  const sbx = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 650, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
+  await db.exec('set role service_role');
+  const sc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [sbx, A, 'sandbox', U.finA])).r;
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)', [sc.send_id, 'sent', 'BATCHS', 'ITEMS', 'PENDING']);
+  await as(U.finA, A);
+  await db.query(`select public.affiliate_void_payout($1, 'rehearsal only')`, [sbx]);
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [sbx])).status, 'void');
+
   // An attempt that never answered and is older than the provider's 30-day
   // duplicate window can no longer be reconciled by asking again, so a void
   // with a reason is the only way out of it. A FRESH one still cannot.
@@ -1520,12 +1548,12 @@ await check('L5b a payout with an attempt in flight cannot be voided', async () 
       (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
     values ($1, $2, $3, 'USD', 800, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
   await db.exec('set role service_role');
-  const sc = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [sp, A, 'sandbox', U.finA])).r;
+  const stale = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [sp, A, 'live', U.finA])).r;
   await as(U.finA, A);
   await assert.rejects(db.query(`select public.affiliate_void_payout($1, 'give up')`, [sp]),
     /attempt in state unknown/, 'an attempt that has just been made is checked, not voided');
   await asSuper();
-  await db.query(`update affiliate_payout_sends set created_at = now() - interval '45 days' where id = $1`, [sc.send_id]);
+  await db.query(`update affiliate_payout_sends set created_at = now() - interval '45 days' where id = $1`, [stale.send_id]);
   await as(U.finA, A);
   await db.query(`select public.affiliate_void_payout($1, 'never showed up at PayPal')`, [sp]);
   assert.equal((await one('select status from affiliate_payouts where id = $1', [sp])).status, 'void',
@@ -1533,22 +1561,87 @@ await check('L5b a payout with an attempt in flight cannot be voided', async () 
   await asSuper();
 });
 
-await check('L6 only the provider confirming it marks a payout paid, with its own ids as evidence', async () => {
+await check('L6 a sandbox payment settles nothing, and a live one is the provider\'s word', async () => {
   await db.exec('reset role; set role service_role');
-  const send = await one('select id from affiliate_payout_sends where payout_id = $1 order by attempt desc limit 1', [payPayout]);
+  const send = await one('select id, environment from affiliate_payout_sends where payout_id = $1 order by attempt desc limit 1', [payPayout]);
+  assert.equal(send.environment, 'sandbox');
   await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5, null, null, $6, $7)',
     [send.id, 'paid', 'BATCH1', 'ITEM1', 'SUCCESS', 25, U.finA]);
+
+  // PayPal's sandbox moves no money. The attempt is paid -- that is the truth
+  // about the rehearsal -- and the commission is still owed.
+  const afterSandbox = await one('select * from affiliate_payouts where id = $1', [payPayout]);
+  assert.equal(afterSandbox.status, 'approved', 'a sandbox success does not extinguish a real commission');
+  assert.equal(afterSandbox.external_reference, null);
+  assert.equal(afterSandbox.paid_evidence, null);
+  assert.equal(Number((await one('select fee_cents from affiliate_payout_sends where id = $1', [send.id])).fee_cents), 25);
+
+  // And it does not make the real payment unsendable: a live attempt may still
+  // be claimed on the same payout.
+  const live = (await one('select affiliate_payout_send_claim($1, $2, $3, $4, $5) as r', [payPayout, A, 'live', U.finA, 7])).r;
+  assert.equal(live.attempt, 2);
+  assert.equal(live.connection_version, 7, 'the attempt records which PayPal app made it');
+
+  // The live one IS settlement, with PayPal's own ids as the evidence.
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5, null, null, $6, $7)',
+    [live.send_id, 'paid', 'BATCH2', 'ITEM2', 'SUCCESS', 25, U.finA]);
   const p = await one('select * from affiliate_payouts where id = $1', [payPayout]);
   assert.equal(p.status, 'marked_paid');
-  assert.equal(p.external_reference, 'ITEM1');
-  assert.match(p.paid_evidence, /PayPal Payouts \(sandbox\): item ITEM1 in batch BATCH1/);
+  assert.equal(p.external_reference, 'ITEM2');
+  assert.match(p.paid_evidence, /PayPal Payouts \(live\): item ITEM2 in batch BATCH2/);
   assert.equal(p.marked_paid_by, U.finA);
-  assert.equal(Number((await one('select fee_cents from affiliate_payout_sends where id = $1', [send.id])).fee_cents), 25);
 
   // A later poll must not rewrite a fact. This is how a paid payout would
   // otherwise quietly become unpaid.
-  await assert.rejects(db.query('select affiliate_payout_send_record($1, $2)', [send.id, 'returned']),
+  await assert.rejects(db.query('select affiliate_payout_send_record($1, $2)', [live.send_id, 'returned']),
     /already paid and cannot become returned/);
+
+  // A live attempt blocks everything, sandbox included: real money is in
+  // flight and nothing else may touch the payout.
+  await asSuper();
+  const both = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 900, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
+  await db.exec('set role service_role');
+  await db.query('select affiliate_payout_send_claim($1, $2, $3, $4)', [both, A, 'live', U.finA]);
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $2, $3, $4)', [both, A, 'sandbox', U.finA]),
+    /never reported an answer/, 'a live attempt in flight blocks a sandbox one too');
+});
+
+await check('L6c an unclaimed LIVE payment is still not a paid payout', async () => {
+  // PayPal pays an email address. An address with no PayPal account leaves the
+  // item UNCLAIMED -- the money has left the company and nobody has it -- for
+  // 30 days before it comes back. L5 proves this in sandbox; it has to hold
+  // where the money is real, which is the only place settlement happens.
+  await asSuper();
+  const uc = (await one(`insert into affiliate_payouts
+      (company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 450, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, payAff, U.finA])).id;
+  await db.exec('set role service_role');
+  const c = (await one('select affiliate_payout_send_claim($1, $2, $3, $4) as r', [uc, A, 'live', U.finA])).r;
+  await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5)', [c.send_id, 'unclaimed', 'BATCHU', 'ITEMU', 'UNCLAIMED']);
+  const p = await one('select status, external_reference from affiliate_payouts where id = $1', [uc]);
+  assert.equal(p.status, 'approved', 'unclaimed is not paid');
+  assert.equal(p.external_reference, null);
+  await asSuper();
+});
+
+await check('L6b the money paths that must hold a lock, hold it', async () => {
+  // Concurrency cannot be executed here -- PGlite is one backend -- so these
+  // are asserted structurally against the committed function bodies. Each is
+  // the lock a review found missing (cycle 1, findings 1 and 4).
+  const voidDef = (await one(`select pg_get_functiondef(to_regprocedure('public.affiliate_void_payout(uuid,text)')) as d`)).d;
+  const lockAt = voidDef.indexOf('affiliate_lock_program_money');
+  const readAt = voidDef.indexOf('from public.affiliate_payout_sends');
+  assert.ok(lockAt > -1, 'void takes the program money lock');
+  assert.ok(readAt > -1 && lockAt < readAt,
+    'and takes it BEFORE reading the attempts, or a claim can slip in between');
+  assert.ok(voidDef.indexOf('delete from public.affiliate_payout_items') > lockAt,
+    'and still holds it when the items are released');
+
+  const recDef = (await one(`select pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)')) as d`)).d;
+  assert.match(recDef, /where id = p_send for update/,
+    'the attempt is locked before its terminal transition is judged');
 });
 
 await check('L7 a refused attempt is safe to try again; the manual path still refuses this method', async () => {

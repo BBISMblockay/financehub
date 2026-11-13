@@ -241,6 +241,21 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         { status: 409 },
       );
     }
+    // The same environment is not the same ACCOUNT. Connecting a different
+    // PayPal app keeps the environment and changes the sender, and PayPal's
+    // duplicate protection belongs to the app that first accepted the batch:
+    // re-posting to the new one is a SECOND payment, and polling a batch id
+    // against it only 404s. Refuse rather than guess (review cycle 1,
+    // finding 2).
+    if (
+      creds.credential_version != null
+      && (send.connection_version == null || send.connection_version !== creds.credential_version)
+    ) {
+      throw Object.assign(
+        new Error('This attempt was made with a different PayPal app than the one connected now. Reconnect the app that made it, or check that payment in PayPal and void the payout.'),
+        { status: 409 },
+      );
+    }
     if (!send.provider_batch_id) {
       // PayPal collapses a repeated batch id for THIRTY DAYS and no longer.
       // Past that the replay below would not be answered with the original
@@ -405,16 +420,28 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         await token({ environment, client_id, client_secret });
         const probe = await probePayouts({ environment, client_id, client_secret });
 
+        const existingRow = await connectionFor(company);
+        // A DIFFERENT PayPal app is a different sender, and PayPal's duplicate
+        // protection lives with the app that first accepted a batch. Bumping
+        // the version here is what lets an in-flight attempt refuse to be
+        // replayed against it (review cycle 1, finding 2). Re-entering the
+        // SAME credentials is not a change and keeps the version, so an
+        // attempt mid-flight stays recoverable.
+        const rotated = !existingRow
+          || existingRow.client_id !== client_id
+          || existingRow.client_secret !== client_secret
+          || existingRow.environment !== environment;
         const row = {
           company_entity_id: company, provider: 'paypal', environment,
           client_id, client_secret, is_active: true,
+          credential_version: (Number(existingRow?.credential_version) || 0) + (rotated ? 1 : 0) || 1,
           payouts_enabled: probe.payouts_enabled,
           last_tested_at: now().toISOString(),
           last_test_success: probe.payouts_enabled !== false,
           last_test_error: probe.error ?? null,
           updated_at: now().toISOString(), updated_by: user.id,
         };
-        const existing = await connectionFor(company);
+        const existing = existingRow;
         if (existing) {
           const { error } = await service.from('affiliate_payout_connections')
             .update(row).eq('company_entity_id', company).eq('provider', 'paypal');
@@ -479,6 +506,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           // is the tenant boundary for this call: the function runs as the
           // service role, so RLS is not.
           p_payout: payoutId, p_company: company, p_environment: c.environment, p_actor: user.id,
+          p_connection_version: c.credential_version ?? null,
         });
         if (claimErr) return reply({ error: claimErr.message }, 409);
 
@@ -490,6 +518,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           currency: claim.currency,
           payout_email: claim.payout_email,
           environment: c.environment,
+          connection_version: c.credential_version ?? null,
           provider_batch_id: null,
           state: 'unknown',
         };
@@ -524,7 +553,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const c = await connectionFor(company);
         if (!c?.client_id || !c?.client_secret) return reply({ error: 'PayPal is not connected yet.' }, 400);
         let q = service.from('affiliate_payout_sends')
-          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state, environment, created_at')
+          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state, environment, connection_version, created_at')
           .eq('company_entity_id', company)
           .in('state', ['unknown', 'sent', 'unclaimed'])
           .order('created_at', { ascending: true })

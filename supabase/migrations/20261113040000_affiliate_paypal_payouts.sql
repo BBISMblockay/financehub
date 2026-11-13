@@ -80,6 +80,15 @@ create table if not exists public.affiliate_payout_connections (
   constraint affiliate_payout_connections_company_provider unique (company_entity_id, provider)
 );
 
+-- Which SET of credentials is currently on this row. Reconnecting with a
+-- DIFFERENT PayPal app bumps it, and an attempt snapshots the value it was
+-- made under, so a replay can be refused when the account underneath has
+-- changed (review cycle 1, finding 2): re-posting a batch to a different
+-- PayPal app is a new payment, not a safe retry, because the duplicate
+-- protection lives with the app that first accepted it.
+alter table public.affiliate_payout_connections
+  add column if not exists credential_version integer not null default 1;
+
 alter table public.affiliate_payout_connections enable row level security;
 
 -- No policy and no grant for any client role: service role only, like
@@ -110,6 +119,7 @@ with (security_invoker = false) as
     c.last_test_success,
     c.last_test_error,
     c.last_send_at,
+    c.credential_version,
     (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set
   from public.affiliate_payout_connections c
   where c.company_entity_id = public.active_company_id();
@@ -252,6 +262,13 @@ create index if not exists affiliate_payout_sends_open_idx
   on public.affiliate_payout_sends (company_entity_id, state)
   where state in ('unknown','sent','unclaimed');
 
+-- The credential set this attempt was made under (review cycle 1, finding 2).
+-- Nullable, because an attempt made before this column existed has no answer
+-- and must not be guessed at: the handler treats null as "cannot prove it is
+-- the same account" only when the connection has since been changed.
+alter table public.affiliate_payout_sends
+  add column if not exists connection_version integer;
+
 alter table public.affiliate_payout_sends enable row level security;
 
 drop policy if exists affiliate_payout_sends_select on public.affiliate_payout_sends;
@@ -278,12 +295,14 @@ comment on table public.affiliate_payout_sends is
 -- as an overload, because an overload without the tenant check would still be
 -- callable by the service role.
 drop function if exists public.affiliate_payout_send_claim(uuid, text, uuid);
+drop function if exists public.affiliate_payout_send_claim(uuid, uuid, text, uuid);
 
 create or replace function public.affiliate_payout_send_claim(
   p_payout uuid,
   p_company uuid,
   p_environment text,
-  p_actor uuid default null
+  p_actor uuid default null,
+  p_connection_version integer default null
 )
 returns jsonb
 language plpgsql
@@ -334,10 +353,17 @@ begin
       using errcode = '42501';
   end if;
 
+  -- Which earlier attempts stand in the way. A LIVE attempt blocks everything,
+  -- because real money is at or on its way to the affiliate. A SANDBOX attempt
+  -- blocks only another sandbox attempt: no money moved, nothing was settled
+  -- (affiliate_payout_send_record refuses to mark a payout paid from a sandbox
+  -- result), so a rehearsal must not make the real payment unsendable --
+  -- review cycle 1, finding 3.
   select state into v_open
     from public.affiliate_payout_sends
    where payout_id = p_payout
      and state in ('unknown','sent','unclaimed','paid')
+     and (environment = 'live' or environment = p_environment)
    order by attempt desc
    limit 1;
   if v_open is not null then
@@ -368,11 +394,11 @@ begin
   insert into public.affiliate_payout_sends (
     company_entity_id, payout_id, provider, environment, attempt,
     request_id, sender_batch_id, amount_cents, currency, payout_email,
-    state, created_by
+    state, connection_version, created_by
   ) values (
     v_payout.company_entity_id, p_payout, 'paypal', p_environment, v_attempt,
     v_request, v_request, v_payout.amount_cents, v_payout.currency, v_email,
-    'unknown', p_actor
+    'unknown', p_connection_version, p_actor
   ) returning id into v_send;
 
   return jsonb_build_object(
@@ -383,16 +409,17 @@ begin
     'amount_cents', v_payout.amount_cents,
     'currency', v_payout.currency,
     'payout_email', v_email,
+    'connection_version', p_connection_version,
     'company_entity_id', v_payout.company_entity_id
   );
 end;
 $$;
 
-comment on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) is
+comment on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) is
   'Reserves the next attempt at sending an approved payout and returns the deterministic request id to call the provider with. Refuses a payout belonging to another company (this runs as the service role, so RLS is not the boundary and p_company is), a payout that is not approved, a method that is not paypal_payouts, an affiliate with no PayPal address, and -- the point -- a payout that already has an attempt in flight, succeeded, or in state unknown. Service role only: the authority to cause a payment is checked by the edge function against the caller.';
 
-revoke execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) from public, anon, authenticated;
-grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid) to service_role;
+revoke execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) from public, anon, authenticated;
+grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) to service_role;
 
 -- ── 6. Recording what the provider answered ────────────────────────────────
 create or replace function public.affiliate_payout_send_record(
@@ -420,7 +447,13 @@ begin
     raise exception 'affiliate_payout_send_record: unknown state %', p_state;
   end if;
 
-  select * into v_send from public.affiliate_payout_sends where id = p_send;
+  -- FOR UPDATE, and the terminal check below reads the row this lock holds
+  -- (review cycle 1, finding 4). Two polls of the same attempt can overlap --
+  -- a page refresh and the immediate re-read after a send -- and without the
+  -- lock both read `sent`, the newer SUCCESS commits `paid`, and the older
+  -- PENDING then rewrites it back to `sent`: the attempt returns to the open
+  -- queue while its payout stands marked paid.
+  select * into v_send from public.affiliate_payout_sends where id = p_send for update;
   if not found then raise exception 'affiliate_payout_send_record: no such send'; end if;
 
   -- A terminal state is a fact, not a draft. Once PayPal has said an item
@@ -447,6 +480,18 @@ begin
    where id = p_send;
 
   if p_state <> 'paid' then
+    return;
+  end if;
+
+  -- A SANDBOX PAYMENT SETTLES NOTHING (review cycle 1, finding 3). PayPal's
+  -- sandbox simulates the whole flow and moves no money, so recording a real
+  -- commission as paid from one would extinguish an obligation the affiliate
+  -- is still owed -- and the connect screen defaults to sandbox, so this is
+  -- the ordinary first thing anybody does. The attempt keeps its `paid` state,
+  -- which is the truth about the rehearsal, and the payout stays approved and
+  -- sendable for real (the claim does not let a sandbox attempt block a live
+  -- one).
+  if v_send.environment <> 'live' then
     return;
   end if;
 
@@ -515,8 +560,18 @@ begin
     raise exception 'affiliate_void_payout: a reason is required';
   end if;
 
+  -- The same program money lock the send claim takes, BEFORE the attempt is
+  -- read (review cycle 1, finding 1). Without it a void can read "no attempt",
+  -- a concurrent claim can reserve one and start the provider call, and this
+  -- function would then delete the payout's items and free those commissions
+  -- for another payout while the first payment is in flight. The lock is
+  -- transaction-scoped, so it is held through the delete below.
+  perform public.affiliate_lock_program_money(
+    (select program_id from public.affiliate_payouts where id = p_payout));
+
   -- An attempt that is with the provider, or that never answered, has to be
-  -- settled before this payout can be let go of. The ONE exception is an
+  -- settled before this payout can be let go of. Only a LIVE attempt counts:
+  -- a sandbox one moved no money and settles nothing (finding 3). The ONE exception is an
   -- attempt that never answered and is older than the provider's 30-day
   -- duplicate window: nothing can reconcile it any more (asking again would
   -- be a fresh payment, not a replay), so a void with a reason is the only
@@ -526,6 +581,7 @@ begin
   select state into v_open
     from public.affiliate_payout_sends
    where payout_id = p_payout
+     and environment = 'live'
      and (state in ('sent','unclaimed')
           or (state = 'unknown' and created_at > now() - interval '30 days'))
    order by attempt desc

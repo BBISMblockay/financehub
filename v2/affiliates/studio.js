@@ -983,7 +983,10 @@ function renderPayouts() {
       if (open) b.push(btn('Check status', 'pp-refresh', { id: x.id }));
       else if (!payConnLive(S.d.payConn)) b.push('<span class="af-muted">Connect PayPal first</span>');
       else if (!email) b.push('<span class="af-muted">No PayPal address from them yet</span>');
-      else if (MONEY) b.push(btn('Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
+      else if (MONEY) {
+        const test = S.d.payConn?.environment !== 'live';
+        b.push(btn(test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
+      }
     }
     if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
     if (MANAGE && ['approved', 'exported', 'marked_paid'].includes(x.status)) b.push(btn('Tell affiliate', 'payout-notify', { id: x.id, aff: x.affiliate_id }));
@@ -1010,7 +1013,8 @@ function renderPayouts() {
     const sn = d.sendByPayout[x.id];
     if (!sn) return '';
     const why = sn.error_message || sn.error_code;
-    return `<div class="af-muted">PayPal: ${esc(SEND_WORDS[sn.state] || sn.state)}${sn.attempt > 1 ? ` · try ${num(sn.attempt)}` : ''}${why ? ` · ${esc(why)}` : ''}</div>`;
+    const where = sn.environment && sn.environment !== 'live' ? ' (sandbox test)' : '';
+    return `<div class="af-muted">PayPal${where}: ${esc(SEND_WORDS[sn.state] || sn.state)}${sn.attempt > 1 ? ` · try ${num(sn.attempt)}` : ''}${why ? ` · ${esc(why)}` : ''}</div>`;
   };
 
   const payConnCard = () => {
@@ -1019,7 +1023,10 @@ function renderPayouts() {
       const warn = conn.payouts_enabled === false
         ? `<p class="af-muted">PayPal has not enabled Payouts on this account yet. <a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Request access</a>.</p>`
         : (conn.last_test_success === false && conn.last_test_error ? `<p class="af-muted">${esc(conn.last_test_error)}</p>` : '');
-      return card('PayPal', `<div class="af-kv-line">${esc(conn.environment)}${conn.account_email ? ` · ${esc(conn.account_email)}` : ''}</div>${warn}
+      const sandbox = conn.environment !== 'live'
+        ? '<p class="af-muted">Sandbox: test payments only. Nobody is paid and no payout is recorded as paid.</p>'
+        : '';
+      return card('PayPal', `<div class="af-kv-line">${esc(conn.environment)}${conn.account_email ? ` · ${esc(conn.account_email)}` : ''}</div>${sandbox}${warn}
         <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
     }
     if (!MONEY) return card('PayPal', '<p class="af-muted">Not connected. Someone who can approve payouts connects it.</p>');
@@ -1525,7 +1532,11 @@ const A = {
   'pp-disconnect': async () => { await invoke('affiliate-payouts', { action: 'disconnect' }); return 'Disconnected.'; },
   'pp-send': async ({ id }) => {
     const r = await invoke('affiliate-payouts', { action: 'send', payout_id: id });
-    if (r.state === 'paid') return 'Paid.';
+    if (r.state === 'paid') {
+      return S.d.payConn?.environment !== 'live'
+        ? 'Sandbox test succeeded. Nobody was paid and the payout is still owed.'
+        : 'Paid.';
+    }
     if (r.state === 'refused') return `PayPal refused it: ${r.message || r.code || 'no reason given'}. Nothing was sent.`;
     if (r.state === 'unclaimed') return 'Sent. They need a PayPal account to claim it; it comes back after 30 days if they do not.';
     return 'Sent. PayPal has not confirmed it yet — use Check payment status.';

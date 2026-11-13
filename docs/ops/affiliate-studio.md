@@ -368,6 +368,27 @@ Connect platform and SILO orchestrates it. Design:
   an `unknown` attempt past the duplicate window can no longer be reconciled by
   asking again, so a void with a reason is the only way out of it, and by then
   the person has had a month to see it in their PayPal activity.
+- **A sandbox payment settles nothing.** PayPal's sandbox simulates the whole
+  flow and moves no money, and the connect screen defaults to it, so a sandbox
+  result records the ATTEMPT as paid and leaves the payout approved and still
+  owed. It does not block the real payment either: a sandbox attempt never
+  stands in the way of a live claim or a void, while a live attempt blocks
+  everything. The page says which kind of send a button is.
+- **A replay is bound to the PayPal app that made it.** The same environment is
+  not the same account: connecting a different app keeps `sandbox`/`live` and
+  changes the sender, and PayPal's duplicate protection belongs to the app that
+  first accepted the batch. Each attempt stores the connection's
+  `credential_version`, which the connect action bumps only when the
+  credentials actually change, and a replay against a different version is
+  refused rather than guessed at.
+- **The locks.** `affiliate_void_payout()` takes the same
+  `affiliate_lock_program_money()` the send claim takes, BEFORE it reads the
+  attempts and held through the release of the items -- without it a void can
+  read "no attempt", a claim can slip in, and the freed commissions can be paid
+  again while the first payment is in flight. `affiliate_payout_send_record()`
+  selects the attempt `for update` before judging its terminal transition, so
+  two overlapping polls cannot land a late PENDING on top of a committed
+  SUCCESS.
 - **"Paid" is the provider's word.** Only
   `affiliate_payout_send_record(state => 'paid')` marks a payout paid, with
   PayPal's own batch and item ids as the evidence. A terminal answer cannot be
