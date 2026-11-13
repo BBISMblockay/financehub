@@ -152,7 +152,21 @@
     /* Modern workflow app shell (dashboard cards, not spreadsheet rows). */
     .silo-main.af-studio { background: linear-gradient(180deg, var(--bcn-bg) 0%, var(--bcn-surface) 42%, var(--bcn-bg) 100%); }
     .af-studio .bcn-header { margin: 0 18px; padding: 20px 0 8px; border-bottom: 0; }
+    .af-studio.af-studio--ready .bcn-header { padding: 12px 0 4px; }
+    .af-studio.af-studio--ready .bcn-header-sub { display: none; }
+    .af-studio.af-studio--workflow .bcn-header { padding-bottom: 0; margin-bottom: 0; }
+    .af-studio.af-studio--workflow > #tabs.af-tabs--workflow { margin-top: 4px; margin-bottom: 8px; }
+    .af-studio.af-studio--workflow > .af-panel { padding-top: 8px; }
     .af-studio .bcn-header-title h1 { font-size: 1.35rem; letter-spacing: -.02em; }
+    .af-workflow-h { margin: 0 0 10px; padding: 0 2px; font-size: 1.05rem; font-weight: 700; letter-spacing: -.02em; scroll-margin-top: 12px; }
+    .af-find-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+    .af-find-inline > .bcn-field-group { flex: 1 1 220px; min-width: 0; }
+    .af-list-foot { margin-top: 12px; display: flex; justify-content: center; }
+    .af-tab-count {
+      margin-left: 6px; font-family: var(--bcn-mono); font-size: 10px; font-weight: 700;
+      padding: 1px 6px; border-radius: 999px; background: var(--bcn-accent); color: #fff; vertical-align: middle;
+    }
+    .bcn-tab--active .af-tab-count { background: var(--bcn-band); }
     .af-studio .af-panel .bcn-card {
       border: 1px solid color-mix(in srgb, var(--bcn-border) 88%, transparent);
       border-radius: 14px;

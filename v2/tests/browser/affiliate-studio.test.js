@@ -329,15 +329,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
     R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
-    // A short window scrolls the page; it never squeezes the To do list and cuts off its last rows.
+    // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
-    // The strip above the tabs carries the list on every tab but Overview, and
-    // it is the one that clips: measured there, because a child that shrinks to
-    // fit a short window cuts off its own last rows.
     await loop.click('#tabs [data-tab="prospects"]');
-    await loop.waitForFunction(() => { const el = document.getElementById('nextStep'); return el && !el.hidden && el.textContent.trim().length > 0; }, null, { timeout: 5000 });
-    const pinch = await loop.$eval('#nextStep', (el) => el.scrollHeight - el.clientHeight);
-    R.ok(`a long To do list is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
+    await loop.waitForFunction(() => !!document.querySelector('#afCreatorsList'), null, { timeout: 5000 });
+    R.ok('prospects tab does not repeat the Overview To do strip', !(await loop.evaluate(() => {
+      const el = document.getElementById('nextStep');
+      return el && !el.hidden && el.textContent.trim().length > 0;
+    })));
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
     await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));

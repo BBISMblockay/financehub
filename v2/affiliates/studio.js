@@ -125,7 +125,8 @@ function download(name, text, type = 'text/csv') {
 }
 
 // ── State ────────────────────────────────────────────────────────────────
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all' };
+const PROSPECT_LIST_CAP = 20;
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -339,8 +340,43 @@ const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (c) => formatMoney(c, prog()?.currency);
 
+function scrollWorkflowTo(id) {
+  requestAnimationFrame(() => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+}
+function workflowFocusTab(t) {
+  if (t === 'prospects') {
+    S.prospectFilter = 'new';
+    S.prospectShowAll = false;
+    scrollWorkflowTo('afCreatorsList');
+    return;
+  }
+  if (t === 'payouts') scrollWorkflowTo('payoutsBody');
+  else scrollWorkflowTo(`${t}Body`);
+}
+function renderWorkflowTabCounts() {
+  const p = prog(); const d = S.d; const h = d?.health;
+  if (!p || !h) return;
+  const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
+  const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
+  const counts = { prospects: Number(h.prospects_new || 0), outreach: msgN, affiliates: onboardN, payouts: payN };
+  for (const b of document.querySelectorAll('#tabs [data-tab]')) {
+    const n = counts[b.dataset.tab];
+    let badge = b.querySelector('.af-tab-count');
+    if (n > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'af-tab-count'; b.appendChild(badge); }
+      badge.textContent = num(n);
+    } else if (badge) badge.remove();
+  }
+}
 function render() {
   const p = prog();
+  const main = document.querySelector('.silo-main.af-studio');
+  main?.classList.toggle('af-studio--ready', !!p);
+  main?.classList.toggle('af-studio--workflow', !!p && S.tab !== 'overview' && S.tab !== 'program');
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const on = b.dataset.tab === S.tab;
@@ -356,6 +392,7 @@ function render() {
     return;
   }
   ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: () => { renderPayouts(); renderCommissions(); } })[S.tab]();
+  renderWorkflowTabCounts();
 }
 
 function renderKpis() {
@@ -407,26 +444,16 @@ function todoItems() {
 }
 function renderNextStep() {
   const el = $('nextStep'); if (!el) return;
-  // On Overview the same list is a card in the grid, so the strip above the
-  // tabs would say it twice.
-  if (!S.d || !prog() || S.tab === 'overview') { el.hidden = true; el.innerHTML = ''; return; }
-  const items = todoItems();
-  el.hidden = false;
-  const tabLabel = { program: 'Settings', prospects: 'Recruiting', outreach: 'Messages', affiliates: 'Affiliates', share: 'Share', payouts: 'Pay' };
-  const rows = items.map((x, i) => {
-    const go = x.tab !== S.tab ? btn(`Go to ${tabLabel[x.tab] || x.tab}`, 'go-tab', { t: x.tab }, i === 0 ? 'primary' : 'surface') : '';
-    return `<li class="af-todo-item"><span class="af-todo-text">${esc(x.text)}</span><div class="af-todo-acts">${x.extra || ''}${go}</div></li>`;
-  }).join('');
-  el.innerHTML = `<header class="af-todo-head"><h2 class="af-todo-title">To do</h2>${items.length ? pill(String(items.length), 'accent') : ''}</header>`
-    + (rows ? `<ul class="af-todo">${rows}</ul>` : '<p class="af-muted af-todo-none">Nothing waiting on you.</p>')
-    + `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
+  // To do lives on Overview; workflow tabs should show their list first.
+  el.hidden = true;
+  el.innerHTML = '';
 }
 function renderPipeline() {
   const el = $('afPipeline');
   if (!el) return;
   const p = prog();
   const h = S.d?.health;
-  if (!p || !h) { el.hidden = true; return; }
+  if (!p || !h || S.tab !== 'overview') { el.hidden = true; return; }
   const d = S.d;
   const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
   const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
@@ -460,7 +487,7 @@ const AI_HUB_SCOPE_NOTE = 'Allowed = you ticked it on your SILO connection. SILO
 function renderAiHub() {
   const el = $('afAiHub');
   if (!el) return;
-  if (!MANAGE || !prog() || !S.d) { el.hidden = true; return; }
+  if (!MANAGE || !prog() || !S.d || S.tab !== 'overview') { el.hidden = true; return; }
   const apps = S.d.aiApps;
   const canSend = (apps || []).some((a) => a.canSend);
   const canCode = (apps || []).some((a) => a.canCode);
@@ -688,12 +715,21 @@ function renderProspects() {
       <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
   };
+  const capped = S.prospectShowAll ? list : list.slice(0, PROSPECT_LIST_CAP);
+  const listFoot = list.length > PROSPECT_LIST_CAP
+    ? (S.prospectShowAll
+      ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
+      : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
+    : '';
+  const findRow = MANAGE
+    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`
+    : '';
   $('prospectsBody').innerHTML = [
-    MANAGE ? card('Find creators', `
-      <div class="af-row">${field('Who are you looking for?', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`, '', 'af-card-hero') : '',
-    card('Creators', `<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
-      ${itemList(list, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
-      <div id="signupOut"></div>`, `${d.prospects.length} total`),
+    `<h2 class="af-workflow-h" id="afCreatorsList">Creators</h2>`,
+    card('Review queue', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
+      ${itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
+      ${listFoot}
+      <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`),
     more('More options', [
     MANAGE ? card('Creator photos', `<p class="af-muted">SILO keeps a copy of each creator's profile photo after every search.</p><div class="af-row" style="margin-top:8px;">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
@@ -1302,7 +1338,7 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  'prospect-filter': ({ f }) => { S.prospectFilter = f; render(); },
+  'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
   'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
   'ov-filter': ({ f }) => { S.ovFilter = f; render(); },
@@ -1314,7 +1350,9 @@ const A = {
     return 'Copied. Send it from your own mailbox.';
   },
   'ov-reload': async () => { await reload(); return null; },
-  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); },
+  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); workflowFocusTab(t); },
+  'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
+  'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-status': async ({ id, s }) => {
     await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: new Date().toISOString(), changed_by: me.id }, { id });
     if (s !== 'approved') return `Creator ${s}.`;
@@ -1610,7 +1648,7 @@ const A = {
 // click arms the button for four seconds.
 document.addEventListener('click', async (ev) => {
   const tab = ev.target.closest('#tabs [data-tab]');
-  if (tab) { S.tab = tab.dataset.tab; S.creating = false; render(); return; }
+  if (tab) { S.tab = tab.dataset.tab; S.creating = false; render(); workflowFocusTab(S.tab); return; }
   const b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
   if (b.dataset.confirm && !b.dataset.armed) {
