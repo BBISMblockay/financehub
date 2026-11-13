@@ -449,7 +449,7 @@ export const WHERE_IN_SILO = {
 
     { section: 'Planning', page: 'Org calendar', path: '/v2/calendar.html', what: 'The company-wide calendar: the Org calendar tab of Calendar.' },
     { section: 'Planning', page: 'Calendar', path: '/v2/launch-calendar.html', what: 'The Launch calendar tab: each dated launch with its tasks and marketing initiatives.' },
-    { section: 'Planning', page: 'Task Manager', path: '/v2/tasks.html', what: 'Tasks: raising them, assigning them and following them.' },
+    { section: 'Planning', page: 'Planning', path: '/v2/tasks.html', what: 'The planning suite. It opens on Tasks -- raising them, assigning them and following them -- and the Calendar, Org calendar and TikTok Live Schedule pages are tabs of it.' },
     { section: 'Planning', page: 'TikTok Live Schedule', path: '/v2/live-schedule.html', what: 'The TikTok live schedule.' },
 
     { section: 'Team', page: 'Performance Reviews', path: '/v2/reviews.html', what: 'Performance reviews.' },
