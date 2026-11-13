@@ -170,8 +170,8 @@
     },
 
     meta_ads: {
-      title: 'Connect Meta Ads with a System User token',
-      summary: '<strong>Most people should use Connect Meta instead</strong> — it takes a minute and sets up the ad account, Page and Instagram for you. Follow this guide only if you need a System User token of your own.<br><br>Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.',
+      title: 'Replace a Meta System User token',
+      summary: '<strong>Connect Meta is the way to connect Meta</strong> — it takes a minute and sets up the ad account, Page and Instagram for you. This guide is only for regenerating the token on a connection that was set up with one, before Connect Meta existed.<br><br>Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.',
       time: 'About 15 minutes',
       needs: [
         '<strong>Admin</strong> access to the Meta Business portfolio that owns the ad account',
@@ -230,17 +230,16 @@
             link: { href: META_SYSTEM_USERS, label: 'Open System users' },
           },
           { title: 'Link Instagram to the Page', body: 'The Instagram professional account must be linked to that Facebook Page.' },
-          { title: 'Fill in the two IDs', body: 'Click <strong>Test</strong> on the Meta row — it lists the Pages the token can see with their linked Instagram account. Enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong> on the row.' },
+          { title: 'Choose the Page', body: 'Open <strong>Manage</strong> on the Meta row and press <strong>Choose Page</strong>. It lists the Pages the token can see, and the linked Instagram account comes with the Page.' },
         ],
       },
       troubleshooting: [
-        { q: 'I regenerated the token — where does the new one go?', a: 'Use <strong>Replace token</strong> on the existing Meta row. Do not use Add Meta Ads token again; that creates a second connection for the same account.' },
+        { q: 'I regenerated the token — where does the new one go?', a: 'Open <strong>Manage</strong> on the existing Meta row and use <strong>Replace token</strong>. Never connect the same ad account a second time; it would pull that account twice every night.' },
         { q: 'Test lists no ad accounts', a: 'The ad account is not assigned to the system user (step 4), or the token was generated without <code>ads_read</code>.' },
         { q: 'Generate token does not list my app', a: 'The app is missing under Accounts → Apps (step 1B), or the system user does not have <strong>Develop app</strong> on that app (step 4).' },
         { q: 'Links open the wrong business', a: 'Use the portfolio picker (top-left in Business settings) before continuing. Every deep link keeps you in Business settings once signed in.' },
         { q: '"Could not derive a Page access token" / error #190', a: 'The Page isn\'t assigned to the system user. Assign it (organic step 2); no new token is needed.' },
       ],
-      action: { id: 'meta_form', label: 'Go to the Meta form' },
     },
 
     redo: {
@@ -369,7 +368,7 @@
   const ONBOARDING_PRINT_ORDER = [
     { key: 'shopify_dev_app', section: 'Shopify — store-owned app (recommended)' },
     { key: 'shopify_token', section: 'Shopify — legacy Admin API token' },
-    { key: 'meta_ads', section: 'Meta Ads — system user token' },
+    { key: 'meta_ads', section: 'Meta Ads — replacing a system user token' },
     { key: 'redo', section: 'Redo — returns & marketing' },
     { key: 'klaviyo', section: 'Klaviyo — email & SMS' },
   ];
