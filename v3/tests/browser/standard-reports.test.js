@@ -11,7 +11,12 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     const config = fs.readFileSync(path.join(FIXTURES, 'fake-config.js'), 'utf8');
     const fake = fs.readFileSync(path.join(FIXTURES, 'fake-supabase.js'), 'utf8');
     await page.route('**/pages/config.js', r => r.fulfill({ contentType: 'text/javascript',
-      body: config.replace("entity_key: 'baseballism'", "entity_key: 'stlhd'") }));
+      // The nav profile is company DATA (entities.meta.nav_profile, since
+      // 20261113040000), so swapping entity_key alone leaves this fixture
+      // GRANDFATHERED and the standard-workspace assertions below never ran
+      // against a standard workspace.
+      body: config.replace("entity_key: 'baseballism'", "entity_key: 'stlhd'")
+        .replace("meta: { nav_profile: 'grandfathered' }", "meta: {}") }));
     await page.route('**/@supabase/supabase-js**', r => r.fulfill({ contentType: 'text/javascript', body: fake + `
       window.__FAKE_DB__.silo_chat_saved_reports.push(
         { id: 'PRIVATE', title: 'Private sentinel', source: 'manual', company_entity_id: 'C1', created_by: 'U2', visibility: 'private' },
