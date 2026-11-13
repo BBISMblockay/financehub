@@ -321,10 +321,14 @@ Connect platform and SILO orchestrates it. Design:
    about it, and a payout sent to an address a manager typed is a payment to
    whoever holds it. It is deliberately not `affiliates.contact_email` -- where
    someone reads mail and where they take money are different facts.
-3. A payout is built and approved exactly as before. *Send with PayPal* then
-   sends it. Authority is `can_approve_affiliate_commissions()`, the
-   journal-entry gate, asked of the database AS THE CALLER before any
-   service-role call.
+3. A payout is built and approved exactly as before. *Send with PayPal* on the
+   row sends one; *Send N approved payout(s)*, beside Export, sends every
+   payout a row would send -- it loops, one call per payout, because each
+   payout keeps its own attempt row, its own `sender_batch_id` and its own
+   claim, and one failure does not stop the rest. PayPal's batch API would take
+   all of them in a single call, which is precisely what this design refuses.
+   Authority is `can_approve_affiliate_commissions()`, the journal-entry gate,
+   asked of the database AS THE CALLER before any service-role call.
 
 ### What makes it safe
 
@@ -338,8 +342,14 @@ Connect platform and SILO orchestrates it. Design:
   written BEFORE the call, carrying a deterministic `PayPal-Request-Id`. A call
   that never answered is state `unknown`, and `affiliate_payout_send_claim()`
   REFUSES another attempt until it has been reconciled -- re-POSTing the same
-  key returns the original batch rather than paying again. The page offers
-  *Check status*, not another *Send*. PayPal also refuses a `sender_batch_id`
+  key returns the original batch rather than paying again. The page offers no
+  second *Send*, and checks the attempt itself: an open attempt on the
+  connected account is reconciled once per page load, so nobody has to know to
+  press anything. The page asks for each payout BY ID, the ones blocking a send
+  first: the endpoint's untargeted refresh reads only the oldest 50 open
+  attempts across the company, with no rotation, so a newer attempt behind 50
+  long-unclaimed items would otherwise never be checked. The card's *Check
+  payment status* runs the same loop. PayPal also refuses a `sender_batch_id`
   reused within 30 days: that is a 4xx, and it is read as "the batch already
   exists" (the original id comes out of the error's own links), never as a
   refusal -- a refusal would release the payout for a second attempt while the
@@ -387,12 +397,17 @@ Connect platform and SILO orchestrates it. Design:
   protection belongs to the app and not to its password: rotating a secret, or
   disconnecting and reconnecting the same app, leaves every open attempt
   recoverable instead of stranding it behind the mismatch guard.
-- **The page blocks a send on the same rule the claim does.** A live attempt in
-  flight blocks every send; a sandbox test blocks only another test. Treating
-  any open attempt as blocking left a payout with nothing but Check status
-  after a test -- and Check status cannot reconcile a sandbox attempt against
-  the live account either, so the real payment was unreachable from the page
-  while the database would have allowed it.
+- **The page blocks a send on the same rule the claim does.** The claim refuses
+  a second attempt in four states -- `unknown`, `sent`, `unclaimed` and `paid`
+  -- and the page must hide Send in exactly those four, including from *Send N
+  approved payout(s)*. It once blocked only the first three, so a payout
+  already paid still showed a button that could only ever produce a refusal
+  (first sandbox run). The environment rule is the same both sides: a live
+  attempt in flight blocks every send; a sandbox test blocks only another test.
+  Treating any open attempt as blocking left a payout with no way forward after
+  a test -- a sandbox attempt cannot be reconciled against the live account
+  either, so the real payment was unreachable from the page while the database
+  would have allowed it.
 - **The locks.** `affiliate_void_payout()` takes the same
   `affiliate_lock_program_money()` the send claim takes, BEFORE it reads the
   attempts and held through the release of the items -- without it a void can
@@ -428,10 +443,11 @@ Connect platform and SILO orchestrates it. Design:
   product -- PayPal's own fee page is the only authority.
 - **Tax** is the company's. PayPal's own reporting does not discharge a payer's
   1099 obligation, and the product says nothing about either.
-- **Webhooks are not wired.** Status is read on demand (*Check payment status*,
-  and automatically straight after a send). `PAYMENT.PAYOUTS-ITEM.*` would make
-  an unclaimed item that later settles update itself; until then someone has to
-  press the button.
+- **Webhooks are not wired.** Status is read on demand: straight after a send,
+  once per page load while any attempt on the connected account is still open,
+  and from *Check payment status* on the connection card.
+  `PAYMENT.PAYOUTS-ITEM.*` would make an unclaimed item that later settles
+  update itself; until then it settles on the next visit to the Pay tab.
 
 ## Limitations
 
