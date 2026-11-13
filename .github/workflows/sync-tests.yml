@@ -20,6 +20,11 @@ on:
       - 'scripts/lib/**'
       - 'scripts/tests/**'
       - 'supabase/migrations/*product_workflow_preview.sql'
+      # The two migrations of 2026-11-13 that turn company-specific code into
+      # company data (vendor-suggestions-nav-profile-database.test.mjs runs
+      # both for real).
+      - 'supabase/migrations/*payment_request_vendor_suggestions.sql'
+      - 'supabase/migrations/*nav_profile_in_entity_meta.sql'
       # Product Studio Ready for PO (product-studio-ready-for-po-*.test.mjs),
       # including the client checklist it holds to the database rule.
       - 'supabase/migrations/*product_studio_*.sql'
@@ -1543,6 +1548,15 @@ jobs:
           for mutation in admin company; do
             if MODULE_MUTATION="$mutation" node scripts/tests/workspace-modules-database.test.mjs; then
               echo "::error::$mutation did not fail the module suite"
+              exit 1
+            fi
+          done
+      - name: Vendor suggestion tenancy and the nav profile flag
+        run: |
+          node scripts/tests/vendor-suggestions-nav-profile-database.test.mjs
+          for mutation in cross-tenant-read member-write anon-read no-unique case-dupes meta-clobber all-companies; do
+            if VENDOR_MUTATION="$mutation" node scripts/tests/vendor-suggestions-nav-profile-database.test.mjs; then
+              echo "::error::$mutation did not fail the vendor suggestion suite"
               exit 1
             fi
           done

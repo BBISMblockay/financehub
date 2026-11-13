@@ -100,6 +100,11 @@ makes the grant the only way in). **Nav gating is UX only — RLS is the boundar
 Full reference (every table's invariants, every gate function, RPCs, buckets): `docs/agents/database.md`.
 Database rules: `supabase/CLAUDE.md`.
 
+- **The sidebar profile is company DATA**, not code: `entities.meta.nav_profile`
+  (`'grandfathered' | 'standard'`, unset = `'standard'`, read by `resolveNavProfile` in
+  `v2/nav-config.js`). Granting a workspace the fuller menu is an `update` of that flag. Never
+  reintroduce a company name, `entity_key` or entity id as a branch in shared code — that is the
+  project rule, and 20261113040000 was the last such branch.
 - **Multi-tenant.** Every operational table carries `company_entity_id`; RLS scopes reads to
   `active_company_id()` (from `profiles.active_company_id`, set by `set_active_company()`). Views are
   `security_invoker = true` so RLS applies through them, EXCEPT deliberate definer wrappers
@@ -179,8 +184,10 @@ needs Blake's approval; if it was applied directly, open the PR in the same sess
 
 ## Deliberately hidden or unusual — ask before "fixing"
 
-- `#btnFromConcept` in `po-builder.html` stays `hidden`; the concept → PO path is Product Studio's
-  Ready-for-PO gate
+- The concept → PO path is Product Studio's Ready-for-PO gate. The in-builder picker that used to sit
+  hidden behind `#btnFromConcept` in `po-builder.html` was DELETED 2026-11-13 (Blake: "concept to PO
+  is out the window") — do not rebuild it. `generate_po_from_concept()` and the
+  `po-builder.html?fromConcept=` deep link are the live path and stay
 - `v2/je-composer.js` is two-step (draft, then re-read from the database for approval). Do not
   collapse it into one confirm
 - Compensation requests allow a manager to file for themselves (decision 2026-08-25)

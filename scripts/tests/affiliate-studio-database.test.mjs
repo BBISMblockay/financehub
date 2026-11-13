@@ -63,7 +63,7 @@
 //   AFFILIATE_DB_MUTATION=exportconfirm the export confirms payouts that are no longer approved
 //   AFFILIATE_DB_MUTATION=managedco     the staff gate returns the company without judging it
 //   AFFILIATE_DB_MUTATION=moneylock     accrual takes no program lock
-//   PayPal payouts (20261113040000):
+//   PayPal payouts (20261113050000):
 //   AFFILIATE_DB_MUTATION=connread      a client role may read the company's PayPal credentials
 //   AFFILIATE_DB_MUTATION=payoutsecret  the status view discloses client_secret
 //   AFFILIATE_DB_MUTATION=sendinflight  a payout already in flight may be sent again
@@ -182,8 +182,8 @@ const files = {
   // without the index -- which is the point: a database without it cannot
   // match an affiliate order inside the 8s statement timeout.
   matchindex: '20261112220000_affiliate_order_match_index.sql',
-  // The first payout rail that actually sends money (20261113040000).
-  paypal: '20261113040000_affiliate_paypal_payouts.sql',
+  // The first payout rail that actually sends money (20261113050000).
+  paypal: '20261113050000_affiliate_paypal_payouts.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -347,7 +347,7 @@ switch (MUT) {
   // apart. Review cycle 1, P2.
   case 'nomatchindex':
     mutate('matchindex', 'shopify_orders_co_created_coded_idx', 'shopify_orders_unused_idx'); break;
-  // PayPal payouts (20261113040000):
+  // PayPal payouts (20261113050000):
   case 'connread':
     mutate('paypal', 'revoke all on public.affiliate_payout_connections from anon, authenticated;',
       'grant select on public.affiliate_payout_connections to authenticated;'); break;

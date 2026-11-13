@@ -19748,6 +19748,26 @@ $c$select (select count(*) from v_po_header_summary
 -- change that makes the QuickBooks card name its columns -- apply this AFTER
 -- that merges, or the card breaks on select('*') until it does.
 \i migrations/20261113010000_security_review_fixes.sql
+-- 2026-11-13: two company-specific literals in shared code become company
+-- DATA. (1) payment_request_vendor_suggestions holds the vendor and
+-- ambassador hints the Payment Request form suggests, which were 195 names
+-- inside v2/purchase_request.html -- downloaded by every tenant's browser and
+-- readable in the public repo, whatever the entity_key gate displayed. The
+-- table is created EMPTY: seeding it is a separate data load, deliberately not
+-- committed, or the names would just move to another public file. (2) the nav
+-- profile moves to entities.meta.nav_profile, which nav-config.js already
+-- checked first, so applying it changes nothing under the current code.
+--
+-- APPLY (2) BEFORE THE FRONTEND SHIPS. Unapplied, the new nav-config.js
+-- resolves the grandfathered workspace to 'standard' and its sidebar loses
+-- Reviews, Compensation, the TikTok schedule and the Marketing Report until it
+-- is applied. Nothing is exposed and every URL still works. No deploy is owed
+-- by either migration. The payment-request-forward-melio source changed in the
+-- same PR (its per-company fallback was dead code and is gone), so a deploy of
+-- that function is OPTIONAL and behaviour-neutral; until it is deployed the
+-- drift check will name it.
+\i migrations/20261113030000_payment_request_vendor_suggestions.sql
+\i migrations/20261113040000_nav_profile_in_entity_meta.sql
 -- 2026-11-13: affiliate payouts through PayPal -- the first rail that actually
 -- sends money. The COMPANY's own PayPal business credentials pay the COMPANY's
 -- affiliates; SILO's platform PayPal is never in the path and funds nothing.
@@ -19758,5 +19778,5 @@ $c$select (select count(*) from v_po_header_summary
 -- non-manual method: a provider payout is recorded paid only from what the
 -- provider answered. Apply BEFORE deploying affiliate-payouts and
 -- affiliate-portal.
-\i migrations/20261113040000_affiliate_paypal_payouts.sql
+\i migrations/20261113050000_affiliate_paypal_payouts.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

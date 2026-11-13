@@ -90,7 +90,7 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   assert.equal(row.commission_percent, 12.5);
   assert.equal(row.payout_minimum_cents, 2500);
   assert.equal(row.attribution_window_days, 0, 'no silent grace by default');
-  // The payout rail (20261113040000). A form that does not carry the field
+  // The payout rail (20261113050000). A form that does not carry the field
   // must not send one: that is what stops an older caller silently resetting a
   // program that pays through PayPal back to paying by hand.
   assert.equal('payout_method' in row, false, 'a form without the field sends no method');

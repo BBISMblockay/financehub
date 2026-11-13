@@ -24,7 +24,7 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 | Code tracking | **verified** once a code is seen on an order | Existing Shopify discount codes, read from synced orders. No Shopify write scope; SILO never creates or edits a discount |
 | Trackable links | **manual** | UTM-tagged destinations. No redirector, no click counting, no commission on a link |
 | Commissions | **verified** once a ledger line exists | Computed in Postgres from synced orders |
-| Payouts | **manual, or PayPal** | Manual: SILO builds, approves and exports; a person pays elsewhere and records the reference. PayPal (20261113040000): the company's own PayPal business account pays their affiliates |
+| Payouts | **manual, or PayPal** | Manual: SILO builds, approves and exports; a person pays elsewhere and records the reference. PayPal (20261113050000): the company's own PayPal business account pays their affiliates |
 | Stripe Connect payouts | **unconfigured** | Designed, not built -- it would make SILO the payer of record (see below) |
 | Incremental sales | **not measured** | A code on an order credits the affiliate. That is not proof the affiliate caused the sale |
 
@@ -287,7 +287,7 @@ by hand is the secondary button.
 | Rail | State | How |
 |------|-------|-----|
 | Manual | **live** | SILO builds, approves and exports; a person pays elsewhere and records the reference. SILO moves no money |
-| PayPal Payouts | **live (20261113040000)** | The COMPANY's own PayPal business account pays their own affiliates. See below |
+| PayPal Payouts | **live (20261113050000)** | The COMPANY's own PayPal business account pays their own affiliates. See below |
 | Stripe Connect | **designed, not built** | Would need the company to run its own Connect platform. See below |
 
 ### Why PayPal and not Stripe

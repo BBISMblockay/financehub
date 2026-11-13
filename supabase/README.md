@@ -3560,7 +3560,57 @@ way. **No function deploy.** Verify: `verify_v2_schema.sql` checks "readonly_que
 applied. Tests: `scripts/tests/security-review-fixes-database.test.mjs` (20 checks, 9 mutations),
 `v2/tests/unit/connection-credentials-not-selected.test.js`.
 
-### `migrations/20261113040000_affiliate_paypal_payouts.sql` — affiliate payouts through the company's own PayPal
+## 20261113030000_payment_request_vendor_suggestions.sql + 20261113040000_nav_profile_in_entity_meta.sql
+
+Two company-specific literals in shared code become company **data**, which the project rule
+requires and which closes one real disclosure.
+
+- **`payment_request_vendor_suggestions`** (company, vendor name): the hints the Payment Request
+  form's datalist offers. These were **195 vendor and ambassador names written into
+  `v2/purchase_request.html`**, merged into the datalist only when `_co.entity_key === 'baseballism'`.
+  That gate decided what was *displayed*, never what was *delivered*: a static array ships to every
+  tenant's browser whatever company the reader is in, and `financehub` is a public repository, so the
+  names were readable in devtools and on GitHub by anyone. Blake, 2026-11-13: *"yes move to
+  baseballism own so can't be found with f12 lol."* RLS (`select` scoped to `active_company_id()`,
+  writes additionally `is_admin_user()`) is the boundary now; `anon` is revoked.
+
+  **The table is created EMPTY on purpose.** Seeding it is a data load run against production and
+  deliberately not committed — committing the names would move them from one public file to another.
+  The form already learns suggestions from the company's own prior `payment_requests` (newest 1,000),
+  so this table only adds names not used yet or aged out of that window. Nothing here gates a
+  submission: an empty table, a missing table (before apply) or a failed read each just mean fewer
+  suggestions, and the page logs and carries on.
+
+- **`entities.meta.nav_profile`** (`'grandfathered' | 'standard'`, unset = `'standard'`): the sidebar
+  profile. `v2/nav-config.js` decided it with `entity_key === 'baseballism'`, so no second workspace
+  could get the fuller menu without a code change and the file named the tenant SILO grew up in. The
+  `meta.nav_profile` seam already existed and was already checked **first**, which is why
+  20261113040000 is safe to apply **before** the frontend ships: under the old code meta and the
+  entity_key branch agree, so applying it changes nothing.
+
+  **Apply 20261113040000 before the frontend ships.** Unapplied, the new `nav-config.js` resolves
+  that workspace to `'standard'` and its sidebar loses Reviews, My Reviews, Compensation, the TikTok
+  Live Schedule and the Marketing Report. Nothing is exposed — RLS is untouched and every URL still
+  works — and applying it restores the menu on the next page load. Granting any workspace the fuller
+  menu is now one `update` of this flag.
+
+Also in the PR, needing nothing applied: **Silo Attribution opens to every workspace** (its pilot
+gate was Baseballism's entity id; the page was always company-scoped, and its own guard still refuses
+an unresolved or switched company, with the company id shape-checked before it reaches the coverage
+probe), the **concept → PO picker is deleted** from `v2/po-builder.html` (Product Studio's Ready-for-PO
+path and the `?fromConcept=` deep link are untouched), and the **dead per-company Melio fallback** is
+removed from `payment-request-forward-melio` — dead because that company's `company_settings` already
+carries `bill_pay_provider` and `bill_pay_forward_email`, so the first branch has been the answer for
+every call.
+
+**No deploy is owed.** The `payment-request-forward-melio` source changed, so a deploy of that one
+function is optional and behaviour-neutral; until it happens the drift check will name it. Verify:
+`verify_v2_schema.sql` check "Company-data nav profile and vendor suggestions" returns MISSING on
+production until both are applied. Tests: `scripts/tests/nav-profile.test.mjs`,
+`performance-suite.test.mjs`, `silo-attribution-access.test.mjs`, `bill-pay-forwarding.test.mjs`,
+`customer-readiness-ui.test.mjs`, `workspace-modules.test.mjs`, `v2/tests/browser/home-cards.test.js`.
+
+### `migrations/20261113050000_affiliate_paypal_payouts.sql` — affiliate payouts through the company's own PayPal
 
 The first payout rail that actually sends money. **The money is the COMPANY's**,
 from their own PayPal business account to their own affiliates; SILO's platform

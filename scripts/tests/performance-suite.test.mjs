@@ -7,11 +7,13 @@
 //     pointed at a new route would break every bookmark and saved link.
 //  2. The sidebar draws ONE row for the four pages, on both nav profiles, and
 //     every one of the four pages highlights that row.
-//  3. NO visibility boundary moved. Report and Attribution are still
-//     Baseballism-only, Attribution still needs its pilot companyGate, and the
-//     Marketing module switch still hides everything. The strip has no gate of
-//     its own: it shows the tabs whose nav ROW is visible, so this is tested
-//     against the rows, in both directions.
+//  3. Each tab's visibility is still its nav ROW's own. Report stays
+//     grandfathered-only; Attribution is open to every workspace since
+//     2026-11-13 (it was a pilot gated on one company's entity id -- see
+//     nav-config.js) and so has no gate beyond its profiles; the Marketing
+//     module switch still hides everything. The strip has no gate of its own:
+//     it shows the tabs whose nav ROW is visible, so this is tested against
+//     the rows, in both directions.
 //  4. "Jump to" (the palette) still finds every page by name: the three tab
 //     rows are hidden from the sidebar only, not from the nav.
 //  5. The tab you are LOOKING AT is always in its own strip, and refresh()
@@ -29,9 +31,12 @@ const navSource = await read('v2/nav-config.js');
 const stripSource = await read('v2/performance-suite.js');
 const chromeSource = await read('v2/silo-chrome.js');
 
-const BASEBALLISM = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism' };
+// The profile comes from the company's OWN DATA (entities.meta.nav_profile,
+// 20261113040000), never from entity_key -- so the grandfathered fixture says
+// so explicitly, and a company without the flag is standard.
+const BASEBALLISM = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } };
 const OTHER = { id: '11111111-1111-4111-8111-111111111111', entity_key: 'acme' };
-// Grandfathered by meta but NOT the pilot company: gets Report, never Attribution.
+// A second grandfathered workspace, which the entity_key gate made impossible.
 const OTHER_GF = { id: '22222222-2222-4222-8222-222222222222', meta: { nav_profile: 'grandfathered' } };
 
 const OVERVIEW = 'reports/marketing-overview';
@@ -137,13 +142,36 @@ test('the sidebar draws ONE row for the four pages, on both profiles', () => {
   assert.equal(nav.PERFORMANCE_ROW, OVERVIEW);
 });
 
-test('no row lost a gate: the tab rows keep their profiles and the pilot companyGate', () => {
+test('each tab row carries its own profiles, and Attribution carries no company gate', () => {
   const row = (id) => nav.NAV_ITEMS.find((i) => i.id === id);
   assert.deepEqual([...row(REPORT).profiles], ['grandfathered']);
-  assert.deepEqual([...row(ATTRIBUTION).profiles], ['grandfathered']);
-  assert.equal(row(ATTRIBUTION).companyGate, nav.isSiloAttributionEnabled);
+  assert.deepEqual([...row(ATTRIBUTION).profiles], ['grandfathered', 'standard']);
+  // The pilot gate is gone, not merely widened: a companyGate naming one
+  // company is the shape this PR removed, so assert there is none at all.
+  assert.equal(row(ATTRIBUTION).companyGate, undefined);
+  assert.equal(nav.isSiloAttributionEnabled, undefined);
   assert.deepEqual([...row(EXPLORER).profiles], ['grandfathered', 'standard']);
   assert.deepEqual([...row(OVERVIEW).profiles], ['grandfathered', 'standard']);
+  // No row anywhere in the nav may gate on a company identity again.
+  for (const item of nav.NAV_ITEMS) {
+    assert.equal(typeof item.companyGate, 'undefined', `${item.id} reintroduced a companyGate`);
+  }
+});
+
+test('no company identity decides anything in the nav', () => {
+  // Comments stripped: the history of WHY the entity_key branch and the pilot
+  // gate were removed names the company, and that record is worth keeping.
+  // What must not survive is a company name or id the code BRANCHES on.
+  const code = navSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /baseballism/i);
+  assert.doesNotMatch(code, /3bd934c9/);
+  // And a company with no flag is standard, whatever its entity_key says.
+  assert.equal(nav.resolveNavProfile({ id: BASEBALLISM.id, entity_key: 'baseballism' }), 'standard');
+  assert.equal(nav.resolveNavProfile(BASEBALLISM), 'grandfathered');
+  assert.equal(nav.resolveNavProfile(OTHER_GF), 'grandfathered');
+  assert.equal(nav.resolveNavProfile(null), 'standard');
 });
 
 test('"Jump to" still finds every page: the tab rows remain in the nav', () => {
@@ -151,24 +179,37 @@ test('"Jump to" still finds every page: the tab rows remain in the nav', () => {
   for (const id of Object.keys(PAGES)) assert.ok(bb.includes(id), `${id} gone from Baseballism's nav`);
   const std = idsOf(nav.navSectionsForCompany(OTHER));
   assert.ok(std.includes(EXPLORER));
-  assert.ok(!std.includes(REPORT) && !std.includes(ATTRIBUTION));
+  assert.ok(std.includes(ATTRIBUTION), 'Attribution is open to every workspace');
+  assert.ok(!std.includes(REPORT));
 });
 
-test('a standard company gets Overview and Explorer only', () => {
+test('a standard company gets Overview, Explorer and Attribution, but not Report', () => {
   const h = harness(OTHER);
   h.mount(OVERVIEW);
-  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER]);
+  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION]);
 });
 
-test('Attribution is offered to the pilot company only, never by profile alone', () => {
+test('Attribution is offered on both profiles, and Report on neither standard one', () => {
+  // A second grandfathered workspace gets all four; the entity-id pilot gate
+  // used to withhold Attribution from it no matter what its profile said.
   const gf = harness(OTHER_GF);
   gf.mount(OVERVIEW);
-  assert.deepEqual(gf.tabs(), [OVERVIEW, EXPLORER, REPORT]);
-  for (const co of [{ ...BASEBALLISM, _staleReconcile: true }, { ...BASEBALLISM, meta: { nav_profile: 'standard' } }]) {
-    const h = harness(co);
-    h.mount(OVERVIEW);
-    assert.ok(!h.tabs().includes(ATTRIBUTION), 'Attribution offered past its companyGate');
-  }
+  assert.deepEqual(gf.tabs(), [OVERVIEW, EXPLORER, REPORT, ATTRIBUTION]);
+  // Flipping the grandfathered company to standard drops Report and KEEPS
+  // Attribution -- the one asymmetry this change introduces.
+  const asStandard = harness({ ...BASEBALLISM, meta: { nav_profile: 'standard' } });
+  asStandard.mount(OVERVIEW);
+  assert.deepEqual(asStandard.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION]);
+  // An unresolved company is NOT handled here, and deliberately so: the nav is
+  // discovery, and Attribution is now the same kind of row as the other three,
+  // none of which inspect _staleReconcile. The refusal lives on the page --
+  // silo-attribution-page.js assertCompany, covered by
+  // scripts/tests/silo-attribution-access.test.mjs -- which is where a read
+  // actually happens. Asserted so that moving it back into the nav is a
+  // visible decision rather than a silent one.
+  const stale = harness({ ...BASEBALLISM, _staleReconcile: true });
+  stale.mount(OVERVIEW);
+  assert.deepEqual(stale.tabs(), [OVERVIEW, EXPLORER, REPORT, ATTRIBUTION]);
 });
 
 test('the Marketing module switch still hides the suite tabs', async () => {
