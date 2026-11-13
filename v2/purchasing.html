@@ -155,7 +155,54 @@
         host.append(empty);
       }
 
-      // Units arriving per month, with what is already past due at the left.
+      // ── SVG helpers ──────────────────────────────────────────────────
+      // Charts are drawn at the card's MEASURED pixel width and redrawn on
+      // resize, so nothing is scaled: a 10px label is 10px on every screen.
+      const SVGNS = 'http://www.w3.org/2000/svg';
+      const svgEl = (name, attrs) => {
+        const node = document.createElementNS(SVGNS, name);
+        for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+        return node;
+      };
+      const tip = (node, text) => {
+        const t = svgEl('title', {});
+        t.textContent = text;
+        node.append(t);
+        return node;
+      };
+
+      // Redraw `draw(width)` into `host` whenever its width changes.
+      const observers = new WeakMap();
+      function responsive(host, draw) {
+        const paint = () => {
+          const width = Math.round(host.clientWidth);
+          if (width < 80) return;
+          host.textContent = '';
+          host.append(draw(width));
+        };
+        observers.get(host)?.disconnect?.();
+        if (typeof ResizeObserver === 'function') {
+          const ro = new ResizeObserver(paint);
+          ro.observe(host);
+          observers.set(host, ro);
+        } else {
+          window.addEventListener('resize', paint);
+        }
+        paint();
+      }
+
+      // A rounded-top bar as a path, so the corners stay round at any height.
+      function barPath(x, y, w, h, r) {
+        const radius = Math.min(r, w / 2, h);
+        return `M${x},${y + h}V${y + radius}a${radius},${radius} 0 0 1 ${radius},${-radius}`
+          + `h${w - radius * 2}a${radius},${radius} 0 0 1 ${radius},${radius}V${y + h}Z`;
+      }
+
+      // ── Arrivals: gradient columns, with the cumulative line over them ──
+      // The columns are what lands in each month; the line is the running
+      // total, which is the question someone planning actually asks ("how
+      // much will have arrived by March"). Past due is its own red column and
+      // is NOT in the running total -- it has not arrived.
       function renderArrivalChart(model) {
         const host = el('chartArrivals');
         const chips = el('chipsArrivals');
@@ -163,37 +210,83 @@
         chips.textContent = '';
         const t = model.incoming.timeline;
         const cols = [];
-        if (t.pastDue.pos) cols.push({ label: 'Past due', units: t.pastDue.units, tone: 'past' });
+        if (t.pastDue.pos) cols.push({ label: 'Past due', units: t.pastDue.units, past: true });
         for (const m of t.months) cols.push({ label: m.label, units: m.units, key: m.key });
         if (!cols.length) { emptyInto(host, 'No open purchase orders'); return; }
-        const max = Math.max(...cols.map((c) => c.units), 1);
-        host.textContent = '';
-        const bars = document.createElement('div');
-        bars.className = 'purch-bars';
-        const thisMonth = model.today ? model.today.slice(0, 7) : null;
-        for (const c of cols) {
-          const col = document.createElement('div');
-          col.className = 'purch-bar-col';
-          if (c.key && c.key === thisMonth) col.dataset.current = 'true';
-          const fig = document.createElement('span');
-          fig.className = 'purch-bar-fig';
-          fig.textContent = c.units ? n(c.units) : '';
-          const track = document.createElement('div');
-          track.className = 'purch-bar-track';
-          const bar = document.createElement('div');
-          bar.className = 'purch-bar' + (c.tone === 'past' ? ' purch-bar--past' : '')
-            + (c.units ? '' : ' purch-bar--empty');
-          bar.style.height = (c.units ? Math.max(4, Math.round((c.units / max) * 100)) : 2) + '%';
-          const x = document.createElement('span');
-          x.className = 'purch-bar-x';
-          x.textContent = c.label;
-          track.append(bar);
-          col.append(fig, track, x);
-          bars.append(col);
-        }
-        host.append(bars);
 
-        // What a six-month window cannot show, so the buckets still add up.
+        const thisMonth = model.today ? model.today.slice(0, 7) : null;
+        let running = 0;
+        for (const c of cols) { if (!c.past) { running += c.units; c.cum = running; } }
+        const maxUnits = Math.max(...cols.map((c) => c.units), 1);
+        const maxCum = Math.max(running, 1);
+
+        responsive(host, (width) => {
+          const H = 168;
+          const padT = 20;
+          const padB = 26;
+          const plot = H - padT - padB;
+          const gap = 10;
+          const colW = Math.max(6, (width - gap * (cols.length - 1)) / cols.length);
+          const svg = svgEl('svg', {
+            width, height: H, viewBox: `0 0 ${width} ${H}`, class: 'purch-svg',
+            role: 'img', 'aria-label': 'Units arriving by month',
+          });
+          const defs = svgEl('defs', {});
+          for (const [id, token] of [['purchBar', '--bcn-accent'], ['purchBarPast', '--bcn-neg']]) {
+            const g = svgEl('linearGradient', { id, x1: '0', y1: '0', x2: '0', y2: '1' });
+            g.append(svgEl('stop', { offset: '0', 'stop-color': `var(${token})`, 'stop-opacity': '1' }));
+            g.append(svgEl('stop', { offset: '1', 'stop-color': `var(${token})`, 'stop-opacity': '.42' }));
+            defs.append(g);
+          }
+          svg.append(defs);
+
+          // Three gridlines, so a column's height can be read, not guessed.
+          for (let i = 0; i <= 2; i += 1) {
+            const y = padT + (plot / 2) * i;
+            svg.append(svgEl('line', {
+              x1: 0, x2: width, y1: y, y2: y, class: 'purch-grid-line',
+            }));
+          }
+
+          const centers = [];
+          cols.forEach((c, i) => {
+            const x = i * (colW + gap);
+            const h = c.units ? Math.max(4, (c.units / maxUnits) * plot) : 2;
+            const y = padT + plot - h;
+            centers.push({ x: x + colW / 2, cum: c.cum });
+            const bar = svgEl('path', {
+              d: barPath(x, y, colW, h, 5),
+              fill: c.units ? `url(#${c.past ? 'purchBarPast' : 'purchBar'})` : 'var(--bcn-border)',
+            });
+            svg.append(tip(bar, `${c.label}: ${n(c.units)} units`));
+            if (c.units) {
+              svg.append(Object.assign(svgEl('text', {
+                x: x + colW / 2, y: y - 7, class: 'purch-svg-fig', 'text-anchor': 'middle',
+              }), { textContent: n(c.units) }));
+            }
+            svg.append(Object.assign(svgEl('text', {
+              x: x + colW / 2, y: H - 8, 'text-anchor': 'middle',
+              class: 'purch-svg-x' + (c.key && c.key === thisMonth ? ' is-now' : ''),
+            }), { textContent: c.label }));
+          });
+
+          // The running total, over the months only.
+          const line = centers.filter((p) => typeof p.cum === 'number');
+          if (line.length > 1) {
+            // 88% of the plot, so the running total never rides the top
+            // gridline or sits on a column's own figure.
+            const yOf = (v) => padT + plot - (v / maxCum) * plot * 0.88;
+            const d = line.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${yOf(p.cum).toFixed(1)}`).join('');
+            svg.append(svgEl('path', { d, class: 'purch-svg-line' }));
+            for (const p of line) {
+              svg.append(tip(svgEl('circle', {
+                cx: p.x, cy: yOf(p.cum), r: 3.2, class: 'purch-svg-dot',
+              }), `Running total: ${n(p.cum)} units`));
+            }
+          }
+          return svg;
+        });
+
         const chip = (label, value, tone) => {
           if (!value) return;
           const c = document.createElement('span');
@@ -203,29 +296,57 @@
           c.append(b, document.createTextNode(label));
           chips.append(c);
         };
+        chip(' units arriving in six months', running);
         chip(' units later', t.later.units);
         chip(' units undated', t.undated.units, 'warn');
         chip(' POs past due', t.pastDue.pos, 'neg');
       }
 
-      // One bar split into segments, with a legend that names each figure.
-      function renderStack(target, segments, emptyText) {
+      // ── A donut, with the headline figure in the hole ──────────────────
+      // Same data a stacked bar would carry; a ring reads as a whole made of
+      // parts, which is what both of these are. The legend still names every
+      // figure in text.
+      function renderDonut(target, segments, centre, emptyText) {
         const host = el(target);
         if (!host) return;
         const shown = segments.filter((s) => s.value > 0);
         if (!shown.length) { emptyInto(host, emptyText); return; }
         const total = shown.reduce((sum, s) => sum + s.value, 0);
         host.textContent = '';
-        const stack = document.createElement('div');
-        stack.className = 'purch-stack';
+
+        const SIZE = 136;
+        const STROKE = 15;
+        const r = (SIZE - STROKE) / 2;
+        const circ = 2 * Math.PI * r;
+        const svg = svgEl('svg', {
+          width: SIZE, height: SIZE, viewBox: `0 0 ${SIZE} ${SIZE}`, class: 'purch-donut',
+          role: 'img', 'aria-label': centre.label,
+        });
+        const g = svgEl('g', { transform: `rotate(-90 ${SIZE / 2} ${SIZE / 2})` });
+        g.append(svgEl('circle', {
+          cx: SIZE / 2, cy: SIZE / 2, r, fill: 'none',
+          stroke: 'var(--bcn-border)', 'stroke-width': STROKE,
+        }));
+        let offset = 0;
         for (const s of shown) {
-          const seg = document.createElement('div');
-          seg.className = 'purch-stack-seg';
-          seg.style.background = s.color;
-          seg.style.width = (s.value / total) * 100 + '%';
-          seg.title = s.label + ': ' + n(s.value);
-          stack.append(seg);
+          const len = (s.value / total) * circ;
+          const arc = svgEl('circle', {
+            cx: SIZE / 2, cy: SIZE / 2, r, fill: 'none', stroke: s.color,
+            'stroke-width': STROKE, 'stroke-linecap': 'butt',
+            'stroke-dasharray': `${Math.max(0, len - 1.5)} ${circ - Math.max(0, len - 1.5)}`,
+            'stroke-dashoffset': -offset,
+          });
+          g.append(tip(arc, `${s.label}: ${n(s.value)}`));
+          offset += len;
         }
+        svg.append(g);
+        svg.append(Object.assign(svgEl('text', {
+          x: SIZE / 2, y: SIZE / 2 - 2, 'text-anchor': 'middle', class: 'purch-donut-value',
+        }), { textContent: centre.value }));
+        svg.append(Object.assign(svgEl('text', {
+          x: SIZE / 2, y: SIZE / 2 + 15, 'text-anchor': 'middle', class: 'purch-donut-label',
+        }), { textContent: centre.label }));
+
         const legend = document.createElement('div');
         legend.className = 'purch-legend';
         for (const s of shown) {
@@ -240,7 +361,10 @@
           item.append(dot, document.createTextNode(s.label + ' '), fig);
           legend.append(item);
         }
-        host.append(stack, legend);
+        const wrap = document.createElement('div');
+        wrap.className = 'purch-donut-wrap';
+        wrap.append(svg, legend);
+        host.append(wrap);
       }
 
       // Horizontal bars: the factories behind the open book.
@@ -362,16 +486,23 @@
 
         renderArrivalChart(model);
 
-        renderStack('chartPipeline', model.builder.byStatus.map((s) => ({
+        renderDonut('chartPipeline', model.builder.byStatus.map((s) => ({
           label: s.status, value: s.count, color: STATUS_COLOR[s.status] || COLOR.mute,
-        })), 'No purchase orders yet');
+        })), { value: n(model.builder.total), label: 'POs' }, 'No purchase orders yet');
 
-        renderStack('chartCosting', model.costing.state === 'known' ? [
-          { label: 'Not started', value: model.costing.notStarted, color: COLOR.track },
-          { label: Model.PHASE_LABEL.fob, value: model.costing.fob, color: COLOR.accent },
-          { label: Model.PHASE_LABEL.freight, value: model.costing.freight, color: COLOR.warn },
+        const costed = model.costing.state === 'known'
+          ? model.costing.fob + model.costing.freight + model.costing.final : 0;
+        const costedOf = model.costing.state === 'known'
+          ? costed + model.costing.notStarted : 0;
+        renderDonut('chartCosting', model.costing.state === 'known' ? [
           { label: Model.PHASE_LABEL.final, value: model.costing.final, color: COLOR.pos },
-        ] : [], model.costing.state === 'known' ? 'No open purchase orders' : 'Could not read costing');
+          { label: Model.PHASE_LABEL.freight, value: model.costing.freight, color: COLOR.warn },
+          { label: Model.PHASE_LABEL.fob, value: model.costing.fob, color: COLOR.accent },
+          { label: 'Not started', value: model.costing.notStarted, color: COLOR.track },
+        ] : [], {
+          value: costedOf ? Math.round((costed / costedOf) * 100) + '%' : '—',
+          label: 'costed',
+        }, model.costing.state === 'known' ? 'No open purchase orders' : 'Could not read costing');
 
         renderFactoryChart(model);
 

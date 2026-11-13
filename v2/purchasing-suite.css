@@ -66,24 +66,30 @@
 .purch-chart {padding:14px 12px 10px;display:flex;flex-direction:column;justify-content:center;flex:1;}
 .purch-card {display:flex;flex-direction:column;}
 
-/* Vertical bars: units arriving per month. */
-.purch-bars {display:flex;align-items:flex-end;gap:8px;height:132px;}
-.purch-bar-col {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
-  gap:6px;min-width:0;height:100%;}
-.purch-bar-fig {font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-2);
-  font-variant-numeric:tabular-nums;white-space:nowrap;}
-.purch-bar-track {flex:1;width:100%;display:flex;align-items:flex-end;min-height:0;}
-.purch-bar {width:100%;border-radius:3px 3px 0 0;background:var(--bcn-accent);min-height:2px;}
-.purch-bar--past {background:var(--bcn-neg);}
-.purch-bar--empty {background:var(--bcn-border);}
-.purch-bar-x {font-size:10px;color:var(--bcn-ink-3);white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;max-width:100%;}
-.purch-bar-col[data-current="true"] .purch-bar-x {color:var(--bcn-ink);font-weight:650;}
+/* Arrivals: columns plus the running-total line, drawn as one SVG at the
+   card's measured width (see responsive() on the page) so nothing scales. */
+.purch-svg {display:block;width:100%;height:auto;overflow:visible;}
+.purch-grid-line {stroke:var(--bcn-border);stroke-width:1;stroke-dasharray:2 4;}
+.purch-svg-fig {font-family:var(--bcn-mono);font-size:10px;fill:var(--bcn-ink-2);}
+.purch-svg-x {font-size:10px;fill:var(--bcn-ink-3);font-family:var(--bcn-font);}
+.purch-svg-x.is-now {fill:var(--bcn-ink);font-weight:650;}
+.purch-svg-line {fill:none;stroke:var(--bcn-ink);stroke-width:1.6;stroke-linecap:round;
+  stroke-linejoin:round;opacity:.65;}
+.purch-svg-dot {fill:var(--bcn-surface);stroke:var(--bcn-ink);stroke-width:1.6;opacity:.85;}
+
+/* The ring charts: a whole made of parts, with its headline in the hole. */
+.purch-donut-wrap {display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.purch-donut {flex:none;}
+.purch-donut-value {font-family:var(--bcn-mono);font-size:22px;font-weight:600;
+  fill:var(--bcn-ink);letter-spacing:-.02em;}
+.purch-donut-label {font-size:10px;fill:var(--bcn-ink-3);letter-spacing:.06em;
+  text-transform:uppercase;font-family:var(--bcn-font);}
 
 /* One horizontal bar split into segments: a pipeline or a progress. */
 .purch-stack {display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--bcn-border);}
 .purch-stack-seg {min-width:2px;}
 .purch-legend {display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;}
+.purch-donut-wrap .purch-legend {margin-top:0;flex:1;min-width:150px;flex-direction:column;gap:7px;}
 .purch-legend-item {display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--bcn-ink-2);}
 .purch-legend-dot {width:8px;height:8px;border-radius:2px;flex:none;}
 .purch-legend-fig {font-family:var(--bcn-mono);font-variant-numeric:tabular-nums;color:var(--bcn-ink);}
@@ -94,8 +100,9 @@
 .purch-hbar-label {font-size:12px;color:var(--bcn-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .purch-hbar-fig {font-family:var(--bcn-mono);font-size:11px;font-variant-numeric:tabular-nums;
   color:var(--bcn-ink);white-space:nowrap;}
-.purch-hbar-track {grid-column:1/-1;height:7px;border-radius:4px;background:var(--bcn-border);overflow:hidden;}
-.purch-hbar-fill {height:100%;border-radius:4px;background:var(--bcn-accent);min-width:2px;}
+.purch-hbar-track {grid-column:1/-1;height:8px;border-radius:4px;background:var(--bcn-border);overflow:hidden;}
+.purch-hbar-fill {height:100%;border-radius:4px;min-width:2px;
+  background:linear-gradient(90deg, color-mix(in oklab, var(--bcn-accent) 65%, var(--bcn-surface)), var(--bcn-accent));}
 
 /* The chips under a chart: the buckets a six-month window cannot show. */
 .purch-chips {display:flex;flex-wrap:wrap;gap:8px;padding:0 12px 12px;}

@@ -135,6 +135,21 @@ r.test('the Overview model reads open POs, arrivals and costing phases', () => {
   r.eq(m.currency, 'USD', 'declared currency is carried, never assumed');
 });
 
+r.test('every chart the Overview declares is actually drawn into', () => {
+  const page = read('v2/purchasing.html');
+  // A card whose host id nothing renders into shows the "—" placeholder for
+  // ever, which looks like "no data" rather than like a bug.
+  for (const id of ['chartArrivals', 'chipsArrivals', 'chartPipeline', 'chartCosting',
+    'chartFactories', 'cardAttention', 'cardArrivals']) {
+    r.has(page, `id="${id}"`, `${id}: the card exists`);
+    r.truthy(page.split(`'${id}'`).length > 1, `${id}: something renders into it`);
+  }
+  // The charts are SVG drawn at measured width; without the observer they
+  // would be drawn once, at whatever width the card had before layout.
+  r.has(page, 'ResizeObserver', 'the arrival chart redraws on resize');
+  r.has(page, 'http://www.w3.org/2000/svg', 'drawn as real SVG');
+});
+
 r.test('the arrival timeline buckets every open PO exactly once', () => {
   const context = { window: {} };
   vm.runInNewContext(read('v2/purchasing-overview.js'), context);
