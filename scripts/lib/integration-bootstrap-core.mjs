@@ -111,6 +111,39 @@ const adStages = (platform) => [
   },
 ];
 
+// Publish useful recent campaign AND ad rows first. The full history reuses
+// the same script afterward; successful recent data is checkpointed so retries
+// of history do not repeat it. Strict mode refuses campaign-only success.
+const META_STAGES = [
+  {
+    stage: 'recent_data',
+    script: 'scripts/ad-platforms-sync.mjs',
+    env: (job) => ({
+      ADS_ONLY_CONNECTION_ID: job.connection_id,
+      ADS_ONLY_COMPANY_ID: job.company_entity_id,
+      ADS_ONLY_PLATFORM: 'meta_ads',
+      ADS_DAYS_BACK: '3',
+      ADS_SKIP_SEARCH_CONSOLE: 'true',
+      ADS_SKIP_ORGANIC: 'true',
+      ADS_BOOTSTRAP_STRICT: 'true',
+    }),
+  },
+  {
+    stage: 'history',
+    timeoutMs: 240 * 60 * 1000,
+    script: 'scripts/ad-platforms-sync.mjs',
+    env: (job, opts) => ({
+      ADS_ONLY_CONNECTION_ID: job.connection_id,
+      ADS_ONLY_COMPANY_ID: job.company_entity_id,
+      ADS_ONLY_PLATFORM: 'meta_ads',
+      ADS_DAYS_BACK: String(opts.metaAdsDaysBack),
+      ADS_SKIP_SEARCH_CONSOLE: 'true',
+      ADS_SKIP_ORGANIC: 'false',
+      ADS_BOOTSTRAP_STRICT: 'true',
+    }),
+  },
+];
+
 /** Search Console's own backfill, which is the long one (16 months is the
  * most Google will return) and is why it is not folded into the ad stage. */
 const SEARCH_CONSOLE_STAGES = [
@@ -199,7 +232,7 @@ export const BOOTSTRAP_PLANS = {
   shopify: SHOPIFY_STAGES,
   google_ads: adStages('google_ads'),
   ga4: adStages('ga4'),
-  meta_ads: adStages('meta_ads'),
+  meta_ads: META_STAGES,
   tiktok_ads: adStages('tiktok_ads'),
   search_console: SEARCH_CONSOLE_STAGES,
   redo: REDO_STAGES,
@@ -317,6 +350,7 @@ export function planBootstrap(job, { options = {}, connection = null } = {}) {
     return {
       stage: s.stage,
       script: s.script,
+      ...(s.timeoutMs ? { timeoutMs: s.timeoutMs } : {}),
       env: s.env(job, opts),
       skip: missing.length ? `missing ${missing.join(', ')}`
         : anyMissing ? `missing one of ${anyFields.join(', ')}`

@@ -1141,6 +1141,7 @@
         // blocks nothing -- the unique index covers the open states only --
         // so for a caller that asked to requeue it is not a reason to stop.
         && !(requeueTerminal && !priorIsOpen)) {
+        if (integration === 'meta_ads' && prior.status === 'pending') await wakeMetaBootstrap(prior);
         return { skipped: 'already_queued', prior };
       }
       // Sync on. A connection nobody syncs is the state this whole feature
@@ -1172,12 +1173,33 @@
       // and if the queue took the job the kick is simply the first stage
       // happening now instead of within the quarter hour. Both are idempotent
       // upserts over the same rows.
+      if (integration === 'meta_ads' && !res.error) {
+        const job = await SiloBootstrap.latest(db, { companyId: _co.id, integration, connectionId });
+        if (job && !job.error) await wakeMetaBootstrap(job);
+        return { queued: true };
+      }
       if (kick) {
         try { await kick(); } catch (err) {
           setStatus('Connected. Its first sync is queued; the immediate pull did not run (' + err.message + ')', 'info', 8000);
         }
       }
       return { queued: true };
+    }
+
+    async function wakeMetaBootstrap(job) {
+      try {
+        const res = await fetch(`${FUNCTIONS_URL}/integration-bootstrap-wake`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await currentAccessToken()}` },
+          body: JSON.stringify({ job_id: job.id }),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || 'Worker dispatch unavailable');
+        setStatus(SiloBootstrap.wakeMessage(out), 'info', 15000);
+      } catch (err) {
+        setStatus('Meta connected, but the full import could not start immediately. It remains queued for automatic retry. ' + err.message, 'info', 15000);
+      }
+      await refreshBootstrapJobs();
     }
 
     // The `kick` for the company-scoped pillars (Klaviyo, Redo marketing).
@@ -1222,10 +1244,12 @@
       return rest.length ? `; ${rest.join(' and ')} is importing in the background.` : '.';
     }
 
+    setInterval(() => { if (!document.hidden && _co?.id) refreshBootstrapJobs(); }, 15000);
+
     function renderBootstrapBand() {
       const el = document.getElementById('int-bootstrap-band');
       if (!el || !window.SiloBootstrap) return;
-      const open = (_bootstrapJobs || []).filter((j) => ['pending', 'running', 'partial', 'error'].includes(j.status));
+      const open = SiloBootstrap.currentJobs(_bootstrapJobs).filter((j) => ['pending', 'running', 'partial', 'error'].includes(j.status));
       if (!open.length) { el.hidden = true; el.innerHTML = ''; return; }
       el.hidden = false;
       el.innerHTML = open.map((j) => {
@@ -2846,8 +2870,8 @@
     const CARDED_PLATFORMS = Object.values(CARD_PLATFORMS).flat();
 
     const SYNC_NOW_TITLE = {
-      google_ads: 'Pull this account\'s recent daily figures from Google now, the same sync the nightly runs (read-only)',
-      ga4: 'Pull this property\'s recent daily figures from Google now, the same sync the nightly runs (read-only)',
+      google_ads: 'Pull this account\'s recent daily figures from Google now, the campaign totals only; does not complete the initial ad-history import',
+      ga4: 'Pull this property\'s recent daily figures from Google now, the campaign totals only; does not complete the initial ad-history import',
       meta_ads: 'Pull this ad account\'s recent daily campaign totals from Meta now (read-only). Ad-level detail and Page posts follow with the nightly sync.',
       tiktok_ads: 'Pull this advertiser\'s recent daily campaign totals from TikTok now (read-only), the same sync the nightly runs',
     };
@@ -3019,7 +3043,7 @@
             <div class="int-detail-grp">
               <span class="int-detail-lbl">Connection</span>
               <button class="int-btn" onclick="testAdConnection('${row.id}')">Test</button>
-              ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">Sync now</button>` : ''}
+              ${SYNC_NOW_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--ghost" onclick="syncAdConnection('${row.id}', this)" title="${escAttr(SYNC_NOW_TITLE[row.platform] || 'Run this connection\'s sync now (read-only)')}">${row.platform === 'meta_ads' ? 'Refresh campaign totals' : 'Sync now'}</button>` : ''}
               ${GOOGLE_PLATFORMS.includes(row.platform) ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Google again and renew THIS connection's authorization — keeps its property, sync setting and history">Reconnect</button>` : ''}
               ${row.platform === 'meta_ads' && row.meta?.oauth?.connected_via ? `<button class="int-btn int-btn--warn" onclick="reconnectAdConnection('${row.id}', '${row.platform}', this)" title="Sign in to Meta again and renew THIS connection's authorization — keeps its ad account, Page, sync setting and history">Reconnect</button>` : ''}
               ${row.platform === 'meta_ads' ? `<button class="int-btn int-btn--warn" onclick="toggleMetaTokenForm('${row.id}')">Replace token</button>` : ''}
@@ -3038,7 +3062,7 @@
               : 'Nothing new has been imported since. Nightly runs will keep trying.'}
             <div style="margin-top:4px;opacity:.85;">${escHtml(lastSync.error || 'No reason recorded.')}</div>
             ${canRetrySync
-              ? `<div style="margin-top:6px;"><button class="int-btn int-btn--primary" onclick="syncAdConnection('${row.id}', this)" title="Run this connection's sync again now, the same sync the nightly runs (read-only)">Retry sync now</button></div>`
+              ? `<div style="margin-top:6px;"><button class="int-btn int-btn--primary" onclick="syncAdConnection('${row.id}', this)" title="Run this connection's sync again now, the campaign totals only; does not complete the initial ad-history import">Retry sync now</button></div>`
               : ''}
           </div>
         </td>
@@ -3215,7 +3239,7 @@
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           const w = data.window || {};
-          const rest = data.nightly_only?.length ? ` ${data.nightly_only.join(', ')} follow with the nightly sync.` : '';
+          const rest = data.nightly_only?.length ? ` This refreshed campaign totals only. Ad-level and history progress are tracked separately below.` : '';
           setStatus(`✓ ${label} synced: ${data.kpi_rows_upserted} daily rows for ${w.startDate} to ${w.endDate}. They now show on the Marketing pages.${rest}`, 'pos', 12000);
         } else {
           setStatus('✗ Sync failed: ' + adTestAdvice(data.error || `HTTP ${res.status}`), 'neg');

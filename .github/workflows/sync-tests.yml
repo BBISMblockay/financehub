@@ -65,6 +65,7 @@ on:
       # both nightly cores -- a change to only a copy would otherwise leave
       # the suite unrun, which is the one thing that notices the drift.
       - 'supabase/functions/integration-sync-kick/**'
+      - 'supabase/functions/integration-bootstrap-wake/**'
       # The nightly's own workflow: klaviyo-sync.test.mjs asserts it sends a
       # BLANK depth, which is what lets a connection's days_back still win.
       - '.github/workflows/klaviyo-sync.yml'
@@ -1241,6 +1242,9 @@ jobs:
       - name: Integration sync kick (handler over the real sync cores)
         run: |
           set -u
+          node scripts/tests/integration-bootstrap-wake.test.mjs
+          node scripts/tests/meta-bootstrap-result.test.mjs
+          node scripts/tests/ad-sync-lease.test.mjs
           node scripts/tests/integration-sync-kick.test.mjs
           for m in no-rls-check no-flag-check no-clamp no-job-params trust-body-id \
                    skip-as-success swallow-core-error skip-message-dropped \
@@ -2623,6 +2627,8 @@ jobs:
 
       # First-connect auto sync's database half. In THIS job, not the unit one:
       # it needs the PGlite dependency installed above.
+      - name: Meta import coordination (real PostgreSQL)
+        run: node scripts/tests/meta-import-leases-sql.test.mjs
       - name: Integration bootstrap queue (real PostgreSQL)
         run: node scripts/tests/integration-bootstrap-database.test.mjs
       - name: The bootstrap queue's guards, removed, must break it
