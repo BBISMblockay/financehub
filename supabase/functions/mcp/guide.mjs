@@ -400,16 +400,16 @@ export const WHERE_IN_SILO = {
     { section: 'Reports', page: 'Reports', path: '/v3/dashboards.html', what: 'The report library and dashboards -- SILO\'s own reports and the ones people here have saved.' },
     { section: 'Reports', page: 'Report builder', path: '/v3/report-builder.html', what: 'Build and save a report, and set its parameters.' },
 
-    { section: 'Accounting', page: 'Accounting', path: '/v2/transactions.html', what: 'Bank and card transactions: coding them, and the journal entries that follow.' },
-    { section: 'Accounting', page: 'Customers', path: '/v2/customers.html', what: 'Customers and the invoices raised to them.' },
+    { section: 'Finance', page: 'Accounting', path: '/v2/transactions.html', what: 'Bank and card transactions: coding them, and the journal entries that follow.' },
+    { section: 'Finance', page: 'Customers', path: '/v2/customers.html', what: 'Customers and the invoices raised to them.' },
+    { section: 'Finance', page: 'Revenue projections', path: '/v2/projections.html', what: 'Revenue projections. Planning scenarios are a tab of it.' },
+    { section: 'Finance', page: 'Planning scenarios', path: '/v2/planning-scenarios.html', what: 'Planning scenarios, side by side: the Scenarios tab of Revenue projections.' },
 
     { section: 'Requests', page: 'Payment Request', path: '/v2/purchase_request2.html', what: 'Raise a request to pay someone or to be reimbursed.' },
     { section: 'Requests', page: 'Request Manager', path: '/v2/request_manager.html', what: 'Review, approve and follow payment requests. A single request opens at ?request=<id>.' },
     { section: 'Requests', page: 'Mailroom', path: '/v2/mailroom.html', what: 'Post and documents that have arrived, and mail intake.' },
 
     { section: 'Planning', page: 'Org calendar', path: '/v2/calendar.html', what: 'The company-wide calendar: the Org calendar tab of Calendar.' },
-    { section: 'Planning', page: 'Revenue Projection', path: '/v2/projections.html', what: 'Revenue projections.' },
-    { section: 'Planning', page: 'Planning scenarios', path: '/v2/planning-scenarios.html', what: 'Planning scenarios, side by side.' },
     { section: 'Planning', page: 'Calendar', path: '/v2/launch-calendar.html', what: 'The Launch calendar tab: each dated launch with its tasks and marketing initiatives.' },
     { section: 'Planning', page: 'Task Manager', path: '/v2/tasks.html', what: 'Tasks: raising them, assigning them and following them.' },
     { section: 'Planning', page: 'TikTok Live Schedule', path: '/v2/live-schedule.html', what: 'The TikTok live schedule.' },
