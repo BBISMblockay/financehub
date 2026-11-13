@@ -102,6 +102,26 @@ export const itemState = (status) => ITEM_STATE[String(status || '').toUpperCase
 // open, because the money may have gone.
 export const BATCH_REFUSED = ['DENIED', 'CANCELED', 'CANCELLED'];
 
+// WHICH PayPal app a credential set is, as a value that can be compared later.
+//
+// It is DERIVED from the credentials rather than allocated as a counter
+// (review cycle 2, finding 1). A counter is read and then written, so two
+// connects racing for two DIFFERENT accounts can both read 1 and both write 2,
+// and an attempt made under the first would then compare equal to the second
+// and be replayed into it -- a second payment from a sender that never
+// accepted the first. A digest cannot collide that way, whoever writes last.
+//
+// The SECRET is deliberately not part of it. PayPal's duplicate protection
+// belongs to the app, not to the password of the app, so rotating a secret
+// leaves an in-flight attempt safely replayable -- and disconnecting and
+// reconnecting the same app reproduces the same value instead of stranding
+// every open attempt behind the mismatch guard (review cycle 2, finding 2).
+export async function fingerprint(environment, clientId) {
+  const bytes = new TextEncoder().encode(`paypal:${environment}:${clientId}`);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch, now = () => new Date() }) {
   // ── PayPal plumbing ──────────────────────────────────────────────────────
   async function token({ environment, client_id, client_secret }) {
@@ -248,8 +268,8 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
     // against it only 404s. Refuse rather than guess (review cycle 1,
     // finding 2).
     if (
-      creds.credential_version != null
-      && (send.connection_version == null || send.connection_version !== creds.credential_version)
+      creds.credential_fingerprint != null
+      && (send.connection_fingerprint == null || send.connection_fingerprint !== creds.credential_fingerprint)
     ) {
       throw Object.assign(
         new Error('This attempt was made with a different PayPal app than the one connected now. Reconnect the app that made it, or check that payment in PayPal and void the payout.'),
@@ -421,20 +441,10 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const probe = await probePayouts({ environment, client_id, client_secret });
 
         const existingRow = await connectionFor(company);
-        // A DIFFERENT PayPal app is a different sender, and PayPal's duplicate
-        // protection lives with the app that first accepted a batch. Bumping
-        // the version here is what lets an in-flight attempt refuse to be
-        // replayed against it (review cycle 1, finding 2). Re-entering the
-        // SAME credentials is not a change and keeps the version, so an
-        // attempt mid-flight stays recoverable.
-        const rotated = !existingRow
-          || existingRow.client_id !== client_id
-          || existingRow.client_secret !== client_secret
-          || existingRow.environment !== environment;
         const row = {
           company_entity_id: company, provider: 'paypal', environment,
           client_id, client_secret, is_active: true,
-          credential_version: (Number(existingRow?.credential_version) || 0) + (rotated ? 1 : 0) || 1,
+          credential_fingerprint: await fingerprint(environment, client_id),
           payouts_enabled: probe.payouts_enabled,
           last_tested_at: now().toISOString(),
           last_test_success: probe.payouts_enabled !== false,
@@ -506,7 +516,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           // is the tenant boundary for this call: the function runs as the
           // service role, so RLS is not.
           p_payout: payoutId, p_company: company, p_environment: c.environment, p_actor: user.id,
-          p_connection_version: c.credential_version ?? null,
+          p_connection_fingerprint: c.credential_fingerprint ?? null,
         });
         if (claimErr) return reply({ error: claimErr.message }, 409);
 
@@ -518,7 +528,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           currency: claim.currency,
           payout_email: claim.payout_email,
           environment: c.environment,
-          connection_version: c.credential_version ?? null,
+          connection_fingerprint: c.credential_fingerprint ?? null,
           provider_batch_id: null,
           state: 'unknown',
         };
@@ -553,7 +563,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const c = await connectionFor(company);
         if (!c?.client_id || !c?.client_secret) return reply({ error: 'PayPal is not connected yet.' }, 400);
         let q = service.from('affiliate_payout_sends')
-          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state, environment, connection_version, created_at')
+          .select('id, payout_id, request_id, sender_batch_id, provider_batch_id, amount_cents, currency, payout_email, state, environment, connection_fingerprint, created_at')
           .eq('company_entity_id', company)
           .in('state', ['unknown', 'sent', 'unclaimed'])
           .order('created_at', { ascending: true })

@@ -1578,9 +1578,9 @@ await check('L6 a sandbox payment settles nothing, and a live one is the provide
 
   // And it does not make the real payment unsendable: a live attempt may still
   // be claimed on the same payout.
-  const live = (await one('select affiliate_payout_send_claim($1, $2, $3, $4, $5) as r', [payPayout, A, 'live', U.finA, 7])).r;
+  const live = (await one('select affiliate_payout_send_claim($1, $2, $3, $4, $5) as r', [payPayout, A, 'live', U.finA, 'fp-live-app'])).r;
   assert.equal(live.attempt, 2);
-  assert.equal(live.connection_version, 7, 'the attempt records which PayPal app made it');
+  assert.equal(live.connection_fingerprint, 'fp-live-app', 'the attempt records which PayPal app made it');
 
   // The live one IS settlement, with PayPal's own ids as the evidence.
   await db.query('select affiliate_payout_send_record($1, $2, $3, $4, $5, null, null, $6, $7)',

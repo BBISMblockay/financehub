@@ -86,8 +86,11 @@ const MUTATIONS = {
   codeblame: ['/affiliates/portal.html', '      : `<span class="af-sub">${feed?.code', '      : `<span class="af-sub">${false'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
   // The PayPal rail (20261113040000).
-  sendwhileopen: ['/affiliates/studio.js', "      const open = sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state);", '      const open = false;'],
-  sandboxlabel: ['/affiliates/studio.js', "        const test = S.d.payConn?.environment !== 'live';", '        const test = false;'],
+  sendwhileopen: ['/affiliates/studio.js', "      const openAttempt = Boolean(sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state));", '      const openAttempt = false;'],
+  sandboxlabel: ['/affiliates/studio.js', "        const test = connEnv !== 'live';", '        const test = false;'],
+  // The page must block a send on the SAME rule the claim uses, or a sandbox
+  // test leaves the real payment unreachable (review cycle 2, finding 3).
+  envblock: ['/affiliates/studio.js', "      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);", '      const blocking = openAttempt;'],
   nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
@@ -676,9 +679,44 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ppFlight.click('#tabs [data-tab="payouts"]');
     const flight = await text(ppFlight, '#payoutsBody');
     R.ok('an attempt with no answer is never offered another Send', !(await ppFlight.$('#payoutsBody [data-act="pp-send"]')));
-    R.ok('it offers Check status instead', !!(await ppFlight.$('#payoutsBody [data-act="pp-refresh"]')));
+    R.ok('it offers Check status instead', !!(await ppFlight.$('#payoutsBody [data-act="pp-refresh"][data-id]')));
     R.has(flight, 'no answer yet', 'and the row says so in words');
     await ppFlight.close();
+
+    // A sandbox test settles nothing, so it does not stand in the way of the
+    // real payment either -- and the database would allow that payment, so a
+    // page that hides it strands the payout (review cycle 2, finding 3).
+    const ppAfterTest = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout,
+        affiliate_payout_connection_status_v: [{ ...connected[0], environment: 'live' }],
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [{ id: 'send-sbx', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now }] },
+      { ready, rpc: ppRpc });
+    ppAfterTest.on('pageerror', (e) => errors.push(e.message));
+    await ppAfterTest.click('#tabs [data-tab="payouts"]');
+    const afterTest = await text(ppAfterTest, '#payoutsBody');
+    R.ok('an open SANDBOX attempt does not block the live payment',
+      !!(await ppAfterTest.$('#payoutsBody [data-act="pp-send"]')));
+    R.has(afterTest, 'Send with PayPal', 'and it is offered as the real send');
+    R.ok('the sandbox attempt is not offered for checking against the live account',
+      !(await ppAfterTest.$('#payoutsBody [data-act="pp-refresh"][data-id]')));
+    await ppAfterTest.close();
+
+    // The mirror of it: a LIVE attempt in flight blocks everything, and when
+    // the sandbox app is the one connected it cannot be checked either, so the
+    // page says which account to reconnect.
+    const ppLiveFlight = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [{ id: 'send-live', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: now }] },
+      { ready, rpc: ppRpc });
+    ppLiveFlight.on('pageerror', (e) => errors.push(e.message));
+    await ppLiveFlight.click('#tabs [data-tab="payouts"]');
+    const liveFlight = await text(ppLiveFlight, '#payoutsBody');
+    R.ok('a live attempt in flight blocks the sandbox send',
+      !(await ppLiveFlight.$('#payoutsBody [data-act="pp-send"]')));
+    R.has(liveFlight, 'Reconnect the live PayPal account', 'and says which account can check it');
+    await ppLiveFlight.close();
 
     // A send that fell over mid-call. The attempt is on file as `unknown`, so
     // the page must re-read after the failure: the row that still offers Send

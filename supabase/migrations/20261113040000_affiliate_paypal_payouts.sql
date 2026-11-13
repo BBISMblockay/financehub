@@ -80,14 +80,25 @@ create table if not exists public.affiliate_payout_connections (
   constraint affiliate_payout_connections_company_provider unique (company_entity_id, provider)
 );
 
--- Which SET of credentials is currently on this row. Reconnecting with a
--- DIFFERENT PayPal app bumps it, and an attempt snapshots the value it was
--- made under, so a replay can be refused when the account underneath has
--- changed (review cycle 1, finding 2): re-posting a batch to a different
--- PayPal app is a new payment, not a safe retry, because the duplicate
--- protection lives with the app that first accepted it.
+-- WHICH PayPal app this row holds, as an opaque digest of the environment and
+-- the client id (the edge function computes it; the secret is deliberately not
+-- part of it, because rotating a secret does not change the sender). An
+-- attempt snapshots this value, so a replay can be refused when the account
+-- underneath has changed (review cycle 1, finding 2): re-posting a batch to a
+-- different PayPal app is a new payment, not a safe retry, because the
+-- duplicate protection lives with the app that first accepted it.
+--
+-- It is DERIVED, not allocated (review cycle 2, finding 1). A counter has to be
+-- read and then written, and two connects racing for different accounts can
+-- both read 1 and both write 2 -- which would hand two different PayPal apps
+-- the same identity and let a replay cross between them. A digest of the
+-- credentials themselves cannot collide that way, whoever writes last, and it
+-- is also what makes disconnect -> reconnect of the SAME app recoverable
+-- (review cycle 2, finding 2): the value comes back identical.
 alter table public.affiliate_payout_connections
-  add column if not exists credential_version integer not null default 1;
+  add column if not exists credential_fingerprint text;
+alter table public.affiliate_payout_connections
+  drop column if exists credential_version;
 
 alter table public.affiliate_payout_connections enable row level security;
 
@@ -105,6 +116,8 @@ comment on table public.affiliate_payout_connections is
 -- clause is the tenant boundary and the COLUMN LIST is the disclosure
 -- boundary: client_id and client_secret are absent on purpose, and
 -- credentials_set answers "is it configured" without disclosing either.
+-- credential_fingerprint is absent for the same reason: the page has no use
+-- for it, and only the edge function ever compares it.
 drop view if exists public.affiliate_payout_connection_status_v;
 create view public.affiliate_payout_connection_status_v
 with (security_invoker = false) as
@@ -119,7 +132,6 @@ with (security_invoker = false) as
     c.last_test_success,
     c.last_test_error,
     c.last_send_at,
-    c.credential_version,
     (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set
   from public.affiliate_payout_connections c
   where c.company_entity_id = public.active_company_id();
@@ -262,12 +274,14 @@ create index if not exists affiliate_payout_sends_open_idx
   on public.affiliate_payout_sends (company_entity_id, state)
   where state in ('unknown','sent','unclaimed');
 
--- The credential set this attempt was made under (review cycle 1, finding 2).
--- Nullable, because an attempt made before this column existed has no answer
--- and must not be guessed at: the handler treats null as "cannot prove it is
--- the same account" only when the connection has since been changed.
+-- The PayPal app this attempt was made with (review cycle 1, finding 2), as the
+-- fingerprint above. Nullable, because an attempt made before this column
+-- existed has no answer and must not be guessed at: the handler treats null as
+-- "cannot prove it is the same account" only when the connection has one.
 alter table public.affiliate_payout_sends
-  add column if not exists connection_version integer;
+  add column if not exists connection_fingerprint text;
+alter table public.affiliate_payout_sends
+  drop column if exists connection_version;
 
 alter table public.affiliate_payout_sends enable row level security;
 
@@ -296,13 +310,14 @@ comment on table public.affiliate_payout_sends is
 -- callable by the service role.
 drop function if exists public.affiliate_payout_send_claim(uuid, text, uuid);
 drop function if exists public.affiliate_payout_send_claim(uuid, uuid, text, uuid);
+drop function if exists public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer);
 
 create or replace function public.affiliate_payout_send_claim(
   p_payout uuid,
   p_company uuid,
   p_environment text,
   p_actor uuid default null,
-  p_connection_version integer default null
+  p_connection_fingerprint text default null
 )
 returns jsonb
 language plpgsql
@@ -394,11 +409,11 @@ begin
   insert into public.affiliate_payout_sends (
     company_entity_id, payout_id, provider, environment, attempt,
     request_id, sender_batch_id, amount_cents, currency, payout_email,
-    state, connection_version, created_by
+    state, connection_fingerprint, created_by
   ) values (
     v_payout.company_entity_id, p_payout, 'paypal', p_environment, v_attempt,
     v_request, v_request, v_payout.amount_cents, v_payout.currency, v_email,
-    'unknown', p_connection_version, p_actor
+    'unknown', p_connection_fingerprint, p_actor
   ) returning id into v_send;
 
   return jsonb_build_object(
@@ -409,17 +424,17 @@ begin
     'amount_cents', v_payout.amount_cents,
     'currency', v_payout.currency,
     'payout_email', v_email,
-    'connection_version', p_connection_version,
+    'connection_fingerprint', p_connection_fingerprint,
     'company_entity_id', v_payout.company_entity_id
   );
 end;
 $$;
 
-comment on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) is
+comment on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, text) is
   'Reserves the next attempt at sending an approved payout and returns the deterministic request id to call the provider with. Refuses a payout belonging to another company (this runs as the service role, so RLS is not the boundary and p_company is), a payout that is not approved, a method that is not paypal_payouts, an affiliate with no PayPal address, and -- the point -- a payout that already has an attempt in flight, succeeded, or in state unknown. Service role only: the authority to cause a payment is checked by the edge function against the caller.';
 
-revoke execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) from public, anon, authenticated;
-grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, integer) to service_role;
+revoke execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.affiliate_payout_send_claim(uuid, uuid, text, uuid, text) to service_role;
 
 -- ── 6. Recording what the provider answered ────────────────────────────────
 create or replace function public.affiliate_payout_send_record(

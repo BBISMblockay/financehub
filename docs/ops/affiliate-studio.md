@@ -378,9 +378,21 @@ Connect platform and SILO orchestrates it. Design:
   not the same account: connecting a different app keeps `sandbox`/`live` and
   changes the sender, and PayPal's duplicate protection belongs to the app that
   first accepted the batch. Each attempt stores the connection's
-  `credential_version`, which the connect action bumps only when the
-  credentials actually change, and a replay against a different version is
-  refused rather than guessed at.
+  `credential_fingerprint` -- a digest of the environment and the client id,
+  DERIVED rather than allocated -- and a replay against a different fingerprint
+  is refused rather than guessed at. Derived is the point: a counter has to be
+  read and then written, so two connects racing for different accounts can both
+  read 1 and both write 2, which would hand two PayPal apps one identity. The
+  secret is deliberately not part of the digest, because the duplicate
+  protection belongs to the app and not to its password: rotating a secret, or
+  disconnecting and reconnecting the same app, leaves every open attempt
+  recoverable instead of stranding it behind the mismatch guard.
+- **The page blocks a send on the same rule the claim does.** A live attempt in
+  flight blocks every send; a sandbox test blocks only another test. Treating
+  any open attempt as blocking left a payout with nothing but Check status
+  after a test -- and Check status cannot reconcile a sandbox attempt against
+  the live account either, so the real payment was unreachable from the page
+  while the database would have allowed it.
 - **The locks.** `affiliate_void_payout()` takes the same
   `affiliate_lock_program_money()` the send claim takes, BEFORE it reads the
   attempts and held through the release of the items -- without it a void can

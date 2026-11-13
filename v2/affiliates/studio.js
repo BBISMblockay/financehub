@@ -978,13 +978,28 @@ function renderPayouts() {
     // keep clicking at a payment that may already have gone.
     if (x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status)) {
       const sn = S.d.sendByPayout[x.id];
-      const open = sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state);
       const email = S.d.payEmailByAff[x.affiliate_id];
-      if (open) b.push(btn('Check status', 'pp-refresh', { id: x.id }));
+      const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
+      const snEnv = sn?.environment === 'live' ? 'live' : 'sandbox';
+      const openAttempt = Boolean(sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state));
+      // The SAME rule the claim uses: a live attempt blocks every send, a
+      // sandbox test blocks only another test. Treating any open attempt as
+      // blocking left a payout with nothing but Check status after a test --
+      // and Check status cannot resolve a sandbox attempt against the live
+      // account either, so the real payment was unreachable from the page
+      // while the database would have allowed it (review cycle 2, finding 3).
+      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);
+      // Only offer the check where it can actually be made: reconciling across
+      // accounts is refused, by design.
+      if (openAttempt && snEnv === connEnv) b.push(btn('Check status', 'pp-refresh', { id: x.id }));
+      // A live attempt while the sandbox app is connected blocks the send and
+      // cannot be checked either, so say which account to reconnect.
+      if (blocking && snEnv !== connEnv) b.push(`<span class="af-muted">Reconnect the ${snEnv} PayPal account to check that payment</span>`);
+      else if (blocking) { /* Check status above is the only move */ }
       else if (!payConnLive(S.d.payConn)) b.push('<span class="af-muted">Connect PayPal first</span>');
       else if (!email) b.push('<span class="af-muted">No PayPal address from them yet</span>');
       else if (MONEY) {
-        const test = S.d.payConn?.environment !== 'live';
+        const test = connEnv !== 'live';
         b.push(btn(test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
       }
     }

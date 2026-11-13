@@ -9698,7 +9698,7 @@ select 'Affiliate PayPal payouts' as check_name,
   when to_regclass('public.affiliate_payout_connections') is null
         or to_regclass('public.affiliate_payout_sends') is null
         or to_regclass('public.affiliate_payout_connection_status_v') is null
-        or to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)') is null
+        or to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)') is null
         or to_regprocedure('public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)') is null
    then 'MISSING — 20261113040000 is not applied'
   -- client_secret can move the company's money. No client role reads it, and
@@ -9714,18 +9714,18 @@ select 'Affiliate PayPal payouts' as check_name,
   when pg_get_viewdef('public.affiliate_payout_connection_status_v'::regclass) not like '%active_company_id()%'
    then 'CRITICAL — the payout status view lost its company filter, which IS its tenant boundary'
   -- Causing a payment is not something a browser session may do directly.
-  when has_function_privilege('authenticated', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)', 'execute')
-        or has_function_privilege('anon', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)', 'execute')
+  when has_function_privilege('authenticated', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
+        or has_function_privilege('anon', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
         or has_function_privilege('authenticated', 'public.affiliate_payout_send_record(uuid,text,text,text,text,text,text,bigint,uuid)', 'execute')
    then 'BROKEN — a client role may execute the affiliate payout send functions'
   -- The retry guards. An attempt with no answer may already have been
   -- accepted, so sending again is how an affiliate gets paid twice.
-  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)')) not like '%unknown%'
-        or pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)')) not like '%affiliate_lock_program_money%'
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)')) not like '%unknown%'
+        or pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)')) not like '%affiliate_lock_program_money%'
    then 'BROKEN — the payout send claim no longer refuses an attempt already in flight'
   -- This function runs as the service role over a payout id that came from a
   -- request body, so p_company is the tenant boundary, not RLS.
-  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,integer)')) not like '%belongs to another company%'
+  when pg_get_functiondef(to_regprocedure('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)')) not like '%belongs to another company%'
    then 'CRITICAL — the payout send claim no longer checks the payout''s company'
   -- Voiding releases the payout's ledger entries for the next build. With an
   -- attempt at the provider that is the same commission paid twice.
