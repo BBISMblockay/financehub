@@ -587,3 +587,22 @@ export function displayImage(url, px = 800) {
   u.searchParams.delete('height');
   return u.toString();
 }
+
+// The code to offer an affiliate who has none, so giving one out is a press
+// rather than a typing exercise. Letters and digits of their own name, so the
+// person they send it to can see whose it is, then the discount. A name with
+// nothing usable in it (an emoji handle, a non-Latin script) falls back to
+// AFF, and a code already in use takes the next free suffix -- the database
+// still has the last word, since (program_id, code) is unique there.
+export function suggestCode(name, percent, taken = []) {
+  const used = new Set((taken || []).map((c) => String(c || '').toUpperCase()));
+  const stem = String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'AFF';
+  const pct = Number(percent);
+  const base = `${stem}${Number.isFinite(pct) && pct > 0 ? Math.round(pct) : ''}`.slice(0, 20) || 'AFF';
+  if (!used.has(base)) return base;
+  for (let i = 2; i < 100; i += 1) {
+    const next = `${base}${i}`.slice(0, 20);
+    if (!used.has(next)) return next;
+  }
+  return `${base}${Date.now().toString().slice(-4)}`.slice(0, 20);
+}

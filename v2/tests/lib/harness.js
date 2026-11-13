@@ -267,21 +267,28 @@ window.__QUERIES__ = [];
         // Chainable like insert: launch-calendar.html does
         // .update(p).eq('id',id).select().single(). Still thenable with the
         // same resolved shape, so 'await ...update(p).eq(...)' is unchanged.
-        return { eq: function () {
+        // .in() is accepted (and recorded) at either step: a bulk update
+        // narrows by a list of ids, e.g. "approve every draft on screen".
+        var first = function () {
           var one = Object.assign({ id: 'fixture-updated-id' }, patch || {});
           // .select() makes the update return the row it wrote, as PostgREST
           // does -- a page that treats zero rows as an RLS refusal (the real
           // shape of one) must see its successful update as a row.
           var returning = false;
           var upd = {
-            eq: function () { return upd; },
+            eq: function (col, val) { q.filters.push({ op: 'eq', col: col, val: val }); return upd; },
+            in: function (col, vals) { q.filters.push({ op: 'in', col: col, vals: vals || [] }); return upd; },
             select: function () { returning = true; return upd; },
             single: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
             maybeSingle: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
             then: function (res, rej) { return Promise.resolve({ data: uErr ? null : (returning ? [one] : []), error: uErr }).then(res, rej); }
           };
           return upd;
-        } };
+        };
+        return {
+          eq: function (col, val) { q.filters.push({ op: 'eq', col: col, val: val }); return first(); },
+          in: function (col, vals) { q.filters.push({ op: 'in', col: col, vals: vals || [] }); return first(); }
+        };
       },
       upsert: function (r) { q._op = 'upsert'; q.rows = r; window.__QUERIES__.push(q); return Promise.resolve({ data: r, error: null }); },
       // .delete().eq(...) resolves; .delete().eq(...).select() resolves with

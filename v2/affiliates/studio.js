@@ -10,7 +10,7 @@ import {
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
-  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage,
+  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -351,6 +351,8 @@ function scrollWorkflowTo(id) {
   });
 }
 function workflowFocusTab(t) {
+  if (t === 'people') { scrollWorkflowTo('affiliatesBody'); return; }
+  if (t === 'program') { scrollWorkflowTo('programBody'); return; }
   if (t === 'prospects') {
     S.prospectFilter = 'new';
     S.prospectShowAll = false;
@@ -366,7 +368,7 @@ function renderWorkflowTabCounts() {
   const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
   const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
   const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
-  const counts = { prospects: Number(h.prospects_new || 0), outreach: msgN, affiliates: onboardN, payouts: payN };
+  const counts = { people: Number(h.prospects_new || 0) + msgN + onboardN, payouts: payN };
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const n = counts[b.dataset.tab];
     let badge = b.querySelector('.af-tab-count');
@@ -376,6 +378,23 @@ function renderWorkflowTabCounts() {
     } else if (badge) badge.remove();
   }
 }
+// Four panels, not six: Home, People, Money, Setup. The old tab names are
+// still how the rest of this file refers to a place -- they are now the
+// SECTION inside a panel, and PANEL_OF says which panel holds each one.
+const PANEL_OF = {
+  overview: 'overview', people: 'people', payouts: 'payouts', program: 'program',
+  prospects: 'people', outreach: 'people', affiliates: 'people', share: 'program',
+};
+// Where a panel's "no program yet" message goes, since People and Setup each
+// hold more than one body.
+const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', payouts: 'payoutsBody', program: 'programBody' };
+const PANEL_RENDERERS = {
+  overview: [renderOverview],
+  people: [renderAffiliates, renderProspects, renderOutreach],
+  payouts: [renderPayoutsTab],
+  program: [renderProgram, renderShare],
+};
+
 function render() {
   const p = prog();
   const main = document.querySelector('.silo-main.af-studio');
@@ -383,16 +402,17 @@ function render() {
   main?.classList.toggle('af-studio--workflow', !!p && S.tab !== 'overview' && S.tab !== 'program');
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
-    const on = b.dataset.tab === S.tab;
+    const on = PANEL_OF[b.dataset.tab] === S.tab;
     b.classList.toggle('bcn-tab--active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   renderKpis();
   if (!p && S.tab !== 'program') {
-    $(`${S.tab}Body`).innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
+    const body = $(FIRST_BODY[S.tab] || 'overviewBody');
+    if (body) body.innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
   }
-  ({ overview: renderOverview, program: renderProgram, prospects: renderProspects, outreach: renderOutreach, affiliates: renderAffiliates, share: renderShare, payouts: renderPayoutsTab })[S.tab]();
+  for (const r of (PANEL_RENDERERS[S.tab] || PANEL_RENDERERS.overview)) r();
   renderWorkflowTabCounts();
 }
 
@@ -412,36 +432,38 @@ function renderKpis() {
 }
 
 // ── To do ────────────────────────────────────────────────────────────────
-// Everything waiting on a person, in one list. What runs by itself is said
-// once, under it: joining queues a code, your AI creates it, the rep is
-// emailed when it goes live, and commissions update every night.
-const HOW_IT_WORKS = 'You approve creators and messages. Your AI sends them and creates codes. Reps get their code by email when it goes live, and commissions update every night. You approve payouts.';
+// Everything waiting on a person, in one list.
 function todoItems() {
   const d = S.d; const p = prog(); if (!d || !p) return [];
   const h = d.health || {};
   const items = [];
-  const add = (n, text, tab, extra = '') => { if (n) items.push({ text, tab, extra }); };
-  add(p.status !== 'active', `The program is ${p.status}. Set it to active in Settings to start recruiting.`, 'program');
-  add(!p.terms_markdown, 'Write your program terms in Settings. Affiliates accept them to join.', 'program');
+  // `extra` is the button that finishes the job from here. Blake, 2026-11-13:
+  // "I shouldn't have to press so many buttons to move along the flow" -- so a
+  // row that can be done in one press carries that press, and Open is the way
+  // to look rather than the way to act.
+  const items_ = [];
+  const add = (n, text, tab, extra = '') => { if (n) items_.push({ text, tab, extra }); };
+  add(p.status !== 'active', `The program is ${p.status}. Set it to active in Setup to start recruiting.`, 'program');
+  add(!p.terms_markdown, 'Write your program terms in Setup. Affiliates accept them to join.', 'program');
   add(Number(h.prospects_new || 0), `${num(h.prospects_new)} creator(s) waiting for your review.`, 'prospects');
   const drafts = d.drafts.filter((x) => x.state === 'draft').length;
-  add(drafts, `${num(drafts)} message(s) to approve.`, 'outreach');
+  add(drafts, `${num(drafts)} message(s) to approve.`, 'outreach', MANAGE ? btn(`Approve all ${num(drafts)}`, 'q-msgs', {}, 'primary') : '');
   add(Number(h.outreach_approved || 0), `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'surface') : '');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
   add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
   const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
   const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
-  add(codeless, `${num(codeless)} affiliate(s) without a code. Add one.`, 'affiliates');
+  add(codeless, `${num(codeless)} affiliate(s) without a code.`, 'affiliates', MANAGE ? btn(`Make ${num(codeless)} code(s)`, 'q-codes', {}, 'primary') : '');
   add(Number(h.codes_never_seen || 0), `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, 'affiliates');
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
-  add(unattributed, `${num(unattributed)} order(s) with an affiliate code were not credited. Open Pay → Commissions and orders.`, 'payouts');
+  add(unattributed, `${num(unattributed)} order(s) with an affiliate code were not credited.`, 'payouts');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
-  add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts');
+  add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts', btn(`Build ${num(owed)} payout(s)`, 'q-payouts', {}, 'primary'));
   const toApprove = d.payouts.filter((x) => x.status === 'draft').length;
   add(MONEY && toApprove, `${num(toApprove)} payout(s) to approve.`, 'payouts');
-  if (!items.length && !d.prospects.length) items.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects', extra: '' });
-  return items;
+  if (!items_.length && !d.prospects.length) items_.push({ text: 'Find your first creators: describe who you want and press Find creators.', tab: 'prospects', extra: '' });
+  return items_;
 }
 function aiEnabledRow(label, apps, enabled, waiting) {
   const state = apps === null ? pill('Unknown', '') : enabled ? pill('Allowed', 'pos') : pill('Not allowed', '');
@@ -833,7 +855,7 @@ function renderAffiliates() {
   };
   $('affiliatesBody').innerHTML = [
     surface('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
-    MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on the Share tab to turn on affiliate links.</div>` : '',
+    MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website in Setup to turn on affiliate links.</div>` : '',
     more('Codes and links', [
       MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
       ${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}
@@ -1312,9 +1334,37 @@ function ovTodoCard() {
   const items = todoItems();
   const rows = items.map((x) => `<div class="af-ov-ro-row"><div class="af-ov-ro-b"><div class="af-ov-why">${esc(x.text)}</div></div>`
     + `<div class="af-todo-acts">${x.extra || ''}${btn('Open', 'go-tab', { t: x.tab })}</div></div>`).join('');
-  const how = `<details class="af-todo-how"><summary>What runs on its own</summary><p class="af-todo-how-body">${esc(HOW_IT_WORKS)}</p></details>`;
-  return card('To do', (rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>') + how,
+  return card('Needs you', rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>',
     items.length ? pill(`${items.length} waiting`, 'accent') : pill('clear', 'pos'));
+}
+// What the program does without a press. Only steps that really run are
+// listed: a switch here is never a promise. Turning one off puts that step
+// back in Needs you.
+const hasAutoShare = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'auto_share_launches'));
+function ovAutoCard() {
+  const p = prog(); if (!p) return '';
+  const row = (label, on, ctl) => `<div class="af-auto-row"><span>${esc(label)}</span>${ctl || pill(on ? 'On' : 'Off', on ? 'pos' : '')}</div>`;
+  const shareOn = p.auto_share_launches !== false;
+  const shareCtl = hasAutoShare() && MANAGE
+    ? `<button type="button" class="af-toggle${shareOn ? ' af-toggle--on' : ''}" role="switch" aria-checked="${shareOn}" aria-label="Share every launch" data-act="auto-share" data-on="${shareOn ? '0' : '1'}"><i></i></button>`
+    : '';
+  const codesOn = p.default_discount_percent != null && p.default_discount_percent !== '';
+  // Friday auto-pay belongs to the payouts work; its columns may not exist
+  // yet, and then no switch is shown. Turning it on is a money decision, so
+  // only someone who may approve payouts gets a live switch.
+  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');
+  const payOn = p.payout_mode === 'auto_friday';
+  const ceiling = Number(p.auto_pay_ceiling_cents);
+  const payLabel = `Pay every Friday${Number.isFinite(ceiling) && ceiling > 0 ? ` · up to ${formatMoney(ceiling, p.currency)}` : ''}`;
+  const payCtl = MANAGE
+    ? `<button type="button" class="af-toggle${payOn ? ' af-toggle--on' : ''}" role="switch" aria-checked="${payOn}" aria-label="Pay every Friday" data-act="auto-pay" data-on="${payOn ? '0' : '1'}"${MONEY ? '' : ' disabled title="Only someone who approves payouts can change this"'}><i></i></button>`
+    : '';
+  return card('Running on its own', '<div class="af-auto">'
+    + (hasAutoShare() ? row('Share every launch', shareOn, shareCtl) : '')
+    + (hasAutoCode() ? row(codesOn ? `Code for each new affiliate · ${Number(p.default_discount_percent)}% off` : 'Code for each new affiliate', codesOn) : '')
+    + (hasAutoPay ? row(payLabel, payOn, payCtl) : '')
+    + row('Commissions update nightly', true)
+    + '</div>');
 }
 function ovLeaderboard(list) {
   const rank = S.ovRank;
@@ -1433,7 +1483,7 @@ function renderOverview() {
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
-    + `<div>${ovReachOutCard(ovReachList())}${ovTodoCard()}${aiHubOverviewSection()}</div></div>`;
+    + `<div>${ovTodoCard()}${ovAutoCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
 }
 
 const A = {
@@ -1472,7 +1522,48 @@ const A = {
     return 'Copied. Send it from your own mailbox.';
   },
   'ov-reload': async () => { await reload(); return null; },
-  'go-tab': ({ t }) => { S.tab = t; S.creating = false; render(); workflowFocusTab(t); },
+  // One press for the whole queue row. Each works over the rows on screen
+  // and reports what it did; a partial failure says how many did not go.
+  'q-msgs': async () => {
+    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);
+    if (!ids.length) return 'Nothing to approve.';
+    const rows = await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: ids, state: 'draft' });
+    return `${num(rows.length)} message(s) approved.`;
+  },
+  'q-codes': async () => {
+    const p = prog();
+    const pct = Number(p.default_discount_percent) > 0 ? Number(p.default_discount_percent) : 10;
+    const coded = new Set(S.d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
+    const todo = S.d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id));
+    if (!todo.length) return 'Every active affiliate has a code.';
+    const taken = S.d.codes.map((c) => c.code);
+    const rows = todo.map((a) => {
+      const code = suggestCode(a.display_name || a.handle, pct, taken); taken.push(code);
+      return { company_entity_id: CO, program_id: S.programId, affiliate_id: a.id, code, starts_on: today(), created_by: me.id, status: 'pending', discount_percent: pct };
+    });
+    must(await db.from('affiliate_codes').insert(rows));
+    return `${num(rows.length)} code(s) queued for your AI to create in Shopify.`;
+  },
+  'q-payouts': async () => {
+    const p = prog();
+    const owed = (S.d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0);
+    let built = 0; let failed = 0;
+    for (const b of owed) {
+      const { error } = await db.rpc('affiliate_build_payout', { p_affiliate: b.affiliate_id, p_through: null });
+      if (error) failed += 1; else built += 1;
+    }
+    if (!built && failed) throw new Error('No payout was built. Open Money and build them one at a time to see why.');
+    return `${num(built)} draft payout(s) built${failed ? `, ${num(failed)} not built` : ''}. They need approval.`;
+  },
+  'auto-share': async ({ on }) => {
+    await updateRows('affiliate_programs', { auto_share_launches: on === '1', changed_by: me.id }, { id: S.programId });
+    return on === '1' ? 'Launches will share themselves.' : 'Launches are shared by hand again.';
+  },
+  'auto-pay': async ({ on }) => {
+    await updateRows('affiliate_programs', { payout_mode: on === '1' ? 'auto_friday' : 'approve_each', changed_by: me.id }, { id: S.programId });
+    return on === '1' ? 'Payouts go out every Friday.' : 'Each payout waits for approval again.';
+  },
+  'go-tab': ({ t }) => { S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-status': async ({ id, s }) => {
@@ -1480,8 +1571,8 @@ const A = {
     if (s !== 'approved') return `Creator ${s}.`;
     // Approving drafts the message, unless one is already in progress.
     const live = S.d.drafts.some((x) => x.prospect_id === id && ['draft', 'approved', 'exported'].includes(x.state));
-    if (!live) { await A['draft-create']({ id }); S.tab = 'prospects'; }
-    return live ? 'Creator approved.' : 'Creator approved. Their message is drafted on the Messages tab.';
+    if (!live) { await A['draft-create']({ id }); S.tab = 'people'; }
+    return live ? 'Creator approved.' : 'Creator approved. Their message is drafted below.';
   },
   'prospect-suppress': async ({ id }) => {
     const x = S.d.prospectById[id];
@@ -1553,7 +1644,7 @@ const A = {
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
       subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
     }));
-    S.tab = 'outreach';
+    S.tab = 'people';
     return 'Draft created. Review it on the Outreach tab.';
   },
   'draft-edit': ({ id }) => { S.editDraft = id; render(); },
@@ -1821,7 +1912,7 @@ const A = {
 // click arms the button for four seconds.
 document.addEventListener('click', async (ev) => {
   const tab = ev.target.closest('#tabs [data-tab]');
-  if (tab) { S.tab = tab.dataset.tab; S.creating = false; render(); workflowFocusTab(S.tab); return; }
+  if (tab) { S.tab = PANEL_OF[tab.dataset.tab] || tab.dataset.tab; S.creating = false; render(); workflowFocusTab(tab.dataset.tab); return; }
   const b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
   if (b.dataset.confirm && !b.dataset.armed) {
