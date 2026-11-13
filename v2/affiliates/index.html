@@ -365,8 +365,12 @@
       box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
       height: 100%;
     }
+    /* A picture in a fixed box needs object-fit, or the browser stretches it
+       to the box: without this a square product shot reads as a wide, soft
+       smear. Same reason .af-seen-item img and .af-share-row img carry it. */
     .af-studio .af-share-card img, .af-studio .af-share-card .af-share-noimg {
       width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: 10px;
+      object-fit: cover; object-position: center;
     }
     .af-studio .af-share-card .af-share-txt { flex: 1; }
     .af-studio .af-board-col { border-radius: 14px; box-shadow: inset 0 0 0 1px var(--bcn-border); }

@@ -10,7 +10,7 @@ import {
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
-  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES,
+  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -540,31 +540,35 @@ function renderProgram(isNew = S.creating) {
   const plats = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web'];
   const units = minorUnits(p.currency || 'USD');
   const major = (c) => (c === null || c === undefined ? '' : (Number(c) / units).toString());
-  const form = `
-    ${settingsBlock('Basics', `<div class="af-grid--settings">
-      ${field('Name', input('pName', `${dis} value="${esc(p.name || '')}" placeholder="e.g. Creator program"`))}
+  // The four answers a program actually needs: what it is called, whether it
+  // is running, what it pays, and what the affiliate's code takes off.
+  // Everything else is a default that already works, and opens below.
+  const basics = `<div class="af-grid--settings">
+      ${field('Program name', input('pName', `${dis} value="${esc(p.name || '')}" placeholder="e.g. Creator program"`))}
       ${field('Status', `<select class="bcn-field" id="pStatus" ${dis}>${o('draft', 'Draft', p.status ?? 'draft')}${o('active', 'Active: recruiting', p.status)}${o('paused', 'Paused', p.status)}${o('closed', 'Closed', p.status)}</select>`)}
-      <div class="af-span-full">${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}</div>
-    </div>`)}
-    ${settingsBlock('Platforms', `<div class="af-checks af-checks--boxed">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`)}
-    ${settingsBlock('Commission & codes', `<div class="af-grid--settings">
-      ${field('Commission type', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of net order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed per order', p.commission_kind)}</select>`)}
+    </div>
+    <div class="af-grid--settings">
+      ${field('You pay', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of each order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed amount per order', p.commission_kind)}</select>`)}
       ${field('Percent', input('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`))}
-      ${field('Fixed amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
-      ${hasAutoCode() ? field('Code % off for new affiliates', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="10" title="Blank: no automatic code" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
-    </div>`)}
-    ${hasOutreachMessage() ? settingsBlock('Outreach message', `<p class="af-muted af-settings-sub">Every new message to a creator starts from this. Fill-ins: {name} {brand} {platform} {source} {commission} {sender} {signup_link}. Keep {signup_link}: it is how they join.</p>
-      ${field('Subject', input('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`))}
-      ${field('Message', `<textarea class="bcn-field" id="pOutBody" rows="9" ${dis}>${esc(outreachTemplate(p).body)}</textarea>`)}`) : ''}
-    ${settingsBlock(`Program terms${p.terms_version ? ` (v${p.terms_version})` : ''}`, `<textarea class="bcn-field" id="pTerms" rows="5" ${dis} placeholder="Commission, how orders are credited, refunds, payouts, what affiliates may not do. Editing saves a new version.">${esc(p.terms_markdown || '')}</textarea>`)}
-    ${MANAGE ? `<div class="af-settings-save">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : ''}
-    ${more('Advanced settings', [`<p class="af-muted af-settings-sub">Link, owner, who you recruit</p><div class="af-grid--settings">
-      ${field('Short name (apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
-      ${field('Designated employee', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
+      ${field('Amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
+      ${hasAutoCode() ? field('Their code takes off', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="10" title="Blank: no automatic code" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
+    </div>
+    ${MANAGE ? `<div class="af-settings-save">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : ''}`;
+  const whoBlock = `<div class="af-grid--settings">
+      <div class="af-span-full">${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}</div>
       ${field('Audience notes', input('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`))}
       ${field('Countries', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
       ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications', p.intake_mode)}</select>`)}
-    </div><p class="af-muted af-settings-sub">Money, codes, payouts</p><div class="af-grid--settings">
+    </div>
+    <p class="af-muted af-settings-sub">Platforms</p>
+    <div class="af-checks af-checks--boxed">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`;
+  const outreachBlock = hasOutreachMessage() ? `<p class="af-muted af-settings-sub">Fill-ins: {name} {brand} {platform} {source} {commission} {sender} {signup_link}. Keep {signup_link}.</p>
+      ${field('Subject', input('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`))}
+      ${field('Message', `<textarea class="bcn-field" id="pOutBody" rows="9" ${dis}>${esc(outreachTemplate(p).body)}</textarea>`)}` : '';
+  const termsBlock = `<textarea class="bcn-field" id="pTerms" rows="8" ${dis} placeholder="Commission, how orders are credited, refunds, payouts, what affiliates may not do. Editing saves a new version.">${esc(p.terms_markdown || '')}</textarea>`;
+  const advancedBlock = `<div class="af-grid--settings">
+      ${field('Short name (apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
+      ${field('Designated employee', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
       ${field('Currency', input('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}"`))}
       ${field('Default code start', input('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`))}
       ${field('Default code end', input('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`))}
@@ -573,16 +577,22 @@ function renderProgram(isNew = S.creating) {
       ${field('Refund hold (days)', input('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`))}
       ${field('Payout minimum', input('pMin', `${dis} inputmode="decimal" value="${esc(major(p.payout_minimum_cents))}"`))}
       ${field('Pay affiliates', `<select class="bcn-field" id="pPayMethod" ${dis}>${o('manual', 'By hand', p.payout_method ?? 'manual')}${o('paypal_payouts', 'PayPal', p.payout_method)}</select>`)}
-    </div>`])}`;
+    </div>`;
   let extra = '';
   if (!isNew && p.id) {
     const url = applyUrl(location.origin, CO, p.slug);
     extra += card('Open applications link', p.intake_mode === 'open'
-      ? `<div class="bcn-field af-mono af-copy">${esc(url)}</div>`
+      ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: url }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(url) || '#')}" target="_blank" rel="noopener">Open</a></div>`
       : '<p class="af-muted">Invite only.</p>');
     extra += '<div id="managersCard"></div>';
   }
-  $('programBody').innerHTML = card(isNew ? 'New program' : 'Settings', form) + (extra ? more('Sharing, access and how it works', [extra, S.d ? stageCard() : '']) : '');
+  const form = basics
+    + more('Who you recruit', [whoBlock])
+    + (outreachBlock ? more('Message to creators', [outreachBlock]) : '')
+    + more(`Terms${p.terms_version ? ` (v${p.terms_version})` : ''}`, [termsBlock])
+    + more('Advanced settings', [advancedBlock]);
+  $('programBody').innerHTML = card(isNew ? 'New program' : 'Settings', form)
+    + (extra ? more('Sharing, access and how it works', [extra, S.d ? stageCard() : '']) : '');
   $('pKind')?.addEventListener('change', syncCommissionFields);
   syncCommissionFields();
   if (!isNew && p.id) renderManagers();
@@ -847,6 +857,9 @@ function renderAffiliates() {
 // link to it, which applies their code at checkout.
 const pathOf = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? (x.pathname || '/') : null; } catch { return null; } };
 const httpsOr = (u) => (/^https:\/\/[^\s"'<>]+$/.test(String(u || '')) ? u : null);
+// What an affiliate's card shows: the same address, asked of the CDN at the
+// size the card uses, so a thumbnail is not scaled up into a soft picture.
+const cardImage = (u) => displayImage(httpsOr(u));
 // An Ad Studio archive object: <company>/<sha256>.<ext>, the same path in the
 // public feed bucket once shared.
 const IMG_PATH_RE = /^[A-Za-z0-9-]{1,64}\/[0-9a-f]{16,64}\.(jpg|jpeg|png|webp|gif)$/;
@@ -863,6 +876,16 @@ async function loadShareSources() {
     // bucket so affiliates can see it.
     db.rpc('ad_studio_ads', { p_days: 60 }),
   ]);
+  // What each upcoming launch asks affiliates to push: the products attached
+  // to it. Shared WITH the launch, never on their own, so the portal can show
+  // them under the drop the affiliate claimed.
+  let launchProducts = [];
+  const launchIds = (l.data || []).map((x) => x.id);
+  if (launchIds.length) {
+    const r = await db.from('launch_product_readiness').select('launch_id, product_title')
+      .eq('company_entity_id', CO).in('launch_id', launchIds).limit(300);
+    launchProducts = r.data || [];
+  }
   const ads = (Array.isArray(a.data) ? a.data : [])
     .filter((x) => IMG_PATH_RE.test(x.image_path || '') && Number(x.image_shared_by || 0) < 2)
     .sort((x, y) => Number(y.recent_spend || 0) - Number(x.recent_spend || 0) || String(y.last_day).localeCompare(String(x.last_day)))
@@ -874,7 +897,7 @@ async function loadShareSources() {
       (r.data || []).forEach((x) => { if (x.signedUrl && !x.error) signed[x.path] = x.signedUrl; });
     } catch (_) { /* no preview is cosmetic; sharing still copies the image */ }
   }
-  S.share = { launches: l.data || [], ads, signed, products: S.share?.products || [], q: S.share?.q || '',
+  S.share = { launches: l.data || [], launchProducts, ads, signed, products: S.share?.products || [], q: S.share?.q || '',
     failed: [l.error && 'launches', a.error && 'ads'].filter(Boolean) };
 }
 
@@ -887,27 +910,51 @@ function shareItem(kind, srcId, title, sub, img, payload) {
 }
 function shareGrid(rows) { return rows.length ? `<div class="af-share-grid">${rows.join('')}</div>` : ''; }
 
+// The products attached to a launch, snapshotted under it. Each is its own
+// feed row carrying parent_source_id, so unsharing the launch takes them with
+// it and nothing live is joined into an affiliate's read. A title the
+// affiliate already sees on the launch is not repeated.
+async function shareLaunchProducts(launchId) {
+  const rows = (S.share?.launchProducts || []).filter((x) => String(x.launch_id) === String(launchId));
+  if (!rows.length) return;
+  const seen = new Set();
+  const payload = [];
+  for (const x of rows) {
+    const title = String(x.product_title || '').trim().slice(0, 200);
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    payload.push({ company_entity_id: CO, program_id: S.programId, kind: 'product',
+      source_id: `launch:${launchId}:${title}`.slice(0, 100), parent_source_id: String(launchId), title });
+  }
+  if (!payload.length) return;
+  try { await db.from('affiliate_feed_items').upsert(payload, { onConflict: 'program_id,kind,source_id', ignoreDuplicates: true }); }
+  catch (_) { /* the launch is shared; its product list is not worth failing on */ }
+}
+
 async function renderShare() {
   const p = prog();
   $('shareBody').innerHTML = card('Share with affiliates', '<p class="af-muted">Loading…</p>');
   if (!S.share || S.share.programId !== p.id) { await loadShareSources(); S.share.programId = p.id; }
   const sh = S.share; const d = S.d;
-  const launches = sh.launches.map((x) => shareItem('launch', x.id, x.title || 'Launch', fmtDate(x.launch_date), httpsOr(x.launch_image_url),
-    { title: x.title || 'Launch', event_on: x.launch_date, image_url: httpsOr(x.launch_image_url), product_path: x.landing_page_url ? pathOf(x.landing_page_url) : null }));
-  const products = sh.products.map((x) => shareItem('product', x.shopify_handle, x.product_title, x.product_type || '', httpsOr(x.image_url),
-    { title: x.product_title, image_url: httpsOr(x.image_url), product_path: `/products/${x.shopify_handle}` }));
+  const launches = sh.launches.map((x) => shareItem('launch', x.id, x.title || 'Launch', fmtDate(x.launch_date), cardImage(x.launch_image_url),
+    { title: x.title || 'Launch', event_on: x.launch_date, image_url: cardImage(x.launch_image_url), product_path: x.landing_page_url ? pathOf(x.landing_page_url) : null }));
+  const products = sh.products.map((x) => shareItem('product', x.shopify_handle, x.product_title, x.product_type || '', cardImage(x.image_url),
+    { title: x.product_title, image_url: cardImage(x.image_url), product_path: `/products/${x.shopify_handle}` }));
   const ads = sh.ads.map((x) => shareItem('ad', x.ad_id, x.title || x.ad_name || 'Ad',
     [x.effective_status === 'ACTIVE' ? 'Running now' : x.last_day ? `Ran until ${fmtDate(x.last_day)}` : '', x.body ? String(x.body).slice(0, 90) : ''].filter(Boolean).join(' · '),
     sh.signed[x.image_path] || null,
     { title: String(x.title || x.ad_name || 'Ad').slice(0, 200), note: x.body ? String(x.body).slice(0, 1000) : null,
       product_path: safePath(x.link_path) || (x.link_url ? pathOf(x.link_url) : null), image_path: x.image_path }));
-  const sharedRows = d.feed.map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
+  // A product shared under a launch belongs to that launch's card, not to a
+  // card of its own.
+  const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
+  const sharedRows = d.feed.filter((f) => !f.parent_source_id).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
   const storeCard = MANAGE ? (needsStore(p)
     ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
     : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`)) : '';
   $('shareBody').innerHTML = [
     card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
-      `${d.feed.length} shared`),
+      `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
     storeCard,
     card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(launches)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(ads)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
     more('Add products', [
@@ -1306,6 +1353,10 @@ const A = {
   'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
   'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
   'ov-filter': ({ f }) => { S.ovFilter = f; render(); },
+  'copy-text': async ({ t }) => {
+    try { await navigator.clipboard.writeText(t); } catch { setStatus(t, 'info'); return null; }
+    return 'Copied.';
+  },
   'ov-copy': async ({ id, k }) => {
     const item = ovReachList().find((x) => x.aff.id === id && x.kind === k);
     if (!item) throw new Error('That affiliate is no longer on the list. Reload to see the current one.');
@@ -1462,12 +1513,23 @@ const A = {
     if (x.image_path) x.image_url = await publishAdImage(x.image_path);
     must(await db.from('affiliate_feed_items').insert({ company_entity_id: CO, program_id: S.programId, kind, source_id: String(src),
       title: String(x.title || '').slice(0, 200), note: x.note || null, image_url: x.image_url || null, product_path: x.product_path || null, event_on: x.event_on || null }));
+    // A launch carries what it asks affiliates to push. Best effort: the
+    // launch is shared either way, and a product list can be attached later
+    // by sharing it again.
+    if (kind === 'launch') await shareLaunchProducts(String(src));
     return 'Shared. It shows in your affiliates\' portal now.';
   },
   'feed-remove': async ({ id }) => {
     const { data, error } = await db.from('affiliate_feed_items').delete().eq('id', id).select();
     if (error) throw error;
     if (!data?.length) throw new Error('Not removed: your account may no longer manage this program.');
+    // The products shared under a launch go with it; left behind they would
+    // be invisible rows nobody can reach.
+    const gone = data[0];
+    if (gone?.kind === 'launch' && gone.source_id) {
+      await db.from('affiliate_feed_items').delete()
+        .eq('company_entity_id', CO).eq('program_id', gone.program_id).eq('parent_source_id', String(gone.source_id));
+    }
     return 'No longer shared.';
   },
   'store-save': async () => {

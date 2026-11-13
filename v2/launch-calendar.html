@@ -773,6 +773,7 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
     <button class="drawer-tab" data-dp="dp-assets">ASSETS</button>
     <button class="drawer-tab" data-dp="dp-links">LINKS</button>
     <button class="drawer-tab" data-dp="dp-comments">COMMENTS</button>
+    <button class="drawer-tab" data-dp="dp-affiliates">AFFILIATES</button>
     <button class="drawer-tab" data-dp="dp-brief">BRIEF</button>
     <button class="drawer-tab" data-dp="dp-document">DOCUMENT</button>
   </div>
@@ -974,6 +975,16 @@ body.silo-brand .bcn-kpi-delta { font-size:9px;order:2;margin:0;color:var(--bcn-
           <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="bcn-btn bcn-btn--primary bcn-btn--mono">POST COMMENT</button></div>
         </form>
         <div id="commentList" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-affiliates">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Pushing this launch</div><div class="dp-sub">Affiliates who claimed it in their portal.</div></div>
+          <span class="dp-sub" id="affiliateClaimMeta"></span>
+        </div>
+        <div id="affiliateClaimList"></div>
       </div>
     </div>
 
@@ -1886,7 +1897,51 @@ function renderDrawer(){
   renderSystemLinks(flt(systemLinks));
   renderComments(flt(comments));
   renderBrief(activeLaunch);
+  renderAffiliateClaims(sid);
   renderReleaseDocument(activeLaunch, launchProducts.concat(launchTrackerProducts), launchChannels, launchAssets, flt(systemLinks));
+}
+
+// Who put their hand up for this launch in their affiliate portal
+// (affiliate_launch_claims, 20261113060000). Read live, because the drawer is
+// opened one launch at a time and claims land between page loads. Fail-soft:
+// a company with no affiliate program, or an unapplied migration, shows the
+// empty line, never an error on a launch page.
+let claimReq=0;
+async function renderAffiliateClaims(sid){
+  const list=$('affiliateClaimList'); const meta=$('affiliateClaimMeta');
+  if(!list) return;
+  const mine=++claimReq;
+  list.innerHTML=empStr('Loading…');
+  if(meta) meta.textContent='';
+  let rows=[];
+  try{
+    let q=db.from('affiliate_launch_claims').select('id, affiliate_id, claimed_at').eq('launch_source_id',sid).order('claimed_at',{ascending:true}).limit(200);
+    if(_co?.id) q=q.eq('company_entity_id',_co.id);
+    const r=await q;
+    if(r.error) throw r.error;
+    rows=r.data||[];
+    if(rows.length){
+      let aq=db.from('affiliates').select('id, display_name, contact_email, status').in('id',rows.map(x=>x.affiliate_id));
+      if(_co?.id) aq=aq.eq('company_entity_id',_co.id);
+      const a=await aq;
+      const byId=Object.fromEntries((a.data||[]).map(x=>[String(x.id),x]));
+      rows=rows.map(x=>({...x,aff:byId[String(x.affiliate_id)]||null}));
+    }
+  }catch(_){
+    if(mine!==claimReq) return;
+    list.innerHTML=empStr('Affiliate claims are not available for this workspace.');
+    return;
+  }
+  if(mine!==claimReq) return;
+  if(meta) meta.textContent=rows.length?`${rows.length} affiliate${rows.length===1?'':'s'}`:'';
+  if(!rows.length){ list.innerHTML=empStr('Nobody has claimed this launch yet. Share it on the Share tab of Affiliate Studio.'); return; }
+  list.innerHTML='';
+  rows.forEach(x=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    const name=x.aff?.display_name||x.aff?.contact_email||'Affiliate';
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(name)}</div><div class="dp-item-meta">Claimed ${fmt(String(x.claimed_at || '').slice(0, 10))}</div></div><div class="prod-row-actions">${x.aff?.status?`<span class="bcn-pill">${esc(x.aff.status)}</span>`:''}<a href="/v2/affiliates/index.html" style="font-size:10px;color:var(--bcn-accent);font-weight:600;white-space:nowrap;">Open Studio →</a></div>`;
+    list.appendChild(div);
+  });
 }
 
 function renderOverview(prods,chans,tsks){

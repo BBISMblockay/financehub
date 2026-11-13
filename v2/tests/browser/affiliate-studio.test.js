@@ -50,6 +50,10 @@
  *   AFFILIATE_UI_MUTATION=affownphoto an affiliate's card ignores the photo the rep set in the portal
  *   AFFILIATE_UI_MUTATION=sillodraft  a new draft ignores the program's own outreach message
  *   AFFILIATE_UI_MUTATION=todopinch  a long To do list is squeezed by a short window and its last rows are cut off
+ *   AFFILIATE_UI_MUTATION=claimany   claiming one drop marks a different one
+ *   AFFILIATE_UI_MUTATION=pushalways a drop says what to push before anyone claimed it
+ *   AFFILIATE_UI_MUTATION=ordersrestart Show more asks for the first page again
+ *   AFFILIATE_UI_MUTATION=ordersshut   Show more closes an order the rep had opened
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -93,6 +97,11 @@ const MUTATIONS = {
   envblock: ['/affiliates/studio.js', "      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);", '      const blocking = openAttempt;'],
   nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
+  // Claims and the order list (20261113060000).
+  claimany: ['/affiliates/portal.html', '    const item = (FEED?.items || []).find((x) => x.id === id);', '    const item = (FEED?.items || [])[0];'],
+  pushalways: ['/affiliates/portal.html', '    const push = i.claimed && (i.push || []).length', '    const push = (i.push || []).length'],
+  ordersshut: ['/affiliates/portal.html', "${ORD.open.has(o.order_id) ? ' open' : ''}", ''],
+  ordersrestart: ['/affiliates/portal.html', "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: ORD.rows.length });", "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: 0 });"],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -312,7 +321,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(adRow?.note, 'Grip that holds.', 'with its copy, to repost');
     R.eq(adRow?.product_path, '/products/mud-shoe');
     await page.click('#btnSettings');
-    R.has(await text(page, '#programBody'), '/v2/affiliates/apply.html?c=test-company&p=creators', 'an open program shows its application link');
+    // The link is a button to copy and one to open, not a line of text to
+    // select by hand.
+    R.ok('an open program offers its application link to copy', (await page.evaluate(() => document.querySelector('#programBody [data-act="copy-text"]')?.dataset.t || '')).endsWith('/v2/affiliates/apply.html?c=test-company&p=creators'));
+    R.ok('and a button that opens it', !!(await page.$('#programBody a.bcn-btn[href*="/v2/affiliates/apply.html?c=test-company"]')));
     R.ok('before the loop migration, settings has no automatic-code field (saving still works)', !(await page.$('#pAutoPct')));
     R.ok('before 20261111020000, settings has no outreach message box (saving still works)', !(await page.$('#pOutBody')));
     await page.close();
@@ -355,7 +367,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
     R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
     await loop.click('#btnSettings');
+    // Settings leads with the four answers a program needs; the message,
+    // terms and defaults open below it.
+    R.ok('settings leads with name, status and what you pay', !!(await loop.$('#programBody .bcn-card-body > .af-grid--settings #pName')) && !!(await loop.$('#programBody .bcn-card-body > .af-grid--settings #pKind')));
+    R.ok('the message to creators starts closed', !(await loop.evaluate(() => document.querySelector('#pOutBody')?.checkVisibility?.() ?? false)));
+    if (process.env.STUDIO_SHOT) { await loop.setViewportSize({ width: 1280, height: 1200 }); await (await loop.$('#programBody')).screenshot({ path: process.env.STUDIO_SHOT }); }
     R.eq(await loop.inputValue('#pAutoPct'), '10', 'settings shows the % off for new affiliates');
+    await openMore(loop);
     await loop.fill('#pAutoPct', '');
     R.eq([await loop.inputValue('#pOutSubject'), await loop.inputValue('#pOutBody')], ['Ride with {brand}', 'Yo {name}! Join us: {signup_link}'], 'settings shows the program\'s own outreach message');
     await loop.fill('#pOutBody', 'Hey {name}, here: {signup_link}');
@@ -450,6 +468,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
 
     // ── join page ─────────────────────────────────────────────────────────
     const calls = [];
+    const claimed = new Set();
     let program = { name: 'Creators', status: 'active', terms_markdown: 'Rule one.\n\n<img src=x onerror="window.__pwned=1">', terms_version: 3, currency: 'USD', commission: { kind: 'percent_of_net', percent: 10, fixed_cents: null } };
     await suite.context.route('**/functions/v1/affiliate-portal', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -472,12 +491,29 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', photo_url: 'https://photos.invalid/samruns.png', photo_own: false, feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
-        { kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring' },
-        { kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold' },
-        { kind: 'launch', title: 'Holiday cap', event_on: '2026-11-12', note: 'Limited run.', image_url: 'https://cdn.invalid/cap.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fcap' },
+        { id: 'f1', kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring', claimed: false, push: [] },
+        { id: 'f2', kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold', claimed: false, push: [] },
+        { id: 'f3', kind: 'launch', title: 'Holiday cap', event_on: '2026-11-12', note: 'Limited run.', image_url: 'https://cdn.invalid/cap.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fcap', claimed: claimed.has('f3'), push: [{ title: 'Wool cap', image_url: null, link: null }, { title: 'Knit beanie', image_url: null, link: null }] },
         { kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
         { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
+      if (body.action === 'claim') {
+        if (body.claim === false) claimed.delete(body.item_id); else claimed.add(body.item_id);
+        return reply(200, { claimed: claimed.has(body.item_id) });
+      }
+      // One order per page, so Show more is exercised the way a long history
+      // reaches the page.
+      if (body.action === 'orders') {
+        const all = [
+          { order_id: 'gid://1002', order_number: '#1002', order_day: '2026-11-08', order_value_cents: 9000, earned_cents: 900, paid_cents: 0, code: 'PAT10',
+            entries: [{ kind: 'accrual', amount_cents: 900, memo: null, rate_kind: 'percent_of_net', rate_value: 10, basis_cents: 9000, created_at: now }] },
+          { order_id: 'gid://1001', order_number: null, order_day: '2026-11-02', order_value_cents: 4000, earned_cents: 350, paid_cents: 350, code: 'PAT10',
+            entries: [{ kind: 'accrual', amount_cents: 400, memo: null, rate_kind: 'percent_of_net', rate_value: 10, basis_cents: 4000, created_at: now },
+                      { kind: 'refund_adjustment', amount_cents: -50, memo: 'partial refund', rate_kind: null, rate_value: null, basis_cents: null, created_at: now }] },
+        ];
+        const off = Number(body.offset) || 0;
+        return reply(200, { orders: all.slice(off, off + 1), total: all.length, limit: 1, offset: off });
+      }
       if (body.action === 'photo') return reply(200, body.remove ? { photo_url: null, own: false } : { photo_url: 'https://photos.invalid/me.jpg?v=2', own: true });
       if (body.action === 'apply') return reply(200, { status: 'received' });
       return reply(400, { error: 'unexpected' });
@@ -538,17 +574,54 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
     R.ok('no element is built from a shared title', !(await portal.$('#body b')));
-    if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
     const copies = await portal.$$eval('#hero [data-copy], #body [data-copy]', (b) => b.map((x) => x.dataset.copy));
-    R.eq(copies.length, 6, 'a copy button for the store link, each upcoming drop and shared item, and the ad\'s caption');
+    R.eq(copies.length, 7, 'a copy button for the store link, each upcoming drop, each shared item, the saved link and the ad\'s caption');
     const cal = await portal.$$eval('#calendar [data-cal-date]', (rows) => rows.map((r) => r.dataset.cal_date || r.getAttribute('data-cal-date')));
     R.eq(cal, ['2026-11-12', '2099-03-01'], 'the calendar lists upcoming drops soonest first, past ones left off (company day)');
     R.ok('a drop within a week is marked', !!(await portal.$('#calendar [data-cal-date="2026-11-12"].is-soon')) && !(await portal.$('#calendar [data-cal-date="2099-03-01"].is-soon')));
     R.ok('drops sit in the calendar, not the tile grid', !(await portal.$('#feed [data-kind="launch"]')));
+    // Claiming a drop: a hand up, which the brand sees, and which tells the
+    // rep what to push. Nothing about it is paid or exclusive.
+    R.ok('each upcoming drop can be claimed', (await portal.$$('#calendar [data-claim]')).length === 2);
+    R.ok('nothing says what to push before it is claimed', !(await portal.$('#calendar .af-push')));
+    await portal.click('#calendar [data-cal-item="f3"] [data-claim]');
+    await portal.waitForFunction(() => !!document.querySelector('#calendar [data-cal-item="f3"] .af-push'), null, { timeout: 5000 });
+    const claimCall = calls.filter((c) => c.action === 'claim').pop();
+    R.eq([claimCall?.item_id, claimCall?.claim], ['f3', true], 'the claim names the drop and is sent as a claim');
+    R.has(await text(portal, '#calendar [data-cal-item="f3"]'), 'Wool cap', 'a claimed drop lists the products to push');
+    R.has(await text(portal, '#calendar [data-cal-item="f3"] [data-claim]'), 'Claimed', 'and the button says so');
+    R.ok('an unclaimed drop is unchanged', !(await portal.$('#calendar [data-cal-item="f1"] .af-push')));
+    await portal.click('#calendar [data-cal-item="f3"] [data-claim]');
+    await portal.waitForFunction(() => !document.querySelector('#calendar [data-cal-item="f3"] .af-push'), null, { timeout: 5000 });
+    R.eq(calls.filter((c) => c.action === 'claim').pop()?.claim, false, 'pressing it again takes the hand down');
+    // The rep's own orders: their side of each one, never the customer's.
+    await portal.waitForFunction(() => (document.getElementById('ordersCard')?.textContent || '').includes('#1002'), null, { timeout: 5000 });
+    const ords = await text(portal, '#ordersCard');
+    R.has(ords, '$9.00', 'an order shows what the rep earned on it');
+    R.has(ords, 'coming to you', 'and whether it is paid');
+    R.ok('an order opens onto the lines behind it', !!(await portal.$('#ordersCard details.af-ord-row')));
+    await portal.click('#ordersCard details.af-ord-row > summary');
+    R.has(await text(portal, '#ordersCard details.af-ord-row[open]'), '10% of $90.00', 'the drill-down says how the commission was worked out');
+    R.eq((await portal.$$('#ordersCard .af-ord-row')).length, 1, 'a long history pages, rather than arriving at once');
+    await portal.click('#ordMore');
+    await portal.waitForFunction(() => document.querySelectorAll('#ordersCard .af-ord-row').length === 2, null, { timeout: 5000 });
+    const ords2 = await text(portal, '#ordersCard');
+    R.has(ords2, 'partial refund', 'a refund on an order is shown as its own line');
+    R.ok('an order the rep opened stays open when more arrive', !!(await portal.$('#ordersCard .af-ord-row[open]')));
+    R.has(ords2, '1001', 'an order with no shop number falls back to its id');
+    R.ok('the portal never asks for customer data', !calls.some((c) => c.action === 'orders' && ('customer' in c)));
+    // The shot is taken with a drop claimed and an order open, which is what
+    // the two new surfaces look like in use.
+    await portal.click('#calendar [data-cal-item="f3"] [data-claim]');
+    await portal.waitForFunction(() => !!document.querySelector('#calendar [data-cal-item="f3"] .af-push'), null, { timeout: 5000 });
+    if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
     R.ok('an ad\'s caption can be copied to repost', copies.includes('Grip that holds.'));
     R.has(fb, 'Ads to repost', 'shared ads have their own section');
     R.ok('a shared ad shows its picture, with a way to save it', !!(await portal.$('#body .af-media img[src="https://cdn.invalid/mud.jpg"]')) && !!(await portal.$('#body a[href="https://cdn.invalid/mud.jpg"][download]')));
-    R.has(fb, 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', 'a link to a store page is the code link');
+    // A link is a button to copy and one to open, not a line of text.
+    R.ok('a link to a store page is the code link', copies.includes('https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps'));
+    R.ok('and it can be opened', !!(await portal.$('#body a.bcn-btn[href="https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps"]')));
+    R.ok('no raw address is left for the rep to select by hand', !(await portal.$('#body .af-links .af-copy')));
     R.ok('the portal says the link carries the code', /Your code\s*PAT10\s*is applied at checkout/.test(await text(portal, '#hero')));
     R.has(await text(portal, '#hero'), 'Hi Pat', 'the portal greets the affiliate');
     R.ok('a logo address outside the logo bucket is never shown; the initial is', !(await portal.$('#mark img')) && (await text(portal, '#mark .af-badge')) === 'B');
