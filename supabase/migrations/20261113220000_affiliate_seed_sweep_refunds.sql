@@ -7,10 +7,12 @@
 --    LESS the whole refund (never below 0): exact when the order holds only
 --    this product, a lower bound otherwise -- a returned seed product can
 --    never count toward its own goal.
--- 2. Before the payback, the seed order is read again: cancelled, or its
---    product wholly refunded, cancels the claim and pays nothing; a partial
---    refund pays back only what is still paid. A seed order not on file that
---    night pays nothing yet.
+-- 2. Before the payback, the seed order is read again. A cancelled order, or
+--    an order of only this product refunded in full, cancels the claim; a
+--    partial refund of such an order pays back what is still paid. Where it
+--    cannot be known -- refund not measured, or a refund on an order that
+--    also held other items (Shopify's refund is per order) -- nothing is paid
+--    and nothing cancelled: the claim stays open until it can be, or expires.
 --
 -- Same name, arguments and callers; grants restated below. Idempotent.
 
@@ -142,34 +144,49 @@ begin
      where id = v_c.id;
 
     -- What the rep still has paid for the product, read from the seed order
-    -- NOW: a seed order cancelled or refunded after it was recorded pays back
-    -- only what is still paid (the product lines less the order's refund,
-    -- the same lower bound as above), and nothing once that is 0.
-    select case when o.cancelled_at is not null then 0
-                else least(v_c.seed_paid_cents,
-                           greatest(0, round((coalesce(
-                                sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
-                                  filter (where lower(btrim(l.title)) = lower(btrim(v_c.product_title))),
-                                sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
-                                  filter (where coalesce(l.discount_allocated, 0) > 0), 0)
-                              - coalesce(o.refunded_subtotal, 0)) * v_minor))::bigint) end
+    -- NOW. Decided only when it is certain:
+    --   cancelled order                      -> 0 (cancel the claim)
+    --   refund not measured (NULL)           -> undecided
+    --   no refund                            -> what they paid
+    --   refund, and the order is ONLY this   -> what they paid less the refund
+    --     product (exact)                       (0 cancels the claim)
+    --   refund on an order with other items  -> undecided: Shopify's refund is
+    --                                           per order, so which item came
+    --                                           back is not known
+    -- Undecided pays nothing and cancels nothing; the claim stays open (and can
+    -- still expire).
+    select case when x.cancelled then 0
+                when x.refunded is null then null
+                when x.refunded <= 0 then v_c.seed_paid_cents
+                when x.all_net - x.prod_net > 0 then null
+                else least(v_c.seed_paid_cents, greatest(0, round((x.prod_net - x.refunded) * v_minor))::bigint) end
       into v_kept
-      from public.shopify_orders o
-      join public.shopify_order_lines l
-        on l.company_entity_id = o.company_entity_id and l.order_id = o.order_id and l.shop_domain = o.shop_domain
-     where o.company_entity_id = v_c.company_entity_id and o.order_id = v_c.seed_order_id
-     group by o.shop_domain, o.order_id, o.cancelled_at, o.refunded_subtotal;
+      from (
+        select o.cancelled_at is not null as cancelled, o.refunded_subtotal as refunded,
+               coalesce(sum(l.price * l.quantity - coalesce(l.discount_allocated, 0)), 0) as all_net,
+               coalesce(sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
+                          filter (where lower(btrim(l.title)) = lower(btrim(v_c.product_title))),
+                        -- A product renamed in the shop: the discounted line(s),
+                        -- as when the purchase was recorded.
+                        sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
+                          filter (where coalesce(l.discount_allocated, 0) > 0), 0) as prod_net
+          from public.shopify_orders o
+          join public.shopify_order_lines l
+            on l.company_entity_id = o.company_entity_id and l.order_id = o.order_id and l.shop_domain = o.shop_domain
+         where o.company_entity_id = v_c.company_entity_id and o.order_id = v_c.seed_order_id
+         group by o.shop_domain, o.order_id, o.cancelled_at, o.refunded_subtotal
+      ) x;
     -- The seed order not on file this run: pay nothing yet (it can still expire).
     v_seen := found;
-    -- Cancelled, or its product wholly refunded: nothing to pay back.
-    if v_seen and v_kept <= 0 then
+    -- Cancelled, or this product certainly refunded in full: nothing to pay back.
+    if v_seen and v_kept is not null and v_kept <= 0 then
       update public.affiliate_seed_claims
          set state = 'cancelled', progress_cents = v_progress, progress_as_of = now()
        where id = v_c.id and state = 'purchased';
       continue;
     end if;
 
-    if v_seen and v_progress >= v_c.goal_cents then
+    if v_seen and v_kept > 0 and v_progress >= v_c.goal_cents then
       perform public.affiliate_lock_program_money(v_c.program_id);
       insert into public.affiliate_commission_ledger
         (company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)

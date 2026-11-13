@@ -49,6 +49,8 @@
 //   AFFILIATE_DB_MUTATION=seedprorate   an order's refund is prorated across its products
 //   AFFILIATE_DB_MUTATION=seedrefunded  a refunded or cancelled seed order still pays back
 //   AFFILIATE_DB_MUTATION=seedpaystored the payback ignores a partial refund of the seed order
+//   AFFILIATE_DB_MUTATION=seednullrefund a seed order whose refunds were never measured is paid back
+//   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
@@ -302,7 +304,9 @@ switch (MUT) {
   case 'seedwholeorder': mutate('seedsweep', `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id
        and lower(btrim(l.title)) = lower(btrim(v_c.product_title));`, `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id;`); break;
   case 'seedprorate': mutate('seedsweep', 'greatest(0, x.product_net - x.refunded)', 'x.product_net * (1 - x.refunded / 400.0)'); break;
-  case 'seedrefunded': mutate('seedsweep', 'if v_seen and v_kept <= 0 then', 'if false then'); break;
+  case 'seedrefunded': mutate('seedsweep', 'if v_seen and v_kept is not null and v_kept <= 0 then', 'if false then'); break;
+  case 'seednullrefund': mutate('seedsweep', 'when x.refunded is null then null', 'when x.refunded is null then v_c.seed_paid_cents'); break;
+  case 'seedmixedguess': mutate('seedsweep', '                when x.all_net - x.prod_net > 0 then null\n', ''); break;
   case 'seedpaystored': mutate('seedsweep', "'manual_adjustment', v_kept,", "'manual_adjustment', v_c.seed_paid_cents,"); break;
   case 'seedtwice': mutate('seedsweep', `       and c.state = 'purchased'
      for update`, `       and c.state in ('purchased', 'earned')
@@ -2142,7 +2146,7 @@ await check('S4 reaching the goal writes the payback once, through the ledger an
   assert.equal(portal.offer.percent, 50);
 });
 
-await check('S4b a seed order refunded or cancelled before the goal pays back only what is still paid', async () => {
+await check('S4b a seed order refunded or cancelled before the goal: pay what is certainly still paid, else wait', async () => {
   await asSuper();
   const claim = (title, code, order) => one(`insert into affiliate_seed_claims(company_entity_id, program_id, affiliate_id, product_title, discount_percent, multiple, refund_days, goal_days,
                            state, code, customer_email, seed_order_id, seed_order_day, currency, seed_paid_cents, goal_cents, goal_by)
@@ -2157,14 +2161,20 @@ await check('S4b a seed order refunded or cancelled before the goal pays back on
         [A, id, title, qty, price, disc]);
     }
   };
-  // Each seed order: a $40 shell at 50% = $20. Rain: returned in full. Mud:
-  // the order cancelled. Wind: $17 refunded off a cart that also held a $12
-  // sock -- at most $3 of the shell is still paid for.
+  // Each seed order: a $40 shell at 50% = $20.
+  //   Rain: returned in full.            Mud: the order cancelled.
+  //   Hail: $5 of it refunded (only item) -> $15 is certainly still paid.
+  //   Wind: $17 refunded off a cart that also held a $12 sock -- which came back is unknown.
+  //   Sun: the $100 jacket beside it returned, the shell kept -- unknown, so NOT cancelled.
+  //   Fog: refunds not measured (NULL) -- unknown, so NOT paid.
   const rain = await claim('Rain shell', 'PATSEEDRAIN', 'S-RAIN'); await ord('S-RAIN', 40, 20, [['Rain shell', 1, 40, 20]]);
   const mud = await claim('Mud shell', 'PATSEEDMUD', 'S-MUD'); await ord('S-MUD', 40, 0, [['Mud shell', 1, 40, 20]], true);
+  const hail = await claim('Hail shell', 'PATSEEDHAIL', 'S-HAIL'); await ord('S-HAIL', 40, 5, [['Hail shell', 1, 40, 20]]);
   const wind = await claim('Wind shell', 'PATSEEDWIND', 'S-WIND'); await ord('S-WIND', 40, 17, [['Wind shell', 1, 40, 20], ['Sock', 1, 12, 0]]);
+  const sun = await claim('Sun shell', 'PATSEEDSUN', 'S-SUN'); await ord('S-SUN', 40, 100, [['Sun shell', 1, 40, 20], ['Trail jacket', 1, 100, 0]]);
+  const fog = await claim('Fog shell', 'PATSEEDFOG', 'S-FOG'); await ord('S-FOG', 40, null, [['Fog shell', 1, 40, 20]]);
   // Then each goal is reached: $80 of each shell sold on Pat's code.
-  for (const t of ['Rain', 'Mud', 'Wind']) {
+  for (const t of ['Rain', 'Mud', 'Hail', 'Wind', 'Sun', 'Fog']) {
     await ord(`S-${t}-SALE`, 20, 0, [[`${t} shell`, 2, 40, 0]]);
     await db.query(`insert into affiliate_attributions(company_entity_id, program_id, affiliate_id, shop_domain, order_id, order_day, order_currency, codes_on_order, basis)
                     values ($1,$2,$3,'a.myshopify.com',$4,(now() at time zone 'America/Los_Angeles')::date - 20,'USD',1,'single_affiliate_code')`, [A, progA, affPat, `S-${t}-SALE`]);
@@ -2174,7 +2184,10 @@ await check('S4b a seed order refunded or cancelled before the goal pays back on
                                   from affiliate_seed_claims c left join affiliate_commission_ledger l on l.id = c.reimbursement_ledger_id where c.id = $1`, [id]);
   assert.deepEqual(await st(rain), { state: 'cancelled', prog: 8000, amt: null }, 'a returned seed product pays nothing back, goal or not');
   assert.deepEqual(await st(mud), { state: 'cancelled', prog: 8000, amt: null }, 'a cancelled seed order pays nothing back');
-  assert.deepEqual(await st(wind), { state: 'earned', prog: 8000, amt: 300 }, 'a partly refunded seed order pays back only what is still paid');
+  assert.deepEqual(await st(hail), { state: 'earned', prog: 8000, amt: 1500 }, 'a partly refunded seed product pays back only what is still paid');
+  assert.deepEqual(await st(wind), { state: 'purchased', prog: 8000, amt: null }, 'a refund on a mixed cart is not guessed at: nothing paid yet');
+  assert.deepEqual(await st(sun), { state: 'purchased', prog: 8000, amt: null }, 'another item returned does not cancel the claim');
+  assert.deepEqual(await st(fog), { state: 'purchased', prog: 8000, amt: null }, 'a refund not measured pays nothing yet');
 });
 
 await check('S5 a claim past its goal date and refund window expires, paying nothing', async () => {

@@ -3689,7 +3689,8 @@ against the daily write cap. The affiliate-code branch is unchanged.
 Replaces `affiliate_seed_sweep`. Progress counts each order's lines of the product LESS the order's
 whole refund (refunds are stored per order), never a prorated share, so a returned product never
 counts. Before the payback the seed order is read again: cancelled or its product wholly refunded
-cancels the claim; a partial refund pays back only what is still paid.
+cancels the claim; a partial refund pays back only what is still paid. Where that cannot be known
+(refund not measured, or a refund on a cart that also held other items) it pays and cancels nothing.
 ### `migrations/20261113070000_affiliate_launch_claims_and_orders.sql` — affiliates claim a launch, and see their own orders
 
 From a session Blake and his boss spent in Affiliate Studio (2026-11-13). Two
