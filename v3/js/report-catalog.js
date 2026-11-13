@@ -54,6 +54,8 @@
     'c7000000-0000-4000-a000-000000000001', // Open work
     'c7000000-0000-4000-a000-000000000002', // Launches next 30 days
     'c7000000-0000-4000-a000-000000000003', // Accounting close status
+    'c7000000-0000-4000-a000-000000000004', // Journal entries and their sources
+    'c7000000-0000-4000-a000-000000000005', // General ledger by month
   ]);
 
   const textFor = (report) => [report.title, report.description, report.question]

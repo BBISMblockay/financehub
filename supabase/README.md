@@ -3695,3 +3695,111 @@ things an affiliate program needs that SILO did not have.
 
 Verify block: `Affiliate launch claims`. Deploy `affiliate-portal` after
 applying.
+
+### `migrations/20261113200000_accounting_journal_drilldown.sql` — journal → source drill-down
+
+Blake, 2026-11-13: "accounting recon within MCP … its currently only pulling journal entries, but
+silo has the breakdown because it posted the journal, that gap needs closed." Two gaps, both
+measured on production that day.
+
+**Half the journal lines were invisible.** `journal_adjustment_lines` is a table in Ask SILO's
+catalog, so a bot could read a hand-written adjustment's lines. A card/bank batch's lines are not
+rows anywhere — they live inside `card_import_batches.approval_snapshot -> 'payload' -> 'Line'`,
+the frozen array `quickbooks-post-journal` sends to Intuit. 33 of this company's 41 postings are
+`card_import`, so "show me the journal entries" showed the adjustments and none of the batches.
+
+**No line reached its source.** Nothing joined a posted figure to the records behind it, even
+though SILO built the entry from them. The link was convention — `accounting_source` plus a
+`YYYY-MM` in `accounting_source_ref` / `source_context` — readable by the pages and by nothing else.
+
+What this adds, all additive and read-only:
+
+- **`accounting_journal_lines_v`** (`security_invoker`) — one row per journal line of every entry,
+  both kinds. `lines_basis` is `stored` for an adjustment, `approval_snapshot` for a batch, and
+  `posting_payload` for a batch posted before snapshots existed (four of the fourteen posted
+  batches, all 2026-08-31, which would otherwise be posted in QuickBooks and invisible here).
+  `signed_amount` is +debit/−credit, so a balanced entry sums to 0. A draft batch is not a journal
+  yet and contributes nothing — "Accounting close status" is where unfinished coding is counted.
+  **Nothing here recomputes a posted line**; the view reads the frozen array.
+- **`accounting_journal_sources_v`** (`security_invoker`) — one row per source record, carrying
+  `journal_id` so it joins the lines view. A batch gives its coded transaction lines (a split shows
+  its lines, from `card_coding_effective_lines`); a monthly Shopify summary gives each location's
+  sales day — the same `sales_by_day_verification_v` buckets `accounting_sales_buckets()` reads —
+  and each payout's fee; prepaid and depreciation entries give the schedule items and assets for
+  the period; a reclass gives the transaction moved. **`source_basis` is the safety property:**
+  `as_posted` rows are frozen with the entry, `recomputed` rows are today's data over
+  `period_start..period_end`, which is what makes reconciliation useful (October 2026's recomputed
+  gross is $204.00 above what was posted — that difference IS the finding) and exactly why it must
+  never read as what was posted. An entry with no stored breakdown has no rows, which is an answer.
+- **Period derivation** uses the first `YYYY-MM` in `accounting_source_ref`, then in
+  `source_context`, then the entry's own month, and exposes it on every row. Both patterns are
+  anchored and month-bounded: a loose `(\d{4}-\d{2})` matched `8235-80` inside a UUID-shaped ref and
+  `to_date` raised, taking the whole view down. `quickbooks_journal_postings.period_start/_end` are
+  deliberately NOT used — for every monthly posting on production both equal the entry date.
+- **`accounting_source` is recovered** from `fixed-assets:depreciation%` and `schedules:prepaid%`
+  for entries written before that column existed. `accounting-export:%` is deliberately NOT
+  recovered: both a Shopify summary and a prepaid amortization have carried it, and attributing the
+  wrong sources to an entry is worse than attributing none.
+- **Report `c7000000-0000-4000-a000-000000000004`, "Journal entries and their sources"** — one row
+  per entry with debits, credits, `out_of_balance`, and its `source_rows` / `source_kinds` /
+  `source_basis` / `source_total`. `source_total` is a plain sum, so it compares to the entry only
+  within one `source_kind` (a Shopify entry mixes sales days with payout fees and books both).
+  Two tie-outs: every entry balances, and the entry count ties to the base tables counted a
+  *different* way from how the view finds a batch's lines (an adjustment with lines; a batch once
+  approved or posted), so a batch that is in QuickBooks and has stopped producing lines fails
+  rather than quietly agreeing with the view.
+
+- **`accounting_ledger_v`** (`security_invoker`) — one continuous general ledger across the move
+  to SILO, because a balance sheet or GL recon for a full year spans the cut-over and had to be
+  stitched by hand. `origin` is `qbo_history` for the ledger the company kept in QuickBooks before
+  it migrated (imported line by line — real transactions with type, document number, counterparty,
+  memo and split account, not one-line summaries; 224,795 lines here, back to 2023) and `silo` for
+  every line posted since. `cutover_on` is on every row and is **derived, never a constant**: the
+  company's `silo_takeover_on`, else `accounting_start_date`, else the earliest entry SILO posted
+  (2026-08-01 here). Imported rows are taken only BEFORE it, so the two eras add up rather than
+  overlap.
+  **The sign conversion is the whole risk and it is proved, not assumed.**
+  `qbo_history_lines.natural_amount` is in the ACCOUNT'S natural sign — income positive means a
+  credit — so reading it as debit-signed silently flips every liability, equity and income line.
+  The view converts with QuickBooks' complete account-type map, and on production that makes all
+  28,559 multi-line imported transactions balance to zero (against 20,192 on the raw amount), with
+  0 unmapped types and the whole imported ledger netting to exactly $0.00. An account type the map
+  does not know leaves `posting_type`, `amount` and `signed_amount` **NULL** — never a guessed side
+  — and `unmapped_lines` on the report surfaces it. Excluded: `row_kind = 'zero_amount'` (the
+  export's running-balance artifacts) and `'opening'` (undated opening balances — a position is not
+  activity); `ledger_entries` too, since it records the same card transactions the batches post.
+  The imported half is visible only to a finance user (`qbo_history_lines`' RLS adds
+  `can_manage_journal_entries()` / `is_exec_or_owner()`), so for anyone else the ledger starts at
+  the cut-over — which the catalog description tells a bot to report as access, not as an absence
+  of records.
+- **Report `c7000000-0000-4000-a000-000000000005`, "General ledger by month"** — month by account
+  by origin over a window defaulting to 365 days, so a year that spans the move is one answer.
+  179 ms on production over 104,726 imported lines, well inside the 8s budget. Four tie-outs, each
+  on the thing that would actually go wrong: imported transactions balance after conversion (break
+  one account type's side and every transaction touching it fails); every imported account type has
+  a side (unmapped lines understate the month, so red is the telling); the report's own grouping
+  against the view read directly; and **no imported history is hidden by the cut-over** — taking
+  history only before the cut-over is what stops double-counting, and this is what stops that rule
+  quietly deleting rows from the answer.
+
+Generic by construction: every branch keys on `accounting_source`, SILO's own vocabulary for what
+produced an entry, the cut-over is derived from each company's own settings (a verify block fails
+on a date literal or a company id in the view), and a company with no Shopify, schedules or fixed assets simply has no rows of
+those kinds. RLS is still the boundary — both views are `security_invoker`, so a person who cannot
+see an entry sees none of its sources.
+
+Run `refresh_chat_schema_catalog()` — the migration calls it itself. Verify blocks:
+`journal_drilldown_view` (all three views), `Journal drill-down report tie-outs`,
+`General ledger by month tie-outs`, `Ledger cut-over is derived, not hardcoded`, and the
+catalog-coverage list. That last block reads the view with `to_regclass`, never a `::regclass`
+cast, which is resolved at PARSE time and would abort the whole verify script on a database where
+the view is absent — the database the check exists for. Tests:
+`scripts/tests/journal-drilldown-database.test.mjs` (35 checks; every tie-out shown to fail when
+what it guards breaks, including a deliberately wrong account-type side and an import reaching
+past the cut-over). **No edge-function deploy is required** — `describe_tables` and `list_reports`
+read the catalog and the report table live — but deploying `mcp` adds the guidance in `guide.mjs`
+and `handler.mjs` that points a bot at the drill-down. Rollback:
+`drop view public.accounting_ledger_v; drop view public.accounting_journal_sources_v;
+drop view public.accounting_journal_lines_v;` then
+`delete from public.silo_report_tieouts where report_id in ('c7000000-0000-4000-a000-000000000004','c7000000-0000-4000-a000-000000000005');
+delete from public.silo_chat_saved_reports where id in ('c7000000-0000-4000-a000-000000000004','c7000000-0000-4000-a000-000000000005');`

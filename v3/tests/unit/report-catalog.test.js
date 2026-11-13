@@ -122,6 +122,12 @@ test('the work-queue reports file under Work, by id, whatever their titles say',
     'Launches on the calendar with their open tasks and marketing initiatives.')), 'work');
   eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000003', 'Accounting close status',
     'Bank transactions and journal entries still waiting on someone.')), 'work');
+  eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000004', 'Journal entries and their sources',
+    'Every journal entry with its debits, credits and the Shopify sales days and payout fees behind it')), 'work');
+  // A general-ledger recon is accounting work, not a sales report: without an
+  // id here its title would file it under Sales.
+  eq(C.categoryFor(system('c7000000-0000-4000-a000-000000000005', 'General ledger by month',
+    'The general ledger month by month and account by account, across the move to SILO.')), 'work');
   // The same title on a company's own saved copy is still that company's.
   eq(C.categoryFor({ id: 'c7000000-0000-4000-a000-000000000002', title: 'Launches next 30 days',
     source: 'manual', queries_run: ['select 1'] }), 'saved');
