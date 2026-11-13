@@ -837,6 +837,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const flight = await text(ppFlight, '#payoutsBody');
     R.ok('an attempt with no answer is never offered another Send', !(await ppFlight.$('#payoutsBody [data-act="pp-send"]')));
     R.has(flight, 'no answer yet', 'and the row says so in words');
+    // The check is fired after the tab renders, so wait for it rather than
+    // reading the call log on the same tick -- a slower runner had not got
+    // there yet, which is what made this red on main.
+    await ppFlight.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.body?.action === 'refresh'), { timeout: 5000 }).catch(() => {});
     const auto = await ppFlight.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh'));
     R.ok('and the open attempt is checked without being asked', auto.length === 1);
     await ppFlight.close();
