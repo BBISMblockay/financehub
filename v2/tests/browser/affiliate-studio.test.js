@@ -573,6 +573,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { id: 'f4', kind: 'product', title: 'Trail Hat', image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Ftrail-hat' },
         { kind: 'ad', title: 'Mud season', note: 'Grip that holds.', image_url: 'https://cdn.invalid/mud.jpg', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fproducts%2Fmud-shoe' }] }, statement: { currency: 'USD', totals: { earned_cents: 1250, paid_cents: 0, unclaimed_cents: 1250, orders: 2, sales_cents: 12500, today: '2026-11-09' }, monthly: [{ month: '2026-11', orders: 2, amount_cents: 1250 }], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: '2026-11-09', status: 'active' }, { code: 'PATNEXT', starts_on: '2026-11-10', ends_on: null, status: 'active' }, { code: 'PATOLD', starts_on: '2026-01-01', ends_on: '2026-02-01', status: 'retired' }],
         links: [{ destination_url: 'https://shop.invalid/collections/caps', link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fcaps', starts_on: '2026-10-01', status: 'active' }], payouts: [], affiliate: { status: 'active', terms_version_accepted: 3, terms_accepted_at: now } } });
+      if (body.action === 'payout_email') return reply(200, { payout_email: String(body.email || '').trim().toLowerCase() || null });
       if (body.action === 'seeds') return reply(200, { offer: { enabled: true, percent: 50, multiple: 3, refund_days: 14, goal_days: 90 }, claims: seedClaims });
       if (body.action === 'seed_request') {
         seedClaims.unshift({ id: 's' + seedClaims.length, feed_item_id: body.item_id || null, title: body.item_id === 'f4' ? 'Trail Hat' : (body.title || '?'), state: 'requested', percent: 50, multiple: 3 });
@@ -603,6 +604,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     await suite.context.route('**/company-logos/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     await suite.context.route('https://cdn.invalid/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+    await suite.context.route('https://www.paypalobjects.com/**', (route) => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="88" height="24"/>' }));
     await suite.context.route('https://evil.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
     const join = await suite.open('/v2/affiliates/join.html?t=' + 'S'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
     join.on('pageerror', (e) => errors.push(e.message));
@@ -736,6 +738,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await seedPage.waitForFunction(() => /Gray hoodie/.test(document.getElementById('seedCard')?.textContent || ''), null, { timeout: 5000 });
     const ask = calls.filter((c) => c.action === 'seed_request').pop();
     R.eq([ask?.title, ask?.item_id], ['Gray hoodie', undefined], 'another product is asked for by name');
+    // Where the rep gets paid: right under their photo, shown as their
+    // PayPal account once set, with the field only while changing it.
+    const side = await seedPage.evaluate(() => [...document.querySelectorAll('.af-side h2')].map((h) => h.textContent));
+    R.eq(side.slice(0, 3), ['Your photo', 'Where you get paid', 'Your codes'], 'the payout card sits between the photo and the codes');
+    R.ok('it carries the PayPal mark', !!(await seedPage.$('#payEmailCard img.af-pay-mark[alt="PayPal"]')));
+    await seedPage.fill('#payEmail', 'Pat@Pay.Invalid');
+    await seedPage.press('#payEmail', 'Enter');
+    await seedPage.waitForSelector('#payEmailCard .af-pay-email', { timeout: 5000 });
+    R.eq(await text(seedPage, '#payEmailCard .af-pay-email'), 'pat@pay.invalid', 'once saved it reads as the connected account');
+    R.ok('with no open field', !(await seedPage.$('#payEmail')));
+    await seedPage.click('#payEmailEdit');
+    R.eq(await seedPage.inputValue('#payEmail'), 'pat@pay.invalid', 'Change opens the field with the address on file');
     await seedPage.close();
 
     // A rep with a live code whose brand has no store address: the banner

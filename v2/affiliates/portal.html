@@ -134,6 +134,11 @@
     .af-seeds { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
     .af-seed { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
     .af-seed .af-row { justify-content: space-between; }
+    .af-pay-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .af-pay-mark { display: block; height: 24px; width: auto; }
+    .af-pay-acct { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-sunken); }
+    .af-pay-email { font-family: var(--bcn-mono); font-size: 13px; color: var(--bcn-ink); overflow-wrap: anywhere; }
+    .af-pay-input { flex: 1; min-width: 0; }
     .af-chip-code { font-family: var(--bcn-mono); font-size: 15px; color: var(--bcn-ink); }
     .af-bars { display: flex; flex-direction: column; gap: 10px; }
     .af-bar-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
@@ -251,10 +256,10 @@ async function load() {
   const top = Math.max(1, ...monthly.map((x) => Math.abs(Number(x.amount_cents) || 0)));
   const side = [
     photoCard(st.photo_url, st.photo_own, s.affiliate?.display_name || r.affiliate?.display_name),
+    payoutEmailCard(st.payout_email),
     card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c, t.today)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
     links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<div class="af-link"><span class="af-muted">${esc(linkLabel(u))}</span><div class="af-row">${copyBtn(u, 'Copy link', 'primary')}${openBtn(u, 'Open')}</div></div>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
-    payoutEmailCard(st.payout_email),
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
@@ -325,24 +330,38 @@ function renderOrders() {
 
 // Where this rep takes money. It is their own answer: a brand that types an
 // address for them is paying whoever holds it, and nobody else can know this.
-function payoutEmailCard(email) {
-  return `<div id="payEmailCard">${card('Where you get paid', `<div class="af-row">
-    <input class="bcn-field" id="payEmail" type="email" inputmode="email" autocomplete="email" placeholder="your PayPal email" value="${esc(email || '')}" />
-    <button class="bcn-btn bcn-btn--primary" id="payEmailSave" type="button">Save</button>
-  </div>`)}</div>`;
+// Where the rep gets paid: their PayPal. Shown as a connected account (the
+// mark, the address, a status), with the field only while there is none or
+// they are changing it (Blake, 2026-11-13: "too basic, needs a paypal logo").
+// The mark is PayPal's own, served by PayPal.
+const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-color.svg';
+let PAY_EMAIL = '';
+function payoutEmailCard(email, editing = false) {
+  PAY_EMAIL = email || '';
+  const set = !!PAY_EMAIL && !editing;
+  const head = `<div class="af-pay-head"><img class="af-pay-mark" src="${PAYPAL_MARK}" alt="PayPal" width="88" height="24" />${PAY_EMAIL ? '<span class="bcn-pill bcn-pill--pos">Connected</span>' : '<span class="bcn-pill">Not set</span>'}</div>`;
+  const body = set
+    ? `<div class="af-pay-acct"><span class="af-pay-email">${esc(PAY_EMAIL)}</span><button class="bcn-btn bcn-btn--ghost" id="payEmailEdit" type="button">Change</button></div>`
+    : `<div class="af-row"><input class="bcn-field af-pay-input" id="payEmail" type="email" inputmode="email" autocomplete="email" placeholder="Your PayPal email" value="${esc(PAY_EMAIL)}" />
+      <button class="bcn-btn bcn-btn--primary" id="payEmailSave" type="button">Save</button>${PAY_EMAIL ? '<button class="bcn-btn bcn-btn--ghost" id="payEmailCancel" type="button">Cancel</button>' : ''}</div>`;
+  return `<div id="payEmailCard" class="af-pay">${card('Where you get paid', head + body)}</div>`;
 }
+function showPayoutEmail(email, editing = false) { $('payEmailCard').outerHTML = payoutEmailCard(email, editing); wirePayoutEmail(); }
 function wirePayoutEmail() {
+  $('payEmailEdit')?.addEventListener('click', () => { showPayoutEmail(PAY_EMAIL, true); $('payEmail')?.focus(); });
+  $('payEmailCancel')?.addEventListener('click', () => showPayoutEmail(PAY_EMAIL));
   const btn = $('payEmailSave'); const input = $('payEmail');
   if (!btn || !input) return;
-  btn.addEventListener('click', async () => {
+  const save = async () => {
     btn.disabled = true;
     try {
       const r = await call('payout_email', { token, email: input.value });
-      input.value = r.payout_email || '';
+      showPayoutEmail(r.payout_email || '');
       setStatus(r.payout_email ? 'Saved.' : 'Removed.', 'pos');
-    } catch (e) { setStatus(e.message, 'neg'); }
-    btn.disabled = false;
-  });
+    } catch (e) { setStatus(e.message, 'neg'); btn.disabled = false; }
+  };
+  btn.addEventListener('click', save);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
 }
 
 // A rep who reps more than one brand gets a menu instead of a trip back to
