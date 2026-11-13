@@ -162,6 +162,12 @@ const files = {
   // has to see every table above. affiliate_feed_items (feed, above) is the
   // one 20261110086000's DO block never covered, which is why this exists.
   twins: '20261111181000_affiliate_same_company_twins_function.sql',
+  // The partial index the order -> code match depends on (20261112220000).
+  // It is in this list because check N1 runs the production "Affiliate
+  // Studio" verify block against this schema, and that block fails MISSING
+  // without the index -- which is the point: a database without it cannot
+  // match an affiliate order inside the 8s statement timeout.
+  matchindex: '20261112220000_affiliate_order_match_index.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -313,10 +319,24 @@ switch (MUT) {
   if p_period is not null then`); break;
   case 'photohttp': mutate('photo', "photo_url ~ '^https://[^[:space:]\"''<>()\\\\]+$'", "true"); break;
   case 'nolink': mutate('photo', " and position('{signup_link}' in outreach_body) > 0", ''); break;
+  // Without the partial index the order -> code match detoasts every order in
+  // its window and is cancelled at 8s, so no affiliate order can ever reach
+  // Studio -- and nothing else goes red. The verify block (check N1) is what
+  // makes that visible on production.
+  // The identifier is replaced EVERYWHERE in that migration, its
+  // `comment on index` target included: renaming only the `create index`
+  // left the comment pointing at an index that no longer exists, so setup
+  // threw before check N1 ran and the mutation passed for the wrong reason --
+  // which the CI wrapper (any nonzero exit, output suppressed) cannot tell
+  // apart. Review cycle 1, P2.
+  case 'nomatchindex':
+    mutate('matchindex', 'shopify_orders_co_created_coded_idx', 'shopify_orders_unused_idx'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins']) {
+// Each is applied TWICE, which is what pins every migration here as
+// idempotent -- `create index if not exists` included.
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
