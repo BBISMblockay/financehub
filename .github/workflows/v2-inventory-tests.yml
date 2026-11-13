@@ -137,11 +137,16 @@ jobs:
         run: npx --yes deno@2.9.6 check --no-config --node-modules-dir=none supabase/functions/payment-request-extract/index.ts
 
   # Affiliate Studio's mutation sweep runs the whole affiliate suite once per
-  # guard, which outgrew the Browser job's 15 minutes; it runs beside it here.
+  # guard (~40s each), which outgrew the Browser job's 15 minutes. It runs
+  # beside it here, split into four shards that each take every 4th guard.
   affiliate-guards:
-    name: Affiliate Studio guards
+    name: Affiliate Studio guards (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -164,7 +169,9 @@ jobs:
       - name: Affiliate Studio page guards (mutations)
         run: |
           set -u
+          i=0
           for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly offsetpage seedpush seedstick seedqall seedloudfail savelate; do
+            i=$((i + 1)); [ $(( (i - 1) % 4 )) = "${{ matrix.shard }}" ] || continue
             AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1 && code=0 || code=$?
             if [ "$code" = "0" ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
