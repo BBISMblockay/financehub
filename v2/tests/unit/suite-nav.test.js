@@ -159,4 +159,69 @@ r.test('the strip draws the tabs the nav returns, with the open one current', ()
   r.eq(m3.children[1].children.map((a) => a.href), ['/v2/my-review.html'], 'the open page is its own way back');
 });
 
+/* The strip filters on the person, not just the company (2026-11-13).
+ *
+ * navSectionsForCompany(co) alone leaves department, role and grants
+ * undefined, and every gate reads undefined as "no filter" -- so a strip
+ * built that way offers a marketing member Request Manager and Mailroom,
+ * which dept-guard.js then bounces them out of. The strip reads the chrome's
+ * resolved context instead; these are the three cases that were wrong. */
+r.test('a strip offers only the tabs that person could open', () => {
+  const make = (tag) => ({
+    tag, children: [], dataset: {}, attrs: {}, className: '', textContent: '', innerHTML: '', href: '',
+    append(...n) { this.children.push(...n); },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    querySelector() { return null; },
+  });
+  // One viewer: a company, a department, a role and a grant set, exactly as
+  // silo-chrome.js resolves them.
+  const strip = (file, active, viewer) => {
+    const context = {
+      window: {
+        SiloNav: null,
+        SiloChrome: { navContext: () => viewer },
+        __SILO_CONFIG__: { getActiveCompany: () => viewer.company },
+      },
+      document: { createElement: make },
+      URLSearchParams,
+      location: { search: '' },
+    };
+    vm.runInNewContext(read('v2/nav-config.js'), context);
+    context.window.SiloNav.NAV_ITEMS;              // loaded over the null above
+    vm.runInNewContext(read(file), context);
+    const mod = context.window.SiloSuiteNav || context.window.SiloPerformanceSuite;
+    let mounted = null;
+    const main = { querySelector: () => mounted, firstElementChild: { after: (n) => { mounted = n; } } };
+    mod.mount(main, active);
+    return mounted ? mounted.children[1].children.map((a) => a.href) : [];
+  };
+  const CO = { id: 'c1', meta: { nav_profile: 'grandfathered' } };
+
+  const marketing = strip('v2/suite-nav.js', 'finance/payment-request',
+    { company: CO, department: 'marketing', role: 'user', grantIds: new Set() });
+  r.eq(marketing, ['/v2/purchase_request2.html'], 'marketing is offered neither Request Manager nor Mailroom');
+
+  const logistics = strip('v2/suite-nav.js', 'finance/payment-request',
+    { company: CO, department: 'logistics', role: 'user', grantIds: new Set() });
+  r.eq(logistics, ['/v2/purchase_request2.html', '/v2/request_manager.html'],
+    'logistics tracks its own requests but is not offered the Mailroom');
+
+  const finance = strip('v2/suite-nav.js', 'finance/payment-request',
+    { company: CO, department: 'finance', role: 'user', grantIds: new Set() });
+  r.eq(finance, ['/v2/purchase_request2.html', '/v2/request_manager.html', '/v2/mailroom.html'],
+    'finance keeps all three');
+
+  // SEO is a tab of Marketing now, and its row is gated on an exec role OR a
+  // seo_approvers grant. Both ends of that gate, through the strip.
+  const noGrant = strip('v2/performance-suite.js', 'reports/marketing-overview',
+    { company: CO, department: 'marketing', role: 'user', grantIds: new Set() });
+  r.truthy(!noGrant.includes('/v2/seo-studio.html'), 'a member without the grant is not offered SEO');
+  const granted = strip('v2/performance-suite.js', 'reports/marketing-overview',
+    { company: CO, department: 'marketing', role: 'user', grantIds: new Set(['reports/seo']) });
+  r.truthy(granted.includes('/v2/seo-studio.html'), 'the seo_approvers grant brings the tab back');
+  const exec = strip('v2/performance-suite.js', 'reports/marketing-overview',
+    { company: CO, department: 'exec', role: 'owner', grantIds: new Set() });
+  r.truthy(exec.includes('/v2/seo-studio.html'), 'an owner is offered SEO without a grant');
+});
+
 r.summary();

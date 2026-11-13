@@ -296,7 +296,11 @@ test('the chrome maps every suite page onto the one row, mounts and refreshes th
   // a tab, so the chrome resolves once more onto the row the sidebar draws.
   assert.match(chromeSource, /PERFORMANCE_SUITE_PAGES \|\| \[\]\)\.some\(\(\[id\]\) => id === navActive\)/);
   assert.match(chromeSource, /SiloPerformanceSuite\?\.mount\(mainEl, opts\.active\)/);
-  assert.match(chromeSource, /SiloPerformanceSuite\?\.refresh\(mainEl, opts\.active\)/);
+  // Every strip is redrawn through one helper (2026-11-13), which runs when
+  // the company, the department or the grants resolve -- each of which can
+  // change which tabs this person may be offered.
+  assert.match(chromeSource, /SiloPerformanceSuite\?\.refresh\(mainEl, active\)/);
+  assert.match(chromeSource, /refreshSuiteStrips\(mainEl, opts\.active\)/);
   assert.match(chromeSource, /Nav\.sidebarSections/);
 });
 

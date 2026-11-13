@@ -709,6 +709,20 @@
     return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds, company);
   }
 
+  // The rows for the person LOOKING at the page: the company's nav profile
+  // plus the department, role and grants the chrome resolved for them. A tab
+  // strip must filter on exactly what the sidebar filtered on -- calling
+  // navSectionsForCompany(company) alone leaves department, role and grants
+  // undefined, which every gate below reads as "no filter", so a strip would
+  // offer tabs the sidebar correctly hides (a marketing member being shown
+  // Request Manager, 2026-11-13). Before the chrome has mounted there is no
+  // context yet and this is exactly the old call, which is the right failure:
+  // the strip narrows when refresh() runs.
+  function navSectionsForViewer(company) {
+    const ctx = (typeof global !== 'undefined' && global.SiloChrome?.navContext?.()) || {};
+    return navSectionsForCompany(company, ctx.department, ctx.role, ctx.grantIds);
+  }
+
   // What the SIDEBAR draws: a row that is a tab of another row is reached
   // through that row's strip, so it is not drawn twice. Everything else that
   // reads the nav (the "Jump to" palette, the strips, tests) keeps the full
@@ -720,6 +734,7 @@
   }
 
   global.SiloNav = {
+    navSectionsForViewer,
     MODULES,
     loadModuleVisibility,
     SALES_REPORT_PAGES,

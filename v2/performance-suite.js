@@ -45,7 +45,12 @@
     const co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
     const ids = new Set();
     try {
-      for (const sec of window.SiloNav?.navSectionsForCompany?.(co) || []) {
+      // navSectionsForViewer, not navSectionsForCompany: the strip filters on
+      // the same department, role and grants the sidebar used, or it offers
+      // tabs that are gated away from this person (2026-11-13).
+      const sections = window.SiloNav?.navSectionsForViewer?.(co)
+        || window.SiloNav?.navSectionsForCompany?.(co) || [];
+      for (const sec of sections) {
         for (const item of sec.items) ids.add(item.id);
       }
     } catch { /* no nav: only the open page's own tab is drawn */ }

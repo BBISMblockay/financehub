@@ -186,8 +186,32 @@
     }
   }
 
+  // What the sidebar filtered its rows WITH. The tab strips show the tabs
+  // whose nav row is visible, so they need the same three inputs: without
+  // them navSectionsForCompany() treats an unknown department, role and grant
+  // set as "no filter" and a strip offers tabs the sidebar correctly hides
+  // (a marketing member being shown Request Manager, 2026-11-13).
+  let navViewer = { department: null, role: null, grantIds: null };
+
+  // Every tab strip, redrawn with whatever the sidebar now knows: the nav
+  // profile (company), the department, the role and the grants. A strip only
+  // replaces itself when its tab set actually changed, so this never flickers.
+  function refreshSuiteStrips(mainEl, active) {
+    if (!mainEl) return;
+    window.SiloAdStudioSuite?.refresh(mainEl, active);
+    window.SiloPerformanceSuite?.refresh(mainEl, active);
+    window.SiloPurchasingSuite?.refresh(mainEl, active);
+    window.SiloProjectionsSuite?.refresh(mainEl, active);
+    window.SiloSuiteNav?.refresh(mainEl, active);
+  }
+
   function renderNavSections(active, department, role, grantIds) {
     const company = getActiveCompany();
+    navViewer = {
+      department: department ?? getCachedDepartment(),
+      role: role ?? null,
+      grantIds: grantIds ?? getCachedGrantIds(),
+    };
     // sidebarSections drops rows that are tabs of another row (the Performance
     // suite); tolerate a cached nav-config from before it existed.
     const NAV_SECTIONS = (Nav.sidebarSections || ((s) => s))(
@@ -602,6 +626,7 @@
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, effectiveRole);
+        refreshSuiteStrips(mainEl, opts.active);
       });
     }
 
@@ -615,6 +640,7 @@
         // navActive, not opts.active: a suite page's own id is not a sidebar
         // id, so repainting with it left no row highlighted at all.
         if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, grantIds);
+        refreshSuiteStrips(mainEl, opts.active);
       });
     }
 
@@ -763,11 +789,7 @@
           // The Ad Studio strip for the same reason the sidebar is repainted:
           // one of its tabs is narrowed by nav profile, and first paint on a
           // deep link has no company yet, so it drew the smaller strip.
-          if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloPerformanceSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloPurchasingSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloProjectionsSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloSuiteNav?.refresh(mainEl, opts.active);
+          refreshSuiteStrips(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {
@@ -990,5 +1012,8 @@
     window.location.href = '/pages/login.html';
   }
 
-  window.SiloChrome = { mount, resolveNavProfile, navSectionsForCompany };
+  // The tab strips read this so they filter on exactly what the sidebar did.
+  function navContext() { return { ...navViewer }; }
+
+  window.SiloChrome = { mount, resolveNavProfile, navSectionsForCompany, navContext };
 })();

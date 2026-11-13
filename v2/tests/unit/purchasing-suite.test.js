@@ -78,7 +78,11 @@ r.test('silo-chrome maps every suite page onto the one sidebar row', () => {
   r.has(src, 'SiloPurchasingSuite?.contains(navActive)', 'maps the active id');
   r.has(src, 'Nav.PURCHASING_ROW', 'uses the exported row id');
   r.has(src, 'window.SiloPurchasingSuite?.mount(mainEl, opts.active)', 'mounts the strip');
-  r.has(src, 'window.SiloPurchasingSuite?.refresh(mainEl, opts.active)', 'refreshes it after reconcile');
+  // 2026-11-13: every strip is redrawn through one helper, called when the
+  // company, the department or the grants resolve -- not once after the
+  // company reconcile.
+  r.has(src, 'window.SiloPurchasingSuite?.refresh(mainEl, active)', 'is redrawn with the others');
+  r.has(src, 'refreshSuiteStrips(mainEl, opts.active)', 'the helper runs on the paths that change what is visible');
 });
 
 r.test('the strip draws only tabs the nav returns, plus the open page', () => {
