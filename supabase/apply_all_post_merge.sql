@@ -19768,4 +19768,5 @@ $c$select (select count(*) from v_po_header_summary
 -- drift check will name it.
 \i migrations/20261113030000_payment_request_vendor_suggestions.sql
 \i migrations/20261113040000_nav_profile_in_entity_meta.sql
+\i migrations/20261113050000_attribution_history_cursor.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

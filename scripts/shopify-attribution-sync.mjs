@@ -75,7 +75,19 @@ if (coverage) {
       await ensureShopifyAccessToken(db,connection);connection.api_version='2026-07';
       const shop=(await shopifyGraphql(connection,'query AttributionCalendar { shop { ianaTimezone } }')).shop;
       connection.coverageTimezone=shop.ianaTimezone;
-      catalogs.set(connection.id,await loadCatalog(db,connection.company_entity_id));return shop.ianaTimezone;
+      catalogs.set(connection.id,await loadCatalog(db,connection.company_entity_id));
+      // The shop's own creation day, in the shop's own calendar, is the hard bottom of the
+      // automatic history walk: there is nothing to collect for a day on which the store
+      // did not exist. Asked SEPARATELY and best-effort on purpose -- a store's calendar is
+      // what the run cannot proceed without, and no new field may ever be able to turn the
+      // nightly run that keeps every store current into a failure. Unknown simply means the
+      // walk is bounded by its configured depth alone.
+      let createdDay=null;
+      try{
+        const born=Date.parse((await shopifyGraphql(connection,'query AttributionShopAge { shop { createdAt } }')).shop?.createdAt||'');
+        if(Number.isFinite(born))createdDay=storeToday(shop.ianaTimezone,new Date(born));
+      }catch{console.log(JSON.stringify({connection_id:connection.id,event:'shop_age_unavailable'}));}
+      return {timeZone:shop.ianaTimezone,createdDay};
     },
     runDay:(connection,day)=>publishDay(connection,day,true,catalogs.get(connection.id),async()=>{
       const fresh=await checked(db.from('shopify_connections').select('*').eq('id',connection.id).maybeSingle());
