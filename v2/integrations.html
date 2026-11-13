@@ -3963,15 +3963,39 @@
         setStatus('That does not look like a Klaviyo PRIVATE key — those start with “pk_”. The short company ID is the public key and cannot read reports.', 'neg', 12000);
         return;
       }
-      const { error } = await db.from('klaviyo_connections').upsert({
-        company_entity_id: _co.id,
+      // Deliberately NOT .upsert(). PostgREST resolves an upsert to
+      // ON CONFLICT DO UPDATE SET api_key = EXCLUDED.api_key, and PostgreSQL
+      // requires SELECT on api_key to read that EXCLUDED value -- the grant
+      // 20261113010000 revokes. The whole statement is then refused and Connect
+      // dies with "permission denied for table klaviyo_connections", even
+      // though INSERT and UPDATE are both still allowed. So: insert first, and
+      // fall back to an update when this company already has a row.
+      const fields = {
         display_name: 'Klaviyo',
         auth_mode: 'api_key',
         api_key: key,
         is_active: true,
         sync_enabled: false,
-      }, { onConflict: 'company_entity_id' });
+      };
+      let { error } = await db.from('klaviyo_connections')
+        .insert({ company_entity_id: _co.id, ...fields });
+      if (error && error.code === '23505') {
+        ({ error } = await db.from('klaviyo_connections')
+          .update({ ...fields, updated_at: new Date().toISOString() })
+          .eq('company_entity_id', _co.id));
+      }
       if (error) { setStatus('Connect failed: ' + error.message, 'neg', 8000); return; }
+      // An RLS-refused UPDATE affects zero rows without raising, so confirm the
+      // row is actually there before anyone is told they are connected. Names
+      // only columns the browser may still read.
+      const { data: saved } = await db.from('klaviyo_connections')
+        .select('id, auth_mode')
+        .eq('company_entity_id', _co.id)
+        .maybeSingle();
+      if (!saved) {
+        setStatus('Connect failed: the key could not be saved to this workspace.', 'neg', 8000);
+        return;
+      }
       input.value = '';
       document.getElementById('klaviyo-add-form').style.display = 'none';
       // The test is what proves the key and resolves the conversion metric, so
@@ -4092,10 +4116,23 @@
         </tr>`;
     }
 
+    // Every column this card reads, named: access_token and refresh_token are
+    // not columns a member may select (20261113010000), so select('*') is
+    // refused outright -- the same reason SHOPIFY_BASE_COLUMNS above is a list.
+    // refresh_token_expires_at IS here: the EXPIRY is what renderQboConnection
+    // shows ("reconnect needed"), and an expiry is not a credential.
+    const QBO_CONNECTION_COLUMNS = [
+      'id', 'company_entity_id', 'realm_id', 'company_name', 'environment',
+      'token_expires_at', 'refresh_token_expires_at', 'is_active', 'accounts_synced_at',
+      'last_tested_at', 'last_test_status', 'last_test_success', 'last_test_error',
+      'meta', 'created_at', 'updated_at', 'created_by', 'updated_by',
+      'location_tracking_enabled',
+    ].join(',');
+
     async function loadQboConnection() {
       if (!_co?.id) return;
       const { data, error } = await db.from('quickbooks_connections')
-        .select('*')
+        .select(QBO_CONNECTION_COLUMNS)
         .eq('company_entity_id', _co.id)
         .order('created_at')
         .limit(1);

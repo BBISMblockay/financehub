@@ -19735,4 +19735,17 @@ $c$select (select count(*) from v_po_header_summary
 -- holds a brief ACCESS EXCLUSIVE lock on shopify_orders while it builds, so
 -- apply it when a Shopify sync is not mid-run. No deploy owed.
 \i migrations/20261112220000_affiliate_order_match_index.sql
+-- 2026-11-13: four findings from the read-only security review of 2026-11-12.
+-- (1) the shared read-only report engine now refuses the functions that make
+-- the DATABASE issue an outbound request (pg_net, extensions.http*) or sleep,
+-- which Ask SILO, every saved report, every v3 tile and the developer API's
+-- `query` could all reach; (2) ar_sync_status_v stops serving the retired
+-- Google Sheets publish-to-web URLs to anon, and they are cleared from the
+-- stored row; (3) the plaintext OAuth tokens on quickbooks_connections,
+-- klaviyo_connections and ad_platform_connections stop being SELECTable by the
+-- browser roles, the way shopify_connections already was; (4) one SELECT
+-- policy stops applying to PUBLIC. No deploy. Ships with the v2/integrations
+-- change that makes the QuickBooks card name its columns -- apply this AFTER
+-- that merges, or the card breaks on select('*') until it does.
+\i migrations/20261113010000_security_review_fixes.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

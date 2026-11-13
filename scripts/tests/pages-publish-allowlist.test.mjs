@@ -38,11 +38,25 @@ const REVIEW_ASSETS = ['testing/meta-oauth.html', 'testing/meta-oauth.js', 'test
 const MUST_BE_ABSENT = [
   'data', 'server', 'scripts', 'supabase', 'docs', 'tests', 'config',
   'config.json', 'package.json', 'package-lock.json', 'deno.lock', 'CLAUDE.md',
+  // Security review 2026-11-12. `legacy/pages` holds two unmaintained pages
+  // nothing links to -- payroll.html and login2.html -- which were being served
+  // from silo-baseballism.com (both 200). An unmaintained page on the
+  // production domain is how legacy/pages/mise.html became Critical 2 of the
+  // 2026-10-14 audit. The two named below prove legacy/ itself is still
+  // published, which is the point: the exclusion is the subdirectory, not the
+  // archive.
+  'legacy/pages',
+  'legacy/pages/payroll.html',
+  'legacy/pages/login2.html',
 ];
 // The app itself, so a build that published nothing cannot pass this file.
 const MUST_BE_PRESENT = [
   'index.html', 'CNAME', 'demo.html', 'v2/projections.html', 'v2/nav-config.js',
   'v3', 'pages/config.js', 'assets', 'legal', 'oauth', 'legacy',
+  // The two iframe shells whose ROUTES point at live v2 pages, exercised by
+  // v2/tests/unit/legacy-retirement.test.js. These are why `legacy` cannot be
+  // excluded wholesale.
+  'legacy/finance.html', 'legacy/retail.html',
 ];
 
 let n = 0; const t = (name, fn) => { fn(); console.log(`ok ${++n} - ${name}`); };

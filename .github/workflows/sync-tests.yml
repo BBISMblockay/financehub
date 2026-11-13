@@ -328,6 +328,13 @@ on:
       - 'supabase/migrations/*profiles_active_company_scope.sql'
       - 'supabase/migrations/*chat_readonly_query_read_only_txn.sql'
       - 'supabase/migrations/*readonly_query_refuse_identity_switch.sql'
+      # The same guard's egress half, plus the ar_sync_status_v column
+      # allowlist and the integration-credential grants. verify_v2_schema.sql
+      # is a trigger because the suite reads its four new checks out of that
+      # file and asserts they go green -- a check edited there and not here
+      # would otherwise go unrun.
+      - 'supabase/migrations/*security_review_fixes.sql'
+      - 'supabase/verify_v2_schema.sql'
       - 'supabase/migrations/*seo_measurement_capture.sql'
       - 'supabase/migrations/*nav_badge_counts.sql'
       - 'supabase/migrations/*seo_project_workflow.sql'
@@ -2228,6 +2235,20 @@ jobs:
       # function that runs SQL text (which could build the name at run time).
       - name: Execute read-only query identity guard regressions
         run: node scripts/tests/readonly-query-identity-database.test.mjs
+
+      # The same guard's other half: net.http_post and extensions.http_get are
+      # SELECTs, so every shape check passed them, and `authenticated` holds
+      # EXECUTE plus schema USAGE for both. Also the ar_sync_status_v column
+      # allowlist, the integration-credential column grants and one role-less
+      # policy. Mutation-tested: SEC_MUTATION=bare-http is the near-miss that
+      # would refuse any report building a URL, and column-revoke-only is the
+      # no-op column revoke this migration was first written as.
+      # Its page-side half, connection-credentials-not-selected.test.js, runs
+      # in "v2 page tests" instead -- that workflow triggers on every v2 page,
+      # which is where a bad select would appear; this one triggers on
+      # migrations, where it could not.
+      - name: Execute security review regressions (egress guard, credentials, view allowlist)
+        run: node scripts/tests/security-review-fixes-database.test.mjs
 
       - name: Execute cashflow override, liquidity and audit regressions
         run: node scripts/tests/cashflow-database.test.mjs
