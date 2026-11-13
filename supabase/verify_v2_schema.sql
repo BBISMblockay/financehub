@@ -1739,6 +1739,121 @@ select
     else 'ok'
   end as readonly_query_identity_guard;
 
+-- ── Read-only query egress guard (20261113010000) ─────────────────────
+-- The same guard must also refuse the functions that make the DATABASE issue
+-- an outbound request. `authenticated` holds EXECUTE on net.http_* and every
+-- extensions.http* function AND USAGE on both schemas (Supabase defaults, which
+-- cannot safely be revoked -- net.http_post is held by `postgres` only through
+-- the bare PUBLIC ACL, and revoking it kills trg_sample_notify). So the refusal
+-- list IS the boundary: without it, one SELECT through Ask SILO, a saved
+-- report, a v3 tile or the developer API's `query` exfiltrates rows out of a
+-- channel SILO does not log, and reaches hosts only the database can see.
+-- The last two cases are the near-miss: a report that merely BUILDS a url must
+-- still run, or every link column in SILO stops reporting.
+select
+  case
+    when to_regprocedure('public.silo_sql_refused_function(text)') is null
+      then 'CRITICAL — silo_sql_refused_function missing. Run 20261113010000_security_review_fixes.sql'
+    when public.silo_sql_refused_function('select net.http_post(''https://x.invalid'', ''{}''::jsonb)') is null
+      or public.silo_sql_refused_function('select net.http_collect_response(1)') is null
+      or public.silo_sql_refused_function('select extensions.http_get(''http://169.254.169.254/'')') is null
+      or public.silo_sql_refused_function('select http_post(''x'', ''y'')') is null
+      or public.silo_sql_refused_function('select pg_sleep(30)') is null
+      then 'CRITICAL — silo_sql_refused_function no longer refuses outbound HTTP or pg_sleep. Run 20261113010000'
+    when public.silo_sql_refused_function('select ''http://shop.example/'' || handle as link from products') is not null
+      or public.silo_sql_refused_function('select extensions.similarity(a, b) from t') is not null
+      then 'BROKEN — the egress guard refuses an ordinary report that builds a URL, or extensions.similarity. Its pattern is too wide'
+    else 'ok'
+  end as readonly_query_egress_guard;
+
+-- ── ar_sync_status_v discloses no credential (20261113010000) ─────────
+-- The view is definer (check 15 above) over job_sync_state, which has no
+-- company_entity_id, so there is no tenant filter to hold the line -- the
+-- COLUMN LIST is the boundary. Its payload held the Google Sheets
+-- publish-to-web CSV URLs that were Critical 1 of the 2026-10-14 audit, and
+-- anon could read them (verified live 2026-11-12: 200, 1198 bytes). payload
+-- must stay an ALLOWLIST built with jsonb_build_object, never the stored
+-- column, or the next key written into that row is disclosed by default.
+select
+  case
+    when to_regclass('public.ar_sync_status_v') is null
+      then 'MISSING — ar_sync_status_v view not found'
+    when pg_get_viewdef('public.ar_sync_status_v'::regclass) not ilike '%jsonb_build_object%'
+      then 'CRITICAL — ar_sync_status_v passes job_sync_state.payload straight through; it holds the retired sheet URLs. Run 20261113010000'
+    when pg_get_viewdef('public.ar_sync_status_v'::regclass) ilike '%sources%'
+      then 'CRITICAL — ar_sync_status_v names payload.sources, the retired Google Sheets URLs'
+    when has_table_privilege('anon', 'public.ar_sync_status_v', 'select')
+      then 'CRITICAL — anon can read ar_sync_status_v. Run 20261113010000'
+    when not has_table_privilege('authenticated', 'public.ar_sync_status_v', 'select')
+      then 'BROKEN — authenticated cannot read ar_sync_status_v; the Ops panel on v2/backend.html shows Unavailable'
+    when exists (select 1 from public.job_sync_state
+                  where key = 'ar_google_sheets_sync' and payload ? 'sources')
+      then 'MISSING — job_sync_state still stores the retired sheet URLs in payload.sources. Run 20261113010000'
+    else 'ok'
+  end as ar_sync_status_v_no_credentials;
+
+-- ── Integration credentials are not selectable by the browser (20261113010000)
+-- These tables carry live OAuth tokens and API keys in plaintext. Their row
+-- policies admit any ADMIN of the company and is_admin_user() passes for
+-- nearly every profile, so column privileges are what stops a workspace admin
+-- reading their tenant's QuickBooks, Klaviyo, Google Ads, Meta and TikTok
+-- credentials out of PostgREST. silo_api_exec is checked too: it owns the
+-- SECURITY DEFINER silo_api_query, and it inherits from `authenticated` rather
+-- than holding its own grant, so it is the MCP path's view of the same thing.
+-- A column-level revoke alone is a NO-OP while a table-level SELECT grant
+-- stands, so the table grant is asserted gone as well.
+select
+  case
+    when (select count(*) from (
+            select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public'
+               and c.relname in ('quickbooks_connections', 'klaviyo_connections',
+                                 'ad_platform_connections', 'shopify_connections')) x) < 4
+      then 'MISSING — a connection table is absent'
+    when exists (
+      select 1
+        from (values ('quickbooks_connections'), ('klaviyo_connections'),
+                     ('ad_platform_connections'), ('shopify_connections')) tbl(t)
+        cross join (values ('anon'), ('authenticated'), ('silo_api_exec')) rol(r)
+        join information_schema.columns col
+          on col.table_schema = 'public' and col.table_name = tbl.t
+         and col.column_name in ('access_token', 'refresh_token', 'api_key')
+       where has_column_privilege(rol.r, ('public.' || tbl.t)::regclass, col.column_name, 'select'))
+      then 'CRITICAL — a browser role can SELECT a stored integration credential. Run 20261113010000'
+    when exists (
+      select 1 from (values ('quickbooks_connections'), ('klaviyo_connections'),
+                            ('ad_platform_connections'), ('shopify_connections')) tbl(t)
+       where has_table_privilege('authenticated', ('public.' || tbl.t)::regclass, 'select'))
+      then 'CRITICAL — a connection table still carries a TABLE-level SELECT grant, which covers every column including the credentials'
+    when exists (
+      select 1 from (values ('quickbooks_connections'), ('klaviyo_connections'),
+                            ('ad_platform_connections')) tbl(t)
+       where not has_column_privilege('authenticated', ('public.' || tbl.t)::regclass, 'id', 'select'))
+      then 'BROKEN — authenticated lost SELECT on a non-credential column; the Integrations cards will not load'
+    when not has_column_privilege('service_role', 'public.quickbooks_connections', 'access_token', 'select')
+      then 'BROKEN — service_role cannot read a credential; every sync and edge function stops'
+    else 'ok'
+  end as connection_credentials_not_browser_readable;
+
+-- ── The ad-platform SELECT policy names a role (20261113010000) ───────
+-- Its two siblings are scoped `to authenticated`; this one applied to PUBLIC,
+-- so an anon request matched it and got 42501 from active_company_id() rather
+-- than an empty result. Noise rather than a leak, fixed so a role-less
+-- permissive policy is not left sitting next to two that name their role.
+select
+  case
+    when not exists (select 1 from pg_policy p join pg_class c on c.oid = p.polrelid
+                      where c.relname = 'ad_platform_connections'
+                        and p.polname = 'ad_platform_connections_admin_select')
+      then 'MISSING — ad_platform_connections_admin_select policy not found'
+    when exists (select 1 from pg_policy p join pg_class c on c.oid = p.polrelid
+                  where c.relname = 'ad_platform_connections'
+                    and p.polname = 'ad_platform_connections_admin_select'
+                    and p.polroles = '{0}')
+      then 'MISSING — ad_platform_connections_admin_select applies to PUBLIC. Run 20261113010000'
+    else 'ok'
+  end as ad_platform_select_policy_roles;
+
 -- ── Developer API query tool (20261030110000) ─────────────────────────
 -- data:read: describe_tables (Ask SILO's catalog, never rows) and query (one
 -- read-only SELECT as the person under RLS). The runner must stay owned by

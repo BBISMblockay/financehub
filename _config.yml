@@ -7,6 +7,19 @@
 # pages, v2/, v3/, pages/, assets/, legal/, oauth/, legacy/ (still-linked iframe
 # targets), CNAME.
 #
+# `legacy/pages` is excluded (security review 2026-11-12). `legacy/` as a whole
+# cannot be: legacy/finance.html and legacy/retail.html are the iframe shells
+# whose ROUTES point at the live v2 pages, they are still linked, and
+# v2/tests/unit/legacy-retirement.test.js exercises those route definitions. But
+# the two files UNDER legacy/pages -- payroll.html and login2.html -- are linked
+# from nowhere in the repo and were being served from silo-baseballism.com
+# anyway (both answered 200, checked 2026-11-12). Neither leaks on its own:
+# payroll.html gates on requireAuth() and login2.html is a duplicate login page,
+# both read pages/config.js, and neither carries a hardcoded key or a sheet URL.
+# They come out because an unmaintained page on the production domain is how
+# legacy/pages/mise.html became Critical 2 of the 2026-10-14 audit -- it was
+# live and ungated for exactly this reason, that nothing excluded legacy/.
+#
 # Setting `exclude` replaces Jekyll's default list, so its defaults are restated
 # at the end. A new top-level folder is PUBLIC unless it is added here.
 #
@@ -23,6 +36,7 @@ exclude:
   - tests
   - testing
   - config
+  - legacy/pages
   - config.json
   - package.json
   - package-lock.json
