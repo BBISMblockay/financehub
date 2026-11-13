@@ -100,6 +100,28 @@ export function planSyncRun(conn) {
  * @param deps.syncOutcome    the shared sync core's meta.last_sync builder
  * @param deps.clientSideReason  the shared allowlist of failures the CLIENT owns
  */
+// Fence every PostgREST execution, including writes inside the shared sync
+// core and error bookkeeping. Abort in-flight HTTP too; never use a global
+// fetch override, which would affect other tenants sharing this isolate.
+export function abortableSyncClient(client, signal) {
+  const wrap = (target) => new Proxy(target, {
+    get(object, key) {
+      const member = Reflect.get(object, key);
+      if (typeof member !== 'function') return member;
+      return (...args) => {
+        signal.throwIfAborted();
+        if (key === 'then') {
+          const query = typeof object.abortSignal === 'function' ? object.abortSignal(signal) : object;
+          return query.then(...args);
+        }
+        const result = member.apply(object, args);
+        return result && typeof result === 'object' ? wrap(result) : result;
+      };
+    },
+  });
+  return wrap(client);
+}
+
 export function createHandler({
   service, userClientFor, googleEnv, runConnectionSync, syncOutcome, clientSideReason, withAdSyncLease, now = () => new Date(),
 }) {
@@ -139,7 +161,12 @@ export function createHandler({
     if (conn.platform === 'meta_ads' && !withAdSyncLease) return json({ ok: false, error: 'Sync locking is not configured' }, 503);
     try {
       const leaseRunner = conn.platform === 'meta_ads' ? withAdSyncLease : ({ run }) => run();
-      const response = await leaseRunner({ db: service, connection: conn, run: async () => {
+      const controller = new AbortController();
+      const guardedService = abortableSyncClient(service, controller.signal);
+      const response = await leaseRunner({ db: service, connection: conn,
+        onLost: (error) => controller.abort(error), run: async () => {
+        const service = guardedService;
+        controller.signal.throwIfAborted();
         // Never stamp a pre-lock metadata snapshot over a completed import.
         const fresh = await service.from('ad_platform_connections').select('*')
           .eq('id', conn.id).eq('company_entity_id', conn.company_entity_id).maybeSingle();
@@ -199,6 +226,7 @@ export function createHandler({
         : conn;
       result = await runConnectionSync(service, googleEnv, syncConn, {
         batchId: `manual-${job.id}`,
+        signal: controller.signal,
         daysBackOverride: plan.daysBack,
         now: now(),
         onTokenRefresh: async (accessToken, expiresAt) => {
@@ -208,6 +236,7 @@ export function createHandler({
         },
       });
     } catch (err) {
+      controller.signal.throwIfAborted();
       const message = String(err?.message ?? err).slice(0, 500);
       // The SAME allowlist the nightly uses (lib/ad-sync-client-errors.mjs, a
       // verbatim copy). Without it a manual attempt stores an unclassified
@@ -221,6 +250,7 @@ export function createHandler({
       return fail(message, 502);
     }
 
+    controller.signal.throwIfAborted();
     // The rows are in; only the bookkeeping remains. A failure here is SILO's,
     // not Google's, and the answer says the data did land.
     try {

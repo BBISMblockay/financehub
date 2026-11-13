@@ -84,6 +84,9 @@ function runStage(stage, extraEnv, signal) {
         resolve({ ok: false, detail: `timed out after ${Math.round(timeoutMs / 60000)}m` });
         return;
       }
+      if (code === 75 && extraEnv.ADS_BOOTSTRAP_STRICT === 'true') {
+        resolve({ ok: false, deferred: true, detail: 'Another sync is running; queued to retry' }); return;
+      }
       if (code === 0) { resolve({ ok: true, detail: null }); return; }
       resolve({
         ok: false,

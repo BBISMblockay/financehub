@@ -49,6 +49,9 @@ returns boolean language sql security invoker set search_path = '' as $$
   ) select exists(select 1 from released);
 $$;
 
+-- Deferrals do not consume failure budget; attempts remains monotonic fencing.
+alter table public.integration_bootstrap_jobs add column if not exists deferrals integer not null default 0;
+
 -- Same atomic claim for targeted dispatch and scheduled draining. attempts is
 -- the fencing generation checked on every runner progress/renewal write.
 create or replace function public.claim_integration_bootstrap_job(
@@ -65,7 +68,10 @@ language sql security invoker set search_path = '' as $$
     where (p_job_id is null or c.id = p_job_id)
       and c.status in ('pending', 'running')
       and (c.lease_until is null or c.lease_until < now())
-      and c.attempts < greatest(1, p_max_attempts)
+      and c.attempts - c.deferrals < greatest(1, p_max_attempts)
+      and not exists (select 1 from public.ad_sync_leases l
+        where c.integration = 'meta_ads' and l.connection_id = c.connection_id
+          and l.company_entity_id = c.company_entity_id and l.lease_until > now())
     order by c.created_at limit least(5, greatest(1, p_limit))
     for update skip locked
   ) returning j.*;

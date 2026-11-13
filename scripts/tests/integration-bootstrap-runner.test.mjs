@@ -297,5 +297,66 @@ await test('the Shopify stages are launched with the connection id and a manual 
   }
 });
 
+await test('contention defers immediately without burning retries or starting history', async () => {
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  let stages = {};
+  for (let generation = 1; generation <= 6; generation++) {
+    const db = fakeDb({ connection }); const ran = [];
+    const runner = createRunner({ db, log: silent, maxAttempts: 5,
+      runStage: async (s) => { ran.push(s.stage); return { ok: false, deferred: true, detail: 'connection busy' }; } });
+    const before = Date.now();
+    const out = await runner.runJob(job({ integration: 'meta_ads', attempts: generation, deferrals: generation - 1, stages }));
+    assert.equal(out.status, 'pending'); assert.equal(out.deferred, true);
+    assert.deepEqual(ran, ['recent_data'], 'do not start history after contention');
+    const write = db.writes.at(-1);
+    assert.equal(write.patch.deferrals, generation);
+    assert.equal(write.patch.attempts, undefined, 'never roll back ownership generation');
+    assert.deepEqual(write.filters.attempts, [generation]);
+    assert.deepEqual(write.filters.status, ['running']);
+    assert.ok(write.filters['gt.lease_until']);
+    assert.equal(write.patch.last_error, null);
+    assert.equal(write.patch.finished_at, undefined);
+    const cooldown = Date.parse(write.patch.lease_until) - before;
+    assert.ok(cooldown >= 15 * 60_000 && cooldown < 15 * 60_000 + 2000);
+    stages = write.patch.stages;
+    assert.equal(stages.recent_data.status, 'pending');
+    assert.equal(stages.history, undefined);
+  }
+  const db = fakeDb({ connection }); const ran = [];
+  const runner = createRunner({ db, log: silent, runStage: async (s) => { ran.push(s.stage); return {ok:true}; } });
+  const out = await runner.runJob(job({integration:'meta_ads', attempts:7, deferrals:6, stages}));
+  assert.equal(out.status, 'done');
+  assert.deepEqual(ran, ['recent_data', 'history']);
+});
+
+await test('history contention preserves recent stage and resumes history only', async () => {
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  const db = fakeDb({connection});
+  const initial = {recent_data: {status:'done', detail:'3s'}};
+  const runner = createRunner({db, log:silent, runStage:async()=>({deferred:true, detail:'busy'})});
+  await runner.runJob(job({integration:'meta_ads', stages:initial}));
+  const stages = db.writes.at(-1).patch.stages;
+  assert.deepEqual(stages.recent_data,initial.recent_data);
+  const ran=[]; const nextDb=fakeDb({connection});
+  const next=createRunner({db:nextDb,log:silent,runStage:async(s)=>{ran.push(s.stage);return {ok:true};}});
+  assert.equal((await next.runJob(job({integration:'meta_ads',attempts:2,deferrals:1,stages}))).status,'done');
+  assert.deepEqual(ran,['history']);
+});
+
+await test('ordinary failure cooldown uses real attempts minus deferrals', async () => {
+  for (const [attempts, deferrals, expected] of [[7,6,'pending'],[11,6,'error']]) {
+    const db=fakeDb(); const before=Date.now();
+    const runner=createRunner({db,log:silent,maxAttempts:5,runStage:async()=>({ok:false,detail:'temporary outage'})});
+    const out=await runner.runJob(job({attempts,deferrals}));
+    assert.equal(out.status,expected);
+    const patch=db.writes.at(-1).patch;
+    if(expected==='pending') {
+      assert.ok(Date.parse(patch.lease_until)-before>=15*60_000);
+      assert.equal(patch.finished_at,undefined);
+    } else assert.equal(patch.lease_until,null);
+    assert.equal(patch.deferrals,undefined,'real failure does not become a deferral');
+  }
+});
+
 console.log(`\n${count - failures}/${count} passed`);
 if (failures) process.exit(1);

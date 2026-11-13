@@ -258,6 +258,12 @@ export function createRunner({
         const started = Date.now();
         const res = await runStage(stage, stage.env, controller.signal);
         controller.signal.throwIfAborted();
+        if (res.deferred) {
+          stages = withStageResult(stages, stage.stage, 'pending', res.detail);
+          await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
+            last_error: null, lease_until: new Date(Date.now() + 15 * 60_000).toISOString() });
+          return { job, status: 'pending', deferred: true };
+        }
         const secs = Math.round((Date.now() - started) / 1000);
         stages = withStageResult(
           stages,
@@ -276,7 +282,7 @@ export function createRunner({
     }
 
     const outcome = bootstrapOutcome(stages);
-    const settled = outcome === 'done' || job.attempts >= maxAttempts;
+    const settled = outcome === 'done' || job.attempts - (job.deferrals || 0) >= maxAttempts;
     await patchJob(job, {
       stages,
       // Not settled means there is an errored stage and attempts left: the row
@@ -284,7 +290,7 @@ export function createRunner({
       // stages that failed, since the successful ones are recorded done.
       status: settled ? outcome : 'pending',
       ...(outcome === 'done' ? { last_error: null } : {}),
-      lease_until: null,
+      lease_until: settled ? null : new Date(Date.now() + 15 * 60_000).toISOString(),
       ...(settled ? { finished_at: new Date().toISOString() } : {}),
     }, { onlyWhileRunning: true });
     log.log(`[bootstrap] ${label}: ${settled ? outcome : 'pending (will retry)'} after attempt ${job.attempts}`);

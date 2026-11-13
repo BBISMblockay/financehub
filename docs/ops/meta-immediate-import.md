@@ -6,7 +6,7 @@ The Meta plan is:
 1. Recent campaign and ad rows (3 days, no organic).
 2. Campaign/ad history (365 days), creatives and configured organic history.
 
-A missing ad-level result cannot mark either stage complete. Completed stages are not repeated on recovery. A temporary failure returns the job to pending; the existing 15-minute bootstrap schedule retries it, subject to GitHub schedule delays and the existing five-attempt ceiling. Full ad-platform schedules remain a recovery fallback. This is not a promise of zero queue latency or instant provider history.
+A missing ad-level result cannot mark either stage complete. Completed stages are not repeated on recovery. A temporary failure returns the job to pending; the existing 15-minute bootstrap schedule retries it, after at least a 15-minute retry delay, subject to GitHub schedule delays and the five-failed-attempt ceiling. Busy-connection deferrals do not consume that failure budget; claim generations remain monotonic. Full ad-platform schedules remain a recovery fallback. This is not a promise of zero queue latency or instant provider history.
 
 “Refresh campaign totals” remains a short interactive action; it does not complete the ad-history import. The status banner polls recorded stage progress while the page is visible. There is no fabricated percentage or ETA.
 

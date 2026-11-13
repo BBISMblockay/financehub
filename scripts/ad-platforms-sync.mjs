@@ -393,9 +393,11 @@ async function main() {
       // No stale runner may continue provider/database writes after losing ownership.
       onLost: (err) => { console.error(err.message); process.exit(1); },
     });
-    if (BOOTSTRAP_STRICT && leased?.skipped) throw new Error('Initial import waiting: another sync owns this connection');
     return leased;
   }, label);
+
+  // Contention is not a failed provider attempt. The bootstrap runner defers it.
+  if (BOOTSTRAP_STRICT && allResults.some((r) => r?.skipped === 'sync_already_running')) process.exit(75);
 
   // The keyword-candidate rollup (search_console_query_rollup_mv,
   // 20260926150000) is what /v2/seo-keywords.html reads instead of the

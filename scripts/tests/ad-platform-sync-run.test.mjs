@@ -470,3 +470,59 @@ await test('missing locking migration fails closed without provider writes', asy
   assert.equal(response.status, 503);
   assert.equal(db.log.inserts.length, 0);
 });
+
+await test('lease loss prevents all later data and bookkeeping writes', async () => {
+  const db = makeDb({ rows: [metaConn()], visibleIds: ['c-meta'] });
+  let lose; let updatesAtLoss; let insertsAtLoss;
+  const handler = H.createHandler({ service: db.service, userClientFor: db.userClientFor, googleEnv: ENV,
+    syncOutcome: core.syncOutcome, clientSideReason,
+    withAdSyncLease: async ({run,onLost}) => { lose=onLost; return run(); },
+    runConnectionSync: async (scoped) => {
+      updatesAtLoss=db.log.updates.length; insertsAtLoss=db.log.inserts.length;
+      lose(new Error('lease lost'));
+      await scoped.from('ad_platform_connections').update({meta:{stale:true}}).eq('id','c-meta');
+      throw new Error('must never reach');
+    },
+  });
+  assert.equal((await handler(req({connection_id:'c-meta'}))).status,503);
+  assert.equal(db.log.updates.length,updatesAtLoss);
+  assert.equal(db.log.inserts.length,insertsAtLoss);
+});
+await test('guarded database query receives abort signal and blocks a prebuilt query', async () => {
+  const controller=new AbortController(); let received; let executions=0;
+  const query={abortSignal(signal){received=signal;return this;}, then(resolve){executions++;return Promise.resolve({data:[]}).then(resolve);}};
+  const scoped=H.abortableSyncClient({from(){return query;}},controller.signal);
+  const prebuilt=scoped.from('x'); await prebuilt;
+  assert.equal(received,controller.signal); assert.equal(executions,1);
+  controller.abort(new Error('lost'));
+  await assert.rejects(async()=>await prebuilt,/lost/);
+  assert.equal(executions,1);
+});
+
+await test('lease loss aborts an active Meta provider fetch without retry or writes', async () => {
+  const db=makeDb({rows:[metaConn()],visibleIds:['c-meta']}); let lose; let calls=0; let count;
+  globalThis.fetch=async (_url,opts)=> {
+    calls++; assert.ok(opts.signal); count=db.log.updates.length;
+    return new Promise((_resolve,reject)=>{
+      opts.signal.addEventListener('abort',()=>reject(opts.signal.reason),{once:true});
+      lose(new Error('lost while fetching'));
+    });
+  };
+  const handler=H.createHandler({service:db.service,userClientFor:db.userClientFor,googleEnv:ENV,
+    runConnectionSync:core.runConnectionSync,syncOutcome:core.syncOutcome,clientSideReason,
+    withAdSyncLease:async({run,onLost})=>{lose=onLost;return run();},
+  });
+  assert.equal((await handler(req({connection_id:'c-meta'}))).status,503);
+  assert.equal(calls,1); assert.equal(db.log.updates.length,count);
+});
+
+await test('provider timeout still works without a caller signal', async () => {
+  const {fetchWithRetry}=await import('../../supabase/functions/ad-platform-sync-run/lib/shopify-sync-core.mjs');
+  const timeout=AbortSignal.timeout; let calls=0;
+  try {
+    AbortSignal.timeout=()=>AbortSignal.abort(new DOMException('timeout','TimeoutError'));
+    globalThis.fetch=async(_url,opts)=>{calls++;opts.signal.throwIfAborted();};
+    await assert.rejects(fetchWithRetry('https://test.invalid',{},1),/timeout/);
+    assert.equal(calls,1);
+  } finally {AbortSignal.timeout=timeout;}
+});

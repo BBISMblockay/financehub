@@ -81,6 +81,11 @@ await db.exec(`update public.integration_bootstrap_jobs set dispatch_requested_a
 assert.equal(await asService(`select public.reserve_bootstrap_dispatch('${job}') as v`),true);
 const claimJob = () => asService(`select count(*)::int as v from public.claim_integration_bootstrap_job('${job}',1,900,5)`);
 assert.equal(await asService(`select count(*)::int as v from public.claim_integration_bootstrap_job('${successor}',1,900,5)`),0,'target id respected');
+// A nightly/manual Meta import owns the connection before bootstrap claims.
+assert.equal(await claim(),true);
+for (let i=0;i<6;i++) assert.equal(await claimJob(),0,'busy connection is skipped before claim');
+assert.equal(await value(`select attempts as v from public.integration_bootstrap_jobs where id='${job}'`),0,'busy polls burn no attempts');
+assert.equal(await release(),true);
 assert.equal(await claimJob(),1); assert.equal(await claimJob(),0,'targeted job cannot bypass live lease');
 assert.equal(await asService(`select public.reserve_bootstrap_dispatch('${job}') as v`),false,'running job cannot dispatch');
 await db.exec(`update public.integration_bootstrap_jobs set lease_until=now()-interval '1 second'`);
@@ -88,6 +93,24 @@ assert.equal(await claimJob(),1);
 assert.equal(await value(`select attempts as v from public.integration_bootstrap_jobs where id='${job}'`),2);
 await db.exec(`update public.integration_bootstrap_jobs set lease_until=now()-interval '1 second',attempts=5`);
 assert.equal(await claimJob(),0,'attempt cap');
+// Race: another sync wins the ad lease AFTER the bootstrap claim. The runner
+// records a deferral with cooldown, never decrements the fencing generation.
+await db.exec(`update public.integration_bootstrap_jobs set status='pending', attempts=0, deferrals=0, lease_until=null`);
+for (let i=1;i<=6;i++) {
+  assert.equal(await claimJob(),1,'deferred work remains claimable beyond five ownership generations');
+  assert.equal(await value(`select attempts as v from public.integration_bootstrap_jobs where id='${job}'`),i,'owner generation strictly increases');
+  assert.equal(await claim(),true,'competing ad sync can win after bootstrap claim');
+  await db.exec(`update public.integration_bootstrap_jobs set status='pending', deferrals=deferrals+1, lease_until=now()+interval '15 minutes' where id='${job}' and attempts=${i} and status='running'`);
+  assert.equal(await claimJob(),0,'cooldown prevents a tight claim loop');
+  assert.equal(await release(),true);
+  assert.equal(await claimJob(),0,'cooldown remains after competing import releases');
+  await db.exec(`update public.integration_bootstrap_jobs set lease_until=now()-interval '1 second'`);
+}
+assert.equal(await claimJob(),1,'next attempt resumes after contention');
+assert.equal(await value(`select attempts-deferrals as v from public.integration_bootstrap_jobs where id='${job}'`),1,'six deferrals consume no failure budget');
+assert.equal(await value(`with stale as (update public.integration_bootstrap_jobs set status='done' where id='${job}' and status='running' and attempts=6 returning id) select count(*)::int as v from stale`),0,'old generation cannot finish successor');
+await db.exec(`update public.integration_bootstrap_jobs set attempts=11,deferrals=6,lease_until=now()-interval '1 second'`);
+assert.equal(await claimJob(),0,'five real attempts still exhaust the budget after deferrals');
 await db.exec(`update public.integration_bootstrap_jobs set status='pending', dispatch_requested_at=null, company_entity_id='${other}'`);
 assert.equal(await asService(`select public.reserve_bootstrap_dispatch('${job}') as v`),false,'job cannot dispatch another tenant connection');
 console.log('Meta import migration PGlite checks passed: real SQL, tenant ownership, expiry, grants, targeted lease, dispatch cooldown');
