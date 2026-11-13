@@ -186,12 +186,56 @@
     }
   }
 
+  // What the sidebar filtered its rows WITH. The tab strips show the tabs
+  // whose nav row is visible, so they need the same three inputs: without
+  // them navSectionsForCompany() treats an unknown department, role and grant
+  // set as "no filter" and a strip offers tabs the sidebar correctly hides
+  // (a marketing member being shown Request Manager, 2026-11-13).
+  let navViewer = { department: null, role: null, grantIds: null };
+
+  // Every tab strip, redrawn with whatever the sidebar now knows: the nav
+  // profile (company), the department, the role and the grants. A strip only
+  // replaces itself when its tab set actually changed, so this never flickers.
+  function refreshSuiteStrips(mainEl, active) {
+    if (!mainEl) return;
+    window.SiloAdStudioSuite?.refresh(mainEl, active);
+    window.SiloPerformanceSuite?.refresh(mainEl, active);
+    window.SiloPurchasingSuite?.refresh(mainEl, active);
+    window.SiloProjectionsSuite?.refresh(mainEl, active);
+    window.SiloSuiteNav?.refresh(mainEl, active);
+  }
+
   function renderNavSections(active, department, role, grantIds) {
     const company = getActiveCompany();
+    navViewer = {
+      department: department ?? getCachedDepartment(),
+      role: role ?? null,
+      grantIds: grantIds ?? getCachedGrantIds(),
+    };
     // sidebarSections drops rows that are tabs of another row (the Performance
     // suite); tolerate a cached nav-config from before it existed.
     const NAV_SECTIONS = (Nav.sidebarSections || ((s) => s))(
       navSectionsForCompany(company, department ?? getCachedDepartment(), role, grantIds ?? getCachedGrantIds()));
+    // A tab row is not drawn, so its badge would vanish with it. Resolve each
+    // id through its chain (an SEO page is a tab of SEO, which is a tab of
+    // Performance) to the row the sidebar does draw, and add the counts up
+    // there -- otherwise collapsing a section silently drops the "waiting on
+    // you" counts that section used to show (2026-11-13).
+    const parentOf = (id) => {
+      let cur = id;
+      for (let i = 0; i < 6; i++) {
+        const row = (Nav.NAV_ITEMS || []).find((x) => x.id === cur);
+        if (!row?.tabOf) return cur;
+        cur = row.tabOf;
+      }
+      return cur;
+    };
+    const badges = {};
+    for (const [id, n] of Object.entries(navBadges)) {
+      if (!(n > 0)) continue;
+      const root = parentOf(id);
+      badges[root] = (badges[root] || 0) + n;
+    }
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
@@ -207,7 +251,7 @@
           <a class="silo-sb-feature${isActive ? ' silo-sb-feature--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${isActive ? ' aria-current="page"' : ''} title="${escHtml(item.label)}">
             <svg class="silo-sb-feature-icon" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
             <span class="silo-sb-feature-label">${escHtml(item.label)}</span>
-            ${badgeHtml(navBadges[item.id], 'waiting')}
+            ${badgeHtml(badges[item.id], 'waiting')}
             <svg class="silo-sb-feature-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
           </a>
         </div>
@@ -220,11 +264,11 @@
         return `<a class="silo-sb-link${isActive ? ' silo-sb-link--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${ext}>
             <span class="silo-sb-link-label">${escHtml(item.label)}</span>
             ${item.external ? '<span class="silo-sb-link-ext" aria-hidden="true">EXT</span>' : ''}
-            ${badgeHtml(navBadges[item.id], 'waiting')}
+            ${badgeHtml(badges[item.id], 'waiting')}
           </a>`;
       }).join('');
       // A closed section still says something inside it is waiting.
-      const sectionCount = sec.items.reduce((n, i) => n + (navBadges[i.id] || 0), 0);
+      const sectionCount = sec.items.reduce((n, i) => n + (badges[i.id] || 0), 0);
       return `
         <div class="silo-sb-section${isOpen ? ' silo-sb-section--open' : ''}" data-section="${escHtml(sec.section)}">
           <button class="silo-sb-section-label" type="button" data-silo-action="section-toggle" data-section="${escHtml(sec.section)}" aria-expanded="${isOpen}">
@@ -530,6 +574,13 @@
     else if (window.SiloPerformanceSuite?.contains(navActive)) navActive = Nav.PERFORMANCE_ROW || navActive;
     else if (window.SiloPurchasingSuite?.contains(navActive)) navActive = Nav.PURCHASING_ROW || navActive;
     else if (window.SiloProjectionsSuite?.contains(navActive)) navActive = Nav.PROJECTIONS_ROW || navActive;
+    else if (window.SiloSuiteNav?.contains(navActive)) navActive = window.SiloSuiteNav.rowOf(navActive);
+    // Ad Studio and SEO are themselves tabs of the Marketing row, so a page
+    // that resolved to one of them resolves once more to the row the sidebar
+    // actually draws (2026-11-13).
+    if (Nav.PERFORMANCE_ROW && (Nav.PERFORMANCE_SUITE_PAGES || []).some(([id]) => id === navActive)) {
+      navActive = Nav.PERFORMANCE_ROW;
+    }
     const sidebar = el(renderSidebar({ ...opts, active: navActive }));
     // What first paint's sidebar LABEL actually shows, so the reconciliation
     // below only touches the DOM when ensureActiveCompany() resolves a
@@ -565,6 +616,7 @@
       window.SiloPerformanceSuite?.mount(mainEl, opts.active);
       window.SiloPurchasingSuite?.mount(mainEl, opts.active);
       window.SiloProjectionsSuite?.mount(mainEl, opts.active);
+      window.SiloSuiteNav?.mount(mainEl, opts.active);
     }
 
     // First render of a session may predate the department fetch — re-render
@@ -574,6 +626,7 @@
         if (!dept) return;
         const navEl = sidebar.querySelector('#siloSbNav');
         if (navEl) navEl.innerHTML = renderNavSections(navActive, dept, effectiveRole);
+        refreshSuiteStrips(mainEl, opts.active);
       });
     }
 
@@ -587,6 +640,7 @@
         // navActive, not opts.active: a suite page's own id is not a sidebar
         // id, so repainting with it left no row highlighted at all.
         if (navEl) navEl.innerHTML = renderNavSections(navActive, getCachedDepartment(), effectiveRole, grantIds);
+        refreshSuiteStrips(mainEl, opts.active);
       });
     }
 
@@ -735,10 +789,7 @@
           // The Ad Studio strip for the same reason the sidebar is repainted:
           // one of its tabs is narrowed by nav profile, and first paint on a
           // deep link has no company yet, so it drew the smaller strip.
-          if (mainEl) window.SiloAdStudioSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloPerformanceSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloPurchasingSuite?.refresh(mainEl, opts.active);
-          if (mainEl) window.SiloProjectionsSuite?.refresh(mainEl, opts.active);
+          refreshSuiteStrips(mainEl, opts.active);
         })
         .catch(() => {})
         .finally(() => {
@@ -961,5 +1012,8 @@
     window.location.href = '/pages/login.html';
   }
 
-  window.SiloChrome = { mount, resolveNavProfile, navSectionsForCompany };
+  // The tab strips read this so they filter on exactly what the sidebar did.
+  function navContext() { return { ...navViewer }; }
+
+  window.SiloChrome = { mount, resolveNavProfile, navSectionsForCompany, navContext };
 })();

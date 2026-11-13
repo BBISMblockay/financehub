@@ -39,7 +39,11 @@ spread.decision_note='Deliberately skip the unknown small size';assert.equal(M.v
 // only (Product & inventory). Baseballism's (grandfathered) menu stays without it.
 {
   const navSrc=fs.readFileSync(path.join(root,'v2/nav-config.js'),'utf8');
-  assert.match(navSrc,/^\s*\{ id: 'purchasing\/product-studio', section: 'Product & inventory'[^\n]*href: '\/v3\/product-workflow\.html', profiles: \['standard'\] \}/m);
+  // 2026-11-13: Product & inventory draws ONE sidebar row (Inventory
+  // Manager) and Product Studio is a TAB of it -- still its own row with its
+  // own gate and URL, marked tabOf, so the sidebar skips drawing it.
+  assert.match(navSrc,/^\s*\{ id: 'purchasing\/product-studio', section: 'Product & inventory'[^\n]*href: '\/v3\/product-workflow\.html', profiles: \['standard'\][^\n]*\}/m);
+  assert.match(navSrc,/id: 'purchasing\/product-studio'[^\n]*tabOf: 'inventory\/workboard'/);
   const win={};new Function('window',navSrc)(win);
   const ids=(profile)=>win.SiloNav.navSectionsForProfile(profile,'exec','owner_admin',new Set()).flatMap((sec)=>sec.items.map((i)=>i.id));
   assert.ok(ids('standard').includes('purchasing/product-studio'),'standard workspaces see Product Studio');
