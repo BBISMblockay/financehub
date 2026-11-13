@@ -19768,5 +19768,19 @@ $c$select (select count(*) from v_po_header_summary
 -- drift check will name it.
 \i migrations/20261113030000_payment_request_vendor_suggestions.sql
 \i migrations/20261113040000_nav_profile_in_entity_meta.sql
-\i migrations/20261113050000_attribution_history_cursor.sql
+-- 2026-11-13: affiliate payouts through PayPal -- the first rail that actually
+-- sends money. The COMPANY's own PayPal business credentials pay the COMPANY's
+-- affiliates; SILO's platform PayPal is never in the path and funds nothing.
+-- Adds affiliate_payout_connections (credential, no client role may read it),
+-- its status view, affiliate_payout_sends (one row per ATTEMPT, written before
+-- the call so a timeout leaves evidence and blocks a blind retry), and two
+-- service-role functions. affiliate_mark_payout_paid() still refuses every
+-- non-manual method: a provider payout is recorded paid only from what the
+-- provider answered. Apply BEFORE deploying affiliate-payouts and
+-- affiliate-portal.
+\i migrations/20261113050000_affiliate_paypal_payouts.sql
+-- 2026-11-13: one nullable cursor column for the automatic backward attribution
+-- history walk. Additive; until it is applied the coverage script plans no
+-- history days and writes no such column.
+\i migrations/20261113060000_attribution_history_cursor.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

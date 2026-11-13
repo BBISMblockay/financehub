@@ -122,7 +122,7 @@ collections/store/run (paginated ShopifyQL plus per-order journeys,9999-row/day
 cap unchanged); production capacity is not yet measured.
 
 Deep history fills itself in. Once `history_day` exists on the checkpoint row
-(migration `20261113050000_attribution_history_cursor.sql`), each run also walks
+(migration `20261113060000_attribution_history_cursor.sql`), each run also walks
 BACKWARDS from the day before the frozen start_day, `ATTRIBUTION_HISTORY_BUDGET`
 days per store per run (default20, allowed1-60), down to a floor of
 `ATTRIBUTION_HISTORY_DAYS` before today (default730, allowed0-1095; 0 switches the

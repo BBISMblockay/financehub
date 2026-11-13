@@ -62,7 +62,7 @@
 
 **Attribution coverage (disabled draft):** `migrations/20261007031733_attribution_coverage.sql` adds service-only enrollment/cursor state after the original attribution migrations. It does not backfill customer data or enable scheduling. See [the attribution runbook](../docs/ops/silo-attribution.md).
 
-**Attribution history cursor:** `migrations/20261113050000_attribution_history_cursor.sql` adds one nullable `history_day` column to that same service-only table, the cursor for the automatic backward history walk. Additive and idempotent; until it is applied the coverage script plans no history days and writes no such column.
+**Attribution history cursor:** `migrations/20261113060000_attribution_history_cursor.sql` adds one nullable `history_day` column to that same service-only table, the cursor for the automatic backward history walk. Additive and idempotent; until it is applied the coverage script plans no history days and writes no such column.
 
 **On Deck coding review:** `migrations/20261004120000_on_deck_coding_review.sql` adds five authenticated, finance-gated functions and changes no table, policy or existing function: `on_deck_coding_items()` (the finance review queue over existing import batches, with a derived stage), `card_import_batch_preview(batch)` (runs `approve_card_import_batch` inside a rolled-back block, so the previewed entry and hash are exactly what approval freezes; a refusal comes back as the specific blocker), `approve_reviewed_card_import_batch(batch, hash)` (approves in SILO only when the frozen entry hashes to what was reviewed; sending to QuickBooks stays optional), `on_deck_coding_access()` and `on_deck_ready_count()` (Home's compact count), plus one trigger, `qbo_card_claim_matches_approval` on `quickbooks_journal_postings`, which refuses a card-import QuickBooks claim whose batch was reopened or reapproved after the posting function read it. Pair with the `quickbooks-post-journal` redeploy (optional `expected_approval_hash`). Verified by the two "On Deck coding" checks in `verify_v2_schema.sql`; runbook [docs/ops/on-deck.md](../docs/ops/on-deck.md).
 
@@ -3611,3 +3611,42 @@ function is optional and behaviour-neutral; until it happens the drift check wil
 production until both are applied. Tests: `scripts/tests/nav-profile.test.mjs`,
 `performance-suite.test.mjs`, `silo-attribution-access.test.mjs`, `bill-pay-forwarding.test.mjs`,
 `customer-readiness-ui.test.mjs`, `workspace-modules.test.mjs`, `v2/tests/browser/home-cards.test.js`.
+
+### `migrations/20261113050000_affiliate_paypal_payouts.sql` — affiliate payouts through the company's own PayPal
+
+The first payout rail that actually sends money. **The money is the COMPANY's**,
+from their own PayPal business account to their own affiliates; SILO's platform
+PayPal is not in the path, holds nothing and funds nothing. Full reasoning in
+`docs/ops/affiliate-studio.md`.
+
+- **`affiliate_payout_connections`** — the company's own PayPal credentials, one
+  row per company. **No grant to any client role**: `client_secret` can move the
+  company's money. Written only by the `affiliate-payouts` edge function.
+- **`affiliate_payout_connection_status_v`** — what a member may know: whether
+  the rail is connected and working. `security_invoker = false` with an explicit
+  `active_company_id()` filter (that filter IS the tenant boundary) and no
+  credential columns (the column list IS the disclosure boundary). Same split as
+  `stripe_connect_accounts` / `stripe_connect_status_v`.
+- **`affiliate_payout_accounts`** — gains `'paypal'` as a provider and a
+  `payout_email`, set by the AFFILIATE in their own portal. Deliberately not
+  `affiliates.contact_email`.
+- **`affiliate_payout_sends`** — one row per ATTEMPT, written BEFORE the call
+  with a deterministic request id (unique index). A call that never answered is
+  state `unknown` and blocks another attempt.
+- **`affiliate_payout_send_claim()` / `affiliate_payout_send_record()`** —
+  service role only. The claim takes the program money lock and refuses a payout
+  that is not approved, an affiliate with no address, and anything already in
+  flight. The record marks the payout paid ONLY on the provider's confirmation,
+  with PayPal's own ids as the evidence, and refuses to rewrite a terminal
+  answer. `affiliate_mark_payout_paid()` is unchanged and still refuses every
+  non-manual method.
+- `affiliate_programs.payout_method` and `affiliate_payouts.method` gain
+  `'paypal_payouts'`. Both CHECKs are dropped BY DEFINITION, not by a guessed
+  name, because production holds hand-applied objects whose names may differ.
+- Ends with `attach_stamp_company_entity_id_triggers()` and
+  `attach_affiliate_same_company_twins()` — the new table references
+  `affiliate_payouts`, so it needs the composite twin, and the twins function
+  last ran before this table existed.
+
+Verify block: `Affiliate PayPal payouts`. Deploy `affiliate-payouts` (new) and
+`affiliate-portal` after applying.
