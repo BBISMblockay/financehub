@@ -21,4 +21,12 @@ Deno.serve(createInviteHandler({
   siteUrl: Deno.env.get('SILO_APP_URL') ?? Deno.env.get('SILO_SITE_URL') ?? 'https://get-silo.com',
   resendKey: Deno.env.get('RESEND_API_KEY') ?? '',
   serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  // Whether a key may act as the service role, answered by Auth rather than by
+  // comparing strings: the admin API admits only a service key, whichever one.
+  // Read-only and asked only for the nightly sweep (see handler.mjs).
+  isServiceToken: async (token: string) => {
+    const probe = createClient(url, token, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    return !error;
+  },
 }));

@@ -122,7 +122,10 @@ const MUTATIONS = {
   checkotherenv: ['/affiliates/studio.js', "    .filter((sn) => (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)", '    .filter(() => true)'],
   // The worklist is its own query of open attempts, not the newest-200
   // history the rows are drawn from (review cycle 2).
-  checkfromcache: ['/affiliates/studio.js', "    .in('state', Object.keys(OPEN_RANK))\n", "    .limit(200)\n"],
+  checkfromcache: ['/affiliates/studio.js', "    const page = must(await q.order('id', { ascending: false }).limit(OPEN_PAGE)) || [];", '    const page = Object.values(S.d.sendByPayout).filter((sn) => sn.state in OPEN_RANK);'],
+  // Paged by keyset, not offset: the open set shrinks while it is read, and
+  // an offset then skips the row that slid into the gap (review of #1274).
+  offsetpage: ['/affiliates/studio.js', "    if (after) q = q.lt('id', after);", '    if (after) q = q.range(rows.length, rows.length + OPEN_PAGE - 1);'],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!st.email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
   // The pinched Home (Blake, 2026-11-13).
   qmsgsent: ['/affiliates/studio.js', "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);", '    const ids = S.d.drafts.map((x) => x.id);'],
@@ -885,15 +888,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const old50 = Array.from({ length: 50 }, (_, i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`);
     const NEWEST = 'bbbbbbbb-0000-4000-8000-000000000051';
     const SBX = 'cccccccc-0000-4000-8000-000000000052';
-    // An `unknown` OLDER than every unclaimed one: newest-first order alone
-    // would check it last, after fifty attempts that block nothing new.
-    const OLDUNK = 'ffffffff-0000-4000-8000-000000000053';
+    // An `unknown` whose attempt id sorts BELOW every unclaimed one ('!' is
+    // before any digit): the worklist is read in id-descending pages, so
+    // without the priority sort it would be checked last, after fifty
+    // attempts that block nothing new.
+    const OLDUNK = '10000000-0000-4000-8000-000000000053';
     const manyPayouts = [...old50, NEWEST, SBX, OLDUNK].map((id) => ({ ...ppPayout[0], id }));
     const manySends = [
       ...old50.map((id, i) => ({ id: `s-${i}`, payout_id: id, attempt: 1, state: 'unclaimed', provider_status: 'UNCLAIMED', provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: '2026-10-01T00:00:00Z' })),
       { id: 's-new', payout_id: NEWEST, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: now },
       { id: 's-sbx', payout_id: SBX, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now },
-      { id: 's-oldunk', payout_id: OLDUNK, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: '2026-09-15T00:00:00Z' },
+      { id: 's-!oldunk', payout_id: OLDUNK, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: '2026-09-15T00:00:00Z' },
     ];
     const ppMany = await suite.open('/v2/affiliates/index.html',
       { ...tables, affiliate_programs: ppProgram, affiliate_payouts: manyPayouts,
@@ -939,6 +944,37 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ppDeep.waitForFunction((id) => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.payout_id === id).length > 1, OLDOPEN, { timeout: 5000 }).catch(() => {});
     R.ok('and by Check payment status', (await deepCalls()) === 2);
     await ppDeep.close();
+
+    // Past one page, while the set moves. 1,001 open attempts; between the
+    // first and second page reads, one first-page row settles (another tab, or
+    // the reconcile straight after a send). An offset would then skip the
+    // lowest row; the keyset must still reach it.
+    const openIds = Array.from({ length: 1001 }, (_, i) => `99999999-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const LOWEST = openIds[0];          // smallest id: last in id-descending order
+    const FLIPS = openIds[500];         // on the first page
+    const ppPaged = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout,
+        affiliate_payout_connection_status_v: [{ ...connected[0], environment: 'live' }],
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: openIds.map((id) => ({ id, company_entity_id: CO, payout_id: id, attempt: 1, state: 'sent', provider_status: 'PENDING', provider_item_id: null, error_code: null, error_message: null, environment: 'live', created_at: '2026-10-01T00:00:00Z' })) },
+      { ready, rpc: ppRpc, edge: { 'affiliate-payouts': { status: 200, body: { checked: 1, results: [{ state: 'sent' }] } } } });
+    ppPaged.on('pageerror', (e) => errors.push(e.message));
+    await ppPaged.evaluate((flip) => {
+      // The second read of the open set is when the row settles.
+      let reads = 0;
+      const push = window.__QUERIES__.push.bind(window.__QUERIES__);
+      window.__QUERIES__.push = (q) => {
+        if (q.table === 'affiliate_payout_sends' && /payout_id, state, environment/.test(q.columns || '') && ++reads === 2) {
+          window.__FIXTURE_TABLES__.affiliate_payout_sends.find((r) => r.id === flip).state = 'paid';
+        }
+        return push(q);
+      };
+    }, FLIPS);
+    await ppPaged.click('#tabs [data-tab="payouts"]');
+    await ppPaged.waitForFunction((id) => (window.__EDGE_CALLS__ || []).some((c) => c.body?.payout_id === id), LOWEST, { timeout: 20000 }).catch(() => {});
+    R.ok('an open attempt past the first page is checked even when the set moves between pages',
+      await ppPaged.evaluate((id) => (window.__EDGE_CALLS__ || []).some((c) => c.body?.action === 'refresh' && c.body.payout_id === id), LOWEST));
+    await ppPaged.close();
 
     // A sandbox test settles nothing, so it does not stand in the way of the
     // real payment either -- and the database would allow that payment, so a

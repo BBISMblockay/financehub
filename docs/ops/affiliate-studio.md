@@ -351,7 +351,10 @@ Connect platform and SILO orchestrates it. Design:
   long-unclaimed items would otherwise never be checked. The worklist is its
   own query of open attempts, paged to the end, NOT the newest-200 history the
   rows are drawn from: an older attempt still open behind 200 paid ones is not
-  in that history. The card's *Check payment status* runs the same loop. PayPal also refuses a `sender_batch_id`
+  in that history. Its pages follow a keyset on `id`, not an offset, because
+  the open set shrinks while it is read (another tab's check, or the reconcile
+  after a send) and an offset skips whatever slides into the gap. The card's
+  *Check payment status* runs the same loop. PayPal also refuses a `sender_batch_id`
   reused within 30 days: that is a 4xx, and it is read as "the batch already
   exists" (the original id comes out of the error's own links), never as a
   refusal -- a refusal would release the payout for a second attempt while the

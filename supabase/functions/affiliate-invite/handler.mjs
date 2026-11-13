@@ -50,7 +50,7 @@ export function safeEqual(a, b) {
 }
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
-export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, serviceKey = '', fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
+export function createInviteHandler({ service, userClientFor, siteUrl, resendKey, serviceKey = '', isServiceToken = null, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken }) {
   const base = siteUrl.replace(/\/$/, '');
 
   async function mint({ company, program, purpose, affiliateId, prospectId, days, createdBy }) {
@@ -165,13 +165,23 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     //     calls it right after the AI marks a code created, with the public
     //     key -- mcp holds no service key). The worst a stranger can do is
     //     make that one owed email go out a few seconds sooner, once.
-    //   * without one (the sweep across every company), the service key
-    //     only, compared in constant time.
+    //   * without one (the sweep across every company), a service key only.
+    //     The runtime's own key is compared in constant time first. Failing
+    //     that, Auth itself is asked whether the presented key may act as the
+    //     service role: the key this runtime injects and the one the nightly
+    //     workflow holds are both genuine service keys but need not be the
+    //     same string, and comparing bytes refused the sweep every night from
+    //     its first run (2026-11-11 to 11-13: `deliver_code_notices 401`).
+    //     Any doubt -- no probe, a probe error, anything but `true` -- refuses.
     let peek = null;
     try { peek = await req.clone().json(); } catch { /* handled below */ }
     if (peek?.action === 'deliver_code_notices') {
-      const isService = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
       const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
+      let isService = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
+      if (!isService && !codeId && isServiceToken) {
+        try { isService = (await isServiceToken(authHeader.replace(/^Bearer\s+/, ''))) === true; }
+        catch { isService = false; }
+      }
       if (!codeId && !isService) return reply({ error: 'Unauthorized' }, 401);
       try { return reply({ delivered: await deliverCodeNotices({ code_id: codeId }) }); }
       catch (err) { console.error('[affiliate-invite] notices', err?.message); return reply({ error: 'Could not deliver notices' }, 500); }
