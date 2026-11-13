@@ -34,7 +34,9 @@ const navSource = await read('v2/nav-config.js');
 const stripSource = await read('v2/marketing-suite.js');
 const chromeSource = await read('v2/silo-chrome.js');
 
-const BASEBALLISM = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism' };
+// Grandfathered by its own data (entities.meta.nav_profile, 20261113040000),
+// not by entity_key -- which nav-config.js no longer reads.
+const BASEBALLISM = { id: '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', entity_key: 'baseballism', meta: { nav_profile: 'grandfathered' } };
 const OTHER = { id: '11111111-1111-4111-8111-111111111111', entity_key: 'acme' };
 
 class Element {

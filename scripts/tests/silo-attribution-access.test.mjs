@@ -6,15 +6,31 @@ const base=new URL('../../',import.meta.url);
 const navSource=await readFile(new URL('v2/nav-config.js',base),'utf8');
 const pageSource=(await readFile(new URL('v2/silo-attribution-page.js',base),'utf8')).replace(/^import[^\n]+\n/gm,'').replace('boot().catch(e=>fail(e.message||String(e)));','globalThis.start=boot;');
 const {periodRange,matchPeriod}=await import(new URL('v2/silo-attribution-period.js',base));
-const bb={id:'3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',entity_key:'baseballism'};
-const other={id:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',meta:{nav_profile:'grandfathered'}};
+// Attribution is open to every workspace since 2026-11-13. It was a pilot
+// gated on one company's entity id, in the nav AND in this page's own guard;
+// what the guard still enforces is that the company is RESOLVED and is the one
+// the server says is active. `bb` and `other` are now just two companies, and
+// the tests below check that BOTH reach the page and that neither can read the
+// other's days.
+const bb={id:'3bd934c9-4cdd-429b-9076-f8f6b45d4eb7',entity_key:'baseballism',meta:{nav_profile:'grandfathered'}};
+const other={id:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',meta:{nav_profile:'standard'}};
 function nav(){const w={};new Function('window',navSource)(w);return w.SiloNav;}
 const visible=(n,c)=>n.navSectionsForCompany(c).some(s=>s.items.some(i=>i.id==='reports/silo-attribution'));
-test('navigation requires exact Baseballism ID and non-standard resolved profile',()=>{
- const n=nav();assert.equal(visible(n,bb),true);
- for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}])assert.equal(visible(n,c),false);
- assert.equal(n.navSectionsForProfile('grandfathered').some(s=>s.items.some(i=>i.id==='reports/silo-attribution')),false);
- assert.equal(visible(n,other),false);assert.equal(visible(n,bb),true);
+test('navigation offers Attribution to every resolved company, on either profile',()=>{
+ const n=nav();
+ for(const c of [bb,other,{...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}])assert.equal(visible(n,c),true);
+ // Both profiles list it, which the pilot companyGate prevented.
+ for(const profile of ['grandfathered','standard'])
+  assert.equal(n.navSectionsForProfile(profile).some(s=>s.items.some(i=>i.id==='reports/silo-attribution')),true);
+ // With no company resolved the menu is the STANDARD one -- which now
+ // includes Attribution, so the row appears on a deep link before the real
+ // company is known. That is discovery, not access: the page itself refuses
+ // an unresolved company (see the direct-page tests below), and the row is a
+ // link to a page that then says so, exactly like every other standard row.
+ assert.equal(n.resolveNavProfile(null),'standard');
+ assert.equal(visible(n,null),true);
+ // And nothing in the nav gates on a company identity any more.
+ assert.equal(n.isSiloAttributionEnabled,undefined);
 });
 const oneStore=[{id:'store',shop_domain:'baseballism'}];
 const oneCovered=[{connection_id:'store',last_day:'2026-09-30',funded_days:30}];
@@ -27,9 +43,26 @@ function harness(company=bb,active=company?.id,{stores=oneStore,coverage=oneCove
  vm.createContext(context);vm.runInContext(pageSource,context);
  return {start:()=>context.start(),node,setActive:id=>activeId=id,setError:err=>profileError=err,setAfterLoad:fn=>afterLoad=fn,get callbacks(){return callbacks;},get reads(){return reads;},get spendReads(){return spendReads;},get queries(){return queries;},get offered(){return node('#store').options.map(o=>o.value);},get labels(){return node('#store').options.map(o=>o.textContent);},get pickerHidden(){return node('#store').label?.hidden===true;},get settingReads(){return settingReads;},get dateFieldsHidden(){return node('#start').label?.hidden===true&&node('#end').label?.hidden===true;},get dateLine(){return node('#onlystore').inserted;}};
 }
-test('direct page accepts Baseballism and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
-test('direct page denies other, standard, missing and stale company even with global flag true',async()=>{for(const c of [other,null,{}, {...bb,meta:{nav_profile:'standard'}},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}});
-test('server active company overrides cached Baseballism',async()=>{const h=harness(bb,other.id);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);});
+test('direct page accepts a company and uses persisted September period',async()=>{const h=harness();await h.start();assert.equal(h.node('#start').value,'2026-09-01');assert.equal(h.node('#end').value,'2026-09-30');assert.equal(await h.callbacks.load({}),'rows');});
+test('any resolved company reaches the page, reading only its OWN days',async()=>{
+ for(const c of [other,{...bb,meta:{nav_profile:'standard'}}]){
+  const h=harness(c);await h.start();
+  assert.notEqual(h.callbacks,undefined);
+  // The one thing that must never widen: the coverage probe is scoped to the
+  // company that was verified, so opening the page as another tenant reads
+  // that tenant's days and nobody else's.
+  assert.equal(h.queries.length,1);
+  assert.ok(h.queries[0].query.includes(`company_entity_id='${c.id}'::uuid`),h.queries[0].query);
+  assert.ok(!h.queries[0].query.includes(bb.id)||c.id===bb.id);
+ }
+});
+test('direct page denies a company that is missing, unidentified or unresolved',async()=>{
+ // No company at all, a company with no id, and a company whose reconcile
+ // failed: an unresolved company is not a company, and every page that reads
+ // money refuses it rather than guessing.
+ for(const c of [null,{},{...bb,_staleReconcile:true}]){const h=harness(c);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);}
+});
+test('the server active company overrides the per-tab cache',async()=>{const h=harness(bb,other.id);await assert.rejects(h.start());assert.equal(h.callbacks,undefined);});
 test('switch before loading denies reads and evidence; switch during loading discards result',async()=>{
  const h=harness();await h.start();h.setActive(other.id);await assert.rejects(h.callbacks.load({}));await assert.rejects(h.callbacks.evidence({}));assert.equal(h.reads,0);
  const pending=harness();await pending.start();pending.setAfterLoad(()=>pending.setActive(other.id));await assert.rejects(pending.callbacks.load({}));assert.equal(pending.node('#results').hidden,true);
@@ -69,8 +102,16 @@ test('the coverage probe is a scoped read-only aggregate, never an unbounded tab
  assert.equal(h.queries[0].fn,'chat_run_readonly_query');
  assert.match(h.queries[0].query,/^select connection_id, max\(day\) as last_day, count\(\*\) filter \(where total_cents <> 0 or net_cents <> 0\) as funded_days from public\.shopify_attribution_days where company_entity_id='3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'::uuid group by connection_id$/);
 });
-test('a company that is not the pilot workspace never reaches the coverage probe',async()=>{
- for(const c of [other,null,{},{...bb,meta:{nav_profile:'standard'}},{id:"3bd934c9'; drop table x --",entity_key:'baseballism'}]){
+test('a company that is not resolved, or whose id is not a uuid, never reaches the coverage probe',async()=>{
+ // The probe interpolates the company id into SQL. The pilot gate used to be
+ // what made that safe (exact equality with one uuid); with the gate gone the
+ // shape check in the page is the whole guard, so it is tested directly --
+ // including the injection attempt that the old equality check happened to
+ // stop.
+ for(const c of [null,{},{...bb,_staleReconcile:true},
+   {id:"3bd934c9'; drop table x --",entity_key:'baseballism'},
+   {id:'not-a-uuid',meta:{nav_profile:'standard'}},
+   {id:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' or '1'='1",meta:{nav_profile:'standard'}}]){
    const h=harness(c);await assert.rejects(h.start());assert.deepEqual(h.queries,[]);
  }
 });
@@ -128,12 +169,16 @@ test('stores read as their Shopify name, with the domain only where it adds some
 test('the setting is read once per load, scoped to the active company',async()=>{
  const h=chose(['online']);await h.start();
  assert.equal(h.settingReads,1);
- // A company that is not the pilot workspace never reaches it.
- for(const c of [other,null,{}]){
+ // A company that is not resolved never reaches it.
+ for(const c of [null,{},{...bb,_staleReconcile:true}]){
    const denied=harness(c,c?.id,{stores:named,coverage:namedCoverage,setting:['online']});
    await assert.rejects(denied.start());
    assert.equal(denied.settingReads,0);
  }
+ // Another company reaches it scoped to ITSELF.
+ const theirs=harness(other,other.id,{stores:named,coverage:namedCoverage,setting:['online']});
+ await theirs.start();
+ assert.equal(theirs.settingReads,1);
 });
 
 test('useless shop names fall back to the domain',async()=>{

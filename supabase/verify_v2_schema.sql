@@ -9687,3 +9687,60 @@ select 'Bookkeeping checked transition safety' as check_name,
         or has_function_privilege('anon', 'public.silo_takeover_window(uuid)', 'execute')
    then 'BROKEN — handover blocker list privileges changed'
   else 'ok' end as status;
+
+-- Vendor suggestions as company data, and the nav profile as company data
+-- (20261113030000, 20261113040000). Both replaced a company-specific literal
+-- in shared code. The vendor list is the one that MATTERED: 195 vendor and
+-- ambassador names shipped inside v2/purchase_request.html to every tenant's
+-- browser, gated for display by entity_key, which a gate in downloaded
+-- JavaScript never was. RLS on the table is the boundary now, so this check
+-- fails BROKEN if the table loses it, or if any role but `authenticated`
+-- can read it. The flag check is the other half: if nav_profile is unset for
+-- the grandfathered workspace, resolveNavProfile answers 'standard' and that
+-- workspace silently loses Reviews, Compensation, the TikTok schedule and the
+-- Marketing Report from its sidebar.
+select 'Company-data nav profile and vendor suggestions' as check_name,
+  case
+    when to_regclass('public.payment_request_vendor_suggestions') is null
+      then 'MISSING — run 20261113030000_payment_request_vendor_suggestions.sql'
+    -- Every reference below goes through to_regclass(), never a
+    -- 'public.x'::regclass cast: Postgres folds that cast at PLAN time, in an
+    -- unreachable CASE branch too, so a cast here would make this whole
+    -- statement error out on a database where the table is simply not applied
+    -- yet -- which is exactly the state the MISSING branch exists to report.
+    when not (select relrowsecurity from pg_class
+               where oid = to_regclass('public.payment_request_vendor_suggestions'))
+      then 'BROKEN — payment_request_vendor_suggestions has RLS off'
+    when not exists (select 1 from pg_policy
+                      where polrelid = to_regclass('public.payment_request_vendor_suggestions')
+                        and polname = 'payment_request_vendor_suggestions_select'
+                        and position('active_company_id' in pg_get_expr(polqual, polrelid)) > 0)
+      then 'BROKEN — vendor suggestions are not scoped to the active company'
+    when not exists (select 1 from pg_policy
+                      where polrelid = to_regclass('public.payment_request_vendor_suggestions')
+                        and polname = 'payment_request_vendor_suggestions_write'
+                        and position('is_admin_user' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — anyone in the company can write vendor suggestions'
+    when has_table_privilege('anon', 'public.payment_request_vendor_suggestions', 'select')
+      then 'BROKEN — anon can read another company''s vendor names'
+    -- A unique INDEX on (company, folded name), not a constraint: uniqueness
+    -- is judged on lower(btrim(...)) so one supplier cannot appear twice in a
+    -- datalist under two spellings.
+    when to_regclass('public.payment_request_vendor_suggestions_once') is null
+      then 'BROKEN — one company can hold the same vendor name twice'
+    when not exists (select 1 from pg_index
+                      where indexrelid = to_regclass('public.payment_request_vendor_suggestions_once')
+                        and indisunique
+                        and position('lower' in pg_get_indexdef(indexrelid)) > 0)
+      then 'BROKEN — vendor name uniqueness is no longer case-folded'
+    -- The stamp trigger is the insert backstop for company_entity_id.
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = to_regclass('public.payment_request_vendor_suggestions')
+                        and tgname like '%stamp_company_entity_id%' and tgenabled in ('O', 'A'))
+      then 'BROKEN — vendor suggestions can be inserted without a company'
+    when not exists (select 1 from public.entities
+                      where entity_type = 'company'
+                        and meta->>'nav_profile' = 'grandfathered')
+      then 'MISSING — run 20261113040000_nav_profile_in_entity_meta.sql (no workspace carries the grandfathered nav profile, so every sidebar is the standard one)'
+    else 'ok'
+  end as status;

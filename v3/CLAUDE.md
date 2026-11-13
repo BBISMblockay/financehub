@@ -12,7 +12,8 @@ and the gate. `product_concepts` detail: `docs/agents/database.md`.
   and when creating the PO, and it is bound to the reviewed brief and a fingerprint of the concept's
   purchasing fields. Never add a path to a PO that skips that gate.
 - `trg_guard_concept_po_writes` refuses browser writes that attach a concept to a PO. The hidden
-  `#btnFromConcept` picker in `v2/po-builder.html` stays hidden.
+  `#btnFromConcept` picker in `v2/po-builder.html` was deleted 2026-11-13 (Blake: "concept to PO is
+  out the window"), so this gate is now the only concept → PO path. Do not rebuild the picker.
 - One concept, one PO from this flow.
 - Tests: `v3/tests/unit/product-workflow.test.js`, `v3/tests/browser/product-workflow.test.js`,
   `scripts/tests/product-workflow-database.test.mjs`, `product-workflow-spread-database.test.mjs`,

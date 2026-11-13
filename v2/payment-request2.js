@@ -338,10 +338,17 @@ async function loadLookups() {
     db.from('factories').select('id,factory_name').eq('company_entity_id', company.id).eq('is_active', true).limit(1000),
     db.from('po_headers').select('id,po_name,factory_id,status').eq('company_entity_id', company.id).in('status', ACTIVE_PO_STATUSES).order('created_at', { ascending: false }).limit(300),
     db.from('locations').select('location_name').eq('company_entity_id', company.id).eq('is_active', true).limit(1000),
+    // Vendor names this company's admins curated (20261113030000). Same
+    // suggestions as the original form, which is where they used to live as a
+    // literal array -- so a payee that has not been paid through SILO yet can
+    // still be picked rather than retyped. allSettled, so a missing table
+    // before the migration is applied, or a refused read, just means fewer
+    // suggestions.
+    db.from('payment_request_vendor_suggestions').select('vendor_name').eq('company_entity_id', company.id).limit(1000),
   ]);
   const rows = index => reads[index].status === 'fulfilled' && !reads[index].value.error ? reads[index].value.data || [] : [];
   const factories = rows(1);
-  vendors = [...new Set([...rows(0).map(r => r.vendor_name), ...factories.map(r => r.factory_name)].filter(Boolean))].sort();
+  vendors = [...new Set([...rows(0).map(r => r.vendor_name), ...factories.map(r => r.factory_name), ...rows(4).map(r => r.vendor_name)].filter(Boolean))].sort();
   pos = rows(2).map(po => ({ ...po, factory_name: factories.find(f => f.id === po.factory_id)?.factory_name || '' }));
   locations = [...new Set(rows(3).map(r => r.location_name))].sort();
   for (const [id, values] of [['vendorOptions', vendors], ['locationOptions', locations]]) {
@@ -349,7 +356,15 @@ async function loadLookups() {
   }
   $('poHelp').textContent = reads[2].status === 'rejected' || reads[2].value.error ? 'PO lookup unavailable. Enter the references manually below.' : `${pos.length} accessible POs, newest first (up to 300). Enter any missing reference below.`;
   renderPOs();
-  if (reads.some(r => r.status === 'rejected' || r.value.error)) feedback('Some suggestions could not load. You can still enter the request manually.');
+  // The curated-vendor read is feature-detected: before 20261113030000 is
+  // applied the table does not exist, and that must NOT put "some suggestions
+  // could not load" in front of everyone filing a request. Any OTHER failure
+  // of that read is reported like the rest.
+  const missingTable = error => error && (error.code === '42P01' || error.code === 'PGRST205'
+    || /payment_request_vendor_suggestions/.test(error.message || ''));
+  const failed = reads.filter((r, i) =>
+    (r.status === 'rejected' || r.value.error) && !(i === 4 && missingTable(r.value?.error)));
+  if (failed.length) feedback('Some suggestions could not load. You can still enter the request manually.');
 }
 function bind() {
   $('repairText').addEventListener('click', repairTextOnDevice);

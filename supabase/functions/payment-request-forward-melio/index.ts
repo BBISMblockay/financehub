@@ -11,7 +11,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') || '';
-const LEGACY_MELIO_FORWARD_EMAIL = Deno.env.get('MELIO_FORWARD_EMAIL') || '';
 // The sender address is configuration, not a constant. A second tenant's
 // invite, review or payment email arriving from a Baseballism address reads
 // as either a mistake or a leak of who else uses SILO. SILO_MAIL_FROM is an
@@ -262,10 +261,10 @@ Deno.serve(async (req: Request) => {
       .select('bill_pay_provider, bill_pay_forward_email')
       .eq('company_entity_id', pr.company_entity_id).maybeSingle();
     if (settingsErr && settingsErr.code !== '42703') throw settingsErr;
-    const { data: entity, error: entityErr } = await db.from('entities')
-      .select('entity_key').eq('id', pr.company_entity_id).single();
-    if (entityErr) throw entityErr;
-    const destination = resolveBillPayDestination(settings, entity.entity_key, LEGACY_MELIO_FORWARD_EMAIL);
+    // The company's own settings decide, with no per-company fallback: the
+    // entities read that fed one (entity_key, for the legacy Melio secret) went
+    // with it on 2026-11-13.
+    const destination = resolveBillPayDestination(settings);
     if (!destination) {
       return new Response(JSON.stringify({ error: 'Set the bill pay provider and inbox email in Workspace Settings → Company.' }), { status: 400, headers: CORS });
     }
