@@ -38,9 +38,13 @@ const writes = (page, op) => page.evaluate((o) => window.__QUERIES__.filter((x) 
   try {
     // ── An approver ──────────────────────────────────────────────────────
     let page = await suite.open('/v2/seo-tasks.html', tables, { ready, rpc: { can_approve_seo_tasks: true, nav_badge_counts: () => [{ nav_id: 'reports/seo', badge_count: 2 }] } });
-    // The sidebar counts what is waiting, from nav_badge_counts().
-    await page.waitForFunction(() => !!document.querySelector('[data-nav-id="reports/seo"] .silo-sb-badge'));
-    R.eq(await page.locator('[data-nav-id="reports/seo"] .silo-sb-badge').innerText(), '2', 'the SEO row shows how many tasks wait for approval');
+    // The sidebar counts what is waiting, from nav_badge_counts(). SEO became
+    // a TAB of the Marketing row on 2026-11-13, so its count rolls up to the
+    // row the sidebar draws -- a hidden row's badge would otherwise disappear
+    // with it, which is the whole point of the count.
+    await page.waitForFunction(() => !!document.querySelector('[data-nav-id="reports/marketing-overview"] .silo-sb-badge'));
+    R.eq(await page.locator('[data-nav-id="reports/marketing-overview"] .silo-sb-badge').innerText(), '2', 'the Marketing row shows how many SEO tasks wait for approval');
+    R.eq(await page.locator('[data-nav-id="reports/seo"]').count(), 0, 'SEO is not a sidebar row of its own');
     const tabs = await page.evaluate(() => [...document.querySelectorAll('[data-seo-suite] a')].map((a) => [a.getAttribute('href'), a.getAttribute('aria-current')]));
     R.eq(JSON.stringify(tabs.pop()), JSON.stringify(['/v2/seo-tasks.html', 'page']), 'Tasks is the current SEO tab');
 

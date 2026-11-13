@@ -126,6 +126,71 @@
     ['reports/marketing-explorer','Explorer','marketing-explorer.html','Platform-claimed'],
     ['reports/wow-report','Report','wow-report.html','Shopify sales + notes'],
     ['reports/silo-attribution','Attribution','silo-attribution.html','Last click'],
+    // One Marketing destination (2026-11-13, Blake: "marketing sub
+    // performance, all tabbed"). Ad Studio and SEO join the strip as tabs of
+    // the same row; each keeps its own URL, its own gate and its own inner
+    // strip (AD_STUDIO_SUITE_PAGES / SEO_SUITE_PAGES), which draws underneath
+    // this one on those pages.
+    ['reports/ad-studio','Ad Studio','ad-studio.html','Meta ad results'],
+    ['reports/seo','SEO','seo-studio.html','Google Search Console'],
+  ];
+
+  // The four remaining one-row suites (2026-11-13, Blake: "solid
+  // consolidations makes menu less overwhelming"). Same mechanism as
+  // Purchasing and the Performance strip: every tab below is ALSO a NAV_ITEMS
+  // row marked `tabOf`, so its gate, its URL and its "Jump to" entry are
+  // exactly what they were -- the sidebar simply draws one row instead of
+  // three. Nothing is merged and no page moves.
+  //
+  // `row` is the sidebar row the suite collapses into, and the first page is
+  // always that row's own page. A tab is shown only when
+  // navSectionsForCompany() returns its row, so TikTok Live Schedule and the
+  // whole Team suite stay grandfathered-only exactly as before.
+  const SUITES = [
+    {
+      key: 'inventory',
+      label: 'Inventory',
+      row: 'inventory/workboard',
+      pages: [
+        ['inventory/workboard', 'Inventory Manager', '/v2/inventory.html'],
+        ['inventory/products', 'Products', '/v2/products.html'],
+        ['purchasing/product-studio', 'Product Studio', '/v3/product-workflow.html'],
+      ],
+    },
+    {
+      key: 'requests',
+      label: 'Requests',
+      row: 'finance/payment-request',
+      pages: [
+        ['finance/payment-request', 'Payment Request', '/v2/purchase_request2.html'],
+        ['finance/request-manager', 'Request Manager', '/v2/request_manager.html'],
+        ['finance/mailroom', 'Mailroom', '/v2/mailroom.html'],
+      ],
+    },
+    {
+      // The Org calendar stays a tab of Calendar, switched inside the two
+      // calendar pages by their own `.cal-switch` markup, so it is not
+      // repeated here: both pages mount active:'planning/calendar' and this
+      // strip marks Calendar current on either of them.
+      key: 'planning',
+      label: 'Planning',
+      row: 'planning/tasks',
+      pages: [
+        ['planning/tasks', 'Tasks', '/v2/tasks.html'],
+        ['planning/calendar', 'Calendar', '/v2/launch-calendar.html'],
+        ['planning/live-schedule', 'TikTok Live Schedule', '/v2/live-schedule.html'],
+      ],
+    },
+    {
+      key: 'team',
+      label: 'Team',
+      row: 'team/reviews',
+      pages: [
+        ['team/reviews', 'Performance Reviews', '/v2/reviews.html'],
+        ['team/my-review', 'My Reviews', '/v2/my-review.html'],
+        ['team/comp-requests', 'Compensation', '/v2/comp-requests.html'],
+      ],
+    },
   ];
 
   // The Purchasing suite (2026-11-12), drawn by purchasing-suite.js: the five
@@ -350,8 +415,8 @@
     // RLS (payment_requests_active_select) already lets anyone see their
     // own created_by rows regardless of department; this just keeps the
     // nav link (and dept-guard.js on the page itself) from hiding it.
-    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Finance', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
-    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Finance', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] },
+    { departments: [...FINANCE_DEPTS, 'logistics'], id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Finance', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] , tabOf: 'finance/payment-request' },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Requests', sectionStandard: 'Finance', label: 'Mailroom', href: '/v2/mailroom.html', profiles: ['grandfathered', 'standard'] , tabOf: 'finance/payment-request' },
     // Travel Report removed 2026-08-16 — stale Google Sheets dashboard, page retired.
 
     // One nav row for both calendars (2026-11-11, Blake): "Calendar" is the
@@ -362,19 +427,19 @@
     // two views are separate Pattern-1 pages with their own data layers, so
     // each keeps its own URL, deep links and bookmarks. Both mount chrome with
     // active:'planning/calendar', so the one row highlights on either tab.
-    { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] , tabOf: 'planning/tasks' },
     { id: 'planning/org-calendar', section: 'Planning', label: 'Org calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'], tabOf: 'planning/calendar' },
-    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] },
+    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] , tabOf: 'planning/tasks' },
     { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
 
     { id: 'team/reviews', section: 'Team', label: 'Performance Reviews', href: '/v2/reviews.html', profiles: ['grandfathered'] },
-    { id: 'team/my-review', section: 'Team', label: 'My Reviews', href: '/v2/my-review.html', profiles: ['grandfathered'] },
+    { id: 'team/my-review', section: 'Team', label: 'My Reviews', href: '/v2/my-review.html', profiles: ['grandfathered'] , tabOf: 'team/reviews' },
     // Ungated on purpose: any manager can submit a request for their own
     // reports; the Finance Queue tab inside the page self-hides for
     // non-finance via an RPC check (current_user_can_manage_comp_requests()),
     // same "nav shows it to everyone, the page/RLS narrows what's actually
     // usable" shape as Payment Request / Request Manager above.
-    { id: 'team/comp-requests', section: 'Team', label: 'Compensation', href: '/v2/comp-requests.html', profiles: ['grandfathered'] },
+    { id: 'team/comp-requests', section: 'Team', label: 'Compensation', href: '/v2/comp-requests.html', profiles: ['grandfathered'] , tabOf: 'team/reviews' },
 
     // Product Studio (2026-09-30): where an Ask SILO concept is confirmed and
     // marked Ready for PO, then becomes a Draft PO. Replaces the Product
@@ -395,8 +460,8 @@
     { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/v2/factories.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
 
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] },
+    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] , tabOf: 'inventory/workboard' },
+    { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] , tabOf: 'inventory/workboard' },
 
     // Three Marketing entries, ordered by how they are used rather than
     // alphabetically: the report you produce, the dashboard you watch, the
@@ -454,7 +519,7 @@
     // schedule" until 2026-10-29, when the test record moved into the idea
     // bank (an idea in Testing names the element it is testing). The URL is
     // unchanged either way, so nothing that was linked to it breaks.
-    { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/ad-studio', section: 'Marketing', label: 'Ad Studio', href: '/v2/ad-studio.html', profiles: ['grandfathered', 'standard'] , tabOf: PERFORMANCE_ROW },
     // ONE SEO destination (2026-09-27), not a row per page: Studio, Search
     // performance and Keywords are TABS of it (SEO_SUITE_PAGES above), the
     // same collapse as Accounting and Workspace settings. silo-chrome.js maps
@@ -462,7 +527,7 @@
     // rows it replaces -- the exec soft-launch gate, OR a seo_approvers grant
     // (the person who may switch tracking on must be able to find it). Nav is
     // discovery only; every read is RLS, every approver write re-checked.
-    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] },
+    { roles: EXEC_ROLES, grantTable: 'seo_approvers', id: 'reports/seo', section: 'Marketing', label: 'SEO', href: '/v2/seo-studio.html', profiles: ['grandfathered', 'standard'] , tabOf: PERFORMANCE_ROW },
     // Affiliate Studio (2026-11-10): one destination, tabs inside the page.
     // Same gate shape as SEO: execs, or an affiliate_program_managers grant.
     // Nav is discovery only -- RLS and can_manage_affiliate_programs() decide
@@ -644,6 +709,20 @@
     return navSectionsForProfile(resolveNavProfile(company), department, role, grantIds, company);
   }
 
+  // The rows for the person LOOKING at the page: the company's nav profile
+  // plus the department, role and grants the chrome resolved for them. A tab
+  // strip must filter on exactly what the sidebar filtered on -- calling
+  // navSectionsForCompany(company) alone leaves department, role and grants
+  // undefined, which every gate below reads as "no filter", so a strip would
+  // offer tabs the sidebar correctly hides (a marketing member being shown
+  // Request Manager, 2026-11-13). Before the chrome has mounted there is no
+  // context yet and this is exactly the old call, which is the right failure:
+  // the strip narrows when refresh() runs.
+  function navSectionsForViewer(company) {
+    const ctx = (typeof global !== 'undefined' && global.SiloChrome?.navContext?.()) || {};
+    return navSectionsForCompany(company, ctx.department, ctx.role, ctx.grantIds);
+  }
+
   // What the SIDEBAR draws: a row that is a tab of another row is reached
   // through that row's strip, so it is not drawn twice. Everything else that
   // reads the nav (the "Jump to" palette, the strips, tests) keeps the full
@@ -655,6 +734,7 @@
   }
 
   global.SiloNav = {
+    navSectionsForViewer,
     MODULES,
     loadModuleVisibility,
     SALES_REPORT_PAGES,
@@ -664,6 +744,7 @@
     AD_STUDIO_SUITE_PAGES,
     PERFORMANCE_ROW,
     PERFORMANCE_SUITE_PAGES,
+    SUITES,
     PURCHASING_ROW,
     PURCHASING_SUITE_PAGES,
     PROJECTIONS_ROW,

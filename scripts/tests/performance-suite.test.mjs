@@ -43,12 +43,22 @@ const OVERVIEW = 'reports/marketing-overview';
 const EXPLORER = 'reports/marketing-explorer';
 const REPORT = 'reports/wow-report';
 const ATTRIBUTION = 'reports/silo-attribution';
+// Ad Studio and SEO joined the strip 2026-11-13 (Blake: "marketing sub
+// performance, all tabbed"), so Marketing draws ONE sidebar row. Each is
+// itself a small suite of pages, and those inner pages resolve to the tab
+// they belong to -- asserted below with the inner strips stubbed in.
+const AD_STUDIO = 'reports/ad-studio';
+const SEO = 'reports/seo';
 const PAGES = {
   [OVERVIEW]: 'marketing-overview.html',
   [EXPLORER]: 'marketing-explorer.html',
   [REPORT]: 'wow-report.html',
   [ATTRIBUTION]: 'silo-attribution.html',
+  [AD_STUDIO]: 'ad-studio.html',
+  [SEO]: 'seo-studio.html',
 };
+// Every tab except the open one; the strip marks exactly one current.
+const notCurrent = (n) => Array(n).fill(undefined);
 
 class Element {
   constructor(tag) {
@@ -88,13 +98,13 @@ const sidebarIds = (company) => idsOf(nav.sidebarSections(nav.navSectionsForComp
 const marketingSidebar = (company) => nav.sidebarSections(nav.navSectionsForCompany(company))
   .find((s) => s.section === 'Marketing')?.items.map((i) => i.id) || [];
 
-test('four tabs in order, each on its existing page at its existing URL', () => {
+test('six tabs in order, each on its existing page at its existing URL', () => {
   assert.deepEqual(nav.PERFORMANCE_SUITE_PAGES.map(([id, , path]) => [id, path]), Object.entries(PAGES));
   const h = harness(BASEBALLISM);
   h.mount(OVERVIEW);
   assert.deepEqual(h.tabs(), Object.keys(PAGES));
   assert.deepEqual(h.links().map((a) => a.href), Object.values(PAGES).map((p) => '/v2/' + p));
-  assert.deepEqual(h.links().map((a) => a.getAttribute('aria-current')), ['page', undefined, undefined, undefined]);
+  assert.deepEqual(h.links().map((a) => a.getAttribute('aria-current')), ['page', ...notCurrent(Object.keys(PAGES).length - 1)]);
   // Each tab href is the href of its own nav row: one source for a page's URL.
   for (const [id, , path] of nav.PERFORMANCE_SUITE_PAGES) {
     assert.equal(nav.NAV_ITEMS.find((i) => i.id === id).href, '/v2/' + path);
@@ -120,20 +130,20 @@ test('every tab names the revenue figure its page is built on', () => {
   assert.match(h.links()[1].title, /claimed/i);
 });
 
-test('the sidebar draws ONE row for the four pages, on both profiles', () => {
+test('the sidebar draws ONE Marketing row for all six pages, on both profiles', () => {
   // No role passed, so the exec-gated SEO row is not filtered out here.
-  assert.deepEqual(marketingSidebar(BASEBALLISM), [OVERVIEW, 'reports/ad-studio', 'reports/seo']);
-  assert.deepEqual(marketingSidebar(OTHER), [OVERVIEW, 'reports/ad-studio', 'reports/seo']);
+  assert.deepEqual(marketingSidebar(BASEBALLISM), [OVERVIEW]);
+  assert.deepEqual(marketingSidebar(OTHER), [OVERVIEW]);
   for (const co of [BASEBALLISM, OTHER, OTHER_GF, null]) {
     const ids = sidebarIds(co);
-    for (const tab of [EXPLORER, REPORT, ATTRIBUTION]) assert.ok(!ids.includes(tab), `${tab} drawn as a sidebar row`);
+    for (const tab of [EXPLORER, REPORT, ATTRIBUTION, AD_STUDIO, SEO]) assert.ok(!ids.includes(tab), `${tab} drawn as a sidebar row`);
   }
-  // Exactly these three rows are tabs OF PERFORMANCE_ROW; nothing else is.
+  // Exactly these five rows are tabs OF PERFORMANCE_ROW; nothing else is.
   // (Other suites use the same `tabOf` mechanism -- the Calendar row's Org
   // calendar tab, 2026-11-11 -- so this is scoped to this row's tabs rather
   // than to every hidden row in the nav.)
   const tabsOfPerformance = nav.NAV_ITEMS.filter((i) => i.tabOf === nav.PERFORMANCE_ROW).map((i) => i.id);
-  assert.deepEqual(tabsOfPerformance.sort(), [EXPLORER, REPORT, ATTRIBUTION].sort());
+  assert.deepEqual(tabsOfPerformance.sort(), [EXPLORER, REPORT, ATTRIBUTION, AD_STUDIO, SEO].sort());
   // Whoever the parent is, it has to be a real row: a typo'd `tabOf` would
   // hide a page from the sidebar with no strip anywhere that draws it back.
   for (const tab of nav.NAV_ITEMS.filter((i) => i.tabOf)) {
@@ -183,10 +193,10 @@ test('"Jump to" still finds every page: the tab rows remain in the nav', () => {
   assert.ok(!std.includes(REPORT));
 });
 
-test('a standard company gets Overview, Explorer and Attribution, but not Report', () => {
+test('a standard company gets every tab but Report', () => {
   const h = harness(OTHER);
   h.mount(OVERVIEW);
-  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION]);
+  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION, AD_STUDIO, SEO]);
 });
 
 test('Attribution is offered on both profiles, and Report on neither standard one', () => {
@@ -194,12 +204,12 @@ test('Attribution is offered on both profiles, and Report on neither standard on
   // used to withhold Attribution from it no matter what its profile said.
   const gf = harness(OTHER_GF);
   gf.mount(OVERVIEW);
-  assert.deepEqual(gf.tabs(), [OVERVIEW, EXPLORER, REPORT, ATTRIBUTION]);
+  assert.deepEqual(gf.tabs(), Object.keys(PAGES));
   // Flipping the grandfathered company to standard drops Report and KEEPS
   // Attribution -- the one asymmetry this change introduces.
   const asStandard = harness({ ...BASEBALLISM, meta: { nav_profile: 'standard' } });
   asStandard.mount(OVERVIEW);
-  assert.deepEqual(asStandard.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION]);
+  assert.deepEqual(asStandard.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION, AD_STUDIO, SEO]);
   // An unresolved company is NOT handled here, and deliberately so: the nav is
   // discovery, and Attribution is now the same kind of row as the other three,
   // none of which inspect _staleReconcile. The refusal lives on the page --
@@ -209,7 +219,7 @@ test('Attribution is offered on both profiles, and Report on neither standard on
   // visible decision rather than a silent one.
   const stale = harness({ ...BASEBALLISM, _staleReconcile: true });
   stale.mount(OVERVIEW);
-  assert.deepEqual(stale.tabs(), [OVERVIEW, EXPLORER, REPORT, ATTRIBUTION]);
+  assert.deepEqual(stale.tabs(), Object.keys(PAGES));
 });
 
 test('the Marketing module switch still hides the suite tabs', async () => {
@@ -227,7 +237,7 @@ test('the open page is always in its own strip, and refresh() restores narrowed 
   // A deep link: nothing cached, so the profile reads as standard for one paint.
   const h = harness(null);
   h.mount(ATTRIBUTION);
-  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION]);
+  assert.deepEqual(h.tabs(), [OVERVIEW, EXPLORER, ATTRIBUTION, AD_STUDIO, SEO]);
   const first = h.nav;
   h.refresh(ATTRIBUTION);
   assert.equal(first.replacedWith, null, 'unchanged tab set must not redraw');
@@ -256,26 +266,64 @@ test('the selection is carried between Overview and Explorer only', () => {
 
 test('pages outside the suite get no strip', () => {
   const h = harness(BASEBALLISM);
-  h.mount('ads/studio');
+  h.mount('planning/tasks');
   assert.equal(h.nav, undefined);
-  assert.doesNotThrow(() => h.refresh('reports/seo'));
+  assert.doesNotThrow(() => h.refresh('finance/accounting'));
   assert.equal(h.nav, undefined);
+});
+
+// Ad Studio and SEO each keep their own inner strip over several pages. The
+// Marketing strip has to draw on those pages too -- otherwise walking into
+// SEO's Keywords page leaves no way back to Marketing -- with the tab the page
+// sits under marked current, not a tab of its own.
+test('an inner page of Ad Studio or SEO draws the Marketing strip under its own tab', () => {
+  for (const [inner, tab] of [['seo/keywords', SEO], ['seo/studio', SEO], ['ads/testing', AD_STUDIO], ['ads/studio', AD_STUDIO]]) {
+    const h = harness(BASEBALLISM);
+    h.window.SiloSeoSuite = { contains: (id) => String(id).startsWith('seo/') };
+    h.window.SiloAdStudioSuite = { contains: (id) => String(id).startsWith('ads/') };
+    h.mount(inner);
+    assert.ok(h.nav, `${inner}: no Marketing strip`);
+    assert.deepEqual(h.tabs(), Object.keys(PAGES), `${inner}: wrong tab set`);
+    const current = h.links().filter((a) => a.getAttribute('aria-current') === 'page');
+    assert.equal(current.length, 1, `${inner}: not exactly one current tab`);
+    assert.equal(current[0].href, '/v2/' + PAGES[tab], `${inner}: the current tab is not ${tab}`);
+  }
 });
 
 test('the chrome maps every suite page onto the one row, mounts and refreshes the strip, and skips tab rows', () => {
   assert.match(chromeSource, /SiloPerformanceSuite\?\.contains\(navActive\)\) navActive = Nav\.PERFORMANCE_ROW/);
+  // Ad Studio and SEO pages resolve to their own row first; that row is itself
+  // a tab, so the chrome resolves once more onto the row the sidebar draws.
+  assert.match(chromeSource, /PERFORMANCE_SUITE_PAGES \|\| \[\]\)\.some\(\(\[id\]\) => id === navActive\)/);
   assert.match(chromeSource, /SiloPerformanceSuite\?\.mount\(mainEl, opts\.active\)/);
-  assert.match(chromeSource, /SiloPerformanceSuite\?\.refresh\(mainEl, opts\.active\)/);
+  // Every strip is redrawn through one helper (2026-11-13), which runs when
+  // the company, the department or the grants resolve -- each of which can
+  // change which tabs this person may be offered.
+  assert.match(chromeSource, /SiloPerformanceSuite\?\.refresh\(mainEl, active\)/);
+  assert.match(chromeSource, /refreshSuiteStrips\(mainEl, opts\.active\)/);
   assert.match(chromeSource, /Nav\.sidebarSections/);
 });
 
-test('each of the four pages loads the strip before the chrome and keeps its nav id', async () => {
+test('every marketing page loads the strip before the chrome and keeps its nav id', async () => {
   const sources = {
     [OVERVIEW]: await read('v2/marketing-overview.html'),
     [EXPLORER]: await read('v2/marketing-explorer.html'),
     [REPORT]: await read('v2/wow-report.html'),
     [ATTRIBUTION]: (await read('v2/silo-attribution.html')) + (await read('v2/silo-attribution-page.js')),
   };
+  // The inner pages of Ad Studio and SEO carry the strip too, each under its
+  // own nav id (checked by its own suite's test), so only the load order and
+  // the stylesheet are asserted for them here.
+  const inner = ['v2/ad-studio.html', 'v2/marketing-ops.html', 'v2/seo-studio.html',
+    'v2/seo-overview.html', 'v2/seo-keywords.html', 'v2/seo-tasks.html'];
+  for (const file of inner) {
+    const src = await read(file);
+    const navAt = src.indexOf('src="nav-config.js"');
+    const stripAt = src.indexOf('src="performance-suite.js"');
+    const chromeAt = src.indexOf('src="silo-chrome.js"');
+    assert.ok(navAt > -1 && navAt < stripAt && stripAt < chromeAt, `${file}: nav-config, performance-suite, silo-chrome in that order`);
+    assert.ok(src.includes('href="performance-suite.css"'), `${file}: strip stylesheet missing`);
+  }
   for (const [id, src] of Object.entries(sources)) {
     const navAt = src.indexOf('src="nav-config.js"');
     const stripAt = src.indexOf('src="performance-suite.js"');
