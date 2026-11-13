@@ -62,7 +62,7 @@ const MUTATIONS = {
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
   tokenurl: ['/affiliates/public.js', "if (url.searchParams.has('t')) { url.searchParams.delete('t'); history.replaceState(null, '', url.pathname + url.search); }", ''],
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
-  exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], S.d.affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
+  exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
   feedhtml: ['/affiliates/portal.html', '<div class="af-cal-title">${esc(i.title)}</div>', '<div class="af-cal-title">${i.title}</div>'],
   calpast: ['/affiliates/portal.html', "    .filter((i) => !today || day(i.event_on) >= today)\n", ''],
@@ -71,7 +71,7 @@ const MUTATIONS = {
   adnoimage: ['/affiliates/studio.js', 'if (x.image_path) x.image_url = await publishAdImage(x.image_path);', ''],
   autocodeold: ['/affiliates/studio.js', "const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));", 'const hasAutoCode = () => true;'],
   todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
-  photonone: ['/affiliates/studio.js', '  const photo = prospectPhotoUrl(evidence);\n', '  const photo = null;\n'],
+  photonone: ['/affiliates/studio.js', 'prospectPhotoUrl(x.evidence)', 'null'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
   photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
@@ -104,17 +104,29 @@ const MUTATIONS = {
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
+const stale = (name, rel) => {
+  console.error(`mutation ${name}: pattern missing in ${rel} -- the mutation is stale, not caught`);
+  process.exit(3);
+};
 const transform = (rel, source) => {
-  if (!MUT || !rel.endsWith(MUTATIONS[MUT][0])) return source;
+  // Every plain run re-checks EVERY mutation's pattern against the file it
+  // belongs to. A sweep only asks "did the suite fail?", so a pattern that has
+  // drifted out of the source fails for the wrong reason and reads exactly
+  // like a guard under test -- the guard is then untested for as long as
+  // nobody looks. Four of these had drifted at once after one refactor.
+  if (!MUT) {
+    for (const [name, [file, from]] of Object.entries(MUTATIONS)) {
+      if (rel.endsWith(file) && !source.includes(from)) stale(name, rel);
+    }
+    return source;
+  }
+  if (!rel.endsWith(MUTATIONS[MUT][0])) return source;
   const [, from, to] = MUTATIONS[MUT];
   // A pattern that no longer matches the source is the dangerous case: the
   // suite then fails for the wrong reason and a sweep that only asks "did it
   // fail?" reads a stale mutation as a guard under test. Exit 3 so the sweep
   // can tell the two apart.
-  if (!source.includes(from)) {
-    console.error(`mutation ${MUT}: pattern missing in ${rel} -- the mutation is stale, not caught`);
-    process.exit(3);
-  }
+  if (!source.includes(from)) stale(MUT, rel);
   return source.split(from).join(to);
 };
 
