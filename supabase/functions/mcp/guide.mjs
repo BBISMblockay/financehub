@@ -418,6 +418,7 @@ export const WHERE_IN_SILO = {
     { section: 'Team', page: 'My Reviews', path: '/v2/my-review.html', what: 'Your own reviews.' },
     { section: 'Team', page: 'Compensation', path: '/v2/comp-requests.html', what: 'Compensation requests.' },
 
+    { section: 'Purchasing', page: 'Purchasing', path: '/v2/purchasing.html', what: 'The purchasing overview: open purchase orders, what is arriving, how far costing has got, and the factories behind them. The other Purchasing pages are tabs of it.' },
     { section: 'Purchasing', page: 'PO Builder', path: '/v2/po-builder.html', what: 'Build a purchase order.' },
     { section: 'Purchasing', page: 'PO Landed Cost', path: '/v2/po-costing.html', what: 'A purchase order\'s landed cost.' },
     { section: 'Purchasing', page: 'PO Report', path: '/v2/po-report.html', what: 'Incoming purchase orders, their arrivals and their shipment bookings.' },

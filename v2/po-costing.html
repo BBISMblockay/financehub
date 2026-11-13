@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="purchasing-suite.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
@@ -15,13 +16,11 @@
   <script src="freight-request-match.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
-    .bcn-header-sub { display: none; }
-    .bcn-header { padding-top: 6px; padding-bottom: 6px; }
-    .bcn-kpi-band { min-height: 0; border-bottom-width: 1px; }
-    .bcn-kpi { padding: 4px 10px; gap: 0; flex-direction: row; align-items: baseline; justify-content: center; }
-    .bcn-kpi-label { font-size: 9px !important; margin-right: 5px; letter-spacing: 0.06em; }
-    .bcn-kpi-value { font-size: 12px !important; line-height: 1.1; }
-    .bcn-kpi-delta { display: none; }
+    [hidden] { display: none !important; }
+
+    /* The KPI band is Beacon's own, as on the Purchasing overview. It was
+       squashed into one 12px line per tile, which read as a different
+       product from the rest of the suite and hid #phaseHint. */
     .bcn-filter-bar { height: 30px; padding: 0 12px; font-size: 11px; }
 
     /* ── Stepper ─────────────────────────────────────── */
@@ -206,13 +205,15 @@
     <main class="silo-main">
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
-          <div class="bcn-header-title"><h1>PO landed cost</h1></div>
-          <div class="bcn-header-sub">After PO builder: cost FOB from prior SKUs or factory invoice → mark shipped → add freight split per unit. Data persists to <code>po_costing</code> tables.</div>
+          <h1 class="bcn-header-title">Landed Cost</h1>
+          <p class="bcn-header-sub">FOB, freight and duties per unit.</p>
         </div>
+        <!-- REPORT is gone: the suite strip above is the way across.
+             #linkBuilder stays, because it is not a tab -- it carries
+             ?po_id= to the PO that is open here. -->
         <div class="bcn-header-actions">
-          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">PO LIST <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
-          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-builder.html" id="linkBuilder">PO BUILDER</a>
-          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-report.html">REPORT</a>
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-builder.html" id="linkBuilder">Open in PO Builder</a>
         </div>
       </header>
 
@@ -298,7 +299,6 @@
           <div class="bcn-card-body">
             <!-- Phase 1: Unit Costs -->
             <div id="panelFob" class="phase-panel cost-phase">
-              <p class="cost-hint" style="margin-bottom:10px;">Per-unit costs pre-fill from your PO builder. Edit any line below, or pull prior SKU costs.</p>
               <div class="cost-section-label">Factory invoice (reference)</div>
               <div class="cost-fields">
                 <div class="bcn-field-group"><label class="bcn-label">Invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
@@ -398,8 +398,10 @@
         </div>
 
         <section class="bcn-card" id="emptyPanel">
-          <div class="bcn-card-body">
-            <p class="hint">Open <strong>PO LIST</strong> to select a purchase order for landed cost.</p>
+          <div class="purch-blank">
+            <strong>No purchase order open</strong>
+            <span>Pick one from the PO list.</span>
+            <button type="button" class="bcn-btn bcn-btn--dark" id="btnEmptyPickPo">PO list</button>
           </div>
         </section>
       </div>
@@ -428,6 +430,7 @@
   </div>
 
   <script src="nav-config.js"></script>
+  <script src="purchasing-suite.js"></script>
   <script src="silo-chrome.js"></script>
   <script>
     const Lib = window.PoCostingLib;
@@ -1289,6 +1292,7 @@
         const drawer = document.getElementById('poDrawer');
         setPoDrawerOpen(!drawer?.classList.contains('is-open'));
       });
+      document.getElementById('btnEmptyPickPo')?.addEventListener('click', () => setPoDrawerOpen(true));
       document.getElementById('btnClosePoDrawer')?.addEventListener('click', () => setPoDrawerOpen(false));
       document.getElementById('poDrawerBackdrop')?.addEventListener('click', () => setPoDrawerOpen(false));
       document.addEventListener('keydown', e => {
