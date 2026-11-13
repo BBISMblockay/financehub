@@ -203,7 +203,7 @@ jobs:
       - name: Affiliate Studio page guards (mutations)
         run: |
           set -u
-          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache; do
+          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly; do
             AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1 && code=0 || code=$?
             if [ "$code" = "0" ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1

@@ -54,6 +54,11 @@
  *   AFFILIATE_UI_MUTATION=ordersrestart Show more asks for the first page again
  *   AFFILIATE_UI_MUTATION=ordersshut   Show more closes an order the rep had opened
  *   AFFILIATE_UI_MUTATION=ordersgid    an order with no shop number shows its raw store id
+ *   AFFILIATE_UI_MUTATION=qmsgsent    Approve all also approves messages already sent
+ *   AFFILIATE_UI_MUTATION=qcodesall   Make codes gives a second code to an affiliate who has one
+ *   AFFILIATE_UI_MUTATION=qpayanycur  Build payouts includes balances in another currency
+ *   AFFILIATE_UI_MUTATION=autopaymoney the Friday auto-pay switch is live for someone who cannot approve money
+ *   AFFILIATE_UI_MUTATION=autopayearly the Friday auto-pay switch is shown before its columns exist
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -119,6 +124,12 @@ const MUTATIONS = {
   // history the rows are drawn from (review cycle 2).
   checkfromcache: ['/affiliates/studio.js', "    .in('state', Object.keys(OPEN_RANK))\n", "    .limit(200)\n"],
   sendnoaddress: ['/affiliates/studio.js', "      else if (!st.email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
+  // The pinched Home (Blake, 2026-11-13).
+  qmsgsent: ['/affiliates/studio.js', "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);", '    const ids = S.d.drafts.map((x) => x.id);'],
+  qcodesall: ['/affiliates/studio.js', "    const todo = S.d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id));", "    const todo = S.d.affiliates.filter((a) => a.status === 'active');"],
+  qpayanycur: ['/affiliates/studio.js', "    const owed = (S.d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0);", '    const owed = (S.d.balances || []).filter((x) => Number(x.unclaimed_cents) > 0);'],
+  autopaymoney: ['/affiliates/studio.js', "${MONEY ? '' : ' disabled title=", "${true ? '' : ' disabled title="],
+  autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
@@ -206,8 +217,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { ad_id: 'ad2', ad_name: 'Catalog', title: 'All releases', body: 'x', image_path: `test-company/${'cd34'.repeat(16)}.jpg`, image_shared_by: 9, recent_spend: 90, last_day: '2026-11-08' },
         { ad_id: 'ad3', ad_name: 'No picture', title: 'Text only', body: 'y', image_path: null, recent_spend: 10, last_day: '2026-11-08' }] } });
     page.on('pageerror', (e) => errors.push(e.message));
-    // Simple page: six tabs (Overview added), Overview first, the To do list on it.
-    R.ok('the page has six tabs', (await page.$$('#tabs [data-tab]')).length === 6);
+    // Pinched page (Blake, 2026-11-13): four tabs -- Home, People, Money, Setup.
+    R.ok('the page has four tabs', (await page.$$('#tabs [data-tab]')).length === 4);
     R.ok('the page opens on Overview', await page.evaluate(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'overview'));
     const over = await text(page, '#overviewBody');
     R.has(over, 'Sales from codes', 'Overview leads with how the program is doing');
@@ -227,11 +238,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const next = over;
     R.has(next, 'waiting for your review', 'the next-step line says what to do now');
     R.has(next, 'not credited', 'uncredited code orders are surfaced');
-    R.has(next, 'To do', 'everything waiting on a person is one list');
+    R.has(next, 'Needs you', 'everything waiting on a person is one list');
     R.has(next, 'earnings to put in a payout', 'unpaid earnings are on the list for a manager');
-    R.has(next, 'commissions update every night', 'one line says what runs by itself');
+    R.has(next, 'Running on its own', 'what runs by itself is shown, not explained');
+    R.has(next, 'Commissions update nightly', 'nightly commissions are listed as running');
     R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
-    await page.click('#btnSettings');
+    await page.click('#tabs [data-tab="program"]');
     await page.waitForFunction(() => !!document.querySelector('#programBody .bcn-card'), null, { timeout: 5000 });
     const ov = await text(page, '#programBody');
     R.has(ov, 'Outreach to prospects', 'settings state how each part works');
@@ -240,12 +252,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.not(ov, 'Incremental sales', 'the card lists what SILO does, not what it does not')
     R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
-    for (const tab of ['prospects', 'outreach', 'affiliates', 'share', 'payouts']) {
+    for (const [tab, body] of [['people', 'prospectsBody'], ['people', 'outreachBody'], ['people', 'affiliatesBody'], ['program', 'shareBody'], ['payouts', 'payoutsBody']]) {
       await page.click(`#tabs [data-tab="${tab}"]`);
-      await page.waitForFunction((t) => !!document.querySelector(`#${t}Body .bcn-card`), tab, { timeout: 5000 });
+      await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card`), body, { timeout: 5000 });
     }
     // ── Affiliates: a code the person's own AI creates in Shopify ─────────
-    await page.click('#tabs [data-tab="affiliates"]');
+    await page.click('#tabs [data-tab="people"]');
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     const ab = await text(page, '#affiliatesBody');
     R.has(ab, 'Connect your AI', 'with no AI that can make codes, Affiliates offers to connect one');
@@ -264,12 +276,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const codeRow = await page.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_codes' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.eq(codeRow?.status, 'pending', 'a code for the AI waits for Shopify');
     R.eq(codeRow?.discount_percent, 15);
-    await page.click('#tabs [data-tab="outreach"]');
+    await page.click('#tabs [data-tab="people"]');
     const ob = await text(page, '#outreachBody');
     R.has(ob, 'Your own MCP client sends approved messages', 'Messages leads with sending through a connected MCP client');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     R.has(ob, 'while this company is selected', 'with no connection, Messages says to connect for this company');
-    await page.click('#tabs [data-tab="prospects"]');
+    await page.click('#tabs [data-tab="people"]');
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
     // Creator photo: shown over the initials when research found one; a photo
@@ -284,9 +296,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       setTimeout(() => done({ gone: !thumb.contains(img), initials: (thumb.textContent || '').trim() }), 1500);
     }));
     R.ok('an expired photo is removed so the initials show', broken.gone && broken.initials.length > 0);
-    await page.click('#tabs [data-tab="affiliates"]');
+    await page.click('#tabs [data-tab="people"]');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
-    await page.click('#tabs [data-tab="prospects"]');
+    await page.click('#tabs [data-tab="people"]');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
     R.not(pr, 'Saved Google searches', 'there are no saved searches to manage: a run searches what was typed');
@@ -329,7 +341,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="payouts"]');
     R.has(await text(page, '#payoutsBody'), 'Pay from your bank or payment tool', 'the payout tab says where money moves');
     // ── Share tab: the brand picks what affiliates see ──────────────────
-    await page.click('#tabs [data-tab="share"]');
+    await page.click('#tabs [data-tab="program"]');
     await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     const sb = await text(page, '#shareBody');
     R.has(sb, 'Trail Hat', 'what is already shared is listed first');
@@ -355,7 +367,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(adRow?.image_url, `about:blank#test-company/${'ab12'.repeat(16)}.jpg`, 'and the shared ad carries that public picture');
     R.eq(adRow?.note, 'Grip that holds.', 'with its copy, to repost');
     R.eq(adRow?.product_path, '/products/mud-shoe');
-    await page.click('#btnSettings');
+    await page.click('#tabs [data-tab="program"]');
     // The link is a button to copy and one to open, not a line of text to
     // select by hand.
     R.ok('an open program offers its application link to copy', (await page.evaluate(() => document.querySelector('#programBody [data-act="copy-text"]')?.dataset.t || '')).endsWith('/v2/affiliates/apply.html?c=test-company&p=creators'));
@@ -378,7 +390,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
-    await loop.click('#tabs [data-tab="prospects"]');
+    await loop.click('#tabs [data-tab="people"]');
     await loop.waitForFunction(() => !!document.querySelector('#afCreatorsList'), null, { timeout: 5000 });
     R.ok('prospects tab does not repeat the Overview To do strip', !(await loop.evaluate(() => {
       const el = document.getElementById('nextStep');
@@ -389,16 +401,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // and cuts off its own last rows unless its children refuse to shrink.
     // The strip this was first measured on is gone; the rule that saved it
     // still covers every panel, so measure it where it now applies.
-    const pinch = await loop.$eval('.af-panel[data-panel="prospects"]', (el) => el.scrollHeight - el.clientHeight);
+    const pinch = await loop.$eval('.af-panel[data-panel="people"]', (el) => el.scrollHeight - el.clientHeight);
     R.ok(`a tall panel is shown whole in a short window (hidden by ${pinch}px)`, pinch <= 1);
     await loop.setViewportSize({ width: 1280, height: 900 });
     // The rep's own photo wins over the one found for them.
     await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
-    await loop.click('#tabs [data-tab="affiliates"]');
+    await loop.click('#tabs [data-tab="people"]');
     await loop.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-catalog-thumb'), null, { timeout: 5000 });
     R.ok('an affiliate card shows the photo the rep set in the portal', !!(await loop.$('#affiliatesBody img.af-avatar-photo[src="https://photos.invalid/pat-own.png"]')));
     // Approving a creator drafts the program's own message, filled in.
-    await loop.click('#tabs [data-tab="prospects"]');
+    await loop.click('#tabs [data-tab="people"]');
     await loop.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-s="approved"]'), null, { timeout: 5000 });
     await loop.click('#prospectsBody [data-act="prospect-status"][data-s="approved"]');
     await loop.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
@@ -407,7 +419,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
     R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
-    await loop.click('#btnSettings');
+    await loop.click('#tabs [data-tab="program"]');
     // Settings leads with the four answers a program needs; the message,
     // terms and defaults open below it.
     R.ok('settings leads with name, status and what you pay', !!(await loop.$('#programBody .bcn-card-body > .af-grid--settings #pName')) && !!(await loop.$('#programBody .bcn-card-body > .af-grid--settings #pKind')));
@@ -479,7 +491,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
       silo_api_connection_labels: `function () { return [{ grant_id: 'g1', client_name: 'Claude' }, { grant_id: 'g2', client_name: 'ChatGPT' }, { grant_id: 'g3', client_name: 'Old Bot' }]; }`,
     } });
-    await ai.click('#tabs [data-tab="outreach"]');
+    await ai.click('#tabs [data-tab="people"]');
     await ai.waitForFunction(() => !!document.querySelector('#outreachBody .bcn-card'), null, { timeout: 5000 });
     const how = await text(ai, '#aiSendHow');
     R.has(how, 'send approved messages', 'Messages explains send via a connected MCP client');
@@ -487,7 +499,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(how, 'Claude', 'tab copy does not hardcode an app vendor name');
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
-    await ai.click('#tabs [data-tab="affiliates"]');
+    await ai.click('#tabs [data-tab="people"]');
     await openMore(ai);
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
@@ -500,7 +512,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
 
     const member = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: false, can_approve_affiliate_commissions: false } });
     member.on('pageerror', (e) => errors.push(e.message));
-    await member.click('#tabs [data-tab="prospects"]');
+    await member.click('#tabs [data-tab="people"]');
     R.ok('a member is not offered approve/reject', !(await member.$('#prospectsBody [data-act="prospect-status"]')))
     R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
     await member.click('#tabs [data-tab="payouts"]');
@@ -989,6 +1001,70 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('and it was sent to PayPal exactly once',
       (await ppFail.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.body?.action === 'send').length)) === 1);
     await ppFail.close();
+
+    // ── Home: one press per queue row, and what runs on its own ───────────
+    // Blake, 2026-11-13: "I shouldn't have to press so many buttons to move
+    // along the flow." Each row that can be finished from Home carries the
+    // press that finishes it, over every row it names.
+    const AFF_Q = '33333333-3333-4333-8333-333333333333';
+    const qTables = { ...tables,
+      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 15, auto_share_launches: true }],
+      affiliates: [...tables.affiliates, { id: AFF_Q, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', status: 'active', created_at: now }],
+      affiliate_outreach_drafts: [
+        { id: 'd1', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'draft', subject: 'Hi', body: 'x', created_at: now },
+        { id: 'd2', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'draft', subject: 'Hi', body: 'y', created_at: now },
+        { id: 'd3', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'sent', subject: 'Hi', body: 'z', created_at: now }],
+      affiliate_balances_v: [...tables.affiliate_balances_v,
+        { company_entity_id: CO, program_id: PROG, affiliate_id: AFF_Q, currency: 'USD', earned_cents: 900, refund_adjustment_cents: null, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 900 },
+        { company_entity_id: CO, program_id: PROG, affiliate_id: 'other-cur', currency: 'CAD', earned_cents: 900, refund_adjustment_cents: null, claimed_cents: 0, paid_cents: 0, unclaimed_cents: 900 }] };
+    const home = await suite.open('/v2/affiliates/index.html', qTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    home.on('pageerror', (e) => errors.push(e.message));
+    const hv = await text(home, '#overviewBody');
+    R.has(hv, 'Approve all 2', 'two drafts are approved with one press');
+    R.has(hv, 'Make 1 code(s)', 'the codeless affiliate gets a code with one press');
+    R.has(hv, 'Build 2 payout(s)', 'every affiliate owed in the program currency gets a payout with one press');
+    R.has(hv, 'Share every launch', 'launch sharing is shown as running');
+    R.has(hv, 'Code for each new affiliate · 15% off', 'automatic codes are shown with what they give');
+    R.not(hv, 'Pay every Friday', 'no auto-pay switch before its columns exist');
+    const lastWrite = (table, op) => home.evaluate(([t, o]) => window.__QUERIES__.filter((q) => q.table === t && q._op === o).pop() || null, [table, op]);
+    await home.click('#overviewBody [data-act="q-msgs"]');
+    await home.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update'), null, { timeout: 5000 });
+    const mq = await lastWrite('affiliate_outreach_drafts', 'update');
+    R.eq(mq.patch.state, 'approved', 'the drafts are approved');
+    R.eq((mq.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals, ['d1', 'd2'], 'only the drafts are approved, never a message already sent');
+    R.ok('and only while each is still a draft', mq.filters.some((f) => f.op === 'eq' && f.col === 'state' && f.val === 'draft'));
+    await home.click('#overviewBody [data-act="q-codes"]');
+    await home.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_codes' && q._op === 'insert'), null, { timeout: 5000 });
+    const cq = await lastWrite('affiliate_codes', 'insert');
+    const cRows = Array.isArray(cq.rows) ? cq.rows : [cq.rows];
+    R.eq(cRows.map((r) => r.affiliate_id), [AFF_Q], 'a code is made only for the affiliate without one');
+    R.eq(cRows[0].status, 'pending', 'it waits for the AI to create it in Shopify');
+    R.eq(Number(cRows[0].discount_percent), 15, 'at the program\'s own discount');
+    R.eq(cRows[0].code, 'PATTRAILS15', 'named from the affiliate');
+    await home.click('#overviewBody [data-act="q-payouts"]');
+    await home.waitForFunction(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_build_payout').length >= 2, null, { timeout: 5000 });
+    const built = await home.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_build_payout').map((q) => q.args.p_affiliate));
+    R.eq(built.sort(), [AFF, AFF_Q].sort(), 'a payout is built for each affiliate owed in the program currency, and no other');
+    R.ok('and nothing is approved or sent by that press', !(await home.evaluate(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_approve_payout'))));
+    await home.click('#overviewBody [data-act="auto-share"]');
+    await home.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
+    R.eq((await lastWrite('affiliate_programs', 'update')).patch.auto_share_launches, false, 'the launch switch turns sharing off');
+    await home.close();
+
+    // Friday auto-pay arrives with the payouts work: shown once its columns
+    // exist, and a live switch only for someone who may approve payouts.
+    const autoPayTables = { ...qTables, affiliate_programs: [{ ...qTables.affiliate_programs[0], payout_mode: 'approve_each', auto_pay_ceiling_cents: 100000 }] };
+    const payMoney = await suite.open('/v2/affiliates/index.html', autoPayTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    payMoney.on('pageerror', (e) => errors.push(e.message));
+    R.has(await text(payMoney, '#overviewBody'), 'Pay every Friday · up to $1,000.00', 'auto-pay shows its ceiling in the program currency');
+    await payMoney.click('#overviewBody [data-act="auto-pay"]');
+    await payMoney.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
+    R.eq(await payMoney.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch.payout_mode), 'auto_friday', 'the switch turns Friday pay on');
+    await payMoney.close();
+    const payNoMoney = await suite.open('/v2/affiliates/index.html', autoPayTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: false } });
+    payNoMoney.on('pageerror', (e) => errors.push(e.message));
+    R.ok('someone who cannot approve payouts cannot turn on auto-pay', await payNoMoney.evaluate(() => document.querySelector('#overviewBody [data-act="auto-pay"]')?.disabled === true));
+    await payNoMoney.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

@@ -9395,6 +9395,32 @@ select 'Affiliate launch claims' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate auto-share launches (20261113080000): a launch shares itself once
+-- with each active program that asks for it, and never fails the launch save.
+select 'Affiliate auto-share launches' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'auto_share_launches')
+      or to_regprocedure('public.affiliate_autoshare_launch(uuid)') is null
+      or to_regprocedure('public.affiliate_autoshare_launch_products(uuid)') is null
+      or not exists (select 1 from pg_trigger where tgname = 'trg_affiliate_autoshare_launch'
+                      and tgrelid = 'public.launch_calendar'::regclass and not tgisinternal)
+      or not exists (select 1 from pg_trigger where tgname = 'trg_affiliate_autoshare_launch_product'
+                      and tgrelid = 'public.launch_product_readiness'::regclass and not tgisinternal)
+      then 'MISSING — run 20261113080000_affiliate_auto_share_launches.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_autoshare_launch(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_autoshare_launch_products(uuid)', 'execute'))
+      then 'BROKEN — a client role can share a launch into any program'
+    -- A launch must save whatever state an affiliate program is in.
+    when position('exception when others' in pg_get_functiondef('public.affiliate_autoshare_launch_trg()'::regprocedure)) = 0
+      or position('exception when others' in pg_get_functiondef('public.affiliate_autoshare_launch_product_trg()'::regprocedure)) = 0
+      then 'BROKEN — a failed share can fail the launch save'
+    when position('p.company_entity_id = l.company_entity_id' in pg_get_functiondef('public.affiliate_autoshare_launch(uuid)'::regprocedure)) = 0
+      then 'CRITICAL — a launch can be shared into another company''s program'
+    else 'ok'
+  end as status;
+
 -- Affiliate portal sign-in by email (20261110170000): the lookup is service
 -- role only and reserves each address for 10 minutes before mailing; the
 -- statement reads each credited order's current base from its attribution.

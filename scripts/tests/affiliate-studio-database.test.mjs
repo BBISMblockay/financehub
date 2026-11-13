@@ -34,6 +34,12 @@
 //   AFFILIATE_DB_MUTATION=pausedclaim   a paused affiliate can claim a launch
 //   AFFILIATE_DB_MUTATION=anylaunch     an affiliate can claim another program's launch
 //   AFFILIATE_DB_MUTATION=anyorders     the order list is the program's, not the affiliate's
+//   AFFILIATE_DB_MUTATION=autoshareflag a launch is shared into a program that turned sharing off
+//   AFFILIATE_DB_MUTATION=autosharepast a launch that already happened is shared
+//   AFFILIATE_DB_MUTATION=autosharecrossco a launch is shared into another company's program
+//   AFFILIATE_DB_MUTATION=autoshareagain editing a launch brings back one that was unshared
+//   AFFILIATE_DB_MUTATION=autoshareproduct adding a product to an unshared launch shares it again
+//   AFFILIATE_DB_MUTATION=autosharefails a failed share fails the launch save
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
@@ -170,6 +176,23 @@ create table shopify_connections (
   created_at timestamptz not null default now()
 );
 alter table shopify_connections enable row level security;
+-- The launch calendar and a launch's products, only the columns the
+-- auto-share triggers read (20261113080000). Any member of the company may
+-- save a launch, which is the point: sharing must not need affiliate rights.
+create table launch_calendar (
+  id uuid primary key default gen_random_uuid(), company_entity_id uuid not null,
+  title text, launch_date date, launch_image_url text, landing_page_url text
+);
+alter table launch_calendar enable row level security;
+create policy launch_calendar_rw on launch_calendar for all to authenticated
+  using (company_entity_id = active_company_id()) with check (company_entity_id = active_company_id());
+create table launch_product_readiness (
+  id uuid primary key default gen_random_uuid(), company_entity_id uuid not null,
+  launch_id uuid not null references launch_calendar(id) on delete cascade, product_title text
+);
+alter table launch_product_readiness enable row level security;
+create policy launch_product_readiness_rw on launch_product_readiness for all to authenticated
+  using (company_entity_id = active_company_id()) with check (company_entity_id = active_company_id());
 -- Supabase's own defaults: every client role is granted everything on every
 -- table. The migrations must revoke what they mean to withhold.
 grant all on all tables in schema public to anon, authenticated, service_role;
@@ -202,6 +225,9 @@ const files = {
   // Last, as in production: its tail CALLS attach_affiliate_same_company_twins(),
   // so the function 20261111181000 creates has to exist first.
   claims: '20261113070000_affiliate_launch_claims_and_orders.sql',
+  // A launch shares itself (20261113080000). After claims: it writes the
+  // parent_source_id column claims adds, and its tail calls the twins function.
+  autoshare: '20261113080000_affiliate_auto_share_launches.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -234,6 +260,17 @@ switch (MUT) {
                  and l.affiliate_id = v_tok.affiliate_id
                  and l.order_id is not null`, `               where l.company_entity_id = v_tok.company_entity_id
                  and l.order_id is not null`); break;
+  // Auto-share (20261113080000).
+  case 'autoshareflag': mutate('autoshare', '     and p.auto_share_launches\n', '\n'); break;
+  case 'autosharepast': mutate('autoshare', '     and l.launch_date >= current_date\n', '\n'); break;
+  case 'autosharecrossco': mutate('autoshare', '      on p.company_entity_id = l.company_entity_id\n', '      on true\n'); break;
+  case 'autoshareagain': mutate('autoshare', `  if tg_op = 'UPDATE' and old.launch_date is not null then
+    return null;
+  end if;`, ''); break;
+  case 'autoshareproduct': mutate('autoshare', '    perform public.affiliate_autoshare_launch_products(new.launch_id);', '    perform public.affiliate_autoshare_launch(new.launch_id);'); break;
+  case 'autosharefails': mutate('autoshare', `  exception when others then
+    raise warning 'affiliate_autoshare_launch skipped for launch %: %', new.id, sqlerrm;`, `  exception when division_by_zero then
+    null;`); break;
   case 'company':
     mutate('core', `create policy affiliate_programs_select on public.affiliate_programs
   for select to authenticated
@@ -436,7 +473,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1855,13 +1892,97 @@ await check('L7 unsharing a launch withdraws its claims and its products', async
   assert.equal(Number((await one('select count(*) as n from affiliate_launch_claims')).n), 0);
 });
 
+// ── M: a launch shares itself (20261113080000) ───────────────────────────
+// Saving a launch puts it, and its products, in the feed of every active
+// program of the same company that asks for it. Saved by a plain member, who
+// has no affiliate rights: the company is the authority, not the caller.
+const feedOf = async (prog) => {
+  await asSuper();
+  return all(`select kind, source_id, title, image_url, product_path, event_on::text as event_on, parent_source_id
+                from affiliate_feed_items where program_id = $1 and (kind = 'launch' or parent_source_id is not null)
+               order by kind, source_id`, [prog]);
+};
+let autoLaunch;
+await check('M1 a new launch shares itself, with its products, into its own company only', async () => {
+  await as(U.memberA, A);
+  autoLaunch = (await one(
+    `insert into launch_calendar(company_entity_id, title, launch_date, launch_image_url, landing_page_url)
+     values ($1, 'Holiday drop', current_date + 10, 'https://cdn.test/h.png', 'https://brand.test/collections/holiday?utm=x') returning id`, [A])).id;
+  await db.query(`insert into launch_product_readiness(company_entity_id, launch_id, product_title)
+                  values ($1,$2,'Snow cap'), ($1,$2,'Snow cap'), ($1,$2,'  '), ($1,$2,'Scarf')`, [A, autoLaunch]);
+  const f = await feedOf(progA);
+  const card = f.find((x) => x.kind === 'launch' && x.source_id === autoLaunch);
+  assert.ok(card, 'the launch is in the feed');
+  assert.equal(card.title, 'Holiday drop');
+  assert.equal(card.image_url, 'https://cdn.test/h.png');
+  assert.equal(card.product_path, '/collections/holiday', 'the landing page becomes a plain path on the store');
+  assert.deepEqual(f.filter((x) => x.parent_source_id === autoLaunch).map((x) => x.title).sort(), ['Scarf', 'Snow cap'],
+    'each product once, blank ones skipped');
+  assert.equal((await feedOf(progB)).filter((x) => x.source_id === autoLaunch || x.parent_source_id === autoLaunch).length, 0,
+    'another company never sees it');
+});
+
+await check('M2 a past launch, a draft program, and a program that turned sharing off are left alone', async () => {
+  await as(U.ownerA, A);
+  const draftProg = (await one(`insert into affiliate_programs(company_entity_id, name, slug, status, commission_percent, currency)
+                                values ($1,'Draft','draft-auto','draft',10,'USD') returning id`, [A])).id;
+  const offProg = (await one(`insert into affiliate_programs(company_entity_id, name, slug, status, commission_percent, currency, auto_share_launches)
+                              values ($1,'Off','off-auto','active',10,'USD', false) returning id`, [A])).id;
+  await as(U.memberA, A);
+  const past = (await one(`insert into launch_calendar(company_entity_id, title, launch_date) values ($1,'Old',current_date - 3) returning id`, [A])).id;
+  const next = (await one(`insert into launch_calendar(company_entity_id, title, launch_date) values ($1,'Next',current_date + 3) returning id`, [A])).id;
+  assert.equal((await feedOf(progA)).filter((x) => x.source_id === past).length, 0, 'a launch that already happened is not shared');
+  assert.ok((await feedOf(progA)).some((x) => x.source_id === next));
+  assert.equal((await feedOf(draftProg)).length, 0, 'a draft program gets nothing');
+  assert.equal((await feedOf(offProg)).length, 0, 'a program with sharing off gets nothing');
+});
+
+await check('M3 a launch is shared once: unsharing it by hand is final', async () => {
+  await as(U.memberA, A);
+  await db.query(`update launch_calendar set title = 'Holiday drop!' where id = $1`, [autoLaunch]);
+  const cards = (await feedOf(progA)).filter((x) => x.kind === 'launch' && x.source_id === autoLaunch);
+  assert.equal(cards.length, 1, 'saving it again writes nothing new');
+  assert.equal(cards[0].title, 'Holiday drop', 'and never rewrites what an affiliate was told');
+  await as(U.ownerA, A);
+  await db.query(`delete from affiliate_feed_items where program_id = $1 and (source_id = $2 or parent_source_id = $2)`, [progA, autoLaunch]);
+  await as(U.memberA, A);
+  await db.query(`update launch_calendar set launch_date = current_date + 11, title = 'Holiday drop' where id = $1`, [autoLaunch]);
+  await db.query(`insert into launch_product_readiness(company_entity_id, launch_id, product_title) values ($1,$2,'Mittens')`, [A, autoLaunch]);
+  assert.equal((await feedOf(progA)).filter((x) => x.source_id === autoLaunch || x.parent_source_id === autoLaunch).length, 0,
+    'an edit or a new product does not bring an unshared launch back');
+  // A launch saved without a date is shared when it first gets one.
+  const undated = (await one(`insert into launch_calendar(company_entity_id, title) values ($1,'Someday') returning id`, [A])).id;
+  assert.equal((await feedOf(progA)).filter((x) => x.source_id === undated).length, 0);
+  await db.query(`update launch_calendar set launch_date = current_date + 30 where id = $1`, [undated]);
+  assert.ok((await feedOf(progA)).some((x) => x.source_id === undated), 'and shared once it has a date');
+});
+
+await check('M4 a failed share never fails the launch save, and no client role can share by hand', async () => {
+  await asSuper();
+  await db.exec(`alter table affiliate_feed_items add constraint m4_refuse check (title is distinct from 'Refused')`);
+  try {
+    await as(U.memberA, A);
+    const id = (await one(`insert into launch_calendar(company_entity_id, title, launch_date) values ($1,'Refused',current_date + 5) returning id`, [A])).id;
+    assert.ok(id, 'the launch saved');
+    assert.equal((await feedOf(progA)).filter((x) => x.source_id === id).length, 0, 'and was simply not shared');
+  } finally {
+    await asSuper();
+    await db.exec('alter table affiliate_feed_items drop constraint m4_refuse');
+  }
+  for (const role of ['anon', 'authenticated', 'silo_integration']) {
+    for (const fn of ['affiliate_autoshare_launch(uuid)', 'affiliate_autoshare_launch_products(uuid)']) {
+      assert.equal((await one(`select has_function_privilege($1, $2, 'execute') as x`, [role, `public.${fn}`])).x, false, `${role} ${fn}`);
+    }
+  }
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));
