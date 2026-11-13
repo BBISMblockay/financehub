@@ -9365,6 +9365,36 @@ select 'Affiliate portal feed' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate launch claims and the affiliate's own orders (20261113070000):
+-- claiming is the affiliate's act through the portal, the order list is
+-- service role only, and the launch calendar reads claims under RLS.
+select 'Affiliate launch claims' as check_name,
+  case
+    when to_regclass('public.affiliate_launch_claims') is null
+      or to_regprocedure('public.affiliate_portal_claim(text, uuid, boolean)') is null
+      or to_regprocedure('public.affiliate_portal_orders(text, integer, integer)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_feed_items' and column_name = 'parent_source_id')
+      then 'MISSING — run 20261113070000_affiliate_launch_claims_and_orders.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_launch_claims'::regclass)
+      then 'BROKEN — affiliate_launch_claims has RLS off'
+    when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_launch_claims'::regclass
+                      and polname = 'affiliate_launch_claims_write'
+                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      then 'BROKEN — a claim can be written by anyone who can sign in'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_portal_claim(text, uuid, boolean)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_orders(text, integer, integer)', 'execute'))
+      then 'BROKEN — a client role can call the portal''s claim or order functions'
+    when position('''portal''' in pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure)) = 0
+      then 'BROKEN — the order list is readable with a signup link'
+    -- The one line this function must never cross: it reads the ledger, not
+    -- the orders table, so no customer data can reach an affiliate.
+    when position('shopify_orders' in pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure)) > 0
+      then 'CRITICAL — the affiliate order list reads the orders table'
+    else 'ok'
+  end as status;
+
 -- Affiliate portal sign-in by email (20261110170000): the lookup is service
 -- role only and reserves each address for 10 minutes before mailing; the
 -- statement reads each credited order's current base from its attribution.

@@ -20,6 +20,8 @@
 //   accept    { token, signed_name, terms_version, platform_terms_version?, contact_name? }
 //                                             -> activates; mails a portal link
 //   statement { token }                       -> earnings summary, codes, links, payouts
+//   orders    { token, limit?, offset? }      -> the rep's own orders, no customer data
+//   claim     { token, item_id, claim? }      -> put a hand up for a shared launch, or take it down
 //   renew     { token }                       -> expired portal link: mail a new one
 //   signin    { email }                       -> mail a portal link to that address if it is an affiliate's
 //                                                to the address ON FILE
@@ -169,9 +171,20 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         store,
         store_link: affiliateLink(store, code, '/'),
         items: (Array.isArray(data.items) ? data.items : []).map((i) => ({
+          id: i.id ?? null,
           kind: i.kind, title: i.title, note: i.note ?? null, event_on: i.event_on ?? null,
           image_url: IMAGE_RE.test(String(i.image_url || '')) ? i.image_url : null,
           link: i.product_path ? affiliateLink(store, code, i.product_path) : null,
+          // A launch the rep has put their hand up for, and what it asks
+          // them to push. Absent on everything else.
+          ...(i.kind === 'launch' ? {
+            claimed: i.claimed === true,
+            push: (Array.isArray(i.push) ? i.push : []).map((p) => ({
+              title: p.title,
+              image_url: IMAGE_RE.test(String(p.image_url || '')) ? p.image_url : null,
+              link: p.product_path ? affiliateLink(store, code, p.product_path) : null,
+            })),
+          } : {}),
         })),
       };
     } catch { return null; }
@@ -444,6 +457,34 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       }, { onConflict: 'company_entity_id,affiliate_id,provider' });
       if (error) return dbError(error);
       return reply({ payout_email: email || null });
+    }
+
+    // The rep puts their hand up for a launch their brand shared, or takes it
+    // down. It pays nothing and promises nothing: the database refuses a
+    // launch that is not theirs, one that has already run, and a paused rep.
+    if (action === 'claim') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const itemId = String(body?.item_id ?? '');
+      if (!UUID_RE.test(itemId)) return reply({ error: 'Unknown launch.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_claim', {
+        p_token_hash: hash, p_feed_item_id: itemId, p_claim: body?.claim !== false,
+      });
+      if (error) return dbError(error);
+      return reply({ claimed: data?.claimed === true });
+    }
+
+    // The rep's own orders. The database returns only their side of each
+    // order -- day, order number, value, what they earned, what is paid --
+    // and never anything that identifies the customer.
+    if (action === 'orders') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const limit = Number.isFinite(Number(body?.limit)) ? Number(body.limit) : 50;
+      const offset = Number.isFinite(Number(body?.offset)) ? Number(body.offset) : 0;
+      const { data, error } = await service.rpc('affiliate_portal_orders', {
+        p_token_hash: hash, p_limit: limit, p_offset: offset,
+      });
+      if (error) return dbError(error);
+      return reply(data && typeof data === 'object' ? data : { orders: [], total: 0 });
     }
 
     if (action === 'statement') {

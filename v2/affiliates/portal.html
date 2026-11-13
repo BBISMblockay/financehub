@@ -28,6 +28,15 @@
     .af-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .af-top h1 { font-size: 20px; margin: 0; }
 
+    /* Beacon's ghost button is a borderless text button, which on a page of
+       white cards reads as a link someone forgot to style. Every button on an
+       affiliate's page carries its outline. */
+    .af-wrap .bcn-btn--ghost { border: 1px solid var(--bcn-border-strong); background: var(--bcn-surface); color: var(--bcn-ink); }
+    .af-wrap .bcn-btn--ghost:hover { background: var(--bcn-sunken); }
+    /* A drop this rep has claimed: the button is the state, so it has to look
+       different from the one next to it that is still an offer. */
+    .af-wrap [data-claim][data-on="1"] { border-color: var(--bcn-pos); color: var(--bcn-pos); background: var(--bcn-pos-soft); }
+
     /* Dashboard: a hero, the numbers, then the feed beside the account. */
     .af-dash { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
     .af-dash > .af-span { grid-column: 1 / -1; }
@@ -41,6 +50,10 @@
     .af-hero .af-sub { color: var(--bcn-band-ink-2); font-size: 14px; }
     .af-hero .af-copy { color: var(--bcn-band-ink-2); }
     .af-hero-link { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 0; max-width: 460px; }
+    /* Beacon's ghost button is drawn for a light surface; on the band it has
+       to carry its own outline or it reads as missing. */
+    .af-hero .bcn-btn--ghost { color: var(--bcn-band-ink); border: 1px solid var(--bcn-band-ink-2); background: transparent; }
+    .af-hero .bcn-btn--ghost:hover { background: rgba(255, 255, 255, .12); color: var(--bcn-band-ink); }
     .af-code { font-family: var(--bcn-mono); font-weight: 600; border: 1px dashed currentColor; border-radius: 8px; padding: 2px 10px; }
     .af-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
     @media (max-width: 700px) { .af-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -86,6 +99,34 @@
     .af-cal-note { color: var(--bcn-ink-3); font-size: 13px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     @media (max-width: 560px) { .af-cal-row { grid-template-columns: 54px minmax(0, 1fr); } .af-cal-thumb, .af-cal-thumb-none { grid-column: 2; width: 100%; height: auto; aspect-ratio: 4 / 3; } .af-cal-text, .af-cal-row .bcn-btn { grid-column: 2; } .af-cal-row .bcn-btn { justify-self: start; } .af-cal-date { align-self: start; } }
 
+    /* What a claimed launch asks this rep to push. */
+    .af-push { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .af-push-item { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--bcn-border); border-radius: 999px; padding: 4px 10px 4px 4px; font-size: 12px; color: var(--bcn-ink-2); background: var(--bcn-surface); }
+    .af-push-item img { width: 24px; height: 24px; border-radius: 999px; object-fit: cover; display: block; }
+    .af-push-none { width: 24px; height: 24px; border-radius: 999px; background: var(--bcn-sunken); }
+    .af-push-lab { align-self: center; font-family: var(--bcn-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bcn-ink-3); }
+    .af-cal-acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+    @media (max-width: 560px) { .af-cal-acts { grid-column: 2; align-items: flex-start; } .af-push { grid-column: 2; } }
+
+    /* Orders: one row an order, opening onto the entries behind it. */
+    .af-ord { display: flex; flex-direction: column; }
+    .af-ord-row { border-bottom: 1px solid var(--bcn-border); }
+    .af-ord-row:last-child { border-bottom: 0; }
+    .af-ord-row > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 96px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 0; }
+    .af-ord-row > summary::-webkit-details-marker { display: none; }
+    .af-ord-row > summary:hover .af-ord-no { color: var(--bcn-accent); }
+    .af-ord-day { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-3); }
+    .af-ord-no { font-size: 13px; font-weight: 600; color: var(--bcn-ink); }
+    .af-ord-code { display: block; font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); margin-top: 2px; }
+    .af-ord-val { font-family: var(--bcn-mono); font-size: 12px; color: var(--bcn-ink-3); text-align: right; }
+    .af-ord-earn { font-family: var(--bcn-mono); font-size: 14px; font-weight: 600; color: var(--bcn-pos); text-align: right; }
+    .af-ord-earn span { display: block; font-family: var(--bcn-font); font-size: 11px; font-weight: 400; color: var(--bcn-ink-3); }
+    .af-ord-detail { padding: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+    .af-ord-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--bcn-ink-2); padding: 6px 10px; border-radius: 8px; background: var(--bcn-sunken); }
+    .af-ord-line .af-ord-amt { font-family: var(--bcn-mono); font-weight: 600; color: var(--bcn-ink); }
+    .af-ord-foot { display: flex; justify-content: center; padding-top: 12px; }
+    @media (max-width: 560px) { .af-ord-row > summary { grid-template-columns: minmax(0, 1fr) auto; } .af-ord-day, .af-ord-val { display: none; } }
+
     /* Account side: codes as chips, earnings as bars, payouts as rows. */
     .af-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .af-chip { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
@@ -97,7 +138,10 @@
     .af-rows { display: flex; flex-direction: column; }
     .af-rows > div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--bcn-border); font-size: 13px; }
     .af-rows > div:last-child { border-bottom: 0; }
-    .af-links { display: flex; flex-direction: column; gap: 8px; }
+    .af-links { display: flex; flex-direction: column; gap: 12px; }
+    .af-link { display: flex; flex-direction: column; gap: 6px; }
+    .af-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .af-row .bcn-field { flex: 1; min-width: 180px; }
 
     /* Brand switcher: a rep who reps more than one brand. */
     .af-switch { position: relative; }
@@ -201,16 +245,75 @@ async function load() {
   const side = [
     photoCard(st.photo_url, st.photo_own, s.affiliate?.display_name || r.affiliate?.display_name),
     card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c, t.today)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
-    links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<span class="af-copy">${esc(u)}</span>`).join('')}</div>`) : '',
+    links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<div class="af-link"><span class="af-muted">${esc(linkLabel(u))}</span><div class="af-row">${copyBtn(u, 'Copy link', 'primary')}${openBtn(u, 'Open')}</div></div>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
     payoutEmailCard(st.payout_email),
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
-  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}</div><div class="af-side">${side}</div></div>`;
+  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}<div id="ordersCard"></div></div><div class="af-side">${side}</div></div>`;
   brandSwitcher();
   wirePhoto();
   wirePayoutEmail();
+  ORD = { rows: [], total: 0, cur, loaded: false, open: new Set() };
+  loadOrders();
+}
+
+// The orders this rep's code was credited on. A second call, after the page
+// is already useful: a long history must not hold up the dashboard. It is
+// their side of each order only -- no customer, no line items.
+const ORDERS_PAGE = 25;
+let ORD = { rows: [], total: 0, cur: null, loaded: false, open: new Set() };
+async function loadOrders() {
+  const el = $('ordersCard'); if (!el) return;
+  if (!ORD.loaded) el.innerHTML = card('Your orders', '<p class="af-muted">Loading…</p>');
+  try {
+    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: ORD.rows.length });
+    ORD.rows = ORD.rows.concat(Array.isArray(r.orders) ? r.orders : []);
+    ORD.total = Number(r.total) || ORD.rows.length;
+    ORD.loaded = true;
+    renderOrders();
+  } catch (e) {
+    // An older deployment without this action leaves the rest of the page
+    // exactly as it is, rather than an error where a list should be.
+    el.innerHTML = '';
+    if (ORD.loaded) setStatus(e.message, 'neg');
+  }
+}
+function renderOrders() {
+  const el = $('ordersCard'); if (!el) return;
+  const m = (c) => formatMoney(c, ORD.cur);
+  if (!ORD.rows.length) { el.innerHTML = card('Your orders', empty('No orders yet. Share your link and they show up here.')); return; }
+  const line = (e) => {
+    const what = e.kind === 'accrual' ? 'Commission' : e.kind === 'refund_adjustment' ? 'Refund' : 'Adjustment';
+    const rate = e.rate_kind === 'percent_of_net' && e.rate_value != null ? `${Number(e.rate_value)}% of ${m(e.basis_cents)}`
+      : e.rate_kind === 'fixed_per_order' ? 'fixed per order' : '';
+    return `<div class="af-ord-line"><span>${esc(what)}${rate ? ` · ${esc(rate)}` : ''}${e.memo ? ` · ${esc(e.memo)}` : ''}</span><span class="af-ord-amt">${m(e.amount_cents)}</span></div>`;
+  };
+  // The shop's own order number when it synced one. Otherwise the id's last
+  // segment, because a raw Shopify gid is noise to the person reading it.
+  const orderLabel = (o) => {
+    if (o.order_number) return String(o.order_number).startsWith('#') ? String(o.order_number) : `#${o.order_number}`;
+    const tail = String(o.order_id || '').split('/').pop();
+    return /^\d+$/.test(tail) ? `#${tail}` : String(o.order_id || '');
+  };
+  const row = (o) => {
+    const paid = Number(o.paid_cents) || 0;
+    const state = paid >= Number(o.earned_cents) && Number(o.earned_cents) > 0 ? 'paid' : paid > 0 ? `${m(paid)} paid` : 'coming to you';
+    return `<details class="af-ord-row" data-order="${esc(o.order_id)}"${ORD.open.has(o.order_id) ? ' open' : ''}><summary>
+      <span class="af-ord-day">${esc(day(o.order_day))}</span>
+      <span><span class="af-ord-no">${esc(orderLabel(o))}</span>${o.code ? `<span class="af-ord-code">${esc(o.code)}</span>` : ''}</span>
+      <span class="af-ord-val">${o.order_value_cents == null ? '' : m(o.order_value_cents)}</span>
+      <span class="af-ord-earn">${m(o.earned_cents)}<span>${esc(state)}</span></span>
+    </summary><div class="af-ord-detail">${(o.entries || []).map(line).join('')}</div></details>`;
+  };
+  const more = ORD.rows.length < ORD.total
+    ? `<div class="af-ord-foot"><button class="bcn-btn" type="button" id="ordMore">Show more</button></div>` : '';
+  el.innerHTML = card('Your orders', `<div class="af-ord">${ORD.rows.map(row).join('')}</div>${more}`);
+  $('ordMore')?.addEventListener('click', (ev) => { ev.target.disabled = true; loadOrders(); });
+  for (const d of el.querySelectorAll('[data-order]')) {
+    d.addEventListener('toggle', () => { if (d.open) ORD.open.add(d.dataset.order); else ORD.open.delete(d.dataset.order); });
+  }
 }
 
 // Where this rep takes money. It is their own answer: a brand that types an
@@ -361,14 +464,26 @@ function heroCard(feed, name, brand, status) {
     <div><h2>${esc(name ? `Hi ${name}` : 'Welcome')}</h2>
       <div class="af-sub">${status === 'paused' ? 'Your account is paused. New orders are not credited until the brand resumes it.' : `You earn on every order that uses your ${esc(brand)} code.`}</div></div>
     <div class="af-hero-link">${link
-      ? `<span class="af-copy" id="storeLink">${esc(link)}</span>
-         <div class="af-brand">${copyBtn(link, 'Copy my link', 'primary')}<span class="af-sub">Your code <span class="af-code">${esc(feed.code || '')}</span> is applied at checkout.</span></div>`
+      ? `<div class="af-row">${copyBtn(link, 'Copy my link', 'primary')}${openBtn(link, 'Open store')}</div>
+         <span class="af-sub">Your code <span class="af-code">${esc(feed.code || '')}</span> is applied at checkout.</span>`
       : `<span class="af-sub">${feed?.code
         ? `Your code <span class="af-code">${esc(feed.code)}</span> is live — use it at checkout. Your one-tap link appears once ${esc(brand)} sets its store address.`
         : 'Your link appears once you have a code.'}</span>`}</div>
   </section>`;
 }
 const copyBtn = (text, label, kind = 'ghost') => (text ? `<button class="bcn-btn bcn-btn--${kind}" type="button" data-copy="${esc(text)}" data-what="${esc(label)}">${esc(label)}</button>` : '');
+// A link the rep can follow, not a line of text to select by hand.
+// Which page a saved link opens, in words: the address itself is on the
+// button, not on the page.
+function linkLabel(u) {
+  try {
+    const x = new URL(u);
+    const p = decodeURIComponent(x.searchParams.get('redirect') || x.pathname || '/');
+    return p === '/' ? 'Your store' : p;
+  } catch { return 'Your link'; }
+}
+const openBtn = (url, label, kind = 'ghost') => (url && /^https:\/\//.test(url)
+  ? `<a class="bcn-btn bcn-btn--${kind}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : '');
 
 // Launches as a calendar: soonest first, grouped by month, each with the
 // rep's own link. Dates are the brand's calendar days, compared with the
@@ -381,6 +496,7 @@ function calendarCard(feed, today) {
     .filter((i) => !today || day(i.event_on) >= today)
     .sort((a, b) => day(a.event_on).localeCompare(day(b.event_on)));
   if (!launches.length) return '';
+  FEED = feed; TODAY = today;
   const soon = (d) => {
     if (!today) return false;
     const diff = (Date.parse(`${d}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000;
@@ -391,13 +507,37 @@ function calendarCard(feed, today) {
     const d = day(i.event_on); const [y, mo, dd] = d.split('-');
     const head = `${y}-${mo}` !== month ? `<div class="af-cal-month">${esc(MONTH_NAMES[Number(mo) - 1])} ${esc(y)}</div>` : '';
     month = `${y}-${mo}`;
-    return `${head}<div class="af-cal-row${soon(d) ? ' is-soon' : ''}" data-cal-date="${esc(d)}">
+    // Claiming is a hand up, not a lock: anyone may claim the same drop, and
+    // it changes nothing about what is paid. It gets the rep the product
+    // list, and puts them on the brand's own launch page.
+    const claim = i.id
+      ? `<button class="bcn-btn ${i.claimed ? 'bcn-btn--ghost' : 'bcn-btn--primary'}" type="button" data-claim="${esc(i.id)}" data-on="${i.claimed ? '1' : ''}">${i.claimed ? '✓ Claimed' : "I'm in"}</button>`
+      : '';
+    const push = i.claimed && (i.push || []).length
+      ? `<div class="af-push"><span class="af-push-lab">Push</span>${i.push.map((p) => `<span class="af-push-item">${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '<span class="af-push-none"></span>'}${esc(p.title)}</span>`).join('')}</div>`
+      : '';
+    return `${head}<div class="af-cal-row${soon(d) ? ' is-soon' : ''}" data-cal-date="${esc(d)}" data-cal-item="${esc(i.id || '')}">
       <div class="af-cal-date"><span>${esc(MONTHS[Number(mo) - 1])}</span><span class="af-cal-day">${esc(String(Number(dd)))}</span></div>
       ${i.image_url ? `<img class="af-cal-thumb" src="${esc(i.image_url)}" alt="">` : '<div class="af-cal-thumb-none"></div>'}
       <div class="af-cal-text"><div class="af-cal-title">${esc(i.title)}</div>${i.note ? `<div class="af-cal-note">${esc(i.note)}</div>` : ''}</div>
-      ${copyBtn(i.link, 'Copy my link', 'ghost')}</div>`;
+      <div class="af-cal-acts">${claim}${copyBtn(i.link, 'Copy my link', 'ghost')}</div>${push}</div>`;
   }).join('');
-  return card('Coming up', `<div class="af-cal" id="calendar">${rows}</div>`);
+  return `<div id="calendarCard">${card('Coming up', `<div class="af-cal" id="calendar">${rows}</div>`)}</div>`;
+}
+// The claim toggles on the row the rep pressed, without reloading the page
+// around them. The server's answer is what the row then shows.
+let FEED = null; let TODAY = null;
+async function toggleClaim(btn) {
+  const id = btn.dataset.claim; const on = btn.dataset.on === '1';
+  btn.disabled = true;
+  try {
+    const r = await call('claim', { token, item_id: id, claim: !on });
+    const item = (FEED?.items || []).find((x) => x.id === id);
+    if (item) item.claimed = r.claimed === true;
+    const el = $('calendarCard');
+    if (el) el.outerHTML = calendarCard(FEED, TODAY);
+    setStatus(r.claimed ? 'You are on this one. The brand can see it.' : 'Taken off this one.', 'pos');
+  } catch (e) { setStatus(e.message, 'neg'); btn.disabled = false; }
 }
 
 // What the brand shared to post, each with this affiliate's own link: the
@@ -430,6 +570,8 @@ document.addEventListener('click', async (ev) => {
     document.querySelectorAll('#feed .af-item').forEach((x) => { x.hidden = !!f.dataset.filter && x.dataset.kind !== f.dataset.filter; });
     return;
   }
+  const c = ev.target.closest('[data-claim]');
+  if (c) { await toggleClaim(c); return; }
   const b = ev.target.closest('[data-copy]');
   if (!b) return;
   try { await navigator.clipboard.writeText(b.dataset.copy); setStatus(b.dataset.what === 'Copy caption' ? 'Caption copied.' : 'Link copied.', 'pos'); }

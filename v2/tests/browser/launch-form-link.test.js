@@ -35,6 +35,17 @@ const TABLES = {
   launch_product_readiness: [{ id: 'pr-1', launch_id: 'l-products', product_title: 'Tee', company_entity_id: 'test-company', created_at: '2026-09-01' }],
   launch_tasks: [], launch_assets: [], launch_comments: [], launch_system_links: [],
   launch_channel_items: [], product_tracker: [], profiles: [],
+  // Affiliates who claimed a launch in their portal (20261113070000). The
+  // drawer's AFFILIATES tab reads these, keyed by the launch's own id.
+  affiliate_launch_claims: [
+    { id: 'c-1', company_entity_id: 'test-company', affiliate_id: 'a-1', launch_source_id: 'l-products', claimed_at: '2026-11-12T10:00:00Z' },
+    { id: 'c-2', company_entity_id: 'test-company', affiliate_id: 'a-2', launch_source_id: 'l-products', claimed_at: '2026-11-13T10:00:00Z' },
+    { id: 'c-3', company_entity_id: 'test-company', affiliate_id: 'a-1', launch_source_id: 'l-linked', claimed_at: '2026-11-13T11:00:00Z' },
+  ],
+  affiliates: [
+    { id: 'a-1', company_entity_id: 'test-company', display_name: 'Pat Trails', contact_email: 'pat@example.com', status: 'active' },
+    { id: 'a-2', company_entity_id: 'test-company', display_name: null, contact_email: 'sam@example.com', status: 'paused' },
+  ],
 };
 
 const READY = () => {
@@ -171,6 +182,22 @@ async function newLaunch(page, title) {
     await page.evaluate(() => openDrawer('l-unknown'));
     R.ok('the drawer shows the marker too',
       !!(await page.$('#drawerLaunchMeta [data-link-followup="unknown"]')));
+
+    // Who is pushing this launch: the affiliates who claimed it in their own
+    // portal. It is this launch's claims only, and a rep with no display name
+    // is still named by the address the brand has for them.
+    await page.evaluate(() => { openDrawer('l-products'); switchDrawerTab('dp-affiliates'); });
+    await page.waitForFunction(() => !/Loading/.test(document.getElementById('affiliateClaimList')?.textContent || 'Loading'), null, { timeout: 5000 });
+    const claims = await page.evaluate(() => document.getElementById('affiliateClaimList').textContent);
+    R.ok('the launch names an affiliate who claimed it', claims.includes('Pat Trails'));
+    R.ok('with the day they claimed it, not Invalid Date', /Claimed Nov 1[23], 2026/.test(claims));
+    R.has(claims, 'sam@example.com', 'and one with no display name by their address');
+    R.eq(await page.$$eval('#affiliateClaimList .dp-item', (x) => x.length), 2, 'only this launch\'s claims');
+    R.has(await page.evaluate(() => document.getElementById('affiliateClaimMeta').textContent), '2 affiliates', 'with a count beside the heading');
+    await page.evaluate(() => { openDrawer('l-missing'); switchDrawerTab('dp-affiliates'); });
+    await page.waitForFunction(() => /claimed|not available/.test(document.getElementById('affiliateClaimList')?.textContent || ''), null, { timeout: 5000 });
+    R.has(await page.evaluate(() => document.getElementById('affiliateClaimList').textContent), 'Nobody has claimed', 'a launch nobody claimed says so');
+    await page.evaluate(() => openDrawer('l-unknown'));
 
     // Attaching a product from the drawer: the database clears the flag in the
     // same transaction (trg_launch_products_unknown_clear, proven against

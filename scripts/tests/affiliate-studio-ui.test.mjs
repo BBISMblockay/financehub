@@ -12,6 +12,8 @@
 //   AFFILIATE_CORE_MUTATION=unhide    a photo the rep removed comes back as the one found for them
 //   AFFILIATE_CORE_MUTATION=nolinkok  an outreach message without {signup_link} is accepted
 //   AFFILIATE_CORE_MUTATION=pindefault SILO's own message is saved as the program's, freezing it
+//   AFFILIATE_CORE_MUTATION=imgshrink  a card asks the CDN for a SMALLER image than it already had
+//   AFFILIATE_CORE_MUTATION=imganyhost a width parameter is forced onto any host's address
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,6 +29,8 @@ const MUTS = {
   runstatus: ["(r.status === 'ok' || r.status === 'success')", "r.status === 'success'"],
   unhide: ["  if (affiliate?.photo_hidden === true) return null;\n", ''],
   nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
+  imgshrink: ["  if (!Number.isFinite(w) || w <= 0 || w >= px) return url;", '  if (!Number.isFinite(w) || w <= 0) return url;'],
+  imganyhost: ["  if (!WIDTH_PARAM_HOSTS.has(u.hostname)) return url;", ''],
   pindefault: ["row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;", "row.outreach_body = body === '' ? null : body;"],
   rounding: ["const re = units === 1 ? /^-?\\d+$/ : /^-?\\d+(\\.\\d{1,2})?$/;", 'const re = /^-?\\d+(\\.\\d+)?$/;'],
 };
@@ -223,6 +227,20 @@ await t('runs, sources and followers are named in words; a missing count is not 
   assert.match(C.friendlySearchError('AI credit exhausted'), /Out of AI credit/);
   const shown = ['anthropic', 'Claude', 'dataforseo'].some((w) => C.friendlySearchError('model HTTP 529 anthropic').includes(w));
   assert.equal(shown, false, 'no provider names reach the page');
+});
+
+await t('an affiliate card asks the image CDN for the size the card uses, and touches nothing else', () => {
+  // Shopify serves whatever width the address asks for, so a 100px thumbnail
+  // scaled into a 300px card is soft. Ask for the card's size instead.
+  assert.equal(C.displayImage('https://cdn.shopify.com/s/files/1/x.jpg?width=100&height=100&v=9'),
+    'https://cdn.shopify.com/s/files/1/x.jpg?width=800&v=9');
+  // Never downwards, and never a host whose parameters we do not know.
+  assert.equal(C.displayImage('https://cdn.shopify.com/s/files/1/x.jpg?width=1600'), 'https://cdn.shopify.com/s/files/1/x.jpg?width=1600');
+  assert.equal(C.displayImage('https://images.example.com/x.jpg?width=100'), 'https://images.example.com/x.jpg?width=100');
+  assert.equal(C.displayImage('https://cdn.shopify.com/s/files/1/x.jpg'), 'https://cdn.shopify.com/s/files/1/x.jpg');
+  for (const bad of [null, undefined, '', 'not a url', 'http://cdn.shopify.com/x.jpg?width=10']) {
+    assert.equal(C.displayImage(bad), bad, `left alone: ${String(bad)}`);
+  }
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);
