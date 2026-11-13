@@ -86,21 +86,35 @@ const MUTATIONS = {
   codeblame: ['/affiliates/portal.html', '      : `<span class="af-sub">${feed?.code', '      : `<span class="af-sub">${false'],
   periodtotal: ['/affiliates/studio.js', 'const t = d.periodTotals.filter((r) => r.period_id === x.id);', "const t = [{ currency: 'USD', amount_cents: d.ledger.filter((l) => l.period_id === x.id).reduce((a, l) => a + Number(l.amount_cents), 0) }];"],
   // The PayPal rail (20261113040000).
-  sendwhileopen: ['/affiliates/studio.js', "      const openAttempt = Boolean(sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state));", '      const openAttempt = false;'],
-  sandboxlabel: ['/affiliates/studio.js', "        const test = connEnv !== 'live';", '        const test = false;'],
-  // The page must block a send on the SAME rule the claim uses, or a sandbox
-  // test leaves the real payment unreachable (review cycle 2, finding 3).
-  envblock: ['/affiliates/studio.js', "      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);", '      const blocking = openAttempt;'],
-  nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   connflag: ['/affiliates/studio.js', '  return Boolean(conn && conn.is_active !== false && conn.credentials_set);', '  return Boolean(conn && conn.connected);'],
-  sendnoaddress: ['/affiliates/studio.js', "      else if (!email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
+  nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
+  sendwhileopen: ['/affiliates/studio.js', "  const blocked = open && (attemptEnv === 'live' || attemptEnv === connEnv);", '  const blocked = false;'],
+  // The page must block on the same states the claim does -- dropping `paid`
+  // is how Test send was offered on a payout already paid (first sandbox run).
+  paidblocks: ['/affiliates/studio.js', "const BLOCKS_A_SEND = ['unknown', 'sent', 'unclaimed', 'paid'];", "const BLOCKS_A_SEND = ['unknown', 'sent', 'unclaimed'];"],
+  // ...and on the same environment rule: a sandbox test must not stand in the
+  // way of the real payment (review cycle 2, finding 3).
+  envblock: ['/affiliates/studio.js', "  const blocked = open && (attemptEnv === 'live' || attemptEnv === connEnv);", '  const blocked = open;'],
+  sandboxlabel: ['/affiliates/studio.js', "    test: connEnv !== 'live',", '    test: false,'],
+  // Send all approved must send only what a row would send one at a time.
+  sendallskips: ['/affiliates/studio.js', '    .filter((x) => sendState(x).sendable);', '    .filter(() => true);'],
+  // One check per page load. Without the flag, every render calls PayPal.
+  autocheck: ['/affiliates/studio.js', '  if (ppAutoChecked) return;', '  if (false) return;'],
+  sendnoaddress: ['/affiliates/studio.js', "      else if (!st.email) b.push('<span class=\"af-muted\">No PayPal address from them yet</span>');", '      else if (false) b.push(\'\');'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
 assert.ok(!MUT || MUTATIONS[MUT], `Unknown mutation ${MUT}`);
 const transform = (rel, source) => {
   if (!MUT || !rel.endsWith(MUTATIONS[MUT][0])) return source;
   const [, from, to] = MUTATIONS[MUT];
-  assert.ok(source.includes(from), `mutation ${MUT}: pattern missing in ${rel}`);
+  // A pattern that no longer matches the source is the dangerous case: the
+  // suite then fails for the wrong reason and a sweep that only asks "did it
+  // fail?" reads a stale mutation as a guard under test. Exit 3 so the sweep
+  // can tell the two apart.
+  if (!source.includes(from)) {
+    console.error(`mutation ${MUT}: pattern missing in ${rel} -- the mutation is stale, not caught`);
+    process.exit(3);
+  }
   return source.split(from).join(to);
 };
 
@@ -667,21 +681,83 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('and says nothing about sandbox', !/Sandbox: test payments only/.test(liveText));
     await ppLive.close();
 
+    // The bug the first sandbox run turned up: the payout was already paid and
+    // the page still offered to send it. The claim refuses a second attempt, so
+    // the button could only ever produce an error -- but it reads as "not paid".
+    const ppPaid = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [{ id: 'send-paid', payout_id: PP, attempt: 1, state: 'paid', provider_status: 'SUCCESS', provider_item_id: 'i1', error_code: null, error_message: null, environment: 'sandbox', created_at: now }] },
+      { ready, rpc: ppRpc });
+    ppPaid.on('pageerror', (e) => errors.push(e.message));
+    await ppPaid.click('#tabs [data-tab="payouts"]');
+    const paidText = await text(ppPaid, '#payoutsBody');
+    R.ok('a payout already paid is never offered another send',
+      !(await ppPaid.$('#payoutsBody [data-act="pp-send"]')));
+    R.ok('and it is not swept up by Send all either',
+      !(await ppPaid.$('[data-act="pp-send-all"]')));
+    R.has(paidText, 'PayPal (sandbox test): paid', 'the row says it is paid');
+    await ppPaid.close();
+
+    // Pay day is one button. It must send exactly what the rows would send one
+    // at a time -- an affiliate who has given no PayPal address is skipped, not
+    // attempted, because the attempt would be refused with their money owed.
+    const AFF2 = '77777777-7777-4777-8777-777777777777';
+    const PP2 = '88888888-8888-4888-8888-888888888888';
+    const ppAll = await suite.open('/v2/affiliates/index.html',
+      { ...tables,
+        affiliate_programs: ppProgram,
+        affiliates: [...tables.affiliates, { ...tables.affiliates[0], id: AFF2, display_name: 'Jo Hills', contact_email: 'jo@creator.invalid', from_prospect_id: null }],
+        affiliate_payouts: [...ppPayout, { ...ppPayout[0], id: PP2, affiliate_id: AFF2 }],
+        affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [] },
+      { ready, rpc: ppRpc, edge: { 'affiliate-payouts': { status: 200, body: { state: 'paid' } } } });
+    ppAll.on('pageerror', (e) => errors.push(e.message));
+    await ppAll.click('#tabs [data-tab="payouts"]');
+    const allText = await text(ppAll, '#payoutsBody');
+    R.has(allText, 'Test send 1 approved payout(s)', 'Send all counts only the payouts it can actually send');
+    await ppAll.click('[data-act="pp-send-all"]');
+    await ppAll.click('[data-act="pp-send-all"]');   // the confirm
+    await ppAll.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.body?.action === 'send'), { timeout: 5000 }).catch(() => {});
+    const sentAll = await ppAll.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'send').map((c) => c.body.payout_id));
+    R.eq(sentAll, [PP], 'and sends only those, skipping the affiliate with no address');
+    await ppAll.close();
+
     // The case the whole design is built around: an attempt that never
-    // answered. PayPal may already have taken the money, so the page offers
-    // Check status and NOT another Send.
+    // answered. PayPal may already have taken the money, so there is no second
+    // Send -- and the check happens by itself rather than behind a button
+    // somebody has to know to press.
     const ppFlight = await suite.open('/v2/affiliates/index.html',
       { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
         affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
         affiliate_payout_sends: [{ id: 'send-1', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now }] },
-      { ready, rpc: ppRpc });
+      { ready, rpc: ppRpc, edge: { 'affiliate-payouts': { status: 200, body: { checked: 1, results: [{ state: 'sent' }] } } } });
     ppFlight.on('pageerror', (e) => errors.push(e.message));
     await ppFlight.click('#tabs [data-tab="payouts"]');
     const flight = await text(ppFlight, '#payoutsBody');
     R.ok('an attempt with no answer is never offered another Send', !(await ppFlight.$('#payoutsBody [data-act="pp-send"]')));
-    R.ok('it offers Check status instead', !!(await ppFlight.$('#payoutsBody [data-act="pp-refresh"][data-id]')));
     R.has(flight, 'no answer yet', 'and the row says so in words');
+    const auto = await ppFlight.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh'));
+    R.ok('and the open attempt is checked without being asked', auto.length === 1);
     await ppFlight.close();
+
+    // ...once, however many times the tab re-renders: each check is a call to
+    // PayPal, and a render loop would be a call loop.
+    const ppTwice = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: ppProgram, affiliate_payouts: ppPayout, affiliate_payout_connection_status_v: connected,
+        affiliate_payout_accounts: [{ company_entity_id: CO, affiliate_id: AFF, provider: 'paypal', payout_email: 'pat@pay.invalid' }],
+        affiliate_payout_sends: [{ id: 'send-1', payout_id: PP, attempt: 1, state: 'unknown', provider_status: null, provider_item_id: null, error_code: null, error_message: null, environment: 'sandbox', created_at: now }] },
+      { ready, rpc: ppRpc, edge: { 'affiliate-payouts': { status: 200, body: { checked: 1, results: [{ state: 'sent' }] } } } });
+    ppTwice.on('pageerror', (e) => errors.push(e.message));
+    await ppTwice.click('#tabs [data-tab="payouts"]');
+    await ppTwice.click('#tabs [data-tab="overview"]');
+    await ppTwice.click('#tabs [data-tab="payouts"]');
+    // Give a second check every chance to land before counting it.
+    await ppTwice.waitForFunction(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh').length > 1, { timeout: 1500 }).catch(() => {});
+    const twice = await ppTwice.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh'));
+    R.ok('the automatic check does not repeat on every render', twice.length === 1);
+    await ppTwice.close();
 
     // A sandbox test settles nothing, so it does not stand in the way of the
     // real payment either -- and the database would allow that payment, so a
@@ -741,7 +817,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(ppFail, '#status'), 'may have gone through', 'the person is told the money may have moved');
     R.ok('and the row stops offering Send', !(await ppFail.$('#payoutsBody [data-act="pp-send"]')));
     R.ok('offering Check status instead', !!(await ppFail.$('#payoutsBody [data-act="pp-refresh"]')));
-    R.ok('and it was sent to PayPal exactly once', (await ppFail.evaluate(() => window.__EDGE_CALLS__.length)) === 1);
+    R.ok('and it was sent to PayPal exactly once',
+      (await ppFail.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.body?.action === 'send').length)) === 1);
     await ppFail.close();
 
     // ── apply page ────────────────────────────────────────────────────────
