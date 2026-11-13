@@ -94,6 +94,15 @@ export function planDays({ today, state, snapshots, fullHistory, gapDays, histor
 }
 
 // Injected I/O lets the real orchestration run against deterministic fixtures.
+//
+// TWO PASSES, and the order is the whole point. Pass one is the work every report
+// reads: each store's missing days and its trailing refresh. Pass two is deep history,
+// and it starts only once EVERY store's current days are done, on whatever time they
+// left over. Interleaving them cannot be made safe by a per-store time slice: `runDay`
+// takes no deadline and a single large historical day can run for half an hour, so one
+// store's history could return past the run's admission deadline and leave a later
+// store's refresh unvisited. Ordering the passes removes that by construction rather
+// than by arithmetic.
 export async function runCoverage({ config, listConnections, loadState, saveState, loadSnapshots, prepare, runDay, currentConnection, now = () => new Date(), log = console.log, deadline = Infinity }) {
   const connections = (await listConnections()).filter(c => eligible(c, config));
   const work = [];
@@ -103,18 +112,63 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
     catch { failures++; log(JSON.stringify({ connection_id: connection.id, status: 'checkpoint_read_failed' })); }
   }
   work.sort((a, b) => (a.state?.last_attempt_at || '').localeCompare(b.state?.last_attempt_at || '') || a.connection.id.localeCompare(b.connection.id));
-  for (let index = 0; index < work.length; index++) {
-    const item = work[index];
+
+  // One store, one slice of days, in either pass: the same eligibility re-check before
+  // every day, the same durable per-day checkpoint, the same failure isolation.
+  const runDays = async (ctx, days, until) => {
+    const { connection, timeZone, plan, receipt, state } = ctx;
+    for (const day of days) {
+      if (+now() >= until) break;
+      const fresh = await currentConnection(connection.id);
+      if (!canPublish(fresh, connection, config, day, storeToday(timeZone, now()))) break;
+      const history = ctx.deep.has(day);
+      receipt.attempted++;
+      if (history) receipt.history_attempted = (receipt.history_attempted || 0) + 1;
+      try {
+        await runDay(connection, day);
+        receipt.succeeded++;
+        if (history) receipt.history_succeeded = (receipt.history_succeeded || 0) + 1;
+      } catch {
+        // Do not persist upstream errors: they may contain credentials or response bodies.
+        // A day of deep history that cannot be read is recorded and walked past: old days
+        // fail for reasons nobody can fix tonight (a journey Shopify no longer holds, a
+        // later refund that no longer reconciles), and that must not turn the nightly run
+        // that keeps every store current into a failure.
+        if (history) { receipt.history_failed = (receipt.history_failed || 0) + 1; receipt.history_failed_day = day; }
+        else {
+          receipt.failed++; failures++;
+          state.last_failed_day = day;
+          state.last_failed_at = now().toISOString();
+        }
+      }
+      if (history) state.history_day = shiftDay(day, -1);
+      else if (plan.gaps.includes(day)) state.next_day = day >= plan.end ? plan.floor : shiftDay(day, 1);
+      state.last_status = receipt.failed || receipt.history_failed ? 'partial_failure' : 'running';
+      state.last_result = receipt;
+      await saveState(state);
+    }
+  };
+  const finish = async ({ state, receipt, plan }) => {
+    state.last_status = receipt.failed || receipt.history_failed ? 'partial_failure'
+      : receipt.attempted < plan.gaps.length + plan.refresh.length + plan.history.length ? 'paused'
+      : receipt.permission_limited ? 'permission_limited' : 'success';
+    state.last_result = receipt;
+    await saveState(state);
+    log(JSON.stringify({ ...receipt, status: state.last_status }));
+  };
+  const storeFailed = async (state, receipt) => {
+    failures++;
+    log(JSON.stringify({ ...receipt, status: 'store_failed' }));
+    if (state) {
+      state.last_status = 'store_failed'; state.last_attempt_at = now().toISOString(); state.last_result = receipt;
+      try { await saveState(state); } catch { /* Next run can still find missing snapshots. */ }
+    }
+  };
+
+  const pending = [];
+  for (const item of work) {
     if (+now() >= deadline) break;
     let { connection, state } = item;
-    // Deep history gets an equal share of whatever time is left, per store. Without this
-    // the first store in the rotation could spend the entire run walking its own history
-    // and every other store would miss its trailing refresh -- history would starve the
-    // current days ACROSS stores even though it is planned last WITHIN one.
-    let historyDeadline = null;
-    const historyShare = () => Number.isFinite(deadline)
-      ? +now() + Math.max(0, deadline - +now()) / (work.length - index)
-      : Infinity;
     const receipt = { connection_id: connection.id, attempted: 0, succeeded: 0, failed: 0 };
     try {
       connection = await currentConnection(connection.id);
@@ -155,55 +209,30 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
       // owner's scope to grant, not a fault of the run. Said once a night, in its receipt.
       if (historyReady && config.historyDays && !plan.historyFloor) receipt.history_scope_missing = true;
       if (plan.historyComplete) receipt.history_complete = true;
+      const ctx = { connection, state, timeZone, plan, receipt, deep: new Set(plan.history) };
       // Historical budget is separate from refresh budget; neither can consume the other.
-      // Deep history goes LAST so a night that runs out of time drops the oldest work
-      // rather than the trailing days everything reads.
-      const deep = new Set(plan.history);
-      for (const day of [...plan.gaps, ...plan.refresh, ...plan.history]) {
-        if (+now() >= deadline) break;
-        if (deep.has(day)) {
-          historyDeadline ??= historyShare();
-          if (+now() >= historyDeadline) break;
-        }
-        const fresh = await currentConnection(connection.id);
-        if (!canPublish(fresh, connection, config, day, storeToday(timeZone, now()))) break;
-        receipt.attempted++;
-        if (deep.has(day)) receipt.history_attempted = (receipt.history_attempted || 0) + 1;
-        try {
-          await runDay(connection, day);
-          receipt.succeeded++;
-          if (deep.has(day)) receipt.history_succeeded = (receipt.history_succeeded || 0) + 1;
-        } catch {
-          // Do not persist upstream errors: they may contain credentials or response bodies.
-          // A day of deep history that cannot be read is recorded and walked past: old days
-          // fail for reasons nobody can fix tonight (a journey Shopify no longer holds, a
-          // later refund that no longer reconciles), and that must not turn the nightly run
-          // that keeps every store current into a failure.
-          if (deep.has(day)) { receipt.history_failed = (receipt.history_failed || 0) + 1; receipt.history_failed_day = day; }
-          else {
-            receipt.failed++; failures++;
-            state.last_failed_day = day;
-            state.last_failed_at = now().toISOString();
-          }
-        }
-        if (deep.has(day)) state.history_day = shiftDay(day, -1);
-        else if (plan.gaps.includes(day)) state.next_day = day >= plan.end ? plan.floor : shiftDay(day, 1);
-        state.last_status = receipt.failed || receipt.history_failed ? 'partial_failure' : 'running';
-        state.last_result = receipt;
-        await saveState(state);
-      }
-      state.last_status = receipt.failed || receipt.history_failed ? 'partial_failure' : receipt.attempted < plan.gaps.length+plan.refresh.length+plan.history.length ? 'paused' : receipt.permission_limited ? 'permission_limited' : 'success';
-      state.last_result = receipt;
-      await saveState(state);
-      log(JSON.stringify({ ...receipt, status: state.last_status }));
+      await runDays(ctx, [...plan.gaps, ...plan.refresh], deadline);
+      // Deep history waits for the second pass, so this store's receipt and status are
+      // written once, after it.
+      if (plan.history.length) { pending.push(ctx); continue; }
+      await finish(ctx);
     } catch {
-      failures++;
-      log(JSON.stringify({ ...receipt, status: 'store_failed' }));
-      if (state) {
-        state.last_status = 'store_failed'; state.last_attempt_at = now().toISOString(); state.last_result = receipt;
-        try { await saveState(state); } catch { /* Next run can still find missing snapshots. */ }
-      }
+      await storeFailed(state, receipt);
     }
+  }
+  // Pass two: every store's current days are published. What is left of the run is
+  // divided evenly between the stores that still have history to walk, so a store at
+  // the end of the list is not left with nothing.
+  for (let index = 0; index < pending.length; index++) {
+    const ctx = pending[index];
+    // The share is clamped to the run's own deadline, so a run already out of time hands
+    // every remaining store a window that has passed and nothing further is attempted.
+    const share = Number.isFinite(deadline)
+      ? Math.min(deadline, +now() + Math.max(0, deadline - +now()) / (pending.length - index))
+      : Infinity;
+    try { await runDays(ctx, ctx.plan.history, share); }
+    catch { await storeFailed(ctx.state, ctx.receipt); continue; }
+    await finish(ctx);
   }
   return { failures };
 }

@@ -134,9 +134,14 @@ never holed. Already-published days are stepped over without spending budget, so
 earlier manual backfill is never republished. The cursor advances past every day it
 attempts, success or failure, so one unreadable old day costs one attempt instead of
 wedging the walk, and a deep-history failure is recorded (`history_failed`) without
-failing the workflow that keeps every store current. Deep history is attempted after
-the gaps and the trailing refresh, and each store may spend only an equal share of
-the time remaining in the run, so no one store can starve another. Days are collected
+failing the workflow that keeps every store current. The run takes TWO passes: every
+store's gaps and trailing refresh first, then deep history across the stores that
+have any, sharing out what time the first pass left. That ordering is what keeps
+history from starving a current refresh -- `runDay` carries no deadline and one large
+historical day can run for half an hour, so a per-store time slice alone could still
+return past the admission deadline and leave a later store unvisited. Within the
+second pass each store gets an equal share of the time remaining, so a store at the
+end of the list still deepens. Days are collected
 and reconciled through exactly the same penny-checked publish as every other day, and
 are allocated against TODAY's catalog and launch windows, as any backfill is.
 

@@ -276,3 +276,57 @@ test('deep history takes an equal share of the time left, so one store cannot st
   assert.ok(deepOf('a')<=deepOf('b')+8,'the split is not lopsided: '+deepOf('a')+' vs '+deepOf('b'));
   assert.equal(f.states.get('b').last_status,'paused'); // unfinished history is paused, not failed
 });
+
+test('every store finishes its current days before any store starts deep history',async()=>{
+  // The failure this guards: `runDay` takes no deadline, so ONE large historical day can
+  // run for half an hour. Interleaved, that day returns past the run's deadline and a
+  // later store -- especially one with MORE current work -- is never visited at all.
+  let clock=Date.parse('2026-10-07T03:00:00Z');
+  const f=deepFixture();
+  f.connections.push(deepConnection('b'));
+  // Store b carries more current work than a: a six-day outage on top of its refresh.
+  f.states.set('b',{...structuredClone(f.states.get('a')),connection_id:'b',next_day:'2026-09-10'});
+  f.snapshots.set('b',structuredClone(f.snapshots.get('a')).filter(r=>r.day<'2026-09-10'||r.day>'2026-09-15'));
+  f.io.config={...config,historyDays:730,historyBudget:20};
+  f.io.now=()=>new Date(clock);
+  const publish=f.io.runDay;
+  let slow=true;
+  f.io.runDay=async(c,day)=>{
+    // One historical day that runs for 25 minutes, which is what a 4,000-order day does.
+    if(day<'2026-09-06'&&slow){slow=false;clock+=25*60*1000;}else clock+=1000;
+    return publish(c,day);
+  };
+  f.io.deadline=clock+30*60*1000;
+  await runCoverage(f.io);
+  const current=f.calls.filter(([,day])=>day>='2026-09-06'),history=f.calls.filter(([,day])=>day<'2026-09-06');
+  // Store b's larger current workload is complete: seven refresh days plus its whole
+  // catch-up budget of three gap days.
+  assert.equal(current.filter(([c])=>c==='b').length,10,JSON.stringify(current.filter(([c])=>c==='b')));
+  assert.equal(current.filter(([c])=>c==='a').length,7);
+  // ...and not one of those days waited behind a store's history.
+  const lastCurrent=f.calls.findLastIndex(([,day])=>day>='2026-09-06');
+  const firstHistory=f.calls.findIndex(([,day])=>day<'2026-09-06');
+  assert.ok(firstHistory>lastCurrent,'history began at '+firstHistory+', current work ended at '+lastCurrent);
+  // The 25-minute day spends a's whole share, so a's walk is cut short -- recorded as
+  // paused, not failed -- while b, reached afterwards, still deepens on the time left.
+  assert.equal(f.states.get('a').last_result.history_attempted,1);
+  assert.equal(f.states.get('a').last_status,'paused');
+  assert.equal(f.states.get('a').last_result.failed,0);
+  assert.equal(f.states.get('b').last_result.history_attempted,20);
+  assert.ok(history.length>=2);
+});
+
+test('a run out of time attempts no history at all, and says so',async()=>{
+  let clock=Date.parse('2026-10-07T03:00:00Z');
+  const f=deepFixture();
+  f.io.now=()=>new Date(clock);
+  const publish=f.io.runDay;
+  f.io.runDay=async(c,day)=>{clock+=1000;return publish(c,day);};
+  // Exactly enough for the seven refresh days and not one day more.
+  f.io.deadline=clock+7000;
+  assert.equal((await runCoverage(f.io)).failures,0);
+  assert.equal(f.calls.filter(([,day])=>day<'2026-09-06').length,0);
+  assert.equal(f.states.get('a').last_result.history_attempted,undefined);
+  assert.equal(f.states.get('a').last_status,'paused');
+  assert.equal(f.states.get('a').history_day,null); // cursor untouched: tomorrow starts where today would have
+});
