@@ -524,6 +524,8 @@
     @media (max-width: 1080px) {
       .af-ov-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .af-ov-cols { grid-template-columns: minmax(0, 1fr); }
+      /* One column: what needs a press comes before the charts. */
+      .af-ov-cols > div:last-child { order: -1; }
     }
     @media (max-width: 620px) {
       .af-ov-metrics { grid-template-columns: minmax(0, 1fr); }
