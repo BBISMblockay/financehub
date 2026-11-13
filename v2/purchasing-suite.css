@@ -23,7 +23,7 @@
 /* ── The Overview page ────────────────────────────────────────────────── */
 .purch-page {padding:14px 18px 28px;display:flex;flex-direction:column;gap:12px;}
 .purch-muted {color:var(--bcn-ink-3);font-size:12px;margin:0;}
-.purch-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start;}
+.purch-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:stretch;}
 .purch-card {border:1px solid var(--bcn-border);border-radius:8px;background:var(--bcn-surface);overflow:hidden;}
 .purch-card-head {display:flex;align-items:center;justify-content:space-between;gap:10px;
   padding:10px 12px;border-bottom:1px solid var(--bcn-border);}
@@ -55,3 +55,52 @@
   .purch-page {padding:10px 12px 24px;}
   .purch-grid {grid-template-columns:1fr;}
 }
+
+/* ── Overview charts ──────────────────────────────────────────────────
+   Drawn with Beacon tokens and plain elements -- no chart library and no
+   new CSS variables, so the page stays a static file and both themes are
+   correct by construction. Every chart is also stated in text (the figure
+   beside each bar, the table under the timeline), so nothing here is the
+   only way to read a number. */
+.purch-card--wide {grid-column:1/-1;}
+.purch-chart {padding:14px 12px 10px;display:flex;flex-direction:column;justify-content:center;flex:1;}
+.purch-card {display:flex;flex-direction:column;}
+
+/* Vertical bars: units arriving per month. */
+.purch-bars {display:flex;align-items:flex-end;gap:8px;height:132px;}
+.purch-bar-col {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:6px;min-width:0;height:100%;}
+.purch-bar-fig {font-family:var(--bcn-mono);font-size:10px;color:var(--bcn-ink-2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+.purch-bar-track {flex:1;width:100%;display:flex;align-items:flex-end;min-height:0;}
+.purch-bar {width:100%;border-radius:3px 3px 0 0;background:var(--bcn-accent);min-height:2px;}
+.purch-bar--past {background:var(--bcn-neg);}
+.purch-bar--empty {background:var(--bcn-border);}
+.purch-bar-x {font-size:10px;color:var(--bcn-ink-3);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:100%;}
+.purch-bar-col[data-current="true"] .purch-bar-x {color:var(--bcn-ink);font-weight:650;}
+
+/* One horizontal bar split into segments: a pipeline or a progress. */
+.purch-stack {display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--bcn-border);}
+.purch-stack-seg {min-width:2px;}
+.purch-legend {display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;}
+.purch-legend-item {display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--bcn-ink-2);}
+.purch-legend-dot {width:8px;height:8px;border-radius:2px;flex:none;}
+.purch-legend-fig {font-family:var(--bcn-mono);font-variant-numeric:tabular-nums;color:var(--bcn-ink);}
+
+/* Horizontal bars with a label: factories by open units. */
+.purch-hbars {display:flex;flex-direction:column;gap:9px;}
+.purch-hbar {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;}
+.purch-hbar-label {font-size:12px;color:var(--bcn-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.purch-hbar-fig {font-family:var(--bcn-mono);font-size:11px;font-variant-numeric:tabular-nums;
+  color:var(--bcn-ink);white-space:nowrap;}
+.purch-hbar-track {grid-column:1/-1;height:7px;border-radius:4px;background:var(--bcn-border);overflow:hidden;}
+.purch-hbar-fill {height:100%;border-radius:4px;background:var(--bcn-accent);min-width:2px;}
+
+/* The chips under a chart: the buckets a six-month window cannot show. */
+.purch-chips {display:flex;flex-wrap:wrap;gap:8px;padding:0 12px 12px;}
+.purch-chip {display:inline-flex;align-items:baseline;gap:6px;font-size:11px;color:var(--bcn-ink-2);
+  border:1px solid var(--bcn-border);border-radius:999px;padding:3px 10px;}
+.purch-chip b {font-family:var(--bcn-mono);font-weight:500;font-variant-numeric:tabular-nums;color:var(--bcn-ink);}
+.purch-chip--warn {border-color:var(--bcn-warn);}
+.purch-chip--neg {border-color:var(--bcn-neg);}

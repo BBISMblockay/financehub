@@ -30,6 +30,13 @@
   ]);
   const DRAFT_STATUS = 'Draft';
 
+  // po-builder's own vocabulary, in the order the work runs. Used to order the
+  // pipeline chart; a status outside it is still counted, at the end.
+  const PO_STATUSES = Object.freeze([
+    'Draft', 'Approved', 'Sent to Factory', 'Confirmed', 'In Production',
+    'Shipped', 'In Transit', 'Partially Received', 'Received', 'Closed', 'Cancelled',
+  ]);
+
   const ARRIVAL_STATE_LABEL = Object.freeze({
     unknown: 'No shipment logged',
     not_shipped: 'Not shipped',
@@ -51,6 +58,53 @@
   };
   const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v);
   const day = (v) => (isDate(v) ? v.slice(0, 10) : null);
+
+  const MONTH_LABEL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthKey = (isoDay) => isoDay.slice(0, 7);
+  function nextMonth(key) {
+    const [y, m] = key.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  }
+  const monthLabel = (key) => MONTH_LABEL[Number(key.slice(5, 7)) - 1] + ' ' + key.slice(2, 4);
+
+  // Units and POs per arrival month, over a six-month window: what is already
+  // past due, each of the next six months, what lands after them, and what has
+  // no arrival date at all. Nothing is dropped -- every open PO is in exactly
+  // one bucket, so the buckets sum to the open book.
+  function timeline(open, today) {
+    const dated = open.filter((p) => day(p.effective_arrival_date));
+    const first = today || dated.map((p) => day(p.effective_arrival_date)).sort()[0] || null;
+    const bucket = () => ({ units: 0, pos: 0 });
+    const out = {
+      pastDue: bucket(),
+      later: bucket(),
+      undated: bucket(),
+      months: [],
+    };
+    if (first) {
+      let key = monthKey(first);
+      for (let i = 0; i < 6; i += 1) {
+        out.months.push({ key, label: monthLabel(key), ...bucket() });
+        key = nextMonth(key);
+      }
+    }
+    const lastKey = out.months.length ? out.months[out.months.length - 1].key : null;
+    for (const p of open) {
+      const date = day(p.effective_arrival_date);
+      let target;
+      if (!date) target = out.undated;
+      else if (today && date < today) target = out.pastDue;
+      else {
+        const key = monthKey(date);
+        target = out.months.find((m) => m.key === key)
+          || (lastKey && key > lastKey ? out.later : out.months[0] || out.later);
+      }
+      target.units += num(p.total_units);
+      target.pos += 1;
+    }
+    return out;
+  }
 
   function addDays(isoDay, days) {
     const d = new Date(isoDay + 'T00:00:00Z');
@@ -80,9 +134,10 @@
     const byFactory = new Map();
     for (const p of open) {
       const name = p.factory_name || 'No factory';
-      const row = byFactory.get(name) || { factory: name, pos: 0, units: 0 };
+      const row = byFactory.get(name) || { factory: name, pos: 0, units: 0, cost: 0 };
       row.pos += 1;
       row.units += num(p.total_units);
+      row.cost += num(p.total_estimated_cost);
       byFactory.set(name, row);
     }
 
@@ -99,11 +154,27 @@
       // declared" -- then every amount is shown as a bare number rather than
       // asserting a currency nobody chose.
       currency,
-      // PO Builder: what is being written and what is live.
+      // PO Builder: what is being written and what is live, plus where the
+      // whole book sits in the workflow.
       builder: {
         drafts: drafts.length,
         open: open.length,
         total: pos.length,
+        byStatus: (() => {
+          const counts = new Map();
+          for (const p of pos) {
+            const key = p.status || 'Unknown';
+            const row = counts.get(key) || { status: key, count: 0, units: 0 };
+            row.count += 1;
+            row.units += num(p.total_units);
+            counts.set(key, row);
+          }
+          return Array.from(counts.values()).sort((a, b) => {
+            const ia = PO_STATUSES.indexOf(a.status);
+            const ib = PO_STATUSES.indexOf(b.status);
+            return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.status.localeCompare(b.status);
+          });
+        })(),
       },
       // PO Report: what is coming in.
       incoming: {
@@ -117,6 +188,7 @@
             && day(p.effective_arrival_date) <= horizon).length
           : null,
         undated: open.filter((p) => !day(p.effective_arrival_date)).length,
+        timeline: timeline(open, today),
         rows: arriving.slice(0, 6).map((p) => ({
           id: p.id,
           name: p.po_name || 'Untitled PO',
@@ -142,7 +214,7 @@
         withOpen: byFactory.size,
         rows: Array.from(byFactory.values())
           .sort((a, b) => b.units - a.units || a.factory.localeCompare(b.factory))
-          .slice(0, 4),
+          .slice(0, 5),
       },
       errors: facts.errors || [],
     };
@@ -266,6 +338,7 @@
   }
 
   window.SiloPurchasingOverview = {
-    OPEN_STATUSES, ARRIVAL_STATE_LABEL, PHASE_LABEL, assess, load, boot,
+    OPEN_STATUSES, PO_STATUSES, ARRIVAL_STATE_LABEL, PHASE_LABEL,
+    timeline, assess, load, boot,
   };
 })();

@@ -1105,3 +1105,11 @@ table.po-rpt-table--shipments td.po-shipment-notes { min-width: 140px; max-width
   border-color: var(--bcn-warn, #d97706);
   color: var(--bcn-warn, #d97706);
 }
+
+/* Collapsed (the default since 2026-11-12), the map card is one line: its
+   title, its pill and the chevron. The description and the legend explain the
+   picture, so they belong with the picture, not with a closed card. */
+.po-map-card-head[aria-expanded="false"] .po-map-card-sub,
+.po-map-card-head[aria-expanded="false"] .po-map-legend {
+  display: none;
+}

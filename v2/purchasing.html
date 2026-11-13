@@ -44,24 +44,30 @@
         <p class="purch-muted" id="asOf">Loading…</p>
 
         <div class="purch-grid">
-          <section class="purch-card">
-            <div class="purch-card-head"><h2>PO Builder</h2><a href="/v2/po-builder.html">Open →</a></div>
-            <div class="purch-rows" id="cardBuilder"><div class="purch-empty">—</div></div>
+          <section class="purch-card purch-card--wide">
+            <div class="purch-card-head"><h2>Arrivals</h2><a href="/v2/po-report.html">PO Report →</a></div>
+            <div class="purch-chart" id="chartArrivals"><div class="purch-empty">—</div></div>
+            <div class="purch-chips" id="chipsArrivals"></div>
           </section>
 
           <section class="purch-card">
-            <div class="purch-card-head"><h2>PO Report</h2><a href="/v2/po-report.html">Open →</a></div>
-            <div class="purch-rows" id="cardIncoming"><div class="purch-empty">—</div></div>
+            <div class="purch-card-head"><h2>Pipeline</h2><a href="/v2/po-builder.html">PO Builder →</a></div>
+            <div class="purch-chart" id="chartPipeline"><div class="purch-empty">—</div></div>
           </section>
 
           <section class="purch-card">
-            <div class="purch-card-head"><h2>Landed Cost</h2><a href="/v2/po-costing.html">Open →</a></div>
-            <div class="purch-rows" id="cardCosting"><div class="purch-empty">—</div></div>
+            <div class="purch-card-head"><h2>Landed cost</h2><a href="/v2/po-costing.html">Landed Cost →</a></div>
+            <div class="purch-chart" id="chartCosting"><div class="purch-empty">—</div></div>
           </section>
 
           <section class="purch-card">
-            <div class="purch-card-head"><h2>Factories</h2><a href="/v2/factories.html">Open →</a></div>
-            <div class="purch-rows" id="cardFactories"><div class="purch-empty">—</div></div>
+            <div class="purch-card-head"><h2>Needs attention</h2><a href="/v2/po-report.html">Open →</a></div>
+            <div class="purch-rows" id="cardAttention"><div class="purch-empty">—</div></div>
+          </section>
+
+          <section class="purch-card purch-card--wide">
+            <div class="purch-card-head"><h2>Factories</h2><a href="/v2/factories.html">Factories →</a></div>
+            <div class="purch-chart" id="chartFactories"><div class="purch-empty">—</div></div>
           </section>
         </div>
 
@@ -128,15 +134,163 @@
         }
       }
 
+      // ── Charts ───────────────────────────────────────────────────────
+      // Every chart below is drawn from the model's own numbers and states
+      // each figure in text beside its bar, so the picture is never the only
+      // way to read it. Colours are Beacon tokens, so both themes are right.
+      const COLOR = {
+        accent: 'var(--bcn-accent)',
+        pos: 'var(--bcn-pos)',
+        warn: 'var(--bcn-warn)',
+        neg: 'var(--bcn-neg)',
+        mute: 'var(--bcn-ink-3)',
+        track: 'var(--bcn-border)',
+      };
+
+      function emptyInto(host, text) {
+        host.textContent = '';
+        const empty = document.createElement('div');
+        empty.className = 'purch-empty';
+        empty.textContent = text;
+        host.append(empty);
+      }
+
+      // Units arriving per month, with what is already past due at the left.
+      function renderArrivalChart(model) {
+        const host = el('chartArrivals');
+        const chips = el('chipsArrivals');
+        if (!host || !chips) return;
+        chips.textContent = '';
+        const t = model.incoming.timeline;
+        const cols = [];
+        if (t.pastDue.pos) cols.push({ label: 'Past due', units: t.pastDue.units, tone: 'past' });
+        for (const m of t.months) cols.push({ label: m.label, units: m.units, key: m.key });
+        if (!cols.length) { emptyInto(host, 'No open purchase orders'); return; }
+        const max = Math.max(...cols.map((c) => c.units), 1);
+        host.textContent = '';
+        const bars = document.createElement('div');
+        bars.className = 'purch-bars';
+        const thisMonth = model.today ? model.today.slice(0, 7) : null;
+        for (const c of cols) {
+          const col = document.createElement('div');
+          col.className = 'purch-bar-col';
+          if (c.key && c.key === thisMonth) col.dataset.current = 'true';
+          const fig = document.createElement('span');
+          fig.className = 'purch-bar-fig';
+          fig.textContent = c.units ? n(c.units) : '';
+          const track = document.createElement('div');
+          track.className = 'purch-bar-track';
+          const bar = document.createElement('div');
+          bar.className = 'purch-bar' + (c.tone === 'past' ? ' purch-bar--past' : '')
+            + (c.units ? '' : ' purch-bar--empty');
+          bar.style.height = (c.units ? Math.max(4, Math.round((c.units / max) * 100)) : 2) + '%';
+          const x = document.createElement('span');
+          x.className = 'purch-bar-x';
+          x.textContent = c.label;
+          track.append(bar);
+          col.append(fig, track, x);
+          bars.append(col);
+        }
+        host.append(bars);
+
+        // What a six-month window cannot show, so the buckets still add up.
+        const chip = (label, value, tone) => {
+          if (!value) return;
+          const c = document.createElement('span');
+          c.className = 'purch-chip' + (tone ? ' purch-chip--' + tone : '');
+          const b = document.createElement('b');
+          b.textContent = n(value);
+          c.append(b, document.createTextNode(label));
+          chips.append(c);
+        };
+        chip(' units later', t.later.units);
+        chip(' units undated', t.undated.units, 'warn');
+        chip(' POs past due', t.pastDue.pos, 'neg');
+      }
+
+      // One bar split into segments, with a legend that names each figure.
+      function renderStack(target, segments, emptyText) {
+        const host = el(target);
+        if (!host) return;
+        const shown = segments.filter((s) => s.value > 0);
+        if (!shown.length) { emptyInto(host, emptyText); return; }
+        const total = shown.reduce((sum, s) => sum + s.value, 0);
+        host.textContent = '';
+        const stack = document.createElement('div');
+        stack.className = 'purch-stack';
+        for (const s of shown) {
+          const seg = document.createElement('div');
+          seg.className = 'purch-stack-seg';
+          seg.style.background = s.color;
+          seg.style.width = (s.value / total) * 100 + '%';
+          seg.title = s.label + ': ' + n(s.value);
+          stack.append(seg);
+        }
+        const legend = document.createElement('div');
+        legend.className = 'purch-legend';
+        for (const s of shown) {
+          const item = document.createElement('span');
+          item.className = 'purch-legend-item';
+          const dot = document.createElement('span');
+          dot.className = 'purch-legend-dot';
+          dot.style.background = s.color;
+          const fig = document.createElement('span');
+          fig.className = 'purch-legend-fig';
+          fig.textContent = n(s.value);
+          item.append(dot, document.createTextNode(s.label + ' '), fig);
+          legend.append(item);
+        }
+        host.append(stack, legend);
+      }
+
+      // Horizontal bars: the factories behind the open book.
+      function renderFactoryChart(model) {
+        const host = el('chartFactories');
+        if (!host) return;
+        const rows = model.factories.rows;
+        if (!rows.length) { emptyInto(host, 'No open purchase orders'); return; }
+        const max = Math.max(...rows.map((f) => f.units), 1);
+        host.textContent = '';
+        const wrap = document.createElement('div');
+        wrap.className = 'purch-hbars';
+        for (const f of rows) {
+          const row = document.createElement('div');
+          row.className = 'purch-hbar';
+          const label = document.createElement('span');
+          label.className = 'purch-hbar-label';
+          label.textContent = f.factory;
+          const fig = document.createElement('span');
+          fig.className = 'purch-hbar-fig';
+          fig.textContent = n(f.units) + ' units · ' + f.pos + ' PO' + (f.pos === 1 ? '' : 's');
+          const track = document.createElement('div');
+          track.className = 'purch-hbar-track';
+          const fill = document.createElement('div');
+          fill.className = 'purch-hbar-fill';
+          fill.style.width = Math.max(2, Math.round((f.units / max) * 100)) + '%';
+          track.append(fill);
+          row.append(label, fig, track);
+          wrap.append(row);
+        }
+        host.append(wrap);
+        if (model.factories.count !== null) {
+          const note = document.createElement('div');
+          note.className = 'purch-chips';
+          const chip = document.createElement('span');
+          chip.className = 'purch-chip';
+          const b = document.createElement('b');
+          b.textContent = n(model.factories.count);
+          chip.append(b, document.createTextNode(' on file'));
+          note.append(chip);
+          host.append(note);
+        }
+      }
+
       function renderArrivals(model) {
         const host = el('cardArrivals');
         if (!host) return;
         host.textContent = '';
         if (!model.incoming.rows.length) {
-          const empty = document.createElement('div');
-          empty.className = 'purch-empty';
-          empty.textContent = 'No dated arrivals on open POs';
-          host.append(empty);
+          emptyInto(host, 'No dated arrivals on open POs');
           return;
         }
         const table = document.createElement('table');
@@ -175,6 +329,26 @@
         host.append(table);
       }
 
+      // The pipeline's colours run cold to warm along the workflow, so the
+      // bar reads left to right as "written" through "arrived".
+      // Each status gets its own shade so the legend is unambiguous, mixed
+      // from the Beacon tokens rather than from new colours: cool while the
+      // order is being placed, warm while it is moving, green once it lands.
+      const shade = (token, pct) => `color-mix(in oklab, var(${token}) ${pct}%, var(--bcn-surface))`;
+      const STATUS_COLOR = {
+        Draft: 'var(--bcn-ink-3)',
+        Approved: shade('--bcn-accent', 100),
+        'Sent to Factory': shade('--bcn-accent', 72),
+        Confirmed: shade('--bcn-accent', 48),
+        'In Production': shade('--bcn-warn', 100),
+        Shipped: shade('--bcn-warn', 72),
+        'In Transit': shade('--bcn-warn', 48),
+        'Partially Received': shade('--bcn-pos', 55),
+        Received: shade('--bcn-pos', 100),
+        Closed: 'var(--bcn-border-strong)',
+        Cancelled: 'var(--bcn-border)',
+      };
+
       function render(model) {
         const cur = model.currency;
         el('kpiOpen').textContent = n(model.builder.open);
@@ -186,32 +360,27 @@
         el('asOf').textContent = [model.today ? 'As of ' + model.today : null, co]
           .filter(Boolean).join(' · ') || '';
 
-        rows('cardBuilder', [
-          ['Drafts', n(model.builder.drafts)],
-          ['Open', n(model.builder.open)],
-          ['All POs', n(model.builder.total)],
-        ]);
+        renderArrivalChart(model);
 
-        rows('cardIncoming', [
-          ['Units incoming', n(model.incoming.units)],
-          model.incoming.next30 === null ? null : ['Arriving in 30 days', n(model.incoming.next30)],
+        renderStack('chartPipeline', model.builder.byStatus.map((s) => ({
+          label: s.status, value: s.count, color: STATUS_COLOR[s.status] || COLOR.mute,
+        })), 'No purchase orders yet');
+
+        renderStack('chartCosting', model.costing.state === 'known' ? [
+          { label: 'Not started', value: model.costing.notStarted, color: COLOR.track },
+          { label: Model.PHASE_LABEL.fob, value: model.costing.fob, color: COLOR.accent },
+          { label: Model.PHASE_LABEL.freight, value: model.costing.freight, color: COLOR.warn },
+          { label: Model.PHASE_LABEL.final, value: model.costing.final, color: COLOR.pos },
+        ] : [], model.costing.state === 'known' ? 'No open purchase orders' : 'Could not read costing');
+
+        renderFactoryChart(model);
+
+        rows('cardAttention', [
+          ['Drafts', n(model.builder.drafts)],
           ['Past due', n(model.incoming.late), model.incoming.late ? 'neg' : null],
           ['No shipment logged', n(model.incoming.noShipment), model.incoming.noShipment ? 'warn' : null],
           ['No arrival date', n(model.incoming.undated), model.incoming.undated ? 'warn' : null],
           model.incoming.conflicts ? ['Status conflicts', n(model.incoming.conflicts), 'warn'] : null,
-        ]);
-
-        rows('cardCosting', model.costing.state === 'known' ? [
-          ['Not started', n(model.costing.notStarted)],
-          [Model.PHASE_LABEL.fob, n(model.costing.fob)],
-          [Model.PHASE_LABEL.freight, n(model.costing.freight)],
-          [Model.PHASE_LABEL.final, n(model.costing.final)],
-        ] : []);
-
-        rows('cardFactories', [
-          model.factories.count === null ? null : ['Factories', n(model.factories.count)],
-          ['With open POs', n(model.factories.withOpen)],
-          ...model.factories.rows.map((f) => [f.factory, n(f.units) + ' units']),
         ]);
 
         renderArrivals(model);

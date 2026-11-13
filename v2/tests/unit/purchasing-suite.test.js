@@ -135,6 +135,56 @@ r.test('the Overview model reads open POs, arrivals and costing phases', () => {
   r.eq(m.currency, 'USD', 'declared currency is carried, never assumed');
 });
 
+r.test('the arrival timeline buckets every open PO exactly once', () => {
+  const context = { window: {} };
+  vm.runInNewContext(read('v2/purchasing-overview.js'), context);
+  const Model = context.window.SiloPurchasingOverview;
+  const open = [
+    { total_units: 10, effective_arrival_date: '2026-10-02' },   // past due
+    { total_units: 20, effective_arrival_date: '2026-11-20' },   // this month
+    { total_units: 30, effective_arrival_date: '2027-01-05' },   // in window
+    { total_units: 40, effective_arrival_date: '2028-01-05' },   // beyond six months
+    { total_units: 50, effective_arrival_date: null },           // no date
+  ];
+  const t = Model.timeline(open, '2026-11-13');
+  r.eq(t.months.map((m) => m.key),
+    ['2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04'], 'six months from today');
+  r.eq(t.months[0].label, 'Nov 26', 'month label');
+  r.eq(t.pastDue.units, 10, 'past due');
+  r.eq(t.months[0].units, 20, 'this month');
+  r.eq(t.months[2].units, 30, 'January');
+  r.eq(t.later.units, 40, 'beyond the window');
+  r.eq(t.undated.units, 50, 'no arrival date');
+  const total = t.pastDue.units + t.later.units + t.undated.units
+    + t.months.reduce((sum, m) => sum + m.units, 0);
+  r.eq(total, 150, 'every open PO lands in exactly one bucket');
+  r.eq(t.pastDue.pos + t.later.pos + t.undated.pos
+    + t.months.reduce((sum, m) => sum + m.pos, 0), open.length, 'and is counted once');
+});
+
+r.test('the pipeline runs in workflow order and colours every status it draws', () => {
+  const context = { window: {} };
+  vm.runInNewContext(read('v2/purchasing-overview.js'), context);
+  const Model = context.window.SiloPurchasingOverview;
+  const pos = [
+    { id: 'a', status: 'Received', total_units: 1 },
+    { id: 'b', status: 'Draft', total_units: 2 },
+    { id: 'c', status: 'Draft', total_units: 3 },
+    { id: 'd', status: 'In Production', total_units: 4 },
+  ];
+  const m = Model.assess({ pos, costing: [], factoryCount: 0, errors: [] }, {});
+  r.eq(m.builder.byStatus.map((x) => x.status), ['Draft', 'In Production', 'Received'], 'workflow order');
+  r.eq(m.builder.byStatus[0].count, 2, 'counted');
+  r.eq(m.builder.byStatus[0].units, 5, 'units summed');
+  // Every status the model can emit must have a colour on the page, or a
+  // segment of the pipeline bar renders with no fill at all.
+  const page = read('v2/purchasing.html');
+  const colours = page.slice(page.indexOf('const STATUS_COLOR = {'), page.indexOf('function render(model)'));
+  for (const status of Model.PO_STATUSES) {
+    r.has(colours, status.includes(' ') ? `'${status}'` : `${status}:`, `${status} has a colour`);
+  }
+});
+
 r.test('a costing read that failed reports unknown rather than zero', () => {
   const context = { window: {} };
   vm.runInNewContext(read('v2/purchasing-overview.js'), context);
