@@ -14,11 +14,10 @@ test('home and shared config retain their explicit baselines', () => {
   const unchanged = {
     // Public product/company overview intentionally expanded for developer verification.
     // Deliberately changed 2026-10-30: site icon link, so get-silo.com and the MCP connector show SILO's mark.
-    // Deliberately changed 2026-11-09 (#1133, a43ee69): landing redesign, cinematic runway hero.
-    // Acknowledged here after checking the thing this pin guards: index.html still carries the auth
-    // router (#router, the data-mode script, the signed-in redirect) and still links config.js and
-    // /pages/login.html. The redesign changed the marketing page around it, not the router.
-    'index.html': '57c2d9442c94ad8e6298862fdaaa9cc9af8348298db7bb8ac2aeca502c9fe82e',
+    // Deliberately changed 2026-11-13: get-silo.com index uses the early-access landing (like
+    // redo-welcome/demo) and the public intake form instead of the invitation-only onboarding link.
+    // Auth router (#router, data-mode script, signed-in redirect) is unchanged in purpose.
+    'index.html': '01779840d80059b3a1ffde21bf22d643ec836956635c054c43992a571b9689b1',
     // Deliberately changed 2026-10-14: MFA_ENROLLMENT_OPEN opens two-step login setup.
     'pages/config.js': '1790aa8ec2fee8c914faf6b13023508a7e8ea7845283029906719e05950560a0',
   };
@@ -288,6 +287,9 @@ test('redo-welcome is its own page with its own stylesheet; demo.html is untouch
   assert.match(welcome, /assets\/landing\/redo-welcome\.css/);
   assert.doesNotMatch(welcome, /early-access\.css/);
   assert.match(html, /assets\/landing\/early-access\.css/);
+  const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(indexHtml, /assets\/landing\/early-access\.css/);
+  assert.match(indexHtml, /id="lpInterestForm"/);
   assert.doesNotMatch(html, /redo-welcome\.css|Redo Marketing Performance/);
   assert.match(welcome, /lp-hub-core/);
   assert.doesNotMatch(welcome, /class="lp-render"/);

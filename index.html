@@ -22,8 +22,7 @@
   </script>
 
   <link rel="stylesheet" href="/v2/beacon.css" />
-  <link rel="stylesheet" href="/assets/landing/public-home.css?v=3cae200af5fe" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/landing/early-access.css?v=8" />
 
   <style>
     :root {
@@ -157,93 +156,152 @@
       line-height: 1.45;
       display: none;
     }
-    /* The router is the default: without the mode script (script disabled)
-       no page can tell get-silo.com from silo-baseballism.com, so both keep
-       the page they had before. Only a positive landing decision shows it. */
     html:not([data-mode="landing"]) body { display: grid; place-items: center; }
     html:not([data-mode="landing"]) #landing { display: none; }
     html[data-mode="landing"] #router { display: none; }
+    html[data-mode="landing"] body.lp-demo-page {
+      background: var(--bcn-bg);
+      font-family: var(--bcn-font);
+      color: var(--bcn-ink);
+    }
 
     @media (prefers-reduced-motion: reduce) {
       .spinner { animation: none; }
     }
   </style>
 </head>
-<body>
+<body class="lp-demo-page">
   <div id="landing">
-    <header class="lp-top" aria-label="SILO">
-      <div class="lp-brand"><span class="lp-mark" aria-hidden="true">S</span>SILO</div>
-      <a class="lp-top-signin" href="/pages/login.html">Sign in</a>
+    <header class="lp-top">
+      <div class="lp-brand" aria-label="SILO"><span class="lp-mark" aria-hidden="true">S</span>SILO</div>
+      <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
     </header>
-    <section class="lp-runway" aria-label="Product overview">
-      <div class="lp-visual" id="lpVisual" data-motion="still">
-        <!-- Still art under the runway video. No video src until motion policy allows it. -->
-        <picture aria-hidden="true">
-          <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="100vw" />
-          <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
-        </picture>
-        <video id="lpHeroVideo" width="1080" height="660" muted loop playsinline preload="none" tabindex="-1" aria-hidden="true"
-          data-src="/assets/landing/silo-hero-motion.mp4" data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"></video>
-        <div class="lp-runway-scrim" aria-hidden="true"></div>
-      </div>
-      <div class="lp-runway-copy">
+    <main class="lp-mid">
+      <div class="lp-copy">
         <p class="lp-eyebrow">Sales · Inventory · Purchasing · Finance · Marketing</p>
-        <h1>Welcome to Silo.</h1>
+        <h1>AI operating system for commerce. <span class="lp-h1-line">Run your whole business from one place.</span></h1>
         <p class="lp-description">Your company&rsquo;s operations and reporting in one workspace&mdash;built for teams that live in the numbers and the work.</p>
-        <div class="lp-actions">
+        <div class="lp-hero-actions">
+          <a class="bcn-btn bcn-btn--primary lp-create" href="#lpAccess">Create your SILO <span aria-hidden="true">&rarr;</span></a>
           <a class="bcn-btn lp-signin" href="/pages/login.html">Sign in</a>
-          <a class="bcn-btn lp-create" href="/v2/company-onboarding.html" aria-describedby="lpInviteNote">Create your SILO <span aria-hidden="true">&rarr;</span></a>
-        </div>
-        <p class="lp-invite" id="lpInviteNote">New workspaces are invitation-only.<br /><a href="mailto:support@get-silo.com?subject=SILO%20workspace%20invitation">Request an invitation</a></p>
-        <div class="lp-motion-controls">
-          <p class="lp-motion-status" id="lpMotionStatus" role="status" aria-live="polite" hidden></p>
-          <button class="bcn-btn lp-motion-toggle" id="lpMotionToggle" type="button" aria-controls="lpHeroVideo" aria-describedby="lpMotionStatus" hidden>Play animation</button>
-          <a class="bcn-btn lp-motion-fallback" id="lpMotionFallback" href="/assets/landing/silo-hero-motion.mp4" target="_blank" rel="noopener">Watch animation</a>
         </div>
       </div>
-    </section>
-    <main class="lp-body">
-    <section class="lp-details" aria-labelledby="lpOverview">
-      <h2 id="lpOverview">One workspace for your company&rsquo;s operations.</h2>
-      <p>SILO brings business data and day-to-day work together for finance, operations,
-        purchasing and marketing teams. Employees, contractors and agents of companies using
-        SILO work in their company&rsquo;s workspace, with access by invitation from an administrator.</p>
-      <div class="lp-workflows">
-        <article class="bcn-card"><div class="bcn-card-body">
-          <h3>Sales and reporting</h3>
-          <p>Review sales trends and product performance, compare reporting periods, and organize
-            saved reports into dashboards for your team.</p>
-        </div></article>
-        <article class="bcn-card"><div class="bcn-card-body">
-          <h3>Inventory and purchasing</h3>
-          <p>Review inventory, maintain product records, and build purchase orders with supplier,
-            cost and shipment details to keep purchasing work in one place.</p>
-        </div></article>
-        <article class="bcn-card"><div class="bcn-card-body">
-          <h3>Finance and reconciliation</h3>
-          <p>Review sales and payout records, reconcile operational data with accounting records,
-            and prepare journal entries for human review before posting.</p>
-        </div></article>
-        <article class="bcn-card"><div class="bcn-card-body">
-          <h3>Marketing performance</h3>
-          <p>Compare campaign spend and results from connected advertising accounts alongside
-            sales reporting. Review performance over time to inform your team&rsquo;s decisions.</p>
-        </div></article>
+      <div class="lp-content">
+        <figure class="lp-demo bcn-card lp-demo-card" aria-labelledby="lpDemoCaption">
+          <div class="lp-demo-frame">
+            <div id="lpDemoPlaceholder" class="lp-demo-placeholder">
+              <picture aria-hidden="true">
+                <source type="image/webp" srcset="/assets/landing/silo-hero-1080.webp 1080w, /assets/landing/silo-hero.webp 1800w" sizes="(max-width: 900px) 100vw, 62vw" />
+                <img src="/assets/landing/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high" decoding="async" />
+              </picture>
+              <p class="bcn-pill bcn-pill--dark lp-demo-note">Product walkthrough coming soon</p>
+            </div>
+            <video id="lpDemoVideo" width="1800" height="1100" controls playsinline preload="none"
+              poster="/assets/landing/silo-hero.jpg" aria-label="Silo product walkthrough" aria-describedby="lpDemoCaption" hidden></video>
+          </div>
+          <figcaption id="lpDemoCaption" class="lp-demo-caption">A guided walkthrough of Silo is on the way.</figcaption>
+        </figure>
+        <section class="bcn-card lp-access" id="lpAccess" aria-labelledby="lpAccessHeading">
+          <h2 id="lpAccessHeading">Create your SILO</h2>
+          <p class="lp-access-intro">Tell us about your company. We&rsquo;ll email you a link to sign in and start workspace setup.</p>
+          <form id="lpInterestForm" method="post" aria-describedby="lpPrivacyNote">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpName">Name</label>
+              <input class="bcn-field" id="lpName" name="name" type="text" autocomplete="name" maxlength="120" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpCompanyName">Company Name</label>
+              <input class="bcn-field" id="lpCompanyName" name="company_name" type="text" autocomplete="organization" maxlength="200" required />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="lpEmail">Work email</label>
+              <input class="bcn-field" id="lpEmail" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="254" required />
+            </div>
+            <div class="lp-honeypot" aria-hidden="true" inert>
+              <label for="lpWebsite">Leave this field empty</label>
+              <input id="lpWebsite" name="website" type="text" autocomplete="off" tabindex="-1" maxlength="200" />
+            </div>
+            <button class="bcn-btn bcn-btn--primary lp-join" id="lpJoinButton" type="submit" disabled>Request early access</button>
+            <p class="lp-privacy" id="lpPrivacyNote">We&rsquo;ll use these details to contact you about Silo onboarding. <a href="/legal/privacy.html">Privacy policy</a></p>
+            <div class="bcn-status" id="lpFormStatus" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+            <noscript><p class="lp-form-fallback">Enable JavaScript to send your request, or <a href="mailto:support@get-silo.com">contact us</a>.</p></noscript>
+          </form>
+        </section>
       </div>
-      <p><strong>Planned TikTok Ads reporting:</strong> read campaign spend, impressions, clicks
-        and purchase metrics from a company&rsquo;s authorized ad account for internal reporting.
-        Availability is subject to TikTok approval and connection setup.</p>
-      <div class="lp-about" aria-labelledby="lpAbout">
-        <h2 id="lpAbout">About SILO</h2>
-        <p>SILO is an operations workspace operated by Baseballism. It supports internal business
-          work for Baseballism and other companies using SILO. Workspace access is invitation-only;
-          this public overview is available without an account.</p>
-        <p>For product questions, support or an invitation request, email
-          <a href="mailto:support@get-silo.com">support@get-silo.com</a>.
-          Read our <a href="/legal/privacy.html">Privacy Policy</a> for details on how SILO handles
-          company data and connected services.</p>
+
+      <div class="bcn-card lp-connects">
+        <div class="bcn-card-body lp-connects-body">
+          <span class="lp-connects-label bcn-mono">Connects to</span>
+          <ul class="lp-connects-list" role="list">
+            <li>Shopify</li><li>QuickBooks</li><li>Google &amp; Meta ads</li><li>TikTok ads</li><li>Bank feeds</li>
+          </ul>
+        </div>
       </div>
-    </section>
+
+      <section class="lp-features" aria-labelledby="lpFeaturesHeading">
+        <div class="lp-section-head">
+          <h2 id="lpFeaturesHeading">What you get</h2>
+        </div>
+        <ul class="lp-feature-grid" role="list">
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></span>
+            <h3>One workspace</h3>
+            <p>Sales, inventory, purchasing, finance and marketing side by side, pulled from the systems you already use.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg></span>
+            <h3>A part-time CFO</h3>
+            <p>AI guidance on cash, margins and what to do next, built on your own books rather than rules of thumb.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h12m0 0-3-3m3 3-3 3"/><path d="M20 17H8m0 0 3-3m-3 3 3 3"/></svg></span>
+            <h3>Operational workflows</h3>
+            <p>Payment requests, mail, tasks and team reviews routed to the right person, with every step on record.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4.5 12.6 9l4.4 1.6-4.4 1.6L11 16.7l-1.6-4.5L5 10.6 9.4 9Z"/><path d="M18 15v5M15.5 17.5h5"/></svg></span>
+            <h3>AI actions and suggestions</h3>
+            <p>Silo suggests what to do next and drafts it for your approval: campaign ideas built from your best ads, SEO fixes for the pages that matter, and coded card transactions.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+            <h3>Marketing and SEO</h3>
+            <p>See what your ad spend actually returns in sales, and where your pages rank in search.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></span>
+            <h3>Purchase orders</h3>
+            <p>Build orders, see landed cost per unit, and follow every PO through to delivery.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+            <h3>Launch calendar</h3>
+            <p>Plan product drops against inventory on hand and stock on the way, in one view.</p>
+            </div>
+          </li>
+          <li class="bcn-card lp-feature lp-feature--ask">
+            <div class="bcn-card-body">
+            <span class="lp-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></span>
+            <h3>Ask Silo</h3>
+            <p>Ask about your business in plain language and get an answer with the numbers behind it.</p>
+            <p class="lp-ask-example"><span class="lp-ask-label">Try asking</span>&ldquo;Which products sold through fastest last month, and are we restocking them?&rdquo;</p>
+            </div>
+          </li>
+        </ul>
+      </section>
     </main>
     <footer class="lp-foot">
       <span>&copy; <span id="lpYear">2026</span> SILO &middot; Operated by Baseballism</span>
@@ -274,8 +332,8 @@
     <div class="meta" id="debugMeta"></div>
   </div>
 
-  <script src="/assets/landing/silo-hero-motion.js?v=3" defer></script>
   <script src="/pages/config.js"></script>
+  <script src="/assets/landing/early-access.js?v=4" defer></script>
   <script type="module">
     import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
@@ -327,11 +385,9 @@
       const path = String(value || "").trim();
       if (!path) return "";
 
-      // Keep redirects internal only.
       if (!path.startsWith("/")) return "";
       if (path.startsWith("//")) return "";
 
-      // Prevent auth router/login loops.
       if (path === "/" || path === "/index.html") return "";
       if (path === LOGIN_PAGE) return "";
 
@@ -348,13 +404,6 @@
       const defaultPage = safePath(profile?.default_page);
       if (defaultPage) return defaultPage;
 
-      // Every role and department lands on Finance, matching
-      // ROUTE_BY_DEPARTMENT in pages/login.html. Until 2026-09-10 this
-      // router still sent the ops, planning, marketing and retail
-      // departments to root-level /ops.html, /planning.html,
-      // /marketing.html and /retail.html — none of which exist — so an
-      // already-signed-in user in one of those departments who opened the
-      // site root got a 404 while the login page sent them to Finance.
       return DEFAULT_APP_PAGE;
     }
 
@@ -379,9 +428,6 @@
       return routeForProfile(data || {});
     }
 
-    // Landing mode: a signed-out visitor to get-silo.com stays on the public
-    // page and nothing below may redirect them. A signed-in one is switched
-    // to the router and routed exactly as before.
     const LANDING = document.documentElement.getAttribute("data-mode") === "landing";
     const year = document.getElementById("lpYear");
     if (year) year.textContent = String(new Date().getFullYear());
@@ -389,8 +435,6 @@
     async function init() {
       const hash = window.location.hash || "";
 
-      // 1. Invite / recovery / magic link hash present.
-      // Do not check session first here; password setup needs the hash preserved.
       if (hasAuthHash(hash)) {
         const setupUrl = `${SET_PASSWORD_PAGE}${hash}`;
         statusText.textContent = "Invite or password setup detected. Sending you to account setup.";
@@ -400,7 +444,6 @@
         return;
       }
 
-      // 2. Missing config should fail visibly instead of bouncing forever.
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
         if (LANDING) return;
         setError(
@@ -422,7 +465,6 @@
           throw error;
         }
 
-        // 3. Signed-in users go to app landing, not login and not department-access.
         if (data?.session?.user) {
           if (LANDING) document.documentElement.setAttribute("data-mode", "router");
           let target = DEFAULT_APP_PAGE;
@@ -448,7 +490,6 @@
           return;
         }
 
-        // 4. No session -> login (on the public host: stay on the page).
         if (LANDING) return;
         statusText.textContent = "No active session found. Sending you to login.";
         subText.textContent = "Use your SILO email login to continue.";

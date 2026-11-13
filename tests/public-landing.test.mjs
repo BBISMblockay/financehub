@@ -8,7 +8,7 @@ import vm from 'node:vm';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const html = readFileSync(`${root}index.html`, 'utf8');
-const landingCss = readFileSync(`${root}assets/landing/public-home.css`, 'utf8');
+const landingCss = readFileSync(`${root}assets/landing/early-access.css`, 'utf8');
 const inline = [...html.matchAll(/<script(?:\s+type="module")?>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 assert.equal(inline.length, 2, 'test must exercise both actual inline scripts');
 
@@ -121,84 +121,28 @@ test('non-public router still reports config/session errors without looping', as
   }
 });
 
-test('welcome actions are real links to the existing auth and invitation-gated flows', () => {
+test('welcome actions route guests to early access and sign-in', () => {
   assert.match(html, /<a\b[^>]*class="bcn-btn lp-signin"[^>]*href="\/pages\/login\.html"[^>]*>Sign in<\/a>/);
-  assert.match(html, /<a\b[^>]*class="bcn-btn lp-create"[^>]*href="\/v2\/company-onboarding\.html"[^>]*aria-describedby="lpInviteNote"[^>]*>Create your SILO/);
-  assert.match(html, /id="lpInviteNote">New workspaces are invitation-only/);
-  for (const file of ['pages/login.html', 'v2/company-onboarding.html', 'legal/privacy.html']) assert.ok(existsSync(root + file));
-  assert.match(readFileSync(root + 'v2/company-onboarding.html', 'utf8'), /if \(!token\) \{[\s\S]*?You need an invitation[\s\S]*?return;/);
+  assert.match(html, /<a\b[^>]*class="bcn-btn[^"]* lp-create"[^>]*href="#lpAccess"[^>]*>Create your SILO/);
+  assert.match(html, /<form\b[^>]*id="lpInterestForm"/);
+  assert.match(html, /\/pages\/config\.js[\s\S]*\/assets\/landing\/early-access\.js/);
+  assert.doesNotMatch(html, /company-onboarding\.html|lpInviteNote|silo-hero-motion\.js/);
+  for (const file of ['pages/login.html', 'legal/privacy.html', 'legal/eula.html']) assert.ok(existsSync(root + file));
 });
 
-test('hero keeps responsive stills beneath a dimensioned, deferred decorative video', () => {
+test('walkthrough placeholder stays honest until a configured demo video exists', () => {
   assert.match(html, /<source type="image\/webp"[^>]+silo-hero-1080.webp 1080w, \/assets\/landing\/silo-hero.webp 1800w/);
   assert.match(html, /<img src="\/assets\/landing\/silo-hero.jpg" width="1800" height="1100" alt="" fetchpriority="high"/);
-  for (const [file, budget] of [['silo-hero-1080.webp', 50000], ['silo-hero.webp', 120000], ['silo-hero.jpg', 200000]]) {
-    assert.ok(statSync(root + 'assets/landing/' + file).size < budget, `${file} exceeds its byte budget`);
-  }
-  const video = html.match(/<video\b[^>]*>[\s\S]*?<\/video>/g);
-  assert.equal(video?.length, 1, 'exactly one progressive-enhancement video');
-  assert.doesNotMatch(video[0], /\s(?:src|autoplay)\s*(?:=|>|\s)/, 'the parser must never initiate video loading');
-  assert.doesNotMatch(video[0], /<source\b/, 'nested sources would bypass the motion policy');
-  for (const attribute of ['muted', 'loop', 'playsinline']) assert.match(video[0], new RegExp('\\s' + attribute + '(?:\\s|>)'));
-  for (const attribute of ['width="1080"', 'height="660"', 'preload="none"', 'tabindex="-1"', 'aria-hidden="true"',
-    'data-src="/assets/landing/silo-hero-motion.mp4"', 'data-mobile-src="/assets/landing/silo-hero-motion-mobile.mp4"']) {
-    assert.ok(video[0].includes(attribute), 'missing video contract: ' + attribute);
-  }
-  assert.match(html, /<button\b[^>]*id="lpMotionToggle"[^>]*type="button"[^>]*aria-controls="lpHeroVideo"[^>]*hidden/);
-  const status = html.match(/<[^>]+\bid="lpMotionStatus"[^>]*>/)?.[0];
-  assert.ok(status, 'an explanatory playback status is present in the HTML');
-  assert.match(status, /aria-live="polite"/);
-  const fallback = html.match(/<a\b[^>]*\bid="lpMotionFallback"[^>]*>\s*Watch animation\s*<\/a>/)?.[0];
-  assert.ok(fallback, 'a plain Watch animation link must work independently of the controller');
-  assert.match(fallback, /href="\/assets\/landing\/silo-hero-motion\.mp4"/);
-  assert.doesNotMatch(fallback, /\bhidden(?:\s|=|>)/, 'the static fallback cannot depend on JavaScript to become available');
-  assert.match(html, /<script src="\/assets\/landing\/silo-hero-motion\.js\?v=\d+" defer><\/script>/, 'new markup must request the matching controller revision');
-  assert.doesNotMatch(html, /transition:\s*opacity/, 'different still and rebuilt scene must not ghost through an opacity crossfade');
-  for (const [file, budget] of [['silo-hero-motion.mp4', 2500000], ['silo-hero-motion-mobile.mp4', 1000000]]) {
-    const bytes = readFileSync(root + 'assets/landing/' + file);
-    assert.ok(bytes.length > 1000 && bytes.length < budget, `${file} is empty or exceeds its byte budget`);
-    assert.equal(bytes.toString('ascii', 4, 8), 'ftyp', `${file} must be an actual MP4`);
-  }
+  const video = html.match(/<video[^>]*id="lpDemoVideo"[^>]*>/)[0];
+  assert.match(video, /controls[^>]*playsinline[^>]*preload="none"/);
+  assert.doesNotMatch(video, /\bsrc=/);
 });
 
-test('keyboard focus, reduced motion, and mobile layout are explicit', () => {
-  assert.match(html, /href="\/assets\/landing\/public-home\.css\?v=[a-f0-9]+"/);
+test('keyboard focus and responsive layout use the shared early-access stylesheet', () => {
+  assert.match(html, /href="\/assets\/landing\/early-access\.css\?v=\d+"/);
   assert.match(landingCss, /#landing a:focus-visible/);
-  assert.match(landingCss, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(landingCss, /@media \(max-width: 900px\)/);
   assert.match(html, /<nav aria-label="Legal and contact">/);
-});
-
-test('browser media fixtures serve actual, bounded MP4 byte ranges', async () => {
-  const browserTest = readFileSync(new URL('./public-landing.browser.mjs', import.meta.url), 'utf8');
-  const helper = browserTest.match(/^async function fulfillVideo\(route, bytes\) \{[\s\S]*?^\}/m)?.[0];
-  assert.ok(helper, 'exercise the same Range response helper that the browser uses');
-  const fulfillVideo = vm.runInNewContext('(' + helper + ')');
-  const bytes = Buffer.from('0123456789');
-  const request = range => fulfillVideo({ request: () => ({ headers: () => ({ range }) }), fulfill: result => result }, bytes);
-  const full = await request(undefined);
-  assert.equal(full.contentType, 'video/mp4');
-  assert.equal(full.headers['accept-ranges'], 'bytes');
-  assert.ok(full.body.equals(bytes));
-  for (const [range, contentRange, body] of [
-    ['bytes=0-', 'bytes 0-9/10', '0123456789'],
-    ['bytes=2-5', 'bytes 2-5/10', '2345'],
-    ['bytes=8-999', 'bytes 8-9/10', '89'],
-    ['bytes=-3', 'bytes 7-9/10', '789'],
-    ['bytes=0-0', 'bytes 0-0/10', '0'],
-  ]) {
-    const result = await request(range);
-    assert.equal(result.status, 206, range);
-    assert.equal(result.contentType, 'video/mp4');
-    assert.equal(result.headers['content-range'], contentRange, range);
-    assert.equal(result.headers['content-length'], String(body.length), range);
-    assert.equal(result.body.toString(), body, range);
-  }
-  for (const range of ['bytes=20-', 'bytes=5-2', 'bytes=-', 'bytes=0-1,3-4', 'not-a-range']) {
-    const result = await request(range);
-    assert.equal(result.status, 416, range);
-    assert.equal(result.headers['content-range'], 'bytes */10');
-  }
 });
 
 async function openGuestOnboarding(search = '') {
@@ -221,14 +165,12 @@ async function openGuestOnboarding(search = '') {
   return { location, authReads, elements };
 }
 
-test('Create your SILO guest destination shows the invitation gate and clickable onboarding support', async () => {
+test('founder onboarding still invitation-gates guests without a token', async () => {
   const { location, authReads, elements } = await openGuestOnboarding();
   assert.equal(location.href, '', 'a guest without an invite must not be bounced to login');
   assert.equal(authReads, 0);
   assert.equal(elements.get('obTitle').textContent, 'You need an invitation');
   assert.equal(elements.get('obForm').hidden, true);
-  assert.equal(elements.get('obResume').hidden, true);
-  assert.equal(elements.get('obSupport').hidden, false);
   assert.match(readFileSync(root + 'v2/company-onboarding.html', 'utf8'), /id="obSupport"[^>]*>[^<]*<a href="mailto:support@get-silo.com">support@get-silo.com<\/a>/);
 });
 

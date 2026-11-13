@@ -89,6 +89,18 @@
   font-size: 19px;
   line-height: 1.6;
 }
+#landing .lp-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+#landing .lp-hero-actions .bcn-btn {
+  min-height: 44px;
+  padding: 11px 22px;
+  font-size: 14px;
+  font-weight: 600;
+}
 #landing .lp-content {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
