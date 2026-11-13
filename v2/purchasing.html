@@ -27,6 +27,8 @@
           <p class="bcn-header-sub">Purchase orders, landed cost and factories.</p>
         </div>
         <div class="bcn-header-actions">
+          <label class="purch-sr" for="periodPicker">Period</label>
+          <select id="periodPicker" class="bcn-field"></select>
           <button type="button" id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
           <a class="bcn-btn bcn-btn--dark" href="/v2/po-builder.html">New PO</a>
         </div>
@@ -481,8 +483,14 @@
         el('kpiLate').textContent = n(model.incoming.late);
 
         const co = model.company?.title || model.company?.entity_key || '';
-        el('asOf').textContent = [model.today ? 'As of ' + model.today : null, co]
-          .filter(Boolean).join(' · ') || '';
+        const period = Model.resolveWindow(model.windowDays);
+        el('asOf').textContent = [
+          model.today ? 'As of ' + model.today : null,
+          co,
+          // Open POs are never cut by the window, so say so once, here, rather
+          // than on each card that could be misread without it.
+          model.cutoff ? period.label.toLowerCase() + ', plus every open PO' : 'all time',
+        ].filter(Boolean).join(' · ');
 
         renderArrivalChart(model);
 
@@ -524,15 +532,49 @@
         }
       }
 
+      // The period lives in the address bar, so a link to this page carries
+      // the window someone was looking at.
+      const urlWindow = () => {
+        const raw = new URLSearchParams(window.location.search).get('period');
+        if (raw === 'all') return null;
+        const days = Number(raw);
+        return Number.isFinite(days) && days > 0 ? days : Model.DEFAULT_WINDOW_DAYS;
+      };
+      function fillPeriodPicker(selected) {
+        const picker = el('periodPicker');
+        if (!picker) return;
+        picker.textContent = '';
+        for (const w of Model.WINDOWS) {
+          const option = document.createElement('option');
+          option.value = w.days === null ? 'all' : String(w.days);
+          option.textContent = w.label;
+          if (w.days === selected) option.selected = true;
+          picker.append(option);
+        }
+      }
+
+      const startWindow = urlWindow();
+      fillPeriodPicker(startWindow);
+
       Model.boot({
         active: 'purchasing/home',
         crumbs: ['Purchasing', 'Overview'],
+        windowDays: startWindow,
         onModel: render,
         onError: (error) => setStatus(error.message || 'Could not load purchasing', 'neg'),
       }).then((controller) => {
         el('btnRefresh')?.addEventListener('click', () => {
           setStatus('Refreshing…', 'info');
           controller?.refresh().catch(() => {});
+        });
+        el('periodPicker')?.addEventListener('change', (event) => {
+          const raw = event.target.value;
+          const days = raw === 'all' ? null : Number(raw);
+          const url = new URL(window.location.href);
+          url.searchParams.set('period', raw);
+          try { window.history.replaceState(null, '', url); } catch (e) { /* keep the URL */ }
+          setStatus('Loading…', 'info');
+          controller?.refresh(days).catch(() => {});
         });
       }).catch(() => {});
     })();

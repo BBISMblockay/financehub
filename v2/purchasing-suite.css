@@ -111,3 +111,9 @@
 .purch-chip b {font-family:var(--bcn-mono);font-weight:500;font-variant-numeric:tabular-nums;color:var(--bcn-ink);}
 .purch-chip--warn {border-color:var(--bcn-warn);}
 .purch-chip--neg {border-color:var(--bcn-neg);}
+
+/* The period label is for screen readers only: the select's own options say
+   what it does, and a visible "Period" label is copy the page does not need. */
+.purch-sr {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+.bcn-header-actions #periodPicker {min-height:32px;font-size:12px;max-width:170px;}

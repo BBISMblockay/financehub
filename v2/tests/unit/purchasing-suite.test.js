@@ -135,6 +135,67 @@ r.test('the Overview model reads open POs, arrivals and costing phases', () => {
   r.eq(m.currency, 'USD', 'declared currency is carried, never assumed');
 });
 
+// The only async suite here: r.test() is synchronous, so this one is run and
+// awaited before the summary below, with its own try/catch reporting.
+async function periodWindowTest() {
+  const context = { window: {} };
+  vm.runInNewContext(read('v2/purchasing-overview.js'), context);
+  const Model = context.window.SiloPurchasingOverview;
+
+  r.eq(Model.DEFAULT_WINDOW_DAYS, 365, 'default window');
+  r.eq(Model.resolveWindow(90).days, 90, 'a listed window is kept');
+  r.eq(Model.resolveWindow('all').days, null, 'all time');
+  r.eq(Model.resolveWindow(12345).days, 365, 'an unlisted window falls back to the default');
+  r.eq(Model.resolveWindow('nonsense').days, 365, 'so does nonsense');
+
+  // Record what each read asked the database for.
+  const asked = [];
+  const rowsFor = (filters) => (filters.some((f) => f.kind === 'in')
+    ? [{ id: 'open-old', status: 'In Production' }]
+    : [{ id: 'recent', status: 'Closed' }]);
+  const query = (filters) => ({
+    select() { return this; },
+    order() { return this; },
+    gte(col, value) { filters.push({ kind: 'gte', col, value }); return this; },
+    in(col, values) { filters.push({ kind: 'in', col, values }); return this; },
+    eq() { return this; },
+    maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+    range() {
+      const data = rowsFor(filters);
+      return Promise.resolve({ data, count: data.length, error: null });
+    },
+    then(res) { return Promise.resolve({ data: null, count: 0, error: null }).then(res); },
+  });
+  const db = {
+    rpc: async () => ({ data: '2026-11-13', error: null }),
+    from(table) {
+      const filters = [];
+      asked.push({ table, filters });
+      return query(filters);
+    },
+  };
+  const config = { ensureActiveCompany: async () => ({ id: 'co' }) };
+
+  const model = await Model.load({ db, config, windowDays: 90 });
+  const poReads = asked.filter((a) => a.table === 'v_po_incoming_summary');
+  r.eq(poReads.length, 2, 'two reads: the window, and every open PO');
+  r.eq(poReads[0].filters[0], { kind: 'gte', col: 'po_created_at', value: '2026-08-15' },
+    'the window is measured from the business date, not the browser clock');
+  r.eq(poReads[1].filters[0].values, Model.OPEN_STATUSES, 'open POs are read unconditionally');
+  r.eq(model.windowDays, 90, 'the model reports the window it used');
+  r.eq(model.cutoff, '2026-08-15', 'and the cutoff');
+  // Both reads land in one deduplicated set.
+  r.eq(model.builder.total, 2, 'the two reads merge without double-counting');
+
+  // No business date means no honest cutoff: read everything, say all time.
+  const noDate = { ...db, rpc: async () => ({ data: null, error: null }) };
+  asked.length = 0;
+  const all = await Model.load({ db: noDate, config, windowDays: 90 });
+  r.eq(asked.filter((a) => a.table === 'v_po_incoming_summary').length, 1, 'one unfiltered read');
+  r.eq(all.cutoff, null, 'no cutoff');
+  r.eq(all.windowDays, null, 'and the page is told it is showing all time');
+}
+
 r.test('every chart the Overview declares is actually drawn into', () => {
   const page = read('v2/purchasing.html');
   // A card whose host id nothing renders into shows the "—" placeholder for
@@ -212,5 +273,11 @@ r.test('a costing read that failed reports unknown rather than zero', () => {
   r.eq(m.currency, null, 'no currency is invented');
 });
 
-const out = r.summary();
-process.exit(out.fail ? 1 : 0);
+periodWindowTest()
+  .then(() => r.ok('the period window cuts finished work only, never an open PO', true))
+  .catch((err) => r.ok('the period window cuts finished work only, never an open PO', false,
+    err && err.message ? err.message : String(err)))
+  .then(() => {
+    const out = r.summary();
+    process.exit(out.fail ? 1 : 0);
+  });

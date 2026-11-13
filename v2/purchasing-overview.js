@@ -59,6 +59,24 @@
   const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v);
   const day = (v) => (isDate(v) ? v.slice(0, 10) : null);
 
+  // How far back the page looks. The window applies to FINISHED work only --
+  // received, closed and cancelled POs, and drafts nobody took further. Open
+  // POs are always counted however old they are, because open work does not
+  // expire: a PO placed fourteen months ago that has still not arrived is
+  // exactly the one somebody needs to see.
+  const WINDOWS = Object.freeze([
+    { days: 90, label: 'Last 90 days' },
+    { days: 365, label: 'Last 12 months' },
+    { days: 730, label: 'Last 24 months' },
+    { days: null, label: 'All time' },
+  ]);
+  const DEFAULT_WINDOW_DAYS = 365;
+  const resolveWindow = (days) => {
+    const wanted = days === null || days === 'all' ? null : Number(days);
+    const match = WINDOWS.find((w) => w.days === (Number.isFinite(wanted) ? wanted : -1));
+    return match || WINDOWS.find((w) => w.days === (wanted === null ? null : DEFAULT_WINDOW_DAYS));
+  };
+
   const MONTH_LABEL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthKey = (isoDay) => isoDay.slice(0, 7);
@@ -116,7 +134,8 @@
      company's own business date, or null when it could not be resolved (then
      the windows that need it report null rather than guessing from the
      browser's clock). */
-  function assess(facts, { company = null, today = null, currency = null } = {}) {
+  function assess(facts, { company = null, today = null, currency = null,
+    windowDays = null, cutoff = null } = {}) {
     const pos = Array.isArray(facts.pos) ? facts.pos : [];
     const costing = Array.isArray(facts.costing) ? facts.costing : null;
     const open = pos.filter((p) => OPEN_STATUSES.includes(p.status));
@@ -154,6 +173,11 @@
       // declared" -- then every amount is shown as a bare number rather than
       // asserting a currency nobody chose.
       currency,
+      // The period the finished work is counted over. `cutoff` is null when
+      // it could not be applied (no business date, or All time), and then the
+      // page says "All time" rather than implying a window it did not use.
+      windowDays: cutoff ? windowDays : null,
+      cutoff,
       // PO Builder: what is being written and what is live, plus where the
       // whole book sits in the workflow.
       builder: {
@@ -229,11 +253,11 @@
   // Page through a view in 500-row windows, with the exact count checked each
   // time: a partial read must fail loudly rather than quietly undercount a
   // figure someone will plan a purchase on.
-  async function allRows(db, table, columns, order) {
+  async function allRows(db, table, columns, order, configure = (q) => q) {
     const rows = [];
     let expected = null;
     for (;;) {
-      const response = await result(db.from(table).select(columns, { count: 'exact' })
+      const response = await result(configure(db.from(table).select(columns, { count: 'exact' }))
         .order(order).range(rows.length, rows.length + 499));
       if (!Array.isArray(response.data) || !Number.isInteger(response.count)) {
         throw new Error('Could not verify the full row count');
@@ -248,7 +272,7 @@
     }
   }
 
-  async function load({ db, config = window.__SILO_CONFIG__ }) {
+  async function load({ db, config = window.__SILO_CONFIG__, windowDays = DEFAULT_WINDOW_DAYS }) {
     // Resolve on every refresh. Never trust a company ID from URL/sessionStorage.
     const company = await config?.ensureActiveCompany?.(db);
     if (!company?.id) throw new Error('Select a company first');
@@ -261,11 +285,38 @@
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today || '')) today = null;
 
+    // The window is measured from the company's own business date. Without
+    // one there is no honest cutoff, so the page reads everything and says
+    // "All time" rather than cutting history against the browser's clock.
+    const period = resolveWindow(windowDays);
+    const cutoff = period.days !== null && today ? addDays(today, -period.days) : null;
+    // Bounded by construction: a PO created before the cutoff is read only
+    // while it is still open. `po_created_at` is always set; `order_date` is
+    // not, and a null there would quietly drop rows from the window.
+    //
+    // Two reads merged by id, rather than one `.or(...)` carrying an `in.(…)`
+    // of statuses with spaces in them: PostgREST's or() grammar needs those
+    // values quoted and any comma escaped, and getting it subtly wrong
+    // silently returns the WRONG SET rather than erroring. Both filters here
+    // are the plain forms used across the rest of this app.
+    const PO_COLUMNS = 'id,po_name,factory_name,status,total_units,total_estimated_cost,'
+      + 'effective_arrival_date,arrival_variance_days,arrival_state,shipment_count,'
+      + 'status_conflicts_with_shipments';
+    async function readPos() {
+      if (!cutoff) return allRows(db, 'v_po_incoming_summary', PO_COLUMNS, 'id');
+      const [recent, open] = await Promise.all([
+        allRows(db, 'v_po_incoming_summary', PO_COLUMNS, 'id',
+          (q) => q.gte('po_created_at', cutoff)),
+        allRows(db, 'v_po_incoming_summary', PO_COLUMNS, 'id',
+          (q) => q.in('status', OPEN_STATUSES)),
+      ]);
+      const byId = new Map();
+      for (const row of recent.concat(open)) byId.set(row.id, row);
+      return Array.from(byId.values());
+    }
+
     const jobs = {
-      pos: () => allRows(db, 'v_po_incoming_summary',
-        'id,po_name,factory_name,status,total_units,total_estimated_cost,'
-        + 'effective_arrival_date,arrival_variance_days,arrival_state,shipment_count,'
-        + 'status_conflicts_with_shipments', 'id'),
+      pos: readPos,
       costing: () => allRows(db, 'v_po_costing_summary', 'po_header_id,phase', 'po_header_id'),
       currency: async () => {
         const r = await result(db.from('company_settings').select('default_currency')
@@ -295,10 +346,14 @@
     if (facts.pos === undefined) {
       throw new Error(errors.find((e) => e.source === 'pos')?.message || 'Could not read purchase orders');
     }
-    return assess(facts, { company, today, currency: facts.currency || null });
+    return assess(facts, {
+      company, today, currency: facts.currency || null,
+      windowDays: period.days, cutoff,
+    });
   }
 
-  async function boot({ active, crumbs, onModel, onError, config = window.__SILO_CONFIG__, db: providedDb } = {}) {
+  async function boot({ active, crumbs, onModel, onError, windowDays = DEFAULT_WINDOW_DAYS,
+    config = window.__SILO_CONFIG__, db: providedDb } = {}) {
     let errorReported = false;
     try {
       if (!providedDb && (!config?.SUPABASE_URL || !config?.SUPABASE_ANON_KEY)) throw new Error('Missing Supabase config');
@@ -309,13 +364,16 @@
         return null;
       }
       let generation = 0;
+      let selected = windowDays;
       const controller = {
         db,
         company: null,
-        async refresh() {
+        get windowDays() { return selected; },
+        async refresh(nextWindow) {
           const token = ++generation;
+          if (nextWindow !== undefined) selected = nextWindow;
           try {
-            const model = await load({ db, config });
+            const model = await load({ db, config, windowDays: selected });
             if (token !== generation) return null;
             controller.company = model.company;
             onModel?.(model);
@@ -339,6 +397,7 @@
 
   window.SiloPurchasingOverview = {
     OPEN_STATUSES, PO_STATUSES, ARRIVAL_STATE_LABEL, PHASE_LABEL,
+    WINDOWS, DEFAULT_WINDOW_DAYS, resolveWindow,
     timeline, assess, load, boot,
   };
 })();
