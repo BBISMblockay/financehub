@@ -147,6 +147,16 @@
     .af-ai-hint-body .af-ai-actions { margin-top: 8px; }
     .af-ai-tab-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
     .af-stack { gap: 16px; }
+    .af-stack--pinched { gap: 12px; }
+    .af-surface { margin: 0; }
+    .af-surface-head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      padding: 0 2px 10px; margin-bottom: 12px; border-bottom: 1px solid var(--bcn-border);
+    }
+    .af-surface-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+    .af-surface-body { padding: 0 2px; }
+    .af-studio.af-stack--pinched .af-panel .bcn-card { box-shadow: none; }
+    .af-pay-sub { margin: 0 0 12px; padding: 0 2px; min-height: 36px; border-bottom: 1px solid var(--bcn-border); background: transparent; }
     .silo-main > .bcn-kpi-band + .bcn-tabs { margin-top: 0; }
     .silo-main > .af-panel { padding: 16px 18px 32px; }
     /* Modern workflow app shell (dashboard cards, not spreadsheet rows). */
@@ -534,12 +544,6 @@
 
     <div class="bcn-kpi-band" id="kpis"></div>
 
-    <div class="af-next" id="nextStep" hidden></div>
-
-    <div class="af-pipeline" id="afPipeline" hidden aria-label="Affiliate workflow"></div>
-
-    <div class="af-ai-hub" id="afAiHub" hidden aria-label="Use your AI with SILO MCP"></div>
-
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Overview</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="prospects" id="tab-prospects">Recruiting</button>
@@ -551,12 +555,11 @@
 
     <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
     <section class="af-panel" data-panel="overview"><div class="af-ov" id="overviewBody"></div></section>
-    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack" id="prospectsBody"></div></section>
+    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack af-stack--pinched" id="prospectsBody"></div></section>
     <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
     <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
     <section class="af-panel" data-panel="share" hidden><div class="af-stack" id="shareBody"></div></section>
-    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="payoutsBody"></div></section>
-    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack" id="commissionsBody"></div></section>
+    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack af-stack--pinched" id="payoutsBody"></div></section>
   </main>
 </div>
 

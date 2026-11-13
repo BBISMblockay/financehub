@@ -205,10 +205,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     const ab = await text(page, '#affiliatesBody');
     R.has(ab, 'Connect your AI', 'with no AI that can make codes, Affiliates offers to connect one');
+    await openMore(page);
     R.eq(await page.inputValue('#cPct'), '10', 'percent off defaults to 10');
     R.eq(await page.inputValue('#cHow'), 'exists', 'with no AI that can make codes, the code is one you made');
     await page.fill('#cCode', 'pat15');
-    await openMore(page);
     await page.selectOption('#cHow', 'ai');
     await page.fill('#cPct', '');
     await page.click('#affiliatesBody [data-act="code-add"]');
@@ -428,6 +428,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await ai.click('#tabs [data-tab="affiliates"]');
+    await openMore(ai);
     await ai.waitForFunction(() => !!document.querySelector('#affiliatesBody #cHow'), null, { timeout: 5000 });
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
     R.has(await text(ai, '#aiCodesHow'), 'Shopify codes', 'Affiliates explains codes via MCP without naming an app');
