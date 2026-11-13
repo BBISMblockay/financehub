@@ -41,7 +41,10 @@ const ready = () => !!document.querySelector('#module-permission').textContent |
         await marketing.uncheck();
         await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('saved'));
         await page.waitForFunction(()=>!document.querySelector('#siloSbNav a[href="/v2/marketing-overview.html"]'));
-        assert.ok(await page.locator('#siloSbNav a[href="/v2/po-builder.html"]').count()); checks++;
+        // The control: another section's row is still drawn. Purchasing is one
+        // sidebar row whose pages (PO Builder and the rest) are tabs of it, so
+        // the row to look for is the row, not a tab's own URL.
+        assert.ok(await page.locator('#siloSbNav a[href="/v2/purchasing.html"]').count()); checks++;
         await page.locator('#module-reload').click();
         await page.waitForFunction(()=>document.querySelector('#status').textContent==='Module settings loaded.');
         assert.equal(await marketing.isChecked(),false); checks++;
