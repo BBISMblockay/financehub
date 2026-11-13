@@ -414,6 +414,8 @@ declare
   v_paid     numeric;
   v_minor    integer;
   v_progress bigint;
+  v_kept     bigint;
+  v_seen     boolean;
   v_ledger   uuid;
   v_bought   integer := 0;
   v_earned   integer := 0;
@@ -484,8 +486,12 @@ begin
 
   -- b. Progress, then the payback. Sales of THIS product on orders credited
   --    to this affiliate's own code, after the seed order, in its currency,
-  --    once the refund window has passed, net of the refunded share. The seed
-  --    order itself never counts.
+  --    once the refund window has passed. The seed order itself never counts.
+  --    Refunds: Shopify's refunded subtotal is stored per ORDER, not per line,
+  --    so each order counts its product lines LESS the whole refund (never
+  --    below 0). Exact when the order holds only this product; a lower bound
+  --    otherwise -- a refund is never prorated onto another item, so a
+  --    refunded seed product can never count toward its own goal.
   for v_c in
     select c.* from public.affiliate_seed_claims c
      where c.program_id = p_program and c.company_entity_id = v_prog.company_entity_id
@@ -493,40 +499,69 @@ begin
      for update
   loop
     v_minor := public.affiliate_currency_minor_units(v_c.currency);
-    select coalesce(round(sum(
-             (l.price * l.quantity - coalesce(l.discount_allocated, 0))
-             * case when coalesce(o.subtotal_price, 0) > 0
-                    then greatest(0, 1 - coalesce(o.refunded_subtotal, 0) / o.subtotal_price) else 1 end
-           ) * v_minor), 0)::bigint
+    select coalesce(round(sum(greatest(0, x.product_net - x.refunded)) * v_minor), 0)::bigint
       into v_progress
-      from public.affiliate_attributions at
-      join public.shopify_orders o
-        on o.company_entity_id = at.company_entity_id and o.order_id = at.order_id and o.shop_domain = at.shop_domain
-      join public.shopify_order_lines l
-        on l.company_entity_id = o.company_entity_id and l.order_id = o.order_id
-     where at.company_entity_id = v_c.company_entity_id
-       and at.program_id = v_c.program_id
-       and at.affiliate_id = v_c.affiliate_id
-       and at.basis in ('single_affiliate_code', 'first_affiliate_code')
-       and at.order_id <> v_c.seed_order_id
-       and at.order_day >= v_c.seed_order_day
-       and at.order_day <= least(v_today - v_c.refund_days, v_c.goal_by)
-       and o.cancelled_at is null
-       and upper(o.currency) = v_c.currency
-       and lower(btrim(l.title)) = lower(btrim(v_c.product_title));
+      from (
+        select sum(l.price * l.quantity - coalesce(l.discount_allocated, 0)) as product_net,
+               coalesce(o.refunded_subtotal, 0) as refunded
+          from public.affiliate_attributions at
+          join public.shopify_orders o
+            on o.company_entity_id = at.company_entity_id and o.order_id = at.order_id and o.shop_domain = at.shop_domain
+          join public.shopify_order_lines l
+            on l.company_entity_id = o.company_entity_id and l.order_id = o.order_id and l.shop_domain = o.shop_domain
+         where at.company_entity_id = v_c.company_entity_id
+           and at.program_id = v_c.program_id
+           and at.affiliate_id = v_c.affiliate_id
+           and at.basis in ('single_affiliate_code', 'first_affiliate_code')
+           and at.order_id <> v_c.seed_order_id
+           and at.order_day >= v_c.seed_order_day
+           and at.order_day <= least(v_today - v_c.refund_days, v_c.goal_by)
+           and o.cancelled_at is null
+           and upper(o.currency) = v_c.currency
+           and lower(btrim(l.title)) = lower(btrim(v_c.product_title))
+         group by o.shop_domain, o.order_id, o.refunded_subtotal
+      ) x;
 
     update public.affiliate_seed_claims
        set progress_cents = v_progress, progress_as_of = now()
      where id = v_c.id;
 
-    if v_progress >= v_c.goal_cents and v_c.seed_paid_cents > 0 then
+    -- What the rep still has paid for the product, read from the seed order
+    -- NOW: a seed order cancelled or refunded after it was recorded pays back
+    -- only what is still paid (the product lines less the order's refund,
+    -- the same lower bound as above), and nothing once that is 0.
+    select case when o.cancelled_at is not null then 0
+                else least(v_c.seed_paid_cents,
+                           greatest(0, round((coalesce(
+                                sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
+                                  filter (where lower(btrim(l.title)) = lower(btrim(v_c.product_title))),
+                                sum(l.price * l.quantity - coalesce(l.discount_allocated, 0))
+                                  filter (where coalesce(l.discount_allocated, 0) > 0), 0)
+                              - coalesce(o.refunded_subtotal, 0)) * v_minor))::bigint) end
+      into v_kept
+      from public.shopify_orders o
+      join public.shopify_order_lines l
+        on l.company_entity_id = o.company_entity_id and l.order_id = o.order_id and l.shop_domain = o.shop_domain
+     where o.company_entity_id = v_c.company_entity_id and o.order_id = v_c.seed_order_id
+     group by o.shop_domain, o.order_id, o.cancelled_at, o.refunded_subtotal;
+    -- The seed order not on file this run: pay nothing yet (it can still expire).
+    v_seen := found;
+    -- Cancelled, or its product wholly refunded: nothing to pay back.
+    if v_seen and v_kept <= 0 then
+      update public.affiliate_seed_claims
+         set state = 'cancelled', progress_cents = v_progress, progress_as_of = now()
+       where id = v_c.id and state = 'purchased';
+      continue;
+    end if;
+
+    if v_seen and v_progress >= v_c.goal_cents then
       perform public.affiliate_lock_program_money(v_c.program_id);
       insert into public.affiliate_commission_ledger
         (company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)
       -- No order_id and no order_day: it is not an order (so it is not in the
       -- affiliate's order list), and the refund window it would wait out has
       -- already passed for every sale that earned it.
-      values (v_c.company_entity_id, v_c.program_id, v_c.affiliate_id, 'manual_adjustment', v_c.seed_paid_cents,
+      values (v_c.company_entity_id, v_c.program_id, v_c.affiliate_id, 'manual_adjustment', v_kept,
               v_c.currency, 'manual',
               left('Product seeding paid back: ' || v_c.product_title || ' (claim ' || v_c.id || ')', 500))
       returning id into v_ledger;

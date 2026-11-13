@@ -670,24 +670,35 @@ document.addEventListener('click', (ev) => {
     c.dispatchEvent(new Event('change', { bubbles: true }));
   }
 });
-let saveTimer = null; let saving = Promise.resolve();
+// Autosave. Each edit is captured WHEN it happens -- the form's values and
+// the program they belong to -- so a save that runs later can never read
+// another program's form or land on another program. Switching programs
+// saves what is pending first.
+let saveTimer = null; let saving = Promise.resolve(); let pendingSave = null;
 document.addEventListener('change', (ev) => {
   if (S.creating || !MANAGE || !ev.target.closest('#programBody')) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { saving = saving.then(autosaveProgram); }, 350);
+  try { pendingSave = { id: S.programId, row: programRowFromForm() }; } catch (e) { pendingSave = null; setStatus(friendly(e), 'neg'); return; }
+  saveTimer = setTimeout(flushProgramSave, 350);
 });
-async function autosaveProgram() {
-  const el = $('setSaved');
+function flushProgramSave() {
+  clearTimeout(saveTimer);
+  const p = pendingSave; pendingSave = null;
+  if (p) saving = saving.then(() => autosaveProgram(p));
+  return saving;
+}
+async function autosaveProgram({ id, row }) {
+  const el = () => (S.programId === id ? $('setSaved') : null);
   try {
-    if (el) el.textContent = 'Saving…';
-    await A['save-program']();
+    if (el()) el().textContent = 'Saving…';
+    await updateRows('affiliate_programs', { ...row, changed_by: me.id }, { id });
     // The row as the database now has it (a terms edit bumps its version),
     // without redrawing the page under the person's cursor.
-    const fresh = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).eq('id', S.programId).maybeSingle());
+    const fresh = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).eq('id', id).maybeSingle());
     if (fresh) S.programs = S.programs.map((x) => (x.id === fresh.id ? fresh : x));
-    if (el) el.textContent = 'Saved';
+    if (el()) el().textContent = 'Saved';
   } catch (e) {
-    if (el) el.textContent = '';
+    if (el()) el().textContent = '';
     setStatus(friendly(e), 'neg');
   }
 }
@@ -1594,18 +1605,24 @@ function renderOverview() {
     + `<div>${ovTodoCard()}${ovAutoCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
 }
 
+// The program row the Setup form describes, validated. Throws the reasons.
+function programRowFromForm() {
+  const { row, errors } = readProgramForm();
+  if (errors.length) throw new Error(errors.join(' '));
+  if ($('pSeedOn')) {
+    const pct = Number(val('pSeedPct')); const mult = Number(val('pSeedMult'));
+    if (!(pct >= 1 && pct <= 100 && Number.isInteger(pct))) throw new Error('Product % off is a whole number from 1 to 100.');
+    if (!(mult >= 1 && mult <= 20)) throw new Error('Sell back is from 1 to 20 times.');
+    Object.assign(row, { seeding_enabled: val('pSeedOn') === '1', seed_discount_percent: pct, seed_multiple: mult });
+  }
+  return row;
+}
+
 const A = {
   'new-program': () => { S.creating = true; S.tab = 'program'; render(); },
   'cancel-new': () => { S.creating = false; render(); },
   'save-program': async () => {
-    const { row, errors } = readProgramForm();
-    if (errors.length) throw new Error(errors.join(' '));
-    if ($('pSeedOn')) {
-      const pct = Number(val('pSeedPct')); const mult = Number(val('pSeedMult'));
-      if (!(pct >= 1 && pct <= 100 && Number.isInteger(pct))) throw new Error('Product % off is a whole number from 1 to 100.');
-      if (!(mult >= 1 && mult <= 20)) throw new Error('Sell back is from 1 to 20 times.');
-      Object.assign(row, { seeding_enabled: val('pSeedOn') === '1', seed_discount_percent: pct, seed_multiple: mult });
-    }
+    const row = programRowFromForm();
     if (S.creating) {
       const created = must(await db.from('affiliate_programs').insert({ ...row, company_entity_id: CO, created_by: me.id }).select('id').single());
       S.creating = false; S.programId = created.id;
@@ -2066,7 +2083,7 @@ document.addEventListener('click', async (ev) => {
     }
   } finally { b.disabled = false; }
 });
-$('programSel').addEventListener('change', async (e) => { S.programId = e.target.value; S.creating = false; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {

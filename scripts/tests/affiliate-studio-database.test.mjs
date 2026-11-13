@@ -46,6 +46,9 @@
 //   AFFILIATE_DB_MUTATION=seedanyproduct sales of other products count toward the goal
 //   AFFILIATE_DB_MUTATION=seedotheraff  another affiliate's sales count toward the goal
 //   AFFILIATE_DB_MUTATION=seedtwice     the payback can be written twice
+//   AFFILIATE_DB_MUTATION=seedprorate   an order's refund is prorated across its products
+//   AFFILIATE_DB_MUTATION=seedrefunded  a refunded or cancelled seed order still pays back
+//   AFFILIATE_DB_MUTATION=seedpaystored the payback ignores a partial refund of the seed order
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
@@ -288,11 +291,16 @@ switch (MUT) {
     raise exception 'affiliate_seed_decide:`); break;
   case 'seedcountsseed': mutate('seeding', '       and at.order_id <> v_c.seed_order_id\n', '\n'); break;
   case 'seedrefund': mutate('seeding', 'least(v_today - v_c.refund_days, v_c.goal_by)', 'v_c.goal_by'); break;
-  case 'seedanyproduct': mutate('seeding', `       and upper(o.currency) = v_c.currency
-       and lower(btrim(l.title)) = lower(btrim(v_c.product_title));`, `       and upper(o.currency) = v_c.currency;`); break;
+  case 'seedanyproduct': mutate('seeding', `           and upper(o.currency) = v_c.currency
+           and lower(btrim(l.title)) = lower(btrim(v_c.product_title))
+         group by`, `           and upper(o.currency) = v_c.currency
+         group by`); break;
   case 'seedotheraff': mutate('seeding', '       and at.affiliate_id = v_c.affiliate_id\n', '\n'); break;
   case 'seedwholeorder': mutate('seeding', `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id
        and lower(btrim(l.title)) = lower(btrim(v_c.product_title));`, `     where l.company_entity_id = v_prog.company_entity_id and l.order_id = v_o.order_id;`); break;
+  case 'seedprorate': mutate('seeding', 'greatest(0, x.product_net - x.refunded)', 'x.product_net * (1 - x.refunded / 400.0)'); break;
+  case 'seedrefunded': mutate('seeding', 'if v_seen and v_kept <= 0 then', 'if false then'); break;
+  case 'seedpaystored': mutate('seeding', "'manual_adjustment', v_kept,", "'manual_adjustment', v_c.seed_paid_cents,"); break;
   case 'seedtwice': mutate('seeding', `       and c.state = 'purchased'
      for update`, `       and c.state in ('purchased', 'earned')
      for update`); break;
@@ -2097,6 +2105,10 @@ await check('S3 the seed order sets the goal; only that product, their own code,
   await ord('S-3', ['SAMAFF'], 30, 400, [['Snow cap', 10, 40, 0]]); await attr('S-3', affSam, 30);
   // Pat's cap sale 5 days ago: still inside the 14-day refund window.
   await ord('S-4', ['PATAFF'], 5, 400, [['Snow cap', 10, 40, 0]]); await attr('S-4', affPat, 5);
+  // Mixed carts. Refunds are stored per order, so an order's refund comes off
+  // this product's lines in full, never prorated: a cap bought with a jacket
+  // and then refunded counts nothing (a share of the order would credit $36).
+  await ord('S-6', ['PATAFF'], 30, 400, [['Snow cap', 1, 40, 0], ['Trail jacket', 1, 360, 0]], 40); await attr('S-6', affPat, 30);
   r = (await one('select public.affiliate_seed_sweep($1) as r', [progA])).r;
   c = await one('select state, progress_cents::int as prog from affiliate_seed_claims where id = $1', [seedShared]);
   assert.deepEqual(c, { state: 'purchased', prog: 4000 }, '$40 of $60: refunds netted, other products, other affiliates and fresh sales left out');
@@ -2108,7 +2120,7 @@ await check('S4 reaching the goal writes the payback once, through the ledger an
   // Two more caps, 20 days ago: $40 + $80 = $120 >= $60.
   await db.query(`insert into shopify_orders(company_entity_id, shop_domain, order_id, currency, subtotal_price, discount_codes, shopify_created_at)
                   values ($1,'a.myshopify.com','S-5','USD',80,'["PATAFF"]'::jsonb, now() - interval '20 days')`, [A]);
-  await db.query(`insert into shopify_order_lines(company_entity_id, order_id, title, quantity, price) values ($1,'S-5','snow cap ',2,40)`, [A]);
+  await db.query(`insert into shopify_order_lines(company_entity_id, shop_domain, order_id, title, quantity, price) values ($1,'a.myshopify.com','S-5','snow cap ',2,40)`, [A]);
   await db.query(`insert into affiliate_attributions(company_entity_id, program_id, affiliate_id, shop_domain, order_id, order_day, order_currency, codes_on_order, basis)
                   values ($1,$2,$3,'a.myshopify.com','S-5',(now() at time zone 'America/Los_Angeles')::date - 20,'USD',1,'single_affiliate_code')`, [A, progA, affPat]);
   const before = Number((await one(`select count(*) as n from affiliate_commission_ledger where memo like 'Product seeding%'`)).n);
@@ -2125,6 +2137,41 @@ await check('S4 reaching the goal writes the payback once, through the ledger an
   const portal = (await one(`select public.affiliate_portal_seeds('hash-pat') as r`)).r;
   assert.equal(portal.claims.find((x) => x.id === seedShared).state, 'earned');
   assert.equal(portal.offer.percent, 50);
+});
+
+await check('S4b a seed order refunded or cancelled before the goal pays back only what is still paid', async () => {
+  await asSuper();
+  const claim = (title, code, order) => one(`insert into affiliate_seed_claims(company_entity_id, program_id, affiliate_id, product_title, discount_percent, multiple, refund_days, goal_days,
+                           state, code, customer_email, seed_order_id, seed_order_day, currency, seed_paid_cents, goal_cents, goal_by)
+                         values ($1,$2,$3,$4,50,3,14,90,'purchased',$5,'p@x.test',$6,current_date - 40,'USD',2000,6000,current_date + 50)
+                         returning id`, [A, progA, affPat, title, code, order]).then((x) => x.id);
+  const ord = async (id, daysAgo, refunded, lines, cancelled = false) => {
+    await db.query(`insert into shopify_orders(company_entity_id, shop_domain, order_id, currency, subtotal_price, refunded_subtotal, discount_codes, shopify_created_at, cancelled_at)
+                    values ($1,'a.myshopify.com',$2,'USD',0,$3,'["PATAFF"]'::jsonb, now() - ($4 || ' days')::interval, case when $5 then now() end)`,
+      [A, id, refunded, String(daysAgo), cancelled]);
+    for (const [title, qty, price, disc] of lines) {
+      await db.query(`insert into shopify_order_lines(company_entity_id, shop_domain, order_id, title, quantity, price, discount_allocated) values ($1,'a.myshopify.com',$2,$3,$4,$5,$6)`,
+        [A, id, title, qty, price, disc]);
+    }
+  };
+  // Each seed order: a $40 shell at 50% = $20. Rain: returned in full. Mud:
+  // the order cancelled. Wind: $17 refunded off a cart that also held a $12
+  // sock -- at most $3 of the shell is still paid for.
+  const rain = await claim('Rain shell', 'PATSEEDRAIN', 'S-RAIN'); await ord('S-RAIN', 40, 20, [['Rain shell', 1, 40, 20]]);
+  const mud = await claim('Mud shell', 'PATSEEDMUD', 'S-MUD'); await ord('S-MUD', 40, 0, [['Mud shell', 1, 40, 20]], true);
+  const wind = await claim('Wind shell', 'PATSEEDWIND', 'S-WIND'); await ord('S-WIND', 40, 17, [['Wind shell', 1, 40, 20], ['Sock', 1, 12, 0]]);
+  // Then each goal is reached: $80 of each shell sold on Pat's code.
+  for (const t of ['Rain', 'Mud', 'Wind']) {
+    await ord(`S-${t}-SALE`, 20, 0, [[`${t} shell`, 2, 40, 0]]);
+    await db.query(`insert into affiliate_attributions(company_entity_id, program_id, affiliate_id, shop_domain, order_id, order_day, order_currency, codes_on_order, basis)
+                    values ($1,$2,$3,'a.myshopify.com',$4,(now() at time zone 'America/Los_Angeles')::date - 20,'USD',1,'single_affiliate_code')`, [A, progA, affPat, `S-${t}-SALE`]);
+  }
+  await one('select public.affiliate_seed_sweep($1) as r', [progA]);
+  const st = async (id) => one(`select c.state, c.progress_cents::int as prog, l.amount_cents::int as amt
+                                  from affiliate_seed_claims c left join affiliate_commission_ledger l on l.id = c.reimbursement_ledger_id where c.id = $1`, [id]);
+  assert.deepEqual(await st(rain), { state: 'cancelled', prog: 8000, amt: null }, 'a returned seed product pays nothing back, goal or not');
+  assert.deepEqual(await st(mud), { state: 'cancelled', prog: 8000, amt: null }, 'a cancelled seed order pays nothing back');
+  assert.deepEqual(await st(wind), { state: 'earned', prog: 8000, amt: 300 }, 'a partly refunded seed order pays back only what is still paid');
 });
 
 await check('S5 a claim past its goal date and refund window expires, paying nothing', async () => {
