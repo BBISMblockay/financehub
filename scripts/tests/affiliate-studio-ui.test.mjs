@@ -14,6 +14,7 @@
 //   AFFILIATE_CORE_MUTATION=pindefault SILO's own message is saved as the program's, freezing it
 //   AFFILIATE_CORE_MUTATION=imgshrink  a card asks the CDN for a SMALLER image than it already had
 //   AFFILIATE_CORE_MUTATION=imganyhost a width parameter is forced onto any host's address
+//   AFFILIATE_CORE_MUTATION=codeclash  a suggested code repeats one already taken
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,6 +32,7 @@ const MUTS = {
   nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
   imgshrink: ["  if (!Number.isFinite(w) || w <= 0 || w >= px) return url;", '  if (!Number.isFinite(w) || w <= 0) return url;'],
   imganyhost: ["  if (!WIDTH_PARAM_HOSTS.has(u.hostname)) return url;", ''],
+  codeclash: ["  if (!used.has(base)) return base;", '  return base;'],
   pindefault: ["row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;", "row.outreach_body = body === '' ? null : body;"],
   rounding: ["const re = units === 1 ? /^-?\\d+$/ : /^-?\\d+(\\.\\d{1,2})?$/;", 'const re = /^-?\\d+(\\.\\d+)?$/;'],
 };
@@ -241,6 +243,15 @@ await t('an affiliate card asks the image CDN for the size the card uses, and to
   for (const bad of [null, undefined, '', 'not a url', 'http://cdn.shopify.com/x.jpg?width=10']) {
     assert.equal(C.displayImage(bad), bad, `left alone: ${String(bad)}`);
   }
+});
+
+await t('a one-press code is named from the affiliate and never repeats one already taken', () => {
+  assert.equal(C.suggestCode('Pat Trails', 10), 'PATTRAILS10');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['pattrails10']), 'PATTRAILS102', 'taken is judged without case, as Shopify does');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['PATTRAILS10', 'PATTRAILS102']), 'PATTRAILS103');
+  assert.equal(C.suggestCode('', 15), 'AFF15', 'no usable name still gives a code');
+  assert.equal(C.suggestCode('José-María 🎉', 12.4), 'JOSMARA12', 'only letters and digits Shopify accepts');
+  assert.ok(C.suggestCode('A'.repeat(40), 100).length <= 20);
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);

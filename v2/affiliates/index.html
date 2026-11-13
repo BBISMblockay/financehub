@@ -14,6 +14,7 @@
   <style>
     /* Affiliate Studio (af-) layout only; every colour and font is a Beacon token. */
     .af-panel[hidden] { display: none; }
+    .af-panel > .af-stack + .af-stack:not(:empty) { margin-top: 24px; }
     .af-share-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--bcn-border); }
     .af-share-row:first-of-type { border-top: 0; }
     .af-share-row img, .af-share-noimg { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bcn-bg); border: 1px solid var(--bcn-border); }
@@ -76,14 +77,15 @@
     .af-todo-text { flex: 1; min-width: 0; line-height: 1.45; color: var(--bcn-ink); }
     .af-todo-acts { display: flex; gap: 6px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .af-todo-none { margin: 0; padding: 14px; }
-    .af-todo-how { margin: 0; border-top: 1px solid var(--bcn-border); }
-    .af-todo-how > summary {
-      list-style: none; cursor: pointer; padding: 10px 14px; font-size: 12px; font-weight: 500; color: var(--bcn-ink-2);
-      background: var(--bcn-bg);
-    }
-    .af-todo-how > summary::-webkit-details-marker { display: none; }
-    .af-todo-how[open] > summary { border-bottom: 1px solid var(--bcn-border); }
-    .af-todo-how-body { margin: 0; padding: 10px 14px 12px; font-size: 11px; line-height: 1.5; color: var(--bcn-ink-3); }
+    .af-auto { display: flex; flex-direction: column; }
+    .af-auto-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--bcn-border); font-size: 13px; color: var(--bcn-ink); }
+    .af-auto-row:last-child { border-bottom: 0; }
+    .af-toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; border-radius: 999px; border: 1px solid var(--bcn-border-strong); background: var(--bcn-bg); cursor: pointer; padding: 0; transition: background .15s; }
+    .af-toggle i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bcn-surface); box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: left .15s; }
+    .af-toggle--on { background: var(--bcn-pos); border-color: var(--bcn-pos); }
+    .af-toggle--on i { left: 20px; }
+    .af-toggle:disabled { opacity: .5; cursor: not-allowed; }
+    .af-toggle:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
     .af-more > summary { cursor: pointer; font-size: 13px; color: var(--bcn-ink-2); padding: 6px 0; list-style: revert; }
   /* Workflow rail: five steps map to the tabs, with counts when something needs you. */
     .af-pipeline { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 18px 12px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 10px; background: var(--bcn-surface); }
@@ -522,6 +524,8 @@
     @media (max-width: 1080px) {
       .af-ov-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .af-ov-cols { grid-template-columns: minmax(0, 1fr); }
+      /* One column: what needs a press comes before the charts. */
+      .af-ov-cols > div:last-child { order: -1; }
     }
     @media (max-width: 620px) {
       .af-ov-metrics { grid-template-columns: minmax(0, 1fr); }
@@ -543,7 +547,6 @@
       </div>
       <div class="bcn-header-actions">
         <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;"></select>
-        <button class="bcn-btn" data-act="go-tab" data-t="program" id="btnSettings">Settings</button>
         <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
       </div>
     </header>
@@ -553,21 +556,27 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Overview</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="prospects" id="tab-prospects">Recruiting</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="outreach" id="tab-outreach">Messages</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="affiliates" id="tab-affiliates">Affiliates</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Payouts</button>
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Home</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Money</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="program" id="tab-program">Setup</button>
     </nav>
 
-    <section class="af-panel" data-panel="program" hidden><div class="af-stack" id="programBody"></div></section>
     <section class="af-panel" data-panel="overview"><div class="af-ov" id="overviewBody"></div></section>
-    <section class="af-panel" data-panel="prospects" hidden><div class="af-stack af-stack--pinched" id="prospectsBody"></div></section>
-    <section class="af-panel" data-panel="outreach" hidden><div class="af-stack" id="outreachBody"></div></section>
-    <section class="af-panel" data-panel="affiliates" hidden><div class="af-stack" id="affiliatesBody"></div></section>
-    <section class="af-panel" data-panel="share" hidden><div class="af-stack" id="shareBody"></div></section>
+    <!-- People: everyone in the programme on one page -- the affiliates, the
+         creators not in yet, and the messages waiting on them. They were three
+         tabs; moving between them was most of the clicking. -->
+    <section class="af-panel" data-panel="people" hidden>
+      <div class="af-stack" id="affiliatesBody"></div>
+      <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
+      <div class="af-stack" id="outreachBody"></div>
+    </section>
     <section class="af-panel" data-panel="payouts" hidden><div class="af-stack af-stack--pinched" id="payoutsBody"></div></section>
+    <!-- Setup: the programme's own settings, and what it shares. -->
+    <section class="af-panel" data-panel="program" hidden>
+      <div class="af-stack" id="programBody"></div>
+      <div class="af-stack" id="shareBody"></div>
+    </section>
   </main>
 </div>
 

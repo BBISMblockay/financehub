@@ -19791,4 +19791,5 @@ $c$select (select count(*) from v_po_header_summary
 -- own side of each order (day, order number, value, earned, paid): no customer
 -- name, email, address or line items. Apply BEFORE deploying affiliate-portal.
 \i migrations/20261113070000_affiliate_launch_claims_and_orders.sql
+\i migrations/20261113080000_affiliate_auto_share_launches.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
