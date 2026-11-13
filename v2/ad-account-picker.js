@@ -23,6 +23,7 @@
   const NOUN = {
     google_ads: 'Google Ads account', ga4: 'GA4 property', search_console: 'Search Console property',
     meta_ads: 'Meta ad account', tiktok_ads: 'TikTok advertiser',
+    meta_pages: 'Facebook Page',
   };
   const str = (v) => (v == null ? '' : String(v));
   const fmtCustomer = (d) => (/^\d{10}$/.test(d) ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : d);
@@ -55,6 +56,26 @@
         value: str(a.id), label: str(a.name) || str(a.id), sub: [str(a.id), str(a.currency)].filter(Boolean).join(' · '), disabled: false,
       })).filter((o) => o.value);
     }
+    // Not a platform: the Facebook Page (and the Instagram business account
+    // linked to it) that the SAME meta_ads connection reads for organic. The
+    // two ids always travel together -- Meta hands the Instagram account out
+    // only through its Page -- so they are one choice, not two fields. A Page
+    // with no linked Instagram account is still selectable: its Page insights
+    // are worth syncing on their own.
+    if (platform === 'meta_pages') {
+      return (d.pages || []).map((p) => ({
+        value: str(p.page_id),
+        igValue: str(p.instagram_business_account_id) || null,
+        label: str(p.page_name) || str(p.page_id),
+        sub: [
+          str(p.page_id),
+          p.instagram_business_account_id
+            ? 'Instagram ' + (p.instagram_username ? '@' + str(p.instagram_username) : str(p.instagram_business_account_id))
+            : 'no linked Instagram account',
+        ].filter(Boolean).join(' · '),
+        disabled: false,
+      })).filter((o) => o.value);
+    }
     if (platform === 'tiktok_ads') {
       // `advertisers` carries names (/oauth2/advertiser/get/); advertiser_ids
       // is the nameless fallback from the grant itself. Nineteen digits tell
@@ -84,8 +105,18 @@
   /** The row update a choice makes: the account field, and sync switched on,
    *  because choosing what to sync is the decision to sync it. */
   function patchFor(platform, option) {
+    if (!option || option.disabled || !option.value) return null;
+    // A Page choice writes BOTH organic ids, blanking Instagram when the
+    // chosen Page has none: leaving the previous Page's Instagram id behind
+    // would have the nightly sync pull one business's Instagram against
+    // another's Page. It does NOT touch sync_enabled -- organic rides the ad
+    // connection's own setting, and a Page choice is not a decision to start
+    // syncing ads.
+    if (platform === 'meta_pages') {
+      return { facebook_page_id: option.value, instagram_business_account_id: option.igValue || null };
+    }
     const field = FIELD[platform];
-    if (!field || !option || option.disabled || !option.value) return null;
+    if (!field) return null;
     return { [field]: option.value, sync_enabled: true };
   }
 
