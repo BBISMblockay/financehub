@@ -999,24 +999,42 @@ function sendState(x) {
   };
 }
 
-// Every payout whose newest attempt is still open on the CONNECTED account,
-// the ones that block a send first. Each is checked by its own payout id: the
-// endpoint's untargeted refresh reads only the oldest 50 open attempts across
-// the company, so a newer one behind 50 long-unclaimed items would never be
-// reached -- and the per-row button that used to get around that is gone
-// (review cycle 1). Attempts on the other account are left alone: reconciling
-// across accounts is refused, by design.
+// Every payout with an attempt still open on the CONNECTED account, the ones
+// that block a send first. Two boundaries matter here, and both were missed:
+// - The endpoint's untargeted refresh reads only the oldest 50 open attempts
+//   across the company, so each payout is checked by its OWN id (review
+//   cycle 1).
+// - The page's history list is the newest 200 attempts of ANY state, so an
+//   older open attempt behind 200 paid ones is not in it. The worklist is
+//   therefore its own query, open states only, paged to the end (cycle 2).
+// An open attempt is always its payout's newest in its environment: the claim
+// refuses a new attempt while one is open. Attempts on the other account are
+// left alone, because reconciling across accounts is refused by design.
 const OPEN_RANK = { unknown: 0, sent: 1, unclaimed: 2 };
-function openAttemptPayoutIds() {
+const OPEN_PAGE = 1000;
+async function openAttemptPayoutIds() {
   const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
-  return Object.values(S.d.sendByPayout || {})
-    .filter((sn) => sn.state in OPEN_RANK && (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)
+  const rows = [];
+  for (let from = 0; ; from += OPEN_PAGE) {
+    const page = must(await db.from('affiliate_payout_sends')
+      .select('payout_id, state, environment, created_at')
+      .eq('company_entity_id', CO)
+      .in('state', Object.keys(OPEN_RANK))
+      .order('created_at', { ascending: false })
+      .range(from, from + OPEN_PAGE - 1)) || [];
+    rows.push(...page);
+    if (page.length < OPEN_PAGE) break;
+  }
+  const seen = new Set();
+  return rows
+    .filter((sn) => (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)
     .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])
-    .map((sn) => sn.payout_id);
+    .map((sn) => sn.payout_id)
+    .filter((id) => !seen.has(id) && seen.add(id));
 }
 async function checkOpenAttempts() {
   const results = [];
-  for (const id of openAttemptPayoutIds()) {
+  for (const id of await openAttemptPayoutIds()) {
     try {
       const r = await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });
       results.push(...(r.results || []));
@@ -1034,10 +1052,12 @@ const SETTLED = ['paid', 'returned', 'refused', 'unclaimed'];
 let ppAutoChecked = false;
 async function checkOpenAttemptsOnce() {
   if (ppAutoChecked) return;
-  if (!openAttemptPayoutIds().length || !payConnLive(S.d.payConn)) return;
+  if (!payConnLive(S.d.payConn)) return;
   ppAutoChecked = true;
-  const results = await checkOpenAttempts();
-  if (results.some((x) => SETTLED.includes(x.state))) await reload();
+  try {
+    const results = await checkOpenAttempts();
+    if (results.some((x) => SETTLED.includes(x.state))) await reload();
+  } catch { /* the rows still say what the database knows; the card has a manual check */ }
 }
 
 // The payouts "Send all approved" would actually send, in the order shown.
