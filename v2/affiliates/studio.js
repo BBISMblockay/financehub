@@ -10,7 +10,7 @@ import {
   parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
-  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode,
+  ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -163,6 +163,9 @@ async function loadProgramData() {
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
     notifications: by('affiliate_notifications').order('created_at', { ascending: false }).limit(50),
     feed: by('affiliate_feed_items').order('shared_at', { ascending: false }).limit(200),
+    // Product seeding (20261113093000). Read fail-soft below: before the
+    // migration there is no table, and the page simply has no seeding.
+    seeds: by('affiliate_seed_claims').order('requested_at', { ascending: false }).limit(300),
     // The payout rail (20261113040000). The status VIEW, never the connection
     // table: the credentials are not readable by a browser session at all.
     payConn: db.from('affiliate_payout_connection_status_v').select('*').eq('provider', 'paypal').maybeSingle(),
@@ -178,7 +181,11 @@ async function loadProgramData() {
   const keys = Object.keys(q);
   const res = await Promise.all(Object.values(q));
   const d = {}; const failed = [];
-  res.forEach((r, i) => { d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []); if (r.error) failed.push(`${keys[i]}: ${r.error.message}`); });
+  res.forEach((r, i) => {
+    d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
+    if (r.error && keys[i] === 'seeds') { d.seeds = null; return; }
+    if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
+  });
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
   const ids = d.payouts.map((x) => x.id);
   if (ids.length) {
@@ -335,7 +342,29 @@ const pill = (t, kind = '') => `<span class="bcn-pill${kind ? ` bcn-pill--${kind
 const statusPill = (s) => pill(s, ({ active: 'pos', approved: 'pos', signed_up: 'pos', marked_paid: 'pos', sent: 'accent', exported: 'accent', invited: 'accent', qualified: 'accent', under_review: 'accent', rejected: 'neg', suppressed: 'neg', terminated: 'neg', void: 'neg', bounced: 'neg', declined: 'neg' })[s] || '');
 // Secondary tools stay one click away, closed by default, so each tab shows
 // only what most people need.
-const more = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<details class="af-more"><summary>${esc(label)}</summary><div class="af-stack">${p.join('')}</div></details>` : ''; };
+// Nothing is folded away (Blake, 2026-11-13: "i don't want hiding optional
+// confusion"). Detail and admin views are not drawn on the screen they came
+// from: each is collected here and shown, open, on the Records tab.
+const RECORDS = new Map();
+const more = (label, parts) => { RECORDS.set(label, parts.filter(Boolean)); return ''; };
+// A plain, always-open section with a heading.
+const section = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<section class="af-section"><h3 class="af-settings-title">${esc(label)}</h3><div class="af-stack">${p.join('')}</div></section>` : ''; };
+const RECORD_GROUPS = [
+  ['Products and codes', ['Codes and links']],
+  ['Recruiting', ['Recruiting tools']],
+  ['Messages', ['Message history']],
+  ['Money', ['Every order', 'Periods and ledger', 'Balances']],
+];
+function renderRecords() {
+  RECORDS.clear();
+  // The screens these come from draw into their own (hidden) panels, which
+  // fills RECORDS; the records themselves are drawn only here.
+  renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
+  $('recordsBody').innerHTML = RECORD_GROUPS.map(([title, keys]) => {
+    const parts = keys.flatMap((k) => RECORDS.get(k) || []);
+    return parts.length ? surface(title, `<div class="af-stack">${parts.join('')}</div>`) : '';
+  }).join('');
+}
 const surface = (title, body, meta = '', id = '') => {
   const idAttr = id ? ` id="${esc(id)}"` : '';
   return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
@@ -382,24 +411,25 @@ function renderWorkflowTabCounts() {
 // still how the rest of this file refers to a place -- they are now the
 // SECTION inside a panel, and PANEL_OF says which panel holds each one.
 const PANEL_OF = {
-  overview: 'overview', people: 'people', payouts: 'payouts', program: 'program',
+  overview: 'overview', people: 'people', payouts: 'payouts', program: 'program', records: 'records',
   prospects: 'people', outreach: 'people', affiliates: 'people', share: 'program',
 };
 // Where a panel's "no program yet" message goes, since People and Setup each
 // hold more than one body.
-const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', payouts: 'payoutsBody', program: 'programBody' };
+const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
 const PANEL_RENDERERS = {
   overview: [renderOverview],
   people: [renderAffiliates, renderProspects, renderOutreach],
   payouts: [renderPayoutsTab],
   program: [renderProgram, renderShare],
+  records: [renderRecords],
 };
 
 function render() {
   const p = prog();
   const main = document.querySelector('.silo-main.af-studio');
   main?.classList.toggle('af-studio--ready', !!p);
-  main?.classList.toggle('af-studio--workflow', !!p && S.tab !== 'overview' && S.tab !== 'program');
+  main?.classList.toggle('af-studio--workflow', !!p && !['overview', 'program', 'records'].includes(S.tab));
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const on = PANEL_OF[b.dataset.tab] === S.tab;
@@ -458,6 +488,10 @@ function todoItems() {
   add(Number(h.codes_never_seen || 0), `${num(h.codes_never_seen)} code(s) have never appeared on an order. Check each exists in Shopify with the same spelling.`, 'affiliates');
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
   add(unattributed, `${num(unattributed)} order(s) with an affiliate code were not credited.`, 'payouts');
+  const seedAsks = (d.seeds || []).filter((x) => x.state === 'requested').length;
+  add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'people', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '');
+  const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
+  add(seedCodes, `${num(seedCodes)} product code(s) waiting for your MCP agent to create in Shopify.`, 'people', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
   add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts', btn(`Build ${num(owed)} payout(s)`, 'q-payouts', {}, 'primary'));
   const toApprove = d.payouts.filter((x) => x.status === 'draft').length;
@@ -491,17 +525,9 @@ function aiHubOverviewSection() {
     workSend ? btn('Copy send prompt', 'copy-send-prompt', {}, workSend && !workCodes ? 'primary' : 'surface') : '',
     workCodes ? btn('Copy codes prompt', 'copy-codes-prompt', {}, workCodes && !workSend ? 'primary' : 'surface') : '',
   ].filter(Boolean).join('');
-  const hintLines = [
-    !workSend ? `<p class="af-muted"><strong>Send:</strong> ${esc(SEND_PROMPT_HINT)}</p>` : '',
-    !workCodes ? `<p class="af-muted"><strong>Codes:</strong> ${esc(CODES_PROMPT_HINT)}</p>` : '',
-    connectPrimary ? '<p class="af-muted">Pick this company in the workspace, then allow send outreach and create Shopify codes on the connection.</p>' : '',
-    !workSend && !workCodes && (canSend || canCode)
-      ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'surface')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'surface')}</div>`
-      : '',
-  ].filter(Boolean).join('');
-  const hintSummary = 'Agent prompts';
-  const hints = hintLines
-    ? `<details class="af-ai-hint"><summary>${hintSummary}</summary><div class="af-ai-hint-body">${hintLines}</div></details>`
+  // The prompts are buttons, never a fold-out to find them in.
+  const hints = !workSend && !workCodes && (canSend || canCode)
+    ? `<div class="af-ai-actions af-ai-actions--tight">${btn('Copy send prompt', 'copy-send-prompt', {}, 'surface')}${btn('Copy codes prompt', 'copy-codes-prompt', {}, 'surface')}</div>`
     : '';
   const manageKind = connectPrimary ? 'primary' : '';
   return card('Your AI', `
@@ -523,7 +549,7 @@ function stageCard() {
   const d = S.d;
   const labels = stageLabels({ discoveryRuns: d.runs, notifications: d.notifications, codesSeen: d.codes.filter((c) => c.verified_at).length, codesTotal: liveCodeCount(d.codes), ledgerEntries: d.ledgerCount, sources: 0 });
   const row = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.stage)} <span class="af-stage af-label-${esc(r.label.replace(' ', '-'))}">${esc(r.label)}</span></div><div class="af-muted">${esc(r.detail)}</div></div></article>`;
-  return card('How each part works for this company', itemList(labels, row, 'Nothing to report yet.'), 'verified = SILO has seen it work here');
+  return card('How each part works for this company', itemList(labels, row, 'Nothing to report yet.'));
 }
 
 // ── Program ──────────────────────────────────────────────────────────────
@@ -541,78 +567,129 @@ async function ensureProfiles() {
 // program rows then carry the column).
 const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'default_discount_percent'));
 // The program's own outreach message exists once 20261111020000 is applied.
+// Product seeding exists once 20261113093000 is applied.
+const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'seeding_enabled'));
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
-const settingsBlock = (title, inner) => `<section class="af-settings-block"><h3 class="af-settings-title">${esc(title)}</h3>${inner}</section>`;
+// Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
+// windows forms, need modernized"; "i don't want hiding"). Every setting is
+// in plain sight, in a card per subject, one row each: the name on the left,
+// the control on the right. Choices are chips and switches, not dropdowns.
+// An existing program saves as you go; a new one has one Create button.
+const setRow = (label, control, id = '') => `<div class="af-set-row"${id ? ` id="${id}"` : ''}><div class="af-set-label">${esc(label)}</div><div class="af-set-ctl">${control}</div></div>`;
+// A row of chips standing in for a select: the hidden input keeps the id the
+// form reads, and a press sets it and announces the change.
+const seg = (id, options, cur, dis) => `<div class="af-seg" role="radiogroup" data-seg-for="${id}">${options.map(([v, label]) => `<button type="button" class="af-seg-btn${String(cur ?? '') === String(v) ? ' is-on' : ''}" role="radio" aria-checked="${String(cur ?? '') === String(v)}" data-seg="${id}" data-v="${esc(v)}" ${dis}>${esc(label)}</button>`).join('')}</div><input type="hidden" id="${id}" value="${esc(cur ?? '')}" />`;
+const PLATFORM_NAMES = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', twitch: 'Twitch', x: 'X', pinterest: 'Pinterest', blog: 'Blog', web: 'Web' };
+const setInput = (id, attrs = '') => `<input class="bcn-field af-set-input" id="${id}" ${attrs} />`;
 function syncCommissionFields() {
   const kind = $('pKind')?.value;
-  const pct = $('pPct')?.closest('.bcn-field-group');
-  const fix = $('pFixed')?.closest('.bcn-field-group');
+  const pct = $('rowPct'); const fix = $('rowFixed');
   if (pct) pct.hidden = kind === 'fixed_per_order';
   if (fix) fix.hidden = kind === 'percent_of_net';
+  const seedOn = $('pSeedOn')?.value !== '0';
+  for (const r of document.querySelectorAll('.af-seed-dep')) r.hidden = !seedOn;
 }
 function renderProgram(isNew = S.creating) {
   const p = isNew ? {} : (prog() || {});
   const dis = MANAGE ? '' : 'disabled';
-  const o = (v, label, cur) => `<option value="${v}"${String(cur ?? '') === String(v) ? ' selected' : ''}>${esc(label)}</option>`;
   const plats = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web'];
   const units = minorUnits(p.currency || 'USD');
   const major = (c) => (c === null || c === undefined ? '' : (Number(c) / units).toString());
-  // The four answers a program actually needs: what it is called, whether it
-  // is running, what it pays, and what the affiliate's code takes off.
-  // Everything else is a default that already works, and opens below.
-  const basics = `<div class="af-grid--settings">
-      ${field('Program name', input('pName', `${dis} value="${esc(p.name || '')}" placeholder="e.g. Creator program"`))}
-      ${field('Status', `<select class="bcn-field" id="pStatus" ${dis}>${o('draft', 'Draft', p.status ?? 'draft')}${o('active', 'Active: recruiting', p.status)}${o('paused', 'Paused', p.status)}${o('closed', 'Closed', p.status)}</select>`)}
-    </div>
-    <div class="af-grid--settings">
-      ${field('You pay', `<select class="bcn-field" id="pKind" ${dis}>${o('percent_of_net', 'Percent of each order', p.commission_kind ?? 'percent_of_net')}${o('fixed_per_order', 'Fixed amount per order', p.commission_kind)}</select>`)}
-      ${field('Percent', input('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`))}
-      ${field('Amount per order', input('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`))}
-      ${hasAutoCode() ? field('Their code takes off', input('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="10" title="Blank: no automatic code" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)) : ''}
-    </div>
-    ${MANAGE ? `<div class="af-settings-save">${btn(isNew ? 'Create program' : 'Save changes', 'save-program', {}, 'primary')}${isNew && S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : ''}`;
-  const whoBlock = `<div class="af-grid--settings">
-      <div class="af-span-full">${field('What kind of creators? (your niche)', input('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="e.g. youth baseball training"`))}</div>
-      ${field('Audience notes', input('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`))}
-      ${field('Countries', input('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`))}
-      ${field('Joining', `<select class="bcn-field" id="pIntake" ${dis}>${o('invite_only', 'Invite only', p.intake_mode ?? 'invite_only')}${o('open', 'Open applications', p.intake_mode)}</select>`)}
-    </div>
-    <p class="af-muted af-settings-sub">Platforms</p>
-    <div class="af-checks af-checks--boxed">${plats.map((x) => `<label><input type="checkbox" class="pPlat" value="${x}" ${dis} ${(p.platforms || []).includes(x) ? 'checked' : ''}/> ${x}</label>`).join('')}</div>`;
-  const outreachBlock = hasOutreachMessage() ? `<p class="af-muted af-settings-sub">Fill-ins: {name} {brand} {platform} {source} {commission} {sender} {signup_link}. Keep {signup_link}.</p>
-      ${field('Subject', input('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`))}
-      ${field('Message', `<textarea class="bcn-field" id="pOutBody" rows="9" ${dis}>${esc(outreachTemplate(p).body)}</textarea>`)}` : '';
-  const termsBlock = `<textarea class="bcn-field" id="pTerms" rows="8" ${dis} placeholder="Commission, how orders are credited, refunds, payouts, what affiliates may not do. Editing saves a new version.">${esc(p.terms_markdown || '')}</textarea>`;
-  const advancedBlock = `<div class="af-grid--settings">
-      ${field('Short name (apply link)', input('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`))}
-      ${field('Designated employee', `<select class="bcn-field" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => o(u.id, u.name || u.email, p.owner_user_id)).join('')}</select>`)}
-      ${field('Currency', input('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}"`))}
-      ${field('Default code start', input('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`))}
-      ${field('Default code end', input('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`))}
-      ${field('Grace days after code ends', input('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`))}
-      ${field('Several codes on one order', `<select class="bcn-field" id="pPrec" ${dis}>${o('first_affiliate_code', 'Credit one code', p.code_precedence ?? 'first_affiliate_code')}${o('single_code_only', 'Do not credit', p.code_precedence)}</select>`)}
-      ${field('Refund hold (days)', input('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`))}
-      ${field('Payout minimum', input('pMin', `${dis} inputmode="decimal" value="${esc(major(p.payout_minimum_cents))}"`))}
-      ${field('Pay affiliates', `<select class="bcn-field" id="pPayMethod" ${dis}>${o('manual', 'By hand', p.payout_method ?? 'manual')}${o('paypal_payouts', 'PayPal', p.payout_method)}</select>`)}
-    </div>`;
-  let extra = '';
+  const cur = esc(p.currency || 'USD');
+  const program = card('Program', [
+    setRow('Name', setInput('pName', `${dis} value="${esc(p.name || '')}" placeholder="Creator program"`)),
+    setRow('Status', seg('pStatus', [['draft', 'Draft'], ['active', 'Active'], ['paused', 'Paused'], ['closed', 'Closed']], p.status ?? 'draft', dis)),
+    setRow('Joining', seg('pIntake', [['invite_only', 'Invite only'], ['open', 'Open applications']], p.intake_mode ?? 'invite_only', dis)),
+  ].join(''));
+  const pay = card('Pay', [
+    setRow('Commission', seg('pKind', [['percent_of_net', '% of order'], ['fixed_per_order', 'Fixed per order']], p.commission_kind ?? 'percent_of_net', dis)),
+    setRow('Percent', `<div class="af-set-unit">${setInput('pPct', `${dis} type="number" step="0.001" min="0" max="100" value="${esc(p.commission_percent ?? '')}"`)}<span>%</span></div>`, 'rowPct'),
+    setRow('Per order', `<div class="af-set-unit">${setInput('pFixed', `${dis} inputmode="decimal" value="${esc(major(p.commission_fixed_cents))}"`)}<span>${cur}</span></div>`, 'rowFixed'),
+    hasAutoCode() ? setRow('Their code takes off', `<div class="af-set-unit">${setInput('pAutoPct', `${dis} type="number" step="1" min="1" max="100" placeholder="—" value="${esc(isNew ? 10 : (p.default_discount_percent ?? ''))}"`)}<span>%</span></div>`) : '',
+    setRow('Pay affiliates', seg('pPayMethod', [['manual', 'By hand'], ['paypal_payouts', 'PayPal']], p.payout_method ?? 'manual', dis)),
+    setRow('Payout minimum', `<div class="af-set-unit">${setInput('pMin', `${dis} inputmode="decimal" placeholder="0" value="${esc(major(p.payout_minimum_cents))}"`)}<span>${cur}</span></div>`),
+    setRow('Payable after', `<div class="af-set-unit">${setInput('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`)}<span>days</span></div>`),
+  ].join(''));
+  const seeding = hasSeeding() ? card('Product seeding', [
+    setRow('Offer products', seg('pSeedOn', [['1', 'On'], ['0', 'Off']], p.seeding_enabled === false ? '0' : '1', dis)),
+    `<div class="af-seed-dep">${setRow('Product % off', `<div class="af-set-unit">${setInput('pSeedPct', `${dis} type="number" step="1" min="1" max="100" value="${esc(p.seed_discount_percent ?? 50)}"`)}<span>%</span></div>`)}</div>`,
+    `<div class="af-seed-dep">${setRow('Paid back after', `<div class="af-set-unit">${setInput('pSeedMult', `${dis} type="number" step="0.5" min="1" max="20" value="${esc(p.seed_multiple ?? 3)}"`)}<span>× what they paid in sales</span></div>`)}</div>`,
+  ].join('')) : '';
+  const recruit = card('Who you recruit', [
+    setRow('Niche', setInput('pNiche', `${dis} value="${esc(p.niche || '')}" placeholder="youth baseball training"`)),
+    setRow('Audience', setInput('pAudience', `${dis} value="${esc(p.audience_notes || '')}" placeholder="Who the ideal creator speaks to"`)),
+    setRow('Countries', setInput('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`)),
+    setRow('Platforms', `<div class="af-chips-tog">${plats.map((x) => `<button type="button" class="af-chip-tog pPlat${(p.platforms || []).includes(x) ? ' is-on' : ''}" data-plat="${x}" aria-pressed="${(p.platforms || []).includes(x)}" ${dis}>${esc(PLATFORM_NAMES[x] || x)}</button>`).join('')}</div>`),
+  ].join(''));
+  const message = hasOutreachMessage() ? card('Message to creators', [
+    setRow('Subject', setInput('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`)),
+    setRow('Message', `<textarea class="bcn-field af-set-input" id="pOutBody" rows="8" ${dis}>${esc(outreachTemplate(p).body)}</textarea><div class="af-set-tags">${['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'].map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>`),
+  ].join('')) : '';
+  const terms = card(`Terms${p.terms_version ? ` · v${p.terms_version}` : ''}`,
+    `<textarea class="bcn-field af-set-input" id="pTerms" rows="8" ${dis} placeholder="Commission, crediting, refunds, payouts, rules">${esc(p.terms_markdown || '')}</textarea>`);
+  const codes = card('Codes', [
+    setRow('Apply link name', setInput('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`)),
+    setRow('Currency', setInput('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}" style="max-width:6rem"`)),
+    setRow('Codes start', setInput('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`)),
+    setRow('Codes end', setInput('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`)),
+    setRow('Grace after a code ends', `<div class="af-set-unit">${setInput('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`)}<span>days</span></div>`),
+    setRow('Two codes on one order', seg('pPrec', [['first_affiliate_code', 'Credit one'], ['single_code_only', 'Credit none']], p.code_precedence ?? 'first_affiliate_code', dis)),
+    setRow('Owner', `<select class="bcn-field af-set-input" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}"${u.id === p.owner_user_id ? ' selected' : ''}>${esc(u.name || u.email)}</option>`).join('')}</select>`),
+  ].join(''));
+  let access = '';
   if (!isNew && p.id) {
     const url = applyUrl(location.origin, CO, p.slug);
-    extra += card('Open applications link', p.intake_mode === 'open'
+    access = card('Application link', p.intake_mode === 'open'
       ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: url }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(url) || '#')}" target="_blank" rel="noopener">Open</a></div>`
-      : '<p class="af-muted">Invite only.</p>');
-    extra += '<div id="managersCard"></div>';
+      : '<p class="af-muted">Invite only.</p>')
+      + '<div id="managersCard"></div>'
+      + (S.d ? stageCard() : '');
   }
-  const form = basics
-    + more('Who you recruit', [whoBlock])
-    + (outreachBlock ? more('Message to creators', [outreachBlock]) : '')
-    + more(`Terms${p.terms_version ? ` (v${p.terms_version})` : ''}`, [termsBlock])
-    + more('Advanced settings', [advancedBlock]);
-  $('programBody').innerHTML = card(isNew ? 'New program' : 'Settings', form)
-    + (extra ? more('Sharing, access and how it works', [extra, S.d ? stageCard() : '']) : '');
-  $('pKind')?.addEventListener('change', syncCommissionFields);
+  const create = isNew && MANAGE ? `<div class="af-settings-save">${btn('Create program', 'save-program', {}, 'primary')}${S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : '';
+  const saved = !isNew && MANAGE ? '<span class="af-set-saved" id="setSaved" aria-live="polite"></span>' : '';
+  $('programBody').innerHTML = `<div class="af-settings">${saved}
+    <div class="af-settings-col">${program}${pay}${seeding}${codes}${create}</div>
+    <div class="af-settings-col">${recruit}${message}${terms}${access}</div></div>`;
   syncCommissionFields();
   if (!isNew && p.id) renderManagers();
+}
+
+// Chips and switches on Setup, and saving as you go.
+document.addEventListener('click', (ev) => {
+  const s = ev.target.closest('[data-seg]');
+  if (s && !s.disabled) {
+    const box = s.closest('.af-seg');
+    for (const b of box.querySelectorAll('[data-seg]')) { const on = b === s; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', String(on)); }
+    const inp = $(s.dataset.seg); if (inp) { inp.value = s.dataset.v; inp.dispatchEvent(new Event('change', { bubbles: true })); }
+    syncCommissionFields();
+    return;
+  }
+  const c = ev.target.closest('[data-plat]');
+  if (c && !c.disabled) {
+    c.classList.toggle('is-on'); c.setAttribute('aria-pressed', String(c.classList.contains('is-on')));
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+let saveTimer = null; let saving = Promise.resolve();
+document.addEventListener('change', (ev) => {
+  if (S.creating || !MANAGE || !ev.target.closest('#programBody')) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saving = saving.then(autosaveProgram); }, 350);
+});
+async function autosaveProgram() {
+  const el = $('setSaved');
+  try {
+    if (el) el.textContent = 'Saving…';
+    await A['save-program']();
+    // The row as the database now has it (a terms edit bumps its version),
+    // without redrawing the page under the person's cursor.
+    const fresh = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).eq('id', S.programId).maybeSingle());
+    if (fresh) S.programs = S.programs.map((x) => (x.id === fresh.id ? fresh : x));
+    if (el) el.textContent = 'Saved';
+  } catch (e) {
+    if (el) el.textContent = '';
+    setStatus(friendly(e), 'neg');
+  }
 }
 
 async function renderManagers() {
@@ -629,7 +706,7 @@ function readProgramForm() {
   return validateProgram({
     name: val('pName'), slug: val('pSlug') || slugify(val('pName')), status: val('pStatus'), owner_user_id: val('pOwner'),
     niche: val('pNiche'), audience_notes: val('pAudience'), geographies: val('pGeo'),
-    platforms: [...document.querySelectorAll('.pPlat:checked')].map((x) => x.value),
+    platforms: [...document.querySelectorAll('.pPlat.is-on')].map((x) => x.dataset.plat),
     intake_mode: val('pIntake'), commission_kind: val('pKind'), commission_percent: val('pPct'), commission_fixed: val('pFixed'),
     currency: val('pCur'), default_code_starts_on: val('pStart'), default_code_ends_on: val('pEnd'),
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
@@ -711,7 +788,7 @@ function renderProspects() {
           <span class="af-catalog-stat-barwrap">${catalogStatBar(reach)}<span class="af-catalog-stat-num">${x.contact_email ? 'Has email' : 'No email'}</span></span>
         </div>
       </div>
-      <details class="af-item-more af-catalog-more"><summary>Source details</summary><div class="af-item-detail">${provenance(x)}</div></details>
+      <div class="af-item-detail af-catalog-why">${provenance(x)}</div>
       <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
   };
@@ -729,7 +806,7 @@ function renderProspects() {
       ${itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
-    more('Tools', [
+    more('Recruiting tools', [
     MANAGE ? card('Creator photos', `<p class="af-muted">SILO keeps a copy of each creator's profile photo after every search.</p><div class="af-row" style="margin-top:8px;">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">CSV, one creator per row with a profile link.</p>
@@ -767,9 +844,9 @@ function renderOutreach() {
     surface('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Recruiting to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
       ${aiSendBlock(d.aiApps)}
       <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
-    more('History', [
+    more('Message history', [
     card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' }, 'surface')}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' }, 'surface')}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' }, 'surface')}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
-    card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.'), 'compare with sha256sum of a file to prove it is this export'),
+    card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.')),
     ]),
   ].join('');
 }
@@ -786,9 +863,7 @@ async function publishAdImage(path) {
 
 // What the person pastes into their own AI (or sets as a daily task there).
 const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach from my own mailbox, then mark each one sent with where I sent it from.';
-const CODES_PROMPT = 'Using SILO, create every affiliate code waiting for Shopify in my Shopify store, then mark each one created in SILO.';
-const SEND_PROMPT_HINT = 'Using SILO, send approved outreach from my mailbox; mark each one sent.';
-const CODES_PROMPT_HINT = 'Using SILO, create waiting affiliate codes in Shopify; mark each in SILO.';
+const CODES_PROMPT = 'Using SILO, create every affiliate code and product code waiting for Shopify in my Shopify store, exactly as SILO describes each one, then mark each one created in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
   if (can.length) return `<div class="af-ai-tab-hint" id="aiCodesHow"><span class="af-muted">A connected MCP client with codes allowed may create Shopify codes when it can reach Shopify—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-codes-prompt', {}, 'surface')}</div>`;
@@ -799,6 +874,39 @@ function aiSendBlock(apps) {
   const send = (apps || []).filter((a) => a.canSend);
   if (send.length) return `<div class="af-ai-tab-hint" id="aiSendHow"><span class="af-muted">A connected MCP client with send allowed may send approved messages when it has mail access—SILO only sees what you allowed on the connection.</span>${btn('Copy agent prompt', 'copy-send-prompt', {}, 'surface')}</div>`;
   return '<p class="af-muted" id="aiSendHow">Your own MCP client sends approved messages from your email. Connect SILO MCP while this company is selected and enable send outreach.</p>';
+}
+
+// ── Product seeding ──────────────────────────────────────────────────────
+// An affiliate asks for a product at the seeding price; approving makes a
+// one-use code for that product and that person, which the brand's AI creates
+// in Shopify. Selling the multiple pays the purchase back through the ledger.
+async function seedDecide(ids, approve) {
+  const { data, error } = await db.rpc('affiliate_seed_decide', { p_claims: ids, p_approve: approve });
+  if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
+  const n = Number(data?.decided || 0); const skipped = Number(data?.skipped || 0);
+  const tail = skipped ? `, ${num(skipped)} skipped (no email on file, or already answered)` : '';
+  return approve ? `${num(n)} approved. Your AI makes each code${tail}.` : `${num(n)} declined${tail}.`;
+}
+function seedsCard() {
+  const d = S.d; const p = prog();
+  if (!d.seeds || (!d.seeds.length && !p.seeding_enabled)) return '';
+  const order = { requested: 0, approved: 1, code_ready: 2, purchased: 3, earned: 4 };
+  const rows = [...d.seeds].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
+  const row = (c) => {
+    const v = seedView(c); const a = d.affById[c.affiliate_id];
+    const m = (x) => formatMoney(x, c.currency || p.currency);
+    const bar = v.pct === null ? '' : `<div class="af-seed-prog"><span class="af-seed-bar"><i style="width:${Math.max(2, v.pct)}%"></i></span><span class="af-mono">${m(c.progress_cents ?? 0)} / ${m(c.goal_cents)}</span></div>`;
+    const acts = !MANAGE ? '' : c.state === 'requested'
+      ? btn('Approve', 'seed-decide', { id: c.id, ok: '1' }, 'primary') + btn('Decline', 'seed-decide', { id: c.id, ok: '0' }, 'surface')
+      : ['approved', 'code_ready', 'purchased'].includes(c.state) ? btn('Cancel', 'seed-cancel', { id: c.id }, 'surface', { confirm: true }) : '';
+    const sub = [c.code ? `<span class="af-mono">${esc(c.code)}</span>` : '', c.note ? esc(c.note) : '', c.seed_order_number ? `Order ${esc(c.seed_order_number)}` : ''].filter(Boolean).join(' · ');
+    return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body">
+      <div class="af-item-head">${esc(c.product_title)} · ${esc(a?.display_name || '—')} ${pill(v.label, v.tone)}</div>
+      ${sub ? `<div class="af-kv-line">${sub}</div>` : ''}${bar}</div>${acts ? `<div class="af-item-foot">${acts}</div>` : ''}</article>`;
+  };
+  const asks = rows.filter((x) => x.state === 'requested').length;
+  const meta = p.seeding_enabled ? `${esc(Number(p.seed_discount_percent))}% off · sell ${esc(Number(p.seed_multiple))}×` : 'Off';
+  return surface('Products', `${MANAGE && asks > 1 ? `<div class="af-row">${btn(`Approve all ${num(asks)}`, 'q-seeds', {}, 'primary')}</div>` : ''}${itemList(rows, row, 'No product requests yet. Affiliates ask from their portal.')}`, meta);
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
@@ -823,7 +931,7 @@ function renderAffiliates() {
     const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
-    const linksBlock = linkRows.length ? `<details class="af-item-more"><summary>${num(linkRows.length)} link(s)</summary>${linkRows.map((u) => `<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(u)}</div>`).join('')}</details>` : '';
+    const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
     const codeCount = codesOf(a).filter((c) => c.status !== 'retired').length;
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
@@ -856,14 +964,14 @@ function renderAffiliates() {
   $('affiliatesBody').innerHTML = [
     surface('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website in Setup to turn on affiliate links.</div>` : '',
+    seedsCard(),
     more('Codes and links', [
       MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
       ${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}
       ${field('Code', input('cCode', 'class="bcn-field bcn-field--mono"'))}
       ${field('% off', input('cPct', 'type="number" min="1" max="100" step="1" value="10"'))}
-      <div class="af-span-full">${btn('Add code', 'code-add', {}, 'primary')}</div>
     </div>
-      <details class="af-more"><summary>Code options</summary><div class="af-grid--settings">${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="exists"${canCode ? '' : ' selected'}>I made it</option><option value="ai"${canCode ? ' selected' : ''}>My AI makes it</option></select>`)}</div></details>
+      <div class="af-grid--settings">${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="exists"${canCode ? '' : ' selected'}>I made it</option><option value="ai"${canCode ? ' selected' : ''}>My AI makes it</option></select>`)}<div class="af-span-full">${btn('Add code', 'code-add', {}, 'primary')}</div></div>
       ${aiCodesBlock(d.aiApps)}`) : '',
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
         const shop = c.status === 'pending' ? `${pill('waiting for AI', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
@@ -982,7 +1090,7 @@ async function renderShare() {
       `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
     storeCard,
     card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(launches)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(ads)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
-    more('Add products', [
+    section('Add products', [
       card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${products.length ? shareGrid(products) : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
       sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
     ]),
@@ -1015,22 +1123,22 @@ function commissionsBodyHtml() {
       </div>
       <div class="af-row" style="margin-top:10px;">${MANAGE ? `${btn('Match orders', 'resolve', {}, 'surface')}${btn('Calculate', 'accrue', {}, 'surface')}${btn('Update now', 'update-commissions', {}, 'primary')}` : ''}</div>
       <div id="runOut"></div>`),
-    card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'code on order, not proof of cause'),
-    more('Every order decision', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet. Match orders above.'), 'latest 300')]),
-    more('Periods & ledger', [
+    card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.')),
+    more('Every order', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet.'), 'latest 300')]),
+    more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Start', input('perStart', 'type="date"'))}${field('End', input('perEnd', 'type="date"'))}${btn('Open period', 'period-add', {}, 'primary')}</div>` : ''}`),
       card('Commission ledger', `${itemList(d.ledger, ledgerRow, 'No commission lines yet.')}
-      ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)}`, input('adjAmt', 'inputmode="decimal"'))}${field('Why', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need journal-entry approval.</p>'}`, 'append-only'),
+      ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)}`, input('adjAmt', 'inputmode="decimal"'))}${field('Why', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need journal-entry approval.</p>'}`),
     ]),
   ].join('');
 }
 
 // ── Payouts ──────────────────────────────────────────────────────────────
-function renderPayoutsTab() {
+function renderPayoutsTab({ quiet = false } = {}) {
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
-  if (prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
+  if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
 }
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
@@ -1239,7 +1347,7 @@ function payoutPayHtml() {
       // the page, not in the payment -- so nothing about sending twice changes.
       MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${sendable.length} approved payout(s)`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
     }${approved.length ? btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
-  more('Balance detail', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
 
@@ -1492,6 +1600,12 @@ const A = {
   'save-program': async () => {
     const { row, errors } = readProgramForm();
     if (errors.length) throw new Error(errors.join(' '));
+    if ($('pSeedOn')) {
+      const pct = Number(val('pSeedPct')); const mult = Number(val('pSeedMult'));
+      if (!(pct >= 1 && pct <= 100 && Number.isInteger(pct))) throw new Error('Product % off is a whole number from 1 to 100.');
+      if (!(mult >= 1 && mult <= 20)) throw new Error('Sell back is from 1 to 20 times.');
+      Object.assign(row, { seeding_enabled: val('pSeedOn') === '1', seed_discount_percent: pct, seed_multiple: mult });
+    }
     if (S.creating) {
       const created = must(await db.from('affiliate_programs').insert({ ...row, company_entity_id: CO, created_by: me.id }).select('id').single());
       S.creating = false; S.programId = created.id;
@@ -1554,6 +1668,17 @@ const A = {
     }
     if (!built && failed) throw new Error('No payout was built. Open Money and build them one at a time to see why.');
     return `${num(built)} draft payout(s) built${failed ? `, ${num(failed)} not built` : ''}. They need approval.`;
+  },
+  'q-seeds': async () => {
+    const ids = (S.d.seeds || []).filter((x) => x.state === 'requested').map((x) => x.id);
+    if (!ids.length) return 'Nothing to approve.';
+    return seedDecide(ids, true);
+  },
+  'seed-decide': async ({ id, ok }) => seedDecide([id], ok === '1'),
+  'seed-cancel': async ({ id }) => {
+    const { error } = await db.rpc('affiliate_seed_cancel', { p_claim: id });
+    if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
+    return 'Cancelled.';
   },
   'auto-share': async ({ on }) => {
     await updateRows('affiliate_programs', { auto_share_launches: on === '1', changed_by: me.id }, { id: S.programId });

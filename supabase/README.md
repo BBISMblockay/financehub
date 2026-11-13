@@ -3661,6 +3661,28 @@ once (on creation, or when it first gets a date): unsharing it by hand is final.
 best-effort; a failure raises a warning and never fails the launch save. `affiliate_autoshare_launch()`
 is executable by no client role.
 
+
+### `migrations/20261113093000_affiliate_product_seeding.sql` — affiliates ask for a product at the seeding price
+
+Adds the program's seeding offer to `affiliate_programs` (`seeding_enabled`, `seed_discount_percent`
+default 50, `seed_multiple` default 3, `seed_refund_days` 14, `seed_goal_days` 90) and
+`affiliate_seed_claims`. A rep asks from the portal for a shared product (or a launch's product, or
+another one by name); a program manager approves each (`affiliate_seed_decide`), which makes a
+one-use code for that one product and that rep's email. The code lives on the claim, never in
+`affiliate_codes`, so the commission resolver can never credit it. The nightly commissions run calls
+`affiliate_seed_sweep`: it finds the order that used the code and records what the rep paid for THAT
+item; then counts the rep's own attributed sales of that product (never the seed order, only sales
+at least `seed_refund_days` old, net of refunds); when they reach `seed_multiple` times what was
+paid, it writes one `manual_adjustment` ledger line for that amount, which the normal payout path
+pays. A unique index makes the payback once-only. Claims past `goal_by` plus the refund window
+expire. The portal feed now carries each launch product's id. Clients read claims only; every write
+is a function.
+
+### `migrations/20261113094000_affiliate_seed_codes_via_ai.sql` — seed codes through the brand's own AI
+
+`silo_api_codes_to_create` also lists approved seed codes (`seed_codes`, with one-product,
+one-use, one-customer instructions), and `silo_api_mark_code_created` records one as created
+against the daily write cap. The affiliate-code branch is unchanged.
 ### `migrations/20261113070000_affiliate_launch_claims_and_orders.sql` — affiliates claim a launch, and see their own orders
 
 From a session Blake and his boss spent in Affiliate Studio (2026-11-13). Two

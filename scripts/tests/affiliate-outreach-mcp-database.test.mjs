@@ -28,6 +28,8 @@
 //   OUTREACH_MCP_MUTATION=no-manager-gate  any member's connection may claim
 //   OUTREACH_MCP_MUTATION=drafts-too       unapproved drafts are claimed
 //   OUTREACH_MCP_MUTATION=no-cap           the daily write cap is not checked
+//   OUTREACH_MCP_MUTATION=seed-any-state   a seed request nobody approved is handed to the AI
+//   OUTREACH_MCP_MUTATION=seed-other-company another company's seed code can be marked created
 //   OUTREACH_MCP_MUTATION=no-claim-once    the same key claims a second batch
 //   OUTREACH_MCP_MUTATION=mark-any         any exported draft may be marked
 //   OUTREACH_MCP_MUTATION=ignore-pause     a paused connection still writes
@@ -238,6 +240,9 @@ const files = {
   codes: '20261110160000_affiliate_codes_via_ai.sql',
   signin: '20261110170000_affiliate_portal_signin.sql',
   loop: '20261110180000_affiliate_loop.sql',
+  // Product seeding and its codes through the AI (20261113093000/094000).
+  seeding: '20261113093000_affiliate_product_seeding.sql',
+  seedcodes: '20261113094000_affiliate_seed_codes_via_ai.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -250,6 +255,7 @@ function mutate(from, to) {
   assert.ok(hit.length, `mutation ${MUT}: pattern not found`);
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
+const seedMut = (from, to) => { assert.ok(sql.seedcodes.includes(from), `mutation ${MUT}: pattern not found`); sql.seedcodes = sql.seedcodes.split(from).join(to); };
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
 switch (MUT) {
   case '': break;
@@ -259,6 +265,11 @@ switch (MUT) {
     loopMut("  if coalesce(auth.role()::text, '') <> 'service_role'\n     and (", '  if false and ('); break;
   case 'loop-requeue':
     loopMut("                and c.status in ('active', 'pending')) then\n    return null;", "                and false) then\n    return null;"); break;
+  // A seed code must be listed with its locks, and only once approved.
+  case 'seed-any-state':
+    seedMut("         and s.state = 'approved'\n", '\n'); break;
+  case 'seed-other-company':
+    seedMut("   where s.id = p_code_id and s.company_entity_id = v_company\n", "   where s.id = p_code_id\n"); break;
   case 'loop-join-fails':
     loopMut('  exception when others then\n    raise warning', '  exception when division_by_zero then\n    raise warning'); break;
   case 'loop-claim-twice':
@@ -1144,6 +1155,78 @@ await check('L7 the verify check for the loop migration reads ok once it is appl
   assert.ok(i > 0, 'verify_v2_schema has the check');
   const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
   assert.equal((await one(q)).status, 'ok');
+});
+
+
+// ── M: product-seeding codes through the AI (20261113093000/094000) ───────
+// Stubs for what this suite does not load: the PayPal address column and the
+// twins helper the seeding migration calls at its tail.
+await db.exec(`
+alter table public.affiliate_payout_accounts add column if not exists payout_email text;
+create or replace function public.attach_affiliate_same_company_twins() returns void language sql as $$ select $$;
+`);
+await db.exec(sql.seeding); await db.exec(sql.seeding);
+await db.exec(sql.seedcodes); await db.exec(sql.seedcodes);
+
+const seedRow = async (state, code) => (await one(
+  `insert into affiliate_seed_claims(company_entity_id, program_id, affiliate_id, product_title, product_path, discount_percent, multiple, refund_days, goal_days, state, code, customer_email, decided_at)
+   values ($1,$2,$3,'Snow cap','/products/snow-cap',50,3,14,90,$4,$5,'pat.pay@paypal.test', now()) returning id`, [A, progA, kAff, state, code])).id;
+
+await check('M1 approved seed codes are listed apart, with the one-use, one-product, one-customer instruction', async () => {
+  await db.exec('reset role');
+  const approved = await seedRow('approved', 'CODEPATSEEDAAAAA');
+  await seedRow('requested', null);
+  const r = await toCreate({ grant: GK.codes });
+  assert.deepEqual(r.seed_codes.map((x) => x.code), ['CODEPATSEEDAAAAA'], 'only what a manager approved');
+  const x = r.seed_codes[0];
+  assert.equal(x.code_id, approved);
+  assert.equal(x.product, 'Snow cap');
+  assert.equal(x.product_path, '/products/snow-cap');
+  assert.equal(x.customer_email, 'pat.pay@paypal.test');
+  assert.equal(x.usage_limit, 1);
+  assert.equal(Number(x.percent_off), 50);
+  assert.match(r.how_to_create_seed_codes, /ONLY to the one product/);
+  assert.match(r.how_to_create_seed_codes, /ONCE/);
+  assert.match(r.how_to_create_seed_codes, /customer_email/);
+  assert.ok(!r.codes.some((c) => c.code === 'CODEPATSEEDAAAAA'), 'never among the affiliate codes');
+});
+
+await check('M2 marking a seed code created makes it ready, once, against the cap; it never becomes an affiliate code', async () => {
+  await db.exec('reset role');
+  const id = (await one(`select id from affiliate_seed_claims where code = 'CODEPATSEEDAAAAA'`)).id;
+  const before = Number((await one(`select count(*) n from silo_api_writes where grant_id = $1`, [GK.codes])).n);
+  const r = await created([id, '99'], { grant: GK.codes });
+  assert.equal(r.kind, 'seed');
+  assert.equal(r.replayed, false);
+  await db.exec('reset role');
+  const row = await one('select state, shopify_discount_id, code_created_by_grant_id from affiliate_seed_claims where id = $1', [id]);
+  assert.deepEqual([row.state, row.shopify_discount_id, row.code_created_by_grant_id], ['code_ready', 'gid://shopify/DiscountCodeNode/99', GK.codes]);
+  assert.equal(Number((await one(`select count(*) n from affiliate_codes where code = 'CODEPATSEEDAAAAA'`)).n), 0, 'not an affiliate code');
+  const again = await created([id, '99'], { grant: GK.codes });
+  assert.equal(again.replayed, true);
+  await db.exec('reset role');
+  assert.equal(Number((await one(`select count(*) n from silo_api_writes where grant_id = $1`, [GK.codes])).n), before + 1);
+  const waiting = await seedRow('requested', null);
+  await assert.rejects(created([waiting, '100'], { grant: GK.codes }), /not_pending/, 'a request nobody approved is not the AI\'s to record');
+  await db.exec('reset role');
+  const bSeed = (await one(`insert into affiliate_seed_claims(company_entity_id, program_id, affiliate_id, product_title, discount_percent, multiple, refund_days, goal_days, state, code, customer_email)
+     values ($1,$2,$3,'B cap',50,3,14,90,'approved','BPATSEEDBBBBB','b@x.test') returning id`, [B, progB, bAff])).id;
+  await assert.rejects(created([bSeed, '101'], { grant: GK.codes }), /unknown_code/, 'never another company\'s');
+  await db.exec('reset role');
+  const capped = await seedRow('approved', 'CODEPATSEEDCCCCC');
+  await db.exec(`select set_config('test.cap', '${before + 1}', false)`);
+  try { await assert.rejects(created([capped, '102'], { grant: GK.codes }), /write_cap_reached/); }
+  finally { await db.exec(`select set_config('test.cap', '', false)`); }
+});
+
+await check('M3 the affiliate-code path is unchanged by the seed branch', async () => {
+  await db.exec('reset role');
+  const id = await pendingCode(A, progA, kAff2, 'STILLWORKS');
+  const r = await created([id, '200'], { grant: GK.codes });
+  assert.equal(r.status, 'active');
+  assert.equal(r.kind, undefined);
+  await db.exec('reset role');
+  assert.equal((await one('select status from affiliate_codes where id = $1', [id])).status, 'active');
 });
 
 console.log(`\n${passed} checks passed${MUT ? ` (mutation ${MUT} did not fail -- the suite is not testing it)` : ''}`);

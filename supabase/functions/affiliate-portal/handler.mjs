@@ -22,6 +22,9 @@
 //   statement { token }                       -> earnings summary, codes, links, payouts
 //   orders    { token, limit?, offset? }      -> the rep's own orders, no customer data
 //   claim     { token, item_id, claim? }      -> put a hand up for a shared launch, or take it down
+//   seeds     { token }                       -> the seeding offer and the rep's own product requests
+//   seed_request { token, item_id? | title, note? }
+//                                             -> ask for a shared product (or another one) at the seeding price
 //   renew     { token }                       -> expired portal link: mail a new one
 //   signin    { email }                       -> mail a portal link to that address if it is an affiliate's
 //                                                to the address ON FILE
@@ -180,6 +183,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           ...(i.kind === 'launch' ? {
             claimed: i.claimed === true,
             push: (Array.isArray(i.push) ? i.push : []).map((p) => ({
+              id: p.id ?? null,
               title: p.title,
               image_url: IMAGE_RE.test(String(p.image_url || '')) ? p.image_url : null,
               link: p.product_path ? affiliateLink(store, code, p.product_path) : null,
@@ -471,6 +475,31 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       });
       if (error) return dbError(error);
       return reply({ claimed: data?.claimed === true });
+    }
+
+    // Product seeding (20261113093000). The rep asks for a product at the
+    // seeding price; the brand approves each one before a one-use code is
+    // made. The database decides everything: whose rep, which program, that
+    // seeding is on, that the shared item is a product this rep can see.
+    if (action === 'seeds') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_seeds', { p_token_hash: hash });
+      if (error) return dbError(error);
+      return reply(data && typeof data === 'object' ? data : { offer: { enabled: false }, claims: [] });
+    }
+
+    if (action === 'seed_request') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const rawItem = body?.item_id == null || body.item_id === '' ? null : String(body.item_id);
+      if (rawItem !== null && !UUID_RE.test(rawItem)) return reply({ error: 'Unknown product.' }, 400);
+      const title = typeof body?.title === 'string' ? body.title.trim().slice(0, 200) : '';
+      const note = typeof body?.note === 'string' ? body.note.trim().slice(0, 500) : '';
+      if (!rawItem && !title) return reply({ error: 'Name the product.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_seed_request', {
+        p_token_hash: hash, p_feed_item_id: rawItem, p_title: rawItem ? null : title, p_note: note || null,
+      });
+      if (error) return dbError(error);
+      return reply({ requested: true, replayed: data?.replayed === true, id: data?.id ?? null });
     }
 
     // The rep's own orders. The database returns only their side of each

@@ -3,7 +3,8 @@
 // them -- the same two database steps the Studio "Update commissions"
 // option runs, called with the service role. Both are idempotent, so a
 // re-run or an overlap with a person pressing the button changes nothing.
-// Then it sweeps "your code is live" notices the instant kick missed.
+// Then product seeding is swept, and the "your code is live" notices the
+// instant kick missed.
 //
 // Writes nothing itself except one sync_jobs row per program.
 
@@ -52,6 +53,19 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
       if (r2.error) throw new Error(`accrue: ${r2.error.message}`);
       result = { ...result, orders_recorded: r1.data?.rows_written ?? null, entries_accrued: r2.data?.entries_accrued ?? 0,
         entries_reduced: r2.data?.entries_reduced ?? 0, net_amount_cents: r2.data?.net_amount_cents ?? 0 };
+      // Product seeding (20261113093000): seed purchases, progress, the
+      // payback (written once, to the ledger) and expiry. After accrual, so
+      // it reads the orders this run just credited. Its own failure is
+      // recorded on the run and does not undo the commissions above; before
+      // the migration is applied the function does not exist, which is not
+      // a failure.
+      const r3 = await supabase.rpc('affiliate_seed_sweep', { p_program: p.id });
+      if (r3.error) {
+        const missing = r3.error.code === 'PGRST202' || /affiliate_seed_sweep/.test(r3.error.message || '') && /not find|does not exist/i.test(r3.error.message || '');
+        if (!missing) { status = 'error'; summary.failed += 1; result.seeding_error = r3.error.message; }
+      } else if (r3.data) {
+        result.seeding = r3.data;
+      }
       summary.entries_accrued += Number(result.entries_accrued) || 0;
       summary.entries_reduced += Number(result.entries_reduced) || 0;
       log(`[affiliate-commissions] ${p.id}: ${JSON.stringify(result)}`);

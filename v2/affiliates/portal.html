@@ -103,6 +103,7 @@
     .af-push { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .af-push-item { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--bcn-border); border-radius: 999px; padding: 4px 10px 4px 4px; font-size: 12px; color: var(--bcn-ink-2); background: var(--bcn-surface); }
     .af-push-item img { width: 24px; height: 24px; border-radius: 999px; object-fit: cover; display: block; }
+    .af-push-item .bcn-btn, .af-push-item .bcn-pill { padding: 2px 8px; font-size: 11px; min-height: 0; }
     .af-push-none { width: 24px; height: 24px; border-radius: 999px; background: var(--bcn-sunken); }
     .af-push-lab { align-self: center; font-family: var(--bcn-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bcn-ink-3); }
     .af-cal-acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
@@ -130,6 +131,14 @@
     /* Account side: codes as chips, earnings as bars, payouts as rows. */
     .af-chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .af-chip { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+    .af-seeds { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .af-seed { border: 1px solid var(--bcn-border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .af-seed .af-row { justify-content: space-between; }
+    .af-pay-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .af-pay-mark { display: block; height: 24px; width: auto; }
+    .af-pay-acct { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-sunken); }
+    .af-pay-email { font-family: var(--bcn-mono); font-size: 13px; color: var(--bcn-ink); overflow-wrap: anywhere; }
+    .af-pay-input { flex: 1; min-width: 0; }
     .af-chip-code { font-family: var(--bcn-mono); font-size: 15px; color: var(--bcn-ink); }
     .af-bars { display: flex; flex-direction: column; gap: 10px; }
     .af-bar-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
@@ -176,7 +185,7 @@
 </main>
 <script type="module">
 import { $, esc, call, setStatus, takeToken, brandMark, wireBrandMark } from './public.js';
-import { formatMoney } from './studio-core.js';
+import { formatMoney, seedView } from './studio-core.js';
 const token = takeToken('silo_affiliate_portal');
 const card = (title, html) => `<div class="af-panel"><h2>${esc(title)}</h2>${html}</div>`;
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
@@ -226,7 +235,10 @@ async function load() {
   $('title').textContent = `${r.brand} affiliate portal`;
   $('mark').innerHTML = brandMark(r.brand, r.brand_logo);
   wireBrandMark($('mark'));
-  const st = await call('statement', { token });
+  // Seeding is a second, fail-soft call: an older server without it just
+  // shows no seeding.
+  const [st, seeds] = await Promise.all([call('statement', { token }), call('seeds', { token }).catch(() => null)]);
+  SEEDS = seeds && seeds.offer ? seeds : { offer: { enabled: false }, claims: [] };
   const s = st.statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
   const kpi = (l, v, cls = '', sub = '') => `<div class="af-stat ${cls}"><div class="af-stat-label">${esc(l)}</div><div class="af-stat-value">${v}</div>${sub ? `<div class="af-stat-sub">${esc(sub)}</div>` : ''}</div>`;
@@ -244,14 +256,14 @@ async function load() {
   const top = Math.max(1, ...monthly.map((x) => Math.abs(Number(x.amount_cents) || 0)));
   const side = [
     photoCard(st.photo_url, st.photo_own, s.affiliate?.display_name || r.affiliate?.display_name),
+    payoutEmailCard(st.payout_email),
     card('Your codes', codes.length ? `<div class="af-chips">${codes.map((c) => `<div class="af-chip"><span class="af-chip-code">${esc(c.code)}</span>${codeState(c, t.today)}<span class="af-muted">${esc(day(c.starts_on))} → ${esc(day(c.ends_on) || 'open')}</span></div>`).join('')}</div>` : empty('No code yet. The brand will send one.')),
     links.length ? card('Your links', `<div class="af-links">${links.map((u) => `<div class="af-link"><span class="af-muted">${esc(linkLabel(u))}</span><div class="af-row">${copyBtn(u, 'Copy link', 'primary')}${openBtn(u, 'Open')}</div></div>`).join('')}</div>`) : '',
     card('Earnings by month', monthly.length ? `<div class="af-bars">${monthly.map((x) => `<div class="af-bar-row"><span class="af-num">${esc(x.month)}</span><div class="af-bar"><span style="width:${Math.max(2, Math.round(Math.abs(Number(x.amount_cents) || 0) / top * 100))}%"></span></div><span class="af-num">${m(x.amount_cents)}</span></div>`).join('')}</div>` : empty('No earnings yet. Share your link to start.')),
-    payoutEmailCard(st.payout_email),
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
-  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}<div id="ordersCard"></div></div><div class="af-side">${side}</div></div>`;
+  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}${seedCard()}<div id="ordersCard"></div></div><div class="af-side">${side}</div></div>`;
   brandSwitcher();
   wirePhoto();
   wirePayoutEmail();
@@ -318,24 +330,38 @@ function renderOrders() {
 
 // Where this rep takes money. It is their own answer: a brand that types an
 // address for them is paying whoever holds it, and nobody else can know this.
-function payoutEmailCard(email) {
-  return `<div id="payEmailCard">${card('Where you get paid', `<div class="af-row">
-    <input class="bcn-field" id="payEmail" type="email" inputmode="email" autocomplete="email" placeholder="your PayPal email" value="${esc(email || '')}" />
-    <button class="bcn-btn bcn-btn--primary" id="payEmailSave" type="button">Save</button>
-  </div>`)}</div>`;
+// Where the rep gets paid: their PayPal. Shown as a connected account (the
+// mark, the address, a status), with the field only while there is none or
+// they are changing it (Blake, 2026-11-13: "too basic, needs a paypal logo").
+// The mark is PayPal's own, served by PayPal.
+const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-color.svg';
+let PAY_EMAIL = '';
+function payoutEmailCard(email, editing = false) {
+  PAY_EMAIL = email || '';
+  const set = !!PAY_EMAIL && !editing;
+  const head = `<div class="af-pay-head"><img class="af-pay-mark" src="${PAYPAL_MARK}" alt="PayPal" width="88" height="24" />${PAY_EMAIL ? '<span class="bcn-pill bcn-pill--pos">Connected</span>' : '<span class="bcn-pill">Not set</span>'}</div>`;
+  const body = set
+    ? `<div class="af-pay-acct"><span class="af-pay-email">${esc(PAY_EMAIL)}</span><button class="bcn-btn bcn-btn--ghost" id="payEmailEdit" type="button">Change</button></div>`
+    : `<div class="af-row"><input class="bcn-field af-pay-input" id="payEmail" type="email" inputmode="email" autocomplete="email" placeholder="Your PayPal email" value="${esc(PAY_EMAIL)}" />
+      <button class="bcn-btn bcn-btn--primary" id="payEmailSave" type="button">Save</button>${PAY_EMAIL ? '<button class="bcn-btn bcn-btn--ghost" id="payEmailCancel" type="button">Cancel</button>' : ''}</div>`;
+  return `<div id="payEmailCard" class="af-pay">${card('Where you get paid', head + body)}</div>`;
 }
+function showPayoutEmail(email, editing = false) { $('payEmailCard').outerHTML = payoutEmailCard(email, editing); wirePayoutEmail(); }
 function wirePayoutEmail() {
+  $('payEmailEdit')?.addEventListener('click', () => { showPayoutEmail(PAY_EMAIL, true); $('payEmail')?.focus(); });
+  $('payEmailCancel')?.addEventListener('click', () => showPayoutEmail(PAY_EMAIL));
   const btn = $('payEmailSave'); const input = $('payEmail');
   if (!btn || !input) return;
-  btn.addEventListener('click', async () => {
+  const save = async () => {
     btn.disabled = true;
     try {
       const r = await call('payout_email', { token, email: input.value });
-      input.value = r.payout_email || '';
+      showPayoutEmail(r.payout_email || '');
       setStatus(r.payout_email ? 'Saved.' : 'Removed.', 'pos');
-    } catch (e) { setStatus(e.message, 'neg'); }
-    btn.disabled = false;
-  });
+    } catch (e) { setStatus(e.message, 'neg'); btn.disabled = false; }
+  };
+  btn.addEventListener('click', save);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
 }
 
 // A rep who reps more than one brand gets a menu instead of a trip back to
@@ -514,7 +540,7 @@ function calendarCard(feed, today) {
       ? `<button class="bcn-btn ${i.claimed ? 'bcn-btn--ghost' : 'bcn-btn--primary'}" type="button" data-claim="${esc(i.id)}" data-on="${i.claimed ? '1' : ''}">${i.claimed ? '✓ Claimed' : "I'm in"}</button>`
       : '';
     const push = i.claimed && (i.push || []).length
-      ? `<div class="af-push"><span class="af-push-lab">Push</span>${i.push.map((p) => `<span class="af-push-item">${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '<span class="af-push-none"></span>'}${esc(p.title)}</span>`).join('')}</div>`
+      ? `<div class="af-push"><span class="af-push-lab">Push</span>${i.push.map((p) => `<span class="af-push-item">${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '<span class="af-push-none"></span>'}${esc(p.title)}${seedBtn({ kind: 'product', id: p.id })}</span>`).join('')}</div>`
       : '';
     return `${head}<div class="af-cal-row${soon(d) ? ' is-soon' : ''}" data-cal-date="${esc(d)}" data-cal-item="${esc(i.id || '')}">
       <div class="af-cal-date"><span>${esc(MONTHS[Number(mo) - 1])}</span><span class="af-cal-day">${esc(String(Number(dd)))}</span></div>
@@ -553,7 +579,7 @@ function feedCard(feed) {
     <div class="af-media">${i.image_url ? `<img src="${esc(i.image_url)}" alt="${esc(i.title)}" loading="lazy">` : `<div class="af-media-none">${esc(i.title)}</div>`}<span class="af-tag">${esc(tag[i.kind] || '')}</span></div>
     <div class="af-item-body">${i.image_url ? `<div class="af-item-title">${esc(i.title)}</div>` : ''}
     ${i.note ? `<div class="af-item-note">${esc(i.note)}</div>` : ''}
-    <div class="af-item-acts">${copyBtn(i.link, 'Copy my link', 'primary')}${i.kind === 'ad' ? copyBtn(i.note, 'Copy caption') : ''}${i.image_url ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(i.image_url)}" target="_blank" rel="noopener" download>Save image</a>` : ''}</div></div></div>`;
+    <div class="af-item-acts">${copyBtn(i.link, 'Copy my link', 'primary')}${seedBtn(i)}${i.kind === 'ad' ? copyBtn(i.note, 'Copy caption') : ''}${i.image_url ? `<a class="bcn-btn bcn-btn--ghost" href="${esc(i.image_url)}" target="_blank" rel="noopener" download>Save image</a>` : ''}</div></div></div>`;
   // One grid, ads first, with a filter per kind when there are both.
   const order = { ad: 0, product: 1 };
   const sorted = [...items].sort((a, b) => (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
@@ -563,7 +589,54 @@ function feedCard(feed) {
   return card('Share and earn', filters + `<div class="af-feed" id="feed">${sorted.map(item).join('')}</div>`);
 }
 
+// Product seeding: ask for a product at the seeding price, the brand
+// approves, a one-use code comes back here, and selling the multiple pays the
+// purchase back as earnings.
+let SEEDS = { offer: { enabled: false }, claims: [] };
+const seedPill = (c) => { const v = seedView(c); return `<span class="bcn-pill${v.tone ? ` bcn-pill--${v.tone}` : ''}">${esc(v.label)}</span>`; };
+const seedFor = (id) => SEEDS.claims.find((c) => c.feed_item_id === id && seedView(c).open);
+function seedBtn(i) {
+  if (i.kind !== 'product' || !i.id || !SEEDS.offer?.enabled) return '';
+  const c = seedFor(i.id);
+  if (c) return `${seedPill(c)}`;
+  return `<button class="bcn-btn bcn-btn--ghost" type="button" data-seed="${esc(i.id)}">Get it ${esc(SEEDS.offer.percent)}% off</button>`;
+}
+function seedCard() {
+  const o = SEEDS.offer || {};
+  if (!o.enabled && !SEEDS.claims.length) return '';
+  const row = (c) => {
+    const v = seedView(c); const m = (x) => formatMoney(x, c.currency);
+    const bar = v.pct === null ? '' : `<div class="af-bar-row"><span class="af-num">${v.pct}%</span><div class="af-bar"><span style="width:${Math.max(2, v.pct)}%"></span></div><span class="af-num">${m(c.progress_cents ?? 0)} / ${m(c.goal_cents)}</span></div>`;
+    const code = c.code ? `<div class="af-row"><span class="af-chip-code">${esc(c.code)}</span>${copyBtn(c.code, 'Copy code')}</div>` : '';
+    const who = c.email && c.state !== 'earned' ? `<span class="af-muted">Use it signed in as ${esc(c.email)}</span>` : '';
+    return `<div class="af-seed" data-seed-row="${esc(c.id)}"><div class="af-row"><strong>${esc(c.title)}</strong>${seedPill(c)}</div>${code}${who}${bar}</div>`;
+  };
+  const ask = o.enabled ? `<form class="af-row" id="seedAsk" novalidate><input class="bcn-field" id="seedTitle" maxlength="200" placeholder="Another product you want to push" /><button class="bcn-btn bcn-btn--primary" type="submit">Ask</button></form>` : '';
+  const terms = o.enabled ? `${esc(o.percent)}% off · sell ${esc(o.multiple)}× what you paid and get it back` : '';
+  return `<div id="seedCard">${card('Your products', `${terms ? `<p class="af-muted">${terms}</p>` : ''}<div class="af-seeds">${SEEDS.claims.map(row).join('') || empty('Nothing asked for yet.')}</div>${ask}`)}</div>`;
+}
+async function seedAsk(body, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await call('seed_request', { token, ...body });
+    SEEDS = await call('seeds', { token });
+    const el = $('seedCard'); if (el) el.outerHTML = seedCard();
+    // The product's button becomes its state, in place.
+    document.querySelectorAll('[data-seed]').forEach((x) => { if (seedFor(x.dataset.seed)) x.outerHTML = seedBtn({ kind: 'product', id: x.dataset.seed }); });
+    setStatus(r.replayed ? 'Already asked.' : 'Asked. The brand will approve it.', 'pos');
+  } catch (e) { setStatus(e.message, 'neg'); if (btn) btn.disabled = false; }
+}
+document.addEventListener('submit', (ev) => {
+  if (ev.target.id !== 'seedAsk') return;
+  ev.preventDefault();
+  const title = $('seedTitle').value.trim();
+  if (!title) { setStatus('Name the product.', 'neg'); return; }
+  seedAsk({ title }, ev.target.querySelector('button'));
+});
+
 document.addEventListener('click', async (ev) => {
+  const sd = ev.target.closest('[data-seed]');
+  if (sd) { await seedAsk({ item_id: sd.dataset.seed }, sd); return; }
   const f = ev.target.closest('[data-filter]');
   if (f) {
     document.querySelectorAll('[data-filter]').forEach((x) => x.classList.toggle('is-on', x === f));

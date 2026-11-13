@@ -9502,6 +9502,41 @@ select 'Affiliate auto-share launches' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate product seeding (20261113093000): claims are written only through
+-- functions, a seed code never reaches the commission resolver, and the
+-- payback is written once.
+select 'Affiliate product seeding' as check_name,
+  case
+    when to_regclass('public.affiliate_seed_claims') is null
+      or to_regprocedure('public.affiliate_seed_sweep(uuid)') is null
+      or to_regprocedure('public.affiliate_seed_decide(uuid[], boolean)') is null
+      or to_regprocedure('public.affiliate_portal_seed_request(text, uuid, text, text)') is null
+      or to_regprocedure('public.affiliate_portal_seeds(text)') is null
+      then 'MISSING — run 20261113093000_affiliate_product_seeding.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_seed_claims'::regclass)
+      then 'BROKEN — affiliate_seed_claims has RLS off'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_table_privilege(r.role, 'public.affiliate_seed_claims', 'insert')
+                     or has_table_privilege(r.role, 'public.affiliate_seed_claims', 'update')
+                     or has_table_privilege(r.role, 'public.affiliate_seed_claims', 'delete'))
+      then 'BROKEN — a client role can write a seed claim directly'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_seed_sweep(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_seed_request(text, uuid, text, text)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_seeds(text)', 'execute'))
+      then 'BROKEN — a client role can call a seeding service function'
+    when not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_seed_claims_payback_once')
+      then 'CRITICAL — a product seeding payback can be written twice'
+    when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_seed_decide(uuid[], boolean)'::regprocedure)) = 0
+      then 'BROKEN — anyone in the company can approve a product request'
+    when position('affiliate_seed_claims' in pg_get_functiondef((select p.oid from pg_proc p where p.proname = 'affiliate_resolve_attributions'
+                                                                 and p.pronamespace = 'public'::regnamespace limit 1))) > 0
+      then 'CRITICAL — a seed code can earn commission'
+    when position('''id'', g.id' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
+      then 'MISSING — a launch''s products carry no id, so a rep cannot ask for one; run 20261113093000'
+    else 'ok'
+  end as status;
+
 -- Affiliate portal sign-in by email (20261110170000): the lookup is service
 -- role only and reserves each address for 10 minutes before mailing; the
 -- statement reads each credited order's current base from its attribution.
