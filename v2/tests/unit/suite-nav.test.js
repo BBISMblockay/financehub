@@ -224,4 +224,27 @@ r.test('a strip offers only the tabs that person could open', () => {
   r.truthy(exec.includes('/v2/seo-studio.html'), 'an owner is offered SEO without a grant');
 });
 
+/* A collapsed row is named after the SUITE, not the page it opens.
+ *
+ * Blake, 2026-11-13: 'planning showing "task manager" then that being calendar
+ * tabs is wild choice on your part.' The row said Task Manager and opened a
+ * strip of Tasks, Calendar and TikTok, so the label promised one page and the
+ * tab row delivered four. The row now says Planning; the page it lands on
+ * keeps its own name as the first TAB. */
+r.test('each collapsed row is named for its suite, and its first tab keeps the page name', () => {
+  const EXPECTED = {
+    'planning/tasks': ['Planning', 'Tasks'],
+    'finance/payment-request': ['Requests', 'Payment Request'],
+    'inventory/workboard': ['Inventory', 'Inventory Manager'],
+    'team/reviews': ['Team', 'Performance Reviews'],
+  };
+  for (const suite of Nav.SUITES) {
+    const [rowLabel, tabLabel] = EXPECTED[suite.row] || [];
+    r.truthy(rowLabel, `${suite.row}: an expected row label`);
+    r.eq(Nav.NAV_ITEMS.find((i) => i.id === suite.row).label, rowLabel, `${suite.row}: the sidebar row is named for the suite`);
+    r.eq(suite.pages[0][1], tabLabel, `${suite.row}: its first tab keeps the page's own name`);
+    r.eq(suite.label, rowLabel, `${suite.row}: the strip's own label matches the row`);
+  }
+});
+
 r.summary();
