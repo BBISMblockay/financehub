@@ -146,6 +146,12 @@
   // always that row's own page. A tab is shown only when
   // navSectionsForCompany() returns its row, so TikTok Live Schedule and the
   // whole Team suite stay grandfathered-only exactly as before.
+  // A collapsed row is named after the SUITE, not after the page it opens
+  // (Blake, 2026-11-13: 'planning showing "task manager" then that being
+  // calendar tabs is wild choice'). The row says Planning, Requests,
+  // Inventory or Team; the page it lands on is the first tab, which keeps its
+  // own name (Tasks, Payment Request, Inventory Manager, Performance
+  // Reviews). Same shape as the Purchasing row.
   const SUITES = [
     {
       key: 'inventory',
@@ -409,7 +415,7 @@
     // unchanged -- purchase_request2.html is the promoted page -- because six
     // inbound links, bookmarks and the docs name them, and the nav is what
     // people click. Swapping the files would buy nothing but broken links.
-    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Finance', label: 'Payment Request', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Finance', label: 'Requests', href: '/v2/purchase_request2.html', profiles: ['grandfathered', 'standard'] },
     // logistics added alongside FINANCE_DEPTS so that department can still
     // see Request Manager to track payment requests they submitted --
     // RLS (payment_requests_active_select) already lets anyone see their
@@ -430,9 +436,9 @@
     { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] , tabOf: 'planning/tasks' },
     { id: 'planning/org-calendar', section: 'Planning', label: 'Org calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'], tabOf: 'planning/calendar' },
     { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] , tabOf: 'planning/tasks' },
-    { id: 'planning/tasks', section: 'Planning', label: 'Task Manager', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/tasks', section: 'Planning', label: 'Planning', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
 
-    { id: 'team/reviews', section: 'Team', label: 'Performance Reviews', href: '/v2/reviews.html', profiles: ['grandfathered'] },
+    { id: 'team/reviews', section: 'Team', label: 'Team', href: '/v2/reviews.html', profiles: ['grandfathered'] },
     { id: 'team/my-review', section: 'Team', label: 'My Reviews', href: '/v2/my-review.html', profiles: ['grandfathered'] , tabOf: 'team/reviews' },
     // Ungated on purpose: any manager can submit a request for their own
     // reports; the Finance Queue tab inside the page self-hides for
@@ -459,7 +465,7 @@
     { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
     { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/v2/factories.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
 
-    { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] , tabOf: 'inventory/workboard' },
     { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] , tabOf: 'inventory/workboard' },
 

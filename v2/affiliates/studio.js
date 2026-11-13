@@ -1083,16 +1083,22 @@ const OPEN_RANK = { unknown: 0, sent: 1, unclaimed: 2 };
 const OPEN_PAGE = 1000;
 async function openAttemptPayoutIds() {
   const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
+  // Paged by a keyset on `id`, never by offset: this set shrinks while it is
+  // read (another tab's check, or the reconcile straight after a send, can
+  // settle a row), and an offset then skips whatever slid into the gap. `id`
+  // is unique and never changes, so "everything below the last id seen" is
+  // the same question however the set moved (review of #1274).
   const rows = [];
-  for (let from = 0; ; from += OPEN_PAGE) {
-    const page = must(await db.from('affiliate_payout_sends')
-      .select('payout_id, state, environment, created_at')
+  for (let after = null; ;) {
+    let q = db.from('affiliate_payout_sends')
+      .select('id, payout_id, state, environment')
       .eq('company_entity_id', CO)
-      .in('state', Object.keys(OPEN_RANK))
-      .order('created_at', { ascending: false })
-      .range(from, from + OPEN_PAGE - 1)) || [];
+      .in('state', Object.keys(OPEN_RANK));
+    if (after) q = q.lt('id', after);
+    const page = must(await q.order('id', { ascending: false }).limit(OPEN_PAGE)) || [];
     rows.push(...page);
     if (page.length < OPEN_PAGE) break;
+    after = page[page.length - 1].id;
   }
   const seen = new Set();
   return rows
