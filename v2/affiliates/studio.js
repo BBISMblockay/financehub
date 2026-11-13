@@ -960,16 +960,91 @@ function commissionsBodyHtml() {
 // ── Payouts ──────────────────────────────────────────────────────────────
 function renderPayoutsTab() {
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
+  // After the rows are on the page, so a settled attempt redraws over them.
+  if (prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
 }
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
 // button never appears on a rail that is in fact connected.
 // Actions that can change stored state and then fail. The page re-reads after
 // one, so the buttons describe the database and not what was true before.
-const RELOAD_AFTER_FAILURE = new Set(['pp-send', 'pp-refresh']);
+const RELOAD_AFTER_FAILURE = new Set(['pp-send', 'pp-send-all', 'pp-refresh']);
 
 function payConnLive(conn) {
   return Boolean(conn && conn.is_active !== false && conn.credentials_set);
+}
+
+// Whether this payout can be sent right now, by the SAME rule the database
+// uses -- `affiliate_payout_send_claim` refuses a payout whose newest attempt
+// in this environment is unknown, sent, unclaimed or PAID, and a live attempt
+// blocks every environment while a sandbox test blocks only another test.
+// One helper, because the row's buttons and "Send all approved" disagreeing
+// means offering a person a button the database will refuse (found in the
+// first sandbox run: Test send was still offered on an attempt already paid).
+const BLOCKS_A_SEND = ['unknown', 'sent', 'unclaimed', 'paid'];
+function sendState(x) {
+  const sn = S.d.sendByPayout[x.id];
+  const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
+  const attemptEnv = sn?.environment === 'live' ? 'live' : 'sandbox';
+  const open = Boolean(sn && BLOCKS_A_SEND.includes(sn.state));
+  const blocked = open && (attemptEnv === 'live' || attemptEnv === connEnv);
+  return {
+    attempt: sn || null,
+    attemptEnv,
+    test: connEnv !== 'live',
+    blocked,
+    crossAccount: blocked && attemptEnv !== connEnv,
+    email: S.d.payEmailByAff[x.affiliate_id] || null,
+    sendable: !blocked && payConnLive(S.d.payConn) && Boolean(S.d.payEmailByAff[x.affiliate_id]),
+  };
+}
+
+// Every payout whose newest attempt is still open on the CONNECTED account,
+// the ones that block a send first. Each is checked by its own payout id: the
+// endpoint's untargeted refresh reads only the oldest 50 open attempts across
+// the company, so a newer one behind 50 long-unclaimed items would never be
+// reached -- and the per-row button that used to get around that is gone
+// (review cycle 1). Attempts on the other account are left alone: reconciling
+// across accounts is refused, by design.
+const OPEN_RANK = { unknown: 0, sent: 1, unclaimed: 2 };
+function openAttemptPayoutIds() {
+  const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
+  return Object.values(S.d.sendByPayout || {})
+    .filter((sn) => sn.state in OPEN_RANK && (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)
+    .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])
+    .map((sn) => sn.payout_id);
+}
+async function checkOpenAttempts() {
+  const results = [];
+  for (const id of openAttemptPayoutIds()) {
+    try {
+      const r = await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });
+      results.push(...(r.results || []));
+    } catch (e) {
+      results.push({ payout_id: id, error: e.message });
+    }
+  }
+  return results;
+}
+const SETTLED = ['paid', 'returned', 'refused', 'unclaimed'];
+
+// Open attempts are checked once per page load, rather than behind a button a
+// person has to know to press. The flag is what stops a re-render from
+// calling PayPal again.
+let ppAutoChecked = false;
+async function checkOpenAttemptsOnce() {
+  if (ppAutoChecked) return;
+  if (!openAttemptPayoutIds().length || !payConnLive(S.d.payConn)) return;
+  ppAutoChecked = true;
+  const results = await checkOpenAttempts();
+  if (results.some((x) => SETTLED.includes(x.state))) await reload();
+}
+
+// The payouts "Send all approved" would actually send, in the order shown.
+function sendablePayouts() {
+  return (S.d.payouts || [])
+    .filter((x) => x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status))
+    .filter((x) => sendState(x).sendable);
 }
 
 function payoutPayHtml() {
@@ -983,30 +1058,15 @@ function payoutPayHtml() {
     // the database refuses it anyway, and offering it would invite a person to
     // keep clicking at a payment that may already have gone.
     if (x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status)) {
-      const sn = S.d.sendByPayout[x.id];
-      const email = S.d.payEmailByAff[x.affiliate_id];
-      const connEnv = S.d.payConn?.environment === 'live' ? 'live' : 'sandbox';
-      const snEnv = sn?.environment === 'live' ? 'live' : 'sandbox';
-      const openAttempt = Boolean(sn && ['unknown', 'sent', 'unclaimed'].includes(sn.state));
-      // The SAME rule the claim uses: a live attempt blocks every send, a
-      // sandbox test blocks only another test. Treating any open attempt as
-      // blocking left a payout with nothing but Check status after a test --
-      // and Check status cannot resolve a sandbox attempt against the live
-      // account either, so the real payment was unreachable from the page
-      // while the database would have allowed it (review cycle 2, finding 3).
-      const blocking = openAttempt && (snEnv === 'live' || snEnv === connEnv);
-      // Only offer the check where it can actually be made: reconciling across
-      // accounts is refused, by design.
-      if (openAttempt && snEnv === connEnv) b.push(btn('Check status', 'pp-refresh', { id: x.id }));
+      const st = sendState(x);
       // A live attempt while the sandbox app is connected blocks the send and
       // cannot be checked either, so say which account to reconnect.
-      if (blocking && snEnv !== connEnv) b.push(`<span class="af-muted">Reconnect the ${snEnv} PayPal account to check that payment</span>`);
-      else if (blocking) { /* Check status above is the only move */ }
+      if (st.blocked && st.crossAccount) b.push(`<span class="af-muted">Reconnect the ${st.attemptEnv} PayPal account to check that payment</span>`);
+      else if (st.blocked) { /* nothing to do here: the attempt is the answer */ }
       else if (!payConnLive(S.d.payConn)) b.push('<span class="af-muted">Connect PayPal first</span>');
-      else if (!email) b.push('<span class="af-muted">No PayPal address from them yet</span>');
+      else if (!st.email) b.push('<span class="af-muted">No PayPal address from them yet</span>');
       else if (MONEY) {
-        const test = connEnv !== 'live';
-        b.push(btn(test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
+        b.push(btn(st.test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
       }
     }
     if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
@@ -1016,6 +1076,8 @@ function payoutPayHtml() {
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
   const paypalRail = p.payout_method === 'paypal_payouts';
+  const sendable = paypalRail ? sendablePayouts() : [];
+  const sendTest = S.d.payConn?.environment !== 'live';
   const conn = d.payConn;
   const live = payConnLive(conn);
 
@@ -1039,7 +1101,15 @@ function payoutPayHtml() {
   };
 
   const payConnCard = () => {
-    if (!paypalRail) return '';
+    // The rail used to be reachable only by knowing to set a dropdown on
+    // another tab first, so the thing you came to the Pay tab for was
+    // invisible until then (Blake, first run: "very hidden and bad UI UX").
+    if (!paypalRail) {
+      return MANAGE
+        ? card('PayPal', `<p class="af-muted">This program pays by hand.</p>
+          <div class="af-row" style="margin-top:8px;">${btn('Pay with PayPal instead', 'pp-use-rail', {}, 'primary', { confirm: true })}</div>`)
+        : '';
+    }
     if (live) {
       const warn = conn.payouts_enabled === false
         ? `<p class="af-muted">PayPal has not enabled Payouts on this account yet. <a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Request access</a>.</p>`
@@ -1068,7 +1138,12 @@ function payoutPayHtml() {
   payConnCard(),
   surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
   surface('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
-    ${MANAGE && approved.length ? `<div class="af-row" style="margin-top:8px;">${btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, 'primary', { confirm: true })}</div>` : ''}`),
+    ${MANAGE && (approved.length || sendable.length) ? `<div class="af-row" style="margin-top:8px;">${
+      // Pay day is one button, not one per affiliate. Each payout is still its
+      // own attempt, its own idempotency key and its own row -- the loop is in
+      // the page, not in the payment -- so nothing about sending twice changes.
+      MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${sendable.length} approved payout(s)`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
+    }${approved.length ? btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
   more('Balance detail', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
@@ -1552,6 +1627,10 @@ const A = {
     const r = await invoke('affiliate-payouts', { action: 'test' });
     return r.payouts_enabled === false ? 'Connected, but PayPal has not enabled Payouts on this account yet.' : 'PayPal is working.';
   },
+  'pp-use-rail': async () => {
+    await updateRows('affiliate_programs', { payout_method: 'paypal_payouts', changed_by: me.id }, { id: S.programId });
+    return 'This program now pays through PayPal. Connect the account below.';
+  },
   'pp-disconnect': async () => { await invoke('affiliate-payouts', { action: 'disconnect' }); return 'Disconnected.'; },
   'pp-send': async ({ id }) => {
     const r = await invoke('affiliate-payouts', { action: 'send', payout_id: id });
@@ -1564,11 +1643,47 @@ const A = {
     if (r.state === 'unclaimed') return 'Sent. They need a PayPal account to claim it; it comes back after 30 days if they do not.';
     return 'Sent. PayPal has not confirmed it yet — use Check payment status.';
   },
-  'pp-refresh': async ({ id }) => {
-    const r = await invoke('affiliate-payouts', { action: 'refresh', ...(id ? { payout_id: id } : {}) });
-    if (!r.checked) return 'Nothing is waiting on PayPal.';
-    const paid = (r.results || []).filter((x) => x.state === 'paid').length;
-    return `Checked ${num(r.checked)}${paid ? `, ${num(paid)} now paid` : ''}.`;
+  // Pay day. One button, but still one payment per payout: each gets its own
+  // claim, its own idempotency key and its own attempt row, so a failure in
+  // the middle leaves every payout either sent once or not at all -- never a
+  // batch half-believed. The list is read BEFORE the first call, so a payout
+  // approved while this runs is not swept in without being seen.
+  'pp-send-all': async () => {
+    const ids = sendablePayouts().map((x) => x.id);
+    if (!ids.length) throw new Error('Nothing is ready to send.');
+    const tally = { paid: 0, sent: 0, unclaimed: 0, refused: 0, unknown: 0 };
+    const trouble = [];
+    for (const id of ids) {
+      try {
+        const r = await invoke('affiliate-payouts', { action: 'send', payout_id: id });
+        if (tally[r.state] !== undefined) tally[r.state] += 1; else tally.unknown += 1;
+        if (r.state === 'refused') trouble.push(r.message || r.code || 'refused');
+      } catch (e) {
+        // An attempt is on file whatever happened here, so the next Check
+        // tells the truth. Keep going: one address PayPal dislikes must not
+        // stop everyone else being paid.
+        tally.unknown += 1;
+        trouble.push(e.message);
+      }
+    }
+    const said = [
+      tally.paid ? `${num(tally.paid)} paid` : '',
+      tally.sent ? `${num(tally.sent)} sent` : '',
+      tally.unclaimed ? `${num(tally.unclaimed)} waiting to be claimed` : '',
+      tally.refused ? `${num(tally.refused)} refused` : '',
+      tally.unknown ? `${num(tally.unknown)} with no answer yet` : '',
+    ].filter(Boolean).join(', ');
+    const test = S.d.payConn?.environment !== 'live';
+    return `${test ? 'Sandbox test: ' : ''}${said}.${test ? ' Nobody was paid and the payouts are still owed.' : ''}${trouble.length ? ` ${esc(trouble[0])}` : ''}`;
+  },
+  // The card's manual check runs the same targeted loop as the automatic one,
+  // so it cannot be starved by the endpoint's oldest-50 window either.
+  'pp-refresh': async () => {
+    const results = await checkOpenAttempts();
+    if (!results.length) return 'Nothing is waiting on PayPal.';
+    const paid = results.filter((x) => x.state === 'paid').length;
+    const failed = results.filter((x) => x.error).length;
+    return `Checked ${num(results.length)}${paid ? `, ${num(paid)} now paid` : ''}${failed ? `, ${num(failed)} could not be checked` : ''}.`;
   },
   'payout-build': async ({ aff }) => { must(await db.rpc('affiliate_build_payout', { p_affiliate: aff, p_through: null })); return 'Draft payout built. It needs approval.'; },
   'payout-approve': async ({ id }) => { must(await db.rpc('affiliate_approve_payout', { p_payout: id })); return 'Payout approved.'; },
