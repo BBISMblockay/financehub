@@ -136,6 +136,54 @@ jobs:
       - name: Check deployed entry point
         run: npx --yes deno@2.9.6 check --no-config --node-modules-dir=none supabase/functions/payment-request-extract/index.ts
 
+  # Affiliate Studio's mutation sweep runs the whole affiliate suite once per
+  # guard (~40s each), which outgrew the Browser job's 15 minutes. It runs
+  # beside it here, split into four shards that each take every 4th guard.
+  affiliate-guards:
+    name: Affiliate Studio guards (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/tests/package.json
+
+      - name: Install test dependencies
+        working-directory: v2/tests
+        run: npm install --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: v2/tests
+        run: npx playwright install --with-deps chromium
+
+      # Affiliate Studio's staff and affiliate-facing pages: unknown money is a
+      # dash, brand terms render as text, the token leaves the address bar, a
+      # member is not offered manager buttons.
+      - name: Affiliate Studio page guards (mutations)
+        run: |
+          set -u
+          i=0
+          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly offsetpage seedpush seedstick seedqall seedloudfail savelate; do
+            i=$((i + 1)); [ $(( (i - 1) % 4 )) = "${{ matrix.shard }}" ] || continue
+            AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1 && code=0 || code=$?
+            if [ "$code" = "0" ]; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+            # Exit 3 is the suite saying the mutation no longer matches its
+            # source: it fails, but for the wrong reason, so the guard is just
+            # as untested as if it had passed.
+            if [ "$code" = "3" ]; then
+              echo "::error::mutation $m is stale -- its pattern is no longer in the source"; exit 1
+            fi
+          done
+
   browser:
     name: Browser
     runs-on: ubuntu-latest
@@ -194,25 +242,6 @@ jobs:
           for m in no-found hard-count redraw no-revoke revoke-hard delete-first trust-any raw-deny no-deadline mismatch-goes no-target; do
             if KLAVIYO_CARD_MUTATION="$m" node v2/tests/browser/integrations-klaviyo-card.test.js >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
-            fi
-          done
-
-      # Affiliate Studio's staff and affiliate-facing pages: unknown money is a
-      # dash, brand terms render as text, the token leaves the address bar, a
-      # member is not offered manager buttons.
-      - name: Affiliate Studio page guards (mutations)
-        run: |
-          set -u
-          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly offsetpage seedpush seedstick seedqall seedloudfail savelate; do
-            AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1 && code=0 || code=$?
-            if [ "$code" = "0" ]; then
-              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
-            fi
-            # Exit 3 is the suite saying the mutation no longer matches its
-            # source: it fails, but for the wrong reason, so the guard is just
-            # as untested as if it had passed.
-            if [ "$code" = "3" ]; then
-              echo "::error::mutation $m is stale -- its pattern is no longer in the source"; exit 1
             fi
           done
 
