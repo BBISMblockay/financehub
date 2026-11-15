@@ -6,7 +6,7 @@
     <title>SILO · Cashflow</title>
     <link rel="stylesheet" href="beacon.css" />
     <link rel="stylesheet" href="silo-brand.css" />
-    <link rel="stylesheet" href="accounting-suite.css?v=e5432032e580" />
+    <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
     <link rel="stylesheet" href="beacon-mirrors-unified.css" />
     <link rel="stylesheet" href="v2-mobile.css" />
     <link rel="stylesheet" href="cashflow.css?v=267e089cff8d" />
@@ -20,8 +20,9 @@
     <script src="cashflow-model.js?v=c97cc522e798" defer></script>
     <script src="cashflow-charts.js?v=5c54a7bc99f4" defer></script>
     <script src="cashflow.js?v=1b75e4c8760a" defer></script>
-  </head>
-  <body>
+    <link rel="stylesheet" href="accounting-specialist.css?v=8c7c41414756" />
+</head>
+  <body class="accounting-specialist">
     <div class="silo-app" id="silo-app">
       <main class="silo-main accounting-workspace">
         <header class="bcn-header">
@@ -50,6 +51,7 @@
           <p id="status" role="status" aria-live="polite">
             Loading connected accounts…
           </p>
+          <div class="as-section-heading"><h2>Cash outlook</h2><p>Choose your accounts and forecast window. Planning changes do not post to your books.</p></div>
           <section
             aria-label="Connected Plaid accounts"
             id="accounts"
@@ -152,7 +154,7 @@
             aria-label="Cash outlook"
           ></section>
           <details class="cf-charts-wrap" id="chartsWrap" open>
-            <summary>Charts</summary>
+            <summary>Cash movement charts</summary>
             <section
               class="cf-charts"
               id="charts"

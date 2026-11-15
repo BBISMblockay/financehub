@@ -67,7 +67,7 @@
     .fa-preview { font-family: var(--bcn-mono); font-size: 11px;
       background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css?v=e5432032e580" />
+  <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -78,8 +78,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
   <script src="je-composer.js"></script>
+  <link rel="stylesheet" href="accounting-specialist.css?v=8c7c41414756" />
 </head>
-<body>
+<body class="accounting-specialist">
   <div class="silo-app" id="silo-app">
     <main class="silo-main accounting-workspace">
       <header class="bcn-header">
@@ -102,12 +103,12 @@
               <div class="fa-sub">Straight-line only. Grouped by status — click an account name to change it.</div>
             </div>
             <div style="display:flex;gap:10px;align-items:center;">
-              <input class="bcn-field fa-filter" id="assetFilter" type="search"
+              <input class="bcn-field fa-filter" id="assetFilter" aria-label="Filter assets by label or vendor" type="search"
                 placeholder="Filter by label or vendor…" />
               <div class="fa-sub" id="assetCount"></div>
             </div>
           </div>
-          <div class="fa-scroll">
+          <div class="fa-scroll" tabindex="0" role="region" aria-label="Asset register">
             <table class="fa-table" id="tblAssets">
               <tbody><tr><td class="fa-empty">No assets yet — click Add asset.</td></tr></tbody>
             </table>
@@ -118,10 +119,11 @@
           <div class="fa-card-head">
             <div>
               <div class="fa-title">Depreciation entry</div>
-              <div class="fa-sub">Recognises every active asset's period for the chosen month in one entry — debiting depreciation expense, crediting accumulated depreciation. The asset account itself is never touched.</div>
+              <div class="fa-sub">Review the monthly depreciation for active assets before posting.</div>
+              <details class="as-help"><summary>How this entry works</summary><p>One entry debits depreciation expense and credits accumulated depreciation for the selected month. The asset account itself is not changed.</p></details>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
-              <input class="bcn-field bcn-field--mono" id="depMonth" type="month" style="width:130px" />
+              <input class="bcn-field bcn-field--mono" id="depMonth" aria-label="Depreciation month" type="month" style="width:130px" />
               <button class="bcn-btn bcn-btn--dark" id="btnBuildDep">Review depreciation entry</button>
             </div>
           </div>
