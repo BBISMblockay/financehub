@@ -256,16 +256,17 @@
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
   <link rel="stylesheet" href="./transactions-workspace.css?v=1f8c055e7ca4" />
-  <link rel="stylesheet" href="accounting-suite.css?v=e5432032e580" />
+  <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="transactions-review.css?v=1b1fc7623308" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
   <script src="accounting-suite.js?v=ea5b45f00409"></script>
   <script src="silo-chrome.js"></script>
 </head>
-<body>
+<body class="transactions-ui">
 <div class="silo-app" id="silo-app">
   <main class="silo-main accounting-workspace">
     <header class="bcn-header">
@@ -398,6 +399,8 @@
           <div class="cc-kpis" id="codeKpis" hidden></div>
           <div class="cc-card cc-card--grow transaction-list">
             <div class="cc-card-head txn-card-head">
+              <div class="txn-review-heading"><div><span class="txn-eyebrow">Bank &amp; card activity</span><h2>Review transactions</h2></div><p>Review categories here. Open a row for source details, splits and posting status.</p></div>
+              <div id="codeFilterSegments" class="txn-filters txn-card-head__queues" role="group" aria-label="Transaction filters"></div>
               <div class="txn-card-head__row">
                 <div class="txn-card-head__title">
                   <div class="cc-title" id="codeTitle">Transactions</div>
@@ -410,7 +413,7 @@
                   </div>
                 </div>
                 <div class="txn-card-head__actions">
-                  <input class="bcn-field bcn-field--mono" id="codeSearch" type="search"
+                  <input class="bcn-field bcn-field--mono" id="codeSearch" type="search" aria-label="Search transactions"
                          placeholder="Search merchant, account, location, cardholder, card…" />
                   <select id="codeFilter" hidden aria-hidden="true" tabindex="-1">
                     <option value="all">All rows</option>
@@ -428,10 +431,9 @@
                   <button class="bcn-btn" id="btnFilterToggle" type="button" aria-expanded="false" aria-controls="codeFilterPanel">Filters</button>
                   <button class="bcn-btn" id="btnDateBack" hidden>All activity in dates</button>
                   <details class="txn-tools"><summary>More actions</summary><div><button class="bcn-btn" id="btnLearnRules">Learn rules from categorized rows</button><button class="bcn-btn" id="btnApplyRules">Apply saved rules</button></div></details>
-                  <button class="bcn-btn" id="btnAiCode" title="Ask Claude about uncategorized rows that have no suggestion yet, and retry any that failed">Prepare coding</button>
+                  <button class="bcn-btn bcn-btn--primary" id="btnAiCode" title="Ask Claude about uncategorized rows that have no suggestion yet, and retry any that failed">Prepare coding</button>
                 </div>
               </div>
-              <div id="codeFilterSegments" class="txn-filters txn-card-head__queues" role="group" aria-label="Transaction filters"></div>
             </div>
             <!-- Combinable filters over the WHOLE loaded set. The controls are
                  written once here and only their option lists are refreshed:
@@ -507,7 +509,7 @@
               <button class="bcn-btn cc-bulk-clear" id="btnBulkClear" aria-label="Clear selection" title="Clear selection">×</button>
             </div>
               <span id="unsavedCount" class="cc-note"></span>
-              <button class="bcn-btn" id="btnSaveCoding">Save categories</button>
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveCoding">Save categories</button>
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
             </div>
           </div>
@@ -657,9 +659,10 @@
   <!-- Every column of the original row, not just the ones SILO mapped. The
        import keeps the whole CSV line in `raw` precisely so a column nobody
        thought to map is still readable here. -->
-  <aside class="cc-drawer txn-detail-drawer" id="txnDetailDrawer" hidden>
+  <aside class="cc-drawer txn-detail-drawer" id="txnDetailDrawer" aria-labelledby="txnDetailTitle" hidden>
     <div class="cc-drawer-head">
       <div style="min-width:0">
+        <span class="txn-eyebrow">Transaction detail</span>
         <div class="cc-title" id="txnDetailTitle">Transaction</div>
         <div class="cc-sub" id="txnDetailSub">Review and edit accounting details</div>
       </div>
@@ -728,7 +731,7 @@
 <script src="transaction-reclass.js?v=545bcb74ec42"></script>
 <script src="plaid-bank-feed.js?v=1aedfae304be"></script>
 <script src="finance-dialog.js"></script>
-<script src="bank-workspace.js?v=a4cb679d3778"></script>
+<script src="bank-workspace.js?v=1849f7cf443d"></script>
 <script src="transaction-dates.js?v=72614f733dd3"></script>
 <script src="coding-suggestions.js?v=08bc45603fb5"></script>
 <script src="transactions-tiles.js?v=83bbb52a5b3d"></script>
@@ -4933,7 +4936,7 @@
     try { await bankFeeds.load(); resumingBank = await bankFeeds.resume(); }
     catch (error) { el('bankConnections').textContent = error.message; }
 
-    if (!workspace) workspace = window.SiloBankWorkspace.create({ references:()=>state, feeds:()=>bankFeeds,
+    if (!workspace) workspace = window.SiloBankWorkspace.create({ db:sb, company:()=>_co?.id, references:()=>state, feeds:()=>bankFeeds,
       status:setStatus, dirty:()=>state.dirty.size>0 || state.codingBusy,
       manage:()=>{el('accountInfo').close();showPane('feeds');},
       upload: id=>{el('accountInfo').close();renderSourceSelect(); el('impSource').value=id; renderColumnMap(); showPane('import');},
