@@ -122,3 +122,30 @@ dialog::backdrop { background: rgba(15,23,42,.45); }
 @media(max-width:760px) {
   dialog { max-width: calc(100vw - 20px); }
 }
+
+/* Working surfaces: readable bookkeeping density, with one clear next action. */
+.accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) {padding:22px 24px 32px;}
+.accounting-workspace :is(.qr-card,.sc-card,.fa-card,.cf-card,.ax-card,.books-card) {border-radius:6px;}
+.accounting-workspace :is(.qr-card-head,.sc-card-head,.fa-card-head,.cf-card-head,.ax-card-head) {padding:16px 18px;}
+.accounting-workspace :is(.qr-title,.sc-title,.fa-title,.cf-title,.ax-title) {font-size:15px;}
+.accounting-workspace :is(.qr-sub,.sc-sub,.fa-sub,.cf-sub,.ax-sub) {font-size:12px;}
+.accounting-workspace :is(.qr-table,.sc-table,.fa-table,.cf-table) {font-size:13px;}
+.accounting-workspace :is(.qr-table,.sc-table,.fa-table,.cf-table) td {padding:10px 14px;}
+.accounting-workspace :is(.qr-num,.sc-num,.fa-num,.cf-num) {font-family:var(--bcn-mono,monospace);font-variant-numeric:tabular-nums;}
+.accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) :is(.bcn-btn,.bcn-field) {min-height:36px;}
+.as-report-builder {border:1px solid var(--bcn-border);border-radius:6px;background:var(--bcn-surface);margin-bottom:20px;overflow:hidden;}
+.as-report-intro {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px;}
+.as-report-intro h2 {font-size:15px;font-weight:650;margin:0 0 5px;color:var(--bcn-ink);}
+.as-report-intro p {font-size:12px;line-height:1.5;color:var(--bcn-ink-2);margin:0;}
+.as-report-intro > span {font-size:11px;color:var(--bcn-ink-2);white-space:nowrap;}
+.accounting-workspace .as-report-builder .qr-tiles {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:0;border-top:1px solid var(--bcn-border);}
+.accounting-workspace .as-report-builder .qr-tile {border:0;border-right:1px solid var(--bcn-border);border-bottom:1px solid var(--bcn-border);border-radius:0;min-width:0;padding:14px 16px;}
+.accounting-workspace .as-report-builder .qr-tile[aria-pressed=true] {box-shadow:inset 0 -3px var(--bcn-accent);background:var(--bcn-accent-soft);}
+.accounting-workspace .as-report-builder .qr-filters {border:0;margin:0;padding:16px 18px;align-items:flex-end;gap:14px;background:transparent;}
+.as-report-builder #btnRun {margin-left:auto;}
+@media(max-width:900px) {.accounting-workspace .as-report-builder .qr-tiles {grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:600px) {
+ .accounting-workspace :is(.qr-page,.sc-page,.fa-page,.cf-page) {padding:14px 12px 24px;}
+ .as-report-intro {align-items:flex-start;flex-direction:column;gap:8px;}
+ .as-report-builder #btnRun {width:100%;}
+}
