@@ -107,7 +107,11 @@ async function exercise(page,name) {
           await page.evaluate(t => document.documentElement.setAttribute('data-theme',t),theme);
           for (const [width,height] of [[1440,1000],[390,844]]) {
             await page.setViewportSize({width,height});
-            await page.waitForTimeout(80);
+            // Wait for the real sidebar transition, not a partial 80ms frame.
+            // This is also an assertion that mobile content is not obscured.
+            if (width < 900) await page.waitForFunction(() =>
+              document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 1);
+            else await page.waitForTimeout(80);
             const m = await page.evaluate(() => {
               const main = document.querySelector('.accounting-workspace');
               return {right:main.getBoundingClientRect().right,width:innerWidth,
