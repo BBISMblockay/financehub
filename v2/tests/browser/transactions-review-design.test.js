@@ -125,6 +125,11 @@ const TABLES = {
    const row=page.locator('#tblCoding [data-txn="t-amazon"]');
    await row.locator('[data-review]').first().click();
    assert.equal(await page.locator('#txnDetailDrawer').isVisible(),true);
+   assert.equal(await page.locator('#txnDetailDrawer').getAttribute('role'),'dialog');
+   assert.equal(await page.locator('#txnDetailDrawer').getAttribute('aria-modal'),'false');
+   assert.equal(await page.locator('#btnTxnDetailClose').evaluate(n=>n===document.activeElement),true,'keyboard lands in inspector');
+   await page.keyboard.press('Tab');
+   assert.equal(await page.locator('#txnDetailDrawer').evaluate(n=>n.contains(document.activeElement)),true,'next tab reaches detail action');
    assert.equal((await geometry()).width,before.width,'drawer does not reserve a permanent column');
    assert.equal((await geometry()).scroll,before.scroll,'opening detail preserves the register position');
    for(const selector of ['[data-raw]','[data-journal]','[data-split]','[data-toggle-exclude]','[data-edit="location"]'])
@@ -132,6 +137,11 @@ const TABLES = {
    await page.screenshot({path:`/tmp/accounting-suite-ui/transactions-detail-${theme}.png`,fullPage:true});
    await page.click('#btnTxnDetailClose');
    assert.equal(await page.locator('#txnDetailDrawer').isVisible(),false);
+   assert.equal(await row.locator('[data-review]').first().evaluate(n=>n===document.activeElement),true,'Close restores recreated opener');
+   await page.keyboard.press('Enter');
+   await page.keyboard.press('Escape');
+   assert.equal(await page.locator('#txnDetailDrawer').isVisible(),false);
+   assert.equal(await row.locator('[data-review]').first().evaluate(n=>n===document.activeElement),true,'Escape restores opener');
    assert.equal((await geometry()).width,before.width);
    assert.equal((await geometry()).scroll,before.scroll);
    assert.ok(await page.locator('#tblCoding thead th').count()>=10,'bookkeeper columns remain in wide table');
@@ -147,6 +157,60 @@ const TABLES = {
    await page.locator('.txn-review-heading').scrollIntoViewIfNeeded();
    await page.screenshot({path:`/tmp/accounting-suite-ui/transactions-phone-${theme}.png`,fullPage:true});
   }
+  // Populated review -> save -> approval -> explicit posting confirmation.
+  // All database and edge writes are intercepted by the fixture harness.
+  const flow=structuredClone(TABLES);
+  flow.card_transactions=[{...flow.card_transactions[3],id:'workflow-row',row_no:1}];
+  flow.card_transaction_splits=[];
+  Object.assign(flow.card_sources[0],{posting_enabled:true,credit_qbo_account_id:'credit',credit_account_name:'Amex'});
+  flow.quickbooks_accounts.push({qbo_account_id:'credit',name:'Amex',account_type:'Credit Card',is_active:true,connection_id:CONNECTION});
+  Object.assign(flow.card_import_batches_v[0],{txn_count:1,uncoded_count:1,source_posting_enabled:true});
+  const work=await suite.open('/v2/transactions.html?batch=batch-1',flow,{
+   ready:()=>!!document.querySelector('#tblCoding [data-txn="workflow-row"]'),
+   rpc:{
+    apply_card_coding:args=>{
+     window.__saveAttempts=(window.__saveAttempts||0)+1;
+     if(window.__saveAttempts===1)return {__error:{message:'Fixture save temporarily unavailable'}};
+     const tables=window.__FIXTURE_TABLES__;
+     for(const patch of args.p_rows)Object.assign(tables.card_transactions.find(t=>t.id===patch.id),patch);
+     tables.card_import_batches_v[0].uncoded_count=0;
+     return args.p_rows.length;
+    },
+    approve_card_import_batch:args=>{
+     const b=window.__FIXTURE_TABLES__.card_import_batches_v.find(b=>b.id===args.p_batch_id);
+     b.status='approved';b.approved_at=new Date().toISOString();return true;
+    }
+   },
+   edge:{'quickbooks-post-journal':{status:503,body:{error:'Fixture posting unavailable'}}}
+  });
+  const wrow=work.locator('#tblCoding [data-txn="workflow-row"]');
+  await wrow.locator('[data-edit="account"]').click();
+  await wrow.locator('select[data-field="account"]').selectOption('acc_rent');
+  await work.click('#ccTabs [data-pane="entry"]');
+  assert.equal(await work.locator('#btnApprove').isDisabled(),true,'unsaved edit blocks approval');
+  await work.click('#ccTabs [data-pane="coding"]');
+  await work.click('#btnSaveCoding');
+  await work.waitForFunction(()=>document.getElementById('status').textContent.includes('Fixture save temporarily unavailable'));
+  assert.match(await work.locator('#unsavedCount').innerText(),/1/,'failure retains edit');
+  await work.click('#btnSaveCoding');
+  await work.waitForFunction(()=>document.getElementById('status').textContent.includes('Saved 1'));
+  const saveCalls=await work.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='rpc:apply_card_coding').map(q=>q.args));
+  assert.equal(saveCalls.length,2);assert.equal(saveCalls[1].p_rows[0].qbo_account_id,'acc_rent');
+  await work.click('#ccTabs [data-pane="entry"]');
+  await work.locator('#tblEntry [data-entry-batch="batch-1"]').click();
+  assert.equal(await work.locator('#btnPost').isDisabled(),true,'saving is not approval');
+  assert.equal(await work.locator('#btnApprove').isEnabled(),true);
+  await work.click('#btnApprove');
+  await work.waitForFunction(()=>!document.getElementById('btnPost').disabled);
+  assert.equal(await work.evaluate(()=>window.__QUERIES__.filter(q=>q.table==='rpc:approve_card_import_batch').length),1);
+  work.once('dialog',d=>d.dismiss());
+  await work.click('#btnPost');
+  assert.equal(await work.evaluate(()=>window.__EDGE_CALLS__.length),0,'cancel sends nothing');
+  work.once('dialog',d=>d.accept());
+  await work.click('#btnPost');
+  await work.waitForFunction(()=>document.getElementById('status').textContent.includes('Fixture posting unavailable'));
+  assert.deepEqual(await work.evaluate(()=>window.__EDGE_CALLS__),[{name:'quickbooks-post-journal',body:{batch_id:'batch-1'}}]);
+  assert.match(await work.locator('#status').innerText(),/Post failed/,'failed posting is not shown as success');
   console.log('PASS transaction design: retained fields, wide register, overlay drawer, themes, mobile.');
  } finally {await suite.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

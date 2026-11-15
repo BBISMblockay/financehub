@@ -27,9 +27,13 @@ const fixtures = {
         await page.locator('#setupMappingStatus').waitFor({ state: 'visible' });
         assert.match(await page.locator('#setupMappingStatus').innerText(), /1 of 1 active accounts mapped/);
         await page.click('.books-setup-links a[href="#openingSetup"]');
+        // Native hash navigation dispatches hashchange after the click resolves.
+        // Wait for the user-visible result, rather than racing that handler.
+        await page.locator('#seedForm').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#openingSetup').getAttribute('open'), '');
         assert.equal(await page.locator('#seedForm').isVisible(), true);
         await page.click('.books-setup-links a[href="#accounts"]');
+        await page.locator('#accountsTable').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#accountsTable').isVisible(), true);
         await page.click('[data-surface="ledger"]');
         assert.equal(await page.locator('.books-setup-links').isVisible(), false);

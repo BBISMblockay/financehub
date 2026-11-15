@@ -259,7 +259,7 @@
   <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="transactions-review.css?v=1b1fc7623308" />
+  <link rel="stylesheet" href="transactions-review.css?v=001ebc7592ce" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
@@ -659,7 +659,7 @@
   <!-- Every column of the original row, not just the ones SILO mapped. The
        import keeps the whole CSV line in `raw` precisely so a column nobody
        thought to map is still readable here. -->
-  <aside class="cc-drawer txn-detail-drawer" id="txnDetailDrawer" aria-labelledby="txnDetailTitle" hidden>
+  <aside class="cc-drawer txn-detail-drawer" id="txnDetailDrawer" role="dialog" aria-modal="false" aria-labelledby="txnDetailTitle" hidden>
     <div class="cc-drawer-head">
       <div style="min-width:0">
         <span class="txn-eyebrow">Transaction detail</span>
@@ -2151,6 +2151,14 @@
     event.preventDefault(); event.returnValue = '';
   });
   let expandedTransaction = null;
+  // A non-modal inspector: the wide register remains usable. Restore its
+  // recreated opener after closing, rather than focusing a detached row node.
+  let detailOpenerId = null;
+  function restoreDetailFocus() {
+    const row = [...el('tblCoding').querySelectorAll('[data-txn]')]
+      .find(node => node.dataset.txn === detailOpenerId);
+    (row?.querySelector('[data-review]') || el('codeSearch')).focus({preventScroll:true});
+  }
 
   function accountingStateLine(t) {
     if (t.status === 'excluded') return 'Excluded from this import’s journal';
@@ -3362,6 +3370,7 @@
   el('btnTxnDetailClose').addEventListener('click', () => {
     expandedTransaction = null;
     renderCoding();
+    restoreDetailFocus();
   });
 
   async function onTxnTableClick(e) {
@@ -3414,10 +3423,10 @@
 
     if (e.target.closest('[data-review]')) {
       expandedTransaction = expandedTransaction === t0.id ? null : t0.id;
+      detailOpenerId = t0.id;
       renderCoding();
-      const button = el('tblCoding').querySelector('[data-txn="' + t0.id + '"] [data-review]')
-        || el('txnDetailBody').querySelector('[data-review]');
-      button?.focus();
+      if (expandedTransaction) el('btnTxnDetailClose').focus({preventScroll:true});
+      else restoreDetailFocus();
       return;
     }
 
@@ -3531,7 +3540,7 @@
 
   el('btnRawClose').addEventListener('click', () => { el('rawDrawer').hidden = true; });
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open]')) return;
     // Escape closes one thing at a time, innermost first: the split editor
     // sits over the row drawer.
     if (window.SiloCardSplits.isOpen()) { window.SiloCardSplits.close(); return; }

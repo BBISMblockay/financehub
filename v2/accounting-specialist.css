@@ -16,6 +16,8 @@
 .accounting-specialist .sc-bar{padding:16px 18px;border-radius:6px;margin-bottom:18px;gap:12px}
 .accounting-specialist .sc-field label,.accounting-specialist .fa-field label{font-family:var(--bcn-font);text-transform:none;letter-spacing:0;font-size:12px;color:var(--bcn-ink-2)}
 .accounting-specialist .accounting-workspace .sc-tie{padding:18px;margin-bottom:20px;gap:20px 32px;border-radius:6px}
+/* Author display:flex must not override the catch-up panel's native hidden state. */
+.accounting-specialist .accounting-workspace .sc-tie[hidden]{display:none}
 .accounting-specialist .sc-tie-item{gap:7px;min-width:90px}
 .accounting-specialist .sc-tie-value{font-size:22px;font-weight:500}
 .accounting-specialist .sc-tie-note{flex-basis:100%;padding-top:12px;border-top:1px solid var(--bcn-border);line-height:1.5}

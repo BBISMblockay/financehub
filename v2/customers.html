@@ -14,8 +14,9 @@
   <script src="silo-chrome.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+<link rel="stylesheet" href="accounting-receivables.css?v=c15fa5e98e4d">
 </head>
-<body>
+<body class="receivables-customers">
   <div class="silo-app" id="silo-app">
     <main class="silo-main accounting-workspace">
       <header class="bcn-header">
@@ -58,7 +59,7 @@
           </div>
         </div>
 
-        <section class="bcn-kpi-band">
+        <section class="bcn-kpi-band" aria-label="Customer account summary">
           <div class="bcn-kpi">
             <div class="bcn-kpi-label">Awaiting review</div>
             <div class="bcn-kpi-value" id="kpiSubmitted">—</div>
@@ -77,11 +78,15 @@
           </div>
         </section>
 
-        <section class="bcn-filter-bar">
+        <section class="cu-register-workspace" aria-labelledby="customerRegisterTitle">
+        <div class="cu-register-intro"><div><h2 id="customerRegisterTitle">Customer register</h2><p>Review applications, inspect approved terms and keep account details together.</p></div><span>Wholesale accounts</span></div>
+        <section class="bcn-filter-bar" aria-label="Filter customer accounts">
           <div class="bcn-filter">
-            <input class="bcn-field" id="search" placeholder="Search name or email" />
+            <label class="cu-control-label" for="search">Find a customer</label>
+            <input type="search" class="bcn-field" id="search" placeholder="Search name or email" />
           </div>
           <div class="bcn-filter">
+            <label class="cu-control-label" for="statusFilter">Account status</label>
             <select class="bcn-field" id="statusFilter">
               <option value="">All statuses</option>
               <option value="submitted">Awaiting review</option>
@@ -104,7 +109,7 @@
             <div class="cu-title">Wholesale accounts</div>
             <div class="cu-sub" id="rowCount"></div>
           </div>
-          <div class="cu-scroll">
+          <div class="cu-scroll" tabindex="0" role="region" aria-label="Wholesale customer accounts">
             <table class="cu-table" id="table">
               <thead>
                 <tr>
@@ -121,6 +126,7 @@
             </table>
           </div>
         </div>
+        </section>
       </div>
     </main>
   </div>
