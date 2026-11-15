@@ -251,3 +251,52 @@
 .books-advanced>.books-columns{margin-top:16px;}
 .accounting-workspace .books-advanced .books-card{padding:14px;}
 @media(max-width:900px){.books-connection-grid{grid-template-columns:1fr}.books-setup-heading{align-items:flex-start;flex-direction:column;}.books-step{margin-bottom:10px}.books-connection-grid [role=status]{margin-bottom:10px;}}
+
+/* Suite UI: a stable work area with setup navigation, not a stack of dashboards.
+   Existing controls, statuses, disclosures and financial handlers are retained. */
+.accounting-workspace .books-page{padding:24px 28px 40px}
+.accounting-workspace .books-hero{margin-bottom:22px;align-items:flex-start}
+.accounting-workspace .books-hero h1{font-size:26px;letter-spacing:-.025em;margin-bottom:6px}
+.accounting-workspace .books-hero p{font-size:13px;color:var(--bcn-ink-3)}
+.books-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:24px;align-items:start}
+.books-sidebar{min-width:0;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:6px;padding:12px}
+.accounting-workspace .books-tabs{display:flex;flex-direction:column;overflow:visible;margin:0;gap:4px}
+.accounting-workspace .books-tabs button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;padding:13px 12px;border-radius:4px;border:0;border-left:3px solid transparent;height:auto;white-space:normal}
+.books-tabs strong{font-size:13px;font-weight:600}.books-tabs small{font-size:11px;line-height:1.4;font-weight:400;color:var(--bcn-ink-3)}
+.accounting-workspace .books-tabs [aria-pressed=true]{border-left-color:var(--bcn-accent);background:var(--bcn-accent-soft)}
+.books-setup-links{border-top:1px solid var(--bcn-border);padding:16px 0;margin-top:16px;display:grid;gap:3px}
+.books-setup-links .books-eyebrow{font-size:10px;padding:0 12px;margin:0 0 8px;color:var(--bcn-ink-3)}
+.books-setup-links a{font-size:12px;line-height:1.4;text-decoration:none;color:var(--bcn-ink-2);padding:9px 12px;border-radius:4px}
+.books-setup-links a:hover,.books-setup-links a:focus-visible{background:var(--bcn-accent-soft);color:var(--bcn-accent)}
+.books-layout:has(#setup[hidden]) .books-setup-links{display:none}
+.books-content{min-width:0}.books-content>section{scroll-margin-top:14px}
+.accounting-workspace .books-card{padding:20px;margin-bottom:18px}
+.accounting-workspace .books-card h2{font-size:17px;line-height:1.4}
+.accounting-workspace .books-card p{line-height:1.6}
+.books-setup-heading{margin:0 0 20px;align-items:flex-start}
+.books-setup-heading h2{font-size:20px;margin:4px 0 8px}.books-setup-heading p{font-size:13px;max-width:58ch}
+.books-setup-heading .books-eyebrow{font-size:10px;margin-bottom:8px;color:var(--bcn-ink-3)}
+.books-connection-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.accounting-workspace .books-connection-grid .books-card{padding:20px}
+.books-provider-title{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.books-provider-title .books-step{display:block;font-size:9px;margin:0 0 4px;letter-spacing:.06em}
+.accounting-workspace .books-provider-title h2{font-size:16px;margin:0}
+.books-provider-icon{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:6px;background:var(--bcn-accent-soft);color:var(--bcn-accent);font-size:20px;font-weight:600}
+.books-provider-icon svg{width:23px;height:23px}.books-provider-icon--qbo{background:var(--bcn-pos-soft);color:var(--bcn-pos)}
+.books-provider footer{border-top:1px solid var(--bcn-border);padding-top:14px;margin-top:auto}
+.books-provider .books-text-link{display:inline-block;margin:0;text-decoration:none;font-size:12px;color:var(--bcn-accent)}
+.books-mappings .books-row{align-items:flex-start;gap:16px}.books-mappings .books-row .bcn-btn{flex-shrink:0}
+.books-mappings .books-eyebrow{font-size:10px;color:var(--bcn-ink-3);margin-top:0!important}
+#setupMappingStatus{margin:16px -20px 12px;padding:14px 20px;background:var(--bcn-sunken);border-block:1px solid var(--bcn-border)}
+#setupMappingStatus p{margin:3px 0}.books-mappings>.books-caption{font-size:11px!important;color:var(--bcn-ink-3);margin-bottom:0!important}
+.accounting-workspace .books-advanced>summary{flex-wrap:wrap;line-height:1.5}
+.books-reference-body{padding-top:16px}.books-reference-body>h2{display:none}
+.accounting-workspace .books-subsection>.books-card{margin-bottom:12px}
+.accounting-workspace .books-card td,.accounting-workspace .books-card th{padding:11px 12px}
+.accounting-workspace .books-card th{font-size:10px;letter-spacing:.04em;text-transform:uppercase}
+.accounting-workspace .books-card select,.accounting-workspace .books-card input{min-height:36px}
+.accounting-workspace .books-card .ledger-check input{min-height:0}
+.accounting-workspace .books-card .books-choice input{min-height:0;width:auto}
+.books-content .books-card .books-card{box-shadow:none}
+@media(max-width:1100px){.books-layout{grid-template-columns:180px minmax(0,1fr);gap:18px}.accounting-workspace .books-page{padding:20px}.books-setup-heading{flex-direction:column;gap:12px}.books-connection-grid{grid-template-columns:1fr}.books-mappings .books-row{flex-wrap:wrap}}
+@media(max-width:760px){.books-layout{grid-template-columns:1fr;gap:18px}.accounting-workspace .books-page{padding:16px 12px 28px}.books-sidebar{padding:10px}.accounting-workspace .books-tabs{flex-direction:row;gap:4px}.accounting-workspace .books-tabs button{flex:1;align-items:center;padding:10px 6px;border-left:0;border-bottom:2px solid transparent}.accounting-workspace .books-tabs [aria-pressed=true]{border-bottom-color:var(--bcn-accent)}.books-tabs small{display:none}.books-setup-links{display:flex;flex-wrap:wrap;gap:2px;margin:10px 0 0;padding:10px 0 0}.books-setup-links .books-eyebrow{flex-basis:100%;margin-bottom:2px}.books-setup-links a{padding:8px;font-size:11px}.accounting-workspace .books-card{padding:16px}.accounting-workspace .books-connection-grid .books-card{padding:16px}.books-connection-grid{gap:0}.books-badge{display:inline-block;white-space:normal;max-width:45%}.accounting-workspace .books-hero h1{font-size:23px}#setupMappingStatus{margin-inline:-16px;padding-inline:16px}.books-row{gap:12px}.books-totals{font-size:18px}.books-advanced>summary{display:block}#openingSetupState{display:block;margin:8px 0 0 20px}}

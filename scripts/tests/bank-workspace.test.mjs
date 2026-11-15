@@ -53,3 +53,74 @@ test('account headers render state actions and CSV upload is secondary and CSV-o
     }
   }
 });
+
+const preparationSource = { id:'source', company_entity_id:'company', is_active:true,
+  qbo_connection_id:'qbo', auto_prepare_coding:false };
+function preparationDb({ error=null, rows, delay }={}) {
+  const calls=[];
+  const db={from(table){calls.push(['from',table]);return {
+    update(value){calls.push(['update',value]);return this;},
+    eq(key,value){calls.push(['eq',key,value]);return this;},
+    async select(columns){calls.push(['select',columns]);if(delay)await delay;return {error,data:rows===undefined?[{id:'source',company_entity_id:'company',auto_prepare_coding:true}]:rows};},
+  };}};
+  return {db,calls};
+}
+test('automatic preparation changes only the named company/account preference with an optimistic guard',async()=>{
+  const {db,calls}=preparationDb();
+  assert.equal(await window.SiloBankWorkspace.saveAutoPreparation(db,'company',preparationSource,true),true);
+  assert.deepEqual(calls.filter(x=>x[0]==='from'),[['from','card_sources']]);
+  assert.equal(JSON.stringify(calls.find(x=>x[0]==='update')[1]),JSON.stringify({auto_prepare_coding:true}));
+  for(const pair of [['id','source'],['company_entity_id','company'],['auto_prepare_coding',false],['is_active',true],['qbo_connection_id','qbo']])
+    assert.ok(calls.some(c=>c[0]==='eq' && c[1]===pair[0] && c[2]===pair[1]),pair.join('='));
+  assert.equal(preparationSource.auto_prepare_coding,false,'does not optimistically mutate loaded state');
+});
+test('unknown setup, another tenant and inactive or unmapped accounts cannot opt in',async()=>{
+  for(const source of [{...preparationSource,company_entity_id:'other'}, {...preparationSource,auto_prepare_coding:undefined},
+    {...preparationSource,is_active:false},{...preparationSource,qbo_connection_id:null}]){
+    const {db,calls}=preparationDb();
+    await assert.rejects(()=>window.SiloBankWorkspace.saveAutoPreparation(db,'company',source,true));
+    assert.equal(calls.length,0);
+  }
+});
+test('a retired/unmapped account can still opt out and no approval or posting flag is touched',async()=>{
+  const {db,calls}=preparationDb({rows:[{id:'source',company_entity_id:'company',auto_prepare_coding:false}]});
+  assert.equal(await window.SiloBankWorkspace.saveAutoPreparation(db,'company',{
+    ...preparationSource,auto_prepare_coding:true,is_active:false,qbo_connection_id:null},false),false);
+  assert.equal(JSON.stringify(calls.find(x=>x[0]==='update')[1]),JSON.stringify({auto_prepare_coding:false}));
+  assert.ok(!calls.some(c=>c[0]==='eq' && c[1]==='is_active'));
+});
+test('refused, stale and uncertain saves are not reported as enabled',async()=>{
+  for(const options of [{error:{message:'permission denied'}},{rows:[]},{rows:[{id:'other',company_entity_id:'company',auto_prepare_coding:true}]},
+    {rows:[{id:'source',company_entity_id:'other',auto_prepare_coding:true}]},{rows:[{id:'source',company_entity_id:'company',auto_prepare_coding:false}]}]){
+    const {db}=preparationDb(options);
+    await assert.rejects(()=>window.SiloBankWorkspace.saveAutoPreparation(db,'company',preparationSource,true));
+  }
+});
+test('automatic preparation copy discloses cost and scheduler dependency without promising an active service',()=>{
+  const off=window.SiloBankWorkspace.preparationSetting(preparationSource,true);
+  assert.match(off,/Off for this account/);assert.match(off,/paid AI calls/);assert.match(off,/existing backlog/);
+  assert.match(off,/enabled by your administrator/);assert.match(off,/never accepts, approves or posts/);
+  assert.match(off,/data-workspace-action="enable-preparation"/);
+  const on=window.SiloBankWorkspace.preparationSetting({...preparationSource,auto_prepare_coding:true},true);
+  assert.match(on,/Requested for this account/);assert.match(on,/data-workspace-action="disable-preparation"/);
+  const unavailable=window.SiloBankWorkspace.preparationSetting({...preparationSource,auto_prepare_coding:undefined},true);
+  assert.match(unavailable,/Unavailable until/);assert.doesNotMatch(unavailable,/<button/);
+});
+test('double-clicks cannot issue concurrent opt-in writes',async()=>{
+  let resolve;const delayed=new Promise(r=>{resolve=r;});
+  const {db,calls}=preparationDb({delay:delayed});
+  const elements=new Map();const listeners={};
+  const doc={getElementById(id){if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',addEventListener(type,fn){listeners[id+':'+type]=fn;}});return elements.get(id);}};
+  const source={...preparationSource};
+  const workspace=window.SiloBankWorkspace.create({document:doc,db,company:()=> 'company',dirty:()=>false,status(){},
+    references:()=>({sources:[source],batches:[]}),feeds:()=>({snapshot:()=>({accounts:[],connections:[],exceptions:[]})})});
+  workspace.render();
+  const button={dataset:{workspaceAction:'enable-preparation'},disabled:false};
+  const e={target:{closest:()=>button}};
+  const first=listeners['workspaceSummary:click'](e);
+  await listeners['workspaceSummary:click'](e);
+  assert.equal(calls.filter(c=>c[0]==='update').length,1);
+  assert.equal(button.disabled,true);
+  resolve();await first;
+  assert.equal(source.auto_prepare_coding,true);assert.equal(button.disabled,false);
+});
