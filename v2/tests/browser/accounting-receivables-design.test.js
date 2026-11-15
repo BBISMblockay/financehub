@@ -18,6 +18,18 @@ const customer = {id:'wholesale-demo',company_entity_id:'test-company',legal_nam
    await page.keyboard.press('Escape');
    if(width<900) await page.waitForFunction(()=>document.querySelector('.silo-sidebar').getBoundingClientRect().right<=1);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name} ${theme} ${width} fits viewport`);
+   if(name==='customers-populated') {
+    const geometry=await page.evaluate(()=>{
+     const bar=document.querySelector('.bcn-filter-bar').getBoundingClientRect();
+     const card=document.querySelector('.cu-register-workspace>.cu-card').getBoundingClientRect();
+     return {barBottom:bar.bottom,cardTop:card.top,controls:[...document.querySelectorAll('.bcn-filter-bar input,.bcn-filter-bar select')].map(n=>{const r=n.getBoundingClientRect();return {top:r.top,bottom:r.bottom};}),barTop:bar.top};
+    });
+    assert(geometry.barBottom<=geometry.cardTop+1,'customer filters must not overlap register heading');
+    assert(geometry.controls.every(r=>r.top>=geometry.barTop&&r.bottom<=geometry.barBottom+1),'customer controls contained by toolbar');
+   }
+   if(name==='invoices-populated'&&width===390) {
+    assert(await page.locator('#invoiceSearch').evaluate(n=>n.getBoundingClientRect().width)>200,'mobile invoice search has a full readable row');
+   }
    if(out)await page.screenshot({path:path.join(out,`${name}-${theme}-${width}.png`),fullPage:true});
   }
   await page.setViewportSize({width:1440,height:1000});

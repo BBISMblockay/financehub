@@ -128,7 +128,14 @@ async function exercise(page,name) {
           r.truthy(!(await help.evaluate(n=>n.open)),`${name}: mechanics collapse`);
         }
         r.ok(`${name}: controls, responsive layout, themes and disclosure`,true);
-      } catch(error) {r.ok(`${name}: specialist workspace`,false,error.message);}
+      } catch(error) {
+        const diagnostic = await page.evaluate(() => ({
+          status: document.querySelector('#status')?.textContent,
+          queries: (window.__QUERIES__ || []).map(q => q.table)
+        }));
+        if (screenshots) await page.screenshot({path:path.join(screenshots,`${name}-failure.png`),fullPage:true});
+        r.ok(`${name}: specialist workspace`,false,`${error.stack || error.message}\n${JSON.stringify(diagnostic)}`);
+      }
       finally {await page.close();}
     }
   } finally {await suite.close();}

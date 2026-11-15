@@ -57,3 +57,14 @@
  .receivables-customers .cu-panel{padding:18px;}
  .receivables-close .aw-detail{padding:18px;}
 }
+
+/* Beacon's compact one-line filter bar cannot contain stacked labels. */
+.receivables-customers .bcn-filter-bar {height:auto;min-height:84px;flex-wrap:wrap;}
+.receivables-customers .bcn-filter {height:auto;align-items:stretch;border-right:0;padding-right:0;margin-right:0;}
+.receivables-customers .bcn-filter .bcn-field {max-width:none;}
+.receivables-customers .bcn-filter label {text-align:left;}
+@media(max-width:600px) {
+ .receivables-invoices .inv-search {flex:1 0 100%;width:100%;box-sizing:border-box;}
+ .receivables-invoices .inv-search input.bcn-field {flex:1;min-width:0;width:100%;}
+ .receivables-invoices .inv-search svg {flex-shrink:0;}
+}

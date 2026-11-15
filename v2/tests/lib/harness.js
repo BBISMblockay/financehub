@@ -109,11 +109,27 @@ window.__QUERIES__ = [];
         return true;
       }
 
+      // SQL LIKE is case-sensitive (unlike ilike); preserve % and _ wildcards.
+      function matchLike(v, pat) {
+        if (v == null) return false;
+        var pattern = '', chars = Array.from(String(pat));
+        for (var i = 0; i < chars.length; i++) {
+          var ch = chars[i], escaped = ch === String.fromCharCode(92) && i + 1 < chars.length;
+          if (escaped) ch = chars[++i];
+          if (!escaped && ch === '%') { pattern += '.*'; continue; }
+          if (!escaped && ch === '_') { pattern += '.'; continue; }
+          pattern += '.+*?^$()[]{}|'.indexOf(ch) !== -1 || ch === String.fromCharCode(92)
+            ? String.fromCharCode(92) + ch : ch;
+        }
+        return new RegExp('^' + pattern + '$', 's').test(String(v));
+      }
+
       function matchOne(r, col, op, val) {
         var v = r[col];
         if (op === 'eq')    return String(v == null ? '' : v) === String(val);
         if (op === 'is')    return val === 'null' ? (v === null || v === undefined) : String(v) === String(val);
         if (op === 'ilike') return matchIlike(v, val);
+        if (op === 'like') return matchLike(v, val);
         if (op === 'neq')   return String(v) !== String(val);
         return true;
       }
@@ -168,6 +184,7 @@ window.__QUERIES__ = [];
             return numeric ? nv > nf : String(v) > String(f.val);
           }
           if (f.op === 'ilike') return matchIlike(v, f.val);
+          if (f.op === 'like') return matchLike(v, f.val);
           if (f.op === 'in') return (f.vals || []).map(String).indexOf(String(v)) !== -1;
           if (f.op === 'is') {
             if (f.val === null || f.val === 'null') return v === null || v === undefined;
@@ -226,6 +243,7 @@ window.__QUERIES__ = [];
       lt:     function (col, val) { q.filters.push({ op: 'lt',  col: col, val: val }); return api; },
       gt:     function (col, val) { q.filters.push({ op: 'gt',  col: col, val: val }); return api; },
       neq:    function (col, val) { q.filters.push({ op: 'neq', col: col, val: val }); return api; },
+      like:   function (col, val) { q.filters.push({ op: 'like', col: col, val: val }); return api; },
       ilike:  function (col, val) { q.filters.push({ op: 'ilike', col: col, val: val }); return api; },
       // PostgREST's .not(col, op, val). Implemented for real, not stubbed to
       // a no-op: products.html builds its product-type list with

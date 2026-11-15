@@ -15,3 +15,29 @@ const subscription = client.auth.onAuthStateChange(() => {});
 assert.equal(typeof subscription.data.subscription.unsubscribe, 'function');
 subscription.data.subscription.unsubscribe();
 console.log('PASS served Supabase fixture parses and provides the auth subscription contract');
+
+(async () => {
+  const rows = [
+    {id:1, context:'schedules:prepaid:2026-11'},
+    {id:2, context:'Schedules:prepaid:2026-11'},
+    {id:3, context:'fixed.assets:2026-11'},
+    {id:4, context:'fixedXassets:2026-11'},
+    {id:5, context:'literal_%'},
+    {id:6, context:null}
+  ];
+  sandbox.window.__FIXTURE_TABLES__ = { entries: rows };
+  async function ids(pattern) {
+    const {data} = await client.from('entries').select('*').like('context',pattern);
+    return Array.from(data, r => r.id);
+  }
+  assert.deepEqual(await ids('schedules:prepaid:%'), [1], 'LIKE is case-sensitive and supports suffix wildcard');
+  assert.deepEqual(await ids('fixed.assets:%'), [3], 'Regex punctuation is literal');
+  assert.deepEqual(await ids('fixed_assets:%'), [3,4], 'Underscore matches exactly one character');
+  assert.deepEqual(await ids('%2026-11'), [1,2,3,4], 'Prefix wildcard matches');
+  assert.deepEqual(await ids('literal\\_\\%'), [5], 'Escaped SQL wildcards are literal');
+  assert.deepEqual(await ids('%'), [1,2,3,4,5], 'NULL does not match LIKE');
+  assert.deepEqual(await ids('prepaid'), [], 'Patterns are anchored');
+  const {data} = await client.from('entries').select('*').like('absent_column','anything');
+  assert.equal(data.length, rows.length, 'Absent fixture columns follow existing harness filter semantics');
+  console.log('PASS served Supabase fixture applies case-sensitive SQL LIKE filters');
+})().catch(error => { console.error(error); process.exitCode = 1; });
