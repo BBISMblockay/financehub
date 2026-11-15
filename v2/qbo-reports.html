@@ -152,7 +152,6 @@
           <div class="bcn-header-sub" id="subTitle">Run financial statements and explore transaction detail from QuickBooks.</div>
         </div>
         <div class="bcn-header-actions">
-          <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
           <a class="bcn-btn" href="accounting-books.html#register" title="Staged, posted and voided journal entries">Journals</a>
           <button class="bcn-btn" id="btnCsv">CSV</button>
         </div>
@@ -161,6 +160,8 @@
       <div class="qr-page">
         <div class="bcn-status" id="status" hidden></div>
 
+        <section class="as-report-builder" aria-labelledby="reportBuilderTitle">
+          <div class="as-report-intro"><div><h2 id="reportBuilderTitle">Explore your books</h2><p>Choose a statement, set the period, then open an account to see its detail.</p></div><span>QuickBooks reports</span></div>
         <div class="qr-tiles" id="reportTiles" aria-label="Report">
           <button type="button" class="qr-tile" data-report="ProfitAndLoss" aria-pressed="false"><span class="qr-tile-name">Profit &amp; Loss</span><span class="qr-tile-desc">Income and expenses for the period</span></button>
           <button type="button" class="qr-tile" data-report="BalanceSheet" aria-pressed="false"><span class="qr-tile-name">Balance Sheet</span><span class="qr-tile-desc">Assets, liabilities and equity at the end date</span></button>
@@ -203,7 +204,10 @@
               <label for="byMonth">By month</label>
             </div>
           </div>
+          <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
         </div>
+
+        </section>
 
         <div class="qr-card">
           <div class="qr-card-head">
@@ -213,7 +217,7 @@
             </div>
             <div class="qr-sub" id="rowCount"></div>
           </div>
-          <div class="qr-scroll">
+          <div class="qr-scroll" tabindex="0" role="region" aria-label="Financial report results">
             <table class="qr-table" id="tbl">
               <tbody><tr><td class="qr-empty">Nothing loaded.</td></tr></tbody>
             </table>
