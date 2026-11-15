@@ -1,0 +1,870 @@
+{
+  "transactions.html": [
+    {
+      "id": "btnImportTop",
+      "tag": "button"
+    },
+    {
+      "id": "btnManageBank",
+      "tag": "button"
+    },
+    {
+      "id": "btnRefresh",
+      "tag": "button"
+    },
+    {
+      "id": "impSource",
+      "tag": "select"
+    },
+    {
+      "id": "impPeriod",
+      "tag": "input"
+    },
+    {
+      "id": "impEntryDate",
+      "tag": "input"
+    },
+    {
+      "id": "impFile",
+      "tag": "input"
+    },
+    {
+      "id": "btnImport",
+      "tag": "button"
+    },
+    {
+      "id": "batchSearch",
+      "tag": "input"
+    },
+    {
+      "id": "btnLinkBank",
+      "tag": "button"
+    },
+    {
+      "id": "workspaceAccount",
+      "tag": "select"
+    },
+    {
+      "id": "workspacePeriod",
+      "tag": "select"
+    },
+    {
+      "id": "workspaceAccountExpand",
+      "tag": "button"
+    },
+    {
+      "id": "dateStart",
+      "tag": "input"
+    },
+    {
+      "id": "dateEnd",
+      "tag": "input"
+    },
+    {
+      "id": "codeShowRemoved",
+      "tag": "button"
+    },
+    {
+      "id": "codeSearch",
+      "tag": "input"
+    },
+    {
+      "id": "codeFilter",
+      "tag": "select"
+    },
+    {
+      "id": "btnFilterToggle",
+      "tag": "button"
+    },
+    {
+      "id": "btnDateBack",
+      "tag": "button"
+    },
+    {
+      "id": "btnLearnRules",
+      "tag": "button"
+    },
+    {
+      "id": "btnApplyRules",
+      "tag": "button"
+    },
+    {
+      "id": "btnAiCode",
+      "tag": "button"
+    },
+    {
+      "id": "fltText",
+      "tag": "input"
+    },
+    {
+      "id": "fltMerchant",
+      "tag": "select"
+    },
+    {
+      "id": "fltAccount",
+      "tag": "select"
+    },
+    {
+      "id": "fltType",
+      "tag": "select"
+    },
+    {
+      "id": "fltDateStart",
+      "tag": "input"
+    },
+    {
+      "id": "fltDateEnd",
+      "tag": "input"
+    },
+    {
+      "id": "fltDirection",
+      "tag": "select"
+    },
+    {
+      "id": "fltAmountMode",
+      "tag": "select"
+    },
+    {
+      "id": "fltAmountExact",
+      "tag": "input"
+    },
+    {
+      "id": "fltAmountMin",
+      "tag": "input"
+    },
+    {
+      "id": "fltAmountMax",
+      "tag": "input"
+    },
+    {
+      "id": "btnClearFilters",
+      "tag": "button"
+    },
+    {
+      "id": "bulkAccount",
+      "tag": "select"
+    },
+    {
+      "id": "bulkLocation",
+      "tag": "select"
+    },
+    {
+      "id": "bulkEntity",
+      "tag": "select"
+    },
+    {
+      "id": "btnBulkAccept",
+      "tag": "button"
+    },
+    {
+      "id": "btnBulkExclude",
+      "tag": "button"
+    },
+    {
+      "id": "btnBulkInclude",
+      "tag": "button"
+    },
+    {
+      "id": "btnBulkClear",
+      "tag": "button"
+    },
+    {
+      "id": "btnSaveCoding",
+      "tag": "button"
+    },
+    {
+      "id": "btnReloadCoding",
+      "tag": "button"
+    },
+    {
+      "id": "entryGroup",
+      "tag": "input"
+    },
+    {
+      "id": "btnEntryCsv",
+      "tag": "button"
+    },
+    {
+      "id": "btnApprove",
+      "tag": "button"
+    },
+    {
+      "id": "btnReopen",
+      "tag": "button"
+    },
+    {
+      "id": "btnPost",
+      "tag": "button"
+    },
+    {
+      "id": "btnVoid",
+      "tag": "button"
+    },
+    {
+      "id": "ruleField",
+      "tag": "select"
+    },
+    {
+      "id": "ruleMatch",
+      "tag": "select"
+    },
+    {
+      "id": "rulePattern",
+      "tag": "input"
+    },
+    {
+      "id": "ruleSource",
+      "tag": "select"
+    },
+    {
+      "id": "ruleDirection",
+      "tag": "select"
+    },
+    {
+      "id": "ruleTreatment",
+      "tag": "select"
+    },
+    {
+      "id": "ruleAccount",
+      "tag": "select"
+    },
+    {
+      "id": "ruleEntity",
+      "tag": "select"
+    },
+    {
+      "id": "ruleLocation",
+      "tag": "select"
+    },
+    {
+      "id": "btnAddRule",
+      "tag": "button"
+    },
+    {
+      "id": "ruleSearch",
+      "tag": "input"
+    },
+    {
+      "id": "ruleFilterAccount",
+      "tag": "select"
+    },
+    {
+      "id": "ruleFilterKind",
+      "tag": "select"
+    },
+    {
+      "id": "ruleFilterMatch",
+      "tag": "select"
+    },
+    {
+      "id": "rulePageSize",
+      "tag": "select"
+    },
+    {
+      "id": "btnClearRuleFilters",
+      "tag": "button"
+    },
+    {
+      "id": "btnRulesPrev",
+      "tag": "button"
+    },
+    {
+      "id": "btnRulesNext",
+      "tag": "button"
+    },
+    {
+      "id": "btnAccountConnections",
+      "tag": "button"
+    },
+    {
+      "id": "btnSaveCards",
+      "tag": "button"
+    },
+    {
+      "id": "newCardName",
+      "tag": "input"
+    },
+    {
+      "id": "btnAddCard",
+      "tag": "button"
+    },
+    {
+      "id": "btnTxnDetailClose",
+      "tag": "button"
+    },
+    {
+      "id": "btnRawClose",
+      "tag": "button"
+    },
+    {
+      "id": "btnSplitClose",
+      "tag": "button"
+    },
+    {
+      "id": "btnSplitAdd",
+      "tag": "button"
+    },
+    {
+      "id": "btnSplitSuggest",
+      "tag": "button"
+    },
+    {
+      "id": "splitLearn",
+      "tag": "input"
+    },
+    {
+      "id": "splitMatch",
+      "tag": "select"
+    },
+    {
+      "id": "btnSplitClear",
+      "tag": "button"
+    },
+    {
+      "id": "btnSplitSave",
+      "tag": "button"
+    },
+    {
+      "id": "impSign",
+      "tag": "select"
+    },
+    {
+      "id": "codeAll",
+      "tag": "input"
+    }
+  ],
+  "accounting-books.html": [
+    {
+      "id": "migrationToggle",
+      "tag": "button"
+    },
+    {
+      "id": "connection",
+      "tag": "select"
+    },
+    {
+      "id": "cutoff",
+      "tag": "input"
+    },
+    {
+      "id": "basis",
+      "tag": "select"
+    },
+    {
+      "id": "fiscal",
+      "tag": "select"
+    },
+    {
+      "id": "fetch",
+      "tag": "button"
+    },
+    {
+      "id": "report",
+      "tag": "select"
+    },
+    {
+      "id": "seed",
+      "tag": "button"
+    },
+    {
+      "id": "accept",
+      "tag": "button"
+    },
+    {
+      "id": "historyMoreYears",
+      "tag": "button"
+    },
+    {
+      "id": "historyYearEnd",
+      "tag": "input"
+    },
+    {
+      "id": "historyResume",
+      "tag": "button"
+    },
+    {
+      "id": "historyArchive",
+      "tag": "select"
+    },
+    {
+      "id": "historyRefresh",
+      "tag": "button"
+    },
+    {
+      "id": "historyShowAll",
+      "tag": "button"
+    },
+    {
+      "id": "historyAccount",
+      "tag": "select"
+    },
+    {
+      "id": "historyMore",
+      "tag": "button"
+    },
+    {
+      "id": "ledgerRun",
+      "tag": "select"
+    },
+    {
+      "id": "ledgerFetch",
+      "tag": "button"
+    },
+    {
+      "id": "ledgerAll",
+      "tag": "input"
+    },
+    {
+      "id": "newJournal",
+      "tag": "button"
+    },
+    {
+      "id": "more",
+      "tag": "button"
+    }
+  ],
+  "qbo-reports.html": [
+    {
+      "id": "btnRun",
+      "tag": "button"
+    },
+    {
+      "id": "btnCsv",
+      "tag": "button"
+    },
+    {
+      "id": "report",
+      "tag": "input"
+    },
+    {
+      "id": "account",
+      "tag": "select"
+    },
+    {
+      "id": "from",
+      "tag": "input"
+    },
+    {
+      "id": "to",
+      "tag": "input"
+    },
+    {
+      "id": "method",
+      "tag": "select"
+    },
+    {
+      "id": "byMonth",
+      "tag": "input"
+    },
+    {
+      "id": "drillClose",
+      "tag": "button"
+    },
+    {
+      "id": "drillPostAdjustment",
+      "tag": "button"
+    },
+    {
+      "id": "drillBack",
+      "tag": "button"
+    }
+  ],
+  "invoicing.html": [
+    {
+      "id": "btnNewCustomer",
+      "tag": "button"
+    },
+    {
+      "id": "btnNewInvoice",
+      "tag": "button"
+    },
+    {
+      "id": "invoiceSearch",
+      "tag": "input"
+    },
+    {
+      "id": "statusFilter",
+      "tag": "select"
+    },
+    {
+      "id": "custName",
+      "tag": "input"
+    },
+    {
+      "id": "custEmail",
+      "tag": "input"
+    },
+    {
+      "id": "custPhone",
+      "tag": "input"
+    },
+    {
+      "id": "invCustomer",
+      "tag": "select"
+    },
+    {
+      "id": "invCurrency",
+      "tag": "input"
+    },
+    {
+      "id": "invDueDays",
+      "tag": "input"
+    },
+    {
+      "id": "btnAddLine",
+      "tag": "button"
+    },
+    {
+      "id": "invMemo",
+      "tag": "input"
+    },
+    {
+      "id": "btnConnect",
+      "tag": "button"
+    },
+    {
+      "id": "btnConnect",
+      "tag": "button"
+    },
+    {
+      "id": "btnRefreshConnect",
+      "tag": "button"
+    }
+  ],
+  "accounting-export.html": [
+    {
+      "id": "btnPostAdjustment",
+      "tag": "button"
+    },
+    {
+      "id": "btnExportRegister",
+      "tag": "button"
+    },
+    {
+      "id": "btnExportJournal",
+      "tag": "button"
+    },
+    {
+      "id": "month",
+      "tag": "input"
+    },
+    {
+      "id": "btnRun",
+      "tag": "button"
+    },
+    {
+      "id": "btnBuildJournal",
+      "tag": "button"
+    },
+    {
+      "id": "btnSaveMap",
+      "tag": "button"
+    },
+    {
+      "id": "btnAutoMatchLocations",
+      "tag": "button"
+    },
+    {
+      "id": "btnNewAdjustment",
+      "tag": "button"
+    }
+  ],
+  "schedules.html": [
+    {
+      "id": "btnFetch",
+      "tag": "button"
+    },
+    {
+      "id": "btnExclude",
+      "tag": "button"
+    },
+    {
+      "id": "btnStamp",
+      "tag": "button"
+    },
+    {
+      "id": "account",
+      "tag": "select"
+    },
+    {
+      "id": "from",
+      "tag": "input"
+    },
+    {
+      "id": "to",
+      "tag": "input"
+    },
+    {
+      "id": "amMonth",
+      "tag": "input"
+    },
+    {
+      "id": "btnBuildAmort",
+      "tag": "button"
+    },
+    {
+      "id": "dlgLabel",
+      "tag": "input"
+    },
+    {
+      "id": "dlgVendor",
+      "tag": "input"
+    },
+    {
+      "id": "dlgStart",
+      "tag": "input"
+    },
+    {
+      "id": "dlgEnd",
+      "tag": "input"
+    },
+    {
+      "id": "dlgType",
+      "tag": "select"
+    },
+    {
+      "id": "dlgRequest",
+      "tag": "select"
+    },
+    {
+      "id": "dlgSave",
+      "tag": "button"
+    }
+  ],
+  "fixed-assets.html": [
+    {
+      "id": "btnAddAsset",
+      "tag": "button"
+    },
+    {
+      "id": "assetFilter",
+      "tag": "input"
+    },
+    {
+      "id": "depMonth",
+      "tag": "input"
+    },
+    {
+      "id": "btnBuildDep",
+      "tag": "button"
+    },
+    {
+      "id": "dlgLabel",
+      "tag": "input"
+    },
+    {
+      "id": "dlgVendor",
+      "tag": "input"
+    },
+    {
+      "id": "dlgAssetAccount",
+      "tag": "select"
+    },
+    {
+      "id": "dlgInService",
+      "tag": "input"
+    },
+    {
+      "id": "dlgLifeMonths",
+      "tag": "input"
+    },
+    {
+      "id": "dlgCost",
+      "tag": "input"
+    },
+    {
+      "id": "dlgSalvage",
+      "tag": "input"
+    },
+    {
+      "id": "dlgSave",
+      "tag": "button"
+    }
+  ],
+  "cash-forecast.html": [
+    {
+      "id": "refresh",
+      "tag": "button"
+    },
+    {
+      "id": "planToggle",
+      "tag": "button"
+    },
+    {
+      "id": "overrideAdd",
+      "tag": "button"
+    },
+    {
+      "id": "add",
+      "tag": "button"
+    },
+    {
+      "id": "currency",
+      "tag": "select"
+    },
+    {
+      "id": "group",
+      "tag": "select"
+    },
+    {
+      "id": "unit",
+      "tag": "select"
+    },
+    {
+      "id": "horizon",
+      "tag": "select"
+    },
+    {
+      "id": "lookback",
+      "tag": "select"
+    },
+    {
+      "id": "trend",
+      "tag": "input"
+    },
+    {
+      "id": "jump",
+      "tag": "button"
+    },
+    {
+      "id": "projectionEnabled",
+      "tag": "input"
+    },
+    {
+      "id": "collectionPercent",
+      "tag": "input"
+    },
+    {
+      "id": "collectionLag",
+      "tag": "input"
+    },
+    {
+      "id": "timing",
+      "tag": "input"
+    },
+    {
+      "id": "expandAll",
+      "tag": "button"
+    },
+    {
+      "id": "whatIfLabel",
+      "tag": "input"
+    },
+    {
+      "id": "whatIfDirection",
+      "tag": "select"
+    },
+    {
+      "id": "whatIfAmount",
+      "tag": "input"
+    },
+    {
+      "id": "whatIfDate",
+      "tag": "input"
+    },
+    {
+      "id": "whatIfAdd",
+      "tag": "button"
+    },
+    {
+      "id": "whatIfClear",
+      "tag": "button"
+    },
+    {
+      "id": "planClose",
+      "tag": "button"
+    },
+    {
+      "id": "requestsEnabled",
+      "tag": "input"
+    },
+    {
+      "id": "label",
+      "tag": "input"
+    },
+    {
+      "id": "category",
+      "tag": "select"
+    },
+    {
+      "id": "planAccount",
+      "tag": "select"
+    },
+    {
+      "id": "planCounter",
+      "tag": "select"
+    },
+    {
+      "id": "direction",
+      "tag": "select"
+    },
+    {
+      "id": "amount",
+      "tag": "input"
+    },
+    {
+      "id": "kind",
+      "tag": "select"
+    },
+    {
+      "id": "cadence",
+      "tag": "select"
+    },
+    {
+      "id": "start",
+      "tag": "input"
+    },
+    {
+      "id": "end",
+      "tag": "input"
+    },
+    {
+      "id": "archive",
+      "tag": "button"
+    },
+    {
+      "id": "save",
+      "tag": "button"
+    },
+    {
+      "id": "overrideGroup",
+      "tag": "select"
+    },
+    {
+      "id": "overrideDirection",
+      "tag": "select"
+    },
+    {
+      "id": "overrideCategory",
+      "tag": "select"
+    },
+    {
+      "id": "overrideStart",
+      "tag": "input"
+    },
+    {
+      "id": "overrideEnd",
+      "tag": "input"
+    },
+    {
+      "id": "overrideAmount",
+      "tag": "input"
+    },
+    {
+      "id": "overrideDate",
+      "tag": "input"
+    },
+    {
+      "id": "overrideAccount",
+      "tag": "select"
+    },
+    {
+      "id": "overrideCounter",
+      "tag": "select"
+    },
+    {
+      "id": "resetOverride",
+      "tag": "button"
+    }
+  ]
+}
