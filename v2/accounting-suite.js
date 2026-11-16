@@ -81,7 +81,22 @@
     applyPageHelp(main, active);
   }
 
-  const PRIMARY = ['finance/accounting-home', 'finance/card-coding', 'finance/invoicing', 'finance/qbo-reports', 'finance/month-end'];
+  // One flat row, in the order the work happens, with Books & setup pushed to
+  // the right. The old "More" disclosure hid four destinations behind a
+  // fold-out; a tab a person cannot see is a tab they do not use, so the strip
+  // scrolls sideways instead of hiding anything (Blake, 2026-11-13: no hidden
+  // fold-out dropdowns).
+  const ORDER = [
+    'finance/accounting-home',
+    'finance/card-coding',
+    'finance/invoicing',
+    'finance/qbo-reports',
+    'finance/month-end',
+    'finance/accounting-export',
+    'finance/schedules',
+    'finance/fixed-assets',
+    'finance/cash-forecast',
+  ];
   function buildNav(active) {
     const nav = document.createElement('nav');
     nav.className = 'accounting-suite';
@@ -104,33 +119,30 @@
       if (id === active) link.setAttribute('aria-current', 'page');
       return link;
     };
-    for (const id of PRIMARY) {
+    for (const id of ORDER) {
       const item = pages().find(([key]) => key === id);
       if (item) links.append(makeLink(item));
     }
+    // Anything added to ACCOUNTING_PAGES later still reaches the strip rather
+    // than silently disappearing with the disclosure that used to hold it.
+    for (const item of pages()) {
+      if (!ORDER.includes(item[0]) && item[0] !== 'finance/books') links.append(makeLink(item));
+    }
     nav.append(links);
-    const more = document.createElement('details');
-    more.className = 'accounting-suite-more';
-    const summary = document.createElement('summary');
-    const secondary = pages().filter(([id]) => !PRIMARY.includes(id) && id !== 'finance/books');
-    const selected = secondary.find(([id]) => id === active);
-    summary.textContent = selected ? (FRIENDLY_TITLE[selected[0]] || selected[1]) : 'More';
-    if (selected) more.dataset.current = 'true';
-    const menu = document.createElement('div');
-    menu.className = 'accounting-suite-menu';
-    secondary.forEach(item => menu.append(makeLink(item)));
-    more.append(summary, menu);
-    more.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { more.open = false; summary.focus(); }
-    });
-    // Native disclosure, with ordinary links: no custom menu keyboard model.
-    document.addEventListener?.('click', event => {
-      if (more.open && !more.contains(event.target)) more.open = false;
-    });
-    nav.append(more);
     const setup = pages().find(([id]) => id === 'finance/books');
     if (setup) { const link = makeLink(setup); link.className = 'accounting-suite-setup'; nav.append(link); }
     return nav;
+  }
+
+  // The strip scrolls sideways, so on a narrow screen the current tab can sit
+  // off the left edge. Bring it into view without moving the page itself.
+  function revealCurrent(nav) {
+    if (!nav || typeof nav.querySelector !== 'function') return;
+    const current = nav.querySelector('[aria-current="page"]');
+    if (!current || typeof current.offsetLeft !== 'number') return;
+    for (const box of [nav, nav.firstElementChild]) {
+      if (box && box.scrollWidth > box.clientWidth + 1) box.scrollLeft = Math.max(0, current.offsetLeft - 24);
+    }
   }
 
   function mount(main, active) {
@@ -140,12 +152,14 @@
     const existing = main.querySelector?.('[data-accounting-suite]');
     if (existing) {
       refreshNav(main, existing, active);
+      revealCurrent(existing);
       return;
     }
     const nav = buildNav(active);
     const anchor = main.firstElementChild;
     if (anchor && typeof anchor.after === 'function') anchor.after(nav);
     applyPageHelp(main, active);
+    revealCurrent(nav);
   }
 
   window.SiloAccounting = { contains, mount };

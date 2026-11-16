@@ -1,8 +1,7 @@
 /* Working accounting surfaces use Beacon tokens in both themes. */
 .aw-page{flex:1;min-height:0;overflow:auto;padding:20px 24px 36px;background:var(--bcn-bg)}
 .aw-page [hidden]{display:none!important}.aw-page a{color:var(--bcn-accent)}
-.aw-page-tools,.aw-page-tools>div,.aw-section-head,.aw-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.aw-page-tools{margin-bottom:20px}.aw-page-tools>div{gap:10px}.aw-page-tools label{font-size:12px;color:var(--bcn-ink-2)}
+.aw-section-head,.aw-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .aw-page .bcn-field,.aw-page .bcn-btn{min-height:38px;font-size:13px}
 .aw-muted{color:var(--bcn-ink-3);font-size:12px;line-height:1.5;margin:0}
 .aw-page h2{font-size:17px;line-height:1.4;letter-spacing:-.02em;margin:0}.aw-page h3{font-size:14px;margin:0}
@@ -24,4 +23,95 @@
 .aw-checks{list-style:none;padding:0;margin:0}.aw-check{width:100%;padding:20px;display:grid;grid-template-columns:26px 1fr auto;gap:13px;align-items:start;border:0;border-bottom:1px solid var(--bcn-border);background:var(--bcn-surface);color:var(--bcn-ink);text-align:left}.aw-check[aria-pressed=true]{background:var(--bcn-accent-soft);box-shadow:inset 3px 0 var(--bcn-accent)}.aw-check strong{display:block;font-size:13px;font-weight:600;margin:0 0 5px}.aw-check small{font-size:12px;color:var(--bcn-ink-2);line-height:1.5;display:block}.aw-check-number{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--bcn-border);border-radius:4px;font:11px var(--bcn-mono)}
 .aw-detail p{font-size:13px;color:var(--bcn-ink-2)}.aw-detail .bcn-btn{margin-top:8px;text-decoration:none}.aw-detail ul{padding-left:18px;font-size:13px;line-height:1.8;color:var(--bcn-ink-2)}.aw-detail h3{margin:18px 0 8px}.aw-review-note{border-top:1px solid var(--bcn-border);margin-top:20px;padding-top:16px;color:var(--bcn-ink-3)!important;font-size:12px!important}
 @media(max-width:1000px){.aw-grid{grid-template-columns:1fr}.aw-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.aw-kpi:nth-child(2){border-right:0}.aw-kpi:nth-child(-n+2){border-bottom:1px solid var(--bcn-border)}}
-@media(max-width:600px){.aw-page{padding:16px 12px 26px}.aw-callout{align-items:flex-start;flex-direction:column;padding:18px}.aw-kpi{padding:16px}.aw-kpi-value{font-size:26px}.aw-page-tools>div{width:100%;flex-wrap:wrap}.aw-check{padding:16px;grid-template-columns:24px 1fr}.aw-check>.aw-state{grid-column:2;justify-self:start}.aw-bank-row{flex-wrap:wrap}.aw-table td,.aw-table th{padding:12px}.aw-footer{align-items:flex-start}.accounting-workspace>.bcn-header{padding:18px 12px}}
+@media(max-width:600px){.aw-page{padding:16px 12px 26px}.aw-callout{align-items:flex-start;flex-direction:column;padding:18px}.aw-kpi{padding:16px}.aw-kpi-value{font-size:26px}.aw-check{padding:16px;grid-template-columns:24px 1fr}.aw-check>.aw-state{grid-column:2;justify-self:start}.aw-bank-row{flex-wrap:wrap}.aw-table td,.aw-table th{padding:12px}.aw-footer{align-items:flex-start}.accounting-workspace>.bcn-header{padding:18px 12px}}
+
+/* ── Modernizing pass (2026-11-16) ────────────────────────────────────
+   The period picker moved into the page header, the KPI band tightened,
+   and three charts were added. Everything here is drawn with Beacon
+   tokens and plain elements: no chart library, no new CSS variables, and
+   every figure is written out beside its bar so a chart is never the only
+   way to read a number. */
+.aw-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.accounting-workspace .bcn-header-actions .aw-month{max-width:170px}
+
+/* A denser band: the figure leads, the note is one short line. */
+.aw-kpis{border-radius:8px;margin-bottom:16px}
+.aw-kpi{padding:14px 18px}
+.aw-kpi-value{font:500 26px/1.25 var(--bcn-mono);margin:7px 0 4px}
+.aw-kpi-note{font-size:11px;color:var(--bcn-ink-3)}
+.aw-callout{padding:16px 20px;margin-bottom:16px;border-radius:8px}
+.aw-callout h2{font-size:15px}
+.aw-callout p{font-size:12px;margin:4px 0 0}
+.aw-grid{gap:16px}
+.aw-card{border-radius:8px;margin-bottom:16px}
+.aw-section-head{padding:12px 16px}
+.aw-page h2{font-size:14px;font-weight:650;letter-spacing:-.015em}
+.aw-card-foot{padding:10px 16px;font-size:11px}
+.aw-list li{padding:11px 16px}
+.aw-list a,.aw-bank-row{font-size:12.5px}
+.aw-list small,.aw-bank-row small{font-size:11px;margin-top:3px}
+.aw-amount{font:500 13px var(--bcn-mono);font-variant-numeric:tabular-nums}
+.aw-balance-totals{padding:14px 16px;gap:28px}
+.aw-balance-totals strong{font:500 21px var(--bcn-mono);margin:4px 0;font-variant-numeric:tabular-nums}
+.aw-table{font-size:12.5px}
+.aw-table th{padding:9px 16px}
+.aw-table td{padding:10px 16px}
+.aw-table td.aw-num{font-family:var(--bcn-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* The chart body of a card. */
+.aw-chart{padding:14px 16px 12px}
+.aw-neg{color:var(--bcn-neg)}
+
+/* Horizontal bars: one account, one figure, one bar. */
+.aw-bars{display:flex;flex-direction:column;gap:10px;padding:14px 16px}
+.aw-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;align-items:baseline}
+.aw-bar-label{font-size:12px;color:var(--bcn-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aw-bar-fig{font:12px var(--bcn-mono);font-variant-numeric:tabular-nums;color:var(--bcn-ink);white-space:nowrap}
+.aw-bar-track{grid-column:1/-1;height:7px;border-radius:4px;background:var(--bcn-sunken);overflow:hidden}
+.aw-bar-fill{display:block;height:100%;border-radius:4px;background:var(--bcn-accent)}
+.aw-bar-fill--neg{background:var(--bcn-neg)}
+
+/* One bar split into the statuses that make it up. */
+.aw-stack{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--bcn-sunken)}
+.aw-seg{display:block;min-width:3px}
+.aw-seg--draft{background:var(--bcn-ink-3)}
+.aw-seg--categorized{background:var(--bcn-warn)}
+.aw-seg--approved{background:var(--bcn-accent)}
+.aw-seg--posted{background:var(--bcn-pos)}
+.aw-seg--other{background:var(--bcn-border-strong)}
+.aw-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px}
+.aw-legend-item{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--bcn-ink-2)}
+.aw-legend-item b{font:500 11px var(--bcn-mono);font-variant-numeric:tabular-nums;color:var(--bcn-ink)}
+.aw-dot{width:8px;height:8px;border-radius:2px;flex:none}
+
+/* The month as a shape: one column a day. */
+.aw-cols{display:flex;align-items:flex-end;gap:2px;height:76px}
+.aw-col{flex:1;min-width:2px;min-height:2px;border-radius:2px 2px 0 0;
+  background:color-mix(in oklab, var(--bcn-accent) 72%, var(--bcn-surface))}
+.aw-axis{display:flex;justify-content:space-between;gap:10px;margin-top:8px;
+  font-size:10px;color:var(--bcn-ink-3)}
+.aw-axis span:nth-child(2){font-family:var(--bcn-mono)}
+@media(max-width:600px){
+  .aw-kpi-value{font-size:22px}
+  .aw-bars{padding:12px}
+  .aw-chart{padding:12px}
+  .accounting-workspace .bcn-header-actions{width:100%}
+  .accounting-workspace .bcn-header-actions .aw-month{flex:1;max-width:none}
+}
+.aw-bar-label strong{font-size:12.5px;font-weight:600;color:var(--bcn-ink);display:block}
+.aw-bar-label small{display:block;font-size:11px;color:var(--bcn-ink-3);margin-top:2px}
+.aw-bar{align-items:start}
+.aw-bar-fill--credit{background:var(--bcn-warn)}
+.accounting-workspace > .bcn-header .bcn-header-actions{flex-wrap:nowrap}
+@media(max-width:760px){.accounting-workspace > .bcn-header .bcn-header-actions{flex-wrap:wrap}}
+.aw-col--none{height:0;min-height:2px;background:var(--bcn-border)}
+
+/* A grid item's min-width is auto, so one nowrap figure inside a card could
+   push the whole column past the viewport on a phone. */
+.aw-grid > *{min-width:0}
+@media(max-width:600px){
+  .aw-balance-totals{gap:12px 20px}
+  .aw-bar{grid-template-columns:minmax(0,1fr) auto;column-gap:8px}
+  .aw-bar-label small{white-space:normal}
+}
