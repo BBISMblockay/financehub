@@ -43,6 +43,7 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 20
 
     env:

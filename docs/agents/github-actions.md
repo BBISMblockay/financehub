@@ -44,7 +44,17 @@ its ~2-day window going forward), `backfill-company-entity-large-tables.yml`, `m
 `legacy-payment-requests-import.yml`, `diagnose-shopify-gross.yml`,
 `diagnose-shopify-returns.yml`.
 
-Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
+Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+
+**Every job that reads `SUPABASE_SERVICE_ROLE_KEY` declares `environment: sync`** (pinned by
+`scripts/tests/workflow-env-contract.test.mjs`). That key bypasses RLS on every tenant, and a
+*repository* secret is readable from any ref, so anyone with write access could read it by pushing
+a branch and dispatching a workflow. An environment's deployment-branch policy is a repository
+setting rather than a file on the branch, so it is the only form of this that a branch cannot edit
+around. The `sync` environment holds the key with a **main-only** branch policy and **no required
+reviewer** (a waiting job auto-fails at 30 days, which would stop the nightly syncs). Consequence:
+these workflows can only be dispatched from `main`. While a repository-level copy of the key still
+exists the declaration is inert, because `secrets.*` falls back to it.
 Additionally: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_ADS_DEVELOPER_TOKEN` for Google ad-platform syncs.
 
 ---

@@ -12,6 +12,7 @@ jobs:
   prepare:
     if: vars.ON_DECK_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
