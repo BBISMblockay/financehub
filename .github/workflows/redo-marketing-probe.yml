@@ -23,6 +23,7 @@ on:
 jobs:
   probe-redo-marketing:
     runs-on: ubuntu-latest
+    environment: sync
 
     steps:
       - name: Checkout repo

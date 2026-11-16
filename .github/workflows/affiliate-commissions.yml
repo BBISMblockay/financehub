@@ -25,6 +25,7 @@ on:
 jobs:
   commissions:
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

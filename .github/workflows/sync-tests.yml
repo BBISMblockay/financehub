@@ -19,6 +19,12 @@ on:
     paths: &sync_paths
       - 'scripts/lib/**'
       - 'scripts/tests/**'
+      # workflow-env-contract now holds a rule over EVERY workflow (each job
+      # reading the service-role key declares `environment: sync`), and the
+      # fifteen individual workflow files listed further down cannot carry a
+      # rule like that: dropping the line from any other one would not run the
+      # check. The whole directory triggers it instead.
+      - '.github/workflows/**'
       - 'supabase/migrations/*product_workflow_preview.sql'
       # The two migrations of 2026-11-13 that turn company-specific code into
       # company data (vendor-suggestions-nav-profile-database.test.mjs runs
@@ -116,6 +122,16 @@ on:
       - 'scripts/reconcile-integrations.mjs'
       - '.github/workflows/reconcile-integrations.yml'
       - 'v2/integrations.html'
+      # The pages customer-readiness-ui.test.mjs reads: a change to any of
+      # them can break it, and it is only a guard if it runs on that change.
+      - 'pages/login.html'
+      - 'v2/settings-notifications.html'
+      - 'v2/purchase_request.html'
+      - 'v2/silo-chrome.js'
+      - 'v2/finance.html'
+      - 'v3/dashboards.html'
+      # seo-overview.test.mjs reads this page.
+      - 'v2/seo-overview.html'
       # The channel resolver and the migration that hoists it out of the row
       # filters (wow-channel-hoist-database.test.mjs), plus the verify check
       # that test lifts its regex from.
@@ -1369,6 +1385,14 @@ jobs:
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
           run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter
+      # Both suites below sat in this contract check's KNOWN_UNWIRED list until
+      # 2026-11-16: they passed in review and then no workflow ever ran them,
+      # which is how the readiness one drifted to two stale failures nobody saw.
+      - name: Customer-facing pages stay generic and hide report authoring
+        run: node --test scripts/tests/customer-readiness-ui.test.mjs
+
+      - name: SEO overview
+        run: node --test scripts/tests/seo-overview.test.mjs
 
   plaid-typecheck:
     name: Plaid Edge Function typecheck

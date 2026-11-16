@@ -45,6 +45,7 @@ on:
 jobs:
   backfill:
     runs-on: ubuntu-latest
+    environment: sync
     # ~18 chunks of ~10 requests each for the full history; minutes, not
     # hours. The ceiling is generous so a rate-limited walk finishes rather
     # than being killed with chunks still to write.

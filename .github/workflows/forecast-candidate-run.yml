@@ -69,6 +69,7 @@ jobs:
   run:
     name: Freeze eligible cutoffs
     runs-on: ubuntu-latest
+    environment: sync
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

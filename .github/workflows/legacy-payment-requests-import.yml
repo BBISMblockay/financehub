@@ -26,6 +26,7 @@ on:
 jobs:
   import-legacy-payment-requests:
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 15
 
     steps:

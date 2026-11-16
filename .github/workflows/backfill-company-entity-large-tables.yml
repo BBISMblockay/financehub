@@ -18,6 +18,7 @@ jobs:
   backfill:
     name: Backfill ${{ inputs.tables }}
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 180
 
     steps:

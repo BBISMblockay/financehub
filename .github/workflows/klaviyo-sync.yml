@@ -59,6 +59,7 @@ concurrency:
 jobs:
   klaviyo-sync:
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 60
 
     steps:

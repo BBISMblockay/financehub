@@ -38,6 +38,7 @@ on:
 jobs:
   images:
     runs-on: ubuntu-latest
+    environment: sync
     # ~4,000 creatives x (one Graph read + one download + one upload) at 4 in
     # parallel is minutes; Meta's rate-limit backoff (30s/90s/180s) is why the
     # ceiling is generous.

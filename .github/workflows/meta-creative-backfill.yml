@@ -59,6 +59,7 @@ on:
 jobs:
   backfill:
     runs-on: ubuntu-latest
+    environment: sync
     # ~4,000 ads at 50 per batch POST is ~80 requests plus the page-post pass.
     # Minutes, not hours — but Meta's rate-limit backoff is 30s/90s/180s per
     # hit, so the ceiling is generous enough to finish a throttled walk rather

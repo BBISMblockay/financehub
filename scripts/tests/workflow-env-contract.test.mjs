@@ -135,7 +135,55 @@ test('tenant and data-source inputs are required, never blank-defaulted', async 
 // six assertions executed, and only the independent review noticed. The two
 // names below were already unwired when this check was written and are
 // pinned so the list cannot rot: wiring one of them up must remove it here.
-const KNOWN_UNWIRED = new Set(['customer-readiness-ui.test.mjs', 'seo-overview.test.mjs']);
+// Emptied 2026-11-16 -- sync-tests.yml now runs both of the suites that used
+// to be listed, so every suite under scripts/tests is invoked by a workflow.
+const KNOWN_UNWIRED = new Set([]);
+
+// The service-role key bypasses RLS on every tenant, so where it can be read
+// is a boundary, not hygiene: a collaborator with write access can push a
+// branch, and a workflow that reads a REPOSITORY secret reads it on any ref.
+// A `if: github.ref == 'refs/heads/main'` guard does not fix that -- the guard
+// lives in the file the same collaborator is editing. A GitHub ENVIRONMENT
+// does: its deployment-branch policy is a repository setting, outside the
+// branch, so a job declaring `environment: sync` can only read that
+// environment's secrets from a ref the policy allows.
+//
+// This check is the half that lives in the repo. The other half is settings:
+// the key stored on the `sync` environment with a main-only branch policy and
+// no required reviewer (a waiting job auto-fails at 30 days, which would stop
+// the nightly syncs), and the repository-level copy deleted. Until that is
+// done the declaration is inert -- `secrets.X` falls back to the repository
+// secret -- so this lands safely ahead of it, and nothing here can assert the
+// settings side.
+const KEY = 'SUPABASE_SERVICE_ROLE_KEY';
+
+test('every job that reads the service-role key runs in the sync environment', async () => {
+  const offenders = [];
+  for (const [name, source] of workflows) {
+    if (!source.includes(KEY)) continue;
+    const lines = source.split('\n');
+    const starts = [];
+    lines.forEach((line, i) => {
+      if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(line)) starts.push(i);
+    });
+    // Only the job blocks that actually name the key, so a workflow whose
+    // other jobs need no secret is not forced into the environment.
+    const jobsSeen = [];
+    starts.forEach((start, n) => {
+      const end = n + 1 < starts.length ? starts[n + 1] : lines.length;
+      const body = lines.slice(start, end).join('\n');
+      if (!body.includes(KEY)) return;
+      jobsSeen.push(lines[start].trim());
+      if (!/^ {4}environment: sync$/m.test(body)) {
+        offenders.push(`${name} :: ${lines[start].trim()}`);
+      }
+    });
+    assert.ok(jobsSeen.length > 0,
+      `${name} names ${KEY} outside any job block -- read it inside a job`);
+  }
+  assert.deepEqual(offenders, [],
+    `these jobs read ${KEY} without declaring the sync environment:\n  ${offenders.join('\n  ')}`);
+});
 
 test('every suite under scripts/tests is invoked by some workflow', async () => {
   const suites = (await readdir(new URL('tests/', SCRIPT_DIR))).filter((f) => f.endsWith('.test.mjs'));
