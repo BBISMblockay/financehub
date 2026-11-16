@@ -3861,3 +3861,32 @@ and `handler.mjs` that points a bot at the drill-down. Rollback:
 drop view public.accounting_journal_lines_v;` then
 `delete from public.silo_report_tieouts where report_id in ('c7000000-0000-4000-a000-000000000004','c7000000-0000-4000-a000-000000000005');
 delete from public.silo_chat_saved_reports where id in ('c7000000-0000-4000-a000-000000000004','c7000000-0000-4000-a000-000000000005');`
+
+### Workspace profile activity containment — 2026-11-16
+
+`20261116165355_workspace_profile_active_safety.sql` replaces only
+`admin_update_profile`. Workspace edits reject a changed global `is_active`
+(SQLSTATE 42501); omitted/null or unchanged values remain compatible. This applies
+also to workspace owners and platform admins using this RPC. Role/name/department
+editing retains its existing rules. Backend shows status read-only; use Workspace
+settings → Team to remove access to one workspace. Existing removal may deactivate
+a profile only when no memberships remain. No new suspension authority is added.
+
+Apply this single migration with Blake's approval before relying on the UI change
+for containment, then run `verify_v2_schema.sql` (including “Workspace profile
+editing preserves global activity”). No edge function deploy or catalog refresh
+is needed. Until apply, the backend vulnerability remains; merging UI is not a fix
+for direct RPC callers. Old clients with an unchanged status continue to save;
+a stale status returns an error and should be refreshed. Do not roll back to the
+old RPC: that restores cross-company deactivation.
+
+Release gate (Blake, deployment): use synthetic accounts in an isolated environment
+to verify Backend name/role saves, failed direct status flips, and Team removal
+preserving another membership. No production mutation tests. Run full schema
+verification after authorized apply; production drift is expected until then.
+
+Separate existing limitation: last-owner guards count memberships, including
+inactive owners. This migration prevents creating more inactive owners through
+profile editing; it does not repair existing inactive owners, redesign membership
+policies, or change the add/remove/role RPCs. A platform suspension policy and an
+active-owner invariant remain separate decisions.

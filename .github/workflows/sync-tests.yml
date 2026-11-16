@@ -2254,7 +2254,8 @@ jobs:
                    guard-on-supplied no-advisory-lock helper-authority \
                    no-finance-guard no-executive-guard \
                    finance-guard-on-supplied finance-helper-authority \
-                   finance-stepping-stone; do
+                   finance-stepping-stone no-activity-guard activity-guard-on-supplied \
+                   no-activity-lock activity-write; do
             echo "--- $m ---"
             if ESC_MUTATION="$m" node scripts/tests/admin-profile-owner-escalation-database.test.mjs; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"

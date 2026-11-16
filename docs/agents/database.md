@@ -289,6 +289,8 @@ admin_counts()
 admin_list_access_requests(p_status)
 admin_list_profiles()
 admin_update_profile(p_user_id, p_name, p_department, p_role, p_is_active, p_notes)
+  -- Since 20261116165355: p_is_active is compatibility-only. Null/unchanged is accepted;
+  -- a changed global status is refused for all callers. Use Team removal for workspace access.
 approve_access_request(p_request_id, p_department, p_role)
 deny_access_request(p_request_id)
 create_org_invite(p_email, p_role, p_department)

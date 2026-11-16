@@ -19820,4 +19820,6 @@ $c$select (select count(*) from v_po_header_summary
 -- it. No edge-function deploy is required (affiliate-portal calls the function
 -- by name).
 \i migrations/20261116060000_affiliate_portal_feed_store_guard.sql
+-- Workspace profile editing cannot change global account activity.
+\i migrations/20261116165355_workspace_profile_active_safety.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

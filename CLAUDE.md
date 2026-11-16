@@ -118,8 +118,9 @@ Database rules: `supabase/CLAUDE.md`.
   people authority uses narrower gates: `can_manage_journal_entries()`, `can_manage_client_invoices()`,
   `current_user_can_manage_comp_requests()`, `is_exec_or_owner()`, `is_platform_admin()`. Never widen
   one of those to `is_admin_user()`.
-- **Global profile flags** (`profiles.role`, `department`, `is_active`) are written only when the user
-  belongs to no other company — `department` alone grants journal-entry authority.
+- **Global role/department flags** are written only when the user belongs to no other company —
+  `department` alone grants journal-entry authority. Workspace profile editing never changes global
+  `profiles.is_active`; use Team removal for workspace access (no new platform suspension path).
 - **`chat_run_readonly_query()`** is the shared report engine (Ask SILO, saved reports, every v3 tile):
   SECURITY INVOKER, SELECT-only, 1000-row pages. Build new report surfaces on it, not beside it.
 

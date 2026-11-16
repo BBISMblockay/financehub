@@ -10045,3 +10045,16 @@ select 'Meta import leases' as check_name,
   when pg_get_functiondef(to_regprocedure('public.reserve_bootstrap_dispatch(uuid)')) not like '%2 minutes%'
    then 'BROKEN: the bootstrap dispatch throttle is gone'
   else 'ok' end as status;
+
+-- Workspace profile activity containment (outside the Plaid fixture markers).
+select 'Workspace profile editing preserves global activity' as check_name,
+  case when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null
+    then 'MISSING: admin_update_profile'
+    when not exists (
+      select 1 from pg_proc where oid = to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)')
+        and prosrc like '%p_is_active is not null and p_is_active is distinct from v_current_active%'
+        and prosrc like '%account status cannot be changed through workspace profile editing%'
+        and prosrc like '%pr.id = p_user_id for update%'
+        and prosrc !~* 'is_active\s*='
+    ) then 'CRITICAL: workspace profile editing can change global activity or lacks the compatibility guard'
+    else 'ok' end as status;
