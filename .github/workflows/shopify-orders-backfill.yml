@@ -34,6 +34,7 @@ on:
 jobs:
   orders-backfill:
     runs-on: ubuntu-latest
+    environment: sync
     # Same ceiling as the main sync's full-history path — a 730-day backfill
     # of the flagship store is the worst case; per-store runs finish far faster.
     timeout-minutes: 330

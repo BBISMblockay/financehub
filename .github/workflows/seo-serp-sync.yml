@@ -79,6 +79,7 @@ concurrency:
 jobs:
   seo-serp-sync:
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 45
 
     steps:

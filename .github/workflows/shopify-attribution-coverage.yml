@@ -13,6 +13,7 @@ jobs:
   coverage:
     if: vars.ATTRIBUTION_COVERAGE_ENABLED == 'true'
     runs-on: ubuntu-latest
+    environment: sync
     timeout-minutes: 330
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

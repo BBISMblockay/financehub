@@ -58,6 +58,7 @@ on:
 jobs:
   ad-platforms-sync:
     runs-on: ubuntu-latest
+    environment: sync
     # 60 was set when this job was campaign-KPIs-only and finished in under a
     # minute. Ad-level backfill is a different workload: it fetches DAY BY DAY
     # (chunkDays=1, forced by Meta's "reduce the amount of data" error on

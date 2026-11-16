@@ -130,6 +130,7 @@ on:
 jobs:
   shopify-sync:
     runs-on: ubuntu-latest
+    environment: sync
     # Long enough for a full 730-day history re-import of the main store
     # (~25 windows at ~10 min each); incremental runs finish in minutes.
     timeout-minutes: 330

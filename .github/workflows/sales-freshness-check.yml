@@ -50,6 +50,7 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    environment: sync
     # Long enough for the heal path: a full Shopify sync is ~75min.
     timeout-minutes: 150
 
