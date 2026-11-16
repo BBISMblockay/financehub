@@ -67,7 +67,8 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 const MUTATIONS = ['no-grant-guard', 'no-demote-guard', 'no-last-owner',
   'guard-on-supplied', 'no-advisory-lock', 'helper-authority',
   'no-finance-guard', 'no-executive-guard', 'finance-guard-on-supplied',
-  'finance-helper-authority', 'finance-stepping-stone'];
+  'finance-helper-authority', 'finance-stepping-stone',
+  'no-activity-guard', 'activity-guard-on-supplied', 'no-activity-lock', 'activity-write'];
 const mutation = process.env.ESC_MUTATION || '';
 assert.ok(mutation === '' || MUTATIONS.includes(mutation), `Unknown escalation mutation: ${mutation}`);
 
@@ -245,6 +246,16 @@ await test('BEFORE the fix: the sibling functions ask the ACTIVE-company helper'
 // ── 1. The migration under test ──────────────────────────────────────────────
 let sql = await readFile(
   new URL('supabase/migrations/20261019180000_admin_update_profile_owner_escalation.sql', root), 'utf8');
+
+// Exercise preserved permission behavior against the final RPC, not its predecessor.
+const activityFix = await readFile(new URL('supabase/migrations/20261116165355_workspace_profile_active_safety.sql', root), 'utf8');
+sql = sql.replace(/create or replace function public\.admin_update_profile\([\s\S]*?\$function\$;/,
+  () => activityFix.slice(activityFix.indexOf('create or replace function')));
+
+if (mutation === 'no-activity-guard') sql = sql.replace('p_is_active is not null and p_is_active is distinct from v_current_active', 'false');
+if (mutation === 'activity-guard-on-supplied') sql = sql.replace('p_is_active is not null and p_is_active is distinct from v_current_active', 'p_is_active is not null');
+if (mutation === 'no-activity-lock') sql = sql.replace('pr.id = p_user_id for update', 'pr.id = p_user_id');
+if (mutation === 'activity-write') sql = sql.replace('set name = coalesce(p_name, name),', 'set is_active = coalesce(p_is_active,is_active), name = coalesce(p_name, name),');
 
 if (mutation === 'no-grant-guard') {
   sql = sql.replace(/if v_membership_role = 'owner_admin'[\s\S]*?end if;\n\n/,
@@ -745,6 +756,105 @@ await test('the verify check goes CRITICAL when each guard is taken away', async
     await db.exec('rollback');
   }
   assert.equal((await one(verifyStatement())).status, 'ok', 'the rollbacks restored the real function');
+});
+
+// Activity containment: real authenticated SQL calls, no UI dependency.
+// Fresh fixtures keep these assertions independent of permission-regression edits above.
+// Removal's invite table is absent from the minimal onboarding bootstrap.
+await db.exec(`create table public.org_invites (entity_id uuid, email text, status text)`);
+const activityCompany = randomUUID(), otherCompany = randomUUID();
+const activityAdmin = randomUUID(), activityOwner = randomUUID(), activityMember = randomUUID();
+await q(`insert into public.entities(id,module,entity_type,entity_key,source,title) values
+ ($1,'finance_hub','company','activity-a','seed','A'),
+ ($2,'finance_hub','company','activity-b','seed','B')`, [activityCompany, otherCompany]);
+for (const [id, role] of [[activityAdmin,'admin'],[activityOwner,'owner'],[activityMember,'user']]) {
+  await q('insert into auth.users(id,email) values ($1,$2)', [id, `${id}@example.test`]);
+  await q(`update public.profiles set role=$2::app_role, department='ops', is_active=true,
+    active_company_id=$3 where id=$1`, [id,role,activityCompany]);
+  await q('insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,$3)',
+    [activityCompany,id,role === 'owner' ? 'owner_admin' : role === 'admin' ? 'admin' : 'member']);
+}
+const activityCall = (actor, target, value, name='Activity rename') => as(actor, () => q(
+  'select public.admin_update_profile($1,$2,null,null,$3,null)', [target,name,value]));
+const snapshot = (id) => one('select to_jsonb(p) as profile from public.profiles p where id=$1', [id]);
+for (const multi of [false,true]) {
+  if (multi) {
+    for (const id of [activityOwner,activityMember]) await q(
+      `insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`,
+      [otherCompany,id]);
+  }
+  for (const target of [activityOwner,activityMember]) {
+    for (const active of [true,false]) {
+      await q('update public.profiles set is_active=$2 where id=$1',[target,active]);
+      await test(`activity: ${multi?'multi':'single'} company ${target===activityOwner?'owner':'member'} ${active?'deactivation':'activation'} refused atomically`, async () => {
+        const before = await snapshot(target);
+        await assert.rejects(() => activityCall(activityAdmin,target,!active,'must not persist'),
+          e => e.code === '42501' && /account status cannot be changed/.test(e.message));
+        assert.deepEqual(await snapshot(target), before);
+      });
+      for (const value of [null,active]) await test(`activity: ${multi?'multi':'single'} company status ${active}, input ${value} preserves profile activity and memberships`, async () => {
+        const members = await q('select * from public.entity_memberships where user_id=$1 order by entity_id',[target]);
+        await activityCall(activityAdmin,target,value);
+        const p = (await snapshot(target)).profile;
+        assert.equal(p.is_active,active);
+        assert.equal(p.name,'Activity rename');
+        assert.deepEqual(await q('select * from public.entity_memberships where user_id=$1 order by entity_id',[target]),members);
+      });
+    }
+    await q('update public.profiles set is_active=true where id=$1',[target]);
+  }
+}
+await test('activity: owner has no global-suspension bypass, including self', async () => {
+  for (const target of [activityOwner,activityAdmin,activityMember]) {
+    await assert.rejects(() => activityCall(activityOwner,target,false), /account status cannot be changed/);
+  }
+});
+await test('activity: member and anonymous callers still cannot edit profiles', async () => {
+  await assert.rejects(() => activityCall(activityMember,activityAdmin,null), /not authorized/);
+  await assert.rejects(() => as(null, () => q('select public.admin_update_profile($1)',[activityAdmin]), 'anon'), /permission denied/);
+});
+await test('activity: remove uses existing workspace-only path and preserves other company access', async () => {
+  await q(`insert into public.org_invites values ($1,$3,'pending'),($2,$3,'pending')`,
+    [activityCompany,otherCompany,`${activityMember}@example.test`]);
+  await as(activityAdmin, () => q('select public.remove_workspace_member($1)',[activityMember]));
+  assert.deepEqual(await q('select status from public.org_invites where entity_id=$1',[activityCompany]),[{status:'revoked'}]);
+  assert.deepEqual(await q('select status from public.org_invites where entity_id=$1',[otherCompany]),[{status:'pending'}]);
+  assert.equal(await membershipRole(activityCompany,activityMember), undefined);
+  assert.equal(await membershipRole(otherCompany,activityMember),'owner_admin');
+  assert.equal((await snapshot(activityMember)).profile.is_active,true);
+});
+await test('activity: inactive owner memberships do not permit disabling the last active owner', async () => {
+  const inactiveOwner = randomUUID();
+  await q('insert into auth.users(id,email) values ($1,$2)',[inactiveOwner,`${inactiveOwner}@example.test`]);
+  await q('update public.profiles set is_active=false where id=$1',[inactiveOwner]);
+  await q(`insert into public.entity_memberships(entity_id,user_id,role) values ($1,$2,'owner_admin')`,[activityCompany,inactiveOwner]);
+  await assert.rejects(() => activityCall(activityAdmin,activityOwner,false), /account status cannot be changed/);
+  assert.equal((await snapshot(activityOwner)).profile.is_active,true);
+  await q('delete from public.entity_memberships where user_id=$1',[inactiveOwner]);
+});
+await test('activity: sole owner cannot be disabled or removed by a workspace admin', async () => {
+  await assert.rejects(() => activityCall(activityAdmin,activityOwner,false), /account status cannot be changed/);
+  await assert.rejects(() => as(activityAdmin, () => q('select public.remove_workspace_member($1)',[activityOwner])), /only an owner/);
+  assert.equal(await membershipRole(activityCompany,activityOwner),'owner_admin');
+});
+await test('activity: reapply is idempotent and the actual drift check detects missing guard or writes', async () => {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql',root),'utf8');
+  const statement = verify.slice(verify.indexOf("select 'Workspace profile editing preserves global activity'"));
+  assert.equal((await one(statement)).status,'ok');
+  if (!mutation) {
+    await db.exec(activityFix);
+    assert.equal((await one(statement)).status,'ok');
+  }
+  for (const broken of [
+    activityFix.replace('p_is_active is distinct from v_current_active','false'),
+    activityFix.replace('pr.id = p_user_id for update','pr.id = p_user_id'),
+    activityFix.replace('set name = coalesce(p_name, name),','set is_active = coalesce(p_is_active,is_active), name = coalesce(p_name, name),')
+  ]) {
+    await db.exec('begin');
+    await db.exec(broken);
+    assert.match((await one(statement)).status,/CRITICAL/);
+    await db.exec('rollback');
+  }
 });
 
 console.log(`\nadmin_update_profile owner escalation: ${passed}/${passed} passed`);

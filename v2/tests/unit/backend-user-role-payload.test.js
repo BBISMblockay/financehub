@@ -43,7 +43,7 @@ const grab = (startMarker, endMarker) => {
 };
 
 const openSrc = grab('function openUserDialog(uid){', 'async function refreshSiloAccess(');
-const saveSrc = grab('async function saveUserDialog(){', 'async function disableUserDialog(');
+const saveSrc = grab('async function saveUserDialog(){', '// ====== Ops status');
 
 // ── A harness standing in for the page ───────────────────────────────────────
 function harness(users) {
@@ -113,6 +113,7 @@ const run = async () => {
     await save;
     r.test('a rename with an untouched role sends p_role: null', () => {
       r.eq(h.calls.length, 1);
+      r.eq(h.calls[0].payload.p_is_active, null, 'profile saves never mutate global activity');
       r.eq(h.calls[0].payload.p_role, null, 'the stale global role must not be resent');
       r.eq(h.calls[0].payload.p_name, 'Renamed');
       r.eq(h.calls[0].payload.p_user_id, 'A');
@@ -194,11 +195,12 @@ const run = async () => {
       'the old unconditional payload must be gone');
   });
 
-  // ── 6. The other two callers send no role, so they reach no owner guard ────
-  r.test('Disable still sends p_is_active alone', () => {
-    const disable = grab('async function disableUserDialog(){', '// ====== Ops status');
-    r.has(disable, 'p_user_id: DLG_UID, p_is_active: false');
-    r.not(disable, 'p_role', 'Disable must not grow a role argument');
+  r.test('global activity has no editable control or Disable action', () => {
+    r.not(html, 'disableUserDialog');
+    r.not(html, 'dlgDisableBtn');
+    r.not(html, '<select id="dlgStatus"');
+    r.has(html, 'Account status (read-only)');
+    r.has(html, 'remove access to this workspace');
   });
 
   r.test('settings-team setDepartment still sends p_role: null', () => {

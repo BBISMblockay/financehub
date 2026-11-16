@@ -554,8 +554,8 @@
         </div>
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-4">
-            <label class="section-title">Status</label>
-            <select id="dlgStatus" class="select w-full mt-1"><option value="active">active</option><option value="disabled">disabled</option></select>
+            <label class="section-title">Account status (read-only)</label>
+            <div id="dlgStatus" class="text-sm mt-1"></div>
           </div>
           <div class="md:col-span-8">
             <label class="section-title">Notes</label>
@@ -563,7 +563,7 @@
           </div>
         </div>
         <p class="text-xs muted2 md:col-span-12" style="margin:0;">
-          Feature grants for members of your active workspace also live on
+          Manage feature grants or remove access to this workspace in
           <a href="/v2/settings-team.html" class="underline">Workspace settings → Team</a>.
         </p>
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
@@ -582,11 +582,11 @@
         </div>
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <div class="md:col-span-8 text-xs muted2">Saved via RPC <span class="mono">admin_update_profile</span>.</div>
-          <div class="md:col-span-4 flex gap-2"><button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button><button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button></div>
+          <div class="md:col-span-4 flex gap-2"><button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button></div>
         </div>
         <div id="dlgMsg" class="text-sm muted2">—</div>
       </div>
-      <div class="dialog-foot text-xs muted2">Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span>.</div>
+      <div class="dialog-foot text-xs muted2">Account status applies across all workspaces and cannot be changed here.</div>
     </div>
   </dialog>
 
@@ -1008,7 +1008,7 @@
       el("dlgDept").value = u.department || "";
       el("dlgRole").value = u.role || "member";
       DLG_ROLE_OPENED_WITH = el("dlgRole").value;
-      el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase() === "disabled") ? "disabled" : "active";
+      el("dlgStatus").textContent = (u.is_active === false || String(u.status).toLowerCase() === "disabled") ? "disabled" : "active";
       el("dlgNotes").value = u.notes || "";
 
       setText("dlgMsg", "—");
@@ -1168,8 +1168,6 @@
       if (msg) msg.textContent = "Saving…";
       if (!DLG_UID) return;
 
-      const p_is_active = (String(el("dlgStatus")?.value || "active").toLowerCase() !== "disabled");
-
       // Send the role ONLY when it was actually changed in this dialog.
       //
       // This list loads the GLOBAL profiles.role, which is not the same thing as
@@ -1196,7 +1194,7 @@
         p_name: (String(el("dlgName")?.value || "").trim() || null),
         p_department: (String(el("dlgDept")?.value || "").trim() || null),
         p_role: (roleChanged ? roleNow : null),
-        p_is_active: p_is_active,
+        p_is_active: null,
         p_notes: (String(el("dlgNotes")?.value || "").trim() || null)
       };
 
@@ -1217,22 +1215,6 @@
       if (roleChanged && DLG_GENERATION === savedGeneration && DLG_UID === savedUid) {
         DLG_ROLE_OPENED_WITH = roleNow;
       }
-      await Promise.allSettled([ loadUsers(), loadHealth() ]);
-    }
-
-    async function disableUserDialog(){
-      const msg = el("dlgMsg");
-      if (msg) msg.textContent = "Disabling…";
-      if (!DLG_UID) return;
-
-      const { error } = await supabaseClient.rpc("admin_update_profile", { p_user_id: DLG_UID, p_is_active: false });
-      if (error){
-        if (msg) msg.textContent = `Disable failed: ${error.message}`;
-        return;
-      }
-
-      if (msg) msg.textContent = "Disabled.";
-      el("dlgStatus").value = "disabled";
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
@@ -1476,7 +1458,6 @@
 
       // dialog actions
       el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
-      el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
       el("dlgSiloToggleBtn")?.addEventListener("click", toggleSiloAccess);
       el("dlgSeoToggleBtn")?.addEventListener("click", toggleSeoApprover);
 
