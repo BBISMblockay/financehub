@@ -55,6 +55,14 @@
   /* Same drawing as the other strips: 24-unit box, 1.6 stroke, round caps,
      currentColor. Keyed by tab id with a neutral fallback. */
   const ICONS = {
+    // A house: the workspace's front door.
+    'finance/menu': '<path d="M3 11l9-7 9 7"/><path d="M5.5 9.8V20h13V9.8"/><path d="M10 20v-5h4v5"/>',
+    // A checklist with a tick: what is left to switch on.
+    'start/setup': '<path d="M9 5h11"/><path d="M9 12h11"/><path d="M9 19h11"/><polyline points="3.5 5 4.5 6 6.5 4"/><polyline points="3.5 12 4.5 13 6.5 11"/><polyline points="3.5 19 4.5 20 6.5 18"/>',
+    // A person: your own account.
+    'people/profile': '<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>',
+    // A question mark: how it works.
+    'start/help': '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.3 2.4c-.5.2-.8.7-.8 1.2v.4"/><circle cx="12" cy="16.8" r="0.9" fill="currentColor" stroke="none"/>',
     // A gauge: what the stock adds up to.
     'inventory/overview': '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-5"/><circle cx="12" cy="18" r="1.2"/>',
     // Stacked boxes: what is on the shelf.

@@ -237,6 +237,9 @@ r.test('each collapsed row is named for its suite, and its first tab keeps the p
     'finance/payment-request': ['Requests', 'Payment Request'],
     'inventory/overview': ['Inventory', 'Overview'],
     'team/reviews': ['Team', 'Performance Reviews'],
+    // Home keeps its own row name; its first tab is the Overview, as in
+    // Inventory and Purchasing.
+    'finance/menu': ['Home', 'Overview'],
   };
   for (const suite of Nav.SUITES) {
     const [rowLabel, tabLabel] = EXPECTED[suite.row] || [];
@@ -247,4 +250,8 @@ r.test('each collapsed row is named for its suite, and its first tab keeps the p
   }
 });
 
-r.summary();
+// Exit non-zero on a failure. Without this the file always exits 0 and
+// v2/tests/run.js reports PASS whatever the assertions said (found
+// 2026-11-16: three real failures reported as a pass).
+const { fail } = r.summary();
+process.exit(fail ? 1 : 0);

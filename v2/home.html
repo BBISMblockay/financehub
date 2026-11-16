@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SILO · Home</title>
+  <meta name="robots" content="noindex" />
+  <script>
+    // Pattern 3 (stub redirect). Home's canonical URL stays /v2/finance.html:
+    // it is what pages/login.html, index.html's signed-in router,
+    // v2/dept-guard.js, v2/company-picker.html and stored
+    // profiles.default_page values all point at, and none of that is worth
+    // touching to change a path. This stub only means someone typing the
+    // page's NAME gets there (Blake, 2026-11-16: "we use as home page so if
+    // we can rebrand that to home"). The query string and hash carry over.
+    // Add no logic here.
+    location.replace('/v2/finance.html' + location.search + location.hash);
+  </script>
+</head>
+<body></body>
+</html>

@@ -148,4 +148,7 @@ r.test('the strip draws only the tabs the nav returns', () => {
   r.eq(links[0].attrs['aria-current'], 'page', 'the open tab is marked current');
 });
 
-r.summary();
+// Exit non-zero on a failure: `r.summary()` alone leaves the exit code at 0,
+// so v2/tests/run.js reported PASS whatever the assertions said (2026-11-16).
+const { fail } = r.summary();
+process.exit(fail ? 1 : 0);

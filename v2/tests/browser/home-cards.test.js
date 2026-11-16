@@ -44,6 +44,7 @@ async function readHome(page) {
     }));
     return {
       title: document.getElementById('finLandingTitle').textContent.trim(),
+      sub: document.getElementById('finLandingSub').textContent.trim(),
       sidebar,
       home: cards.flatMap((c) => c.links),
       cards,
@@ -59,7 +60,11 @@ async function readHome(page) {
       tables({ role: 'owner', department: 'exec', membership: 'owner_admin' }),
       { cachedCompany: STANDARD, ready });
     let home = await readHome(page);
-    r.ok('the heading is the company name', home.title === 'Acme Co', home.title);
+    // 2026-11-16: Home is called "Home" on every profile (it is the suite's
+    // Overview now) and the WORKSPACE moved to the subtitle, so the heading
+    // no longer changes shape between a grandfathered and a standard company.
+    r.ok('the heading is Home', home.title === 'Home', home.title);
+    r.ok('the workspace name is the subtitle', home.sub === 'Acme Co', home.sub);
     r.ok('Home offers exactly the sidebar links, in the same order',
       JSON.stringify(home.home) === JSON.stringify(home.sidebar),
       `home=${JSON.stringify(home.home)}\nsidebar=${JSON.stringify(home.sidebar)}`);
@@ -67,8 +72,14 @@ async function readHome(page) {
     r.ok('cards follow the standard sections', titles.includes('Marketing') && titles.includes('Purchasing')
       && titles.includes('Insights'), JSON.stringify(titles));
     r.ok('Marketing is reachable from Home', home.home.includes('/v2/marketing-overview.html'));
-    r.ok('Setup and Accounting are on Home for the founder',
-      home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/accounting.html'));
+    r.ok('Accounting is on Home for the founder', home.home.includes('/v2/accounting.html'));
+    // 2026-11-16: Setup, My Profile and Help are tabs of Home's own strip, so
+    // they are no longer sidebar rows -- and Home mirrors the sidebar, so they
+    // are not cards either. Reaching them twice from Home was the duplication
+    // Blake asked to remove, not a loss.
+    for (const tab of ['/v2/setup-checklist.html', '/v2/profile.html', '/v2/help.html']) {
+      r.ok(`${tab} is a Home tab, not a Home card`, !home.home.includes(tab), JSON.stringify(home.home));
+    }
     r.ok('no grandfathered-only link leaks onto a standard Home',
       !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report/.test(h)),
       JSON.stringify(home.home));
@@ -119,7 +130,8 @@ async function readHome(page) {
       tables({ role: 'owner', department: 'exec', membership: 'owner_admin' }),
       { cachedCompany: GRANDFATHERED, ready });
     home = await readHome(page);
-    r.ok('the grandfathered heading is unchanged', home.title === 'SILO Home', home.title);
+    r.ok('the grandfathered heading is Home too', home.title === 'Home', home.title);
+    r.ok('and names its own workspace', home.sub === 'Baseballism', home.sub);
     // The Receivables card went with the page on 2026-11-11 (the ar_* book froze
     // 2026-10-12; open balances come from the Shopify-fed Wholesale Tracking
     // dashboard). The card was the last link to it anywhere in the app, so assert

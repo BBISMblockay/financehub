@@ -218,6 +218,14 @@ table { border-collapse: collapse; }
 .silo-sb-section { margin-bottom: 4px; }
 .silo-sb-links { display: none; flex-direction: column; gap: 2px; }
 .silo-sb-section--open .silo-sb-links { display: flex; }
+/* A section with one visible row is drawn as that row: always shown, no
+   toggle, no chevron, and no second click to reach the page. */
+.silo-sb-section--solo { margin-bottom: 2px; }
+.silo-sb-section--solo > .silo-sb-links { display: flex; }
+/* A solo row has no label, so without this it reads as a member of whichever
+   labelled group sits above it. Space the two kinds of row apart. */
+.silo-sb-section:not(.silo-sb-section--solo) + .silo-sb-section--solo,
+.silo-sb-section--solo + .silo-sb-section:not(.silo-sb-section--solo) { margin-top: 10px; }
 .silo-app[data-collapsed="true"] .silo-sb-links { display: none; }
 
 .silo-sb-link {

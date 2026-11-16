@@ -118,4 +118,7 @@ r.test('without the ledger installed, an approved import stays under After appro
   r.ok('claims nothing about a SILO ledger', !/SILO|ledger/i.test(m.pill + m.title + m.caption));
 });
 
-r.summary();
+// Exit non-zero on a failure: `r.summary()` alone leaves the exit code at 0,
+// so v2/tests/run.js reported PASS whatever the assertions said (2026-11-16).
+const { fail } = r.summary();
+process.exit(fail ? 1 : 0);
