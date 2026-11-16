@@ -278,6 +278,33 @@
     stale:    { field: 'sort',         value: 'stale_desc',     label: 'Stale first' }
   };
 
+  /* Deep links, so a tile on the Overview can land on the rows it claimed.
+   *
+   * Only the four things the Overview actually points at: a lens, a product
+   * type, a location and a search. Everything else is ignored rather than
+   * guessed at, and an unknown lens id is dropped -- a link that half-applies
+   * would show different rows than the tile that was clicked, which is the
+   * exact failure the lens work was about. The location arrives as the raw
+   * location_tag and is turned into the page's own option id by the caller's
+   * `slug`, because that id is derived, not stored.
+   */
+  function applyDeepLink(state, params, slug) {
+    if (!params) return state;
+    var get = typeof params.get === 'function'
+      ? function (k) { return params.get(k); }
+      : function (k) { return params[k]; };
+    var next = Object.assign({}, state);
+    var lens = get('lens');
+    if (lens && LENSES[lens]) next = toggleLens(next, lens);
+    var type = get('type');
+    if (type) next.productType = String(type);
+    var q = get('q');
+    if (q) next.q = String(q);
+    var loc = get('loc');
+    if (loc && typeof slug === 'function') next.location = slug(String(loc));
+    return next;
+  }
+
   /* Fields a lens is allowed to own, and what "cleared" means for each. */
   var LENS_FIELD_DEFAULTS = { maxCoverDays: null, maxOnHand: null, signal: '__ALL__', sort: 'signal' };
 
@@ -572,6 +599,7 @@
     resetAll: resetAll,
     clearLenses: clearLenses,
     toggleLens: toggleLens,
+    applyDeepLink: applyDeepLink,
     clearField: clearField,
     fieldAppliesAtLevel: fieldAppliesAtLevel,
     matchesFilters: matchesFilters,

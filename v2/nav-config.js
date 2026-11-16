@@ -156,8 +156,12 @@
     {
       key: 'inventory',
       label: 'Inventory',
-      row: 'inventory/workboard',
+      // Overview first (2026-11-16), the same shape as Accounting, Marketing
+      // and Purchasing: the suite opens on what you hold, and the workbench
+      // keeps its own name as the next tab and its own URL.
+      row: 'inventory/overview',
       pages: [
+        ['inventory/overview', 'Overview', '/v2/inventory-overview.html'],
         ['inventory/workboard', 'Inventory Manager', '/v2/inventory.html'],
         ['inventory/products', 'Products', '/v2/products.html'],
         ['purchasing/product-studio', 'Product Studio', '/v3/product-workflow.html'],
@@ -470,9 +474,12 @@
     { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
     { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/v2/factories.html', profiles: ['grandfathered', 'standard'], tabOf: PURCHASING_ROW },
 
-    { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] , tabOf: 'inventory/workboard' },
-    { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] , tabOf: 'inventory/workboard' },
+    // The Inventory suite's sidebar row is its Overview (2026-11-16). The
+    // workbench keeps its own row, its own URL and its own name as a tab.
+    { id: 'inventory/overview', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory', href: '/v2/inventory-overview.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'], tabOf: 'inventory/overview' },
+    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] , tabOf: 'inventory/overview' },
+    { id: 'purchasing/product-studio', section: 'Product & inventory', label: 'Product Studio', href: '/v3/product-workflow.html', profiles: ['standard'] , tabOf: 'inventory/overview' },
 
     // Three Marketing entries, ordered by how they are used rather than
     // alphabetically: the report you produce, the dashboard you watch, the

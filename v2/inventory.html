@@ -1924,7 +1924,10 @@
 
     function renderLocationDropdown(){
       const sel = el("selLocation");
-      const current = sel.value || "__ALL__";
+      // FILTERS, not just the select: a location arriving by deep link is set
+      // on FILTERS before any data has loaded, so its <option> does not exist
+      // yet and reading the select alone would silently drop it.
+      const current = sel.value || FILTERS.location || "__ALL__";
       const sourceMap = new Map();
 
       for (const r of RAW){
@@ -2960,6 +2963,10 @@
     (async function boot(){
       const ok = await initAuth();
       if (!ok) return;
+      // A link from the Inventory Overview carries the lens, type, location or
+      // search it was showing, so the rows here are the rows that tile claimed.
+      // Applied before the form is synced, so the controls show it too.
+      FILTERS = SIG.applyDeepLink(FILTERS, new URLSearchParams(location.search), makeSourceId);
       initVisible();
       renderStaticOptions();
       syncFiltersToDom();

@@ -122,7 +122,7 @@ it can be re-measured rather than trusted). The named list below is not
 exhaustive either. Anything in `v2/` that loads `silo-chrome.js` but **not**
 `tool-shell.js` is Pattern 1: `accounting-export`, `ad-studio`, `bi-daily-trend`, `bi-product-search`,
 `bi-product-types`, `bi-sales-overview`, `bi-top-sellers`, `calendar`, `finance`,
-`integrations`, `inventory`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
+`integrations`, `inventory`, `inventory-overview`, `launch-calendar`, `live-schedule`, `mail-intake`, `mailroom`,
 `marketing-ops`, `marketing-overview`, `my-review`, `planning-scenarios`, `po-builder`, `po-costing`, `po-report`,
 `products`, `purchasing`, `profile`, `projections`, `purchase_request`, `request_manager`, `returns-overview`,
 `settings-company`, `settings-team`, `settings-notifications`, `platform-admin`,
