@@ -10,21 +10,29 @@
 .accounting-suite a:hover svg {opacity:1;}
 .accounting-suite a:focus-visible {outline:2px solid var(--bcn-accent);outline-offset:-2px;}
 
-/* Everyday work first. Specialist tools remain ordinary links in More. */
-.accounting-suite {position:relative;gap:24px;padding:0 24px;z-index:35;}
-.accounting-suite-links {flex:1;gap:24px;}
-.accounting-suite a {font-size:13px;padding-block:15px;}
-.accounting-suite-more {position:relative;flex:none;margin:0;}
-.accounting-suite-more > summary {list-style:none;cursor:pointer;padding:15px 0;font-size:13px;color:var(--bcn-ink-2);white-space:nowrap;}
-.accounting-suite-more > summary::after {content:'⌄';margin-left:8px;}
-.accounting-suite-more > summary::-webkit-details-marker {display:none;}
-.accounting-suite-more[data-current=true] > summary {color:var(--bcn-accent);font-weight:650;}
-.accounting-suite-menu {position:absolute;right:0;top:100%;width:210px;background:var(--bcn-surface);border:1px solid var(--bcn-border);border-radius:6px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.14);z-index:60;}
-.accounting-suite-menu a {display:flex;padding:10px;border:0;border-radius:4px;}
-.accounting-suite-menu a:hover,.accounting-suite-menu a[aria-current=page] {background:var(--bcn-accent-soft);}
-.accounting-suite-setup {margin-left:auto;}
-@media(max-width:1100px) {.accounting-suite{gap:16px;padding-inline:18px;}.accounting-suite-links{gap:18px;}.accounting-suite-links a svg{display:none;}}
-@media(max-width:760px) {.accounting-suite{flex-wrap:wrap;gap:0 20px;padding:0 12px;}.accounting-suite-links{flex-basis:100%;order:0;gap:20px;}.accounting-suite-more{order:1;}.accounting-suite-setup{order:2;}.accounting-suite a,.accounting-suite-more>summary{padding-block:12px;}.accounting-suite-menu{left:0;right:auto;}}
+/* One flat tab row: every destination visible, the strip scrolls rather than
+   folding anything away. Books & setup sits at the far right, because it is
+   where you go once, not where you work. */
+.accounting-suite {position:relative;gap:20px;padding:0 20px;z-index:35;}
+.accounting-suite-links {flex:1;gap:20px;scrollbar-width:none;-ms-overflow-style:none;}
+.accounting-suite-links::-webkit-scrollbar {display:none;}
+.accounting-suite a {font-size:13px;padding-block:13px;}
+.accounting-suite-setup {flex:none;margin-left:auto;padding-left:20px;
+  border-left:1px solid var(--bcn-border);}
+@media(max-width:1280px) {
+  .accounting-suite {gap:14px;padding-inline:16px;}
+  .accounting-suite-links {gap:16px;}
+  .accounting-suite-links a svg {display:none;}
+}
+@media(max-width:760px) {
+  /* On a phone the whole strip is one scroller, Books & setup included:
+     pinning it right would sit on top of the tabs scrolling under it. */
+  .accounting-suite {gap:0;padding:0 12px;overflow-x:auto;scrollbar-width:none;}
+  .accounting-suite::-webkit-scrollbar {display:none;}
+  .accounting-suite-links {flex:none;gap:18px;overflow:visible;}
+  .accounting-suite a {padding-block:12px;}
+  .accounting-suite-setup {margin-left:18px;padding-left:18px;}
+}
 .accounting-workspace > .bcn-header {padding:20px 24px;gap:18px;align-items:center;justify-content:space-between;}
 .accounting-workspace .bcn-header-title {display:block;font-size:24px;font-weight:650;line-height:1.3;letter-spacing:-.025em;margin:0;}
 .accounting-workspace .bcn-header-sub {font-size:12px;font-weight:400;letter-spacing:0;line-height:1.4;margin-top:3px;max-width:80ch;color:var(--bcn-ink-2);}
@@ -73,9 +81,6 @@
  .accounting-workspace .bcn-header-actions {margin-left:auto;}
 }
 @media(max-width:760px) {
- .accounting-suite{padding:0 12px;gap:14px;}
- .accounting-suite-label{display:none;}
- .accounting-suite-links{gap:18px;width:100%;}
  .accounting-workspace > .bcn-header {padding:10px 12px;flex-wrap:wrap;gap:10px;}
  .accounting-workspace .bcn-header-sub {max-width:100%;}
  .accounting-workspace .bcn-btn,.accounting-workspace .bcn-field {min-height:36px;}

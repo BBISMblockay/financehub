@@ -31,7 +31,7 @@ const mountNav=(active)=>{
   window.SiloAccounting.mount(main,active);
   const all=node=>[...(node.tag==='a'?[node]:[]),...node.children.flatMap(all)];
   return {window,main,nav:mounted,links:all(mounted),
-    more:mounted.children[1],remount:()=>window.SiloAccounting.mount(main,active)};
+    setup:mounted.children[1],remount:()=>window.SiloAccounting.mount(main,active)};
 };
 test('all accounting destinations are one click away and the current page is identified',()=>{
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
@@ -62,15 +62,21 @@ test('every destination draws an icon and keeps its label as the accessible name
   const drawings=new Set(links.map(l=>l.innerHTML.replace(/<span[\s\S]*$/,'')));
   assert.equal(drawings.size,links.length,'two destinations share an icon');
 });
-test('everyday work is visible and specialist links stay in a named disclosure',()=>{
-  const {nav,more}=mountNav('finance/card-coding');
-  assert.deepEqual(nav.children[0].children.map(l=>l.dataset.label),['Overview','Bank activity','Invoices','Financial reports','Month-end']);
-  assert.equal(more.tag,'details');assert.equal(more.children[0].textContent,'More');
-  assert.deepEqual(more.children[1].children.map(l=>l.dataset.label),['Shopify journal','Schedules','Fixed assets','Cash forecast']);
+test('every destination is a visible tab: nothing folds away',()=>{
+  // The strip used to hide Shopify journal, Schedules, Fixed assets and Cash
+  // forecast behind a "More" disclosure. A tab a person cannot see is a tab
+  // they do not use (Blake, 2026-11-13: no hidden fold-out dropdowns), so the
+  // row scrolls sideways and every page stays on screen.
+  const {nav,setup}=mountNav('finance/card-coding');
+  assert.deepEqual(nav.children[0].children.map(l=>l.dataset.label),
+    ['Overview','Bank activity','Invoices','Financial reports','Month-end','Shopify journal','Schedules','Fixed assets','Cash forecast']);
+  assert.equal(nav.children.length,2,'links plus setup, and no disclosure');
+  assert.ok(!nav.children.some(child=>child.tag==='details'),'no fold-out in the strip');
   const specialist=mountNav('finance/schedules');
-  assert.equal(specialist.more.children[0].textContent,'Schedules');
-  assert.equal(specialist.more.dataset.current,'true');
-  assert.equal(nav.children[2].href,'/v2/accounting-books.html#setup');
+  const current=specialist.links.filter(l=>l.attributes['aria-current']==='page');
+  assert.equal(current.length,1);assert.equal(current[0].dataset.label,'Schedules');
+  assert.equal(setup.href,'/v2/accounting-books.html#setup');
+  assert.equal(setup.className,'accounting-suite-setup');
 });
 test('one sidebar entry retains the existing finance department visibility',()=>{
   const window={};vm.runInNewContext(nav,{window});

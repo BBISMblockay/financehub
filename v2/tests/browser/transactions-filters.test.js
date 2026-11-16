@@ -618,20 +618,13 @@ const TABLES = {
         'the active destination is marked');
     });
 
-    await check('More keeps specialist tools reachable and Escape returns focus', async () => {
-      await page.click('.accounting-suite-more > summary');
-      r.eq(await page.$eval('.accounting-suite-more', n => n.open), true);
-      r.truthy(await page.locator('.accounting-suite-menu a[href="/v2/schedules.html"]').isVisible());
-      await page.locator('.accounting-suite-menu a').first().focus();
-      await page.keyboard.press('Escape');
-      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
-      r.eq(await page.evaluate(() => document.activeElement.matches('.accounting-suite-more > summary')),true);
-    });
-    await check('More dismisses outside and primary links keep visible names', async () => {
-      await page.click('.accounting-suite-more > summary');
-      await page.click('.bcn-header-title');
-      r.eq(await page.$eval('.accounting-suite-more', n => n.open), false);
-      r.eq(await page.$$eval('.accounting-suite-links a', links=>links.map(a=>a.textContent.trim())),['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+    await check('every destination is a visible tab, with none folded away', async () => {
+      // The strip used to hide four pages behind a "More" disclosure. It is
+      // one flat scrolling row now, so Schedules and the rest stay on screen.
+      r.eq(await page.$$eval('.accounting-suite-links a', links=>links.map(a=>a.textContent.trim())),
+        ['Overview','Bank activity','Invoices','Financial reports','Month-end','Shopify journal','Schedules','Fixed assets','Cash forecast']);
+      r.eq(await page.$('.accounting-suite-more'), null, 'no fold-out in the strip');
+      r.truthy(await page.locator('[data-accounting-suite] a[href="/v2/schedules.html"]').isVisible());
       r.eq(await page.$eval('.accounting-suite-links', n=>getComputedStyle(n).overflowX),'auto');
     });
     await check('on a phone primary navigation retains readable labels', async () => {

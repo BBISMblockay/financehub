@@ -32,16 +32,16 @@ const finished = page => page.waitForFunction(() => document.getElementById('wor
   assert.ok(!queries.some(q => ['insert','update','delete','upsert'].includes(q._op)));
   assert.deepEqual(await page.evaluate(() => window.__INVOKES__ || []),[]);
   const nav = page.locator('[data-accounting-suite]');
-  assert.equal(await nav.locator('.accounting-suite-links a').count(),5);
+  // Every destination is a visible tab: the strip scrolls, it does not fold
+  // anything away, so no page can go missing behind a disclosure again.
+  assert.equal(await nav.locator('.accounting-suite-links a').count(),9);
+  assert.equal(await nav.locator('details').count(),0,'no fold-out in the strip');
   assert.equal(await nav.locator('[aria-current="page"]').getAttribute('href'),'/v2/accounting.html');
-  for (const href of ['transactions.html','invoicing.html','qbo-reports.html','accounting-month-end.html']) {
+  for (const href of ['transactions.html','invoicing.html','qbo-reports.html','accounting-month-end.html',
+                      'accounting-export.html','schedules.html','fixed-assets.html','cash-forecast.html']) {
     assert.equal(await nav.locator(`a[href="/v2/${href}"]`).count(),1,href);
+    assert.equal(await nav.locator(`a[href="/v2/${href}"]`).isVisible(),true,href+' visible');
   }
-  await nav.locator('summary').click();
-  assert.equal(await nav.locator('a[href="/v2/schedules.html"]').isVisible(),true);
-  assert.equal(await nav.locator('a[href="/v2/fixed-assets.html"]').isVisible(),true);
-  await nav.locator('summary').press('Escape');
-  assert.equal(await nav.locator('details').getAttribute('open'),null);
   assert.equal(await nav.locator('a[href="/v2/accounting-books.html#setup"]').isVisible(),true);
   assert.match(await page.locator('a[href="accounting-books.html#openingSetup"]').innerText(),/Opening history/);
   fs.mkdirSync('/tmp/accounting-qa',{recursive:true});

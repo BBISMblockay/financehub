@@ -67,6 +67,25 @@
     }
     return count;
   }
+  // Display-only: the month's recorded journals counted per calendar day, so
+  // the overview can draw the month as a shape instead of four numbers. Built
+  // from the rows already read -- no extra query, no new column.
+  function daily(rows, bounds) {
+    const counts = new Map();
+    for (const row of rows) {
+      const day = String(row.entry_date || '').slice(0, 10);
+      if (day >= bounds.start && day <= bounds.end) counts.set(day, (counts.get(day) || 0) + 1);
+    }
+    const out = [];
+    const cursor = new Date(bounds.start + 'T00:00:00Z');
+    const last = new Date(bounds.end + 'T00:00:00Z');
+    while (cursor <= last) {
+      const date = cursor.toISOString().slice(0, 10);
+      out.push({ date, day: Number(date.slice(8, 10)), count: counts.get(date) || 0 });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return out;
+  }
   function assess(facts, { company = null, period } = {}) {
     const bounds = periodBounds(period);
     const settingsKnown = facts.settings !== undefined && !facts.settings?.unmeasured;
@@ -86,7 +105,9 @@
     queues.needsReview = reviewCount(listKnown(facts.batches) ? queues.rows : UNMEASURED, facts.settings, facts.claims);
     // These are import/review statuses, never transaction totals or proof of
     // ledger inclusion. Unresolved QBO attempts are reviewed in Transactions.
-    const journals = summary(listKnown(facts.journals) ? facts.journals.filter(r => r.entry_date >= bounds.start && r.entry_date <= bounds.end) : UNMEASURED);
+    const journalRows = listKnown(facts.journals) ? facts.journals.filter(r => r.entry_date >= bounds.start && r.entry_date <= bounds.end) : UNMEASURED;
+    const journals = summary(journalRows);
+    journals.byDay = listKnown(journalRows) ? daily(journalRows, bounds) : null;
     journals.rows = journals.rows.slice().sort((a,b) => String(b.entry_date).localeCompare(String(a.entry_date)) || String(a.kind).localeCompare(String(b.kind)) || String(a.id).localeCompare(String(b.id))).slice(0,8);
     return { company, period, today:typeof facts.today === 'string' ? facts.today : null, settings, mode, opening,
       qbo:{ state:listKnown(facts.qbo) ? 'known' : 'unknown', rows:listKnown(facts.qbo) ? facts.qbo : [], count:listKnown(facts.qbo) ? facts.qbo.length : null },
@@ -191,5 +212,5 @@
       return controller;
     } catch (error) { if (!errorReported) onError?.(error); throw error; }
   }
-  window.SiloAccountingOverview = { UNMEASURED, assess, periodBounds, balances, reviewCount, load, boot };
+  window.SiloAccountingOverview = { UNMEASURED, assess, periodBounds, balances, reviewCount, daily, load, boot };
 })();
