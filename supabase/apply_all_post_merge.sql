@@ -19812,4 +19812,12 @@ $c$select (select count(*) from v_po_header_summary
 -- merging the runners and BEFORE deploying integration-bootstrap-wake and
 -- ad-platform-sync-run: the missing RPCs fail closed.
 \i migrations/20261113220322_immediate_meta_import_leases.sql
+-- 2026-11-16: the portal feed asks affiliate_program_store_url() for its store
+-- again. 20261113070000 and 20261113093000 each re-stated the feed from the
+-- pre-20261110160000 text and silently carried back the body that guesses the
+-- oldest active Shopify store. Function body only: no table, no grant widened,
+-- no company named. The "Affiliate codes via AI" verify check reads ok after
+-- it. No edge-function deploy is required (affiliate-portal calls the function
+-- by name).
+\i migrations/20261116060000_affiliate_portal_feed_store_guard.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
