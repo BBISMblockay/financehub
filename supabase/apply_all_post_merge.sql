@@ -19805,4 +19805,11 @@ $c$select (select count(*) from v_po_header_summary
 -- but deploying `mcp` adds the guidance that points a bot at it.
 \i migrations/20261113200000_accounting_journal_drilldown.sql
 \i migrations/20261113230000_accounting_drilldown_grants.sql
+-- 2026-11-13: the Meta first-connect immediate import. Adds ad_sync_leases
+-- (service-role only) plus the lease, targeted-claim and dispatch-reservation
+-- RPCs every Meta sync path now shares, and the deferrals /
+-- dispatch_requested_at columns on integration_bootstrap_jobs. Apply BEFORE
+-- merging the runners and BEFORE deploying integration-bootstrap-wake and
+-- ad-platform-sync-run: the missing RPCs fail closed.
+\i migrations/20261113220322_immediate_meta_import_leases.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

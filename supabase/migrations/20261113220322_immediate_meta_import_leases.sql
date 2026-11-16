@@ -101,3 +101,11 @@ grant execute on function public.renew_ad_sync_lease(uuid,uuid,uuid,integer) to 
 grant execute on function public.release_ad_sync_lease(uuid,uuid,uuid) to service_role;
 grant execute on function public.claim_integration_bootstrap_job(uuid,integer,integer,integer) to service_role;
 grant execute on function public.reserve_bootstrap_dispatch(uuid) to service_role;
+
+-- ad_sync_leases carries company_entity_id, so it needs the insert backstop
+-- like every other company-scoped table: verify check 6 enumerates EVERY
+-- public base table with that column and reports MISSING without it, which
+-- would turn the daily production drift check red the moment this is applied.
+-- Harmless to the service-role writers here, which always set the company
+-- explicitly (the trigger only fills a NULL).
+select public.attach_stamp_company_entity_id_triggers();
