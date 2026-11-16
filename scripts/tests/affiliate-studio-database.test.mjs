@@ -2092,30 +2092,50 @@ await check('S3 the seed order sets the goal; only that product, their own code,
         [A, id, title, qty, price, disc]);
     }
   };
-  const attr = async (id, aff, daysAgo, basis = 'single_affiliate_code') => db.query(
+  // The credited day is the ORDER's own day in the company's timezone, as the
+  // real attribution run writes it. Counting back from today instead drifts a
+  // day whenever the company's date differs from UTC's, which silently moved
+  // the seed order outside the counting window and left its exclusion untested.
+  const attr = async (id, aff, basis = 'single_affiliate_code') => db.query(
     `insert into affiliate_attributions(company_entity_id, program_id, affiliate_id, shop_domain, order_id, order_day, order_currency, codes_on_order, basis)
-     values ($1,$2,$3,'a.myshopify.com',$4,(now() at time zone 'America/Los_Angeles')::date - $5::int,'USD',1,$6)`, [A, progA, aff, id, daysAgo, basis]);
+     values ($1,$2,$3,'a.myshopify.com',$4,
+             (select (o.shopify_created_at at time zone public.silo_company_timezone(o.company_entity_id))::date
+                from shopify_orders o where o.company_entity_id = $1 and o.shop_domain = 'a.myshopify.com' and o.order_id = $4),
+             'USD',1,$5)`, [A, progA, aff, id, basis]);
   // The seed purchase: $40 cap at 50% = $20 paid, plus a sock at full price.
   // It ALSO carries Pat's affiliate code, so it is an attributed order -- and
   // must still not count toward its own goal.
   await ord('S-SEED', [code.toLowerCase(), 'PATAFF'], 50, 32, [['Snow cap', 1, 40, 20], ['Sock', 1, 12, 0]]);
-  await attr('S-SEED', affPat, 50);
+  await attr('S-SEED', affPat);
   let r = (await one('select public.affiliate_seed_sweep($1) as r', [progA])).r;
   assert.equal(r.purchased, 1);
   let c = await one('select state, seed_paid_cents::int as paid, goal_cents::int as goal, progress_cents::int as prog from affiliate_seed_claims where id = $1', [seedShared]);
   assert.deepEqual(c, { state: 'purchased', paid: 2000, goal: 6000, prog: 0 }, 'they get back what they paid for THAT item (not the sock); the goal is 3x what they paid; the seed order counts nothing');
+  // ... and it counts nothing only because it is excluded by order id: every
+  // other condition of the progress query holds for it, asserted here so the
+  // line above cannot go vacuously green if these fixtures ever drift.
+  const seedCountable = await one(
+    `select count(*)::int as n
+       from affiliate_attributions at join affiliate_seed_claims c on c.id = $1
+      where at.company_entity_id = c.company_entity_id and at.program_id = c.program_id
+        and at.affiliate_id = c.affiliate_id and at.order_id = c.seed_order_id
+        and at.basis in ('single_affiliate_code', 'first_affiliate_code')
+        and at.order_day >= c.seed_order_day
+        and at.order_day <= least((now() at time zone public.silo_company_timezone(c.company_entity_id))::date - c.refund_days, c.goal_by)`,
+    [seedShared]);
+  assert.equal(seedCountable.n, 1, 'the seed order is otherwise countable: only the exclusion by order id keeps it out of the goal');
   // Sales: 30 days ago, 2 caps at $40 = $80, half refunded -> $40 counts.
-  await ord('S-1', ['PATAFF'], 30, 80, [['Snow cap', 2, 40, 0]], 40); await attr('S-1', affPat, 30);
+  await ord('S-1', ['PATAFF'], 30, 80, [['Snow cap', 2, 40, 0]], 40); await attr('S-1', affPat);
   // Another product on Pat's code: does not count.
-  await ord('S-2', ['PATAFF'], 30, 500, [['Trail jacket', 1, 500, 0]]); await attr('S-2', affPat, 30);
+  await ord('S-2', ['PATAFF'], 30, 500, [['Trail jacket', 1, 500, 0]]); await attr('S-2', affPat);
   // Sam's sale of the cap: not Pat's.
-  await ord('S-3', ['SAMAFF'], 30, 400, [['Snow cap', 10, 40, 0]]); await attr('S-3', affSam, 30);
+  await ord('S-3', ['SAMAFF'], 30, 400, [['Snow cap', 10, 40, 0]]); await attr('S-3', affSam);
   // Pat's cap sale 5 days ago: still inside the 14-day refund window.
-  await ord('S-4', ['PATAFF'], 5, 400, [['Snow cap', 10, 40, 0]]); await attr('S-4', affPat, 5);
+  await ord('S-4', ['PATAFF'], 5, 400, [['Snow cap', 10, 40, 0]]); await attr('S-4', affPat);
   // Mixed carts. Refunds are stored per order, so an order's refund comes off
   // this product's lines in full, never prorated: a cap bought with a jacket
   // and then refunded counts nothing (a share of the order would credit $36).
-  await ord('S-6', ['PATAFF'], 30, 400, [['Snow cap', 1, 40, 0], ['Trail jacket', 1, 360, 0]], 40); await attr('S-6', affPat, 30);
+  await ord('S-6', ['PATAFF'], 30, 400, [['Snow cap', 1, 40, 0], ['Trail jacket', 1, 360, 0]], 40); await attr('S-6', affPat);
   r = (await one('select public.affiliate_seed_sweep($1) as r', [progA])).r;
   c = await one('select state, progress_cents::int as prog from affiliate_seed_claims where id = $1', [seedShared]);
   assert.deepEqual(c, { state: 'purchased', prog: 4000 }, '$40 of $60: refunds netted, other products, other affiliates and fresh sales left out');
