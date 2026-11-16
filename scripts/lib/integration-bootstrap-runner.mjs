@@ -259,10 +259,27 @@ export function createRunner({
         const res = await runStage(stage, stage.env, controller.signal);
         controller.signal.throwIfAborted();
         if (res.deferred) {
+          // Forgiving the attempt is only right for a claim that did nothing
+          // BUT wait. Any owed stage that errors is re-run in this same claim,
+          // so an error recorded here happened on this attempt: forgiving it
+          // too would clear its reason AND cancel out the attempt, and since
+          // both the SQL claim gate and the settlement below read
+          // `attempts - deferrals`, a stage that fails every time while a
+          // scheduled sync keeps taking the lease would retry for ever instead
+          // of settling at the five-attempt ceiling.
+          const failedThisClaim = planned.some((s) => stages[s.stage]?.status === 'error');
           stages = withStageResult(stages, stage.stage, 'pending', res.detail);
-          await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
-            last_error: null, lease_until: new Date(Date.now() + 15 * 60_000).toISOString() });
-          return { job, status: 'pending', deferred: true };
+          if (!failedThisClaim) {
+            await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
+              last_error: null, lease_until: new Date(Date.now() + 15 * 60_000).toISOString() });
+            return { job, status: 'pending', deferred: true };
+          }
+          // Keep the failure and its reason, and let the ordinary settlement
+          // below decide: back to pending with the cooldown while attempts
+          // remain, recorded as error once they do not. The stages map is the
+          // checkpoint either way, so the retry re-runs only what is owed.
+          log.log(`[bootstrap] ${label}: ${stage.stage} deferred after a failed stage -- the failure stands`);
+          break;
         }
         const secs = Math.round((Date.now() - started) / 1000);
         stages = withStageResult(
