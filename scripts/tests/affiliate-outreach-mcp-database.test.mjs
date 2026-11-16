@@ -62,6 +62,7 @@
 //   OUTREACH_MCP_MUTATION=codes-pending-earns        the portal hands out a code still waiting for Shopify
 //   OUTREACH_MCP_MUTATION=codes-pending-no-reserve   a pending code does not reserve its dates
 //   OUTREACH_MCP_MUTATION=codes-store-oldest         with several Shopify stores the oldest one is guessed
+//   OUTREACH_MCP_MUTATION=feed-store-guessed         the feed picks its own store again instead of the shared rule
 //   OUTREACH_MCP_MUTATION=codes-no-scope             the codes tools do not require codes:create
 //   OUTREACH_MCP_MUTATION=feed-images-any-folder     a feed image may be written into another company's folder
 //   OUTREACH_MCP_MUTATION=feed-images-any-member     any member may write feed images
@@ -243,6 +244,11 @@ const files = {
   // Product seeding and its codes through the AI (20261113093000/094000).
   seeding: '20261113093000_affiliate_product_seeding.sql',
   seedcodes: '20261113094000_affiliate_seed_codes_via_ai.sql',
+  // The store rule put back into the feed (20261116060000). Applied LAST,
+  // as in production, because that is the whole point: 20261113093000
+  // re-states the feed from the pre-160000 text and carries the guessing
+  // body back with it.
+  feedstore: '20261116060000_affiliate_portal_feed_store_guard.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -256,6 +262,7 @@ function mutate(from, to) {
   for (const k of hit) sql[k] = sql[k].split(from).join(to);
 }
 const seedMut = (from, to) => { assert.ok(sql.seedcodes.includes(from), `mutation ${MUT}: pattern not found`); sql.seedcodes = sql.seedcodes.split(from).join(to); };
+const storeMut = (from, to) => { assert.ok(sql.feedstore.includes(from), `mutation ${MUT}: pattern not found`); sql.feedstore = sql.feedstore.split(from).join(to); };
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
 switch (MUT) {
   case '': break;
@@ -309,6 +316,19 @@ switch (MUT) {
     mutate("      and c.status in ('active', 'pending')\n      and c.id is distinct from new.id", "      and c.status = 'active'\n      and c.id is distinct from new.id"); break;
   case 'codes-store-oldest':
     mutate("(select case when count(*) = 1 then", "(select case when count(*) >= 1 then"); break;
+  // The feed back on its own store SELECT -- what 20261113070000 and
+  // 20261113093000 each did by accident.
+  case 'feed-store-guessed':
+    storeMut("  v_store := public.affiliate_program_store_url(v_tok.company_entity_id, v_tok.program_id);",
+      `  select coalesce(p.store_url,
+           (select 'https://' || lower(sc.shop_domain)
+              from public.shopify_connections sc
+             where sc.company_entity_id = v_tok.company_entity_id and coalesce(sc.is_active, true)
+               and sc.shop_domain ~ '^[A-Za-z0-9.-]+$'
+             order by sc.created_at limit 1))
+    into v_store
+    from public.affiliate_programs p
+   where p.id = v_tok.program_id and p.company_entity_id = v_tok.company_entity_id;`); break;
   case 'codes-no-scope':
     mutate("  perform public.silo_api_require_scope('codes:create');", ''); break;
   case 'feed-images-any-folder':
@@ -1227,6 +1247,56 @@ await check('M3 the affiliate-code path is unchanged by the seed branch', async 
   assert.equal(r.kind, undefined);
   await db.exec('reset role');
   assert.equal((await one('select status from affiliate_codes where id = $1', [id])).status, 'active');
+});
+
+// ── N: the store rule survives a later re-statement (20261116060000) ─────
+// K6 above proved the rule right after 20261110160000 applied it. Production
+// then applied 20261113070000 and 20261113093000, each of which re-states
+// affiliate_portal_feed from the pre-160000 text -- so the rule was gone
+// again and nothing noticed, because no check ran after the later migrations.
+// This one does, and it runs AFTER sql.feedstore, which is applied last.
+// Stubs for what this suite does not load: 20261113070000 adds the launch
+// claims table and the parent_source_id column that 20261113093000's feed body
+// reads, and this migration carries that body forward unchanged.
+await db.exec(`
+alter table public.affiliate_feed_items add column if not exists parent_source_id text;
+create table if not exists public.affiliate_launch_claims (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null,
+  feed_item_id uuid not null,
+  affiliate_id uuid not null
+);
+`);
+await db.exec(sql.feedstore); await db.exec(sql.feedstore);
+
+await check('N1 after every later re-statement the feed still asks the shared rule for its store, and never guesses', async () => {
+  await db.exec('reset role');
+  // Exactly where the regression showed: several active stores, no address.
+  await db.query(`update affiliate_programs set store_url = null where id = $1`, [progA]);
+  const h = sha(`n1-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, kAff, h]);
+  const feed = async () => (await one('select public.affiliate_portal_feed($1) as f', [h])).f;
+  assert.equal((await feed()).store_url, null, 'several stores and no address: the brand is asked, not guessed at');
+  assert.equal((await feed()).store_url,
+    (await one('select public.affiliate_program_store_url($1,$2) as v', [A, progA])).v,
+    'the feed answers exactly what the shared rule answers');
+  await db.query(`update affiliate_programs set store_url = 'https://shop.brand-a.test' where id = $1`, [progA]);
+  assert.equal((await feed()).store_url, 'https://shop.brand-a.test', 'the address the brand set still wins');
+  // And the feed is still nobody's to call but the service role, since a
+  // create or replace keeps whatever grants were there.
+  for (const role of ['anon', 'authenticated']) {
+    assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_portal_feed(text)', 'execute') as v`)).v, false, role);
+  }
+});
+
+await check('N2 the production verify check for the store rule reads ok once this migration is applied', async () => {
+  await db.exec('reset role');
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate codes via AI' as check_name");
+  assert.ok(i > 0, 'verify_v2_schema has the check');
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
 });
 
 console.log(`\n${passed} checks passed${MUT ? ` (mutation ${MUT} did not fail -- the suite is not testing it)` : ''}`);
