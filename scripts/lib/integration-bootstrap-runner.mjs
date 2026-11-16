@@ -242,6 +242,11 @@ export function createRunner({
     }
 
     log.log(`[bootstrap] ${label}: ${owed.length} stage(s) owed of ${planned.length}`);
+    // Claim-local on purpose. `stages` starts from the row, so an error left
+    // by an EARLIER attempt is still sitting in a stage this claim has not
+    // reached yet -- reading that as a failure here would spend an attempt on
+    // a claim that only ever waited.
+    let failedThisClaim = false;
     const controller = new AbortController();
     const stopRenewal = startLeaseRenewal(job, controller);
     try {
@@ -259,10 +264,27 @@ export function createRunner({
         const res = await runStage(stage, stage.env, controller.signal);
         controller.signal.throwIfAborted();
         if (res.deferred) {
+          // Forgiving the attempt is only right for a claim that did nothing
+          // BUT wait. A stage that really failed on THIS attempt must not be
+          // forgiven with it: that would clear its reason AND cancel out the
+          // attempt, and since both the SQL claim gate and the settlement
+          // below read `attempts - deferrals`, a stage that fails every time
+          // while a scheduled sync keeps taking the lease would retry for ever
+          // instead of settling at the five-attempt ceiling. An error left by
+          // an earlier attempt is not that, which is why the flag is
+          // claim-local and not a scan of the stored stages.
           stages = withStageResult(stages, stage.stage, 'pending', res.detail);
-          await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
-            last_error: null, lease_until: new Date(Date.now() + 15 * 60_000).toISOString() });
-          return { job, status: 'pending', deferred: true };
+          if (!failedThisClaim) {
+            await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
+              last_error: null, lease_until: new Date(Date.now() + 15 * 60_000).toISOString() });
+            return { job, status: 'pending', deferred: true };
+          }
+          // Keep the failure and its reason, and let the ordinary settlement
+          // below decide: back to pending with the cooldown while attempts
+          // remain, recorded as error once they do not. The stages map is the
+          // checkpoint either way, so the retry re-runs only what is owed.
+          log.log(`[bootstrap] ${label}: ${stage.stage} deferred after a failed stage -- the failure stands`);
+          break;
         }
         const secs = Math.round((Date.now() - started) / 1000);
         stages = withStageResult(
@@ -271,6 +293,7 @@ export function createRunner({
           res.ok ? 'done' : 'error',
           res.ok ? `${secs}s` : res.detail,
         );
+        if (!res.ok) failedThisClaim = true;
         await patchJob(job, { stages, ...(res.ok ? {} : { last_error: `${stage.stage}: ${res.detail}` }) });
         log.log(`[bootstrap] ${label}: ${stage.stage} ${res.ok ? 'done' : 'FAILED'} in ${secs}s${res.ok ? '' : ` -- ${res.detail}`}`);
         // Stages are independent on purpose: a ShopifyQL wobble in the

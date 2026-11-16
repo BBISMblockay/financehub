@@ -343,6 +343,87 @@ await test('history contention preserves recent stage and resumes history only',
   assert.deepEqual(ran,['history']);
 });
 
+await test('a failed stage followed by contention keeps the failure and spends the attempt', async () => {
+  // The combination neither existing test covers: recent_data fails against
+  // the provider, the scheduled sync then takes the connection's lease, and
+  // history defers. Forgiving the whole claim would clear the recent_data
+  // reason AND cancel out the attempt -- and because the SQL claim gate and
+  // the settlement both read `attempts - deferrals`, a stage that fails every
+  // time while a scheduled sync keeps taking the lease would retry for ever.
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  const failThenDefer = async (s) => (s.stage === 'recent_data'
+    ? { ok: false, detail: 'Meta insights -> 500' }
+    : { ok: false, deferred: true, detail: 'connection busy' });
+
+  let stages = {};
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const db = fakeDb({ connection }); const ran = [];
+    const runner = createRunner({ db, log: silent, maxAttempts: 5,
+      runStage: async (s) => { ran.push(s.stage); return failThenDefer(s); } });
+    const out = await runner.runJob(job({ integration: 'meta_ads', attempts: attempt, deferrals: 0, stages }));
+    assert.deepEqual(ran, ['recent_data', 'history'], 'the deferral comes from the LATER stage');
+    assert.equal(out.status, 'pending', `attempt ${attempt} still has attempts left`);
+    const patch = db.writes.at(-1).patch;
+    assert.equal(patch.deferrals, undefined, `attempt ${attempt}: a claim with a real failure is not forgiven`);
+    assert.notEqual(patch.last_error, null, `attempt ${attempt}: the failure's reason is kept`);
+    assert.equal(patch.finished_at, undefined);
+    stages = patch.stages;
+    assert.equal(stages.recent_data.status, 'error', 'the failure stands');
+    assert.equal(stages.history.status, 'pending', 'the deferred stage is still owed');
+  }
+
+  // The final allowed attempt: with the budget spent it settles instead of
+  // looping, and it settles as the failure it is.
+  const db = fakeDb({ connection }); const ran = [];
+  const runner = createRunner({ db, log: silent, maxAttempts: 5,
+    runStage: async (s) => { ran.push(s.stage); return failThenDefer(s); } });
+  const out = await runner.runJob(job({ integration: 'meta_ads', attempts: 5, deferrals: 0, stages }));
+  assert.equal(out.status, 'error', 'at the ceiling it settles rather than retrying for ever');
+  const patch = db.writes.at(-1).patch;
+  assert.equal(patch.lease_until, null);
+  assert.ok(patch.finished_at);
+  assert.equal(patch.deferrals, undefined);
+
+  // And contention with NO failed stage is still forgiven, as before.
+  const clean = fakeDb({ connection });
+  const forgiving = createRunner({ db: clean, log: silent, maxAttempts: 5,
+    runStage: async () => ({ ok: false, deferred: true, detail: 'connection busy' }) });
+  const ok = await forgiving.runJob(job({ integration: 'meta_ads', attempts: 3, deferrals: 2, stages: {} }));
+  assert.equal(ok.deferred, true);
+  assert.equal(clean.writes.at(-1).patch.deferrals, 3, 'contention alone still costs no retry');
+  assert.equal(clean.writes.at(-1).patch.last_error, null);
+});
+
+await test('an error inherited from an earlier attempt does not make a waiting claim pay', async () => {
+  // The row carries both Meta stages in error from a previous attempt. This
+  // claim re-runs recent_data, which only hits contention: nothing was tried
+  // against the provider, so it must still be free -- even though history,
+  // untouched so far, still holds its old error.
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  let stages = { recent_data: { status: 'error', detail: 'Meta insights -> 500' },
+                 history: { status: 'error', detail: 'Meta insights -> 500' } };
+  for (let attempt = 2; attempt <= 5; attempt++) {
+    const db = fakeDb({ connection }); const ran = [];
+    const runner = createRunner({ db, log: silent, maxAttempts: 5,
+      runStage: async (s) => { ran.push(s.stage); return { ok: false, deferred: true, detail: 'connection busy' }; } });
+    const out = await runner.runJob(job({ integration: 'meta_ads', attempts: attempt, deferrals: attempt - 1, stages }));
+    assert.deepEqual(ran, ['recent_data'], 'contention stops before history');
+    assert.equal(out.deferred, true, `attempt ${attempt}: waiting is still waiting`);
+    const patch = db.writes.at(-1).patch;
+    assert.equal(patch.deferrals, attempt, 'the deferral is counted, so the attempt costs nothing');
+    assert.equal(patch.last_error, null);
+    assert.equal(patch.finished_at, undefined, 'a waiting claim never settles the job');
+    stages = patch.stages;
+    assert.equal(stages.history.status, 'error', 'the checkpointed error is preserved, not cleared');
+  }
+  // And when the contention finally lifts, both owed stages run.
+  const db = fakeDb({ connection }); const ran = [];
+  const runner = createRunner({ db, log: silent, maxAttempts: 5,
+    runStage: async (s) => { ran.push(s.stage); return { ok: true }; } });
+  assert.equal((await runner.runJob(job({ integration: 'meta_ads', attempts: 6, deferrals: 5, stages }))).status, 'done');
+  assert.deepEqual(ran, ['recent_data', 'history'], 'history was still owed the whole time');
+});
+
 await test('ordinary failure cooldown uses real attempts minus deferrals', async () => {
   for (const [attempts, deferrals, expected] of [[7,6,'pending'],[11,6,'error']]) {
     const db=fakeDb(); const before=Date.now();
