@@ -51,7 +51,12 @@ r.test('every suite draws one row and keeps every tab a nav row', () => {
         const row = rows.find((i) => i.id === id);
         if (!row) continue;                       // narrowed away by profile, which is its row's own gate
         r.eq(row.href, href, `${profile}/${id}: the strip and the row must name one URL`);
-        if (id === suite.row) r.truthy(drawn.includes(id), `${profile}: ${id} is the drawn row`);
+        // A `keepRows` suite (Home/Start, 2026-11-16) is the exception the
+        // flag exists for: Blake asked Start to keep its three to four menu
+        // items, so every tab is ALSO still its own sidebar row and nothing
+        // is collapsed. Everything else collapses to one row.
+        if (suite.keepRows) r.truthy(drawn.includes(id), `${profile}: ${id} keeps its own row`);
+        else if (id === suite.row) r.truthy(drawn.includes(id), `${profile}: ${id} is the drawn row`);
         else r.truthy(!drawn.includes(id), `${profile}: ${id} is drawn as a row of its own`);
       }
     }
@@ -62,7 +67,10 @@ r.test('every tab resolves to its own suite row, and no tabOf dangles', () => {
   for (const suite of Nav.SUITES) {
     for (const [id] of suite.pages.slice(1)) {
       const row = Nav.NAV_ITEMS.find((i) => i.id === id);
-      r.eq(row.tabOf, suite.row, `${id}: tabOf must name its suite's row`);
+      // A keepRows suite draws its tabs as rows too, so they must NOT carry a
+      // tabOf -- one would delete them from the sidebar.
+      if (suite.keepRows) r.truthy(!row.tabOf, `${id}: a kept row must carry no tabOf`);
+      else r.eq(row.tabOf, suite.row, `${id}: tabOf must name its suite's row`);
     }
   }
   for (const item of Nav.NAV_ITEMS.filter((i) => i.tabOf)) {
@@ -237,6 +245,9 @@ r.test('each collapsed row is named for its suite, and its first tab keeps the p
     'finance/payment-request': ['Requests', 'Payment Request'],
     'inventory/overview': ['Inventory', 'Overview'],
     'team/reviews': ['Team', 'Performance Reviews'],
+    // Home keeps its own row name; its first tab is the Overview, as in
+    // Inventory and Purchasing.
+    'finance/menu': ['Home', 'Overview'],
   };
   for (const suite of Nav.SUITES) {
     const [rowLabel, tabLabel] = EXPECTED[suite.row] || [];
@@ -247,4 +258,8 @@ r.test('each collapsed row is named for its suite, and its first tab keeps the p
   }
 });
 
-r.summary();
+// Exit non-zero on a failure. Without this the file always exits 0 and
+// v2/tests/run.js reports PASS whatever the assertions said (found
+// 2026-11-16: three real failures reported as a pass).
+const { fail } = r.summary();
+process.exit(fail ? 1 : 0);

@@ -257,6 +257,35 @@
         </div>
       `;
       }
+      // A section with ONE visible row is not a group: clicking its header
+      // should GO there, not expand a list of one (Blake, 2026-11-16: "if
+      // 'Planning' only has 'planning' sub menu, when they click main header
+      // menu for 'Planning' just go, don't require two clicks"). Drawn as the
+      // row itself, with no toggle and no chevron, and kept as one
+      // `a.silo-sb-link` inside `.silo-sb-links` so the Home mirror
+      // (home-nav.js) and the palette read it exactly as before.
+      //
+      // The row keeps the ITEM's label, not the section's: those labels were
+      // chosen deliberately for the collapsed suite rows (Performance,
+      // Inventory, Workspace settings), and `data-section` still carries the
+      // group name for Home's card titles. A featured one-row section is
+      // handled above and is unaffected.
+      if (sec.items.length === 1) {
+        const item = sec.items[0];
+        const isActive = item.id === active;
+        const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        return `
+        <div class="silo-sb-section silo-sb-section--solo" data-section="${escHtml(sec.section)}">
+          <div class="silo-sb-links">
+            <a class="silo-sb-link silo-sb-link--solo${isActive ? ' silo-sb-link--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${ext}${isActive ? ' aria-current="page"' : ''}>
+              <span class="silo-sb-link-label">${escHtml(item.label)}</span>
+              ${item.external ? '<span class="silo-sb-link-ext" aria-hidden="true">EXT</span>' : ''}
+              ${badgeHtml(badges[item.id], 'waiting')}
+            </a>
+          </div>
+        </div>
+      `;
+      }
       const isOpen = sec.section === activeSection;
       const links = sec.items.map(item => {
         const isActive = item.id === active;

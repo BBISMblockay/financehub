@@ -154,6 +154,29 @@
   // Reviews). Same shape as the Purchasing row.
   const SUITES = [
     {
+      // Home and the workspace-level pages beside it (2026-11-16). Home gets
+      // the same Overview-plus-tabs shape as Accounting, Marketing, Purchasing
+      // and Inventory, so the way into "my account" things is a strip on the
+      // page rather than a hunt through the menu.
+      //
+      // Unlike every other suite these tabs are NOT `tabOf` rows: Blake asked
+      // for Start to KEEP its three to four menu items, so the sidebar still
+      // draws My Profile, Help and Setup, and `keepRows` tells silo-chrome.js
+      // to leave each page's own row highlighted instead of collapsing the
+      // highlight onto Home. Visibility is still each row's own gate, so
+      // Setup (standard-profile, admin) is a tab only where its row shows.
+      key: 'start',
+      label: 'Home',
+      row: 'finance/menu',
+      keepRows: true,
+      pages: [
+        ['finance/menu', 'Overview', '/v2/finance.html'],
+        ['start/setup', 'Setup', '/v2/setup-checklist.html'],
+        ['people/profile', 'My Profile', '/v2/profile.html'],
+        ['start/help', 'Help', '/v2/help.html'],
+      ],
+    },
+    {
       key: 'inventory',
       label: 'Inventory',
       // Overview first (2026-11-16), the same shape as Accounting, Marketing

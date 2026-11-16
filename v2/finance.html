@@ -3,60 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Finance department</title>
+  <title>SILO · Home</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="suite-nav.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="nav-config.js"></script>
+  <script src="suite-nav.js"></script>
   <script src="silo-chrome.js"></script>
   <script src="home-nav.js"></script>
   <style>
     :root { color-scheme: light; }
 
     .fin-landing {
-      padding: 24px 28px 40px;
-      max-width: 1100px;
-    }
-
-    .fin-landing-head {
-      margin-bottom: 24px;
-    }
-
-    .fin-landing-head h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--bcn-ink);
-      margin: 0 0 4px;
-      letter-spacing: -0.02em;
-    }
-
-    .fin-landing-head p {
-      font-size: 13px;
-      color: var(--bcn-ink-2);
-      margin: 0;
+      padding: 20px 28px 40px;
+      max-width: 1180px;
     }
 
     .fin-sections {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 14px;
+      align-items: start;
     }
 
     .fin-card {
       background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border-strong);
+      border: 1px solid var(--bcn-border);
       border-radius: var(--bcn-radius);
       overflow: hidden;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    .fin-card:hover {
+      border-color: var(--bcn-border-strong);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     }
 
     .fin-card-head {
-      padding: 12px 16px;
+      padding: 11px 16px 9px;
       border-bottom: 1px solid var(--bcn-border);
-      background: var(--bcn-surface-2, var(--bcn-surface));
+      background: var(--bcn-band);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -66,14 +57,14 @@
       font-family: var(--bcn-mono);
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: var(--bcn-ink-3);
+      color: var(--bcn-band-ink-2);
       margin: 0;
     }
 
     .fin-links {
-      padding: 8px 0;
+      padding: 6px 0;
     }
 
     .fin-link {
@@ -85,13 +76,27 @@
       color: var(--bcn-ink);
       text-decoration: none;
       gap: 8px;
-      transition: background 0.12s;
+      border-left: 2px solid transparent;
+      transition: background .12s, border-color .12s, color .12s;
+    }
+
+    .fin-link::after {
+      content: "›";
+      font-size: 15px;
+      line-height: 1;
+      color: var(--bcn-ink-4);
+      opacity: 0;
+      transform: translateX(-3px);
+      transition: opacity .12s, transform .12s;
     }
 
     .fin-link:hover {
-      background: var(--bcn-hover, rgba(0,0,0,0.04));
+      background: var(--bcn-hover, rgba(0,0,0,0.035));
+      border-left-color: var(--bcn-accent);
       color: var(--bcn-accent);
     }
+
+    .fin-link:hover::after { opacity: 1; transform: translateX(0); }
 
     .fin-link-ext {
       font-family: var(--bcn-mono);
@@ -108,7 +113,7 @@
 
     @media (max-width: 900px) {
       .fin-landing {
-        padding: 16px 14px 32px;
+        padding: 14px 14px 32px;
       }
       .fin-sections {
         grid-template-columns: 1fr;
@@ -136,12 +141,14 @@
 <div id="silo-app" class="silo-app">
   <main class="silo-main">
 
-    <div class="fin-landing">
-      <div class="fin-landing-head">
-        <h1 id="finLandingTitle">SILO Home</h1>
-        <p id="finLandingSub">Choose a tool from the sidebar or below.</p>
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <h1 class="bcn-header-title" id="finLandingTitle">Home</h1>
+        <p class="bcn-header-sub" id="finLandingSub">Everything in this workspace, in one place.</p>
       </div>
+    </header>
 
+    <div class="fin-landing">
       <!-- Compact On Deck link: shown only when real prepared work is waiting
            for THIS user (on_deck_ready_count applies the finance and
            owner/admin gates). Hidden on any error or before the migration. -->
@@ -251,17 +258,23 @@
     supabaseClient,
   });
 
+  // The page is "Home" on every profile; the workspace it belongs to is the
+  // subtitle, so the heading no longer changes shape between a grandfathered
+  // and a standard workspace.
+  (async function nameTheWorkspace() {
+    const company = window.__SILO_CONFIG__?.getActiveCompany?.()
+      || await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient)
+      || null;
+    const sub = document.getElementById('finLandingSub');
+    if (sub && company?.title) sub.textContent = company.title;
+  })();
+
   (async function polishFinanceHub() {
     if (!window.SiloChrome?.resolveNavProfile) return;
     const company = window.__SILO_CONFIG__?.getActiveCompany?.()
       || await window.__SILO_CONFIG__?.ensureActiveCompany?.(supabaseClient)
       || null;
     if (window.SiloChrome.resolveNavProfile(company) !== 'standard') return;
-
-    const title = document.getElementById('finLandingTitle');
-    const sub = document.getElementById('finLandingSub');
-    if (title) title.textContent = company?.title || 'Company home';
-    if (sub) sub.textContent = 'Choose a tool from the sidebar or below.';
 
     // A standard workspace's cards are its sidebar, so Home can never offer
     // what the sidebar hides or miss what it shows (v2/home-nav.js). The
