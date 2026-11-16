@@ -27,7 +27,7 @@ const NAV_KEY = 'planning/calendar';
  * still rows with their own gates and "Jump to" entries, and the in-page
  * .cal-switch strip is still the only way between the two calendars -- which
  * is what the rest of this file guards. */
-r.test('neither calendar is a sidebar row; both stay rows with their own tabOf', () => {
+r.test('the launch calendar is the one drawn Planning row; the org calendar is its tab', () => {
   const context = { window: {} };
   vm.runInNewContext(read('v2/nav-config.js'), context);
   const nav = context.window.SiloNav;
@@ -36,21 +36,25 @@ r.test('neither calendar is a sidebar row; both stay rows with their own tabOf',
     // Both pages stay nav rows, so "Jump to" and the gates are unchanged...
     const rows = all.filter((i) => PAGES.includes(i.href));
     r.eq(rows.map((i) => i.href).sort(), [...PAGES].sort(), `${profile}: both pages still nav rows`);
-    // ...but only one of them is drawn in the sidebar.
+    // ...and exactly one of them is drawn in the sidebar: the launch calendar,
+    // which since 2026-11-16 is the Planning row itself.
     const drawn = nav.sidebarSections(nav.navSectionsForProfile(profile, 'exec', 'owner', []))
       .flatMap((s) => s.items).filter((i) => PAGES.includes(i.href));
-    r.eq(drawn.length, 0, `${profile}: no calendar row in the sidebar`);
+    r.eq(drawn.map((i) => i.href), ['/v2/launch-calendar.html'], `${profile}: only the launch calendar is drawn`);
     const cal = rows.find((i) => i.href === '/v2/launch-calendar.html');
     r.eq(cal.id, NAV_KEY, `${profile}: the Calendar row id`);
-    r.eq(cal.label, 'Calendar', `${profile}: row label`);
-    r.eq(cal.tabOf, 'planning/tasks', `${profile}: Calendar is a tab of the Planning row`);
-    // The Planning row it hangs off is the one the sidebar actually draws.
+    // Calendar IS the drawn Planning row since 2026-11-16, so it carries the
+    // suite's name; 'Calendar' is its name as the strip's first tab.
+    r.eq(cal.label, 'Planning', `${profile}: row label is the suite's`);
+    r.eq(cal.tabOf, undefined, `${profile}: Calendar is the drawn Planning row`);
     const planningRow = nav.sidebarSections(nav.navSectionsForProfile(profile, 'exec', 'owner', []))
-      .flatMap((s) => s.items).find((i) => i.id === 'planning/tasks');
+      .flatMap((s) => s.items).find((i) => i.id === NAV_KEY);
     r.truthy(planningRow, `${profile}: the Planning row is drawn`);
-    // ...and the strip that carries Calendar is the Planning suite's.
-    const suite = (nav.SUITES || []).find((x) => x.row === 'planning/tasks');
-    r.truthy(suite?.pages.some(([id]) => id === NAV_KEY), `${profile}: Calendar is a Planning tab`);
+    // ...and the strip it heads is the Planning suite's, with Calendar first
+    // and Tasks last.
+    const suite = (nav.SUITES || []).find((x) => x.row === NAV_KEY);
+    r.eq(suite?.pages[0]?.[0], NAV_KEY, `${profile}: Calendar is the first Planning tab`);
+    r.eq(suite?.pages[suite.pages.length - 1]?.[0], 'planning/tasks', `${profile}: Tasks is the last Planning tab`);
     const org = rows.find((i) => i.href === '/v2/calendar.html');
     r.eq(org.tabOf, NAV_KEY, `${profile}: Org calendar is a tab of the Calendar row`);
   }

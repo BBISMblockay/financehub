@@ -135,7 +135,7 @@ r.test('the strip draws the tabs the nav returns, with the open one current', ()
   const planning = Nav.SUITES.find((s) => s.key === 'planning');
   r.truthy(Suite.contains('planning/tasks') && Suite.contains('planning/live-schedule'), 'the Planning pages are in the suite');
   r.truthy(!Suite.contains('finance/accounting'), 'an unrelated page is not');
-  r.eq(Suite.rowOf('planning/live-schedule'), 'planning/tasks', 'a tab resolves to its row');
+  r.eq(Suite.rowOf('planning/live-schedule'), 'planning/calendar', 'a tab resolves to its row');
 
   let mounted = null;
   const main = { querySelector: () => mounted, firstElementChild: { after: (n) => { mounted = n; } } };
@@ -152,7 +152,7 @@ r.test('the strip draws the tabs the nav returns, with the open one current', ()
   let m2 = null;
   const main2 = { querySelector: () => m2, firstElementChild: { after: (n) => { m2 = n; } } };
   std.window.SiloSuiteNav.mount(main2, 'planning/tasks');
-  r.eq(m2.children[1].children.map((a) => a.href), ['/v2/tasks.html', '/v2/launch-calendar.html'], 'standard: no TikTok tab');
+  r.eq(m2.children[1].children.map((a) => a.href), ['/v2/launch-calendar.html', '/v2/tasks.html'], 'standard: no TikTok tab');
   let m3 = null;
   const main3 = { querySelector: () => m3, firstElementChild: { after: (n) => { m3 = n; } } };
   std.window.SiloSuiteNav.mount(main3, 'team/my-review');
@@ -233,7 +233,7 @@ r.test('a strip offers only the tabs that person could open', () => {
  * keeps its own name as the first TAB. */
 r.test('each collapsed row is named for its suite, and its first tab keeps the page name', () => {
   const EXPECTED = {
-    'planning/tasks': ['Planning', 'Tasks'],
+    'planning/calendar': ['Planning', 'Calendar'],
     'finance/payment-request': ['Requests', 'Payment Request'],
     'inventory/workboard': ['Inventory', 'Inventory Manager'],
     'team/reviews': ['Team', 'Performance Reviews'],
