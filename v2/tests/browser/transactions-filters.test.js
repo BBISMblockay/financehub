@@ -618,15 +618,36 @@ const TABLES = {
         'the active destination is marked');
     });
 
-    await check('every destination is a visible tab, with none folded away', async () => {
-      // The strip used to hide four pages behind a "More" disclosure. It is
-      // one flat scrolling row now, so Schedules and the rest stay on screen.
+    await check('the close tabs are visible and the rest open from More', async () => {
+      // Five close tabs on the row, the periodic and reference pages one click
+      // away inside the disclosure (Blake, 2026-11-16), Books & setup at the
+      // far right. Every destination is still a real link to a real page.
       r.eq(await page.$$eval('.accounting-suite-links a', links=>links.map(a=>a.textContent.trim())),
-        ['Overview','Bank activity','Invoices','Financial reports','Month-end','Shopify journal','Schedules','Fixed assets','Cash forecast']);
-      r.eq(await page.$('.accounting-suite-more'), null, 'no fold-out in the strip');
-      r.truthy(await page.locator('[data-accounting-suite] a[href="/v2/schedules.html"]').isVisible());
-      r.eq(await page.$eval('.accounting-suite-links', n=>getComputedStyle(n).overflowX),'auto');
+        ['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+      r.eq(await page.$$eval('.accounting-suite-menu a', links=>links.map(a=>a.textContent.trim())),
+        ['Shopify journal','Schedules','Fixed assets','Cash forecast']);
+      r.eq(await page.$eval('.accounting-suite-more summary', n=>n.textContent.trim()), 'More');
+      r.eq(await page.locator('[data-accounting-suite] a[href="/v2/schedules.html"]').isVisible(), false,
+        'a closed disclosure hides its links');
+      await page.click('.accounting-suite-more summary');
+      await page.waitForTimeout(150);
+      r.truthy(await page.locator('[data-accounting-suite] a[href="/v2/schedules.html"]').isVisible(),
+        'opening More reveals Schedules');
+      // The menu hangs BELOW the strip, so no ancestor may clip it. A clipped
+      // menu still reports full geometry, so this hit-tests the last item:
+      // whatever is painted at Cash forecast's own centre must be that link.
+      const reached = await page.$eval('.accounting-suite-menu a:last-child', (last) => {
+        const box = last.getBoundingClientRect();
+        const hit = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+        return { label: last.dataset.label, hit: !!hit && last.contains(hit) };
+      });
+      r.eq(reached.label, 'Cash forecast');
+      r.truthy(reached.hit, 'the last item in the menu is painted where it says it is');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      r.eq(await page.$eval('.accounting-suite-more', n=>n.open), false, 'Escape closes it');
     });
+
     await check('on a phone primary navigation retains readable labels', async () => {
       await page.setViewportSize({ width:390, height:780 });
       await page.waitForTimeout(200);
