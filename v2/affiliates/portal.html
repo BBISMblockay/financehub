@@ -601,6 +601,8 @@ function seedBtn(i) {
   if (c) return `${seedPill(c)}`;
   return `<button class="bcn-btn bcn-btn--ghost" type="button" data-seed="${esc(i.id)}">Get it ${esc(SEEDS.offer.percent)}% off</button>`;
 }
+// Products are asked for only from what the brand shared ("Get it N% off" on
+// a shared product or a launch's product), never typed in (Blake, 2026-11-13).
 function seedCard() {
   const o = SEEDS.offer || {};
   if (!o.enabled && !SEEDS.claims.length) return '';
@@ -611,9 +613,8 @@ function seedCard() {
     const who = c.email && c.state !== 'earned' ? `<span class="af-muted">Use it signed in as ${esc(c.email)}</span>` : '';
     return `<div class="af-seed" data-seed-row="${esc(c.id)}"><div class="af-row"><strong>${esc(c.title)}</strong>${seedPill(c)}</div>${code}${who}${bar}</div>`;
   };
-  const ask = o.enabled ? `<form class="af-row" id="seedAsk" novalidate><input class="bcn-field" id="seedTitle" maxlength="200" placeholder="Another product you want to push" /><button class="bcn-btn bcn-btn--primary" type="submit">Ask</button></form>` : '';
   const terms = o.enabled ? `${esc(o.percent)}% off · sell ${esc(o.multiple)}× what you paid and get it back` : '';
-  return `<div id="seedCard">${card('Your products', `${terms ? `<p class="af-muted">${terms}</p>` : ''}<div class="af-seeds">${SEEDS.claims.map(row).join('') || empty('Nothing asked for yet.')}</div>${ask}`)}</div>`;
+  return `<div id="seedCard">${card('Your products', `${terms ? `<p class="af-muted">${terms}</p>` : ''}<div class="af-seeds">${SEEDS.claims.map(row).join('') || empty('Nothing asked for yet.')}</div>`)}</div>`;
 }
 async function seedAsk(body, btn) {
   if (btn) btn.disabled = true;
@@ -626,13 +627,6 @@ async function seedAsk(body, btn) {
     setStatus(r.replayed ? 'Already asked.' : 'Asked. The brand will approve it.', 'pos');
   } catch (e) { setStatus(e.message, 'neg'); if (btn) btn.disabled = false; }
 }
-document.addEventListener('submit', (ev) => {
-  if (ev.target.id !== 'seedAsk') return;
-  ev.preventDefault();
-  const title = $('seedTitle').value.trim();
-  if (!title) { setStatus('Name the product.', 'neg'); return; }
-  seedAsk({ title }, ev.target.querySelector('button'));
-});
 
 document.addEventListener('click', async (ev) => {
   const sd = ev.target.closest('[data-seed]');
