@@ -1,0 +1,61 @@
+/* Specialist work surfaces: presentation only, using the shared SILO tokens. */
+.accounting-specialist .accounting-workspace :is(.sc-page,.fa-page,.cf-page){padding:22px 24px 40px}
+.accounting-specialist .as-section-heading{margin:0 0 18px}
+.accounting-specialist .as-section-heading h2{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em;color:var(--bcn-ink)}
+.accounting-specialist .as-section-heading p{margin:6px 0 0;font-size:12px;line-height:1.5;color:var(--bcn-ink-2)}
+.accounting-specialist .as-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.accounting-specialist .as-help{font-size:12px;color:var(--bcn-ink-2);margin-top:8px;max-width:70ch}
+.accounting-specialist .as-help summary{cursor:pointer;color:var(--bcn-accent);width:fit-content}
+.accounting-specialist .as-help p{line-height:1.6;margin:8px 0 0}
+.accounting-specialist .as-toolbar-note{font-size:12px;color:var(--bcn-ink-2);line-height:1.5;max-width:65ch;margin-left:auto}
+.accounting-specialist .accounting-workspace :is(.sc-card,.fa-card,.ax-card){border-radius:6px;box-shadow:none;margin-bottom:20px}
+.accounting-specialist .accounting-workspace :is(.sc-card-head,.fa-card-head,.ax-card-header){padding:16px 18px;gap:14px;align-items:center;flex-wrap:wrap;background:var(--bcn-surface)}
+.accounting-specialist .accounting-workspace :is(.sc-title,.fa-title,.ax-card-title){font-size:15px;font-weight:650;letter-spacing:-.02em}
+.accounting-specialist .accounting-workspace :is(.sc-sub,.fa-sub,.ax-card-sub){font-family:var(--bcn-font);font-size:12px;line-height:1.5;margin-top:4px;white-space:normal}
+.accounting-specialist .accounting-workspace .ax-card-sub:not(#mapCount){display:block}
+.accounting-specialist .sc-bar{padding:16px 18px;border-radius:6px;margin-bottom:18px;gap:12px}
+.accounting-specialist .sc-field label,.accounting-specialist .fa-field label{font-family:var(--bcn-font);text-transform:none;letter-spacing:0;font-size:12px;color:var(--bcn-ink-2)}
+.accounting-specialist .accounting-workspace .sc-tie{padding:18px;margin-bottom:20px;gap:20px 32px;border-radius:6px}
+/* Author display:flex must not override the catch-up panel's native hidden state. */
+.accounting-specialist .accounting-workspace .sc-tie[hidden]{display:none}
+.accounting-specialist .sc-tie-item{gap:7px;min-width:90px}
+.accounting-specialist .sc-tie-value{font-size:22px;font-weight:500}
+.accounting-specialist .sc-tie-note{flex-basis:100%;padding-top:12px;border-top:1px solid var(--bcn-border);line-height:1.5}
+.accounting-specialist .accounting-workspace :is(.sc-table,.fa-table) td{padding:10px 14px}
+.accounting-specialist :is(.sc-table,.fa-table) th{padding:10px 14px}
+.accounting-specialist .fa-group-row td{top:33px}
+.accounting-specialist :is(.sc-table,.fa-table) tbody tr:hover td{background:var(--bcn-accent-soft)}
+.accounting-specialist :is(.sc-scroll,.fa-scroll,.ax-scroll):focus-visible{outline:2px solid var(--bcn-accent);outline-offset:-2px}
+.accounting-specialist .sc-card-head>div:last-child,.accounting-specialist .fa-card-head>div:last-child{flex-wrap:wrap}
+.accounting-specialist :is(.sc-dlg-head,.fa-dlg-head){font-size:17px;padding:20px}
+.accounting-specialist :is(.sc-dlg-body,.fa-dlg-body){padding:20px;gap:16px}
+.accounting-specialist :is(.sc-dlg-foot,.fa-dlg-foot){padding:16px 20px;background:var(--bcn-sunken);flex-wrap:wrap}
+.accounting-specialist .ax-page{padding:18px 24px 24px;gap:14px}
+.accounting-specialist .ax-filters{gap:12px;flex-wrap:wrap}
+.accounting-specialist .ax-summary-grid{background:var(--bcn-sunken);border-bottom:1px solid var(--bcn-border)}
+.accounting-specialist .ax-mini-value{font-weight:500}
+.accounting-specialist .ax-loc-row td{background:var(--bcn-sunken)!important}
+.accounting-specialist .ax-total-row td{background:var(--bcn-sunken)!important}
+.accounting-specialist .ax-grand-row td{background:var(--bcn-accent-soft)!important}
+.accounting-specialist .ax-tbl tr:hover td{background:var(--bcn-accent-soft)}
+.accounting-specialist .ax-tabbar{overflow-x:auto;flex-wrap:nowrap;flex:none}
+.accounting-specialist .ax-tabbar .bcn-tab{white-space:nowrap;flex-shrink:0}
+.accounting-specialist .cf-controls{padding:16px;border:1px solid var(--bcn-border);border-radius:6px;background:var(--bcn-surface);gap:12px}
+.accounting-specialist .cf-method{border-radius:6px}
+.accounting-specialist .cf-section-head h2{font-size:17px;letter-spacing:-.02em}
+.accounting-specialist .cf-section-head{padding:18px 0 12px}
+.accounting-specialist :is(.cf-matrix,.cf-planning-strip,.cf-charts-wrap){border-radius:6px}
+@media(max-width:760px){
+ .accounting-specialist .accounting-workspace :is(.sc-page,.fa-page,.cf-page),.accounting-specialist .ax-page{padding:16px 12px 28px}
+ .accounting-specialist .accounting-workspace :is(.sc-card-head,.fa-card-head,.ax-card-header){padding:14px 12px}
+ .accounting-specialist .sc-field{flex:1;min-width:130px}
+ .accounting-specialist .sc-field--wide{flex-basis:100%}
+ .accounting-specialist .sc-field :is(select,input){min-width:0;width:100%}
+ .accounting-specialist .as-actions{width:100%}
+ .accounting-specialist .as-actions>span{width:100%}
+ .accounting-specialist .as-toolbar-note{flex-basis:100%;margin-left:0}
+ .accounting-specialist .fa-filter{max-width:100%}
+ .accounting-specialist .sc-tie-item{min-width:100px}
+ .accounting-specialist .accounting-workspace .sc-tie{gap:18px}
+ .accounting-specialist :is(.sc-dlg-body,.fa-dlg-body)>div{flex-wrap:wrap}
+}

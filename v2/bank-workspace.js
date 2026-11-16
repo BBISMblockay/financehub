@@ -17,8 +17,41 @@
   function cutoverConfirmed(date, checked, confirmedDate) {
     return /^\d{4}-\d{2}-\d{2}$/.test(date || '') && checked === true && date === confirmedDate;
   }
-  function create({ document: doc = document, references, feeds, selectSource, openBatch, upload, manage, status, dirty }) {
-    let selected = null, generation = 0, navigating = false;
+  // Preference only: the existing scheduler prepares suggestions; people
+  // still accept, approve and post. No model call is made from this control.
+  async function saveAutoPreparation(db, company, source, enabled) {
+    if (!company || !source?.id || source.company_entity_id !== company)
+      throw new Error('Account changed. Refresh before changing automatic suggestions.');
+    if (typeof source.auto_prepare_coding !== 'boolean' || typeof enabled !== 'boolean')
+      throw new Error('Automatic preparation is not available for this account yet.');
+    if (enabled && (!source.is_active || !source.qbo_connection_id))
+      throw new Error('Set up an active account and its QuickBooks mapping first.');
+    const query = db.from('card_sources').update({ auto_prepare_coding: enabled })
+      .eq('id', source.id).eq('company_entity_id', company)
+      .eq('auto_prepare_coding', source.auto_prepare_coding);
+    if (enabled) query.eq('is_active', true).eq('qbo_connection_id', source.qbo_connection_id);
+    const { data, error } = await query.select('id,company_entity_id,auto_prepare_coding');
+    if (error) throw new Error(error.message);
+    if (data?.length !== 1 || data[0].id !== source.id || data[0].company_entity_id !== company
+        || data[0].auto_prepare_coding !== enabled)
+      throw new Error('The account setting changed or could not be saved. Refresh and try again.');
+    return data[0].auto_prepare_coding;
+  }
+  function preparationSetting(source, canSave) {
+    if (!source) return '';
+    const known = typeof source.auto_prepare_coding === 'boolean';
+    const enabled = source.auto_prepare_coding === true;
+    return `<section class="workspace-preparation" aria-label="Automatic coding suggestions">
+      <strong>Automatic coding suggestions</strong>
+      <p>${known ? (enabled ? 'Requested for this account.' : 'Off for this account.') : 'Unavailable until background preparation is set up.'}
+      Prepares categories for review; never accepts, approves or posts them.</p>
+      <p>Uses paid AI calls on eligible uncoded transactions, including existing backlog. Runs after scheduled bank syncs and during the nightly catch-up only when background preparation is enabled by your administrator. Manual preparation remains available.</p>
+      ${canSave && known ? `<button class="bcn-btn" data-workspace-action="${enabled ? 'disable-preparation' : 'enable-preparation'}" ${!enabled && (!source.is_active || !source.qbo_connection_id) ? 'disabled' : ''}>${enabled ? 'Turn off automatic suggestions' : 'Enable automatic suggestions'}</button>` : ''}
+      ${known && !enabled && !source.qbo_connection_id ? '<p>Choose this account’s QuickBooks mapping first.</p>' : ''}
+    </section>`;
+  }
+  function create({ document: doc = document, references, feeds, selectSource, openBatch, upload, manage, status, dirty, db, company }) {
+    let selected = null, generation = 0, navigating = false, savingPreparation = false;
     const el = id => doc.getElementById(id);
     const money = (n, currency) => n == null ? 'Not supplied' : new Intl.NumberFormat('en-US', {style:'currency',currency:currency || 'USD'}).format(n);
     const time = v => v ? new Date(v).toLocaleString() : 'Never';
@@ -66,7 +99,7 @@
         <details class="workspace-details"><summary>Account details</summary><div class="workspace-facts">
         <div><span>Balancing account</span><b>${esc(source?.credit_qbo_account_name || 'Choose in Accounts')}</b></div>
         ${account ? `<div><span>Balance updated</span><b>${esc(time(account.balance_updated_at))}</b></div><div><span>Last synced</span><b>${esc(time(account.last_synced_at))}</b></div><div><span>Connection / saved position</span><b>${esc(connection?.status || 'Unavailable')} · ${account.cursor?'Cursor saved':'No cursor yet'}</b></div><div><span>Open exceptions</span><b>${exceptionCount}</b></div><div><span>Item history requested</span><b>${connection?.history_days_requested ? esc(connection.history_days_requested)+' days' : 'Not recorded for this connection'}</b></div>` : ''}
-        </div><p>${esc(s?.help || 'Upload a statement, review its transactions, then approve a journal when ready.')}</p><button class="bcn-btn" data-workspace-action="manage">Account settings</button></details></div>
+        </div><p>${esc(s?.help || 'Upload a statement, review its transactions, then approve a journal when ready.')}</p><button class="bcn-btn" data-workspace-action="manage">Account settings</button>${preparationSetting(source, !!db && typeof company === 'function')}</details></div>
         ${s && !['synced-recently','csv'].includes(s.key) ? `<div class="${['syncing','lease-held'].includes(s.key)?'workspace-progress':'workspace-attention'}">${esc(s.help)}</div>` : ''}</section>`;
       const periods = batches.filter(b=>b.source_id===source?.id).sort((a,b)=>String(b.period_start).localeCompare(String(a.period_start)) || String(b.created_at).localeCompare(String(a.created_at)));
       el('workspacePeriod').innerHTML = periods.length ? periods.map(b=>`<option value="${esc(b.id)}" ${b.id===batch?.id?'selected':''}`
@@ -93,11 +126,26 @@
     });
     el('workspaceSummary').addEventListener('click',async e=>{
       const action = e.target.closest('[data-workspace-action]')?.dataset.workspaceAction;
-      if (!action) return;
+      if (!action || savingPreparation) return;
       try {
         if (dirty()) throw new Error('Save or discard your edits before changing this account.');
         const data=feeds()?.snapshot(), source=references().sources.find(s=>s.id===selected);
         const account=data?.accounts.find(a=>a.source_id===selected || 'plaid:'+a.id===selected);
+        if(action==='enable-preparation' || action==='disable-preparation') {
+          const savedCompany = company?.(), sourceId = selected;
+          const button = e.target.closest('[data-workspace-action]');
+          savingPreparation = true; button.disabled = true;
+          try {
+            const enabled = await saveAutoPreparation(db, savedCompany, source, action==='enable-preparation');
+            if (company?.() !== savedCompany || selected !== sourceId) return;
+            const current = references().sources.find(s=>s.id===sourceId && s.company_entity_id===savedCompany);
+            if (current) current.auto_prepare_coding = enabled;
+            render();
+            el('workspaceSummary').querySelector?.('.workspace-details')?.setAttribute('open', '');
+            status(enabled ? 'Automatic suggestions requested for this account. Background preparation must be enabled by your administrator. Review and posting stay with your team.' : 'Automatic suggestions turned off. Prepared suggestions remain available for review.', 'pos');
+          } finally { savingPreparation = false; button.disabled = false; }
+          return;
+        }
         if(action==='upload') return upload(source?.id);
         if(action==='manage' || action==='map') return manage(account?.id);
         if(action==='refresh') await feeds().load();
@@ -108,5 +156,5 @@
     });
     return { render, choose, followBatch(){selected=references().batch?.source_id || selected;render();}, selected:()=>selected };
   }
-  window.SiloBankWorkspace = { create, accountState, cutoverConfirmed };
+  window.SiloBankWorkspace = { create, accountState, cutoverConfirmed, saveAutoPreparation, preparationSetting };
 })();

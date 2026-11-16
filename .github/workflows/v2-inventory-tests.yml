@@ -208,6 +208,8 @@ jobs:
       # no sandbox symlink on a runner, so it falls through to Playwright's
       # own resolution, which is what `playwright install` just set up.
       - name: Run browser suites
+        env:
+          ACCOUNTING_UI_SCREENSHOTS: /tmp/accounting-suite-qa
         run: node v2/tests/run.js --browser
 
       - name: Upload synthetic accounting screenshots
@@ -215,7 +217,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: accounting-workspace-synthetic-screenshots
-          path: /tmp/accounting-qa/*.png
+          path: |
+            /tmp/accounting-qa/*.png
+            /tmp/accounting-suite-ui/*.png
+            /tmp/accounting-suite-qa/*.png
           if-no-files-found: warn
 
 

@@ -91,7 +91,7 @@
     .sc-preview { font-family: var(--bcn-mono); font-size: 11px;
       background: var(--bcn-sunken); border-radius: 8px; padding: 10px; line-height: 1.6; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css?v=e5432032e580" />
+  <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -102,25 +102,25 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
   <script src="je-composer.js"></script>
+  <link rel="stylesheet" href="accounting-specialist.css?v=fa0112c2d385" />
 </head>
-<body>
+<body class="accounting-specialist">
   <div class="silo-app" id="silo-app">
     <main class="silo-main accounting-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
-          <div>Balance Sheet Schedules</div>
+          <div>Schedules</div>
           <div class="bcn-header-sub">Track prepaid balances, review transactions and prepare monthly recognition.</div>
         </div>
         <div class="bcn-header-actions">
-          <button class="bcn-btn" id="btnFetch">Fetch transactions</button>
-          <button class="bcn-btn" id="btnExclude" disabled>Exclude selected…</button>
-          <button class="bcn-btn bcn-btn--primary" id="btnStamp" disabled>Create schedule…</button>
+          <a class="bcn-btn" href="#scheduleLedger">Review source transactions</a>
         </div>
       </header>
 
       <div class="sc-page">
         <div class="bcn-status" id="status" hidden></div>
 
+        <div class="as-section-heading"><h2>Choose an account and period</h2><p>Review its balance, then organize the source transactions into schedules.</p></div>
         <div class="sc-bar">
           <div class="sc-field sc-field--wide">
             <label for="account">Balance sheet account</label>
@@ -134,15 +134,16 @@
             <label for="to">To</label>
             <input class="bcn-field" id="to" type="date" />
           </div>
+          <button class="bcn-btn bcn-btn--primary" id="btnFetch">Fetch transactions</button>
         </div>
 
-        <div class="sc-tie" id="tie">
+        <div class="sc-tie" id="tie" role="region" aria-label="Account balance breakdown">
           <div class="sc-tie-item">
             <div class="sc-tie-label">QuickBooks balance</div>
             <div class="sc-tie-value" id="tieLedger">—</div>
           </div>
           <div class="sc-tie-item">
-            <div class="sc-tie-label">Stamped</div>
+            <div class="sc-tie-label">In schedules</div>
             <div class="sc-tie-value" id="tieStamped">—</div>
           </div>
           <div class="sc-tie-item">
@@ -154,7 +155,7 @@
             <div class="sc-tie-value" id="tieUnreviewed">—</div>
           </div>
           <div class="sc-tie-item">
-            <div class="sc-tie-label">Opening</div>
+            <div class="sc-tie-label">Opening balance</div>
             <div class="sc-tie-value" id="tieOpening">—</div>
           </div>
           <div class="sc-tie-note" id="tieNote">Pick an account and fetch its transactions.</div>
@@ -184,10 +185,11 @@
           <div class="sc-card-head">
             <div>
               <div class="sc-title">Amortization entry</div>
-              <div class="sc-sub">Prepaid items only, for now. Recognises every active item's period for the chosen month in one entry — debiting each item's expense account, crediting the prepaid asset it was stamped against.</div>
+              <div class="sc-sub">Review the monthly expense from your prepaid schedules before posting.</div>
+              <details class="as-help"><summary>How this entry works</summary><p>Prepaid items only. Each active item's period is combined into one entry for the selected month: debit its expense account and credit its prepaid asset account.</p></details>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
-              <input class="bcn-field bcn-field--mono" id="amMonth" type="month" style="width:130px" />
+              <input class="bcn-field bcn-field--mono" id="amMonth" aria-label="Amortization month" type="month" style="width:130px" />
               <button class="bcn-btn bcn-btn--dark" id="btnBuildAmort">Review amortization entry</button>
             </div>
           </div>
@@ -202,26 +204,26 @@
           <div class="sc-card-head">
             <div>
               <div class="sc-title">Schedule</div>
-              <div class="sc-sub">What has been stamped, and what is left to recognise</div>
+              <div class="sc-sub">Existing schedules and the amounts left to recognize.</div>
             </div>
             <div class="sc-sub" id="itemCount"></div>
           </div>
-          <div class="sc-scroll">
+          <div class="sc-scroll" tabindex="0" role="region" aria-label="Schedule table">
             <table class="sc-table" id="tblItems">
               <tbody><tr><td class="sc-empty">Nothing stamped for this account yet.</td></tr></tbody>
             </table>
           </div>
         </div>
 
-        <div class="sc-card">
+        <div class="sc-card" id="scheduleLedger">
           <div class="sc-card-head">
             <div>
-              <div class="sc-title">Ledger transactions</div>
-              <div class="sc-sub">From the general ledger. Tick the ones belonging to one agreement, then stamp.</div>
+              <div class="sc-title">Source transactions</div>
+              <div class="sc-sub">Select the transactions for one agreement, then create its schedule.</div>
             </div>
-            <div class="sc-sub" id="txnCount"></div>
+            <div class="as-actions"><span class="sc-sub" id="txnCount"></span><button class="bcn-btn" id="btnExclude" disabled>Exclude selected…</button><button class="bcn-btn bcn-btn--primary" id="btnStamp" disabled>Create schedule…</button></div>
           </div>
-          <div class="sc-scroll">
+          <div class="sc-scroll" tabindex="0" role="region" aria-label="Schedule table">
             <table class="sc-table" id="tblTxns">
               <tbody><tr><td class="sc-empty">Click Fetch transactions.</td></tr></tbody>
             </table>

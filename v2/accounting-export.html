@@ -6,7 +6,7 @@
   <title>SILO · Shopify journal</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="accounting-suite.css?v=e5432032e580" />
+  <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -416,8 +416,9 @@
       font-family: var(--bcn-mono);
     }
   </style>
+  <link rel="stylesheet" href="accounting-specialist.css?v=fa0112c2d385" />
 </head>
-<body>
+<body class="accounting-specialist">
 <div class="silo-app" id="silo-app">
   <main class="silo-main accounting-workspace">
     <header class="bcn-header">
@@ -457,10 +458,10 @@
           <label class="bcn-label" for="month">Period month</label>
           <input type="month" id="month" class="bcn-field bcn-field--mono" />
         </div>
-        <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button>
+        <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button><span class="as-toolbar-note">Choose a period, review the journal, then export or post using the existing controls.</span>
       </div>
 
-      <nav class="bcn-tabs ax-tabbar" id="axTabs" role="tablist">
+      <nav class="bcn-tabs ax-tabbar" id="axTabs" role="tablist" aria-label="Shopify journal views">
         <button class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-pane="journal">Shopify journal</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="fees">Processing fees</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="register">Deposit register</button>
@@ -504,7 +505,7 @@
               </div>
             </div>
 
-            <div class="ax-card-body ax-scroll">
+            <div class="ax-card-body ax-scroll" tabindex="0" role="region" aria-label="Journal details">
               <table class="ax-tbl" id="tblSales">
                 <thead>
                   <tr>
@@ -529,7 +530,7 @@
                 <div class="ax-card-sub">Fee JE clears against the receivable leg</div>
               </div>
             </div>
-            <div class="ax-card-body ax-scroll">
+            <div class="ax-card-body ax-scroll" tabindex="0" role="region" aria-label="Journal details">
               <table class="ax-tbl ax-tbl--compact" id="tblFees">
                 <thead>
                   <tr>
@@ -559,7 +560,7 @@
                 <span class="ax-chip" id="registerChip">Payouts: —</span>
               </div>
             </div>
-            <div class="ax-card-body ax-scroll">
+            <div class="ax-card-body ax-scroll" tabindex="0" role="region" aria-label="Journal details">
               <table class="ax-tbl" id="tblRegister">
                 <thead>
                   <tr>
@@ -590,7 +591,7 @@
               </div>
               <div class="ax-card-sub" id="mapCount"></div>
             </div>
-            <div class="ax-card-body ax-scroll">
+            <div class="ax-card-body ax-scroll" tabindex="0" role="region" aria-label="Journal details">
               <table class="ax-loc-table" id="mapGrid"></table>
             </div>
             <!-- Save sits in a pinned foot, not after the last row: with 30-odd
@@ -618,7 +619,7 @@
                 <button class="bcn-btn bcn-btn--primary" id="btnNewAdjustment">New adjustment</button>
               </div>
             </div>
-            <div class="ax-card-body ax-scroll">
+            <div class="ax-card-body ax-scroll" tabindex="0" role="region" aria-label="Journal details">
               <table class="ax-tbl" id="tblAdjustments">
                 <thead>
                   <tr><th>Date</th><th>Memo</th><th class="num">Amount</th><th>Entry</th><th></th></tr>

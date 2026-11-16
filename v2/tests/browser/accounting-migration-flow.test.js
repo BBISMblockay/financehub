@@ -153,23 +153,28 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
        inside the Setup tab below the opening-balance machinery -- on a company
        that lands on Ledger, it was not on screen at all (Blake, 2026-10-15:
        "you've migrated section is so buried"). It belongs beside the lead. */
-    await check('who keeps the books is on the landing view, above the tabs', async () => {
+    await check('who keeps the books leads the work area and stays available in every workspace', async () => {
       const where = await page.evaluate(() => {
         const card = document.getElementById('booksMode');
-        const tabs = document.querySelector('.books-tabs');
-        if (!card || !tabs) return { missing: true };
+        const firstSurface = document.querySelector('.books-content .books-surface');
+        if (!card || !firstSurface) return { missing: true };
         return {
           hidden: card.hidden || !card.offsetParent,
-          beforeTabs: !!(card.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING),
+          beforeWork: !!(card.compareDocumentPosition(firstSurface) & Node.DOCUMENT_POSITION_FOLLOWING),
           insideSurface: !!card.closest('.books-surface'),
           heading: card.querySelector('h2').textContent.trim(),
         };
       });
       r.not(where.missing, true, 'the card is on the page');
       r.eq(where.hidden, false, 'it is on screen without clicking a tab');
-      r.eq(where.beforeTabs, true, 'it sits above the tabs');
+      r.eq(where.beforeWork, true, 'it leads the work area beside the workspace navigation');
       r.eq(where.insideSurface, false, 'and not inside any one tab');
       r.has(where.heading, 'Bookkeeping responsibility');
+      for (const surface of ['ledger', 'register', 'setup']) {
+        await page.click(`.books-tabs [data-surface="${surface}"]`);
+        r.eq(await page.locator('#booksMode').isVisible(), true, `responsibility remains available in ${surface}`);
+        r.eq(await page.locator('#booksMode [data-mode-disclosure] > summary').isVisible(), true, `mode editor remains reachable in ${surface}`);
+      }
     });
 
     await check('the per-account exception is one line until it is asked for', async () => {
@@ -277,7 +282,7 @@ const readSteps = () => Array.from(document.querySelectorAll('.migration-step'))
 
     await check('three tabs, and every surface still belongs to one of them', async () => {
       const tabs = await page.$$eval('.books-tabs [data-surface]', (bs) =>
-        bs.map((b) => ({ label: b.textContent.trim(), owns: (b.dataset.owns || b.dataset.surface).split(/\s+/) })));
+        bs.map((b) => ({ label: b.getAttribute('aria-label') || b.textContent.trim(), owns: (b.dataset.owns || b.dataset.surface).split(/\s+/) })));
       r.eq(tabs.map((t) => t.label), ['Ledger', 'Journals', 'Setup']);
       const owned = tabs.flatMap((t) => t.owns).sort();
       const surfaces = await page.$$eval('.books-surface', (ss) => ss.map((n) => n.id).sort());

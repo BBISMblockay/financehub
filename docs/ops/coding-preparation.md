@@ -35,11 +35,16 @@ Nothing below has been done by the PRs that added it.
    `deploy-edge-function.yml`.
 3. Set the function secret `CODING_PREP_BACKGROUND_ENABLED=true`
    (`ANTHROPIC_API_KEY` is already set for card-categorize).
-4. Switch on the accounts to prepare. Background preparation spends model
-   calls on a company's behalf, so it is **per account and off by default**:
-   `update card_sources set auto_prepare_coding = true where id = '<account id>';`
-   (a finance user may do the same through the API). The Prepare button works
-   on every account regardless.
+4. A finance user can enable it in Transactions → the selected account's
+   details → **Automatic coding suggestions**. Background preparation spends
+   model calls on a company's behalf (including an existing eligible backlog),
+   so it is **per account and off by default**. The setting writes only
+   `card_sources.auto_prepare_coding`, checks the previous value and company,
+   and verifies the returned value. The Prepare button works on every account
+   regardless. A missing preparation column shows unavailable, not an opt-in.
+   The UI says **requested**, not running: it cannot inspect the repository
+   variable or Edge Function secret. Setting this preference alone does not
+   turn on the scheduler.
 5. Set the repository variable `CODING_PREP_ENABLED=true` and dispatch
    `card-coding-prepare.yml` by hand. Read the job's JSON summary and the new
    rows in `card_coding_preparation_runs` (below). If anything looks wrong,
@@ -81,3 +86,15 @@ where t.status = 'uncoded' and b.status in ('draft','categorized');
 - A failed row is retried automatically four more times, backing off; after
   that it waits for someone to press Retry.
 - A dismissal holds until the transaction's facts change.
+
+## Account preference UI release
+
+The account-details control reuses the September preparation schema and the
+existing jobs. It adds no migration and requires no Edge Function redeploy.
+It does not change any existing preference, repository variable or function
+secret. A deployment where steps 1–3 and 5 have not happened still needs those
+operational prerequisites before the preference can produce suggestions.
+Enabling the preference does not invoke AI immediately; it makes eligible rows
+available to the next scheduled preparation run. Turning it off leaves existing
+suggestions intact and does not cancel a preparation call already in flight.
+There is no automatic acceptance, approval or posting.

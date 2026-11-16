@@ -59,7 +59,7 @@
     .inv-x:hover { color: var(--bcn-neg); }
     .inv-note { font-size: 11px; color: var(--bcn-ink-3); line-height: 1.5; }
   </style>
-  <link rel="stylesheet" href="accounting-suite.css?v=payments-design" />
+  <link rel="stylesheet" href="accounting-suite.css?v=3346793e7d59" />
   <link rel="stylesheet" href="payments-ui.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -72,14 +72,15 @@
   <script src="invoice-request.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/pages/config.js"></script>
+<link rel="stylesheet" href="accounting-receivables.css?v=56e50e59e349">
 </head>
-<body>
+<body class="receivables-invoices">
   <div class="silo-app" id="silo-app">
     <main class="silo-main accounting-workspace payments-workspace">
       <header class="bcn-header">
         <div class="bcn-header-title">
           <div>Invoicing</div>
-          <div class="bcn-header-sub bcn-header-sub--trimmed">Your customers. Your Stripe account.</div>
+          <div class="bcn-header-sub bcn-header-sub--trimmed">Review invoices, follow up on balances and manage your Stripe customers.</div>
         </div>
         <div class="bcn-header-actions">
           <button class="bcn-btn bcn-btn--ghost" id="btnNewCustomer"><span data-pay-icon="customer"></span> New customer</button>
@@ -96,7 +97,8 @@
         <div class="bcn-card inv-card">
           <div class="inv-card-head">
             <div>
-              <div class="inv-title"><span data-pay-icon="invoice"></span> Invoices</div>
+              <div class="inv-title"><span data-pay-icon="invoice"></span> Invoice workspace</div>
+              <div class="inv-sub">Find an invoice, inspect its balance and choose the next action.</div>
             </div>
             <div class="inv-tools">
               <label class="inv-search"><span data-pay-icon="search"></span><span class="pay-sr-only">Search latest invoices</span><input type="search" class="bcn-field" id="invoiceSearch" placeholder="Find an invoice or customer" /></label>
@@ -121,8 +123,8 @@
         <div class="bcn-card inv-card">
           <div class="inv-card-head">
             <div>
-              <div class="inv-title"><span data-pay-icon="customer"></span> Customers</div>
-              <div class="inv-sub">Mirrored from your Stripe account.</div>
+              <div class="inv-title"><span data-pay-icon="customer"></span> Stripe customers</div>
+              <div class="inv-sub">Customer directory from your connected Stripe account.</div>
             </div>
             <div class="inv-sub" id="customerCount"></div>
           </div>
