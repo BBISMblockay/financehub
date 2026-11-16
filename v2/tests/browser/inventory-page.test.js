@@ -279,6 +279,33 @@ const r = createReporter('inventory-page');
     r.ok('average cover is measured over measurable rows only',
       kpis.avg === '21.1', kpis.avg);
 
+    /* -------------------------------------- deep links from the Overview --
+     * A tile on /v2/inventory-overview.html links here carrying the lens,
+     * type, location or search it was counting. If the link half-applies, the
+     * rows shown are not the rows the tile claimed -- so assert the whole
+     * journey, not just the helper. */
+    console.log('\n── a deep link from the Overview lands on its rows ──');
+    const deep = await suite.open('/v2/inventory.html?lens=oos&q=Sonic',
+      { inventory_workboard_v: viewRows(), product_tags: [] },
+      { ready: () => { const n = document.getElementById('statusLine');
+        return n && /location rows|failed/.test(n.textContent); } });
+    const applied = await deep.evaluate(() => ({
+      search: document.getElementById('txtSearch').value,
+      signal: document.getElementById('selSignalFilter').value,
+      lensPressed: document.querySelector('button[data-lens="oos"]').getAttribute('aria-pressed'),
+    }));
+    r.ok('the lens is on, with its chip pressed', applied.lensPressed === 'true'
+      && applied.signal === 'out_of_stock', JSON.stringify(applied));
+    r.ok('and the search it carried is in the box', applied.search === 'Sonic', JSON.stringify(applied));
+    const unknown = await suite.open('/v2/inventory.html?lens=not-a-lens',
+      { inventory_workboard_v: viewRows(), product_tags: [] },
+      { ready: () => { const n = document.getElementById('statusLine');
+        return n && /location rows|failed/.test(n.textContent); } });
+    r.ok('an unknown lens is ignored rather than half-applied',
+      await unknown.evaluate(() => document.getElementById('selSignalFilter').value) === '__ALL__');
+    await deep.close();
+    await unknown.close();
+
     console.log('\n── narrow screen ──');
     await page.setViewportSize({ width: 480, height: 900 });
     await page.waitForTimeout(200);

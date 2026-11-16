@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · Inventory</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="suite-nav.css" />
+  <link rel="stylesheet" href="inventory-overview.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="suite-nav.js"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../pages/config.js"></script>
+  <script src="inventory-overview.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <h1 class="bcn-header-title">Inventory</h1>
+          <p class="bcn-header-sub">What you hold, where it sits and what is arriving.</p>
+        </div>
+        <div class="bcn-header-actions">
+          <label class="inv-ov-sr-only" for="selType">Product type</label>
+          <select id="selType" class="bcn-field"><option value="">All product types</option></select>
+          <label class="inv-ov-sr-only" for="selLocation">Location</label>
+          <select id="selLocation" class="bcn-field"><option value="">All locations</option></select>
+          <button type="button" id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+          <a class="bcn-btn bcn-btn--dark" href="/v2/po-builder.html">New PO</a>
+        </div>
+      </header>
+
+      <section class="bcn-kpi-band" aria-label="Inventory totals">
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Inventory value</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiValue">—</div>
+          <div class="inv-ov-kpi-sub" id="kpiValueSub">retail, units on hand</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Units on hand</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiUnits">—</div>
+          <div class="inv-ov-kpi-sub" id="kpiUnitsSub">&nbsp;</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">SKUs in stock</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiSkus">—</div>
+          <div class="inv-ov-kpi-sub" id="kpiSkusSub">&nbsp;</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Out of stock</div>
+          <div class="bcn-kpi-value bcn-mono inv-ov-neg" id="kpiOut">—</div>
+          <div class="inv-ov-kpi-sub inv-ov-neg" id="kpiOutSub">&nbsp;</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">Inbound</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiInbound">—</div>
+          <div class="inv-ov-kpi-sub" id="kpiInboundSub">&nbsp;</div>
+        </div>
+      </section>
+
+      <div class="inv-ov-page">
+        <div class="bcn-status" id="status" hidden></div>
+        <p class="inv-ov-asof" id="asOf">Loading…</p>
+
+        <div class="inv-ov-grid">
+          <section class="inv-ov-card inv-ov-span-12">
+            <div class="inv-ov-card-head"><h2>Stock status</h2><a href="/v2/inventory.html">Inventory Manager →</a></div>
+            <div class="inv-ov-body">
+              <div class="inv-ov-stack" id="stackStatus"></div>
+              <div class="inv-ov-key" id="keyStatus"></div>
+            </div>
+          </section>
+
+          <section class="inv-ov-card inv-ov-span-4" id="cardTypes">
+            <div class="inv-ov-card-head"><h2>Value by type</h2><a href="/v2/products.html">Products →</a></div>
+            <div class="inv-ov-body">
+              <div class="inv-ov-donut-wrap">
+                <div class="inv-ov-donut" id="donut">
+                  <div class="inv-ov-donut-c">
+                    <div>
+                      <div class="inv-ov-donut-v" id="donutValue">—</div>
+                      <div class="inv-ov-donut-l">retail</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="inv-ov-legend" id="donutLegend"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="inv-ov-card inv-ov-span-8" id="cardHoldings">
+            <div class="inv-ov-card-head"><h2>Biggest holdings</h2><a href="/v2/products.html">Products →</a></div>
+            <div class="inv-ov-body"><div class="inv-ov-tiles" id="tiles"></div></div>
+          </section>
+
+          <section class="inv-ov-card inv-ov-span-6" id="cardInbound">
+            <div class="inv-ov-card-head"><h2>Arriving</h2><a href="/v2/purchasing.html">Purchasing →</a></div>
+            <div class="inv-ov-body"><div class="inv-ov-cols" id="cols"></div></div>
+          </section>
+
+          <section class="inv-ov-card inv-ov-span-6" id="cardLocations">
+            <div class="inv-ov-card-head"><h2>By location</h2><a href="/v2/inventory.html">Inventory Manager →</a></div>
+            <div class="inv-ov-body"><div class="inv-ov-bars" id="bars"></div></div>
+          </section>
+
+          <section class="inv-ov-card inv-ov-span-12">
+            <div class="inv-ov-body" style="padding:0">
+              <div class="inv-ov-strip" id="strip"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      const Model = window.SiloInventoryOverview;
+      const el = (id) => document.getElementById(id);
+      const statusEl = el('status');
+      let statusTimer = null;
+
+      function setStatus(msg, type, ms) {
+        if (!statusEl) return;
+        clearTimeout(statusTimer);
+        if (!msg) { statusEl.hidden = true; statusEl.textContent = ''; return; }
+        statusEl.className = 'bcn-status bcn-status--' + (type || 'info');
+        statusEl.textContent = msg;
+        statusEl.hidden = false;
+        if (ms) statusTimer = setTimeout(() => { statusEl.hidden = true; }, ms);
+      }
+
+      const nf = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+      const n = (v) => (Number.isFinite(Number(v)) ? nf.format(Number(v)) : '—');
+      let CURRENCY = null;
+
+      function money(v) {
+        const x = Number(v);
+        if (!Number.isFinite(x)) return '—';
+        if (!CURRENCY) return nf.format(x);
+        return new Intl.NumberFormat(undefined, {
+          style: 'currency', currency: CURRENCY, maximumFractionDigits: 0,
+        }).format(x);
+      }
+      // Short money for a chart label, where the full figure is in the legend.
+      function shortMoney(v) {
+        const x = Number(v);
+        if (!Number.isFinite(x)) return '—';
+        const abs = Math.abs(x);
+        const sign = x < 0 ? '-' : '';
+        if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `${sign}$${Math.round(abs / 1e3)}k`;
+        return `${sign}$${Math.round(abs)}`;
+      }
+
+      // Bucket colours, as Beacon tokens so both themes are right. The two
+      // healthy bands are shades of the accent, low is the warn token and the
+      // two problem bands are the negative and muted tokens.
+      const BUCKET_COLOR = {
+        deep: 'var(--bcn-accent)',
+        ok: 'var(--bcn-accent-border)',
+        low: 'var(--bcn-warn)',
+        out: 'var(--bcn-neg)',
+        neg: 'var(--bcn-ink-3)',
+      };
+      // The donut's slices. Same family, enough steps apart to read.
+      const SLICE_COLOR = [
+        'var(--bcn-accent)', 'var(--bcn-pos)', 'var(--bcn-warn)', 'var(--bcn-accent-border)',
+        'var(--bcn-neg)', 'var(--bcn-pos-border)', 'var(--bcn-ink-2)', 'var(--bcn-ink-3)',
+      ];
+
+      function clear(host) { if (host) host.textContent = ''; }
+      function emptyInto(host, text) {
+        if (!host) return;
+        host.textContent = '';
+        const d = document.createElement('div');
+        d.className = 'inv-ov-empty';
+        d.textContent = text;
+        host.append(d);
+      }
+
+      /* ---- Stock status: one stacked bar of VALUE, plus a key of SKUs ---- */
+      function renderStatus(model) {
+        const stack = el('stackStatus');
+        const key = el('keyStatus');
+        clear(stack); clear(key);
+        const buckets = model.locations.totals.buckets;
+        const skus = model.skus;
+        // The bar is value, and only the bands that HOLD value can be drawn as
+        // an area: out of stock is worth nothing and negative is worth less
+        // than nothing, so both are reported in the key as counts instead of
+        // being given a width that would misstate the total.
+        const drawn = ['deep', 'ok', 'low'].filter((k) => buckets[k].value > 0);
+        if (!drawn.length) {
+          emptyInto(stack, 'No stock on hand');
+        } else {
+          for (const k of drawn) {
+            const seg = document.createElement(Model.BUCKET_LENS[k] ? 'a' : 'span');
+            if (Model.BUCKET_LENS[k]) seg.href = managerHref({ lens: Model.BUCKET_LENS[k] });
+            seg.style.flex = String(buckets[k].value);
+            seg.style.background = BUCKET_COLOR[k];
+            const label = Model.BUCKETS.find((b) => b.key === k).short;
+            // A segment narrower than this cannot hold its own label without
+            // clipping it mid-word, so it carries the colour and the tooltip
+            // and leaves the figure to the key below.
+            const share = buckets[k].value / drawn.reduce((a, j) => a + buckets[j].value, 0);
+            seg.textContent = share >= 0.12 ? `${shortMoney(buckets[k].value)} ${label}` : '';
+            seg.title = `${money(buckets[k].value)} · ${n(buckets[k].units)} units`;
+            stack.append(seg);
+          }
+        }
+        for (const b of Model.BUCKETS) {
+          const lens = Model.BUCKET_LENS[b.key];
+          const node = document.createElement(lens ? 'a' : 'span');
+          if (lens) node.href = managerHref({ lens });
+          const dot = document.createElement('i');
+          dot.className = 'inv-ov-dot';
+          dot.style.background = BUCKET_COLOR[b.key];
+          const text = document.createElement('span');
+          text.textContent = b.label + ' ';
+          const strong = document.createElement('b');
+          const count = skus ? skus.buckets[b.key] : null;
+          strong.textContent = count === null ? n(buckets[b.key].rowCount) : n(count);
+          node.append(dot, text, strong);
+          if (count !== null) {
+            const unit = document.createElement('span');
+            unit.textContent = ' SKUs';
+            node.append(unit);
+          }
+          if (b.key === 'neg' && model.locations.totals.negValue) {
+            const extra = document.createElement('b');
+            extra.textContent = ' ' + money(model.locations.totals.negValue);
+            node.append(extra);
+          }
+          key.append(node);
+        }
+      }
+
+      /* ---- Value by type: a donut drawn as one conic gradient ---- */
+      function renderTypes(model) {
+        const card = el('cardTypes');
+        const donut = el('donut');
+        const legend = el('donutLegend');
+        clear(legend);
+        const list = model.types ? Model.topWithOther(model.types.list.filter((t) => t.value > 0), 7) : [];
+        card.hidden = !list.length;
+        if (!list.length) return;
+        const total = list.reduce((acc, g) => acc + g.value, 0) || 1;
+        const stops = [];
+        let at = 0;
+        list.forEach((g, i) => {
+          const color = SLICE_COLOR[i % SLICE_COLOR.length];
+          const next = at + (g.value / total) * 100;
+          stops.push(`${color} ${at.toFixed(3)}% ${next.toFixed(3)}%`);
+          at = next;
+        });
+        donut.style.background = `conic-gradient(${stops.join(', ')})`;
+        el('donutValue').textContent = shortMoney(model.locations.totals.value);
+        list.forEach((g, i) => {
+          const row = document.createElement(g.other ? 'span' : 'a');
+          row.className = g.other ? 'inv-ov-legend-row' : '';
+          if (!g.other) row.href = managerHref({ productType: g.key });
+          const dot = document.createElement('i');
+          dot.className = 'inv-ov-dot';
+          dot.style.background = SLICE_COLOR[i % SLICE_COLOR.length];
+          const name = document.createElement('span');
+          name.className = 'inv-ov-legend-name';
+          name.textContent = g.label;
+          const val = document.createElement('span');
+          val.className = 'inv-ov-legend-v';
+          val.textContent = shortMoney(g.value);
+          row.append(dot, name, val);
+          legend.append(row);
+        });
+      }
+
+      /* ---- Biggest holdings: product photo tiles ---- */
+      function renderHoldings(model) {
+        const card = el('cardHoldings');
+        const host = el('tiles');
+        clear(host);
+        const list = model.holdings || [];
+        card.hidden = !list.length;
+        if (!list.length) return;
+        for (const item of list) {
+          const tile = document.createElement('a');
+          tile.className = 'inv-ov-tile';
+          tile.href = '/v2/inventory.html?q=' + encodeURIComponent(item.title);
+          const ph = document.createElement('div');
+          ph.className = 'inv-ov-tile-img';
+          const img = document.createElement('img');
+          img.src = item.img;
+          img.alt = '';
+          img.loading = 'lazy';
+          // A dead image URL leaves a grey tile rather than a broken icon.
+          img.addEventListener('error', () => { img.remove(); });
+          ph.append(img);
+          const meta = document.createElement('div');
+          meta.className = 'inv-ov-tile-meta';
+          const title = document.createElement('span');
+          title.className = 'inv-ov-tile-title';
+          title.textContent = item.title;
+          title.title = item.title;
+          const row = document.createElement('span');
+          row.className = 'inv-ov-tile-row';
+          const value = document.createElement('b');
+          value.textContent = money(item.value);
+          const units = document.createElement('span');
+          units.className = 'inv-ov-tile-units';
+          units.textContent = n(item.units) + ' u';
+          row.append(value, units);
+          meta.append(title, row);
+          tile.append(ph, meta);
+          host.append(tile);
+        }
+      }
+
+      /* ---- Arriving: units per arrival month ---- */
+      function renderInbound(model) {
+        const card = el('cardInbound');
+        const host = el('cols');
+        clear(host);
+        const inbound = model.inbound;
+        card.hidden = !inbound || !inbound.bars.length;
+        if (card.hidden) return;
+        const max = Math.max(...inbound.bars.map((b) => b.units), 1);
+        for (const bar of inbound.bars) {
+          const col = document.createElement('div');
+          col.className = 'inv-ov-col';
+          const label = document.createElement('span');
+          label.className = 'inv-ov-col-n';
+          label.textContent = bar.units >= 1000 ? Math.round(bar.units / 1000) + 'k' : n(bar.units);
+          const fill = document.createElement('div');
+          fill.className = 'inv-ov-col-bar'
+            + (bar.late ? ' is-late' : (bar.current ? '' : ' is-future'));
+          fill.style.height = Math.max(2, Math.round((bar.units / max) * 132)) + 'px';
+          fill.title = `${n(bar.units)} units · ${n(bar.pos)} POs · ${money(bar.estCost)}`;
+          const month = document.createElement('span');
+          month.className = 'inv-ov-col-m';
+          month.textContent = bar.label;
+          col.append(label, fill, month);
+          host.append(col);
+        }
+      }
+
+      /* ---- By location: value bars ---- */
+      function renderLocations(model) {
+        const card = el('cardLocations');
+        const host = el('bars');
+        clear(host);
+        const list = Model.topWithOther(
+          model.locations.list.filter((l) => l.value > 0), 7,
+          (count) => `Other ${count}`);
+        card.hidden = !list.length;
+        if (!list.length) return;
+        const max = Math.max(...list.map((l) => l.value), 1);
+        for (const loc of list) {
+          const row = document.createElement(loc.other ? 'div' : 'a');
+          row.className = 'inv-ov-bar';
+          if (!loc.other) row.href = managerHref({ locationTag: loc.key });
+          const label = document.createElement('span');
+          label.className = 'inv-ov-bar-label';
+          label.textContent = loc.label;
+          label.title = loc.label;
+          const track = document.createElement('div');
+          track.className = 'inv-ov-bar-track';
+          const fill = document.createElement('div');
+          fill.className = 'inv-ov-bar-fill';
+          fill.style.width = Math.max(1, (loc.value / max) * 100).toFixed(1) + '%';
+          track.append(fill);
+          const value = document.createElement('span');
+          value.className = 'inv-ov-bar-value';
+          value.textContent = shortMoney(loc.value);
+          value.title = `${money(loc.value)} · ${n(loc.units)} units`;
+          row.append(label, track, value);
+          host.append(row);
+        }
+      }
+
+      /* ---- The dark strip ---- */
+      function renderStrip(model) {
+        const host = el('strip');
+        clear(host);
+        const skus = model.skus;
+        const items = [
+          ['No sale in 90 days', money(model.locations.totals.staleValue), { lens: 'stale' }],
+          ['Held in 2+ locations', skus ? n(skus.multiLocation) + ' SKUs' : '—', null],
+          ['Negative on hand', skus ? n(skus.negative) + ' SKUs' : '—', { lens: 'negative' }],
+          ['Out of stock', skus ? n(skus.out) + ' SKUs' : '—', { lens: 'oos' }],
+        ];
+        for (const [label, value, link] of items) {
+          const node = document.createElement(link ? 'a' : 'div');
+          if (link) node.href = managerHref(link);
+          const l = document.createElement('div');
+          l.className = 'inv-ov-strip-l';
+          l.textContent = label;
+          const v = document.createElement('span');
+          v.className = 'inv-ov-strip-v';
+          v.textContent = value;
+          node.append(l, v);
+          host.append(node);
+        }
+      }
+
+      /* ---- KPI band ---- */
+      function renderKpis(model) {
+        const k = model.kpis;
+        el('kpiValue').textContent = money(k.value);
+        el('kpiValueSub').textContent = 'retail, units on hand';
+        el('kpiUnits').textContent = n(k.units);
+        el('kpiUnitsSub').textContent = k.locations
+          ? `across ${n(k.locations)} location${k.locations === 1 ? '' : 's'}` : ' ';
+        el('kpiSkus').textContent = model.skus ? n(k.skusInStock) : '—';
+        el('kpiSkusSub').textContent = model.skus ? `of ${n(k.skusTotal)} SKUs` : ' ';
+        el('kpiOut').textContent = model.skus ? n(k.skusOut) : '—';
+        el('kpiOutSub').textContent = model.skus && k.skusNegative
+          ? `${n(k.skusNegative)} negative on hand` : ' ';
+        el('kpiInbound').textContent = model.inbound ? n(k.inboundUnits) : '—';
+        el('kpiInboundSub').textContent = model.inbound
+          ? `${money(k.inboundCost)} est${k.inboundLate ? ` · ${n(k.inboundLate)} late` : ''}`
+          : ' ';
+      }
+
+      /* ---- Filters ---- */
+      // Both lists are built from the data, so a company's own types and
+      // locations are the options and nothing is hardcoded.
+      let FILTERS = { productType: '', locationTag: '' };
+      let OPTIONS = { types: [], locations: [] };
+
+      function managerHref(opts) {
+        return Model.managerHref(Object.assign({
+          productType: FILTERS.productType || undefined,
+          locationTag: FILTERS.locationTag || undefined,
+        }, opts || {}));
+      }
+
+      function fillSelect(id, options, selected, allLabel) {
+        const sel = el(id);
+        if (!sel) return;
+        sel.textContent = '';
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = allLabel;
+        sel.append(all);
+        for (const opt of options) {
+          const node = document.createElement('option');
+          node.value = opt.value;
+          node.textContent = opt.label;
+          sel.append(node);
+        }
+        sel.value = options.some((o) => o.value === selected) ? selected : '';
+      }
+
+      // The option lists come from an UNFILTERED read, so selecting a type
+      // never empties the location list (and the other way round).
+      function captureOptions(model) {
+        if (!FILTERS.productType && model.types) {
+          OPTIONS.types = model.types.list
+            .map((t) => ({ value: t.key, label: t.label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        }
+        if (!FILTERS.locationTag) {
+          OPTIONS.locations = model.locations.list
+            .filter((l) => l.key)
+            .map((l) => ({ value: l.key, label: l.label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        }
+        fillSelect('selType', OPTIONS.types, FILTERS.productType, 'All product types');
+        fillSelect('selLocation', OPTIONS.locations, FILTERS.locationTag, 'All locations');
+      }
+
+      function renderAsOf(model) {
+        const stamp = model.asOf ? new Date(model.asOf) : null;
+        el('asOf').textContent = stamp && !Number.isNaN(stamp.getTime())
+          ? 'Stock as of ' + stamp.toLocaleString(undefined, {
+            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          })
+          : 'Stock as of the last sync';
+      }
+
+      function render(model) {
+        CURRENCY = model.currency;
+        captureOptions(model);
+        renderKpis(model);
+        renderStatus(model);
+        renderTypes(model);
+        renderHoldings(model);
+        renderInbound(model);
+        renderLocations(model);
+        renderStrip(model);
+        renderAsOf(model);
+        // A card whose own read failed is already hidden; say which one, once,
+        // rather than letting it disappear silently.
+        const failed = (model.errors || []).map((e) => e.source).filter((s) => s !== 'byLocation');
+        if (failed.length) setStatus('Some cards could not be read: ' + failed.join(', '), 'warn', 8000);
+        else setStatus('');
+      }
+
+      let CONTROLLER = null;
+      let BUSY = false;
+      async function refresh() {
+        if (!CONTROLLER || BUSY) return;
+        BUSY = true;
+        el('btnRefresh').disabled = true;
+        try { await CONTROLLER.refresh(FILTERS); } catch (_) { /* onError reported it */ } finally {
+          BUSY = false;
+          el('btnRefresh').disabled = false;
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        el('selType').addEventListener('change', (e) => {
+          FILTERS = Object.assign({}, FILTERS, { productType: e.target.value });
+          refresh();
+        });
+        el('selLocation').addEventListener('change', (e) => {
+          FILTERS = Object.assign({}, FILTERS, { locationTag: e.target.value });
+          refresh();
+        });
+        el('btnRefresh').addEventListener('click', refresh);
+
+        Model.boot({
+          active: 'inventory/overview',
+          crumbs: ['Inventory', 'Overview'],
+          filters: FILTERS,
+          onModel: render,
+          onError: (error) => setStatus(error.message || 'Could not load inventory', 'error'),
+        }).then((controller) => { CONTROLLER = controller; }).catch(() => { /* reported */ });
+      });
+    }());
+  </script>
+</body>
+</html>

@@ -235,7 +235,7 @@ r.test('each collapsed row is named for its suite, and its first tab keeps the p
   const EXPECTED = {
     'planning/calendar': ['Planning', 'Calendar'],
     'finance/payment-request': ['Requests', 'Payment Request'],
-    'inventory/workboard': ['Inventory', 'Inventory Manager'],
+    'inventory/overview': ['Inventory', 'Overview'],
     'team/reviews': ['Team', 'Performance Reviews'],
   };
   for (const suite of Nav.SUITES) {

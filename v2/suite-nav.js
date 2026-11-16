@@ -55,6 +55,8 @@
   /* Same drawing as the other strips: 24-unit box, 1.6 stroke, round caps,
      currentColor. Keyed by tab id with a neutral fallback. */
   const ICONS = {
+    // A gauge: what the stock adds up to.
+    'inventory/overview': '<path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-5"/><circle cx="12" cy="18" r="1.2"/>',
     // Stacked boxes: what is on the shelf.
     'inventory/workboard': '<path d="M3 8l9-4 9 4v8l-9 4-9-4z"/><path d="M3 8l9 4 9-4"/><path d="M12 12v8"/>',
     // A tag: the catalogue.

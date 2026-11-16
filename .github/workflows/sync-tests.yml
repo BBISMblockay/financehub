@@ -373,6 +373,12 @@ on:
       - 'v2/marketing-suite.*'
       - 'scripts/tests/performance-suite.test.mjs'
       - 'v2/performance-suite.*'
+      # Inventory suite: Overview plus its three tabs.
+      - 'scripts/tests/inventory-overview.test.mjs'
+      - 'v2/inventory-overview.*'
+      - 'v2/inventory-signals.js'
+      - 'v2/suite-nav.js'
+      - 'v2/nav-config.js'
       - 'v2/marketing-overview.html'
       - 'v2/marketing-explorer.html'
       - 'v2/wow-report.html'
@@ -762,6 +768,23 @@ jobs:
       # companyGate, because each tab's visibility is its own nav row's.
       - name: Performance suite navigation
         run: node --test scripts/tests/performance-suite.test.mjs
+
+      # The Inventory Overview (2026-11-16): the suite's first tab, and the
+      # only page that aggregates inventory in SQL rather than reading the
+      # whole view. Its model decides what the inventory is WORTH, so each
+      # mutation below is a way of getting that wrong quietly -- a negative
+      # row netted into the value, a bucket boundary moved, a filter value
+      # interpolated unescaped, an overdue arrival counted as still to come.
+      - name: Inventory overview model
+        run: node --test scripts/tests/inventory-overview.test.mjs
+      - name: Inventory overview mutations
+        run: |
+          for m in neg_into_value low_boundary lit_escape late_month other_slice sku_total; do
+            if INVENTORY_OVERVIEW_MUTATION="$m" node --test scripts/tests/inventory-overview.test.mjs >/dev/null 2>&1; then
+              echo "Mutation $m SURVIVED"; exit 1
+            fi
+            echo "caught $m"
+          done
 
       # One settings area, no duplicate Billing/Integrations routes, and a
       # platform link that a company owner can never see.
