@@ -180,11 +180,14 @@
       // strip marks Calendar current on either of them.
       key: 'planning',
       label: 'Planning',
-      row: 'planning/tasks',
+      // Calendar is the first tab and the page the row lands on, and Tasks is
+      // last (Blake, 2026-11-16: 'planning goes to tasks as first tab, let's
+      // make that last tab, calendar first').
+      row: 'planning/calendar',
       pages: [
-        ['planning/tasks', 'Tasks', '/v2/tasks.html'],
         ['planning/calendar', 'Calendar', '/v2/launch-calendar.html'],
         ['planning/live-schedule', 'TikTok Live Schedule', '/v2/live-schedule.html'],
+        ['planning/tasks', 'Tasks', '/v2/tasks.html'],
       ],
     },
     {
@@ -433,10 +436,12 @@
     // two views are separate Pattern-1 pages with their own data layers, so
     // each keeps its own URL, deep links and bookmarks. Both mount chrome with
     // active:'planning/calendar', so the one row highlights on either tab.
-    { id: 'planning/calendar', section: 'Planning', label: 'Calendar', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] , tabOf: 'planning/tasks' },
+    // The Calendar row is the one the sidebar DRAWS, so it carries the suite's
+    // name ('Planning'); each tab keeps its own name in the strip, from SUITES.
+    { id: 'planning/calendar', section: 'Planning', label: 'Planning', href: '/v2/launch-calendar.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/org-calendar', section: 'Planning', label: 'Org calendar', href: '/v2/calendar.html', profiles: ['grandfathered', 'standard'], tabOf: 'planning/calendar' },
-    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] , tabOf: 'planning/tasks' },
-    { id: 'planning/tasks', section: 'Planning', label: 'Planning', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'planning/live-schedule', section: 'Planning', label: 'TikTok Live Schedule', href: '/v2/live-schedule.html', profiles: ['grandfathered'] , tabOf: 'planning/calendar' },
+    { id: 'planning/tasks', section: 'Planning', label: 'Tasks', href: '/v2/tasks.html', profiles: ['grandfathered', 'standard'] , tabOf: 'planning/calendar' },
 
     { id: 'team/reviews', section: 'Team', label: 'Team', href: '/v2/reviews.html', profiles: ['grandfathered'] },
     { id: 'team/my-review', section: 'Team', label: 'My Reviews', href: '/v2/my-review.html', profiles: ['grandfathered'] , tabOf: 'team/reviews' },
