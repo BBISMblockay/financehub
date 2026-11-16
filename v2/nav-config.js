@@ -534,13 +534,19 @@
     // nothing else -- so nothing about it was Baseballism-specific except the
     // gate. Its own guard still refuses an unresolved or switched company, and
     // the company id is shape-checked before it reaches the coverage probe.
-    // ONE Performance destination (2026-11-11): the Performance row is the
-    // sidebar row, and the other three are TABS of it (`tabOf`, see
-    // PERFORMANCE_SUITE_PAGES). They stay rows here so their gates and their
-    // "Jump to" entries are exactly what they were; only the sidebar skips them.
+    // ONE Marketing destination (2026-11-11): this is the sidebar row, and the
+    // others are TABS of it (`tabOf`, see PERFORMANCE_SUITE_PAGES). They stay
+    // rows here so their gates and their "Jump to" entries are exactly what
+    // they were; only the sidebar skips them.
+    //
+    // The row is named for the SUITE, not for its first page (Blake,
+    // 2026-11-16: 'marketing "performance" menu name should be "Marketing"').
+    // It used to say Performance, which is the name of the page it opens --
+    // the same mistake the Planning row made. Overview keeps that page's own
+    // name inside the strip.
     { id: 'reports/wow-report', section: 'Marketing', label: 'Marketing Report', href: '/v2/wow-report.html', profiles: ['grandfathered'], tabOf: PERFORMANCE_ROW },
     { id: 'reports/silo-attribution', section: 'Marketing', label: 'Silo Attribution', href: '/v2/silo-attribution.html', profiles: ['grandfathered', 'standard'], tabOf: PERFORMANCE_ROW },
-    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Performance', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'reports/marketing-overview', section: 'Marketing', label: 'Marketing', href: '/v2/marketing-overview.html', profiles: ['grandfathered', 'standard'] },
     { id: 'reports/marketing-explorer', section: 'Marketing', label: 'Explorer', href: '/v2/marketing-explorer.html', profiles: ['grandfathered', 'standard'], tabOf: PERFORMANCE_ROW },
     // Past Meta ads as baselines and an idea bank measured against them
     // (2026-09-27). It launched behind the same exec gate the SEO row started

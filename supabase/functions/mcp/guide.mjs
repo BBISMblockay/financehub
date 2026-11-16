@@ -466,7 +466,7 @@ export const WHERE_IN_SILO = {
     { section: 'Inventory', page: 'Products', path: '/v2/products.html', what: 'The product catalogue.' },
     { section: 'Product & inventory', page: 'Product Studio', path: '/v3/product-workflow.html', what: 'Where a product concept is confirmed and marked Ready for PO, which is the way a concept becomes a draft purchase order.' },
 
-    { section: 'Marketing', page: 'Performance', path: '/v2/marketing-overview.html', what: 'Marketing Performance: spend, platform claims and sales together.' },
+    { section: 'Marketing', page: 'Marketing', path: '/v2/marketing-overview.html', what: 'Marketing: spend, platform claims and sales together.' },
     { section: 'Marketing', page: 'Explorer', path: '/v2/marketing-explorer.html', what: 'Marketing Explorer: the same data, to dig through.' },
     { section: 'Marketing', page: 'Marketing Report', path: '/v2/wow-report.html', what: 'The Marketing Report: day, week, month-to-date and year-to-date.' },
     { section: 'Marketing', page: 'Silo Attribution', path: '/v2/silo-attribution.html', what: 'SILO\'s own attribution, next to what the platforms claim.' },
