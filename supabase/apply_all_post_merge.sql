@@ -19804,4 +19804,5 @@ $c$select (select count(*) from v_po_header_summary
 -- for it to work -- describe_tables and list_reports read the catalog live --
 -- but deploying `mcp` adds the guidance that points a bot at it.
 \i migrations/20261113200000_accounting_journal_drilldown.sql
+\i migrations/20261113230000_accounting_drilldown_grants.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
