@@ -402,7 +402,7 @@ function isMetaUnknownFieldError(err) {
  * below: a wide time_increment=1 window trips Meta's "reduce the amount of
  * data" error (code 1 / subcode 99) once the account has enough campaigns --
  * hit live on the plain 30-day default window starting 2026-08-11. */
-export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {}) {
+export async function fetchMetaAdsRows(connection, window, { chunkDays = 7, signal } = {}) {
   const token = connection.access_token;
   if (!token) throw new Error('No access token stored on connection');
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
@@ -434,7 +434,7 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7 } = {
     while (url) {
       let data;
       try {
-        data = await fetchMetaJsonOrThrow(url, {}, 'Meta insights');
+        data = await fetchMetaJsonOrThrow(url, { signal }, 'Meta insights');
       } catch (err) {
         // Drop the optional field and retry once. Losing thruplays costs a
         // column; losing the request costs spend and ROAS with it.
@@ -2381,6 +2381,7 @@ export async function runConnectionSync(supabase, env, connection, {
   now = new Date(),
   daysBackOverride = null,
   onTokenRefresh = null,
+  signal,
 } = {}) {
   const window = computeWindow(now, daysBackOverride ?? connection.days_back ?? 30);
   const syncedAt = new Date().toISOString();
@@ -2395,7 +2396,7 @@ export async function runConnectionSync(supabase, env, connection, {
       ? await fetchGoogleAdsRows(env, connection, accessToken, window)
       : await fetchGa4Rows(connection, accessToken, window);
   } else if (platform === 'meta_ads') {
-    raw = await fetchMetaAdsRows(connection, window);
+    raw = await fetchMetaAdsRows(connection, window, { signal });
   } else if (platform === 'tiktok_ads') {
     raw = await fetchTiktokAdsRows(connection, window);
   } else {

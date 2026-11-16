@@ -9992,3 +9992,56 @@ select 'Affiliate PayPal payouts' as check_name,
                       and pg_get_constraintdef(oid) like '%paypal_payouts%')
    then 'BROKEN — affiliate_payouts.method no longer accepts paypal_payouts'
   else 'ok' end as status;
+
+-- ── Meta immediate import: leases and targeted claims (20261113220322) ─────
+-- Below the Plaid marker on purpose: that fixture does not apply this
+-- migration, so these would read MISSING there.
+-- The whole point of these objects is that only the service role holds them:
+-- a browser that could claim or renew a lease could stall every Meta sync, and
+-- a browser that could reserve a dispatch could spend the GitHub throttle.
+select 'Meta import leases' as check_name,
+ case
+  when to_regclass('public.ad_sync_leases') is null
+   then 'MISSING: Meta immediate-import migration 20261113220322'
+  when to_regprocedure('public.claim_ad_sync_lease(uuid,uuid,uuid,integer)') is null
+    or to_regprocedure('public.renew_ad_sync_lease(uuid,uuid,uuid,integer)') is null
+    or to_regprocedure('public.release_ad_sync_lease(uuid,uuid,uuid)') is null
+    or to_regprocedure('public.claim_integration_bootstrap_job(uuid,integer,integer,integer)') is null
+    or to_regprocedure('public.reserve_bootstrap_dispatch(uuid)') is null
+   then 'MISSING: a Meta immediate-import RPC; apply 20261113220322'
+  when has_table_privilege('anon','public.ad_sync_leases','SELECT')
+    or has_table_privilege('authenticated','public.ad_sync_leases','SELECT')
+   then 'CRITICAL: ad_sync_leases is readable by a client'
+  -- to_regclass, never ::regclass: a regclass cast is resolved when the
+  -- statement is PARSED, so on a database without the table it would abort
+  -- this whole script instead of reporting MISSING above.
+  when not (select relrowsecurity from pg_class where oid = to_regclass('public.ad_sync_leases'))
+   then 'CRITICAL: ad_sync_leases has row level security off'
+  when has_function_privilege('anon', to_regprocedure('public.claim_ad_sync_lease(uuid,uuid,uuid,integer)'), 'EXECUTE')
+    or has_function_privilege('authenticated', to_regprocedure('public.claim_ad_sync_lease(uuid,uuid,uuid,integer)'), 'EXECUTE')
+    or has_function_privilege('anon', to_regprocedure('public.renew_ad_sync_lease(uuid,uuid,uuid,integer)'), 'EXECUTE')
+    or has_function_privilege('authenticated', to_regprocedure('public.renew_ad_sync_lease(uuid,uuid,uuid,integer)'), 'EXECUTE')
+    or has_function_privilege('anon', to_regprocedure('public.release_ad_sync_lease(uuid,uuid,uuid)'), 'EXECUTE')
+    or has_function_privilege('authenticated', to_regprocedure('public.release_ad_sync_lease(uuid,uuid,uuid)'), 'EXECUTE')
+   then 'CRITICAL: a browser can take or drop a Meta sync lease'
+  when has_function_privilege('anon', to_regprocedure('public.claim_integration_bootstrap_job(uuid,integer,integer,integer)'), 'EXECUTE')
+    or has_function_privilege('authenticated', to_regprocedure('public.claim_integration_bootstrap_job(uuid,integer,integer,integer)'), 'EXECUTE')
+    or has_function_privilege('anon', to_regprocedure('public.reserve_bootstrap_dispatch(uuid)'), 'EXECUTE')
+    or has_function_privilege('authenticated', to_regprocedure('public.reserve_bootstrap_dispatch(uuid)'), 'EXECUTE')
+   then 'CRITICAL: a browser can claim a bootstrap job or spend the dispatch throttle'
+  when not exists (select 1 from information_schema.columns
+                    where table_schema='public' and table_name='integration_bootstrap_jobs'
+                      and column_name='deferrals')
+    or not exists (select 1 from information_schema.columns
+                    where table_schema='public' and table_name='integration_bootstrap_jobs'
+                      and column_name='dispatch_requested_at')
+   then 'MISSING: integration_bootstrap_jobs lost deferrals/dispatch_requested_at; apply 20261113220322'
+  -- A deferral that spent the retry budget is the bug this column exists for:
+  -- a busy connection would exhaust its five attempts without ever trying.
+  when pg_get_functiondef(to_regprocedure('public.claim_integration_bootstrap_job(uuid,integer,integer,integer)')) not like '%attempts - c.deferrals%'
+   then 'BROKEN: a deferred bootstrap claim spends the failure budget again'
+  -- The throttle is what keeps a reloading browser from dispatching GitHub
+  -- over and over.
+  when pg_get_functiondef(to_regprocedure('public.reserve_bootstrap_dispatch(uuid)')) not like '%2 minutes%'
+   then 'BROKEN: the bootstrap dispatch throttle is gone'
+  else 'ok' end as status;

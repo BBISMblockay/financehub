@@ -40,7 +40,7 @@ async function test(name, fn) {
  * filters it carried -- the guard that keeps a cancelled job cancelled is a
  * filter, so it can only be asserted by looking at them.
  */
-function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: true, company_entity_id: 'co-1' }, priorSyncJobs = [], jobRow = null } = {}) {
+function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: true, company_entity_id: 'co-1' }, priorSyncJobs = [], jobRow = null, lostLease = false } = {}) {
   const writes = [];
   const reads = [];
   const builder = (table, op, payload) => {
@@ -49,6 +49,7 @@ function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: tr
       select() { return self; },
       eq(col, val) { (filters[col] = filters[col] || []).push(val); return self; },
       neq(col, val) { filters[`not.${col}`] = val; return self; },
+      gt(col, val) { filters[`gt.${col}`] = val; return self; },
       lt(col, val) { filters[`lt.${col}`] = val; return self; },
       limit() { return self; },
       maybeSingle() { return self.then(); },
@@ -58,7 +59,7 @@ function fakeDb({ connection = { id: 'conn-1', is_active: true, sync_enabled: tr
             writes.push({ table, patch: payload, filters });
             // The real policy-free service-role update returns no error and
             // the runner does not read row counts, so neither does this.
-            return { data: null, error: null };
+            return { data: lostLease ? [] : [{id: 'job-1'}], error: null };
           }
           reads.push({ table, filters });
           if (table === 'sync_jobs') return { data: priorSyncJobs, error: null };
@@ -146,13 +147,22 @@ await test('every terminal write is guarded on the row still being running', asy
   }
 });
 
-await test('progress writes during a stage are not guarded, so they survive a lease renewal race', async () => {
+await test('all progress writes are fenced by attempt, running status and unexpired lease', async () => {
   const db = fakeDb();
   const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
   await runJob(job());
   const progress = db.writes.filter((w) => w.patch.stages && !w.patch.status);
   assert.ok(progress.length >= 2, 'each stage records running then its result');
-  assert.equal(progress[0].filters.status, undefined);
+  assert.deepEqual(progress[0].filters.status, ['running']);
+  assert.deepEqual(progress[0].filters.attempts, [1]);
+  assert.ok(progress[0].filters['gt.lease_until']);
+});
+
+await test('a stale owner cannot write progress or start another stage', async () => {
+  const db = fakeDb({ lostLease: true }); let ran = 0;
+  const { runJob } = createRunner({ db, runStage: async () => { ran++; return {ok:true}; }, log: silent });
+  await assert.rejects(runJob(job()), /Bootstrap lease lost/);
+  assert.equal(ran, 0);
 });
 
 // ── Resume, failure and the attempt cap ───────────────────────────────────
@@ -284,6 +294,67 @@ await test('the Shopify stages are launched with the connection id and a manual 
     // A first import is judged like a hand-dispatched backfill: a lost stage
     // must not be reported as success.
     assert.equal(env.SHOPIFY_RUN_KIND, 'manual');
+  }
+});
+
+await test('contention defers immediately without burning retries or starting history', async () => {
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  let stages = {};
+  for (let generation = 1; generation <= 6; generation++) {
+    const db = fakeDb({ connection }); const ran = [];
+    const runner = createRunner({ db, log: silent, maxAttempts: 5,
+      runStage: async (s) => { ran.push(s.stage); return { ok: false, deferred: true, detail: 'connection busy' }; } });
+    const before = Date.now();
+    const out = await runner.runJob(job({ integration: 'meta_ads', attempts: generation, deferrals: generation - 1, stages }));
+    assert.equal(out.status, 'pending'); assert.equal(out.deferred, true);
+    assert.deepEqual(ran, ['recent_data'], 'do not start history after contention');
+    const write = db.writes.at(-1);
+    assert.equal(write.patch.deferrals, generation);
+    assert.equal(write.patch.attempts, undefined, 'never roll back ownership generation');
+    assert.deepEqual(write.filters.attempts, [generation]);
+    assert.deepEqual(write.filters.status, ['running']);
+    assert.ok(write.filters['gt.lease_until']);
+    assert.equal(write.patch.last_error, null);
+    assert.equal(write.patch.finished_at, undefined);
+    const cooldown = Date.parse(write.patch.lease_until) - before;
+    assert.ok(cooldown >= 15 * 60_000 && cooldown < 15 * 60_000 + 2000);
+    stages = write.patch.stages;
+    assert.equal(stages.recent_data.status, 'pending');
+    assert.equal(stages.history, undefined);
+  }
+  const db = fakeDb({ connection }); const ran = [];
+  const runner = createRunner({ db, log: silent, runStage: async (s) => { ran.push(s.stage); return {ok:true}; } });
+  const out = await runner.runJob(job({integration:'meta_ads', attempts:7, deferrals:6, stages}));
+  assert.equal(out.status, 'done');
+  assert.deepEqual(ran, ['recent_data', 'history']);
+});
+
+await test('history contention preserves recent stage and resumes history only', async () => {
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  const db = fakeDb({connection});
+  const initial = {recent_data: {status:'done', detail:'3s'}};
+  const runner = createRunner({db, log:silent, runStage:async()=>({deferred:true, detail:'busy'})});
+  await runner.runJob(job({integration:'meta_ads', stages:initial}));
+  const stages = db.writes.at(-1).patch.stages;
+  assert.deepEqual(stages.recent_data,initial.recent_data);
+  const ran=[]; const nextDb=fakeDb({connection});
+  const next=createRunner({db:nextDb,log:silent,runStage:async(s)=>{ran.push(s.stage);return {ok:true};}});
+  assert.equal((await next.runJob(job({integration:'meta_ads',attempts:2,deferrals:1,stages}))).status,'done');
+  assert.deepEqual(ran,['history']);
+});
+
+await test('ordinary failure cooldown uses real attempts minus deferrals', async () => {
+  for (const [attempts, deferrals, expected] of [[7,6,'pending'],[11,6,'error']]) {
+    const db=fakeDb(); const before=Date.now();
+    const runner=createRunner({db,log:silent,maxAttempts:5,runStage:async()=>({ok:false,detail:'temporary outage'})});
+    const out=await runner.runJob(job({attempts,deferrals}));
+    assert.equal(out.status,expected);
+    const patch=db.writes.at(-1).patch;
+    if(expected==='pending') {
+      assert.ok(Date.parse(patch.lease_until)-before>=15*60_000);
+      assert.equal(patch.finished_at,undefined);
+    } else assert.equal(patch.lease_until,null);
+    assert.equal(patch.deferrals,undefined,'real failure does not become a deferral');
   }
 });
 

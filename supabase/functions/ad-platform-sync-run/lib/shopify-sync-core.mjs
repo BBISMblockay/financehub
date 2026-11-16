@@ -121,11 +121,15 @@ export async function fetchWithRetry(url, opts = {}, tries = 5) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      opts.signal?.throwIfAborted();
+      const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+      const signal = opts.signal ? AbortSignal.any([opts.signal, timeoutSignal]) : timeoutSignal;
+      const res = await fetch(url, { ...opts, signal });
       if (res.status !== 429) return res;
       const retryAfter = Number(res.headers.get('retry-after')) || 2;
       await sleep(retryAfter * 1000);
     } catch (err) {
+      opts.signal?.throwIfAborted();
       lastErr = err;
       if (i < tries - 1) await sleep(2000);
     }

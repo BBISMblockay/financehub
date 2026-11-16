@@ -175,7 +175,18 @@ await test('Meta keeps its own 365-day import and is never widened by adsDaysBac
   const meta = planBootstrap({
     integration: 'meta_ads', company_entity_id: 'co-1', connection_id: 'ad-m', stages: {},
   });
-  assert.equal(meta[0].env.ADS_DAYS_BACK, '365');
+  assert.deepEqual(meta.map((s) => s.stage), ['recent_data', 'history']);
+  assert.equal(meta[0].env.ADS_DAYS_BACK, '3');
+  assert.equal(meta[0].env.ADS_SKIP_ORGANIC, 'true');
+  assert.equal(meta[1].env.ADS_DAYS_BACK, '365');
+  assert.equal(meta[1].env.ADS_SKIP_ORGANIC, 'false');
+  for (const stage of meta) {
+    assert.equal(stage.env.ADS_BOOTSTRAP_STRICT, 'true');
+    assert.equal(stage.env.ADS_ONLY_COMPANY_ID, 'co-1');
+    assert.equal(stage.env.ADS_ONLY_CONNECTION_ID, 'ad-m');
+  }
+  const resumed = { stages: { recent_data: { status: 'done' }, history: { status: 'error' } } };
+  assert.deepEqual(pendingStages(resumed, meta).map((s) => s.stage), ['history']);
   for (const platform of ['google_ads', 'ga4', 'tiktok_ads']) {
     const planned = planBootstrap({
       integration: platform, company_entity_id: 'co-1', connection_id: 'ad-x', stages: {},
@@ -212,7 +223,7 @@ await test('an ad connection syncs its own platform only, and leaves Search Cons
   const planned = planBootstrap({
     integration: 'meta_ads', company_entity_id: 'co-1', connection_id: 'ad-9', stages: {},
   });
-  assert.deepEqual(planned.map((s) => s.stage), ['kpis']);
+  assert.deepEqual(planned.map((s) => s.stage), ['recent_data', 'history']);
   assert.equal(planned[0].env.ADS_ONLY_PLATFORM, 'meta_ads');
   assert.equal(planned[0].env.ADS_ONLY_CONNECTION_ID, 'ad-9');
   // Search Console is its own integration row with its own much longer
@@ -221,10 +232,10 @@ await test('an ad connection syncs its own platform only, and leaves Search Cons
 });
 
 await test('a newly connected ad account does not skip organic posts', () => {
-  const [kpis] = planBootstrap({
+  const [, kpis] = planBootstrap({
     integration: 'meta_ads', company_entity_id: 'co-1', connection_id: 'ad-9', stages: {},
   });
-  assert.equal(kpis.env.ADS_SKIP_ORGANIC, undefined);
+  assert.equal(kpis.env.ADS_SKIP_ORGANIC, 'false');
 });
 
 await test('Search Console gets its own backfill stage', () => {
@@ -397,6 +408,32 @@ vm.runInNewContext(
 );
 const SiloBootstrap = sandbox.window.SiloBootstrap;
 
+await test('Meta progress distinguishes recent data from full history', () => {
+  const j = { integration: 'meta_ads', status: 'running', stages: {
+    recent_data: { status: 'done' }, history: { status: 'running' },
+  } };
+  const out = SiloBootstrap.describe(j);
+  assert.match(out.text, /365-day history/);
+  assert.match(out.text, /1 of 2/);
+  assert.equal(out.tone, 'info');
+  assert.doesNotMatch(out.text, /complete/);
+});
+
+await test('legacy campaign-stage completion is not proof of new full history', () => {
+  const out = SiloBootstrap.describe({ integration: 'meta_ads', status: 'done', stages: { kpis: { status: 'done' } } });
+  assert.match(out.text, /status is unavailable/);
+  assert.notEqual(out.tone, 'pos');
+});
+
+await test('only two finished Meta stages show first sync complete', () => {
+  const out = SiloBootstrap.describe({ integration: 'meta_ads', status: 'done', stages: {
+    recent_data: { status: 'done' }, history: { status: 'done' },
+  } });
+  assert.equal(out.tone, 'pos');
+  assert.match(out.text, /first sync complete/);
+});
+
+
 // A tiny stand-in for the PostgREST builder: `answer` is what the terminal
 // call resolves to, and `inserted` records what an insert carried.
 function fakeDb(answer) {
@@ -501,6 +538,33 @@ await test('the drainer leases one job at a time, not a batch', () => {
   const main = src.slice(src.indexOf('async function main()'));
   assert.match(main, /for \(let i = 0; i < Math\.max\(MAX_JOBS, 1\); i\+\+\) \{\s*\n\s*const job = await claimJob\(\);/);
   assert.doesNotMatch(main, /p_limit: MAX_JOBS/);
+});
+
+await test('progress hides superseded failures, not a different connection', () => {
+  const jobs = [
+    { integration: 'meta_ads', connection_id: 'a', status: 'done' },
+    { integration: 'meta_ads', connection_id: 'a', status: 'error' },
+    { integration: 'meta_ads', connection_id: 'b', status: 'error' },
+  ];
+  const current = SiloBootstrap.currentJobs(jobs);
+  assert.equal(current.length, 2);
+  assert.equal(current[0].status, 'done');
+  assert.equal(current[1].connection_id, 'b');
+});
+await test('retry progress keeps completed recent data visible', () => {
+  const d = SiloBootstrap.describe({ integration: 'meta_ads', status: 'pending', stages: {
+    recent_data: { status: 'done' }, history: { status: 'error' },
+  } });
+  assert.match(d.text, /automatic retry queued \(1 of 2\)/);
+  assert.match(d.text, /365-day history/);
+  assert.doesNotMatch(d.text, /complete$/);
+});
+await test('wake never describes terminal imports as running', () => {
+  assert.match(SiloBootstrap.wakeMessage({requested:true}), /requested/);
+  assert.match(SiloBootstrap.wakeMessage({requested:false,status:'done'}), /finished/);
+  for (const status of ['error', 'partial', 'cancelled']) {
+    assert.match(SiloBootstrap.wakeMessage({requested:false,status}), /not running/);
+  }
 });
 
 console.log(`\n${count - failures}/${count} passed`);

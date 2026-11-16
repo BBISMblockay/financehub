@@ -1,3 +1,4 @@
+import { withAdSyncLease } from './lib/ad-sync-lease.mjs';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createHandler } from './handler.mjs';
 import { runConnectionSync, syncOutcome } from './lib/ad-platforms-sync-core.mjs';
@@ -10,6 +11,7 @@ const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
 
 Deno.serve(createHandler({
   service,
+  withAdSyncLease,
   userClientFor: (authHeader: string) => createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
