@@ -394,6 +394,36 @@ await test('a failed stage followed by contention keeps the failure and spends t
   assert.equal(clean.writes.at(-1).patch.last_error, null);
 });
 
+await test('an error inherited from an earlier attempt does not make a waiting claim pay', async () => {
+  // The row carries both Meta stages in error from a previous attempt. This
+  // claim re-runs recent_data, which only hits contention: nothing was tried
+  // against the provider, so it must still be free -- even though history,
+  // untouched so far, still holds its old error.
+  const connection = { id: 'conn-1', company_entity_id: 'co-1', platform: 'meta_ads', is_active: true, sync_enabled: true };
+  let stages = { recent_data: { status: 'error', detail: 'Meta insights -> 500' },
+                 history: { status: 'error', detail: 'Meta insights -> 500' } };
+  for (let attempt = 2; attempt <= 5; attempt++) {
+    const db = fakeDb({ connection }); const ran = [];
+    const runner = createRunner({ db, log: silent, maxAttempts: 5,
+      runStage: async (s) => { ran.push(s.stage); return { ok: false, deferred: true, detail: 'connection busy' }; } });
+    const out = await runner.runJob(job({ integration: 'meta_ads', attempts: attempt, deferrals: attempt - 1, stages }));
+    assert.deepEqual(ran, ['recent_data'], 'contention stops before history');
+    assert.equal(out.deferred, true, `attempt ${attempt}: waiting is still waiting`);
+    const patch = db.writes.at(-1).patch;
+    assert.equal(patch.deferrals, attempt, 'the deferral is counted, so the attempt costs nothing');
+    assert.equal(patch.last_error, null);
+    assert.equal(patch.finished_at, undefined, 'a waiting claim never settles the job');
+    stages = patch.stages;
+    assert.equal(stages.history.status, 'error', 'the checkpointed error is preserved, not cleared');
+  }
+  // And when the contention finally lifts, both owed stages run.
+  const db = fakeDb({ connection }); const ran = [];
+  const runner = createRunner({ db, log: silent, maxAttempts: 5,
+    runStage: async (s) => { ran.push(s.stage); return { ok: true }; } });
+  assert.equal((await runner.runJob(job({ integration: 'meta_ads', attempts: 6, deferrals: 5, stages }))).status, 'done');
+  assert.deepEqual(ran, ['recent_data', 'history'], 'history was still owed the whole time');
+});
+
 await test('ordinary failure cooldown uses real attempts minus deferrals', async () => {
   for (const [attempts, deferrals, expected] of [[7,6,'pending'],[11,6,'error']]) {
     const db=fakeDb(); const before=Date.now();

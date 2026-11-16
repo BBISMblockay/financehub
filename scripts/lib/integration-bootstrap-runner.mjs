@@ -242,6 +242,11 @@ export function createRunner({
     }
 
     log.log(`[bootstrap] ${label}: ${owed.length} stage(s) owed of ${planned.length}`);
+    // Claim-local on purpose. `stages` starts from the row, so an error left
+    // by an EARLIER attempt is still sitting in a stage this claim has not
+    // reached yet -- reading that as a failure here would spend an attempt on
+    // a claim that only ever waited.
+    let failedThisClaim = false;
     const controller = new AbortController();
     const stopRenewal = startLeaseRenewal(job, controller);
     try {
@@ -260,14 +265,14 @@ export function createRunner({
         controller.signal.throwIfAborted();
         if (res.deferred) {
           // Forgiving the attempt is only right for a claim that did nothing
-          // BUT wait. Any owed stage that errors is re-run in this same claim,
-          // so an error recorded here happened on this attempt: forgiving it
-          // too would clear its reason AND cancel out the attempt, and since
-          // both the SQL claim gate and the settlement below read
-          // `attempts - deferrals`, a stage that fails every time while a
-          // scheduled sync keeps taking the lease would retry for ever instead
-          // of settling at the five-attempt ceiling.
-          const failedThisClaim = planned.some((s) => stages[s.stage]?.status === 'error');
+          // BUT wait. A stage that really failed on THIS attempt must not be
+          // forgiven with it: that would clear its reason AND cancel out the
+          // attempt, and since both the SQL claim gate and the settlement
+          // below read `attempts - deferrals`, a stage that fails every time
+          // while a scheduled sync keeps taking the lease would retry for ever
+          // instead of settling at the five-attempt ceiling. An error left by
+          // an earlier attempt is not that, which is why the flag is
+          // claim-local and not a scan of the stored stages.
           stages = withStageResult(stages, stage.stage, 'pending', res.detail);
           if (!failedThisClaim) {
             await patchJob(job, { stages, status: 'pending', deferrals: (job.deferrals || 0) + 1,
@@ -288,6 +293,7 @@ export function createRunner({
           res.ok ? 'done' : 'error',
           res.ok ? `${secs}s` : res.detail,
         );
+        if (!res.ok) failedThisClaim = true;
         await patchJob(job, { stages, ...(res.ok ? {} : { last_error: `${stage.stage}: ${res.detail}` }) });
         log.log(`[bootstrap] ${label}: ${stage.stage} ${res.ok ? 'done' : 'FAILED'} in ${secs}s${res.ok ? '' : ` -- ${res.detail}`}`);
         // Stages are independent on purpose: a ShopifyQL wobble in the
