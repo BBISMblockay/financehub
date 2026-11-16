@@ -6,6 +6,7 @@ const root=new URL('../../',import.meta.url);
 const read=p=>readFile(new URL(p,root),'utf8');
 const suite=await read('v2/accounting-suite.js');
 const nav=await read('v2/nav-config.js');
+const nav_src=nav;
 class Element {
   constructor(tag){this.tag=tag;this.children=[];this.dataset={};this.attributes={};
     this.listeners={};this.innerHTML='';this.textContent='';
@@ -31,7 +32,7 @@ const mountNav=(active)=>{
   window.SiloAccounting.mount(main,active);
   const all=node=>[...(node.tag==='a'?[node]:[]),...node.children.flatMap(all)];
   return {window,main,nav:mounted,links:all(mounted),
-    setup:mounted.children[1],remount:()=>window.SiloAccounting.mount(main,active)};
+    setup:mounted.children[mounted.children.length-1],remount:()=>window.SiloAccounting.mount(main,active)};
 };
 test('all accounting destinations are one click away and the current page is identified',()=>{
   for(const active of ['finance/card-coding','finance/accounting-export','finance/qbo-reports','finance/schedules','finance/fixed-assets','finance/cash-forecast']){
@@ -62,21 +63,41 @@ test('every destination draws an icon and keeps its label as the accessible name
   const drawings=new Set(links.map(l=>l.innerHTML.replace(/<span[\s\S]*$/,'')));
   assert.equal(drawings.size,links.length,'two destinations share an icon');
 });
-test('every destination is a visible tab: nothing folds away',()=>{
-  // The strip used to hide Shopify journal, Schedules, Fixed assets and Cash
-  // forecast behind a "More" disclosure. A tab a person cannot see is a tab
-  // they do not use (Blake, 2026-11-13: no hidden fold-out dropdowns), so the
-  // row scrolls sideways and every page stays on screen.
+test('the close tabs are on the row and the rest sit under More',()=>{
+  // Five close tabs visible, the periodic and reference pages inside a "More"
+  // disclosure, Books & setup at the far right (Blake, 2026-11-16: bring the
+  // More dropdown back as a menu tab). Every destination is still a real link
+  // to its own page -- nothing is merged and no URL moved.
   const {nav,setup}=mountNav('finance/card-coding');
   assert.deepEqual(nav.children[0].children.map(l=>l.dataset.label),
-    ['Overview','Bank activity','Invoices','Financial reports','Month-end','Shopify journal','Schedules','Fixed assets','Cash forecast']);
-  assert.equal(nav.children.length,2,'links plus setup, and no disclosure');
-  assert.ok(!nav.children.some(child=>child.tag==='details'),'no fold-out in the strip');
-  const specialist=mountNav('finance/schedules');
-  const current=specialist.links.filter(l=>l.attributes['aria-current']==='page');
+    ['Overview','Bank activity','Invoices','Financial reports','Month-end']);
+  const more=nav.children[1];
+  assert.equal(more.tag,'details');
+  assert.equal(more.children[0].textContent,'More');
+  assert.deepEqual(more.children[1].children.map(l=>l.dataset.label),
+    ['Shopify journal','Schedules','Fixed assets','Cash forecast']);
+  assert.equal(more.dataset.current,undefined,'a close page does not light up More');
+  assert.equal(nav.children.length,3,'links, the disclosure, and setup');
+  // A page INSIDE the disclosure names itself on the tab, so the strip never
+  // reads "More" while you are standing in it.
+  const inside=mountNav('finance/schedules');
+  const insideMore=inside.nav.children[1];
+  assert.equal(insideMore.children[0].textContent,'Schedules');
+  assert.equal(insideMore.dataset.current,'true');
+  const current=inside.links.filter(l=>l.attributes['aria-current']==='page');
   assert.equal(current.length,1);assert.equal(current[0].dataset.label,'Schedules');
   assert.equal(setup.href,'/v2/accounting-books.html#setup');
   assert.equal(setup.className,'accounting-suite-setup');
+});
+test('a page added to ACCOUNTING_PAGES later reaches the dropdown, not nowhere',()=>{
+  const {nav}=mountNav('finance/card-coding');
+  const drawn=new Set([...nav.children[0].children,...nav.children[1].children[1].children,nav.children[2]]
+    .map(l=>l.href));
+  const window={};vm.runInNewContext(nav_src,{window});
+  for(const [,,path] of window.SiloNav.ACCOUNTING_PAGES){
+    const href='/v2/'+path+(path==='accounting-books.html'?'#setup':'');
+    assert.ok(drawn.has(href),path+' is in ACCOUNTING_PAGES but reaches no tab');
+  }
 });
 test('one sidebar entry retains the existing finance department visibility',()=>{
   const window={};vm.runInNewContext(nav,{window});

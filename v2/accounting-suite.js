@@ -78,25 +78,46 @@
         else link.removeAttribute('aria-current');
       }
     }
+    // The disclosure's own label is the page inside it, so a remount onto a
+    // different tab has to relabel it or the strip says "More" while a page
+    // from inside it is open.
+    labelMore(nav?.querySelector?.('[data-accounting-more]'), active);
     applyPageHelp(main, active);
   }
 
-  // One flat row, in the order the work happens, with Books & setup pushed to
-  // the right. The old "More" disclosure hid four destinations behind a
-  // fold-out; a tab a person cannot see is a tab they do not use, so the strip
-  // scrolls sideways instead of hiding anything (Blake, 2026-11-13: no hidden
-  // fold-out dropdowns).
-  const ORDER = [
+  // The five places the close actually happens stay visible; the periodic and
+  // reference pages sit under a "More" tab with a dropdown (Blake,
+  // 2026-11-16: "finance had a 'more drop down' then it went away, lets bring
+  // that back as menu tab with dropdown to these 'more items'"). It is the
+  // grouping the strip carried until 2026-11-13, when it was flattened into
+  // one sideways-scrolling row of nine -- which is what pushed the last tabs
+  // off the edge of a phone with no affordance that anything was there.
+  //
+  // Books & setup is not in the dropdown: it keeps its own place at the far
+  // right, because it is where you go once rather than where you work.
+  const PRIMARY = [
     'finance/accounting-home',
     'finance/card-coding',
     'finance/invoicing',
     'finance/qbo-reports',
     'finance/month-end',
-    'finance/accounting-export',
-    'finance/schedules',
-    'finance/fixed-assets',
-    'finance/cash-forecast',
   ];
+  // Anything added to ACCOUNTING_PAGES later lands in the dropdown rather
+  // than disappearing: secondary is "not primary and not Books & setup", not
+  // a second hand-kept list.
+  const secondaryPages = () => pages().filter(([id]) => !PRIMARY.includes(id) && id !== 'finance/books');
+
+  // The disclosure says which page is open when that page is one of its own,
+  // so the strip never reads "More" while you are standing inside it.
+  function labelMore(more, active, summaryEl) {
+    const summary = summaryEl || more?.querySelector?.('summary');
+    if (!summary) return;
+    const selected = secondaryPages().find(([id]) => id === active);
+    summary.textContent = selected ? (FRIENDLY_TITLE[selected[0]] || selected[1]) : 'More';
+    if (selected) more.dataset.current = 'true';
+    else delete more.dataset.current;
+  }
+
   function buildNav(active) {
     const nav = document.createElement('nav');
     nav.className = 'accounting-suite';
@@ -119,16 +140,36 @@
       if (id === active) link.setAttribute('aria-current', 'page');
       return link;
     };
-    for (const id of ORDER) {
+    for (const id of PRIMARY) {
       const item = pages().find(([key]) => key === id);
       if (item) links.append(makeLink(item));
     }
-    // Anything added to ACCOUNTING_PAGES later still reaches the strip rather
-    // than silently disappearing with the disclosure that used to hold it.
-    for (const item of pages()) {
-      if (!ORDER.includes(item[0]) && item[0] !== 'finance/books') links.append(makeLink(item));
-    }
     nav.append(links);
+
+    const secondary = secondaryPages();
+    if (secondary.length) {
+      const more = document.createElement('details');
+      more.className = 'accounting-suite-more';
+      more.dataset.accountingMore = '';
+      const summary = document.createElement('summary');
+      summary.textContent = 'More';
+      summary.setAttribute('aria-label', 'More accounting pages');
+      const menu = document.createElement('div');
+      menu.className = 'accounting-suite-menu';
+      for (const item of secondary) menu.append(makeLink(item));
+      more.append(summary, menu);
+      // A native disclosure holding ordinary links: no custom menu keyboard
+      // model to get wrong, and every destination is still a real href.
+      more.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') { more.open = false; summary.focus?.(); }
+      });
+      document.addEventListener?.('click', (event) => {
+        if (more.open && !more.contains?.(event.target)) more.open = false;
+      });
+      nav.append(more);
+      labelMore(more, active, summary);
+    }
+
     const setup = pages().find(([id]) => id === 'finance/books');
     if (setup) { const link = makeLink(setup); link.className = 'accounting-suite-setup'; nav.append(link); }
     return nav;
