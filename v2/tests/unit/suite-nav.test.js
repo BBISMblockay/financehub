@@ -51,12 +51,7 @@ r.test('every suite draws one row and keeps every tab a nav row', () => {
         const row = rows.find((i) => i.id === id);
         if (!row) continue;                       // narrowed away by profile, which is its row's own gate
         r.eq(row.href, href, `${profile}/${id}: the strip and the row must name one URL`);
-        // A `keepRows` suite (Home/Start, 2026-11-16) is the exception the
-        // flag exists for: Blake asked Start to keep its three to four menu
-        // items, so every tab is ALSO still its own sidebar row and nothing
-        // is collapsed. Everything else collapses to one row.
-        if (suite.keepRows) r.truthy(drawn.includes(id), `${profile}: ${id} keeps its own row`);
-        else if (id === suite.row) r.truthy(drawn.includes(id), `${profile}: ${id} is the drawn row`);
+        if (id === suite.row) r.truthy(drawn.includes(id), `${profile}: ${id} is the drawn row`);
         else r.truthy(!drawn.includes(id), `${profile}: ${id} is drawn as a row of its own`);
       }
     }
@@ -67,10 +62,7 @@ r.test('every tab resolves to its own suite row, and no tabOf dangles', () => {
   for (const suite of Nav.SUITES) {
     for (const [id] of suite.pages.slice(1)) {
       const row = Nav.NAV_ITEMS.find((i) => i.id === id);
-      // A keepRows suite draws its tabs as rows too, so they must NOT carry a
-      // tabOf -- one would delete them from the sidebar.
-      if (suite.keepRows) r.truthy(!row.tabOf, `${id}: a kept row must carry no tabOf`);
-      else r.eq(row.tabOf, suite.row, `${id}: tabOf must name its suite's row`);
+      r.eq(row.tabOf, suite.row, `${id}: tabOf must name its suite's row`);
     }
   }
   for (const item of Nav.NAV_ITEMS.filter((i) => i.tabOf)) {

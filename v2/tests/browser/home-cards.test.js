@@ -72,8 +72,14 @@ async function readHome(page) {
     r.ok('cards follow the standard sections', titles.includes('Marketing') && titles.includes('Purchasing')
       && titles.includes('Insights'), JSON.stringify(titles));
     r.ok('Marketing is reachable from Home', home.home.includes('/v2/marketing-overview.html'));
-    r.ok('Setup and Accounting are on Home for the founder',
-      home.home.includes('/v2/setup-checklist.html') && home.home.includes('/v2/accounting.html'));
+    r.ok('Accounting is on Home for the founder', home.home.includes('/v2/accounting.html'));
+    // 2026-11-16: Setup, My Profile and Help are tabs of Home's own strip, so
+    // they are no longer sidebar rows -- and Home mirrors the sidebar, so they
+    // are not cards either. Reaching them twice from Home was the duplication
+    // Blake asked to remove, not a loss.
+    for (const tab of ['/v2/setup-checklist.html', '/v2/profile.html', '/v2/help.html']) {
+      r.ok(`${tab} is a Home tab, not a Home card`, !home.home.includes(tab), JSON.stringify(home.home));
+    }
     r.ok('no grandfathered-only link leaks onto a standard Home',
       !home.home.some((h) => /baseballismwholesale|bi-sales-overview|reviews\.html|live-schedule|wow-report/.test(h)),
       JSON.stringify(home.home));

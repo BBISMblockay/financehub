@@ -7,15 +7,18 @@
  *    than one row keeps its toggle, so the accordion is not gone -- it just
  *    stops appearing where there is nothing to choose between.
  *
- * 2. Home is a suite: /v2/finance.html is its Overview and Setup, My Profile
- *    and Help are tabs of the strip on it, while STAYING sidebar rows under
- *    Start (3-4 items, which is what was asked for).
+ * 2. Home is a suite: /v2/finance.html is its Overview, and Setup, My Profile
+ *    and Help are tabs of the strip on it and ONLY there. Blake: "my profile
+ *    and help ... are available if your in the tabbed suite, so don't wanna
+ *    duplicate menu names and dropdowns." Start therefore draws one row --
+ *    Home -- which, being alone, is a direct link by rule 1.
  *
  * What could silently go wrong, and is therefore asserted: a solo row that is
  * not a link at all; a solo row that stops being an `a.silo-sb-link` (the
  * Home mirror in home-nav.js and the "Jump to" palette both read that class);
- * a strip whose tabs are not the Start rows; and a tab page that highlights
- * Home instead of its own row, which `keepRows` exists to prevent.
+ * a strip whose tabs are not Home's; a tab that reappears as a sidebar row,
+ * which is the duplication this removed; and a tab page that stops
+ * highlighting the Home row it is reached through.
  */
 'use strict';
 
@@ -84,10 +87,16 @@ async function readNav(page) {
       const grouped = nav.sections.filter((s) => !s.solo && !s.featured);
       r.ok(`${name}: multi-row sections still expand`, grouped.length >= 1 && grouped.every((s) => s.hasToggle),
         JSON.stringify(grouped.map((s) => [s.name, s.links.length, s.hasToggle])));
-      // Start is the 3-4 item group Blake asked to keep.
+      // Start is one row -- Home -- and the pages that used to sit beside it
+      // are tabs of its strip, named nowhere else in the menu.
       const start = nav.sections.find((s) => s.name === 'Start');
-      r.ok(`${name}: Start keeps 3-4 items`, !!start && start.links.length >= 3 && start.links.length <= 4,
+      r.ok(`${name}: Start is one direct Home link`,
+        !!start && start.solo && start.links.length === 1 && start.links[0].href === '/v2/finance.html',
         JSON.stringify(start));
+      const everyLink = nav.sections.flatMap((s) => s.links.map((l) => l.href));
+      for (const dup of ['/v2/profile.html', '/v2/help.html', '/v2/setup-checklist.html']) {
+        r.ok(`${name}: ${dup} is not also a menu row`, !everyLink.includes(dup), JSON.stringify(everyLink));
+      }
 
       console.log(`── ${name} owner: Home is a suite ──`);
       r.ok(`${name}: Home draws the Start strip`, nav.strip?.key === 'start' && nav.strip.label === 'Home',
@@ -104,15 +113,12 @@ async function readNav(page) {
       r.ok(`${name}: Setup is a tab only where its row is`,
         tabs.some((t) => t.href === '/v2/setup-checklist.html') === (name === 'standard'),
         JSON.stringify(tabs));
-      r.ok(`${name}: the strip offers no tab the sidebar withheld`,
-        tabs.every((t) => nav.sections.some((s) => s.links.some((l) => l.href === t.href))),
-        JSON.stringify({ tabs, start }));
 
-      // A tab page keeps its OWN row highlighted (keepRows), because Start
-      // still draws a row per page.
+      // A tab page highlights the ONE row the suite collapsed into, as every
+      // other suite does -- there is no row of its own left to highlight.
       await Promise.all([page.waitForURL(/\/v2\/help\.html/), page.click('[data-suite-nav] a[href="/v2/help.html"]')]);
       const onHelp = await readNav(page);
-      r.ok(`${name}: Help highlights the Help row, not Home`, onHelp.active === 'start/help', String(onHelp.active));
+      r.ok(`${name}: Help highlights the Home row`, onHelp.active === 'finance/menu', String(onHelp.active));
       r.ok(`${name}: and carries the same strip, with Help current`,
         onHelp.strip?.key === 'start' && onHelp.strip.tabs.find((t) => t.current)?.href === '/v2/help.html',
         JSON.stringify(onHelp.strip));

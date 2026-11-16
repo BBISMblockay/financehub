@@ -159,16 +159,16 @@
       // and Inventory, so the way into "my account" things is a strip on the
       // page rather than a hunt through the menu.
       //
-      // Unlike every other suite these tabs are NOT `tabOf` rows: Blake asked
-      // for Start to KEEP its three to four menu items, so the sidebar still
-      // draws My Profile, Help and Setup, and `keepRows` tells silo-chrome.js
-      // to leave each page's own row highlighted instead of collapsing the
-      // highlight onto Home. Visibility is still each row's own gate, so
-      // Setup (standard-profile, admin) is a tab only where its row shows.
+      // Start collapses to ONE row like every other suite (Blake, 2026-11-16:
+      // "my profile and help ... are available if your in the tabbed suite, so
+      // don't wanna duplicate menu names and dropdowns"). My Profile, Help and
+      // Setup are `tabOf` rows: each keeps its own gate, URL and "Jump to"
+      // entry, and is reached through the strip on Home rather than from a
+      // second place in the menu. The one sidebar row then has no group left
+      // to expand, so it is drawn as a direct link to Home.
       key: 'start',
       label: 'Home',
       row: 'finance/menu',
-      keepRows: true,
       pages: [
         ['finance/menu', 'Overview', '/v2/finance.html'],
         ['start/setup', 'Setup', '/v2/setup-checklist.html'],
@@ -386,8 +386,8 @@
     // Back for STANDARD workspaces only, under Insights (Blake, 2026-10-06);
     // Baseballism's menu stays without it for now.
     { departments: FINANCE_DEPTS, id: 'start/on-deck', section: 'Insights', label: 'On Deck', href: '/v2/on-deck.html', profiles: ['standard'] },
-    { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] , tabOf: 'finance/menu'},
+    { id: 'start/help', section: 'Start', label: 'Help', href: '/v2/help.html', profiles: ['grandfathered', 'standard'] , tabOf: 'finance/menu'},
     // Standard-profile only, and admin-only within that. Baseballism is years
     // past needing it, and a permanent "Setup" row on a fully configured
     // company is the kind of clutter nobody removes later. A new tenant's
@@ -395,7 +395,7 @@
     // find their way back. It stays visible after every step is green --
     // hiding it on completion would mean the one page that explains WHY the
     // sales pages are empty disappears exactly when someone goes looking.
-    { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] },
+    { roles: ADMIN_ROLES, id: 'start/setup', section: 'Start', label: 'Setup', href: '/v2/setup-checklist.html', profiles: ['standard'] , tabOf: 'finance/menu'},
 
 
     { departments: FINANCE_DEPTS, id: 'finance/accounting', section: 'Finance', label: 'Accounting', href: '/v2/accounting.html', profiles: ['grandfathered', 'standard'] },

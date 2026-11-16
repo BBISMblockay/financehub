@@ -21,14 +21,7 @@
     return suites().find((s) => s.pages.some(([id]) => id === active)) || null;
   }
   function contains(active) { return !!suiteOf(active); }
-  // Which sidebar row a suite page highlights. `keepRows` suites (Home/Start)
-  // still draw a row per page, so the page highlights its OWN row; every other
-  // suite collapses into one row and highlights that.
-  function rowOf(active) {
-    const suite = suiteOf(active);
-    if (!suite) return active;
-    return suite.keepRows ? active : (suite.row || active);
-  }
+  function rowOf(active) { return suiteOf(active)?.row || active; }
 
   // Fails to the SMALLER strip, as resolveNavProfile(null) does: a deep-linked
   // tab has no cached company (sessionStorage is per-tab, the auth session is
