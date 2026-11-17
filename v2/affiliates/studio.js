@@ -127,6 +127,39 @@ async function sendInvite(id, to = null) {
   S.flash = { el: 'signupOut', html: card('Invite not emailed: send this link', `<p>${esc(out.reason || out.email || 'not sent')}. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.signup_url)}</div>`) };
   return 'Invite not emailed. The link is below.';
 }
+// One action on many prospects. Each moves only from a state it may leave,
+// exactly as its single button does; the rest are counted, not forced.
+async function bulkProspects(ids, s) {
+  const by = S.d.prospectById;
+  const FROM = { approved: ['new', 'qualified', 'rejected'], rejected: ['new', 'qualified', 'approved'], suppressed: ['new', 'qualified', 'approved', 'invited'] };
+  const ok = ids.filter((id) => by[id] && FROM[s]?.includes(by[id].status));
+  const skipped = ids.length - ok.length;
+  let done = 0; let invited = 0; let drafted = 0; let failed = 0;
+  if (s === 'suppressed') {
+    for (const id of ok) { try { await A['prospect-suppress']({ id }); done += 1; } catch { failed += 1; } }
+  } else if (ok.length) {
+    const now = new Date().toISOString();
+    for (const part of chunk(ok, 100)) {
+      const rows = await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: now, changed_by: me.id }, { id: part });
+      done += rows.length;
+    }
+    if (s === 'approved') {
+      // Same follow-up as approving one: an invite for someone added by hand
+      // or who applied, a drafted message for a creator a search found.
+      const live = new Set(S.d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
+      for (const id of ok) {
+        const x = by[id];
+        try {
+          if (INVITE_SOURCES.has(x.source) && x.contact_email) { const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id, email: true }); if (out.emailed) invited += 1; }
+          else if (!live.has(id)) { await A['draft-create']({ id }); drafted += 1; }
+        } catch { failed += 1; }
+      }
+    }
+  }
+  S.sel.clear();
+  const word = { approved: 'Approved', rejected: 'Rejected', suppressed: 'Added to do-not-contact:' }[s];
+  return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}`;
+}
 function download(name, text, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
@@ -136,7 +169,7 @@ function download(name, text, type = 'text/csv') {
 
 // ── State ────────────────────────────────────────────────────────────────
 const PROSPECT_LIST_CAP = 20;
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false };
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -685,6 +718,11 @@ document.addEventListener('click', (ev) => {
 // another program's form or land on another program. Switching programs
 // saves what is pending first.
 let saveTimer = null; let saving = Promise.resolve(); let pendingSave = null;
+// "From search" picks out one search's results on the prospect list.
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'pQuery') return;
+  S.prospectQuery = ev.target.value; S.sel.clear(); S.prospectShowAll = false; render();
+});
 document.addEventListener('change', (ev) => {
   if (S.creating || !MANAGE || !ev.target.closest('#programBody')) return;
   clearTimeout(saveTimer);
@@ -744,7 +782,15 @@ function renderProspects() {
   const filter = S.prospectFilter || 'new';
   const GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
   const inGroup = (x, g) => !GROUPS[g] || GROUPS[g].includes(x.status);
-  const list = d.prospects.filter((x) => inGroup(x, filter));
+  // The search a prospect came from, so one search's results can be picked out.
+  const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();
+  const queries = [...new Set(d.prospects.filter((x) => inGroup(x, filter)).map(fromQuery).filter(Boolean))].slice(0, 30);
+  if (S.prospectQuery && !queries.includes(S.prospectQuery)) S.prospectQuery = '';
+  const list = d.prospects.filter((x) => inGroup(x, filter) && (!S.prospectQuery || fromQuery(x) === S.prospectQuery));
+  // Bulk selection: only prospects in this view stay selected.
+  const inView = new Set(list.map((x) => x.id));
+  for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
+  S.viewIds = list.map((x) => x.id);
   const live = new Set(d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
   const actions = (x) => {
     if (!MANAGE) return '';
@@ -793,8 +839,9 @@ function renderProspects() {
     const title = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator');
     const sub = `${x.platform || 'creator'}${x.handle ? ` · ${x.handle}` : ''}`;
     const meta = x.contact_email ? esc(x.contact_email) : 'No public email yet';
-    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
+    return `<article class="af-item af-item--tile af-item--catalog${S.sel.has(x.id) ? ' is-selected' : ''}" role="listitem">
       <header class="af-catalog-head">
+        ${MANAGE ? `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` : ''}
         <div class="af-catalog-thumb">${photoAvatar({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}</div>
         <div class="af-catalog-title">
           <div class="af-catalog-name">${title}</div>
@@ -833,6 +880,11 @@ function renderProspects() {
     : '';
   $('prospectsBody').innerHTML = [
     surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
+      ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
+        ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
+        ${btn(`Select all ${list.length}`, 'prospect-select-all')}
+        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Approve', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Reject', 'prospect-bulk', { s: 'rejected' })}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
+      </div>` : ''}
       ${itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
@@ -1656,7 +1708,12 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
+  'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
+  'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
+  // Every prospect in the view, not only the cards on screen.
+  'prospect-select-all': () => { for (const id of S.viewIds || []) S.sel.add(id); render(); return null; },
+  'prospect-select-none': () => { S.sel.clear(); render(); return null; },
+  'prospect-bulk': async ({ s }) => bulkProspects([...S.sel], s),
   'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
   'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
   'ov-filter': ({ f }) => { S.ovFilter = f; render(); },

@@ -46,6 +46,9 @@
 //   AFFILIATE_RESEARCH_MUTATION=ytblank      a field the API did not return blanks a stored one
 //   AFFILIATE_RESEARCH_MUTATION=ytstale      Refresh stats re-checks channels checked this week
 //   AFFILIATE_RESEARCH_MUTATION=nocache      the research request is not cached
+//   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
+//   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
+//   AFFILIATE_RESEARCH_MUTATION=knownallco   known creators are read across every company
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -87,6 +90,9 @@ const MUTS = {
   ytoverwrite: ['lib/affiliate-youtube-core.mjs', "        if (!p.contact_email && merged.description_email) {", "        if (merged.description_email) {"],
   ytblank: ['lib/affiliate-youtube-core.mjs', "const merged = { ...prior, ...Object.fromEntries(Object.entries(yt).filter(([, v]) => v !== null && v !== undefined)) };", "const merged = { ...prior, ...yt };"],
   ytstale: ['handler.mjs', "(urls ? true : needsYouTubeRefresh(p, at))", "(urls ? true : true)"],
+  knownkept: [CORE, "    if (isKnown(known, profile)) { stats.known += 1; continue; }\n", ''],
+  knownbrief: [CORE, "    known?.handles?.length ? `\\nAlready known", "    false ? `\\nAlready known"],
+  knownallco: ['handler.mjs', "        .eq('company_entity_id', company).order('created_at', { ascending: false }).limit(cap);", "        .order('created_at', { ascending: false }).limit(cap);"],
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -261,6 +267,21 @@ await test('a photo URL is kept only if the profile page text showed it, exactly
     assert.ok(p, 'the creator is still kept');
     assert.equal(p.evidence.profile_image_url ?? null, null, `not stored: ${img}`);
   }
+});
+
+await test('creators the company already has, in any program, are named to the AI and never re-found', async () => {
+  const s = setup();
+  s.service.tables.affiliates = [{ id: 'a-j', company_entity_id: CO_A, program_id: PPAUSED, platform: 'tiktok', handle: '@Jenna.And.Her.Gents', profile_url: null, created_at: '2026-11-01' }];
+  s.service.tables.affiliate_prospects.push({ id: 'p-dm-b', company_entity_id: CO_B, program_id: PB, platform: 'instagram', handle: '@diamondmama', profile_url: 'https://www.instagram.com/diamondmama', created_at: '2026-11-01', evidence: {} });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  const brief = JSON.stringify(s.calls[0].messages[0].content);
+  assert.match(brief, /Already known to this brand, skip them: @jenna\.and\.her\.gents/, 'the AI is told who to skip');
+  assert.doesNotMatch(brief, /@diamondmama/, 'another company\'s creators are not this brand\'s');
+  const mine = s.service.tables.affiliate_prospects.filter((x) => x.program_id === PA);
+  assert.ok(!mine.some((x) => x.handle === '@jenna.and.her.gents'), 'an existing affiliate is not added again as a prospect');
+  assert.ok(mine.some((x) => x.handle === '@diamondmama'), 'another company knowing a creator does not hide them');
+  const run = s.service.tables.affiliate_discovery_runs.at(-1);
+  assert.match(run.error || '', /1 already known/);
 });
 
 await test('the caller-token gate runs first, and a refused session stops everything', async () => {

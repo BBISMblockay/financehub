@@ -29,6 +29,7 @@ import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, chann
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
   RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
+  knownCreators, isKnown,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
 
@@ -130,6 +131,19 @@ export function createResearchHandler({
     return reply(out);
   }
 
+  // Every creator this company already has, in any program: its affiliates
+  // and its prospects (whatever their status, rejected and do-not-contact
+  // included). A failed read means "none known", never a failed run.
+  async function knownFor(company) {
+    const rows = [];
+    for (const [table, cap] of [['affiliates', 2000], ['affiliate_prospects', 5000]]) {
+      const { data, error } = await service.from(table).select('platform, handle, profile_url')
+        .eq('company_entity_id', company).order('created_at', { ascending: false }).limit(cap);
+      if (!error) rows.push(...(data || []));
+    }
+    return knownCreators(rows);
+  }
+
   async function finishRun(id, patch) {
     await service.from('affiliate_discovery_runs').update({ ...patch, finished_at: now().toISOString() }).eq('id', id);
   }
@@ -172,8 +186,11 @@ export function createResearchHandler({
     const work = (async () => {
       let usages = []; let outcome = 'failed';
       try {
+        const known = await knownFor(company).catch(() => null);
         const g = await gatherLeads(program, focus).catch(() => ({ leads: [], searched: 0, failed: 1 }));
-        const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10), leads: g.leads });
+        // A lead the company already has is not worth the AI's time.
+        g.leads = g.leads.filter((l) => !isKnown(known, l));
+        const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10), leads: g.leads, known });
         const callModel = async (b) => {
           const left = RUN_BUDGET_MS - (now().getTime() - startedAt);
           if (left <= 5_000) { outcome = 'timed_out'; throw new Error('research ran out of time'); }
@@ -199,10 +216,10 @@ export function createResearchHandler({
         };
         const wanted = clampCount(body?.count);
         const collectedAt = now().toISOString();
-        const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt }).stats.kept;
+        const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt, known }).stats.kept;
         const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
         usages = out.usages;
-        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted });
+        const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted, known });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates: withProfile(candidates), runId,
           origin: { source: 'ai_research', collector: `affiliate-research/${RESEARCH_PROVIDER}` } });
         // Photos for the creators this run kept; never fails the run.
@@ -215,8 +232,8 @@ export function createResearchHandler({
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
-          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.kept < wanted || g.leads.length
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
+          error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.known || stats.kept < wanted || g.leads.length
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.known ? `, ${stats.known} already known` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
             : null,
         });
       } catch (err) {

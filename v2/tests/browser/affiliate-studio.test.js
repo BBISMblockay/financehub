@@ -428,6 +428,22 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
       R.has(await text(inv, '#prospectsBody [data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
       R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('#prospectsBody [data-act="invite-send"][data-id="p1"]')));
+      // Bulk: pick several, act once.
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-select-all"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-select-all"]');
+      await inv.waitForFunction(() => /selected/.test(document.querySelector('#prospectsBody .af-bulk')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const nNew = await inv.$$eval('#prospectsBody [data-act="prospect-pick"]', (els) => els.length);
+      R.has(await text(inv, '#prospectsBody .af-bulk'), `${nNew} selected`, 'Select all picks every prospect in the view');
+      R.ok('every card is ticked', await inv.$$eval('#prospectsBody [data-act="prospect-pick"]', (els) => els.every((e) => e.checked)));
+      await inv.click('#prospectsBody [data-act="prospect-pick"]');
+      R.has(await text(inv, '#prospectsBody .af-bulk'), `${nNew - 1} selected`, 'unticking one leaves the rest');
+      const before = await inv.evaluate(() => window.__QUERIES__.length);
+      await inv.click('#prospectsBody [data-act="prospect-bulk"][data-s="rejected"]');
+      await inv.waitForFunction(() => /Rejected/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const bulk = await inv.evaluate((b) => window.__QUERIES__.slice(b).filter((q) => q.table === 'affiliate_prospects' && q._op === 'update'), before);
+      R.ok('one update rejects the selection', bulk.length === 1 && bulk[0].patch.status === 'rejected');
+      R.ok('scoped to this company and the picked ids', JSON.stringify(bulk[0].filters).includes('company_entity_id') && JSON.stringify(bulk[0].filters).includes('"in"'));
       // Added by hand with an email: approved and invited at once.
       await openRecords(inv);
       await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
