@@ -164,7 +164,10 @@ t('the read_all_orders fix depends on whose app the connection uses', () => {
     assert.match(JSON.stringify({ steps: g.steps, troubleshooting: g.troubleshooting }), /read_all_orders/, String(m));
   }
   const tok = G.resolve('shopify_token', {});
-  assert.ok(tok.steps.some((st) => (st.scopes || []).includes('read_all_orders')), 'token guide lists read_all_orders');
+  // The required access step itself, not the optional discounts step that follows it.
+  assert.ok((tok.steps.find((st) => st.title === 'Check its access')?.scopes || []).includes('read_all_orders'), 'token guide lists read_all_orders');
+  const disc = tok.steps.find((st) => /discount codes/i.test(st.title));
+  assert.ok(disc && disc.scopes.includes('write_discounts') && /optional/i.test(disc.title), 'token guide offers write_discounts as an optional step');
   // Both Integrations warnings take the text and guide from allOrdersRemedy.
   const page = read('v2/integrations.html');
   assert.match(page, /allOrdersRemedy\?\.\(row\?\.auth_method\)/, 'store-row banner');
