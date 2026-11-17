@@ -69,6 +69,9 @@ function friendly(err) {
   const m = String(err?.message || err || 'Something went wrong');
   if (err?.code === '42501' || /not permitted|permission denied|row-level security/i.test(m)) return 'You do not have permission for that. ' + m.replace(/^[a-z_]+: /, '');
   if (err?.code === '23505' || /duplicate key|unique/i.test(m)) return 'That already exists. ' + (err?.details || '');
+  // The ledger speaks in cents; say it in money.
+  const min = /(\d+) is below the program minimum of (\d+)/.exec(m);
+  if (min) return `${money(+min[1])} owed is under the ${money(+min[2])} payout minimum. Lower it in Setup to pay now.`;
   return m.replace(/^[a-z_]+: /, '');
 }
 const must = ({ data, error }) => { if (error) throw error; return data; };
