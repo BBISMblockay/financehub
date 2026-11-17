@@ -190,6 +190,28 @@ async function tellCodes(aff) {
   } catch (e) { return ` Not emailed: ${e.message}.`; }
 }
 
+// SILO makes waiting codes in the brand's Shopify (affiliate-invite). Each
+// code it cannot make stays waiting -- for a reconnect, a store pick, or the
+// brand's own AI -- and the message says which.
+async function makeInShopify(ids) {
+  ids = (ids || []).filter(Boolean);
+  if (!ids.length) return 'Nothing is waiting.';
+  const out = await invoke('affiliate-invite', { action: 'create_shopify_codes', code_ids: ids });
+  return shopifyCodesMessage(out?.results || []);
+}
+function shopifyCodesMessage(results) {
+  const n = (k) => results.filter((r) => k.includes(r.status)).length;
+  const made = n(['created', 'adopted']);
+  const parts = [];
+  if (made) parts.push(`${num(made)} code(s) live in Shopify.`);
+  const scope = results.find((r) => r.status === 'needs_scope');
+  if (scope) parts.push(`${num(n(['needs_scope']))} waiting: ${scope.reason || 'reconnect Shopify in Integrations so SILO can make codes'}.`);
+  if (n(['no_store'])) parts.push(`${num(n(['no_store']))} waiting: pick this program's Shopify store in Setup.`);
+  const failed = results.filter((r) => r.status === 'failed');
+  if (failed.length) parts.push(`${num(failed.length)} not made: ${failed[0].reason || 'Shopify said no'}.`);
+  return parts.join(' ') || 'Nothing was waiting.';
+}
+
 async function invoke(fn, body) {
   const { data: { session: s } } = await db.auth.getSession();
   const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${fn}`, {
@@ -674,7 +696,7 @@ function todoItems() {
   add(dmReady, `${num(dmReady)} creator(s) with no email to message on social.`, 'outreach');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
-  add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
+  add(pending, `${num(pending)} code(s) waiting to be made in Shopify.`, 'affiliates', MANAGE ? `${btn('Make in Shopify', 'code-make', {}, 'primary')}${btn('Copy AI prompt', 'copy-codes-prompt', {}, 'surface')}` : '');
   const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
   const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
   add(codeless, `${num(codeless)} affiliate(s) without a code.`, 'affiliates', MANAGE ? btn(`Make ${num(codeless)} code(s)`, 'q-codes', {}, 'primary') : '');
@@ -1270,7 +1292,7 @@ function renderAffiliates() {
     : card(`Code for ${toolAff.display_name}`, `<input type="hidden" id="cAff" value="${esc(toolAff.id)}" /><div class="af-grid--settings">
       ${field('Code', input('cCode', 'class="bcn-field bcn-field--mono"'))}
       ${field('% off', input('cPct', 'type="number" min="1" max="100" step="1" value="10"'))}
-      ${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="exists"${canCode ? '' : ' selected'}>I made it</option><option value="ai"${canCode ? ' selected' : ''}>My AI makes it</option></select>`)}
+      ${field('In Shopify', `<select class="bcn-field" id="cHow"><option value="ai" selected>SILO makes it</option><option value="exists">I made it</option></select>`)}
       ${field('Starts', input('cStart', `type="date" value="${esc(p.default_code_starts_on || today())}"`))}${field('Ends', input('cEnd', `type="date" value="${esc(p.default_code_ends_on || '')}"`))}
       <div class="af-span-full af-row">${btn('Add code', 'code-add', {}, 'primary')}${btn('Close', 'aff-tool-close')}</div></div>
       ${aiCodesBlock(d.aiApps)}`);
@@ -1278,7 +1300,7 @@ function renderAffiliates() {
     const code = liveCodeOf(a.id);
     const store = storeOf(p);
     const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
-    const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
+    const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
     const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
@@ -1312,9 +1334,9 @@ function renderAffiliates() {
     contentCard(),
     more('Codes and links', [
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
-        const shop = c.status === 'pending' ? `${pill('waiting for AI', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
+        const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
         const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
-        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : pill('retired');
+        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : pill('retired');
         return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(c.code)}</span> · ${esc(d.affById[c.affiliate_id]?.display_name)}</div><div class="af-muted">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</div><div class="af-kv-line">${shop} · ${seen}</div></div><div class="af-item-foot">${act}</div></article>`;
       }, 'No codes yet.')) : '',
     ]),
@@ -2074,8 +2096,8 @@ const A = {
       const code = suggestCode(a.display_name || a.handle, pct, taken); taken.push(code);
       return { company_entity_id: CO, program_id: S.programId, affiliate_id: a.id, code, starts_on: today(), created_by: me.id, status: 'pending', discount_percent: pct };
     });
-    must(await db.from('affiliate_codes').insert(rows));
-    return `${num(rows.length)} code(s) queued for your AI to create in Shopify.`;
+    const made = must(await db.from('affiliate_codes').insert(rows).select('id'));
+    return makeInShopify((made || []).map((r) => r.id));
   },
   'q-payouts': async () => {
     const p = prog();
@@ -2297,9 +2319,9 @@ const A = {
     const pct = Number(val('cPct'));
     if (ai && !(pct > 0 && pct <= 100)) throw new Error('Type the percent off your AI should give, from 1 to 100.');
     const aff = val('cAff'); const starts = val('cStart') || today();
-    must(await db.from('affiliate_codes').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: aff, code: val('cCode'), starts_on: starts, ends_on: val('cEnd') || null, created_by: me.id,
-      ...(ai ? { status: 'pending', discount_percent: pct } : {}) }));
-    if (ai) { S.affTool = null; return 'Code saved. Ask your AI to create your waiting SILO affiliate codes in Shopify.'; }
+    const added = must(await db.from('affiliate_codes').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: aff, code: val('cCode'), starts_on: starts, ends_on: val('cEnd') || null, created_by: me.id,
+      ...(ai ? { status: 'pending', discount_percent: pct } : {}) }).select('id'));
+    if (ai) { S.affTool = null; return makeInShopify((added || []).map((r) => r.id)); }
     // A code made by hand is live now (or on its start day): tell the rep.
     const live = starts <= today() && S.d.affiliates.find((a) => a.id === aff)?.status === 'active';
     S.affTool = null;
@@ -2357,6 +2379,7 @@ const A = {
     try { await navigator.clipboard.writeText(CODES_PROMPT); } catch { setStatus(CODES_PROMPT, 'info'); return null; }
     return 'Copied. Paste it into your AI, or set it as a daily task there.';
   },
+  'code-make': async ({ id }) => makeInShopify(id ? [id] : S.d.codes.filter((c) => c.status === 'pending').map((c) => c.id)),
   'code-retire': async ({ id }) => { const was = S.d.codes.find((c) => c.id === id)?.status; await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id }); return was === 'pending' ? 'Code cancelled.' : 'Code retired.'; },
   'link-add': async () => {
     const dest = val('lDest');

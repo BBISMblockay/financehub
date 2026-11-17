@@ -26,9 +26,16 @@
 //                                                   address on file and returns no URL (see mintMailed);
 //                                                   otherwise it returns the URL for the caller to send
 //   notify      { affiliate_id, kind: 'codes_and_links' | 'payout_status', payout_id? }
+//   create_shopify_codes { code_ids? | code_id } -> SILO makes the waiting (pending) codes in the
+//                                                   brand's Shopify itself (shopify-codes.mjs), then mails
+//                                                   "your code is live". A staff session: its own company.
+//                                                   No session: one code_id only (the portal, right after
+//                                                   signup). Service key, no id: every company (nightly).
 //   deliver_code_notices { code_id? }           -> mails "your code is live" for each notice the database
 //                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
+import { ensureShopifyAccessToken } from './shopify-auth-lib.mjs';
+import { pickConnection, canMakeCodes, makeCode } from './shopify-codes.mjs';
 
 // Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
@@ -165,6 +172,83 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     return results;
   }
 
+  // SILO makes waiting codes in Shopify (Blake 2026-11-17). Only codes a
+  // person or the signup trigger already queued as 'pending'; each result is
+  // named (created / adopted / needs_scope / no_store / failed / skipped) and
+  // anything but created/adopted leaves the code pending for the next try or
+  // for the brand's own AI (codes:create), exactly as before.
+  async function createShopifyCodes({ company = null, codeIds = null, actor = null }) {
+    let q = service.from('affiliate_codes')
+      .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent')
+      .eq('status', 'pending').order('created_at').limit(25);
+    if (company) q = q.eq('company_entity_id', company);
+    if (codeIds?.length) q = q.in('id', codeIds);
+    const { data: codes, error } = await q;
+    if (error) throw new Error(error.message);
+    const results = [];
+    const conns = new Map(); const ready = new Map(); const tzs = new Map(); const progs = new Map();
+    for (const c of codes || []) {
+      const co = c.company_entity_id;
+      const out = { code_id: c.id, code: c.code };
+      try {
+        if (!conns.has(co)) {
+          const { data } = await service.from('shopify_connections')
+            .select('id, company_entity_id, shop_domain, is_active, access_token, api_version, auth_method, token_expires_at')
+            .eq('company_entity_id', co);
+          conns.set(co, data || []);
+          const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: co });
+          tzs.set(co, tz || 'UTC');
+        }
+        if (!progs.has(c.program_id)) {
+          const { data } = await service.from('affiliate_programs').select('id, store_url, shop_domains')
+            .eq('id', c.program_id).eq('company_entity_id', co).maybeSingle();
+          progs.set(c.program_id, data);
+        }
+        const conn = pickConnection(progs.get(c.program_id), conns.get(co));
+        if (!conn) { results.push({ ...out, status: 'no_store', reason: 'Pick the program\'s Shopify store in Setup.' }); continue; }
+        if (!ready.has(conn.id)) {
+          let ok = false;
+          try {
+            await ensureShopifyAccessToken(service, conn, { fetchImpl });
+            ok = Boolean(conn.access_token) && await canMakeCodes(conn, fetchImpl);
+            // A store's own Dev Dashboard app: a token minted before the
+            // owner allowed discounts lacks it for up to a day. Mint once more.
+            if (!ok && conn.auth_method === 'client_credentials') {
+              conn.token_expires_at = null;
+              await ensureShopifyAccessToken(service, conn, { fetchImpl });
+              ok = await canMakeCodes(conn, fetchImpl);
+            }
+          }
+          catch (e) { console.error('[affiliate-invite] shopify scope check', conn.shop_domain, e?.message); ok = e?.kind === 'needs_scope' ? false : null; }
+          ready.set(conn.id, ok);
+        }
+        const r = ready.get(conn.id);
+        if (r === false) {
+          results.push({ ...out, status: 'needs_scope', reason: conn.auth_method === 'client_credentials'
+            ? 'allow write_discounts on your Shopify app in the Dev Dashboard, then release it'
+            : 'reconnect Shopify in Integrations so SILO can make codes' });
+          continue;
+        }
+        if (r !== true) { results.push({ ...out, status: 'failed', reason: 'Shopify did not answer. Try again.' }); continue; }
+        const { data: a } = await service.from('affiliates').select('display_name').eq('id', c.affiliate_id).eq('company_entity_id', co).maybeSingle();
+        const made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl);
+        // Conditional on still pending: a code cancelled (or made by the AI)
+        // meanwhile is left as it is. Activating runs the overlap guard.
+        const { data: upd, error: uErr } = await service.from('affiliate_codes')
+          .update({ status: 'active', shopify_discount_id: made.id, shopify_created_at: now().toISOString(), shopify_created_via_app: 'SILO', changed_by: actor })
+          .eq('id', c.id).eq('company_entity_id', co).eq('status', 'pending').select('id');
+        if (uErr) { results.push({ ...out, status: 'failed', reason: uErr.message.replace(/^[a-z_]+:\s*/, '') }); continue; }
+        if (!upd?.length) { results.push({ ...out, status: 'skipped', reason: 'No longer waiting.' }); continue; }
+        results.push({ ...out, status: made.adopted ? 'adopted' : 'created', shopify_discount_id: made.id, shop: conn.shop_domain });
+        try { await deliverCodeNotices({ code_id: c.id }); } catch (e) { console.error('[affiliate-invite] live notice', c.id, e?.message); }
+      } catch (e) {
+        console.error('[affiliate-invite] shopify code', c.id, e?.message);
+        results.push({ ...out, status: e?.kind === 'needs_scope' ? 'needs_scope' : 'failed', reason: String(e?.message || 'failed').slice(0, 240) });
+      }
+    }
+    return results;
+  }
+
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
@@ -187,6 +271,24 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     //     Any doubt -- no probe, a probe error, anything but `true` -- refuses.
     let peek = null;
     try { peek = await req.clone().json(); } catch { /* handled below */ }
+    // Without a staff session: one code by id (the portal, right after a
+    // signup queued it -- the worst a stranger can do is make an owed code
+    // appear in Shopify sooner), or every company with a service key.
+    if (peek?.action === 'create_shopify_codes') {
+      const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
+      let sweep = false;
+      if (!codeId) {
+        sweep = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
+        if (!sweep && isServiceToken && !Array.isArray(peek.code_ids)) {
+          try { sweep = (await isServiceToken(authHeader.replace(/^Bearer\s+/, ''))) === true; } catch { sweep = false; }
+        }
+      }
+      if (codeId || sweep) {
+        try { return reply({ results: await createShopifyCodes({ codeIds: codeId ? [codeId] : null }) }); }
+        catch (err) { console.error('[affiliate-invite] shopify codes', err?.message); return reply({ error: 'Could not make codes' }, 500); }
+      }
+      // Otherwise a staff session, below: that person's own company.
+    }
     if (peek?.action === 'deliver_code_notices') {
       const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
       let isService = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
@@ -222,6 +324,11 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     const action = body?.action;
 
     try {
+      if (action === 'create_shopify_codes') {
+        const ids = Array.isArray(body.code_ids) ? body.code_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : null;
+        return reply({ results: await createShopifyCodes({ company, codeIds: ids?.length ? ids : null, actor }) });
+      }
+
       if (action === 'signup_link') {
         if (!UUID_RE.test(String(body.prospect_id || ''))) return reply({ error: 'prospect_id is required' }, 400);
         const { data: p } = await service.from('affiliate_prospects')

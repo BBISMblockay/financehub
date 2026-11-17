@@ -106,7 +106,7 @@ function fromBase64(v) {
 }
 export { affiliateLink };
 
-export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log }) {
+export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log, makeShopifyCode = null }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
   // `mailed` says the raw token will go ONLY to the address this mints it for
@@ -400,6 +400,16 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         });
       } catch (err) {
         log('[affiliate-portal] post-acceptance link/mail failed', err?.message);
+      }
+      // Joining queued the rep's first code (affiliate_queue_first_code); SILO
+      // makes it in the brand's Shopify now rather than overnight. Best
+      // effort: a code it cannot make waits, as it always did.
+      if (makeShopifyCode) {
+        try {
+          const { data: waiting } = await service.from('affiliate_codes').select('id')
+            .eq('company_entity_id', t.company_entity_id).eq('affiliate_id', t.affiliate_id).eq('status', 'pending').limit(3);
+          for (const w of waiting || []) await makeShopifyCode(w.id);
+        } catch (err) { log('[affiliate-portal] shopify code kick failed', err?.message); }
       }
       return reply({ status: res?.status || 'active', already_accepted: !!res?.already_accepted,
         portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent' });

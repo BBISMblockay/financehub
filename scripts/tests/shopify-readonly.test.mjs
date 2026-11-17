@@ -17,6 +17,13 @@
  * separate, narrowly-scoped credential rather than widening the one every
  * nightly sync already holds.
  *
+ * 2026-11-17, that conversation (Blake): SILO makes affiliate discount codes
+ * in the store itself, on the SAME connection ("We ask a lot of user to use
+ * silo") -- Shopify gives one token per app per store, so a separate
+ * credential would mean a second app. So exactly ONE write is allowed:
+ * write_discounts, used by exactly one file, for exactly one mutation
+ * (discountCodeBasicCreate), and the syncs still issue none.
+ *
  * No network, no database. Run:
  *   node scripts/tests/shopify-readonly.test.mjs
  */
@@ -76,7 +83,10 @@ for (const [label, path, name] of [
     if (!block) throw new Error(`could not find the ${name} array in ${path}`);
     const scopes = [...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
     if (scopes.length === 0) throw new Error('parsed zero scopes — the assertion would pass vacuously');
-    const writes = scopes.filter((s) => !s.startsWith('read_'));
+    // write_discounts is the one write SILO holds (2026-11-17): it makes
+    // affiliate discount codes, from affiliate-invite only -- never a sync.
+    // Syncs stay read-only by the mutation scan above.
+    const writes = scopes.filter((s) => !s.startsWith('read_') && s !== 'write_discounts');
     if (writes.length) {
       throw new Error(
         `${writes.length} non-read scope(s) requested: ${writes.join(', ')}. ` +
@@ -87,6 +97,15 @@ for (const [label, path, name] of [
     console.log(`       (${scopes.length} scopes, all read_*)`);
   });
 }
+
+console.log('\n-- the one write: affiliate discount codes --');
+test('shopify-codes.mjs issues only discountCodeBasicCreate', () => {
+  const src = read('supabase/functions/affiliate-invite/shopify-codes.mjs');
+  const found = [...src.matchAll(/\bmutation\s+\w+[^{]*\{\s*(\w+)/g)].map((m) => m[1]);
+  if (found.length !== 1 || found[0] !== 'discountCodeBasicCreate') {
+    throw new Error(`expected one mutation, discountCodeBasicCreate; found ${JSON.stringify(found)}`);
+  }
+});
 
 console.log(`\n${count - failures}/${count} passed`);
 process.exit(failures ? 1 : 0);
