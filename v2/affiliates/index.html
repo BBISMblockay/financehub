@@ -415,6 +415,13 @@
       .af-studio .af-item--tile:hover { transform: none; }
     }
 
+    /* ── Records: one list at a time (Blake 2026-11-17) ──────────────── */
+    .af-rec-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .af-rec-chip { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); border-radius: 99px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .af-rec-chip.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
+    .af-rec-list { display: flex; flex-direction: column; gap: 12px; }
+    .af-rec-capped [role="list"] > :nth-child(n+13) { display: none; }
+
     /* ── Money: the flow from the store to PayPal (Blake 2026-11-17) ───── */
     .af-studio .af-flow {
       display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr);

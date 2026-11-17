@@ -556,23 +556,34 @@ const RECORDS = new Map();
 const more = (label, parts) => { RECORDS.set(label, parts.filter(Boolean)); return ''; };
 // A plain, always-open section with a heading.
 const section = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<section class="af-section"><h3 class="af-settings-title">${esc(label)}</h3><div class="af-stack">${p.join('')}</div></section>` : ''; };
+// Records is one list at a time, picked from a row of chips (Blake
+// 2026-11-17: it read as "a big spreadsheet of slop"). Each list shows its
+// first RECORD_ROWS rows; "Show all" opens the rest in place.
 const RECORD_GROUPS = [
-  ['Products and codes', ['Codes and links']],
-  ['Team', ['Team and status']],
-  ['Recruiting', ['Recruiting tools']],
-  ['Messages', ['Message history']],
-  ['Money', ['Every order', 'Periods and ledger', 'Balances']],
+  ['codes', 'Codes', ['Codes and links']],
+  ['orders', 'Orders', ['Every order']],
+  ['money', 'Ledger', ['Balances', 'Periods and ledger']],
+  ['messages', 'Messages', ['Message history']],
+  ['recruiting', 'Recruiting', ['Recruiting tools']],
+  ['team', 'Team', ['Team and status']],
 ];
+const RECORD_ROWS = 12;
 function renderRecords() {
   RECORDS.clear();
   // The screens these come from draw into their own (hidden) panels, which
   // fills RECORDS; the records themselves are drawn only here.
   renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
   if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d ? stageCard() : '']);
-  $('recordsBody').innerHTML = RECORD_GROUPS.map(([title, keys]) => {
-    const parts = keys.flatMap((k) => RECORDS.get(k) || []);
-    return parts.length ? surface(title, `<div class="af-stack">${parts.join('')}</div>`) : '';
-  }).join('');
+  const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
+  if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
+  const g = groups.find((x) => x.key === S.recTab);
+  const chips = `<div class="af-rec-chips" role="tablist" aria-label="Records">${groups.map((x) => `<button type="button" class="af-rec-chip${x.key === S.recTab ? ' is-on' : ''}" role="tab" aria-selected="${x.key === S.recTab}" data-act="rec-tab" data-k="${x.key}">${esc(x.title)}</button>`).join('')}</div>`;
+  $('recordsBody').innerHTML = g ? `${chips}<div class="af-rec-list${S.recAll ? '' : ' af-rec-capped'}" id="recList">${g.parts.join('')}</div>` : empty('Nothing recorded yet.');
+  // "Show all" only where a list is longer than the first rows.
+  const list = $('recList');
+  if (list && !S.recAll && [...list.querySelectorAll('[role="list"]')].some((l) => l.children.length > RECORD_ROWS)) {
+    list.insertAdjacentHTML('beforeend', `<div class="af-row">${btn('Show all', 'rec-all', {}, 'surface')}</div>`);
+  }
   renderManagers();
 }
 const surface = (title, body, meta = '', id = '') => {
@@ -2051,6 +2062,8 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
+  'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
+  'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },

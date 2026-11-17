@@ -252,6 +252,8 @@ const openRecords = async (page) => {
   await page.click('#tabs [data-tab="records"]');
   await page.waitForFunction(() => !!document.querySelector('#recordsBody .bcn-card'), null, { timeout: 5000 });
 };
+// Records shows one list at a time, picked by chip (Blake 2026-11-17).
+const recTab = async (page, k) => { await page.click(`#recordsBody [data-act="rec-tab"][data-k="${k}"]`); await page.waitForSelector(`#recordsBody [data-k="${k}"].is-on`, { timeout: 5000 }); };
 // The portal shows one tab at a time (Blake 2026-11-17).
 const tab = (page, k) => page.click(`#tabs [data-tab="${k}"]`);
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
@@ -306,6 +308,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(next, 'Commissions update nightly', 'nightly commissions are listed as running');
     R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
     await openRecords(page);
+    const chipsR = await page.evaluate(() => [...document.querySelectorAll('#recordsBody [data-act="rec-tab"]')].map((x) => x.textContent));
+    R.ok('Records is chips, one list at a time', chipsR.length >= 3 && chipsR[0] === 'Codes');
+    await recTab(page, 'team');
     const ov = await text(page, '#recordsBody');
     R.has(ov, 'Outreach to prospects', 'Records states how each part works');
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
@@ -321,6 +326,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="people"]');
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     await openRecords(page);
+    if (process.env.RECORDS_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#recordsBody')).screenshot({ path: process.env.RECORDS_SHOT }); }
     R.ok('no fold-outs on Records either', !(await page.$('#recordsBody details')));
     R.ok('Records has no code, link or add-creator forms', !(await page.$('#recordsBody #cCode, #recordsBody #lDest, #recordsBody #mpName, #recordsBody #impFile')));
     R.ok('Setup has no team or status boxes', !(await page.$('#programBody #managersCard')));
@@ -412,6 +418,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await again.close();
     R.ok('there is no Refresh photos or Refresh stats button', !(await page.$('[data-act="photos-refresh"], [data-act="stats-refresh"]')));
     await openRecords(page);
+    await recTab(page, 'orders');
     const cm = await page.evaluate(() => [...document.querySelectorAll('#recordsBody .bcn-card')].find((c) => c.querySelector('h2')?.textContent === 'Orders')?.textContent || '');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
     R.has(cm, '—', 'an unknown base renders as a dash');
@@ -422,6 +429,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(flow, ['Sales from codes', 'Commission earned', 'Owed now', 'Paid by hand'], 'Money opens with the flow: sales, earned, owed, paid');
     R.ok('the sales stage carries the Shopify mark', !!(await page.$('#payoutsBody .af-flow-step:first-child use[href$="#icon-shopify"]')));
     R.ok('and the old bar chart is gone', !(await page.$('#payoutsBody .af-ov-chart')));
+    if (process.env.MONEY_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#payoutsBody')).screenshot({ path: process.env.MONEY_SHOT }); }
     R.ok('each affiliate owed shows a paid-of-earned meter', !!(await page.$('#payoutsBody .af-item--pay .af-pay-meter')));
     R.ok('ready-to-pay rows carry the affiliate photo or initials', !!(await page.$('#payoutsBody .af-item--pay .af-list-thumb')));
     // ── Share tab: the brand picks what affiliates see ──────────────────
@@ -774,6 +782,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await pay.selectOption('#programSel', PROG);
     await pay.waitForFunction(() => /Pat Trails/.test(document.querySelector('#payoutsBody')?.textContent || ''), null, { timeout: 5000 });
     await openRecords(pay);
+    await recTab(pay, 'money');
     R.has(await text(pay, '#recordsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
 
