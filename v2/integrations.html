@@ -3790,6 +3790,14 @@
     async function replaceKlaviyoKey(input) {
       const key = String(input.value || '').trim();
       if (!key) return;
+      // Same guard as the first-time Connect field. Without it this path
+      // overwrote a WORKING key with anything typed here -- including a public
+      // key or a stray string -- and the only sign was the nightly sync
+      // skipping with "Klaviyo rejected the credential".
+      if (!key.startsWith('pk_')) {
+        setStatus('That does not look like a Klaviyo PRIVATE key — those start with “pk_”. The short company ID is the public key and cannot read reports. The existing key is unchanged.', 'neg', 12000);
+        return;
+      }
       // A replaced key invalidates what the last test proved, so the row goes
       // back to "not tested" rather than keeping a pass the new key never
       // earned. Sync stays as it was; the test is what re-enables it.
