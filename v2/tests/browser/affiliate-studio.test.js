@@ -155,6 +155,7 @@ const MUTATIONS = {
   // Queues and content (20261117050000).
   qpickall: ['/affiliates/studio.js', "    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';\n    const rows", "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);\n    const rows"],
   contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
+  dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
 };
@@ -1477,6 +1478,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── Content, tick-box queues and Comms (20261117050000) ──────────────
     const ctTables = { ...qTables,
       affiliate_programs: [{ ...qTables.affiliate_programs[0], content_bonus_cents: 2500, outreach_subject: null, outreach_body: null }],
+      affiliate_outreach_drafts: [...qTables.affiliate_outreach_drafts,
+        { id: 'd4', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'approved', channel: 'dm', recipient_email: null, recipient_handle: '@samruns', subject: 'Hi', body: 'Hey! Join: {signup_link}', created_at: now }],
       affiliate_content_submissions: [
         { id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'file', storage_path: 'ct1/content.mp4', file_type: 'video/mp4', caption: 'Cage reel', state: 'submitted', submitted_at: now },
         { id: 'ct2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF_Q, kind: 'link', link_url: 'https://www.instagram.com/p/x/', state: 'submitted', submitted_at: now },
@@ -1520,6 +1523,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ct.click('#outreachBody [data-act="tpl-save"]');
     await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
     R.eq((await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch)).outreach_body, 'Hey {name}: {signup_link}', 'the template is saved from Comms');
+    // A creator with no email: the person sends a DM by hand, SILO sends nothing.
+    const dmBody = await text(ct, '#outreachBody');
+    R.has(dmBody, 'Send by DM', 'a creator with no email is listed to message on social');
+    R.has(dmBody, 'Join: http', 'with open applications the DM carries the application link');
+    R.ok('never a placeholder', !(await ct.evaluate(() => document.querySelector('#outreachBody [data-act="dm-copy"]').closest('article').textContent)).includes('{signup_link}'));
+    await ct.click('#outreachBody [data-act="dm-sent"][data-id="d4"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent'), null, { timeout: 5000 });
+    const dmu = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent').pop());
+    R.ok('Mark sent records the DM as where it was sent', /^Sent by DM on /.test(dmu.patch.sent_evidence) && dmu.filters.some((f) => f.col === 'id' && f.val === 'd4'));
+    R.ok('and only while it was still approved', dmu.filters.some((f) => f.col === 'state' && f.val === 'approved'));
     // Money: drafts wait in a queue; Approve selected approves the ticked ones.
     await ct.click('#tabs [data-tab="payouts"]');
     await ct.waitForFunction(() => !!document.querySelector('#payoutsBody [data-act="q-all"][data-q="payouts"]'), null, { timeout: 5000 });

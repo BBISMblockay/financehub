@@ -654,7 +654,10 @@ function todoItems() {
   add(Number(h.prospects_new || 0), `${num(h.prospects_new)} creator(s) waiting for your review.`, 'prospects');
   const drafts = d.drafts.filter((x) => x.state === 'draft').length;
   add(drafts, `${num(drafts)} message(s) to approve.`, 'outreach', MANAGE ? btn(`Approve all ${num(drafts)}`, 'q-msgs', {}, 'primary') : '');
-  add(Number(h.outreach_approved || 0), `${num(h.outreach_approved)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'surface') : '');
+  const dmReady = d.drafts.filter((x) => x.state === 'approved' && isDm(x)).length;
+  const emailReady = Math.max(0, Number(h.outreach_approved || 0) - dmReady);
+  add(emailReady, `${num(emailReady)} approved message(s) waiting for your MCP agent to send.`, 'outreach', MANAGE ? btn('Copy prompt', 'copy-send-prompt', {}, 'surface') : '');
+  add(dmReady, `${num(dmReady)} creator(s) with no email to message on social.`, 'outreach');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
   add(pending, `${num(pending)} code(s) waiting for your MCP agent to create in Shopify.`, 'affiliates', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
@@ -1072,7 +1075,14 @@ function renderOutreach() {
   const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Edit', 'draft-edit', { id: x.id }) : ''}</div></article>`;
   const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div></article>`;
   const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
-  const drafts = byState('draft'); const ready = byState('approved'); const out = byState('exported');
+  const drafts = byState('draft'); const readyAll = byState('approved'); const out = byState('exported');
+  const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
+  const dmCard = (x) => {
+    const pr = d.prospectById[x.prospect_id] || {};
+    const where = pr.profile_url ? ext(pr.profile_url, `Open ${PLATFORM_NAMES[pr.platform] || pr.platform || 'profile'}`) : '';
+    return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[pr.platform] || pr.platform || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
+      <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
+  };
   const canSend = (d.aiApps || []).some((a) => a.canSend);
   const tpl = outreachTemplate(p);
   const TAGS = ['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'];
@@ -1083,7 +1093,8 @@ function renderOutreach() {
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
     surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
       'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`),
-    surface('Ready to send', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
+    readyDm.length ? surface('Send by DM', itemList(readyDm, dmCard), `${num(readyDm.length)} with no email`) : '',
+    surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
       ${aiSendBlock(d.aiApps)}
       <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Or export ${ready.length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`),
     out.length ? surface('Mark sent', itemList(out, exportedCard), `${num(out.length)} exported`) : '',
@@ -1110,7 +1121,15 @@ async function publishAdImage(path) {
 }
 
 // What the person pastes into their own AI (or sets as a daily task there).
-const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach from my own mailbox, then mark each one sent with where I sent it from.';
+const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach by email from my own mailbox, then mark each one sent with where I sent it from. Creators with no email stay in SILO for me to message on social.';
+// A creator with no public email is reached by a DM the person sends by hand
+// (Blake, 2026-11-17: "use social or email to connect"). SILO sends nothing.
+const isDm = (x) => x.channel !== 'email' || !x.recipient_email;
+function dmText(x) {
+  const p = prog();
+  const join = p?.intake_mode === 'open' && p.slug ? applyUrl(location.origin, CO, p.slug) : "reply with your email and I'll send your invite link";
+  return String(x.body || '').split('{signup_link}').join(join);
+}
 const CODES_PROMPT = 'Using SILO, create every affiliate code and product code waiting for Shopify in my Shopify store, exactly as SILO describes each one, then mark each one created in SILO.';
 function aiCodesBlock(apps) {
   const can = (apps || []).filter((a) => a.canCode);
@@ -2149,6 +2168,19 @@ const A = {
     await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: ev }, { id, state: 'exported' });
     return 'Marked sent.';
   },
+  'dm-copy': async ({ id }) => {
+    const x = S.d.drafts.find((r) => r.id === id); if (!x) return null;
+    const t = dmText(x);
+    try { await navigator.clipboard.writeText(t); } catch { setStatus(t, 'info'); return null; }
+    setStatus('Message copied. Send it from your own account, then press Mark sent.', 'pos', 5000);
+    return null;
+  },
+  'dm-sent': async ({ id }) => {
+    const x = S.d.drafts.find((r) => r.id === id);
+    const plat = PLATFORM_NAMES[S.d.prospectById[x?.prospect_id]?.platform] || 'social';
+    await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: `Sent by DM on ${plat}` }, { id, state: 'approved' });
+    return 'Marked sent.';
+  },
   'draft-optout': async ({ id }) => {
     const x = S.d.drafts.find((r) => r.id === id);
     await A['prospect-suppress']({ id: x.prospect_id });
@@ -2156,7 +2188,8 @@ const A = {
     return 'Recorded, and added to the do-not-contact list.';
   },
   'outreach-export': async () => {
-    const drafts = S.d.drafts.filter((x) => x.state === 'approved').slice(0, 200);
+    const drafts = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x)).slice(0, 200);
+    if (!drafts.length) return 'Nothing to export: messages with no email are sent by DM.';
     const links = {};
     for (const x of drafts) {
       if (!x.recipient_email) { links[x.id] = { error: 'No email address, so no personal link. Send the open-application link, or add their email first.' }; continue; }
