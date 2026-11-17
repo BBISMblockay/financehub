@@ -1193,6 +1193,25 @@ jobs:
             echo "mutation $m failed the suite, as it must"
           done
 
+      # Meta hands back a day OUTSIDE the window it was asked for -- the
+      # spring-forward day's chunk overruns by one day -- so two chunks return
+      # the same campaign-day and one upsert batch carries one row_hash twice.
+      # That is what failed Suti's first 365-day import three times and cost
+      # 227 days of history. The mutations defend the collapse itself, which
+      # copy survives, and the last-line guard in front of every upsert.
+      - name: Meta DST duplicate days
+        run: node scripts/tests/meta-dst-duplicate-days.test.mjs
+      - name: The duplicate-day guards, removed, must break it
+        run: |
+          set -u
+          for m in 1 2 3 4; do
+            if node scripts/tests/meta-dst-duplicate-days.test.mjs --mutate=$m >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "mutation $m failed the suite, as it must"
+          done
+
       # Click-to-connect: the account picker's stored values, and Reconnect
       # writing fresh tokens only onto the row it was started for.
       - name: Ad-platform account picker and in-place reconnect

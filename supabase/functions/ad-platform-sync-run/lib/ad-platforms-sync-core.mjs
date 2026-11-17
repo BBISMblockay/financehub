@@ -387,6 +387,78 @@ function metaFrequency(row) {
   return Number.isFinite(n) ? n : null;
 }
 
+// ── One row per identity, per fetch ─────────────────────────────────────────
+// Meta does NOT keep its insights rows inside the time_range it was asked for.
+// An account whose timezone observes DST gets an EXTRA TRAILING DAY on any
+// window whose `until` is the spring-forward day: that local day is 23 hours
+// long, so Meta's 24-hour step walks past local midnight and emits the next
+// day as well. Measured live on act_290068470557765 (America/Los_Angeles) on
+// 2026-11-17: `since=2026-03-08&until=2026-03-08` returned BOTH 2026-03-08 and
+// 2026-03-09, at campaign level and at ad level, and the 7-day chunk
+// 2026-03-02..2026-03-08 returned eight extra 2026-03-09 campaign rows.
+//
+// Because the fetchers walk a long window in chunks, the next chunk
+// (2026-03-09..) returns that same day again, so one in-memory batch carries
+// two rows for the same campaign/ad and day -- the same row_hash twice. Postgres
+// refuses that outright: "ON CONFLICT DO UPDATE command cannot affect row a
+// second time", which failed Süti's first 365-day import three times on
+// 2026-11-17 and cost 227 days of history (2026-03-05..2026-10-17).
+//
+// The two copies measured identical on every metric (impressions, clicks,
+// spend and the whole actions array), which is what you would expect of one
+// day read twice. They are collapsed rather than dropped, and the copy kept is
+// the one from the chunk whose range CONTAINS the day -- the request that
+// meant to ask for it -- falling back to the last copy seen so the result is
+// deterministic either way. A collapse where the two copies DISAGREE is the
+// case this must never hide, so it is counted and warned about by itself.
+export function createDailyRowDeduper(keyOf, label) {
+  const byKey = new Map();
+  let duplicates = 0;
+  let conflicting = 0;
+  return {
+    add(row, { inRange = true } = {}) {
+      const key = keyOf(row);
+      const prev = byKey.get(key);
+      if (prev === undefined) {
+        byKey.set(key, { row, inRange });
+        return;
+      }
+      duplicates += 1;
+      if (JSON.stringify(prev.row) !== JSON.stringify(row)) conflicting += 1;
+      // In-range wins; between two of the same kind, the last one seen wins.
+      if (inRange || !prev.inRange) byKey.set(key, { row, inRange });
+    },
+    rows() {
+      if (duplicates) {
+        console.warn(
+          `[warn] ${label}: collapsed ${duplicates} duplicate row(s) on the same identity`
+          + (conflicting
+            ? ` -- ${conflicting} of them reported DIFFERENT metrics; kept the copy from the window that contains the day`
+            : ' (identical metrics on every copy)'),
+        );
+      }
+      return [...byKey.values()].map((v) => v.row);
+    },
+    stats() { return { duplicates, conflicting }; },
+  };
+}
+
+/** Last line before an upsert: at most one row per conflict key, whatever
+ * built the batch. The fetchers above already collapse on row IDENTITY, so
+ * this normally changes nothing; it exists so that a future duplicate source
+ * costs a warning and the LAST row of each key, never the whole write. */
+export function dedupeOnConflictKey(rows, key, label) {
+  const byKey = new Map();
+  let dropped = 0;
+  for (const row of rows) {
+    if (byKey.has(row[key])) dropped += 1;
+    byKey.set(row[key], row);
+  }
+  if (!dropped) return rows;
+  console.warn(`[warn] ${label}: ${dropped} row(s) shared a ${key}; kept the last of each (one upsert cannot touch a row twice)`);
+  return [...byKey.values()];
+}
+
 /** Does this Meta error look like the API rejecting a field NAME, rather than
  * a transient failure worth retrying as-is? Matching the message is ugly, but
  * Meta returns the same generic code (100) for several unrelated problems, so
@@ -408,7 +480,12 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7, sign
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
 
   const acct = String(connection.meta_ad_account_id);
-  const rows = [];
+  // Identity exactly as kpiRow() hashes it (company and platform are constant
+  // across one fetch), so a collapse here is a collapse of one row_hash.
+  const collected = createDailyRowDeduper(
+    (r) => [r.accountId, r.campaignId ?? r.campaignName, r.day].join('|'),
+    'Meta insights (campaign level)',
+  );
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
   // Cleared for the rest of the run the first time Meta rejects the field.
   let withThruplays = true;
@@ -418,10 +495,12 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7, sign
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    const since = isoDateOnly(s);
+    const until = isoDateOnly(e);
     const buildUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
       level: 'campaign',
       time_increment: '1',
-      time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
+      time_range: JSON.stringify({ since, until }),
       fields: metaInsightFields(
         'account_id,account_name,campaign_id,campaign_name,impressions,clicks,spend,actions,action_values',
         withThruplays, withReachFrequency,
@@ -457,7 +536,7 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7, sign
         // view_content/add_to_cart/initiate_checkout are the stages above it.
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
-        rows.push({
+        collected.add({
           accountId: r.account_id,
           accountName: r.account_name,
           day: r.date_start,
@@ -481,13 +560,13 @@ export async function fetchMetaAdsRows(connection, window, { chunkDays = 7, sign
           // not know about it ignore the key; marketing_kpis_daily has no
           // column for it and never sees it.
           customConversions: collectCustomConversions(r),
-        });
+        }, { inRange: r.date_start >= since && r.date_start <= until });
       }
       url = data.paging?.next ?? null;
     }
     s = new Date(e.getTime() + 86400000);
   }
-  return rows;
+  return collected.rows();
 }
 
 /** Ad-level Meta insights (level=ad) for the creative report. Chunked into
@@ -504,7 +583,11 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
   if (!connection.meta_ad_account_id) throw new Error('meta_ad_account_id not configured on connection');
 
   const acct = String(connection.meta_ad_account_id);
-  const rows = [];
+  // Identity exactly as the meta_ad_performance_daily row_hash covers it.
+  const collected = createDailyRowDeduper(
+    (r) => [r.accountId, r.adId, r.day].join('|'),
+    'Meta insights (ad level)',
+  );
   const endAll = new Date(`${window.endDate}T00:00:00Z`);
   // Ad level now DOES request thruplays. The old comment here said it
   // deliberately did not, because the table had no column and the creative
@@ -521,10 +604,12 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
 
   for (let s = new Date(`${window.startDate}T00:00:00Z`); s <= endAll;) {
     const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    const since = isoDateOnly(s);
+    const until = isoDateOnly(e);
     const buildUrl = () => `https://graph.facebook.com/${META_API_VERSION}/${acct}/insights?` + new URLSearchParams({
       level: 'ad',
       time_increment: '1',
-      time_range: JSON.stringify({ since: isoDateOnly(s), until: isoDateOnly(e) }),
+      time_range: JSON.stringify({ since, until }),
       fields: metaInsightFields(
         'account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,impressions,clicks,spend,actions,action_values',
         withThruplays, withReachFrequency,
@@ -555,7 +640,7 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
       for (const r of data.data ?? []) {
         const purchases = pickAction(r.actions, 'purchase');
         const purchaseValue = pickAction(r.action_values, 'purchase');
-        rows.push({
+        collected.add({
           accountId: r.account_id,
           day: r.date_start,
           campaignId: r.campaign_id, campaignName: r.campaign_name,
@@ -575,13 +660,13 @@ export async function fetchMetaAdLevelRows(connection, window, { chunkDays = 1 }
           reach: metaReach(r),
           frequency: metaFrequency(r),
           customConversions: collectCustomConversions(r),
-        });
+        }, { inRange: r.date_start >= since && r.date_start <= until });
       }
       url = data.paging?.next ?? null;
     }
     s = new Date(e.getTime() + 86400000);
   }
-  return rows;
+  return collected.rows();
 }
 
 /** The optional creative fields, as an ACTIVE SET that loses exactly what Meta
@@ -1236,7 +1321,9 @@ export async function runMetaAdLevelSync(supabase, connection, {
       sync_batch_id: batchId || null,
     }));
   const perfUpserted = await upsertAllowingMissingColumns(
-    supabase, 'meta_ad_performance_daily', perfRows, 'row_hash', ['reach', 'frequency'],
+    supabase, 'meta_ad_performance_daily',
+    dedupeOnConflictKey(perfRows, 'row_hash', 'meta_ad_performance_daily'),
+    'row_hash', ['reach', 'frequency'],
   );
 
   // Ad-grain custom conversions. The names were already refreshed by the
@@ -2334,7 +2421,11 @@ export async function writeMetaCustomConversions(supabase, connection, rawRows, 
   try {
     const rows = customConversionRows(connection, rawRows, { level, syncedAt, batchId });
     if (rows.length) {
-      report.rows = await upsertInChunks(supabase, 'meta_custom_conversion_daily', rows, 'row_hash');
+      report.rows = await upsertInChunks(
+        supabase, 'meta_custom_conversion_daily',
+        dedupeOnConflictKey(rows, 'row_hash', `meta_custom_conversion_daily (${level})`),
+        'row_hash',
+      );
     }
   } catch (err) {
     report.warning = `custom conversions not stored: ${err.message}`;
@@ -2409,7 +2500,9 @@ export async function runConnectionSync(supabase, env, connection, {
     .map((r) => kpiRow(connection, platform, r, { syncedAt, batchId, source }));
 
   const upserted = await upsertAllowingMissingColumns(
-    supabase, 'marketing_kpis_daily', kpiRows, 'row_hash', ['reach', 'frequency'],
+    supabase, 'marketing_kpis_daily',
+    dedupeOnConflictKey(kpiRows, 'row_hash', `marketing_kpis_daily (${platform})`),
+    'row_hash', ['reach', 'frequency'],
   );
 
   // Additive side-write, Meta only, AFTER the KPI upsert has already
