@@ -157,6 +157,7 @@ const MUTATIONS = {
   contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
   nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
+  noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
@@ -232,6 +233,17 @@ const tables = {
 const ready = () => !!document.querySelector('#overviewBody .bcn-card');
 // Nothing is folded away (Blake, 2026-11-13): detail and admin views live,
 // open, on the Records tab.
+// Codes, links and new creators are added from People (2026-11-17: fewer forms).
+const openCodeTool = async (page, k = 'code') => {
+  await page.click('#tabs [data-tab="people"]');
+  await page.click(`#affiliatesBody [data-act="aff-tool"][data-k="${k}"]`);
+  await page.waitForSelector(k === 'code' ? '#affiliatesBody #cCode' : '#affiliatesBody #lDest', { timeout: 5000 });
+};
+const openAddCreators = async (page) => {
+  await page.click('#tabs [data-tab="people"]');
+  if (!(await page.$('#prospectsBody #mpName'))) await page.click('#prospectsBody [data-act="add-creators"]');
+  await page.waitForSelector('#prospectsBody #mpName', { timeout: 5000 });
+};
 const openRecords = async (page) => {
   await page.click('#tabs [data-tab="records"]');
   await page.waitForFunction(() => !!document.querySelector('#recordsBody .bcn-card'), null, { timeout: 5000 });
@@ -287,16 +299,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(next, 'Running on its own', 'what runs by itself is shown, not explained');
     R.has(next, 'Commissions update nightly', 'nightly commissions are listed as running');
     R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
-    await page.click('#tabs [data-tab="program"]');
-    await page.waitForFunction(() => !!document.querySelector('#programBody .bcn-card'), null, { timeout: 5000 });
-    const ov = await text(page, '#programBody');
-    R.has(ov, 'Outreach to prospects', 'settings state how each part works');
+    await openRecords(page);
+    const ov = await text(page, '#recordsBody');
+    R.has(ov, 'Outreach to prospects', 'Records states how each part works');
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
     R.not(ov, 'Stripe Connect', 'an unbuilt feature is not advertised')
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.not(ov, 'Incremental sales', 'the card lists what SILO does, not what it does not')
     R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
-    for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['program', 'shareBody'], ['payouts', 'payoutsBody']]) {
+    for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['comms', 'shareBody'], ['payouts', 'payoutsBody']]) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card, #${b} .af-surface`), body, { timeout: 5000 });
     }
@@ -305,17 +316,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     await openRecords(page);
     R.ok('no fold-outs on Records either', !(await page.$('#recordsBody details')));
-    R.has(await text(page, '#recordsBody'), 'Connect your AI', 'with no AI that can make codes, Records offers to connect one');
+    R.ok('Records has no code, link or add-creator forms', !(await page.$('#recordsBody #cCode, #recordsBody #lDest, #recordsBody #mpName, #recordsBody #impFile')));
+    R.ok('Setup has no team or status boxes', !(await page.$('#programBody #managersCard')));
+    await openCodeTool(page);
+    R.has(await text(page, '#affiliatesBody'), 'Connect your AI', 'with no AI that can make codes, the code form offers to connect one');
     R.eq(await page.inputValue('#cPct'), '10', 'percent off defaults to 10');
     R.eq(await page.inputValue('#cHow'), 'exists', 'with no AI that can make codes, the code is one you made');
     await page.fill('#cCode', 'pat15');
     await page.selectOption('#cHow', 'ai');
     await page.fill('#cPct', '');
-    await page.click('#recordsBody [data-act="code-add"]');
+    await page.click('#affiliatesBody [data-act="code-add"]');
     await page.waitForFunction(() => !document.getElementById('status').hidden, null, { timeout: 5000 });
     R.has(await text(page, '#status'), 'percent off', 'a code for the AI needs the percent off');
     await page.fill('#cPct', '15');
-    await page.click('#recordsBody [data-act="code-add"]');
+    await page.click('#affiliatesBody [data-act="code-add"]');
     await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_codes' && q._op === 'insert'), null, { timeout: 5000 });
     const codeRow = await page.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_codes' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.eq(codeRow?.status, 'pending', 'a code for the AI waits for Shopify');
@@ -374,9 +388,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const rc = researchCalls.filter((c) => c.action === 'research');
     R.ok('research asks for this program with the focus, never a company', rc.length === 1 && rc[0].program_id === PROG && rc[0].focus === 'trail running moms' && !('company_entity_id' in rc[0]));
     // Import a list: the file is parsed in the page and sent as rows.
-    await openRecords(page);
+    await openAddCreators(page);
     await page.setInputFiles('#impFile', { name: 'list.csv', mimeType: 'text/csv', buffer: Buffer.from('name,url,followers,minor\r\n"Ann, Runs",https://www.tiktok.com/@annruns,41.2K,FALSE\r\nKid,https://www.tiktok.com/@kid,10,TRUE\r\n') });
-    await page.click('#recordsBody [data-act="import-run"]');
+    await page.click('#prospectsBody [data-act="import-run"]');
     await page.waitForFunction(() => /Imported/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
     const imp = researchCalls.find((c) => c.action === 'import');
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
@@ -399,7 +413,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="payouts"]');
     R.has(await text(page, '#payoutsBody'), 'Pay from your bank or payment tool', 'the payout tab says where money moves');
     // ── Share tab: the brand picks what affiliates see ──────────────────
-    await page.click('#tabs [data-tab="program"]');
+    await page.click('#tabs [data-tab="comms"]');
     await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     const sb = await text(page, '#shareBody');
     R.has(sb, 'Trail Hat', 'what is already shared is listed first');
@@ -441,6 +455,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         ...tables.affiliate_prospects,
         { id: 'p-app', company_entity_id: CO, program_id: PROG, display_name: 'Ana Applies', platform: 'instagram', handle: '@ana', profile_url: 'https://www.instagram.com/ana', contact_email: 'ana@creator.invalid', source: 'applied', collected_at: now, evidence: { pitch: 'I run trails' }, status: 'new' },
         { id: 'p-app2', company_entity_id: CO, program_id: PROG, display_name: 'Bo Bounce', platform: 'instagram', handle: '@bo', profile_url: 'https://www.instagram.com/bo', contact_email: 'bo@creator.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'rejected' },
+        { id: 'p-srch', company_entity_id: CO, program_id: PROG, display_name: 'Sky Search', platform: 'tiktok', handle: '@sky', profile_url: 'https://www.tiktok.com/@sky', contact_email: null, source: 'serp', collected_at: now, evidence: {}, status: 'new' },
         { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
       ] };
       const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
@@ -451,13 +466,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         const out = mailOk ? { emailed: true, email: 'sent' } : { emailed: false, email: 'not_sent', reason: 'The mail provider refused it' };
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ affiliate_id: 'a-new', signup_url: `https://app.test/v2/affiliates/join.html?t=${body.prospect_id}`, expires_at: '2026-12-01T00:00:00Z', ...out }) });
       });
-      await inv.click('#tabs [data-tab="people"]');
-      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-id="p-app"]'), null, { timeout: 5000 });
-      await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p-app"]');
+      await inv.click('#tabs [data-tab="comms"]');
+      await inv.waitForFunction(() => !!document.querySelector('#outreachBody [data-act="prospect-status"][data-id="p-app"]'), null, { timeout: 5000 });
+      await inv.click('#outreachBody [data-act="prospect-status"][data-s="approved"][data-id="p-app"]');
       await inv.waitForFunction(() => /Invite emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       R.ok('approving an applicant emails their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'p-app' && c.email === true && !('company_entity_id' in c)));
       R.has(await text(inv, '#status'), 'Invite emailed to ana@creator.invalid');
       R.ok('approving an applicant drafts no outreach message', !(await inv.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'))));
+      await inv.click('#tabs [data-tab="people"]');
+      await inv.waitForSelector('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]', { timeout: 5000 });
       await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]');
       await inv.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
       R.ok('a creator a search found is not emailed on approval', !inviteCalls.some((c) => c.prospect_id === 'p1'));
@@ -495,9 +512,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(unsentBox, 'join.html?t=p-app2', 'and the link to send by hand');
       mailOk = true;
       // Added by hand with an email: approved and invited at once.
-      await openRecords(inv);
+      await openAddCreators(inv);
       await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
-      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.click('#prospectsBody [data-act="prospect-add"]');
       await inv.waitForFunction(() => /Added\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const added = await inv.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
@@ -506,9 +523,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // Added by hand when the mail is refused: the link shows beside the form.
       mailOk = false;
       await inv.fill('#mpName', 'Nia New'); await inv.fill('#mpHandle', '@nia'); await inv.fill('#mpEmail', 'nia@creator.invalid');
-      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.click('#prospectsBody [data-act="prospect-add"]');
       await inv.waitForFunction(() => /not emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-      R.ok('the fallback link is visible on the Records tab', await inv.evaluate(() => { const el = document.querySelector('#recordsBody #mpOut'); return !!el && el.offsetParent !== null && /join\.html\?t=/.test(el.textContent); }));
+      R.ok('the fallback link is visible beside the form', await inv.evaluate(() => { const el = document.querySelector('#prospectsBody #mpOut'); return !!el && el.offsetParent !== null && /join\.html\?t=/.test(el.textContent); }));
       await inv.close();
     }
 
@@ -645,7 +662,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await typing.evaluate(() => { try { Object.keys(localStorage).filter((k) => k.startsWith('silo.affiliates.autorefresh.')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} });
     await typing.reload();
     await typing.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
-    await openRecords(typing);
+    await openAddCreators(typing);
     await typing.fill('#mpName', 'Half typed');
     await typing.click('body');   // focus off the field: only the typed value keeps it
     const loadsBefore = await typing.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs').length);
@@ -671,7 +688,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await typing2.evaluate(() => { try { Object.keys(localStorage).filter((k) => k.startsWith('silo.affiliates.autorefresh.')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} });
     await typing2.reload();
     await typing2.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
-    await openRecords(typing2);
+    await openAddCreators(typing2);
     // Hold the redraw's reads, let the photos land on a clean form, then type.
     await typing2.evaluate(() => { let open; window.__FIXTURE_TABLE_GATES__ = { affiliate_programs: new Promise((r) => { open = r; }) }; window.__openGate = open; });
     release2();
@@ -771,8 +788,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(how, 'Claude', 'tab copy does not hardcode an app vendor name');
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
-    await openRecords(ai);
-    await ai.waitForFunction(() => !!document.querySelector('#recordsBody #cHow'), null, { timeout: 5000 });
+    await openCodeTool(ai);
     R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
     R.has(await text(ai, '#aiCodesHow'), 'Shopify codes', 'Affiliates explains codes via MCP without naming an app');
     await ai.evaluate(() => { window.__COPIED__ = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__COPIED__ = t; } } }); });
@@ -1578,6 +1594,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const mrow = await mcp.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.ok('Mark contacted records a sent message with who marked it', mrow?.state === 'sent' && !!mrow.sent_marked_by && mrow.sent_evidence === 'Contacted by hand' && mrow.prospect_id === 'p1');
     await mcp.close();
+    // Inbound: someone who found the brand and applied waits on Outreach, not in People.
+    const inb = await suite.open('/v2/affiliates/index.html', { ...ctTables, affiliate_prospects: [...ctTables.affiliate_prospects,
+      { id: 'pa1', company_entity_id: CO, program_id: PROG, display_name: 'Ava Applies', platform: 'instagram', handle: '@avaapplies', profile_url: 'https://www.instagram.com/avaapplies', contact_email: 'ava@creator.invalid', source: 'applied', status: 'new', collected_at: now, evidence: { note: 'Love the hats' } }] }, { ready, rpc: ctRpc });
+    inb.on('pageerror', (e) => errors.push(e.message));
+    R.has(await text(inb, '#tabs'), 'Outreach', 'Comms is now called Outreach');
+    await inb.click('#tabs [data-tab="comms"]');
+    await inb.waitForFunction(() => /Ava Applies/.test(document.getElementById('outreachBody').textContent), null, { timeout: 5000 });
+    R.has(await text(inb, '#outreachBody'), 'Inbound', 'applications have their own Inbound list');
+    R.ok('an application can be approved from Inbound', !!(await inb.$('#outreachBody [data-act="prospect-status"][data-id="pa1"][data-s="approved"]')));
+    await inb.click('#tabs [data-tab="people"]');
+    R.not(await text(inb, '#prospectsBody'), 'Ava Applies', 'and is not mixed into People to review');
+    await inb.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });
