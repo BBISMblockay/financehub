@@ -355,7 +355,11 @@ const calls = (page, name) => page.evaluate(n => window.__QUERIES__.filter(q => 
       assert.equal(await page.locator('#onDeckReadyCount').textContent(), '3', 'needs-input is not counted as ready');
       assert.equal(await page.locator('#onDeckReady').getAttribute('href'), '/v2/on-deck.html');
       assert.ok(await page.locator('.fin-card').count() >= 3, 'tool cards remain');
-      assert.equal(await page.locator('a.fin-link[href="/v2/profile.html"]').count(), 1, 'My Profile link remains');
+      // My Profile left the Home CARDS with #1294 and became a tab of the
+      // Home suite, so this asserts where it actually lives now rather than
+      // where it used to: still exactly one way to it from this page.
+      assert.equal(await page.locator('[data-suite-nav] a[href="/v2/profile.html"]').count(), 1,
+        'My Profile is a tab of Home');
       await page.screenshot({ path: path.join(shots, 'home-ready-link.png'), fullPage: true });
     });
     await page.close();

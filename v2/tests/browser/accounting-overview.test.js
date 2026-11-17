@@ -32,16 +32,30 @@ const finished = page => page.waitForFunction(() => document.getElementById('wor
   assert.ok(!queries.some(q => ['insert','update','delete','upsert'].includes(q._op)));
   assert.deepEqual(await page.evaluate(() => window.__INVOKES__ || []),[]);
   const nav = page.locator('[data-accounting-suite]');
-  // Every destination is a visible tab: the strip scrolls, it does not fold
-  // anything away, so no page can go missing behind a disclosure again.
-  assert.equal(await nav.locator('.accounting-suite-links a').count(),9);
-  assert.equal(await nav.locator('details').count(),0,'no fold-out in the strip');
+  // The five close tabs are on the row and the periodic and reference pages
+  // open from More (2026-11-16). Every destination is still exactly one link
+  // to its own page, so no page can go missing from the strip.
+  assert.equal(await nav.locator('.accounting-suite-links a').count(),5);
+  assert.equal(await nav.locator('details.accounting-suite-more').count(),1,'the More tab');
   assert.equal(await nav.locator('[aria-current="page"]').getAttribute('href'),'/v2/accounting.html');
-  for (const href of ['transactions.html','invoicing.html','qbo-reports.html','accounting-month-end.html',
-                      'accounting-export.html','schedules.html','fixed-assets.html','cash-forecast.html']) {
+  const onRow = ['transactions.html','invoicing.html','qbo-reports.html','accounting-month-end.html'];
+  const inMore = ['accounting-export.html','schedules.html','fixed-assets.html','cash-forecast.html'];
+  for (const href of [...onRow,...inMore]) {
     assert.equal(await nav.locator(`a[href="/v2/${href}"]`).count(),1,href);
+  }
+  for (const href of onRow) {
     assert.equal(await nav.locator(`a[href="/v2/${href}"]`).isVisible(),true,href+' visible');
   }
+  // Closed, then open: the disclosure is the only thing standing between a
+  // person and those four pages.
+  for (const href of inMore) {
+    assert.equal(await nav.locator(`a[href="/v2/${href}"]`).isVisible(),false,href+' folded away');
+  }
+  await nav.locator('.accounting-suite-more summary').click();
+  for (const href of inMore) {
+    assert.equal(await nav.locator(`a[href="/v2/${href}"]`).isVisible(),true,href+' visible once More is open');
+  }
+  await page.keyboard.press('Escape');
   assert.equal(await nav.locator('a[href="/v2/accounting-books.html#setup"]').isVisible(),true);
   assert.match(await page.locator('a[href="accounting-books.html#openingSetup"]').innerText(),/Opening history/);
   fs.mkdirSync('/tmp/accounting-qa',{recursive:true});
