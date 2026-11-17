@@ -74,7 +74,9 @@ async function load(fn, file) {
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
     prospectmail: ['affiliate-invite', "        if (!INVITE_SOURCES.has(p.source)) {", "        if (false) {"],
-    paidtwice: ['affiliate-invite', "            if (!priorErr && Array.isArray(prior) && prior.length) return reply({ email: 'already_sent', reason: null });", ''],
+    paidtwice: ['affiliate-invite', "            if (!Array.isArray(claim) || !claim.length) return reply({ email: 'already_sent', reason: null });", ''],
+    paidnoretry: ['affiliate-invite', "          if (paid && mail.status !== 'sent' && !DELIBERATE_SKIPS.has(mail.reason)) {", "          if (false) {"],
+    paidretryall: ['affiliate-invite', "          if (paid && mail.status !== 'sent' && !DELIBERATE_SKIPS.has(mail.reason)) {", "          if (paid && mail.status !== 'sent') {"],
     invitekind: ['affiliate-invite', "          kind: 'signup_invite', to: email,", "          kind: 'portal_link', to: email,"],
     nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}${h}`)}`;", "return `${store}${p}?${q}`;", 'affiliate-mail.mjs'],
     linkquery: ['affiliate-portal', "  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);", "  return affiliateLink(store, code, u.pathname || '/');", 'affiliate-mail.mjs'],
@@ -110,7 +112,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -145,7 +147,7 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
       const filters = {};
       let op = 'select'; let payload = null;
       const b = {
-        select() { return b; }, limit() { return b; }, eq(k, v) { filters[k] = v; return b; }, ilike(k, v) { filters[k] = { ilike: v }; return b; }, in() { return b; },
+        select() { return b; }, limit() { return b; }, is(k, v) { filters[k] = { is: v }; return b; }, eq(k, v) { filters[k] = v; return b; }, ilike(k, v) { filters[k] = { ilike: v }; return b; }, in() { return b; },
         insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
         maybeSingle() { return b; }, single() { return b; },
         then(res) {
@@ -169,7 +171,7 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
 }
 function fakeResend() {
   const sent = [];
-  const fetchImpl = async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 }); };
+  const fetchImpl = async (url, init) => { sent.push({ url, body: JSON.parse(init.body), headers: init.headers }); return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 }); };
   return { sent, fetchImpl };
 }
 const post = (body, headers = {}) => new Request('https://fn.test', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -723,7 +725,7 @@ await test('invite: a draft payout is not news; a paid one is announced with its
   const mk = (status) => fakeService({ rpc: noSuppression, tables: {
     affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
     entities: { title: 'Brand A' },
-    affiliate_payouts: { id: PAYOUT, status, amount_cents: 150000, currency: 'USD', external_reference: 'ACH-9' },
+    affiliate_payouts: ({ op }) => (op === 'select' ? { id: PAYOUT, status, amount_cents: 150000, currency: 'USD', external_reference: 'ACH-9' } : [{ id: PAYOUT }]),
   } });
   const run = (svc) => createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(authed({ action: 'notify', affiliate_id: AFF, kind: 'payout_status', payout_id: PAYOUT }));
   assert.equal((await run(mk('draft'))).status, 409);
@@ -733,22 +735,43 @@ await test('invite: a draft payout is not news; a paid one is announced with its
   assert.match(mail.sent[0].body.html, /ACH-9/);
 });
 
-await test('invite: a paid payout is announced once, however many paths ask', async () => {
+await test('invite: a paid payout is announced once, even when two ask at the same moment; a fixable failure is retried, a deliberate skip is not', async () => {
+  const PO = { id: PAYOUT, status: 'marked_paid', amount_cents: 150000, currency: 'USD', external_reference: 'ACH-9' };
+  const world = (allowed = true) => {
+    const st = { claimed: null };
+    const svc = fakeService({ rpc: { affiliate_outreach_can_contact: allowed === 'error' ? { data: null, error: { message: 'timeout' } } : { data: allowed, error: null } }, tables: {
+      affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
+      entities: { title: 'Brand A' },
+      affiliate_payouts: ({ op, filters, payload }) => {
+        if (op === 'select') return PO;
+        if (op === 'update' && filters.paid_notice_claimed_at?.is === null) {
+          // One conditional update: exactly one caller finds it unclaimed.
+          if (filters.id !== PAYOUT || filters.company_entity_id !== CO || filters.status !== 'marked_paid' || st.claimed) return [];
+          st.claimed = payload.paid_notice_claimed_at; return [{ id: PAYOUT }];
+        }
+        if (op === 'update') { st.claimed = payload.paid_notice_claimed_at; return null; }
+        return null;
+      },
+    } });
+    return { svc, st };
+  };
+  const ask = (svc, mail) => createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(authed({ action: 'notify', affiliate_id: AFF, kind: 'payout_status', payout_id: PAYOUT })).then((r) => r.json());
   const mail = fakeResend();
-  let prior = [];
-  const svc = fakeService({ rpc: noSuppression, tables: {
-    affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
-    entities: { title: 'Brand A' },
-    affiliate_payouts: { id: PAYOUT, status: 'marked_paid', amount_cents: 150000, currency: 'USD', external_reference: 'ACH-9' },
-    affiliate_notifications: ({ op, filters }) => (op === 'select' ? (filters.payout_id === PAYOUT && filters.status === 'sent' && filters.kind === 'payout_status' && filters.company_entity_id === CO ? prior : []) : null),
-  } });
-  const run = async () => (await createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl })(authed({ action: 'notify', affiliate_id: AFF, kind: 'payout_status', payout_id: PAYOUT }))).json();
-  assert.equal((await run()).email, 'sent');
-  const rec = svc.log.find((l) => l.table === 'affiliate_notifications' && l.op === 'insert');
+  const w = world();
+  const both = await Promise.all([ask(w.svc, mail), ask(w.svc, mail)]);
+  assert.deepEqual(both.map((x) => x.email).sort(), ['already_sent', 'sent'], 'two at once: one sends, one is told it is done');
+  assert.equal(mail.sent.length, 1, 'one email');
+  assert.equal(mail.sent[0].headers?.['Idempotency-Key'], `silo-payout-paid-${PAYOUT}`, 'with a stable key for the provider');
+  const rec = w.svc.log.find((l) => l.table === 'affiliate_notifications' && l.op === 'insert');
   assert.equal(rec?.payload?.payout_id, PAYOUT, 'the notice records which payout it announced');
-  prior = [{ id: 'n1' }];
-  assert.equal((await run()).email, 'already_sent');
-  assert.equal(mail.sent.length, 1, 'the second ask sends nothing');
+  // The do-not-contact check failed: retryable, so the reservation is given back.
+  const t = world('error');
+  assert.equal((await ask(t.svc, fakeResend())).email, 'skipped');
+  assert.equal(t.st.claimed, null, 'a check that failed is tried again later');
+  // The person asked not to hear from the brand: kept, never retried.
+  const d = world(false);
+  assert.equal((await ask(d.svc, fakeResend())).email, 'skipped');
+  assert.ok(d.st.claimed, 'a deliberate skip keeps its reservation');
 });
 
 await test('invite: the codes email gives links that apply the code, on the store the brand named', async () => {

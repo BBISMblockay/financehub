@@ -3911,5 +3911,6 @@ attributed. No new grants; no deploy needed (both functions are called by name).
 `20261117040000_affiliate_store_refunds_paid_notice.sql` (review fix, apply after
 030000): the resolver keeps re-reading an order the program already credited
 after its store is unticked, so a later refund still reduces the commission;
-and `affiliate_notifications.payout_id` lets affiliate-invite announce a paid
-payout once. Apply before deploying affiliate-invite.
+and `affiliate_payouts.paid_notice_claimed_at` (reserved by one conditional
+update before sending) lets affiliate-invite announce a paid payout once;
+`affiliate_notifications.payout_id` records which payout a notice was for. Apply before deploying affiliate-invite.

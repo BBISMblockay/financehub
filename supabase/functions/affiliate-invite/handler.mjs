@@ -30,6 +30,9 @@
 //                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 
+// Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
+const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
+
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -338,15 +341,19 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           // with a reference. A draft is not news to send anyone.
           const words = { approved: 'has been approved and is being prepared', exported: 'has been approved and sent for payment', marked_paid: 'has been paid' };
           if (!words[po.status]) return reply({ error: `A ${po.status} payout is not announced to the affiliate.` }, 409);
-          // A paid payout is announced ONCE, however many paths ask (Record
-          // as paid, a PayPal send, the Studio's catch-up on load). Until
-          // 20261117030000 adds payout_id the read errors and nothing is
-          // de-duplicated, which is the old behaviour.
+          // A paid payout is announced ONCE, however many paths or tabs ask
+          // (Record as paid, a PayPal send, the Studio's catch-up on load):
+          // the email is RESERVED by one conditional update before it is sent,
+          // so of two concurrent asks only one wins. Unreadable state fails
+          // closed -- no reservation, no email (20261117040000).
           const paid = po.status === 'marked_paid';
           if (paid) {
-            const { data: prior, error: priorErr } = await service.from('affiliate_notifications').select('id')
-              .eq('company_entity_id', company).eq('payout_id', po.id).eq('kind', 'payout_status').eq('status', 'sent').limit(1);
-            if (!priorErr && Array.isArray(prior) && prior.length) return reply({ email: 'already_sent', reason: null });
+            const { data: claim, error: claimErr } = await service.from('affiliate_payouts')
+              .update({ paid_notice_claimed_at: new Date().toISOString() })
+              .eq('id', po.id).eq('company_entity_id', company).eq('status', 'marked_paid').is('paid_notice_claimed_at', null)
+              .select('id');
+            if (claimErr) return reply({ email: 'not_sent', reason: 'could not reserve the payout email; it is tried again later' });
+            if (!Array.isArray(claim) || !claim.length) return reply({ email: 'already_sent', reason: null });
           }
           const amount = formatMoney(po.amount_cents, po.currency);
           const paras = [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} affiliate payout of <strong>${escapeHtml(amount)}</strong> ${words[po.status]}.`];
@@ -354,7 +361,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           const { html, text } = renderMail({ brand, heading: 'Payout update', paragraphs: paras, footer: 'Reply to this email if anything looks wrong.' });
           const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
             kind, to: a.contact_email, subject: `${brand}: payout ${po.status === 'marked_paid' ? 'paid' : 'update'}`, html, text, triggeredBy: actor,
-            ...(paid ? { payoutId: po.id } : {}) });
+            ...(paid ? { payoutId: po.id, idempotencyKey: `silo-payout-paid-${po.id}` } : {}) });
+          // A send that did not go out for a reason SILO can fix (the
+          // do-not-contact check or the mail provider failed) gives the
+          // reservation back, so a later load retries. A deliberate skip
+          // keeps it: there is no address, or the person asked not to hear.
+          if (paid && mail.status !== 'sent' && !DELIBERATE_SKIPS.has(mail.reason)) {
+            await service.from('affiliate_payouts').update({ paid_notice_claimed_at: null })
+              .eq('id', po.id).eq('company_entity_id', company);
+          }
           return reply({ email: mail.status, reason: mail.reason ?? null });
         }
         return reply({ error: 'kind must be codes_and_links or payout_status' }, 400);

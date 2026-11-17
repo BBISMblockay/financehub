@@ -5,10 +5,12 @@
 --    pass by the current stores, so after a store was unticked a refund on an
 --    order it had already credited was never read and the commission stayed
 --    payable. Unticking now stops NEW credit only.
--- 2. affiliate_notifications.payout_id: which paid payout a notice announced,
---    so affiliate-invite sends "your payout was paid" once, whichever path
---    asks (Record as paid, a PayPal send, Send all, a later reconciliation,
---    the Studio's catch-up on load).
+-- 2. affiliate_payouts.paid_notice_claimed_at: affiliate-invite RESERVES the
+--    "your payout was paid" email with one conditional update before sending,
+--    so two tabs or managers asking at once send it once. A send that failed
+--    for a reason SILO can fix releases the reservation for a retry; a
+--    deliberate skip (no address, do-not-contact) keeps it.
+--    affiliate_notifications.payout_id records which payout a notice was for.
 --
 -- Apply AFTER 20261117030000 (it reads affiliate_programs.shop_domains) and
 -- BEFORE deploying affiliate-invite. Idempotent; create or replace keeps the
@@ -302,3 +304,9 @@ create index if not exists affiliate_notifications_payout_idx
 
 comment on column public.affiliate_notifications.payout_id is
   'The paid payout this payout_status notice announced. affiliate-invite sends a paid notice only when no sent row carries that payout. 20261117030000.';
+
+alter table public.affiliate_payouts
+  add column if not exists paid_notice_claimed_at timestamptz;
+
+comment on column public.affiliate_payouts.paid_notice_claimed_at is
+  'When affiliate-invite reserved this paid payout''s "your payout was paid" email. Set by one conditional update before sending, so concurrent asks send once; cleared again only when the send failed for a retryable reason. NULL on a paid payout = not announced yet. 20261117040000.';

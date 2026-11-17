@@ -10075,6 +10075,10 @@ select 'Affiliate programs cover only their picked stores' as check_name,
                       where table_schema = 'public' and table_name = 'affiliate_notifications'
                         and column_name = 'payout_id')
     then 'MISSING: affiliate_notifications.payout_id; apply 20261117040000'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_payouts'
+                        and column_name = 'paid_notice_claimed_at')
+    then 'MISSING: affiliate_payouts.paid_notice_claimed_at; apply 20261117040000'
     when pg_get_functiondef(to_regprocedure('public.affiliate_program_store_url(uuid,uuid)')) not like '%cardinality(p.shop_domains) = 1%'
     then 'BROKEN: links ignore the one store a program picked; apply 20261117030000'
     when has_function_privilege('anon', 'public.affiliate_program_store_url(uuid,uuid)', 'execute')

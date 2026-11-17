@@ -84,7 +84,7 @@ export async function resolveAffiliateSender(service, { companyId, programId, fa
  */
 export async function sendAffiliateMail(deps, msg) {
   const { service, resendKey, fetchImpl = fetch, fallbackFrom = 'SILO <notifications@get-silo.com>' } = deps;
-  const { companyId, programId = null, affiliateId = null, kind, to, subject, html, text, triggeredBy = null, payoutId = null } = msg;
+  const { companyId, programId = null, affiliateId = null, kind, to, subject, html, text, triggeredBy = null, payoutId = null, idempotencyKey = null } = msg;
   if (!NOTIFICATION_KINDS.has(kind)) throw new Error(`unknown affiliate notification kind ${kind}`);
 
   const record = async (status, extra = {}) => {
@@ -112,7 +112,9 @@ export async function sendAffiliateMail(deps, msg) {
   try {
     const res = await fetchImpl('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${resendKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${resendKey}`,
+        // The same message asked for twice (a retry after an unknown outcome) is sent once.
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
       body: JSON.stringify({ from: sender.from, to: [to], subject, html, text,
         ...(sender.replyTo ? { reply_to: sender.replyTo } : {}) }),
     });

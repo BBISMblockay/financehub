@@ -143,7 +143,13 @@ async function autoRefreshCreators(id) {
     // Never under someone's typing: a half-filled form (a payment reference,
     // a prospect by hand) would be redrawn empty. The new photos then show on
     // the next redraw instead.
-    if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && S.programId === id && !S.creating && S.tab !== 'program' && !formDirty()) await reload();
+    const quiet = () => S.programId === id && !S.creating && S.tab !== 'program' && !formDirty();
+    if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && quiet()) {
+      await loadPrograms(); await loadProgramData();
+      // Checked again AFTER the reads: someone may have started typing while
+      // they ran. The fresh data then shows on the next redraw instead.
+      if (quiet()) render();
+    }
   } finally { autoRefreshing = null; }
 }
 
@@ -162,23 +168,18 @@ async function tellPayout(id) {
 }
 // Every way a payout becomes paid (Record as paid, Send, Send all, a pending
 // PayPal payment that settles later) ends in a reload, and this catches up:
-// a payout paid in the last 14 days with no notice sent or deliberately
-// skipped is announced. affiliate-invite sends a paid notice once per payout,
-// so two tabs cannot double it. Before 20261117030000 the read fails and
-// nothing is sent from here.
+// a payout paid in the last 14 days whose email was never reserved is
+// announced. affiliate-invite reserves the email in the database before
+// sending (affiliate_payouts.paid_notice_claimed_at), so two tabs cannot
+// double it. Before 20261117040000 the field is absent and nothing is sent.
 const PAID_NOTICE_DAYS = 14;
 async function announcePaidPayouts() {
   if (!MANAGE) return;
   const since = Date.now() - PAID_NOTICE_DAYS * 86400000;
-  const paid = (S.d?.payouts || []).filter((x) => x.status === 'marked_paid' && !told.has(x.id) && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since);
-  if (!paid.length) return;
-  try {
-    const { data, error } = await db.from('affiliate_notifications').select('payout_id, status')
-      .eq('company_entity_id', CO).eq('kind', 'payout_status').in('payout_id', paid.map((x) => x.id));
-    if (error || !Array.isArray(data)) return;
-    const done = new Set(data.filter((n) => n.status === 'sent' || n.status === 'skipped').map((n) => n.payout_id));
-    for (const x of paid) if (!done.has(x.id)) await tellPayout(x.id);
-  } catch (_) { /* the payment is recorded either way */ }
+  const due = (S.d?.payouts || []).filter((x) => x.status === 'marked_paid' && !told.has(x.id)
+    && Object.prototype.hasOwnProperty.call(x, 'paid_notice_claimed_at') && x.paid_notice_claimed_at == null
+    && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since);
+  for (const x of due) await tellPayout(x.id);
 }
 // Same for a code a person added that is live now.
 async function tellCodes(aff) {
