@@ -154,7 +154,7 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
       let op = 'select'; let payload = null;
       const b = {
         select() { return b; }, limit() { return b; }, is(k, v) { filters[k] = { is: v }; return b; }, or(x) { filters.__or = x; return b; }, eq(k, v) { filters[k] = v; return b; }, ilike(k, v) { filters[k] = { ilike: v }; return b; }, in() { return b; },
-        insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
+        insert(p) { op = 'insert'; payload = p; return b; }, upsert(p) { op = 'upsert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
         maybeSingle() { return b; }, single() { return b; },
         then(res) {
           log.push({ kind: 'table', table, op, filters: { ...filters }, payload });
@@ -313,6 +313,24 @@ await test('portal: acceptance mails the address on file and mints a portal link
   const recorded = svc.log.find((c) => c.table === 'affiliate_notifications');
   assert.equal(recorded.payload.status, 'sent');
   assert.equal(recorded.payload.kind, 'signup_confirmation');
+});
+
+await test('portal: the PayPal email given at signup is saved for that affiliate; a bad one refuses before anything is saved', async () => {
+  const mk = () => fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_resolve: { data: [resolvedRow()], error: null },
+    affiliate_portal_accept_terms: { data: { status: 'active', terms_version: 2 }, error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } } });
+  let svc = mk();
+  let body = await (await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, payout_email: ' Pat@Pay.Invalid ' }))).json();
+  assert.equal(body.payout_email_saved, true);
+  const up = svc.log.find((c) => c.table === 'affiliate_payout_accounts');
+  assert.equal(up.payload.payout_email, 'pat@pay.invalid');
+  assert.equal(up.payload.provider, 'paypal');
+  assert.ok(up.payload.affiliate_id && up.payload.company_entity_id, 'the token\'s own affiliate and company, never the body\'s');
+  svc = mk();
+  const res = await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, payout_email: 'not-an-email' }));
+  assert.equal(res.status, 400);
+  assert.ok(!svc.log.some((c) => c.name === 'affiliate_portal_accept_terms'), 'not accepted with a bad address');
 });
 
 await test('portal: no mail key still activates, and the skip is recorded', async () => {

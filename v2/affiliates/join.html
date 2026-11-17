@@ -50,7 +50,7 @@
   <h1 id="title" hidden>Join the affiliate program</h1>
   <div class="bcn-status" id="status" hidden></div>
   <div id="body"><div class="bcn-card"><div class="bcn-card-body">Checking your link…</div></div></div>
-  <p class="af-muted">Run by the brand that invited you, powered by SILO. Your link is personal; please do not share it.</p>
+  <p class="af-muted" id="foot">Your link is personal; please do not share it.</p>
 </main>
 <script type="module">
 import { $, esc, call, setStatus, takeToken, termsHtml, brandMark, wireBrandMark } from './public.js';
@@ -77,18 +77,21 @@ async function load() {
   const offer = describeCommission({ kind: p.commission.kind, percent: p.commission.percent, fixed_cents: p.commission.fixed_cents, currency: p.currency });
   const big = /^[\d$€£¥%.,]|^[A-Z]{3}\b/.test(offer) ? (offer.match(/^\S+/)?.[0] || '') : '';
   const brand = String(r.brand || 'Affiliate program');
+  $('foot').textContent = `Run by ${brand}. Your link is personal; please do not share it.`;
   $('body').innerHTML = `<section class="af-hero" id="hero">
       <div class="af-brand">${brandMark(brand, r.brand_logo)}<span>${esc(brand)}</span></div>
       <div><div class="af-kicker">You're invited</div><h1>Join the ${esc(brand)} affiliate program</h1></div>
       <div class="af-offer"><span class="af-offer-num">${esc(big)}</span><span class="af-offer-txt">${esc(offer.slice(big.length).trim())}, paid in <span class="af-num">${esc(p.currency)}</span></span></div>
       <ol class="af-steps">
         <li><strong>Accept the terms</strong>Read them below and sign with your name.</li>
-        <li><strong>Get your code</strong>${esc(brand)} sends your personal discount code and link.</li>
+        <li><strong>Get your code</strong>Your personal ${esc(brand)} code and link arrive by email.</li>
         <li><strong>Earn on sales</strong>Orders that use your code earn commission, paid after a refund hold.</li>
       </ol>
     </section>`
     + card(`${p.name} · terms, version ${p.terms_version}`, `<div class="af-terms">${termsHtml(p.terms_markdown)}</div><p class="af-muted" style="margin-top:8px;">Together with these, you accept the <a href="/legal/affiliate-terms.html" target="_blank" rel="noopener">affiliate platform terms</a> (version ${PLATFORM_TERMS_VERSION}): disclosure, how you earn, payments and your information. This page never asks for bank details.</p>`)
     + card('Accept and join', `<form class="af-form af-accept" id="form">
+        ${r.affiliate?.email ? `<div class="bcn-field-group"><span class="bcn-label">Email</span><div class="af-mono" id="email">${esc(r.affiliate.email)}</div></div>` : ''}
+        <div class="bcn-field-group"><label class="bcn-label" for="paypal">PayPal email (where ${esc(brand)} pays you)</label><input class="bcn-field" id="paypal" type="email" autocomplete="email" maxlength="127" value="${esc(r.affiliate?.email || '')}" /></div>
         <div class="bcn-field-group"><label class="bcn-label" for="signed">Your full name (this is your signature)</label><input class="bcn-field" id="signed" autocomplete="name" required maxlength="120" /></div>
         <label class="af-check"><input type="checkbox" id="agree" required /> <span>I have read and accept version ${p.terms_version} of the program terms above and the affiliate platform terms.</span></label>
         <button class="bcn-btn bcn-btn--primary" type="submit" id="go">Accept and join</button>
@@ -99,11 +102,11 @@ async function load() {
     if (!$('agree').checked || !$('signed').value.trim()) { setStatus('Type your name and tick the box to accept.', 'neg'); return; }
     $('go').disabled = true; setStatus('');
     try {
-      const out = await call('accept', { token, signed_name: $('signed').value.trim(), terms_version: p.terms_version, platform_terms_version: PLATFORM_TERMS_VERSION });
+      const out = await call('accept', { token, signed_name: $('signed').value.trim(), payout_email: $('paypal').value.trim() || null, terms_version: p.terms_version, platform_terms_version: PLATFORM_TERMS_VERSION });
       try { sessionStorage.removeItem('silo_affiliate_signup'); } catch {}
       $('body').innerHTML = card('You are in', `<p>Thanks for joining. ${out.confirmation_email === 'sent' ? 'We emailed you a confirmation with your portal link.' : 'Keep the portal link below: a confirmation email could not be sent.'}</p>
-        ${out.portal_url ? `<p><a class="bcn-btn bcn-btn--primary" href="${esc(out.portal_url)}">Open my affiliate portal</a></p>` : '<p>The brand will send you your portal link.</p>'}
-        <p class="af-muted">${out.codes_live?.length ? `Your code <strong>${esc(out.codes_live[0])}</strong> is live. We emailed it with your links.` : 'The brand will send your discount code and links once they are set up.'}</p>`);
+        ${out.portal_url ? `<p><a class="bcn-btn bcn-btn--primary" href="${esc(out.portal_url)}">Open my affiliate portal</a></p>` : `<p>${esc(brand)} will send you your portal link.</p>`}
+        <p class="af-muted">${out.codes_live?.length ? `Your code <strong>${esc(out.codes_live[0])}</strong> is live. We emailed it with your links.` : `${esc(brand)} will email your code and links.`}</p>`);
     } catch (e) {
       if (e.code === 'terms_changed') { setStatus('The terms were just updated. Please read the new version.', 'neg'); await load(); return; }
       setStatus(e.message, 'neg'); $('go').disabled = false;
