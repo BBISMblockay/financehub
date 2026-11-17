@@ -10068,3 +10068,8 @@ select 'Affiliate onboarding invite can be recorded' as check_name,
         and pg_get_constraintdef(oid) like '%signup_invite%')
     then 'MISSING: affiliate_notifications cannot record signup_invite; apply 20261117020000'
     else 'ok' end as status;
+
+select 'Creator photo and stats writes merge' as check_name,
+  case when to_regprocedure('public.affiliate_prospect_merge_evidence(uuid,uuid,jsonb,text,text,boolean)') is null
+    then 'MISSING: affiliate_prospect_merge_evidence(); apply 20261117020000'
+    else 'ok' end as status;

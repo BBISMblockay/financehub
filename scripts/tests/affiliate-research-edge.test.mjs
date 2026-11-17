@@ -45,6 +45,8 @@
 //   AFFILIATE_RESEARCH_MUTATION=ytoverwrite  an email in the channel description replaces one on file
 //   AFFILIATE_RESEARCH_MUTATION=ytblank      a field the API did not return blanks a stored one
 //   AFFILIATE_RESEARCH_MUTATION=ytstale      Refresh stats re-checks channels checked this week
+//   AFFILIATE_RESEARCH_MUTATION=photoclobber the photo job rewrites evidence from its stale snapshot
+//   AFFILIATE_RESEARCH_MUTATION=ytclobber    the stats job rewrites evidence from its stale snapshot
 //   AFFILIATE_RESEARCH_MUTATION=nocache      the research request is not cached
 //   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
 //   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
@@ -93,9 +95,12 @@ const MUTS = {
   knownkept: [CORE, "    if (isKnown(known, profile)) { stats.known += 1; continue; }\n", ''],
   knownbrief: [CORE, "    known?.handles?.length ? `\\nAlready known", "    false ? `\\nAlready known"],
   knownallco: ['handler.mjs', "        .eq('company_entity_id', company).order('created_at', { ascending: false }).limit(cap);", "        .order('created_at', { ascending: false }).limit(cap);"],
+  photoclobber: ['lib/affiliate-photo-core.mjs', "if (await mergeProspectEvidence({ service, company, id: p.id, patch })) out.stored += 1;", "if (!(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...patch } }).eq('id', p.id).eq('company_entity_id', company)).error) out.stored += 1;"],
+  ytclobber: ['lib/affiliate-youtube-core.mjs', "service, company, id: p.id, patch: { youtube: merged, creator_profile: creatorProfile },", "service: { rpc: async () => ({ error: { code: 'PGRST202' } }), from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: p, error: null }) }) }) }), update: (u) => service.from('affiliate_prospects').update(u) }) }, company, id: p.id, patch: { youtube: merged, creator_profile: creatorProfile },"],
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
+let LIVE = FN; // the folder under test: the mutated copy when a mutation runs
 async function load() {
   if (!MUT) return import(new URL('handler.mjs', FN));
   const tmp = await mkdtemp(join(tmpdir(), 'affresearch-'));
@@ -105,6 +110,7 @@ async function load() {
   const code = await readFile(path, 'utf8');
   assert.ok(code.includes(from), `mutation ${MUT}: pattern not found`);
   await writeFile(path, code.split(from).join(to));
+  LIVE = pathToFileURL(join(tmp, '/'));
   return import(pathToFileURL(join(tmp, 'handler.mjs')).href);
 }
 const { createResearchHandler } = await load();
@@ -160,6 +166,14 @@ function fakeService(seed, log, rpcs) {
   }
   const rpc = async (name, args) => {
     log.push(`service:rpc:${name}`); rpcs.push({ name, args });
+    if (name === 'affiliate_prospect_merge_evidence') {
+      const r = (tables.affiliate_prospects || []).find((x) => x.id === args.p_id && x.company_entity_id === args.p_company);
+      if (!r) return { data: null, error: null };
+      r.evidence = { ...(r.evidence || {}), ...(args.p_patch || {}) };
+      if (r.contact_email == null && args.p_contact_email != null) { r.contact_source_url = args.p_contact_source_url; r.contact_email = args.p_contact_email; }
+      if (args.p_touch) r.updated_at = new Date().toISOString();
+      return { data: true, error: null };
+    }
     if (name === 'affiliate_outreach_can_contact') return { data: args.p_handle !== '@donotcontact', error: null };
     if (name === 'ai_credit_open') return { data: { ok: true, mode: 'enforce', held_micros: 1000 }, error: null };
     if (name === 'ai_credit_step') return { data: { ok: true, held_micros: 2000 }, error: null };
@@ -680,6 +694,35 @@ await test('YouTube: a quota error stops the batch and changes nothing', async (
   assert.equal(out.quota, true);
   assert.equal(out.updated, 0);
   assert.ok(out.checked <= 4, `the batch stops at the quota (checked ${out.checked})`);
+});
+
+await test('photo and stats jobs running at once keep each other\'s results', async () => {
+  const YT = await import(new URL('lib/affiliate-youtube-core.mjs', LIVE));
+  const LPH = await import(new URL('lib/affiliate-photo-core.mjs', LIVE));
+  const svc = fakeService({ affiliate_prospects: [] }, [], []);
+  const row = { id: 'both', company_entity_id: CO_A, program_id: PA, platform: 'youtube', handle: '@one', profile_url: 'https://www.youtube.com/@one', contact_email: null, evidence: { note: 'kept' } };
+  svc.tables.affiliate_prospects.push(structuredClone(row));
+  // Both jobs read the same snapshot before either writes.
+  const stale = structuredClone(row);
+  const web = photoWeb({
+    'https://www.youtube.com/@one': () => resp(200, { body: '<meta property="og:image" content="https://yt3.example/one.jpg">' }),
+    'https://yt3.example/one.jpg': () => resp(200, { body: JPEG, type: 'image/jpeg' }),
+  });
+  const st = await YT.enrichYouTubeProspects({ service: svc, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ph = await LPH.storeProspectPhotos({ service: svc, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  assert.deepEqual([st.updated, ph.stored], [1, 1]);
+  const ev = svc.tables.affiliate_prospects[0].evidence;
+  assert.equal(ev.profile_image_stored, true, 'the photo is kept');
+  assert.equal(ev.youtube?.subscribers, 50000, 'the stats written first are kept by the photo job');
+  assert.ok(ev.creator_profile, 'the creator profile is kept');
+  assert.equal(ev.note, 'kept');
+  // And the other order.
+  const svc2 = fakeService({ affiliate_prospects: [structuredClone(row)] }, [], []);
+  await LPH.storeProspectPhotos({ service: svc2, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  await YT.enrichYouTubeProspects({ service: svc2, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ev2 = svc2.tables.affiliate_prospects[0].evidence;
+  assert.equal(ev2.profile_image_stored, true, 'the photo written first is kept by the stats job');
+  assert.equal(ev2.youtube?.subscribers, 50000);
 });
 
 await test('the research request is cached and reads short pages', async () => {

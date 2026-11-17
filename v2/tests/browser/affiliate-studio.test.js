@@ -61,6 +61,8 @@
  *   AFFILIATE_UI_MUTATION=qpayanycur  Build payouts includes balances in another currency
  *   AFFILIATE_UI_MUTATION=autopaymoney the Friday auto-pay switch is live for someone who cannot approve money
  *   AFFILIATE_UI_MUTATION=autopayearly the Friday auto-pay switch is shown before its columns exist
+ *   AFFILIATE_UI_MUTATION=bulkunsent  a refused invite in a bulk approval is dropped silently
+ *   AFFILIATE_UI_MUTATION=addlinkhidden a refused invite for someone added by hand puts the link on a hidden tab
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -69,6 +71,8 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
+  addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
   savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
@@ -405,14 +409,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const inviteTables = { ...tables, affiliate_prospects: [
         ...tables.affiliate_prospects,
         { id: 'p-app', company_entity_id: CO, program_id: PROG, display_name: 'Ana Applies', platform: 'instagram', handle: '@ana', profile_url: 'https://www.instagram.com/ana', contact_email: 'ana@creator.invalid', source: 'applied', collected_at: now, evidence: { pitch: 'I run trails' }, status: 'new' },
+        { id: 'p-app2', company_entity_id: CO, program_id: PROG, display_name: 'Bo Bounce', platform: 'instagram', handle: '@bo', profile_url: 'https://www.instagram.com/bo', contact_email: 'bo@creator.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'rejected' },
         { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
       ] };
       const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
       inv.on('pageerror', (e) => errors.push(e.message));
-      const inviteCalls = [];
+      const inviteCalls = []; let mailOk = true;
       await inv.context().route('**/functions/v1/affiliate-invite', (route) => {
         const body = JSON.parse(route.request().postData() || '{}'); inviteCalls.push(body);
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ affiliate_id: 'a-new', signup_url: 'https://app.test/v2/affiliates/join.html?t=X', expires_at: '2026-12-01T00:00:00Z', emailed: true, email: 'sent' }) });
+        const out = mailOk ? { emailed: true, email: 'sent' } : { emailed: false, email: 'not_sent', reason: 'The mail provider refused it' };
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ affiliate_id: 'a-new', signup_url: `https://app.test/v2/affiliates/join.html?t=${body.prospect_id}`, expires_at: '2026-12-01T00:00:00Z', ...out }) });
       });
       await inv.click('#tabs [data-tab="people"]');
       await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-id="p-app"]'), null, { timeout: 5000 });
@@ -444,6 +450,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const bulk = await inv.evaluate((b) => window.__QUERIES__.slice(b).filter((q) => q.table === 'affiliate_prospects' && q._op === 'update'), before);
       R.ok('one update rejects the selection', bulk.length === 1 && bulk[0].patch.status === 'rejected');
       R.ok('scoped to this company and the picked ids', JSON.stringify(bulk[0].filters).includes('company_entity_id') && JSON.stringify(bulk[0].filters).includes('"in"'));
+      // Bulk approve when the mail is refused (HTTP 200, emailed:false): said, with the link.
+      mailOk = false;
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-pick"][data-id="p-app2"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-pick"][data-id="p-app2"]');
+      await inv.click('#prospectsBody [data-act="prospect-bulk"][data-s="approved"]');
+      await inv.waitForFunction(() => /Approved/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.has(await text(inv, '#status'), '1 invite(s) not emailed', 'a refused invite in a bulk approval is reported, not counted as sent');
+      const unsentBox = await text(inv, '#signupOut');
+      R.has(unsentBox, 'Bo Bounce', 'naming who did not get it');
+      R.has(unsentBox, 'The mail provider refused it', 'with the reason');
+      R.has(unsentBox, 'join.html?t=p-app2', 'and the link to send by hand');
+      mailOk = true;
       // Added by hand with an email: approved and invited at once.
       await openRecords(inv);
       await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
@@ -453,6 +472,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
       R.ok('and emailed their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'fixture-inserted-id' && c.email === true));
       R.has(await text(inv, '#status'), 'Invite emailed to ned@creator.invalid');
+      // Added by hand when the mail is refused: the link shows beside the form.
+      mailOk = false;
+      await inv.fill('#mpName', 'Nia New'); await inv.fill('#mpHandle', '@nia'); await inv.fill('#mpEmail', 'nia@creator.invalid');
+      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.waitForFunction(() => /not emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('the fallback link is visible on the Records tab', await inv.evaluate(() => { const el = document.querySelector('#recordsBody #mpOut'); return !!el && el.offsetParent !== null && /join\.html\?t=/.test(el.textContent); }));
       await inv.close();
     }
 

@@ -121,10 +121,12 @@ async function invoke(fn, body) {
 // added by hand, or applied. A creator a search found is sent a link by a person.
 const INVITE_SOURCES = new Set(['manual', 'applied']);
 // Email the signup invite. When it did not go out, the link is shown to send by hand.
-async function sendInvite(id, to = null) {
+// `where` is the element beside the button that asked, so the link shows on the visible tab.
+const notEmailedCard = (rows) => card('Invite not emailed: send this link', rows.map((x) => `<p>${x.name ? `<strong>${esc(x.name)}</strong>: ` : ''}${esc(x.out.reason || x.out.email || 'not sent')}. Valid until ${fmtTime(x.out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(x.out.signup_url || '')}</div>`).join(''));
+async function sendInvite(id, to = null, where = 'signupOut') {
   const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id, email: true });
   if (out.emailed) return `Invite emailed to ${to || S.d.prospectById[id]?.contact_email || 'them'}.`;
-  S.flash = { el: 'signupOut', html: card('Invite not emailed: send this link', `<p>${esc(out.reason || out.email || 'not sent')}. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.signup_url)}</div>`) };
+  S.flash = { el: where, html: notEmailedCard([{ out }]) };
   return 'Invite not emailed. The link is below.';
 }
 // One action on many prospects. Each moves only from a state it may leave,
@@ -134,7 +136,7 @@ async function bulkProspects(ids, s) {
   const FROM = { approved: ['new', 'qualified', 'rejected'], rejected: ['new', 'qualified', 'approved'], suppressed: ['new', 'qualified', 'approved', 'invited'] };
   const ok = ids.filter((id) => by[id] && FROM[s]?.includes(by[id].status));
   const skipped = ids.length - ok.length;
-  let done = 0; let invited = 0; let drafted = 0; let failed = 0;
+  let done = 0; let invited = 0; let drafted = 0; let failed = 0; const unsent = [];
   if (s === 'suppressed') {
     for (const id of ok) { try { await A['prospect-suppress']({ id }); done += 1; } catch { failed += 1; } }
   } else if (ok.length) {
@@ -150,15 +152,16 @@ async function bulkProspects(ids, s) {
       for (const id of ok) {
         const x = by[id];
         try {
-          if (INVITE_SOURCES.has(x.source) && x.contact_email) { const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id, email: true }); if (out.emailed) invited += 1; }
+          if (INVITE_SOURCES.has(x.source) && x.contact_email) { const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id, email: true }); if (out.emailed) invited += 1; else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }
           else if (!live.has(id)) { await A['draft-create']({ id }); drafted += 1; }
         } catch { failed += 1; }
       }
     }
   }
   S.sel.clear();
+  if (unsent.length) S.flash = { el: 'signupOut', html: notEmailedCard(unsent) };
   const word = { approved: 'Approved', rejected: 'Rejected', suppressed: 'Added to do-not-contact:' }[s];
-  return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}`;
+  return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${unsent.length ? ` ${num(unsent.length)} invite(s) not emailed: links below.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}`;
 }
 function download(name, text, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -897,7 +900,7 @@ function renderProspects() {
       ${field('Name', input('mpName'))}${field('Platform', `<select class="bcn-field" id="mpPlat">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select>`)}
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email (only one they published or gave you)', input('mpEmail', 'type="email"'))}${field('Where you found them (URL)', input('mpSource', 'placeholder="https://"'))}
-    </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div>`) : '',
+    </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament, asked to join"'))}<div class="af-row" style="margin-top:8px;">${btn('Add prospect', 'prospect-add', {}, 'primary')}</div><div id="mpOut"></div>`) : '',
     card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run for this program yet.')),
     card('Do-not-contact list', `
       ${itemList(d.suppressions, (s) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(s.value_normalized)}</span> ${pill(s.kind)}</div><div class="af-muted">${esc(s.reason)} · ${fmtDate(s.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'surface', { confirm: true }) : ''}</div></article>`, 'Nobody is on the list.')}
@@ -1822,7 +1825,7 @@ const A = {
       ...(email ? { status: 'approved', reviewed_by: me.id, reviewed_at: now } : {}),
     }).select('id').single());
     if (!email) return 'Prospect added.';
-    return `Added. ${await sendInvite(row.id, email)}`;
+    return `Added. ${await sendInvite(row.id, email, 'mpOut')}`;
   },
   'research-run': async () => {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
