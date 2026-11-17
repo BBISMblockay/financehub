@@ -158,6 +158,7 @@ const MUTATIONS = {
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
   nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
   noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
+  showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '') => (false ? ''"],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
@@ -1536,7 +1537,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const mu = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').pop());
     R.eq((mu.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals, ['d1'], 'Approve selected approves only the ticked message');
     R.ok('and only while it is still a draft', mu.filters.some((f) => f.op === 'eq' && f.col === 'state' && f.val === 'draft'));
-    R.has(await text(ct, '#outreachBody'), 'Emails to affiliates', 'Comms shows what SILO emailed affiliates');
+    R.not(await text(ct, '#outreachBody'), 'Emails to affiliates', 'with no affiliate emails yet, that box is not drawn');
+    R.not(await text(ct, '#outreachBody'), 'Nothing sent yet', 'and no empty box says so');
     await ct.fill('#tplBody', 'Hey {name}: {signup_link}');
     await ct.click('#outreachBody [data-act="tpl-save"]');
     await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });

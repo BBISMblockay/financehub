@@ -443,7 +443,10 @@ async function reload() {
 }
 
 // ── Rendering helpers ────────────────────────────────────────────────────
-const card = (title, body, meta = '', extraClass = '') => `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`;
+// A box with nothing in it is not drawn (Blake, 2026-11-17: "a lot of shit
+// to look at"). A tab left with nothing says so once (see render()).
+const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
+const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 function table(cols, rows, emptyText = 'Nothing here yet.') {
   if (!rows.length) return empty(emptyText);
@@ -543,6 +546,7 @@ function renderRecords() {
   renderManagers();
 }
 const surface = (title, body, meta = '', id = '') => {
+  if (EMPTY_ONLY.test(body)) return '';
   const idAttr = id ? ` id="${esc(id)}"` : '';
   return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
 };
@@ -623,6 +627,9 @@ function render() {
     return;
   }
   for (const r of (PANEL_RENDERERS[S.tab] || PANEL_RENDERERS.overview)) r();
+  const panel = document.querySelector(`[data-panel="${PANEL_OF[S.tab] || 'overview'}"]`);
+  const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
+  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = empty('Nothing waiting here.');
   renderWorkflowTabCounts();
 }
 
@@ -958,10 +965,11 @@ function renderProspects() {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
     return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
   };
+  const sourceLine = (x) => { const e = x.evidence || {}; return `${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}`; };
   const provenance = (x) => {
     const e = x.evidence || {};
     return `<div class="af-evidence">${e.title ? `<strong>${esc(e.title)}</strong><br>` : ''}${esc(e.snippet || e.note || e.pitch || '')}</div>
-      <div class="af-muted">${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}</div>`;
+      <div class="af-muted">${sourceLine(x)}</div>`;
   };
   const contact = (x) => (x.contact_email
     ? `${esc(x.contact_email)}${x.contact_source_url ? `<div class="af-muted">${ext(x.contact_source_url, 'where it was stated')}</div>` : '<div class="af-muted">entered by a person</div>'}`
@@ -1001,22 +1009,10 @@ function renderProspects() {
         </div>
         ${statusPill(x.status)}
       </header>
-      <section class="af-catalog-summary">
-        <h3 class="af-catalog-summary-h">Summary</h3>
-        <p class="af-catalog-summary-p">${esc(evidenceSummary(x))}</p>
-      </section>
-      <div class="af-catalog-stats">
-        <div class="af-catalog-stat">
-          <span class="af-catalog-stat-lbl">Followers</span>
-          <span class="af-catalog-stat-val${f ? ' af-catalog-stat-val--up' : ''}">${f ? '<span class="af-catalog-up" aria-hidden="true">↑</span> ' : ''}${followersVal}</span>
-        </div>
-        <div class="af-catalog-stat">
-          <span class="af-catalog-stat-lbl">Engagement</span>
-          <span class="af-catalog-stat-val">${pct}</span>
-        </div>
-      </div>
+      <p class="af-catalog-summary-p">${esc(evidenceSummary(x, 120))}</p>
+      <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
       ${facts.length ? `<div class="af-muted af-catalog-facts">${facts.join(' · ')}</div>` : ''}
-      <div class="af-item-detail af-catalog-why">${provenance(x)}</div>
+      <div class="af-muted">${sourceLine(x)}</div>
       <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
   };
@@ -1285,7 +1281,6 @@ function renderAffiliates() {
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · AI' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
     const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
-    const codeCount = codesOf(a).filter((c) => c.status !== 'retired').length;
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
         <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}</div>
@@ -1296,20 +1291,7 @@ function renderAffiliates() {
         </div>
         ${statusPill(a.status)}
       </header>
-      <section class="af-catalog-summary">
-        <h3 class="af-catalog-summary-h">Codes</h3>
-        <div class="af-codes">${codesHtml}</div>
-      </section>
-      <div class="af-catalog-stats">
-        <div class="af-catalog-stat">
-          <span class="af-catalog-stat-lbl">Live codes</span>
-          <span class="af-catalog-stat-val${codeCount ? ' af-catalog-stat-val--up' : ''}">${codeCount ? '<span class="af-catalog-up" aria-hidden="true">↑</span> ' : ''}${num(codeCount)}</span>
-        </div>
-        <div class="af-catalog-stat af-catalog-stat--bar">
-          <span class="af-catalog-stat-lbl">Links</span>
-          <span class="af-catalog-stat-barwrap">${catalogStatBar(linkRows.length ? 85 : 20)}<span class="af-catalog-stat-num">${num(linkRows.length)} link(s)</span></span>
-        </div>
-      </div>
+      <div class="af-codes">${codesHtml}</div>
       ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
       <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
     </article>`;
