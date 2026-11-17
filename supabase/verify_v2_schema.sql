@@ -10046,19 +10046,6 @@ select 'Meta import leases' as check_name,
    then 'BROKEN: the bootstrap dispatch throttle is gone'
   else 'ok' end as status;
 
--- Workspace profile activity containment (outside the Plaid fixture markers).
-select 'Workspace profile editing preserves global activity' as check_name,
-  case when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null
-    then 'MISSING: admin_update_profile'
-    when not exists (
-      select 1 from pg_proc where oid = to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)')
-        and prosrc like '%p_is_active is not null and p_is_active is distinct from v_current_active%'
-        and prosrc like '%account status cannot be changed through workspace profile editing%'
-        and prosrc like '%pr.id = p_user_id for update%'
-        and prosrc !~* 'is_active\s*='
-    ) then 'CRITICAL: workspace profile editing can change global activity or lacks the compatibility guard'
-    else 'ok' end as status;
-
 -- Affiliate onboarding invite (20261117020000).
 select 'Affiliate onboarding invite can be recorded' as check_name,
   case when not exists (
@@ -10072,4 +10059,17 @@ select 'Affiliate onboarding invite can be recorded' as check_name,
 select 'Creator photo and stats writes merge' as check_name,
   case when to_regprocedure('public.affiliate_prospect_merge_evidence(uuid,uuid,jsonb,text,text,boolean)') is null
     then 'MISSING: affiliate_prospect_merge_evidence(); apply 20261117020000'
+    else 'ok' end as status;
+
+-- Workspace profile activity containment (outside the Plaid fixture markers).
+select 'Workspace profile editing preserves global activity' as check_name,
+  case when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null
+    then 'MISSING: admin_update_profile'
+    when not exists (
+      select 1 from pg_proc where oid = to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)')
+        and prosrc like '%p_is_active is not null and p_is_active is distinct from v_current_active%'
+        and prosrc like '%account status cannot be changed through workspace profile editing%'
+        and prosrc like '%pr.id = p_user_id for update%'
+        and prosrc !~* 'is_active\s*='
+    ) then 'CRITICAL: workspace profile editing can change global activity or lacks the compatibility guard'
     else 'ok' end as status;
