@@ -76,9 +76,14 @@ export function interleaveLeads(lists, max = MAX_LEADS) {
   }
   return out;
 }
+// Cost (audit 2026-11-17: $1.70-$5.30 a run, ~$0.20 per creator kept, almost
+// all of it input re-read uncached). Every fetched page is re-sent on each
+// later server-side step and round, so pages are capped short, fewer are
+// opened, and the request is cached (top-level cache_control): a repeated
+// prefix is billed at the cache-read rate instead of in full.
 export const WEB_SEARCH_USES = 8;
-export const WEB_FETCH_USES = 15;
-export const FETCH_CONTENT_TOKENS = 20000;
+export const WEB_FETCH_USES = 8;
+export const FETCH_CONTENT_TOKENS = 6000;
 export const MAX_OUTPUT_TOKENS = 16000;
 const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'];
 
@@ -125,7 +130,8 @@ export const RESEARCH_SYSTEM = `You find social media creators who could become 
 Rules:
 - Include only creators you saw on a page during this research. Never invent or guess a creator, handle, URL, follower count or email.
 - profile_url is the creator's own profile page, for example https://www.tiktok.com/@name, https://www.instagram.com/name or https://www.youtube.com/@name.
-- followers: open the creator's OWN profile page with web_fetch and take the follower or subscriber count shown there, with that profile URL in followers_source_url. Only if the profile does not show it, use a number another page you read states, with that page's URL. Give the date shown (or today's date) in followers_as_of. Otherwise null.
+- YouTube channels: do not open the channel page. SILO reads YouTube subscriber and engagement numbers itself; give followers null unless a page you already read states it.
+- followers (other platforms): open the creator's OWN profile page with web_fetch only when you need it to confirm the creator, and take the follower count shown there, with that profile URL in followers_source_url. Otherwise use a number another page you read states, with that page's URL. Give the date shown (or today's date) in followers_as_of. Otherwise null.
 - profile_image_url: only a profile photo URL that appears in the text of the creator's OWN profile page you fetched, copied exactly, with that page in profile_image_source_url. Never build or guess one. Otherwise null.
 - contact_email: only an address the creator publishes, with the page it is on. Otherwise null.
 - likely_minor: true when the creator appears to be under 18 or the account is about a child. Those are excluded.
@@ -150,6 +156,9 @@ export function buildResearchRequest({ program, focus, count, model, today, lead
   return {
     model,
     max_tokens: MAX_OUTPUT_TOKENS,
+    // Caches the conversation up to its last block on every call, so the next
+    // step and the next round read it at the cache rate (see the cost note).
+    cache_control: { type: 'ephemeral' },
     system: RESEARCH_SYSTEM,
     tools: [
       { type: 'web_search_20250305', name: 'web_search', max_uses: WEB_SEARCH_USES },

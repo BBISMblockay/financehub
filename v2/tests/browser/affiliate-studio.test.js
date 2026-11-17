@@ -187,7 +187,7 @@ const tables = {
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'ok', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
-  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
+  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09', creator_profile: { version: 1, engagement: { avg_views: 4000, rate: 0.02, sample: 12, source: 'youtube_api' }, topics: { value: ['Running'] }, brand_mentions: { domains: [{ domain: 'shoe.example', videos: 3 }], sponsored_videos: 2, sample: 12 }, other_profiles: [{ platform: 'instagram', profile_url: 'https://www.instagram.com/samruns' }] } }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
   affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now, from_prospect_id: 'p1' }],
@@ -325,6 +325,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
     R.ok('the follower count links to where it was stated', await page.$('#prospectsBody a[href="https://www.youtube.com/@samruns"]'));
+    const card1 = await text(page, '#prospectsBody');
+    R.has(card1, '2.0%', 'measured engagement is shown');
+    R.has(card1, '4,000 avg views', 'with average views');
+    R.has(card1, 'Links: shoe.example', 'and the brands they link');
+    R.has(card1, '2 of 12 recent videos sponsored', 'and how many recent videos were sponsored');
+    R.ok('other profiles the channel links are links', !!(await page.$('#prospectsBody a[href="https://www.instagram.com/samruns"]')));
     // Find creators with AI: starts a background run and says so; the company is never sent.
     const researchCalls = [];
     await suite.context.route('**/functions/v1/affiliate-research', (route) => {
@@ -393,6 +399,46 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('before the loop migration, settings has no automatic-code field (saving still works)', !(await page.$('#pAutoPct')));
     R.ok('before 20261111020000, settings has no outreach message box (saving still works)', !(await page.$('#pOutBody')));
     await page.close();
+
+    // ── onboarding invites: added by hand or applied => emailed ─────────
+    {
+      const inviteTables = { ...tables, affiliate_prospects: [
+        ...tables.affiliate_prospects,
+        { id: 'p-app', company_entity_id: CO, program_id: PROG, display_name: 'Ana Applies', platform: 'instagram', handle: '@ana', profile_url: 'https://www.instagram.com/ana', contact_email: 'ana@creator.invalid', source: 'applied', collected_at: now, evidence: { pitch: 'I run trails' }, status: 'new' },
+        { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
+      ] };
+      const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      inv.on('pageerror', (e) => errors.push(e.message));
+      const inviteCalls = [];
+      await inv.context().route('**/functions/v1/affiliate-invite', (route) => {
+        const body = JSON.parse(route.request().postData() || '{}'); inviteCalls.push(body);
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ affiliate_id: 'a-new', signup_url: 'https://app.test/v2/affiliates/join.html?t=X', expires_at: '2026-12-01T00:00:00Z', emailed: true, email: 'sent' }) });
+      });
+      await inv.click('#tabs [data-tab="people"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-id="p-app"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p-app"]');
+      await inv.waitForFunction(() => /Invite emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('approving an applicant emails their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'p-app' && c.email === true && !('company_entity_id' in c)));
+      R.has(await text(inv, '#status'), 'Invite emailed to ana@creator.invalid');
+      R.ok('approving an applicant drafts no outreach message', !(await inv.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'))));
+      await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]');
+      await inv.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+      R.ok('a creator a search found is not emailed on approval', !inviteCalls.some((c) => c.prospect_id === 'p1'));
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
+      R.has(await text(inv, '#prospectsBody [data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
+      R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('#prospectsBody [data-act="invite-send"][data-id="p1"]')));
+      // Added by hand with an email: approved and invited at once.
+      await openRecords(inv);
+      await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
+      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.waitForFunction(() => /Added\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const added = await inv.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+      R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
+      R.ok('and emailed their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'fixture-inserted-id' && c.email === true));
+      R.has(await text(inv, '#status'), 'Invite emailed to ned@creator.invalid');
+      await inv.close();
+    }
 
     // ── the loop: after 20261110180000 ────────────────────────────────────
     const loopTables = { ...tables,

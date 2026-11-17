@@ -100,6 +100,18 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 - Both write through `upsertCandidates`, so the do-not-contact list applies
   and a later run never blanks a value an earlier run recorded.
 
+## Onboarding invites (2026-11-17)
+
+- **Added by hand with an email**: approved and emailed the signup link at once.
+- **Applied**: emailed the signup link when a manager approves them.
+- **Invited already**: **Resend invite** mints a new link (the old one stops working) and emails it.
+- **Found by a search** (`serp`, `ai_research`, `csv_import`): never emailed by SILO. Approving drafts the outreach message as before; the person sends it from their own inbox. `affiliate-invite` enforces this (`INVITE_SOURCES`), not just the page.
+- If the email does not go out (no Resend key, suppression list), the page shows the link to send by hand.
+
+## Creator stats (YouTube)
+
+`affiliate-research` looks up YouTube prospects with the official YouTube Data API v3 using SILO's own key (`YOUTUBE_API_KEY`, a Supabase secret; unset = off). About 3 quota units a creator against 10,000 free a day. It runs after each research run and import, and from **Refresh stats** (channels missing numbers or a week old, 60 at a time). Writes `evidence.youtube` and `evidence.creator_profile`: followers, engagement (pooled over the last 12 uploads), topics, country, brand sites linked in descriptions, sponsored-video count, contact email stated in the channel description (only fills an empty contact), and other profiles the channel links -- each field with its source. `/c/` custom URLs cannot be looked up without a paid search and are skipped.
+
 ## Daily use
 
 The page has four tabs (Blake, 2026-11-10: "a consumer product, not so many

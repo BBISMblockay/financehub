@@ -10058,3 +10058,13 @@ select 'Workspace profile editing preserves global activity' as check_name,
         and prosrc !~* 'is_active\s*='
     ) then 'CRITICAL: workspace profile editing can change global activity or lacks the compatibility guard'
     else 'ok' end as status;
+
+-- Affiliate onboarding invite (20261117020000).
+select 'Affiliate onboarding invite can be recorded' as check_name,
+  case when not exists (
+      select 1 from pg_constraint
+      where conrelid = 'public.affiliate_notifications'::regclass
+        and conname = 'affiliate_notifications_kind_check'
+        and pg_get_constraintdef(oid) like '%signup_invite%')
+    then 'MISSING: affiliate_notifications cannot record signup_invite; apply 20261117020000'
+    else 'ok' end as status;

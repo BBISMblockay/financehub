@@ -7,12 +7,14 @@
 // scripts/tests/affiliate-edge.test.mjs pins the two copies byte for byte:
 // edit affiliate-portal/affiliate-mail.mjs and re-copy it.
 //
-// Never used for prospect outreach. The `kind` vocabulary below matches the
+// Never used for prospect outreach ('signup_invite' is the onboarding invite
+// to someone a manager added or who applied -- affiliate-invite INVITE_SOURCES). The `kind` vocabulary below matches the
 // CHECK on affiliate_notifications, which has no outreach value; an unknown
 // kind is refused before anything is sent.
 
 export const NOTIFICATION_KINDS = new Set([
   'signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal',
+  'signup_invite',
 ]);
 
 const encoder = new TextEncoder();

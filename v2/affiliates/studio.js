@@ -7,7 +7,7 @@ import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, fillTemplate, outreachTemplate, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
-  parseCsv, chunk, runKindLabel, followersFrom, prospectPhotoUrl, sourceLabel,
+  parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
@@ -116,6 +116,16 @@ async function invoke(fn, body) {
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(out.error || `The ${fn} service answered ${res.status}. It may not be deployed yet.`);
   return out;
+}
+// Prospects SILO emails an onboarding invite (affiliate-invite INVITE_SOURCES):
+// added by hand, or applied. A creator a search found is sent a link by a person.
+const INVITE_SOURCES = new Set(['manual', 'applied']);
+// Email the signup invite. When it did not go out, the link is shown to send by hand.
+async function sendInvite(id, to = null) {
+  const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id, email: true });
+  if (out.emailed) return `Invite emailed to ${to || S.d.prospectById[id]?.contact_email || 'them'}.`;
+  S.flash = { el: 'signupOut', html: card('Invite not emailed: send this link', `<p>${esc(out.reason || out.email || 'not sent')}. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.signup_url)}</div>`) };
+  return 'Invite not emailed. The link is below.';
 }
 function download(name, text, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -743,7 +753,7 @@ function renderProspects() {
     if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' }));
     if (x.status === 'rejected') b.push(pill('rejected'));
     if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
-    if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(btn('Signup link', 'signup-link', { id: x.id }));
+    if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
     if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
   };
@@ -762,7 +772,7 @@ function renderProspects() {
   const followers = (x) => {
     const f = followersFrom(x.evidence);
     if (!f) return '<span class="af-muted">—</span>';
-    const where = f.source_url ? `${ext(f.source_url, f.kind === 'profile' ? 'on their profile' : f.kind === 'other_page' ? 'from another page' : 'where it was stated')}${f.as_of ? ` · ${fmtDate(f.as_of)}` : ''}` : (x.source === 'csv_import' ? 'from your list' : '');
+    const where = f.source_url ? `${ext(f.source_url, f.kind === 'youtube' ? 'YouTube' : f.kind === 'profile' ? 'on their profile' : f.kind === 'other_page' ? 'from another page' : 'where it was stated')}${f.as_of ? ` · ${fmtDate(f.as_of)}` : ''}` : (x.source === 'csv_import' ? 'from your list' : '');
     return `${num(f.count)}${where ? `<div class="af-muted">${where}</div>` : ''}`;
   };
   const researching = S.watching && d.runs.some((r) => r.id === S.watching);
@@ -771,7 +781,15 @@ function renderProspects() {
   const prospectCard = (x) => {
     const f = followersFrom(x.evidence);
     const followersVal = f ? num(f.count) : '—';
-    const reach = x.contact_email ? 92 : 18;
+    const st = creatorStats(x.evidence);
+    const pct = st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—';
+    const facts = st ? [
+      st.avgViews != null ? `${num(st.avgViews)} avg views` : '',
+      st.topics.length ? esc(st.topics.join(', ')) : '',
+      st.brands.length ? `Links: ${esc(st.brands.join(', '))}` : '',
+      st.sponsored ? `${num(st.sponsored)} of ${num(st.sample)} recent videos sponsored` : '',
+      st.others.length ? st.others.map((o) => ext(o.profile_url, o.platform)).join(' · ') : '',
+    ].filter(Boolean) : [];
     const title = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator');
     const sub = `${x.platform || 'creator'}${x.handle ? ` · ${x.handle}` : ''}`;
     const meta = x.contact_email ? esc(x.contact_email) : 'No public email yet';
@@ -794,11 +812,12 @@ function renderProspects() {
           <span class="af-catalog-stat-lbl">Followers</span>
           <span class="af-catalog-stat-val${f ? ' af-catalog-stat-val--up' : ''}">${f ? '<span class="af-catalog-up" aria-hidden="true">↑</span> ' : ''}${followersVal}</span>
         </div>
-        <div class="af-catalog-stat af-catalog-stat--bar">
-          <span class="af-catalog-stat-lbl">Reach</span>
-          <span class="af-catalog-stat-barwrap">${catalogStatBar(reach)}<span class="af-catalog-stat-num">${x.contact_email ? 'Has email' : 'No email'}</span></span>
+        <div class="af-catalog-stat">
+          <span class="af-catalog-stat-lbl">Engagement</span>
+          <span class="af-catalog-stat-val">${pct}</span>
         </div>
       </div>
+      ${facts.length ? `<div class="af-muted af-catalog-facts">${facts.join(' · ')}</div>` : ''}
       <div class="af-item-detail af-catalog-why">${provenance(x)}</div>
       <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
     </article>`;
@@ -818,7 +837,7 @@ function renderProspects() {
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
     more('Recruiting tools', [
-    MANAGE ? card('Creator photos', `<p class="af-muted">SILO keeps a copy of each creator's profile photo after every search.</p><div class="af-row" style="margin-top:8px;">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}</div>`) : '',
+    MANAGE ? card('Creator photos and stats', `<div class="af-row">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}${btn('Refresh stats', 'stats-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">CSV, one creator per row with a profile link.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
@@ -1711,6 +1730,9 @@ const A = {
   'prospect-status': async ({ id, s }) => {
     await updateRows('affiliate_prospects', { status: s, reviewed_by: me.id, reviewed_at: new Date().toISOString(), changed_by: me.id }, { id });
     if (s !== 'approved') return `Creator ${s}.`;
+    // Someone added by hand or who applied is emailed their invite on approval.
+    const x = S.d.prospectById[id];
+    if (x && INVITE_SOURCES.has(x.source) && x.contact_email) return `Creator approved. ${await sendInvite(id)}`;
     // Approving drafts the message, unless one is already in progress.
     const live = S.d.drafts.some((x) => x.prospect_id === id && ['draft', 'approved', 'exported'].includes(x.state));
     if (!live) { await A['draft-create']({ id }); S.tab = 'people'; }
@@ -1733,17 +1755,26 @@ const A = {
     const url = val('mpUrl'); const handle = val('mpHandle');
     if (!url && !handle) throw new Error('A handle or a profile URL is needed to tell creators apart.');
     if (val('mpEmail') && !val('mpEmail').includes('@')) throw new Error('That email address is not valid.');
-    must(await db.from('affiliate_prospects').insert({
+    // Added with an email: approved and invited at once (the invite is emailed).
+    const email = val('mpEmail') || null;
+    const now = new Date().toISOString();
+    const row = must(await db.from('affiliate_prospects').insert({
       company_entity_id: CO, program_id: S.programId, display_name: val('mpName') || handle || url, platform: val('mpPlat'),
-      handle: handle || null, profile_url: url || null, contact_email: val('mpEmail') || null,
+      handle: handle || null, profile_url: url || null, contact_email: email,
       source: 'manual', source_url: val('mpSource') || null, evidence: { note: val('mpNote') || null, entered_by: me.email || me.id }, created_by: me.id,
-    }));
-    return 'Prospect added.';
+      ...(email ? { status: 'approved', reviewed_by: me.id, reviewed_at: now } : {}),
+    }).select('id').single());
+    if (!email) return 'Prospect added.';
+    return `Added. ${await sendInvite(row.id, email)}`;
   },
   'research-run': async () => {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
+  },
+  'stats-refresh': async () => {
+    const out = await invoke('affiliate-research', { action: 'refresh_stats', program_id: S.programId });
+    return `Updated stats for ${num(out.updated)} of ${num(out.checked)} YouTube creators.${out.quota ? ' Daily limit reached; the rest update tomorrow.' : ''}`;
   },
   'photos-refresh': async () => {
     const out = await invoke('affiliate-research', { action: 'refresh_photos', program_id: S.programId });
@@ -1774,6 +1805,7 @@ const A = {
     return 'Added to the do-not-contact list.';
   },
   'suppression-remove': async ({ id }) => { const r = must(await db.from('affiliate_suppressions').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an Affiliate Studio manager can remove an entry.'); return 'Removed.'; },
+  'invite-send': async ({ id }) => sendInvite(id),
   'signup-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: id });
     S.flash = { el: 'signupOut', html: card('Signup link (send it yourself)', `<p>Personal to this person, valid until ${fmtTime(out.expires_at)}. SILO has not sent it. Making a new one cancels this one.</p><div class="bcn-field af-mono af-copy">${esc(out.signup_url)}</div>`) };

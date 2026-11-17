@@ -12,7 +12,8 @@
 //   * renewal and email sign-in answer identically whether or not anything was sent;
 //   * the staff function asks the database, AS THE CALLER, before any
 //     service-role call, and takes the company from the caller, never the body;
-//   * a signup link for a prospect is RETURNED, never emailed;
+//   * a signup link for a creator a search found is RETURNED, never emailed;
+//     only someone added by hand or who applied is emailed the invite;
 //   * a draft payout is never announced;
 //   * the mail module ships byte-identical in both functions.
 //
@@ -24,7 +25,8 @@
 //   AFFILIATE_EDGE_MUTATION=mailedmint    a portal link handed to its requester is bound as though it had been mailed
 //   AFFILIATE_EDGE_MUTATION=gateorder     the staff function reads with the service role before the gate
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
-//   AFFILIATE_EDGE_MUTATION=prospectmail  a signup link is emailed to the prospect
+//   AFFILIATE_EDGE_MUTATION=prospectmail  a creator a search found is emailed the invite
+//   AFFILIATE_EDGE_MUTATION=invitekind    the invite is recorded under another kind
 //   AFFILIATE_EDGE_MUTATION=draftnews     a draft payout is announced
 //   AFFILIATE_EDGE_MUTATION=byprospectonly a follow-up to a known email tries a second record
 //   AFFILIATE_EDGE_MUTATION=anylogo       the portal hands the page any stored logo address
@@ -71,7 +73,8 @@ async function load(fn, file) {
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
-    prospectmail: ['affiliate-invite', "        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });", "        await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id, kind: 'portal_link', to: email, subject: 'Join', html: link.url, text: link.url });\n        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });"],
+    prospectmail: ['affiliate-invite', "        if (!INVITE_SOURCES.has(p.source)) {", "        if (false) {"],
+    invitekind: ['affiliate-invite', "          kind: 'signup_invite', to: email,", "          kind: 'portal_link', to: email,"],
     nocodelink: ['affiliate-portal', "return `${store}/discount/${encodeURIComponent(code)}?redirect=${encodeURIComponent(`${p}?${q}${h}`)}`;", "return `${store}${p}?${q}`;", 'affiliate-mail.mjs'],
     linkquery: ['affiliate-portal', "  return affiliateLink(store, code, u.pathname || '/', u.search, u.hash);", "  return affiliateLink(store, code, u.pathname || '/');", 'affiliate-mail.mjs'],
     utcday: ['affiliate-invite', "    const today = localDay(now(), tz);", "    const today = now().toISOString().slice(0, 10);"],
@@ -106,7 +109,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -635,16 +638,50 @@ await test('invite: a signup link is RETURNED for the person to send -- SILO ema
       affiliates: ({ op }) => (op === 'select' ? null : { id: AFF, status: 'invited' }),
     } });
   const h = createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl, makeToken: () => 'S'.repeat(43) });
-  const res = await h(authed({ action: 'signup_link', prospect_id: PROSPECT }));
+  // Asked to email it: a creator a search found is still not emailed.
+  const res = await h(authed({ action: 'signup_link', prospect_id: PROSPECT, email: true }));
   const body = await res.json();
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.match(body.signup_url, /\/v2\/affiliates\/join\.html\?t=S+$/);
   assert.equal(body.emailed, false);
+  assert.equal(body.email, 'not_sent');
   assert.equal(mail.sent.length, 0, 'a prospect must never be emailed by SILO');
   assert.ok(!svc.log.some((l) => l.table === 'affiliate_notifications'));
   const issued = svc.log.find((l) => l.name === 'affiliate_issue_access_token').args;
   assert.equal(issued.p_purpose, 'signup');
   assert.equal(issued.p_company_entity_id, CO);
+});
+
+await test('invite: someone added by hand or who applied is EMAILED the invite, recorded as signup_invite', async () => {
+  for (const source of ['manual', 'applied']) {
+    const mail = fakeResend();
+    const svc = fakeService({ rpc: { ...noSuppression, affiliate_issue_access_token: { data: 'tok-1', error: null } },
+      tables: {
+        affiliate_prospects: ({ op }) => (op === 'select' ? { id: PROSPECT, program_id: PROG, display_name: 'Pat <b>', platform: 'youtube', handle: '@pat', profile_url: null, contact_email: 'pat@x.invalid', status: 'approved', source } : null),
+        affiliates: ({ op }) => (op === 'select' ? null : { id: AFF, status: 'invited' }),
+        entities: { title: 'Brand A' },
+        affiliate_programs: { name: 'Creators' },
+      } });
+    const h = createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail.fetchImpl, makeToken: () => 'S'.repeat(43) });
+    const res = await h(authed({ action: 'signup_link', prospect_id: PROSPECT, email: true }));
+    const body = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.equal(body.emailed, true, source);
+    assert.equal(mail.sent.length, 1, source);
+    assert.deepEqual(mail.sent[0].body.to, ['pat@x.invalid']);
+    assert.ok(mail.sent[0].body.html.includes('join.html?t=' + 'S'.repeat(43)), 'the email carries the signup link');
+    assert.ok(!mail.sent[0].body.html.includes('Pat <b>'), 'the name is escaped');
+    assert.match(mail.sent[0].body.subject, /^Brand A: /);
+    const rec = svc.log.find((l) => l.table === 'affiliate_notifications' && l.op === 'insert');
+    assert.equal(rec?.payload?.kind, 'signup_invite');
+    assert.equal(rec?.payload?.status, 'sent');
+    // Without email=true nothing is sent, as before.
+    const mail2 = fakeResend();
+    const h2 = createInviteHandler({ service: svc, userClientFor: () => caller().client, siteUrl: 'https://app.test', resendKey: 're_x', fetchImpl: mail2.fetchImpl, makeToken: () => 'S'.repeat(43) });
+    const b2 = await (await h2(authed({ action: 'signup_link', prospect_id: PROSPECT }))).json();
+    assert.equal(b2.emailed, false);
+    assert.equal(mail2.sent.length, 0);
+  }
 });
 
 await test('invite: a follow-up to an email the program already has reuses that record, never a second one', async () => {

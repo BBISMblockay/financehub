@@ -3890,3 +3890,11 @@ inactive owners. This migration prevents creating more inactive owners through
 profile editing; it does not repair existing inactive owners, redesign membership
 policies, or change the add/remove/role RPCs. A platform suspension policy and an
 active-owner invariant remain separate decisions.
+
+### Affiliate onboarding invite — 2026-11-17
+
+`20261117020000_affiliate_signup_invite_mail.sql` adds `signup_invite` to the
+`affiliate_notifications.kind` CHECK, so the onboarding invite affiliate-invite
+now emails (someone a manager added by hand, or who applied, once approved) is
+recorded. No table, policy or grant changes. Apply before deploying
+affiliate-invite.

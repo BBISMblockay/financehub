@@ -25,6 +25,7 @@
 // one creator survived the checks, free otherwise.
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
 import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
+import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef } from './lib/affiliate-youtube-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
   RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
@@ -52,13 +53,24 @@ export const ROUND_MIN_MS = 75_000;
 export const PHOTO_RUN_MS = 30_000;
 export const PHOTO_REFRESH_MS = 45_000;
 export const PHOTO_REFRESH_MAX = 30;
+// YouTube numbers (lib/affiliate-youtube-core.mjs, SILO's YOUTUBE_API_KEY):
+// after a run or an import, the YouTube creators it kept; "Refresh" checks up
+// to STATS_REFRESH_MAX whose numbers are missing or a week old. No key = off.
+export const STATS_RUN_MS = 25_000;
+export const STATS_REFRESH_MS = 40_000;
+export const STATS_REFRESH_MAX = 60;
+const PROSPECT_COLS = 'id, platform, handle, display_name, profile_url, contact_email, contact_source_url, evidence, collected_at';
+// Non-YouTube candidates get their structured profile now; YouTube ones get
+// it from the API lookup that follows, so a run never replaces a profile that
+// carries engagement with one that does not.
+const withProfile = (cands) => cands.map((c) => (channelRef(c.profile_url) ? c : { ...c, evidence: { ...c.evidence, creator_profile: buildCreatorProfile(c) } }));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
 export function createResearchHandler({
   service, userClientFor, apiKey, model = 'claude-sonnet-5-5', fetchImpl = fetch,
   background = (p) => p, now = () => new Date(), newId = () => crypto.randomUUID(),
-  serpCredentials = null, fetchSerp = null, photoFetch = null,
+  serpCredentials = null, fetchSerp = null, photoFetch = null, youtubeKey = '', youtubeFetch = fetch,
 }) {
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
@@ -91,6 +103,25 @@ export function createResearchHandler({
     if (error) return { checked: 0, stored: 0 };
     const todo = (data || []).filter((p) => p.profile_url && (urls || !p.evidence?.profile_image_stored)).slice(0, urls ? urls.length : PHOTO_REFRESH_MAX);
     return storeProspectPhotos({ service, company, prospects: todo, fetchImpl: photoFetch, now, deadline });
+  }
+
+  // YouTube numbers for prospects of THIS company and program, by profile URL
+  // (null = those missing numbers or a week old). Never throws.
+  async function statsFor({ company, program, urls = null, deadline }) {
+    if (!youtubeKey) return { checked: 0, updated: 0, failed: 0, skipped: 0, quota: false, off: true };
+    let q = service.from('affiliate_prospects').select(PROSPECT_COLS)
+      .eq('company_entity_id', company).eq('program_id', program.id).eq('platform', 'youtube');
+    if (urls) q = q.in('profile_url', urls);
+    const { data, error } = await q.order('collected_at', { ascending: false }).limit(urls ? urls.length : 500);
+    if (error) return { checked: 0, updated: 0, failed: 0, skipped: 0, quota: false };
+    const at = now();
+    const todo = (data || []).filter((p) => (urls ? true : needsYouTubeRefresh(p, at))).slice(0, urls ? urls.length : STATS_REFRESH_MAX);
+    return enrichYouTubeProspects({ service, company, prospects: todo, apiKey: youtubeKey, fetchImpl: youtubeFetch, now, deadline });
+  }
+
+  async function refreshStats({ company, program }) {
+    if (!youtubeKey) return reply({ error: 'Creator stats are not available right now.' }, 503);
+    return reply(await statsFor({ company, program, deadline: Date.now() + STATS_REFRESH_MS }));
   }
 
   async function refreshPhotos({ company, program }) {
@@ -172,10 +203,13 @@ export function createResearchHandler({
         const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
         usages = out.usages;
         const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted });
-        const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates, runId,
+        const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates: withProfile(candidates), runId,
           origin: { source: 'ai_research', collector: `affiliate-research/${RESEARCH_PROVIDER}` } });
         // Photos for the creators this run kept; never fails the run.
         await photosFor({ company: program.company_entity_id, program, urls: candidates.map((c) => c.profile_url), deadline: Date.now() + PHOTO_RUN_MS }).catch(() => {});
+        // YouTube numbers for the channels this run kept; never fails the run.
+        const ytUrls = candidates.filter((c) => channelRef(c.profile_url)).map((c) => c.profile_url);
+        if (ytUrls.length) await statsFor({ company: program.company_entity_id, program, urls: ytUrls, deadline: Date.now() + STATS_RUN_MS }).catch(() => {});
         outcome = stats.kept > 0 ? 'succeeded' : 'failed';
         await finishRun(row.id, {
           status: 'ok', results_returned: stats.returned, profiles_recognized: stats.kept,
@@ -203,8 +237,10 @@ export function createResearchHandler({
     const { candidates, stats } = importRowsToCandidates({ rows, program, collectedAt: started });
     const runId = newId();
     try {
-      const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: 'CSV import' }, candidates, runId,
+      const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: 'CSV import' }, candidates: withProfile(candidates), runId,
         origin: { source: 'csv_import', collector: 'affiliate-import' } });
+      const ytUrls = candidates.filter((c) => channelRef(c.profile_url)).map((c) => c.profile_url);
+      if (ytUrls.length) await statsFor({ company, program, urls: ytUrls, deadline: Date.now() + STATS_RUN_MS }).catch(() => {});
       await service.from('affiliate_discovery_runs').insert({
         company_entity_id: company, program_id: program.id, source_id: null, run_id: runId, provider: IMPORT_PROVIDER,
         query: 'CSV import', started_at: started, finished_at: now().toISOString(), status: 'ok',
@@ -246,6 +282,7 @@ export function createResearchHandler({
     if (!program) return reply({ error: 'Program not found.' }, 404);
 
     if (body?.action === 'refresh_photos') return refreshPhotos({ company, program });
+    if (body?.action === 'refresh_stats') return refreshStats({ company, program });
     if (body?.action === 'research') return research({ company, program, body, callerId: who?.user?.id ?? null });
     if (body?.action === 'import') return importRows({ company, program, body });
     return reply({ error: 'Unknown action.' }, 400);

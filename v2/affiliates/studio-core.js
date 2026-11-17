@@ -335,8 +335,30 @@ export function runKindLabel(r = {}) {
 // Followers as a page stated them (AI research), or as the imported file said.
 export function followersFrom(evidence) {
   const e = evidence || {};
+  // YouTube's own subscriber count wins (lib/affiliate-youtube-core.mjs).
+  const yf = e.creator_profile?.followers;
+  if (yf?.source === 'youtube_api' && Number.isFinite(Number(yf.value))) return { count: Number(yf.value), source_url: yf.source_url || null, as_of: yf.as_of || null, kind: 'youtube' };
   if (!Number.isFinite(Number(e.followers)) || e.followers === null || e.followers === '') return null;
   return { count: Number(e.followers), source_url: e.followers_source_url || null, as_of: e.followers_as_of || null, kind: e.followers_source_kind || null };
+}
+
+// The measured numbers in a prospect's structured profile (evidence.creator_profile),
+// or null when nothing was measured. Never a zero for "not measured".
+export function creatorStats(evidence) {
+  const p = evidence?.creator_profile;
+  if (!p || typeof p !== 'object') return null;
+  const e = p.engagement || null;
+  const out = {
+    rate: Number.isFinite(Number(e?.rate)) && e?.rate !== null ? Number(e.rate) : null,
+    avgViews: Number.isFinite(Number(e?.avg_views)) && e?.avg_views !== null ? Number(e.avg_views) : null,
+    sample: e?.sample ?? null,
+    topics: Array.isArray(p.topics?.value) ? p.topics.value.slice(0, 4) : [],
+    brands: Array.isArray(p.brand_mentions?.domains) ? p.brand_mentions.domains.slice(0, 4).map((d) => d.domain) : [],
+    sponsored: p.brand_mentions?.sponsored_videos ?? null,
+    others: Array.isArray(p.other_profiles) ? p.other_profiles.slice(0, 4) : [],
+    country: p.country?.value || null,
+  };
+  return out.rate === null && out.avgViews === null && !out.topics.length && !out.brands.length && !out.others.length ? null : out;
 }
 
 // A creator's profile photo, as AI research read it on their own profile page:
