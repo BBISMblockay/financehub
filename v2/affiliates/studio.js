@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, fillTemplate, outreachTemplate, templateRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -947,6 +947,7 @@ function renderProspects() {
     if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
     if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
     if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
+    if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const who = (x) => {
@@ -1024,7 +1025,19 @@ function renderProspects() {
   const findRow = MANAGE
     ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`
     : '';
+  // Fill in what search did not find (Blake, 2026-11-17: "so they can CRM it
+  // up"). A person's entry is kept: research only fills blanks.
+  const ed = S.editProspect ? d.prospectById[S.editProspect] : null;
+  const PLATS = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'];
+  const editor = ed && MANAGE ? card(`Edit ${ed.display_name || ed.handle || 'creator'}`, `<div class="af-grid">
+      ${field('Name', input('epName', `value="${esc(ed.display_name || '')}" maxlength="200"`))}
+      ${field('Platform', `<select class="bcn-field" id="epPlat">${PLATS.map((x) => `<option value="${x}"${x === ed.platform ? ' selected' : ''}>${esc(PLATFORM_NAMES[x] || x)}</option>`).join('')}</select>`)}
+      ${field('Handle', input('epHandle', `value="${esc(ed.handle || '')}" placeholder="@name"`))}
+      ${field('Profile URL', input('epUrl', `value="${esc(ed.profile_url || '')}" placeholder="https://"`))}
+      ${field('Email', input('epEmail', `type="email" value="${esc(ed.contact_email || '')}"`))}
+    </div><div class="af-row" style="margin-top:8px;">${btn('Save', 'prospect-save', { id: ed.id }, 'primary')}${btn('Close', 'prospect-edit-close')}</div>`) : '';
   $('prospectsBody').innerHTML = [
+    editor,
     surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}${viewToggle()}</div>
       ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
         ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
@@ -2096,6 +2109,23 @@ const A = {
     }
     await updateRows('affiliate_prospects', { status: 'suppressed', reviewed_by: me.id, reviewed_at: new Date().toISOString() }, { id });
     return 'Added to the do-not-contact list.';
+  },
+  'prospect-edit': ({ id }) => { S.editProspect = id; render(); scrollWorkflowTo('prospectsBody'); return null; },
+  'prospect-edit-close': () => { S.editProspect = null; render(); return null; },
+  'prospect-save': async ({ id }) => {
+    const x = S.d.prospectById[id]; if (!x) return null;
+    const row = prospectEditRow({ name: val('epName'), platform: val('epPlat'), handle: val('epHandle'), url: val('epUrl'), email: val('epEmail') }, x);
+    await updateRows('affiliate_prospects', { ...row, changed_by: me.id }, { id });
+    // A creator who now has an email is reached by email: their waiting
+    // message moves from DM to email. Sent ones keep their history.
+    let moved = 0;
+    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {
+      const r = must(await db.from('affiliate_outreach_drafts').update({ channel: 'email', recipient_email: row.contact_email })
+        .eq('company_entity_id', CO).eq('prospect_id', id).in('state', ['draft', 'approved']).select('id'));
+      moved = r?.length || 0;
+    }
+    S.editProspect = null;
+    return `Saved.${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
   },
   'prospect-add': async () => {
     const url = val('mpUrl'); const handle = val('mpHandle');

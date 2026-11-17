@@ -156,6 +156,7 @@ const MUTATIONS = {
   qpickall: ['/affiliates/studio.js', "    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';\n    const rows", "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);\n    const rows"],
   contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
+  editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
 };
@@ -1550,6 +1551,22 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ctNoMoney.click('#affiliatesBody [data-act="q-all"][data-q="content"]');
     R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#affiliatesBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#affiliatesBody [data-act="q-content-ok"]')));
     await ctNoMoney.close();
+    // A person fills in what search did not find; a waiting DM becomes an email.
+    const edit = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
+    edit.on('pageerror', (e) => errors.push(e.message));
+    await edit.click('#tabs [data-tab="people"]');
+    await edit.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-edit"][data-id="p1"]'), null, { timeout: 5000 });
+    await edit.click('#prospectsBody [data-act="prospect-edit"][data-id="p1"]');
+    await edit.waitForSelector('#epEmail', { timeout: 5000 });
+    await edit.fill('#epEmail', 'Sam@Runs.Example');
+    await edit.click('#prospectsBody [data-act="prospect-save"]');
+    await edit.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update'), null, { timeout: 5000 });
+    const pe = await edit.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'update').pop());
+    R.ok('Edit saves the email a person typed, marked as entered by a person', pe?.patch?.contact_email === 'sam@runs.example' && pe.patch.contact_source_url === null);
+    const mv = await edit.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').pop());
+    R.ok('the waiting message moves from DM to email', mv.patch.channel === 'email' && mv.patch.recipient_email === 'sam@runs.example');
+    R.ok('only messages not yet sent', mv.filters.some((f) => f.op === 'in' && f.col === 'state' && JSON.stringify(f.vals) === JSON.stringify(['draft', 'approved'])));
+    await edit.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

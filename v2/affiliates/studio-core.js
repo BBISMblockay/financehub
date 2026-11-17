@@ -109,6 +109,22 @@ export function templateRow(subject, body) {
   return { row, errors };
 }
 
+// A person's edit of a creator (Blake, 2026-11-17). An email typed here was
+// given or found by a person, so its "where it was stated" link is cleared
+// when the email changes. Throws a message a person can act on.
+export function prospectEditRow(f, before = {}) {
+  const name = String(f.name ?? '').trim();
+  const handle = String(f.handle ?? '').trim();
+  const url = String(f.url ?? '').trim();
+  const email = String(f.email ?? '').trim().toLowerCase();
+  if (!handle && !url) throw new Error('A handle or a profile URL is needed to tell creators apart.');
+  if (url && !/^https?:\/\/\S+$/i.test(url)) throw new Error('The profile URL must start with https://');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('That email address is not valid.');
+  const row = { display_name: name || handle || url, platform: String(f.platform || before.platform || 'other'), handle: handle || null, profile_url: url || null, contact_email: email || null };
+  if ((email || null) !== (String(before.contact_email || '').toLowerCase() || null)) row.contact_source_url = null;
+  return row;
+}
+
 export function validateProgram(f) {
   const errors = [];
   const currency = String(f.currency || 'USD').trim().toUpperCase();
