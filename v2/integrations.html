@@ -2044,6 +2044,12 @@
           body: JSON.stringify({ company_entity_id: _co.id, shop_domain: domain, client_id: clientId, client_secret: clientSecret }),
         });
         const data = await res.json().catch(() => ({}));
+        // Already connected through SILO's own Shopify app: reconnect it that
+        // way (to grant a new permission such as discounts), never by switching apps.
+        if (res.status === 409) {
+          document.getElementById('btn-connect-shopify').hidden = false;
+          throw new Error('Already connected through SILO\'s Shopify app. Press Connect with Shopify to reconnect it.');
+        }
         if (!res.ok || !data.ok) throw new Error(data.error || `Connect failed (${res.status})`);
         document.getElementById('shop-client-secret').value = '';
         closeAddForm();
