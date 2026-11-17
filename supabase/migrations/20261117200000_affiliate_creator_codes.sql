@@ -9,8 +9,9 @@
 --    `create or replace` keeps them.
 -- 2. affiliate_queue_first_code(): passes the handle first. Body otherwise the
 --    20261110180000 one, verbatim.
--- 3. affiliate_notifications.kind gains 'seed_code': SILO now makes a seed
---    code in Shopify itself and emails it to that affiliate only.
+-- 3. affiliate_notifications.kind gains 'seed_code' (SILO makes a seed code in
+--    Shopify itself and emails it to that affiliate only) and 'earnings' (the
+--    nightly "you earned $X" notice).
 --
 -- Idempotent. No data changes: codes already made keep their text.
 
@@ -91,4 +92,4 @@ revoke all on function public.affiliate_queue_first_code() from public, anon, au
 
 alter table public.affiliate_notifications drop constraint if exists affiliate_notifications_kind_check;
 alter table public.affiliate_notifications add constraint affiliate_notifications_kind_check
-  check (kind in ('signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal', 'signup_invite', 'seed_code'));
+  check (kind in ('signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal', 'signup_invite', 'seed_code', 'earnings'));

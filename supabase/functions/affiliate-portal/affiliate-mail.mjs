@@ -14,7 +14,7 @@
 
 export const NOTIFICATION_KINDS = new Set([
   'signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal',
-  'signup_invite', 'seed_code',
+  'signup_invite', 'seed_code', 'earnings',
 ]);
 
 const encoder = new TextEncoder();

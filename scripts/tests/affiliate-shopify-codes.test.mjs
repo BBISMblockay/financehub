@@ -42,6 +42,8 @@ const muts = {
   scseednear: ['shopify-codes.mjs', '.find((n) => n?.handle === handle)', '.find(Boolean)'],
   scseedstate: ['handler.mjs', ".eq('id', c.id).eq('company_entity_id', co).eq('state', 'approved').select('id');", ".eq('id', c.id).eq('company_entity_id', co).select('id');"],
   scseedpages: ['handler.mjs', 'if (sweep && !peek.after) results.push', 'if (sweep) results.push'],
+  scearnagain: ['handler.mjs', 'const fresh = list.filter((r) => !after || r.created_at > after);', 'const fresh = list;'],
+  scearnanon: ['handler.mjs', 'if (isService && !codeId) {', 'if (!codeId || codeId) {'],
   // A code SILO picked itself is left waiting instead of taking the next free text.
   scnorename: ['handler.mjs', "if (e?.kind !== 'taken' || c.created_by) throw e;", 'throw e;'],
 };
@@ -163,18 +165,18 @@ const CO = '3f000000-0000-4000-8000-000000000001';
 const OTHER = '3f000000-0000-4000-8000-0000000000ff';
 const PROG = '3f000000-0000-4000-8000-000000000002';
 const CODE = '3f000000-0000-4000-8000-000000000009';
-function fakeService({ codes, seeds = [], conns = [CONN], program = { id: PROG, store_url: 'https://brand.myshopify.com', shop_domains: ['brand.myshopify.com'] }, stillPending = true } = {}) {
+function fakeService({ codes, seeds = [], ledger = [], sentEarnings = [], conns = [CONN], program = { id: PROG, store_url: 'https://brand.myshopify.com', shop_domains: ['brand.myshopify.com'] }, stillPending = true } = {}) {
   const log = [];
   return {
     log,
-    rpc: async (name, args) => { log.push({ kind: 'rpc', name, args }); return { data: name === 'silo_company_timezone' ? 'America/Los_Angeles' : name === 'affiliate_claim_code_notices' ? [] : name === 'affiliate_program_store_url' ? 'https://brand.com' : name === 'affiliate_outreach_can_contact' ? true : null, error: null }; },
+    rpc: async (name, args) => { log.push({ kind: 'rpc', name, args }); return { data: name === 'affiliate_issue_access_token' ? 'tok-id' : name === 'silo_company_timezone' ? 'America/Los_Angeles' : name === 'affiliate_claim_code_notices' ? [] : name === 'affiliate_program_store_url' ? 'https://brand.com' : name === 'affiliate_outreach_can_contact' ? true : null, error: null }; },
     from: (table) => {
       const f = {}; let op = 'select'; let payload = null;
       const b = {
         select() { return b; }, order(k) { (f.__order ||= []).push(k); return b; }, limit(n) { f.__limit = n; return b; }, maybeSingle() { b.one = true; return b; },
         or(x) { f.__or = x; return b; },
         eq(k, v) { f[k] = v; return b; }, in(k, v) { f[k] = { in: v }; return b; },
-        is(k, v) { f[`${k}__is`] = v; return b; }, not(k, o, v) { f[`${k}__not`] = [o, v]; return b; },
+        is(k, v) { f[`${k}__is`] = v; return b; }, gt(k, v) { f[`${k}__gt`] = v; return b; }, not(k, o, v) { f[`${k}__not`] = [o, v]; return b; },
         update(p) { op = 'update'; payload = p; return b; },
         insert(p) { op = 'insert'; payload = p; return b; },
         then(res) {
@@ -194,6 +196,8 @@ function fakeService({ codes, seeds = [], conns = [CONN], program = { id: PROG, 
           if (table === 'affiliate_programs') data = program;
           if (table === 'affiliates') data = { id: 'aff', program_id: PROG, display_name: 'Pat', contact_email: 'pat@example.test', status: 'active' };
           if (table === 'entities') data = { title: 'Brandco' };
+          if (table === 'affiliate_commission_ledger') data = ledger.filter((r) => r.kind === f.kind && r.created_at > f.created_at__gt);
+          if (table === 'affiliate_notifications' && op === 'select') data = sentEarnings.filter((n) => n.affiliate_id === f.affiliate_id);
           if (table === 'affiliate_seed_claims' && op === 'select') {
             data = seeds.filter((c) => c.state === 'approved' && !c.shopify_discount_id && (!f.company_entity_id || c.company_entity_id === f.company_entity_id) && (!f.id?.in || f.id.in.includes(c.id)));
           }
@@ -332,6 +336,29 @@ await test('seeding: the staff "make everything" and the nightly sweep include p
   svc = fakeService({ codes: [], seeds: [seed()] });
   out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes', code_id: CODE }, 'Bearer anon'))).json();
   assert.ok(!svc.log.some((x) => x.table === 'affiliate_seed_claims'), 'the portal\'s one-code kick never makes product codes');
+});
+
+await test('earnings: the nightly run mails each affiliate what they earned since their last notice, once; never a backlog', async () => {
+  const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const L = (h, cents, order) => ({ company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', amount_cents: cents, currency: 'USD', created_at: at(h), order_id: order, kind: 'accrual' });
+  let sent = [];
+  const fetchImpl = async (url, init) => { if (String(url).startsWith('https://api.resend.com')) { sent.push(JSON.parse(init.body)); return Response.json({ id: 'em' }); } return fakeShopify().fetchImpl(url, init); };
+  let svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1'), L(4, 330, 'o2'), L(200, 9999, 'old')] });
+  let out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices' }, 'Bearer svc-key'))).json();
+  assert.deepEqual(out.earnings.map((r) => [r.email, r.cents]), [['sent', 550]], 'two orders in the window; the old one is never mailed');
+  assert.equal(sent[0].subject, 'Brandco: you earned $5.50');
+  assert.match(sent[0].html, /on 2 orders with Brandco/);
+  assert.match(sent[0].html, /See my earnings/);
+  assert.equal(svc.log.find((x) => x.table === 'affiliate_notifications' && x.op === 'insert').payload.kind, 'earnings');
+  sent = [];
+  svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1'), L(1, 100, 'o3')], sentEarnings: [{ affiliate_id: 'aff', created_at: at(3) }] });
+  out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices' }, 'Bearer svc-key'))).json();
+  assert.deepEqual(out.earnings.map((r) => r.cents), [100], 'only what came after the last notice');
+  sent = [];
+  svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1')] });
+  out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices', code_id: CODE }, 'Bearer anon'))).json();
+  assert.equal(out.earnings, null, 'a single-code call (no service key) sends no earnings mail');
+  assert.equal(sent.length, 0);
 });
 
 await test('access: no gate, no codes; one code by id needs no session; the all-company sweep needs the service key', async () => {

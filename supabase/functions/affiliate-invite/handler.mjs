@@ -51,6 +51,8 @@ export const corsHeaders = {
 };
 export const SIGNUP_LINK_DAYS = 14;
 export const PORTAL_LINK_DAYS = 90;
+// How far back the nightly earnings notice looks (a missed night is still covered).
+export const EARNINGS_LOOKBACK_H = 72;
 // Prospects SILO may email an onboarding invite: added by a manager, or
 // applied themselves. Never 'serp' / 'ai_research' / 'csv_import' -- a
 // creator a search found has not asked to hear from this brand.
@@ -233,6 +235,58 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       return { status: 'no_store', reason: `the program's store address is not ${conn.shop_domain}; fix it in Setup` };
     }
     return { conn };
+  }
+
+  // Earnings notices (Blake 2026-11-17): once a night, each active affiliate
+  // credited since their last notice gets one short email with the total and
+  // a portal button. Looks back at most EARNINGS_LOOKBACK_H, so a first run
+  // never mails a backlog. Service key only (the nightly run).
+  async function deliverEarningsNotices() {
+    const since = new Date(now().getTime() - EARNINGS_LOOKBACK_H * 3600 * 1000).toISOString();
+    const { data: rows, error } = await service.from('affiliate_commission_ledger')
+      .select('company_entity_id, program_id, affiliate_id, amount_cents, currency, created_at, order_id')
+      .eq('kind', 'accrual').gt('created_at', since).order('created_at').limit(2000);
+    if (error) throw new Error(error.message);
+    const by = new Map();
+    for (const r of rows || []) {
+      const k = `${r.company_entity_id}|${r.affiliate_id}|${r.currency}`;
+      if (!by.has(k)) by.set(k, []);
+      by.get(k).push(r);
+    }
+    const results = [];
+    for (const list of [...by.values()].slice(0, 200)) {
+      const f = list[0];
+      try {
+        const { data: last } = await service.from('affiliate_notifications').select('created_at')
+          .eq('company_entity_id', f.company_entity_id).eq('affiliate_id', f.affiliate_id).eq('kind', 'earnings').eq('status', 'sent')
+          .order('created_at', { ascending: false }).limit(1);
+        const after = last?.[0]?.created_at || null;
+        const fresh = list.filter((r) => !after || r.created_at > after);
+        const cents = fresh.reduce((t, r) => t + Number(r.amount_cents || 0), 0);
+        if (!fresh.length || cents <= 0) continue;
+        const { data: a } = await service.from('affiliates').select('id, program_id, display_name, contact_email, status')
+          .eq('id', f.affiliate_id).eq('company_entity_id', f.company_entity_id).maybeSingle();
+        if (!a || a.status !== 'active') continue;
+        const { data: co } = await service.from('entities').select('title').eq('id', f.company_entity_id).maybeSingle();
+        const brand = co?.title || 'Affiliate program';
+        const orders = new Set(fresh.map((r) => r.order_id).filter(Boolean)).size || fresh.length;
+        const amount = formatMoney(cents, f.currency);
+        let portal = null;
+        try { if (a.contact_email) portal = await mintMailed({ company: f.company_entity_id, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS }); }
+        catch (e) { console.error('[affiliate-invite] portal link for earnings mail', e?.message); }
+        const { html, text } = renderMail({ brand, heading: `You earned ${amount}`,
+          paragraphs: [`Hi ${escapeHtml(a.display_name)}, you earned <strong>${escapeHtml(amount)}</strong> on ${orders} ${orders === 1 ? 'order' : 'orders'} with ${escapeHtml(brand)}.`,
+            `It is paid to your PayPal after ${escapeHtml(brand)}'s refund window.`],
+          ctas: portal ? [{ url: portal.url, label: 'See my earnings' }] : [] });
+        const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: f.company_entity_id, programId: a.program_id, affiliateId: a.id,
+          kind: 'earnings', to: a.contact_email, subject: `${brand}: you earned ${amount}`, html, text, triggeredBy: null });
+        results.push({ affiliate_id: a.id, email: mail?.status ?? 'skipped', cents });
+      } catch (e) {
+        console.error('[affiliate-invite] earnings notice', f.affiliate_id, e?.message);
+        results.push({ affiliate_id: f.affiliate_id, email: 'failed' });
+      }
+    }
+    return results;
   }
 
   // Product seeding codes, made by SILO like every other code (Blake
@@ -431,7 +485,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         catch { isService = false; }
       }
       if (!codeId && !isService) return reply({ error: 'Unauthorized' }, 401);
-      try { return reply({ delivered: await deliverCodeNotices({ code_id: codeId }) }); }
+      try {
+        const delivered = await deliverCodeNotices({ code_id: codeId });
+        // The nightly run (service, no code) also sends the earnings notices.
+        let earnings = null;
+        if (isService && !codeId) {
+          try { earnings = await deliverEarningsNotices(); } catch (e) { console.error('[affiliate-invite] earnings notices', e?.message); }
+        }
+        return reply({ delivered, earnings });
+      }
       catch (err) { console.error('[affiliate-invite] notices', err?.message); return reply({ error: 'Could not deliver notices' }, 500); }
     }
 

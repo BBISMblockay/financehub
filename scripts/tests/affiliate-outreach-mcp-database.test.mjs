@@ -1532,7 +1532,7 @@ await check('CR1 a new affiliate\'s code is their handle (else whole name) + per
   for (const role of ['anon', 'authenticated', 'silo_integration']) {
     assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_suggest_code(uuid, text, integer)', 'execute') as v`)).v, false, role);
   }
-  await db.query(`insert into affiliate_notifications(company_entity_id, program_id, affiliate_id, kind, to_email, status, provider) values ($1,$2,$3,'seed_code','x@loop.test','sent','resend')`, [A, progA, noHandle]);
+  await db.query(`insert into affiliate_notifications(company_entity_id, program_id, affiliate_id, kind, to_email, status, provider) values ($1,$2,$3,'seed_code','x@loop.test','sent','resend'),($1,$2,$3,'earnings','x@loop.test','sent','resend')`, [A, progA, noHandle]);
   const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   const i = v.indexOf("select 'Affiliate creator codes' as check_name");
   assert.ok(i > 0, 'verify_v2_schema has the check');
