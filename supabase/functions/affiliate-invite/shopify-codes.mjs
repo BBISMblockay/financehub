@@ -84,7 +84,12 @@ export function nextDay(day) {
   return d.toISOString().slice(0, 10);
 }
 
-/** The Shopify input for one code (DiscountCodeBasicInput). */
+/**
+ * The Shopify input for one code (DiscountCodeBasicInput). A seed code
+ * (code.product_id set) is that product only, used once, by one customer:
+ * Blake 2026-11-17, a one-use code emailed only to the affiliate stands in
+ * for a customer lock.
+ */
 export function discountInput(code, tz) {
   const pct = Number(code.discount_percent);
   if (!(pct > 0 && pct <= 100)) throw new Error('This code has no percent off to give.');
@@ -97,9 +102,22 @@ export function discountInput(code, tz) {
     // The last second of ends_on, so Shopify shows that day as the last one.
     endsAt: code.ends_on ? new Date(Date.parse(dayStartIso(nextDay(code.ends_on), tz)) - 1000).toISOString() : null,
     customerSelection: { all: true },
-    customerGets: { value: { percentage: Math.round(pct * 100) / 10000 }, items: { all: true } },
-    appliesOncePerCustomer: false,
+    customerGets: {
+      value: { percentage: Math.round(pct * 100) / 10000 },
+      items: code.product_id ? { products: { productsToAdd: [code.product_id] } } : { all: true },
+    },
+    appliesOncePerCustomer: Boolean(code.product_id),
+    ...(code.product_id ? { usageLimit: 1 } : {}),
   };
+}
+
+const PRODUCT_Q = 'query SiloProduct($handle: String!) { productByHandle(handle: $handle) { id } }';
+/** A product's id from its store path (/products/<handle>), or null. */
+export async function productIdForPath(conn, path, fetchImpl = fetch) {
+  const m = /^\/products\/([A-Za-z0-9_.~%-]+)/.exec(String(path || ''));
+  if (!m) return null;
+  const data = await adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query: PRODUCT_Q, variables: { handle: decodeURIComponent(m[1]) }, fetchImpl });
+  return data?.productByHandle?.id || null;
 }
 
 const SCOPES_Q = 'query SiloScopes { currentAppInstallation { accessScopes { handle } } shop { myshopifyDomain primaryDomain { host } } }';

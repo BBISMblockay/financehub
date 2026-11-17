@@ -125,25 +125,33 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     const today = localDay(now(), tz);
     const current = (codes || []).find((c) => c.starts_on <= today && (!c.ends_on || c.ends_on >= today));
     const shopLink = current ? affiliateLink(store, current.code, '/') : null;
+    const shown = live || current?.code || (codes || [])[0]?.code || null;
     const paras = live
-      ? [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} code <strong>${escapeHtml(live)}</strong> is live. Share it, or your link below, and you earn on every sale that uses it.`]
-      : [`Hi ${escapeHtml(a.display_name)}, here are your current ${escapeHtml(brand)} affiliate details.`];
-    if (codes?.length) paras.push(`<strong>Codes</strong><br>${codes.map((c) => `${escapeHtml(c.code)} (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join('<br>')}`);
-    const linkLines = [
-      ...(shopLink ? [`${escapeHtml(shopLink)} (your code is applied at checkout)`] : []),
-      ...(links || []).map((l) => {
-        let u = current ? storeLinkFor(store, current.code, l.destination_url) : null;
-        if (!u) {
-          const x = new URL(l.destination_url);
-          for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
-          u = x.toString();
-        }
-        return `${escapeHtml(u)} (${escapeHtml(dates(l.starts_on, l.ends_on))})`;
-      }),
+      ? [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} code is live. Share it, or your link, and you earn on every sale that uses it.`]
+      : [`Hi ${escapeHtml(a.display_name)}, here is your ${escapeHtml(brand)} code.`];
+    const others = (codes || []).filter((c) => c.code !== shown);
+    if (others.length) paras.push(`Also yours: ${others.map((c) => `<strong>${escapeHtml(c.code)}</strong> (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join(', ')}.`);
+    const own = (codes || []).find((c) => c.code === shown);
+    if (own?.ends_on) paras.push(`Works ${escapeHtml(dates(own.starts_on, own.ends_on))}.`);
+    paras.push('Your portal has a ready link for every product and post you can share.');
+    // Buttons, not addresses (Blake 2026-11-17). The portal link goes only to
+    // the rep's own address, so it is a mailed (bound) one.
+    let portal = null;
+    try { if (a.contact_email) portal = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS }); }
+    catch (e) { console.error('[affiliate-invite] portal link for code mail', e?.message); }
+    const ctas = [
+      ...(shopLink ? [{ url: shopLink, label: 'Shop with my code' }] : []),
+      ...(portal ? [{ url: portal.url, label: 'Open my portal' }] : []),
     ];
-    if (linkLines.length) paras.push(`<strong>Links</strong><br>${linkLines.join('<br>')}`);
-    paras.push('A sale counts when the customer uses your code at checkout, within the dates shown.');
-    const { html, text } = renderMail({ brand, heading: live ? 'Your code is live' : 'Your codes and links', paragraphs: paras, footer: 'Reply to this email with any questions.' });
+    // A link the brand added by hand with no store behind it still has to reach them.
+    const loose = (links || []).filter((l) => !(current && storeLinkFor(store, current.code, l.destination_url)));
+    for (const l of loose.slice(0, 3)) {
+      const x = new URL(l.destination_url);
+      for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
+      ctas.push({ url: x.toString(), label: x.hostname.replace(/^www\./, '') });
+    }
+    const { html, text } = renderMail({ brand, heading: live ? 'Your code is live' : 'Your code', paragraphs: paras, code: shown, ctas,
+      footer: 'A sale counts when the customer uses your code at checkout. Reply to this email with any questions.' });
     return sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
       kind: 'codes_and_links', to: a.contact_email,
       subject: live ? `${brand}: your code ${live} is live` : `${brand}: your affiliate codes and links`, html, text, triggeredBy: actor });

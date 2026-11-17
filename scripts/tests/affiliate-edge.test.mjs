@@ -809,7 +809,7 @@ await test('invite: a paid payout is announced once, even when two ask at the sa
   assert.equal(lmail.sent.length, 0, 'the log says it went; nothing is sent again');
 });
 
-await test('invite: the codes email gives links that apply the code, on the store the brand named', async () => {
+await test('invite: the codes email shows the code and buttons that apply it, on the store the brand named', async () => {
   const mail = fakeResend();
   const svc = fakeService({ rpc: { ...noSuppression, affiliate_program_store_url: { data: 'https://shop.brand.test', error: null } }, tables: {
     affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
@@ -821,8 +821,11 @@ await test('invite: the codes email gives links that apply the code, on the stor
     authed({ action: 'notify', affiliate_id: AFF, kind: 'codes_and_links' }));
   assert.equal(res.status, 200);
   const html = mail.sent[0].body.html;
-  assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'the store home with the code');
-  assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2Fproducts%2Fhat'), 'the store page with the code');
+  assert.ok(html.includes('href="https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'a button to the store home with the code');
+  assert.ok(/>Shop with my code<\/a>/.test(html), 'labelled, not the address');
+  assert.ok(!/>https?:\/\//.test(html), 'no address is shown as text');
+  assert.ok(/letter-spacing:\.06em">PAT10<\/div>/.test(html), 'the code itself, large');
+  assert.ok(html.includes('Your portal has a ready link'), 'store pages live in the portal');
   assert.ok(svc.log.some((c) => c.name === 'affiliate_program_store_url' && c.args.p_company === CO && c.args.p_program === PROG));
 });
 
