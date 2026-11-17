@@ -106,7 +106,15 @@ export async function safeGet(raw, { fetchImpl, max, accept, timeoutMs = FETCH_T
  * `fallbackImageUrl` (a photo URL AI research proved was on that page).
  * -> { bytes, type, ext, imageUrl } or null.
  */
-export async function grabProfilePhoto({ profileUrl, fallbackImageUrl = null, fetchImpl }) {
+export async function grabProfilePhoto({ profileUrl, fallbackImageUrl = null, knownImageUrl = null, fetchImpl }) {
+  // A photo an official API already gave us (YouTube's channel thumbnail) is
+  // tried first, without opening the profile page.
+  const known = safeHttpsUrl(knownImageUrl || '');
+  if (known) {
+    const img = await safeGet(known, { fetchImpl, max: IMAGE_MAX_BYTES, accept: 'image/*' });
+    const kind = img && /^image\//.test(img.type) ? imageKind(img.bytes) : null;
+    if (kind) return { bytes: img.bytes, type: kind.type, ext: kind.ext, imageUrl: known };
+  }
   let imageUrl = null;
   const page = await safeGet(profileUrl, { fetchImpl, max: PAGE_MAX_BYTES, accept: 'text/html,application/xhtml+xml' });
   if (page && /html|xml|^$/.test(page.type)) imageUrl = profileImageFromHtml(new TextDecoder().decode(page.bytes), page.url);
@@ -134,7 +142,7 @@ export async function storeProspectPhotos({ service, company, prospects, fetchIm
       const p = queue.shift();
       out.checked += 1;
       try {
-        const photo = await grabProfilePhoto({ profileUrl: p.profile_url, fallbackImageUrl: p.evidence?.profile_image_stored ? null : p.evidence?.profile_image_url, fetchImpl });
+        const photo = await grabProfilePhoto({ profileUrl: p.profile_url, fallbackImageUrl: p.evidence?.profile_image_stored ? null : p.evidence?.profile_image_url, knownImageUrl: p.evidence?.youtube?.thumbnail_url, fetchImpl });
         if (!photo) continue;
         const path = `${company}/creator-photos/${p.id}.${photo.ext}`;
         const bucket = service.storage.from(PHOTO_BUCKET);

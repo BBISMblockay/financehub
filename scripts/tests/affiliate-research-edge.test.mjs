@@ -48,6 +48,7 @@
 //   AFFILIATE_RESEARCH_MUTATION=photoclobber the photo job rewrites evidence from its stale snapshot
 //   AFFILIATE_RESEARCH_MUTATION=ytclobber    the stats job rewrites evidence from its stale snapshot
 //   AFFILIATE_RESEARCH_MUTATION=rpcfallback  without the merge function, evidence is rewritten by read-then-write
+//   AFFILIATE_RESEARCH_MUTATION=ytthumb      a YouTube photo ignores the API's channel thumbnail
 //   AFFILIATE_RESEARCH_MUTATION=nocache      the research request is not cached
 //   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
 //   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
@@ -63,6 +64,7 @@ const ROOT = new URL('../../', import.meta.url);
 const FN = new URL('supabase/functions/affiliate-research/', ROOT);
 const CORE = 'lib/affiliate-research-core.mjs';
 const MUTS = {
+  ytthumb: ['lib/affiliate-photo-core.mjs', 'knownImageUrl: p.evidence?.youtube?.thumbnail_url, fetchImpl });', 'fetchImpl });'],
   gateorder: ['handler.mjs', '    const caller = userClientFor(authHeader);\n', "    await service.from('affiliate_programs').select('id');\n    const caller = userClientFor(authHeader);\n"],
   bodycompany: ['handler.mjs', ".eq('id', programId).eq('company_entity_id', company).maybeSingle();", ".eq('id', programId).eq('company_entity_id', body?.company_entity_id || company).maybeSingle();"],
   unverified: [CORE, '{ stats.unverified += 1; continue; }', '{ stats.unverified += 0; }'],
@@ -734,6 +736,16 @@ await test('photo and stats jobs running at once keep each other\'s results', as
   const ph3 = await LPH.storeProspectPhotos({ service: svc3, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
   assert.deepEqual([st3.updated, st3.failed, ph3.stored], [0, 1, 0], 'no unsafe read-then-write fallback');
   assert.deepEqual(svc3.tables.affiliate_prospects[0].evidence, { note: 'kept' });
+});
+
+await test('a YouTube photo comes from the channel thumbnail the API gave, without opening the page', async () => {
+  const LPH = await import(new URL('lib/affiliate-photo-core.mjs', LIVE));
+  const svc = fakeService({ affiliate_prospects: [{ id: 'yt-photo', company_entity_id: CO_A, program_id: PA, platform: 'youtube', profile_url: 'https://www.youtube.com/@one', evidence: { youtube: { thumbnail_url: 'https://yt3.example/one.jpg' }, profile_image_url: 'https://expired.example/old.jpg' } }] }, [], []);
+  const web = photoWeb({ 'https://yt3.example/one.jpg': () => resp(200, { body: JPEG, type: 'image/jpeg' }), 'https://www.youtube.com/@one': () => resp(403) });
+  const out = await LPH.storeProspectPhotos({ service: svc, company: CO_A, prospects: structuredClone(svc.tables.affiliate_prospects), fetchImpl: web });
+  assert.equal(out.stored, 1);
+  assert.equal(svc.tables.affiliate_prospects[0].evidence.profile_image_stored, true);
+  assert.ok(!web.asked.includes('https://www.youtube.com/@one'), 'the channel page is not opened');
 });
 
 await test('the research request is cached and reads short pages', async () => {
