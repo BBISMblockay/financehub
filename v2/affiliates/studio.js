@@ -938,6 +938,7 @@ function renderProspects() {
   for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
   S.viewIds = list.map((x) => x.id);
   const live = new Set(d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
+  const contacted = new Set(d.drafts.filter((x) => x.state === 'sent').map((x) => x.prospect_id));
   const actions = (x) => {
     if (!MANAGE) return '';
     const b = [];
@@ -945,6 +946,7 @@ function renderProspects() {
     if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' }));
     if (x.status === 'rejected') b.push(pill('rejected'));
     if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
+    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
     if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
     if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
     if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
@@ -1086,7 +1088,7 @@ function renderOutreach() {
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
   const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Edit', 'draft-edit', { id: x.id }) : ''}</div></article>`;
-  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div></article>`;
+  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Mark sent', 'dm-sent', { id: x.id })}</div></div>` : ''}</article>`;
   const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
   const drafts = byState('draft'); const readyAll = byState('approved'); const out = byState('exported');
   const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
@@ -2178,6 +2180,19 @@ const A = {
     S.flash = { el: 'signupOut', html: card('Signup link (send it yourself)', `<p>Personal to this person, valid until ${fmtTime(out.expires_at)}. SILO has not sent it. Making a new one cancels this one.</p><div class="bcn-field af-mono af-copy">${esc(out.signup_url)}</div>`) };
     return 'Signup link created.';
   },
+  // Reached outside SILO (a DM, a call, their own email): recorded as a sent
+  // message so the creator's history and counts include it.
+  'prospect-contacted': async ({ id }) => {
+    const x = S.d.prospectById[id]; if (!x) return null;
+    const at = new Date().toISOString();
+    must(await db.from('affiliate_outreach_drafts').insert({
+      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
+      recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
+      subject: null, body: 'Contacted outside SILO.', created_by: me.id, state: 'sent',
+      approved_by: me.id, approved_at: at, sent_marked_by: me.id, sent_marked_at: at, sent_evidence: 'Contacted by hand',
+    }));
+    return 'Marked contacted.';
+  },
   'draft-create': async ({ id }) => {
     const x = S.d.prospectById[id]; const vars = outreachVars(x); const tpl = outreachTemplate(prog());
     must(await db.from('affiliate_outreach_drafts').insert({
@@ -2208,7 +2223,8 @@ const A = {
   'dm-sent': async ({ id }) => {
     const x = S.d.drafts.find((r) => r.id === id);
     const plat = PLATFORM_NAMES[S.d.prospectById[x?.prospect_id]?.platform] || 'social';
-    await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: `Sent by DM on ${plat}` }, { id, state: 'approved' });
+    const how = x && !isDm(x) ? 'Sent by email by hand' : `Sent by DM on ${plat}`;
+    await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: how }, { id, state: 'approved' });
     return 'Marked sent.';
   },
   'draft-optout': async ({ id }) => {

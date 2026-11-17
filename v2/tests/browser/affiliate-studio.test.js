@@ -156,6 +156,7 @@ const MUTATIONS = {
   qpickall: ['/affiliates/studio.js', "    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';\n    const rows", "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);\n    const rows"],
   contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
+  nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
@@ -1567,6 +1568,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('the waiting message moves from DM to email', mv.patch.channel === 'email' && mv.patch.recipient_email === 'sam@runs.example');
     R.ok('only messages not yet sent', mv.filters.some((f) => f.op === 'in' && f.col === 'state' && JSON.stringify(f.vals) === JSON.stringify(['draft', 'approved'])));
     await edit.close();
+    // A rep marks a creator contacted by hand (reached outside SILO).
+    const mcp = await suite.open('/v2/affiliates/index.html', { ...ctTables, affiliate_outreach_drafts: [] }, { ready, rpc: ctRpc });
+    mcp.on('pageerror', (e) => errors.push(e.message));
+    await mcp.click('#tabs [data-tab="people"]');
+    await mcp.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-contacted"][data-id="p1"]'), null, { timeout: 5000 });
+    await mcp.click('#prospectsBody [data-act="prospect-contacted"][data-id="p1"]');
+    await mcp.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 });
+    const mrow = await mcp.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+    R.ok('Mark contacted records a sent message with who marked it', mrow?.state === 'sent' && !!mrow.sent_marked_by && mrow.sent_evidence === 'Contacted by hand' && mrow.prospect_id === 'p1');
+    await mcp.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });
