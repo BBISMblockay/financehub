@@ -313,6 +313,15 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         return reconcile(creds, { ...send, provider_batch_id: existing, state: 'sent' }, actor);
       }
       if (r.status >= 400 && r.status < 500) {
+        // A live account can pass the connect probe (reading a batch) and still
+        // be refused a SEND until PayPal approves Payouts: say that, and mark
+        // the connection so its card shows the same warning.
+        if (e.code === 'AUTHORIZATION_ERROR' || r.status === 403) {
+          e.message = 'PayPal has not enabled Payouts on this account yet. Request access at paypal.com/payoutsweb/landing, then send again. Nobody was paid.';
+          if (creds.company_entity_id) {
+            await saveTest(creds.company_entity_id, { payouts_enabled: false, last_test_success: false, last_test_error: e.message, last_tested_at: now().toISOString() }).catch(() => {});
+          }
+        }
         await record(send.id, 'refused', { errorCode: e.code, errorMessage: e.message, actor });
         return { state: 'refused', ...e };
       }

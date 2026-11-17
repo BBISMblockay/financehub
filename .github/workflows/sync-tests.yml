@@ -1386,7 +1386,7 @@ jobs:
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge ytcompany ytavgrate ythiddenzero ytoverwrite ytblank ytstale nocache knownkept knownbrief knownallco photoclobber ytclobber rpcfallback ytthumb ytnoleads ytanyplat leanoff leanalways
           run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
-          run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter
+          run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter noauthflag
       # Both suites below sat in this contract check's KNOWN_UNWIRED list until
       # 2026-11-16: they passed in review and then no workflow ever ran them,
       # which is how the readiness one drifted to two stale failures nobody saw.
