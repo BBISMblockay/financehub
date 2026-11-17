@@ -111,13 +111,17 @@ export function discountInput(code, tz) {
   };
 }
 
-const PRODUCT_Q = 'query SiloProduct($handle: String!) { productByHandle(handle: $handle) { id } }';
+// products(query:) rather than productByHandle, which newer API versions drop.
+const PRODUCT_Q = 'query SiloProduct($q: String!) { products(first: 1, query: $q) { nodes { id handle } } }';
 /** A product's id from its store path (/products/<handle>), or null. */
 export async function productIdForPath(conn, path, fetchImpl = fetch) {
   const m = /^\/products\/([A-Za-z0-9_.~%-]+)/.exec(String(path || ''));
   if (!m) return null;
-  const data = await adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query: PRODUCT_Q, variables: { handle: decodeURIComponent(m[1]) }, fetchImpl });
-  return data?.productByHandle?.id || null;
+  let handle; try { handle = decodeURIComponent(m[1]); } catch { return null; }
+  if (!/^[A-Za-z0-9_.~-]+$/.test(handle)) return null;
+  const data = await adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query: PRODUCT_Q, variables: { q: `handle:'${handle}'` }, fetchImpl });
+  const hit = (data?.products?.nodes || []).find((n) => n?.handle === handle);
+  return hit?.id || null;
 }
 
 const SCOPES_Q = 'query SiloScopes { currentAppInstallation { accessScopes { handle } } shop { myshopifyDomain primaryDomain { host } } }';

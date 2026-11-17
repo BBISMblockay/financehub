@@ -546,7 +546,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     loop.on('pageerror', (e) => errors.push(e.message));
     const todo = await text(loop, '#overviewBody');
     R.has(todo, 'code(s) waiting to be made in Shopify', 'a waiting code is on the list');
-    R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
+    // SILO makes every code itself (Blake 2026-11-17): the To do offers that, no AI prompt.
+    R.ok('with SILO making it, no AI prompt', !!(await loop.$('#overviewBody [data-act="code-make"]')) && !(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
     // SILO makes it in Shopify itself; a store that has not granted it says how.
     await loop.click('#overviewBody [data-act="code-make"]');
     await loop.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });

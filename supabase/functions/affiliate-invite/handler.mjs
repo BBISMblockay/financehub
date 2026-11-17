@@ -35,7 +35,7 @@
 //                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 import { ensureShopifyAccessToken } from './shopify-auth-lib.mjs';
-import { pickConnection, canMakeCodes, makeCode, storeMatches } from './shopify-codes.mjs';
+import { pickConnection, canMakeCodes, makeCode, storeMatches, productIdForPath } from './shopify-codes.mjs';
 
 // Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
@@ -187,6 +187,119 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
   // named (created / adopted / needs_scope / no_store / failed / skipped) and
   // anything but created/adopted leaves the code pending for the next try or
   // for the brand's own AI (codes:create), exactly as before.
+  // The Shopify store a program's codes are made in, ready to write, or why not.
+  const newStoreCaches = () => ({ conns: new Map(), ready: new Map(), tzs: new Map(), progs: new Map() });
+  async function storeFor(co, programId, caches) {
+    const { conns, ready, tzs, progs } = caches;
+    if (!conns.has(co)) {
+      const { data } = await service.from('shopify_connections')
+        .select('id, company_entity_id, shop_domain, is_active, access_token, api_version, auth_method, token_expires_at')
+        .eq('company_entity_id', co);
+      conns.set(co, data || []);
+      const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: co });
+      tzs.set(co, tz || 'UTC');
+    }
+    if (!progs.has(programId)) {
+      const { data } = await service.from('affiliate_programs').select('id, store_url, shop_domains')
+        .eq('id', programId).eq('company_entity_id', co).maybeSingle();
+      progs.set(programId, data);
+    }
+    const conn = pickConnection(progs.get(programId), conns.get(co));
+    if (!conn) return { status: 'no_store', reason: 'Pick the program\'s Shopify store in Setup.' };
+    if (!ready.has(conn.id)) {
+      let ok = false;
+      try {
+        await ensureShopifyAccessToken(service, conn, { fetchImpl });
+        ok = Boolean(conn.access_token) && await canMakeCodes(conn, fetchImpl);
+        // A store's own Dev Dashboard app: a token minted before the
+        // owner allowed discounts lacks it for up to a day. Mint once more.
+        if (!ok && conn.auth_method === 'client_credentials') {
+          conn.token_expires_at = null;
+          await ensureShopifyAccessToken(service, conn, { fetchImpl });
+          ok = await canMakeCodes(conn, fetchImpl);
+        }
+      }
+      catch (e) { console.error('[affiliate-invite] shopify scope check', conn.shop_domain, e?.message); ok = e?.kind === 'needs_scope' ? false : null; }
+      ready.set(conn.id, ok);
+    }
+    const r = ready.get(conn.id);
+    if (r === false) {
+      return { status: 'needs_scope', reason: conn.auth_method === 'client_credentials'
+        ? 'allow write_discounts on your Shopify app in the Dev Dashboard, then release it'
+        : 'reconnect Shopify in Integrations so SILO can make codes' };
+    }
+    if (r !== true) return { status: 'failed', reason: 'Shopify did not answer. Try again.' };
+    if (!storeMatches(progs.get(programId), conn)) {
+      return { status: 'no_store', reason: `the program's store address is not ${conn.shop_domain}; fix it in Setup` };
+    }
+    return { conn };
+  }
+
+  // Product seeding codes, made by SILO like every other code (Blake
+  // 2026-11-17: "All codes in studio should follow that path"). An approved
+  // claim already holds its text and terms; this makes it in Shopify as that
+  // one product, one use, then mails the code to that affiliate only. Anything
+  // short of made leaves the claim approved, so the next run (or the brand's
+  // own AI, codes:create) can still make it.
+  async function createSeedCodes({ company = null, claimIds = null, actor = null }) {
+    let q = service.from('affiliate_seed_claims')
+      .select('id, company_entity_id, program_id, affiliate_id, product_title, product_path, code, discount_percent, multiple, goal_days')
+      .eq('state', 'approved').is('shopify_discount_id', null).not('code', 'is', null)
+      .order('decided_at', { ascending: true }).limit(25);
+    if (company) q = q.eq('company_entity_id', company);
+    if (claimIds?.length) q = q.in('id', claimIds);
+    const { data: claims, error } = await q;
+    if (error) throw new Error(error.message);
+    const results = [];
+    const caches = newStoreCaches();
+    for (const c of claims || []) {
+      const co = c.company_entity_id;
+      const out = { seed_id: c.id, code: c.code };
+      try {
+        const st = await storeFor(co, c.program_id, caches);
+        if (st.status) { results.push({ ...out, status: st.status, reason: st.reason }); continue; }
+        const { conn } = st;
+        const productId = await productIdForPath(conn, c.product_path, fetchImpl);
+        if (!productId) { results.push({ ...out, status: 'no_product', reason: `${c.product_title} is not a product in ${conn.shop_domain}` }); continue; }
+        const tz = caches.tzs.get(co);
+        const { data: a } = await service.from('affiliates').select('id, program_id, display_name, contact_email, status')
+          .eq('id', c.affiliate_id).eq('company_entity_id', co).maybeSingle();
+        const made = await makeCode(conn, { code: c.code, starts_on: localDay(now(), tz), ends_on: null,
+          discount_percent: c.discount_percent, product_id: productId, affiliate: a?.display_name }, tz, fetchImpl);
+        const { data: upd, error: uErr } = await service.from('affiliate_seed_claims')
+          .update({ state: 'code_ready', shopify_discount_id: made.id, code_created_at: now().toISOString(), code_created_via_app: 'SILO' })
+          .eq('id', c.id).eq('company_entity_id', co).eq('state', 'approved').select('id');
+        if (uErr) { results.push({ ...out, status: 'failed', reason: uErr.message.replace(/^[a-z_]+:\s*/, '') }); continue; }
+        if (!upd?.length) { results.push({ ...out, status: 'skipped', reason: 'No longer waiting.' }); continue; }
+        results.push({ ...out, status: made.adopted ? 'adopted' : 'created', shopify_discount_id: made.id, shop: conn.shop_domain });
+        try { if (a?.status === 'active') await sendSeedCode({ company: co, a, claim: c, actor }); }
+        catch (e) { console.error('[affiliate-invite] seed notice', c.id, e?.message); }
+      } catch (e) {
+        console.error('[affiliate-invite] seed code', c.id, e?.message);
+        const kind = ['needs_scope', 'taken'].includes(e?.kind) ? e.kind : 'failed';
+        results.push({ ...out, status: kind, reason: String(e?.message || 'failed').slice(0, 240) });
+      }
+    }
+    return results;
+  }
+
+  async function sendSeedCode({ company, a, claim, actor }) {
+    const { data: co } = await service.from('entities').select('title').eq('id', company).maybeSingle();
+    const brand = co?.title || 'Affiliate program';
+    const { data: store } = await service.rpc('affiliate_program_store_url', { p_company: company, p_program: a.program_id });
+    const shop = affiliateLink(store, claim.code, claim.product_path || '/');
+    const pct = Number(claim.discount_percent);
+    const paras = [
+      `Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} request for <strong>${escapeHtml(claim.product_title)}</strong> is approved.`,
+      `This code takes ${escapeHtml(String(pct))}% off that product, once. It is for you only.`,
+      `Sell ${escapeHtml(String(Number(claim.multiple)))}× what you pay within ${escapeHtml(String(claim.goal_days))} days and ${escapeHtml(brand)} pays it back.`,
+    ];
+    const { html, text } = renderMail({ brand, heading: 'Your product code', paragraphs: paras, code: claim.code,
+      ctas: shop ? [{ url: shop, label: 'Get it now' }] : [], footer: 'Please do not share this code. Reply to this email with any questions.' });
+    return sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
+      kind: 'seed_code', to: a.contact_email, subject: `${brand}: your code for ${claim.product_title}`, html, text, triggeredBy: actor });
+  }
+
   async function createShopifyCodes({ company = null, codeIds = null, actor = null, from = null }) {
     // Keyset pages of 25 by (created_at, id). A code SILO cannot make stays
     // pending, so re-reading the first page would let one company's waiting
@@ -213,54 +326,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     }
     const next = pages > 1 && more ? { created_at: after.created_at, id: after.id } : null;
     const results = [];
-    const conns = new Map(); const ready = new Map(); const tzs = new Map(); const progs = new Map();
+    const caches = newStoreCaches();
     for (const c of codes || []) {
       const co = c.company_entity_id;
       const out = { code_id: c.id, code: c.code };
       try {
-        if (!conns.has(co)) {
-          const { data } = await service.from('shopify_connections')
-            .select('id, company_entity_id, shop_domain, is_active, access_token, api_version, auth_method, token_expires_at')
-            .eq('company_entity_id', co);
-          conns.set(co, data || []);
-          const { data: tz } = await service.rpc('silo_company_timezone', { p_company_entity_id: co });
-          tzs.set(co, tz || 'UTC');
-        }
-        if (!progs.has(c.program_id)) {
-          const { data } = await service.from('affiliate_programs').select('id, store_url, shop_domains')
-            .eq('id', c.program_id).eq('company_entity_id', co).maybeSingle();
-          progs.set(c.program_id, data);
-        }
-        const conn = pickConnection(progs.get(c.program_id), conns.get(co));
-        if (!conn) { results.push({ ...out, status: 'no_store', reason: 'Pick the program\'s Shopify store in Setup.' }); continue; }
-        if (!ready.has(conn.id)) {
-          let ok = false;
-          try {
-            await ensureShopifyAccessToken(service, conn, { fetchImpl });
-            ok = Boolean(conn.access_token) && await canMakeCodes(conn, fetchImpl);
-            // A store's own Dev Dashboard app: a token minted before the
-            // owner allowed discounts lacks it for up to a day. Mint once more.
-            if (!ok && conn.auth_method === 'client_credentials') {
-              conn.token_expires_at = null;
-              await ensureShopifyAccessToken(service, conn, { fetchImpl });
-              ok = await canMakeCodes(conn, fetchImpl);
-            }
-          }
-          catch (e) { console.error('[affiliate-invite] shopify scope check', conn.shop_domain, e?.message); ok = e?.kind === 'needs_scope' ? false : null; }
-          ready.set(conn.id, ok);
-        }
-        const r = ready.get(conn.id);
-        if (r === false) {
-          results.push({ ...out, status: 'needs_scope', reason: conn.auth_method === 'client_credentials'
-            ? 'allow write_discounts on your Shopify app in the Dev Dashboard, then release it'
-            : 'reconnect Shopify in Integrations so SILO can make codes' });
-          continue;
-        }
-        if (r !== true) { results.push({ ...out, status: 'failed', reason: 'Shopify did not answer. Try again.' }); continue; }
-        if (!storeMatches(progs.get(c.program_id), conn)) {
-          results.push({ ...out, status: 'no_store', reason: `the program's store address is not ${conn.shop_domain}; fix it in Setup` });
-          continue;
-        }
+        const st = await storeFor(co, c.program_id, caches);
+        if (st.status) { results.push({ ...out, status: st.status, reason: st.reason }); continue; }
+        const { conn } = st;
+        const tzs = caches.tzs;
         const { data: a } = await service.from('affiliates').select('display_name').eq('id', c.affiliate_id).eq('company_entity_id', co).maybeSingle();
         let made;
         try { made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl); }
@@ -340,7 +414,10 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       if (codeId || sweep) {
         try {
           const results = await createShopifyCodes({ codeIds: codeId ? [codeId] : null, from: codeId ? null : peek.after });
-          return reply({ results, next: results.next ?? null });
+          const next = results.next ?? null;
+          // The sweep's first request also makes approved product codes.
+          if (sweep && !peek.after) results.push(...await createSeedCodes({}));
+          return reply({ results, next });
         }
         catch (err) { console.error('[affiliate-invite] shopify codes', err?.message); return reply({ error: 'Could not make codes' }, 500); }
       }
@@ -383,7 +460,12 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     try {
       if (action === 'create_shopify_codes') {
         const ids = Array.isArray(body.code_ids) ? body.code_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : null;
-        return reply({ results: await createShopifyCodes({ company, codeIds: ids?.length ? ids : null, actor }) });
+        const seedIds = Array.isArray(body.seed_ids) ? body.seed_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : null;
+        // Product codes only when asked by id (Studio, right after approving).
+        if (seedIds?.length && !ids?.length) return reply({ results: await createSeedCodes({ company, claimIds: seedIds, actor }) });
+        const results = await createShopifyCodes({ company, codeIds: ids?.length ? ids : null, actor });
+        if (!ids?.length) results.push(...await createSeedCodes({ company, actor }));
+        return reply({ results });
       }
 
       if (action === 'signup_link') {

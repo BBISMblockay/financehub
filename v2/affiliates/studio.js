@@ -213,6 +213,8 @@ function shopifyCodesMessage(results) {
   if (nostore) parts.push(`${num(n(['no_store']))} waiting: ${nostore.reason || 'pick this program\'s Shopify store in Setup'}.`);
   const taken = results.find((r) => r.status === 'taken');
   if (taken) parts.push(`${num(n(['taken']))} waiting: ${taken.reason}.`);
+  const noprod = results.find((r) => r.status === 'no_product');
+  if (noprod) parts.push(`${num(n(['no_product']))} waiting: ${noprod.reason}.`);
   const failed = results.filter((r) => r.status === 'failed');
   if (failed.length) parts.push(`${num(failed.length)} not made: ${failed[0].reason || 'Shopify said no'}.`);
   return parts.join(' ') || 'Nothing was waiting.';
@@ -702,7 +704,7 @@ function todoItems() {
   add(dmReady, `${num(dmReady)} creator(s) with no email to message on social.`, 'outreach');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
-  add(pending, `${num(pending)} code(s) waiting to be made in Shopify.`, 'affiliates', MANAGE ? `${btn('Make in Shopify', 'code-make', {}, 'primary')}${btn('Copy AI prompt', 'copy-codes-prompt', {}, 'surface')}` : '');
+  add(pending, `${num(pending)} code(s) waiting to be made in Shopify.`, 'affiliates', MANAGE ? btn('Make in Shopify', 'code-make', {}, 'primary') : '');
   const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
   const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
   add(codeless, `${num(codeless)} affiliate(s) without a code.`, 'affiliates', MANAGE ? btn(`Make ${num(codeless)} code(s)`, 'q-codes', {}, 'primary') : '');
@@ -712,7 +714,7 @@ function todoItems() {
   const seedAsks = (d.seeds || []).filter((x) => x.state === 'requested').length;
   add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'people', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '');
   const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
-  add(seedCodes, `${num(seedCodes)} product code(s) waiting for your MCP agent to create in Shopify.`, 'people', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
+  add(seedCodes, `${num(seedCodes)} product code(s) waiting to be made in Shopify.`, 'people', MANAGE ? btn('Make in Shopify', 'seed-make', {}, 'primary') : '');
   const contentAsks = (d.content || []).filter((x) => x.state === 'submitted').length;
   add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'affiliates');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
@@ -1189,14 +1191,20 @@ function aiSendBlock(apps) {
 
 // ── Product seeding ──────────────────────────────────────────────────────
 // An affiliate asks for a product at the seeding price; approving makes a
-// one-use code for that product and that person, which the brand's AI creates
-// in Shopify. Selling the multiple pays the purchase back through the ledger.
+// one-use code for that product, which SILO makes in Shopify and emails to
+// that person only. Selling the multiple pays the purchase back through the ledger.
 async function seedDecide(ids, approve) {
   const { data, error } = await db.rpc('affiliate_seed_decide', { p_claims: ids, p_approve: approve });
   if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
   const n = Number(data?.decided || 0); const skipped = Number(data?.skipped || 0);
   const tail = skipped ? `, ${num(skipped)} skipped (no email on file, or already answered)` : '';
-  return approve ? `${num(n)} approved. Your AI makes each code${tail}.` : `${num(n)} declined${tail}.`;
+  if (!approve) return `${num(n)} declined${tail}.`;
+  // SILO makes each approved product code in Shopify and emails it to that
+  // affiliate. One it cannot make waits on the To do list.
+  let made = '';
+  try { made = ' ' + shopifyCodesMessage((await invoke('affiliate-invite', { action: 'create_shopify_codes', seed_ids: ids }))?.results || []); }
+  catch (e) { made = ` Codes not made yet: ${e.message}`; }
+  return `${num(n)} approved${tail}.${made}`;
 }
 function seedsCard() {
   const d = S.d; const p = prog();
@@ -2122,6 +2130,11 @@ const A = {
     return seedDecide(ids, true);
   },
   'seed-decide': async ({ id, ok }) => seedDecide([id], ok === '1'),
+  'seed-make': async () => {
+    const ids = (S.d.seeds || []).filter((x) => x.state === 'approved').map((x) => x.id).slice(0, 25);
+    if (!ids.length) return 'Nothing is waiting.';
+    return shopifyCodesMessage((await invoke('affiliate-invite', { action: 'create_shopify_codes', seed_ids: ids }))?.results || []);
+  },
   'seed-cancel': async ({ id }) => {
     const { error } = await db.rpc('affiliate_seed_cancel', { p_claim: id });
     if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
