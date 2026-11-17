@@ -210,6 +210,17 @@
 
         <!-- Shipment-level view of the existing logged records -->
         <div class="po-report-panel" data-panel="shipments">
+          <!-- Deliveries a connected AI drafted (receiving:write, 20261117220000).
+               Hidden until there is one, so the tab is unchanged for a company
+               that does not use it. -->
+          <section class="bcn-card po-receipt-card hidden-safe" id="receiptCard">
+            <header class="bcn-card-header po-shipment-heading">
+              <div><span class="bcn-pill">TO CONFIRM</span><h2>Drafted deliveries</h2></div>
+              <span class="bcn-mono po-receipt-count" id="receiptCount"></span>
+            </header>
+            <div class="bcn-card-body" id="receiptBody"></div>
+          </section>
+
           <section class="bcn-card">
             <header class="bcn-card-header po-shipment-heading">
               <div><span class="bcn-pill">SHIPMENTS</span><h2>Shipment overview</h2></div>
@@ -523,6 +534,7 @@
       productRows: [],
       shipments: [],
       shipmentLines: [],
+      receipts: [],
       bookings: [],
       newBookingFor: null,   // shipment id whose "new booking" form is open
       mapCountryGroups: new Map(),
@@ -570,6 +582,9 @@
       shipmentSummary: document.getElementById('shipmentSummary'),
       btnExportShipments: document.getElementById('btnExportShipments'),
       shipmentTableCount: document.getElementById('shipmentTableCount'),
+      receiptCard: document.getElementById('receiptCard'),
+      receiptBody: document.getElementById('receiptBody'),
+      receiptCount: document.getElementById('receiptCount'),
 
       poTableCount: document.getElementById('poTableCount'),
       productTableCount: document.getElementById('productTableCount'),
@@ -693,6 +708,7 @@
 
       await loadCompanyShipTo();
       await loadShipments();
+      await loadDraftedReceipts();
 
       populateFilters();
       applyFilters();
@@ -1195,6 +1211,130 @@
       });
       return { products, units: !assignments.length || unknown ? null : units,
         quantityBasis: !assignments.length ? 'unassigned' : unknown ? 'unknown' : inferred ? 'includes full PO line defaults' : 'assigned', inferred };
+    }
+
+    /* Deliveries a connected AI drafted, waiting for a person
+       (receiving:write, 20261117220000). One RPC, which is the same shape the
+       AI was handed, so the page and the bot cannot describe one differently.
+       Fail-soft: a company whose database does not have the function yet sees
+       the page exactly as before. */
+    async function loadDraftedReceipts(){
+      try {
+        const { data, error } = await sb.rpc('silo_receiving_pending_drafts');
+        if(error) throw error;
+        state.receipts = Array.isArray(data) ? data : [];
+      } catch (err) {
+        state.receipts = [];
+      }
+      renderDraftedReceipts();
+    }
+
+    function receiptFlags(r){
+      const flags = [];
+      const over = (r.over_receipt_lines || []).length;
+      const check = (r.lines_to_check || []).length;
+      const missing = (r.po_lines_not_in_this_receipt || []).length;
+      if(check) flags.push(['check', check + (check === 1 ? ' line to check' : ' lines to check')]);
+      if(over) flags.push(['over', over + (over === 1 ? ' line over ordered' : ' lines over ordered')]);
+      if(r.qty_basis === 'expected') flags.push(['check', 'Document counts, not a warehouse count']);
+      if(missing) flags.push(['', missing + ' PO ' + (missing === 1 ? 'line' : 'lines') + ' not in this delivery']);
+      if(r.suggested_po_status) flags.push(['', 'Sets PO to ' + r.suggested_po_status]);
+      return flags;
+    }
+
+    function renderDraftedReceipts(){
+      const list = state.receipts || [];
+      if(!el.receiptCard) return;
+      el.receiptCard.classList.toggle('hidden-safe', !list.length);
+      el.receiptCount.textContent = list.length
+        ? list.length + (list.length === 1 ? ' delivery' : ' deliveries') : '';
+      if(!list.length){ el.receiptBody.innerHTML = ''; return; }
+
+      el.receiptBody.innerHTML = list.map((r) => {
+        const lines = (r.lines || []).map((l) => {
+          const qty = num(l.qty), ordered = num(l.ordered);
+          const variance = qty - ordered;
+          const over = variance > 0;
+          const check = l.match === 'check';
+          return `<tr>
+            <td>${escapeHtml(l.sku || l.title || '—')}
+              ${l.source_text ? `<span class="po-receipt-src${check ? ' po-receipt-check' : ''}">Document: ${escapeHtml(l.source_text)}${check ? ' · check this match' : ''}</span>` : ''}</td>
+            <td>${escapeHtml(l.variant || '—')}</td>
+            <td class="bcn-num bcn-mono">${ordered.toLocaleString()}</td>
+            <td class="bcn-num bcn-mono">${qty.toLocaleString()}</td>
+            <td class="bcn-num bcn-mono${over ? ' po-receipt-over' : ''}">${variance === 0 ? '—' : (variance > 0 ? '+' : '') + variance.toLocaleString()}</td>
+          </tr>`;
+        }).join('');
+        const t = r.totals || {};
+        const dates = [r.ship_date ? 'Shipped ' + r.ship_date : '', r.eta ? 'ETA ' + r.eta : '',
+          r.received_date ? 'Received ' + r.received_date : ''].filter(Boolean).join(' · ');
+        const refs = [r.container_ref, r.tracking_number, r.carrier, r.warehouse_location,
+          r.received_by].filter(Boolean).map(escapeHtml).join(' · ');
+        return `<article class="po-receipt" data-receipt="${escapeHtml(r.draft_id)}">
+          <div class="po-receipt-head">
+            <div>
+              <span class="po-receipt-title">${escapeHtml(r.po_name || 'Purchase order')}</span>
+              <span class="bcn-pill">${escapeHtml(r.shipment_status || '')}</span>
+            </div>
+            <span class="bcn-mono">${num(t.units_receiving).toLocaleString()} units · ${(r.lines || []).length} lines</span>
+          </div>
+          <p class="po-receipt-meta">Drafted by ${escapeHtml(r.via || 'an AI connection')}${
+            r.source_label ? ' from ' + escapeHtml(r.source_label) : ''}${
+            r.source_url ? ` · <a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer">open the source</a>` : ''}</p>
+          ${dates || refs ? `<p class="po-receipt-meta">${escapeHtml(dates)}${dates && refs ? ' · ' : ''}${refs}</p>` : ''}
+          ${r.notes ? `<p class="po-receipt-meta">${escapeHtml(r.notes)}</p>` : ''}
+          <div class="po-receipt-flags">${receiptFlags(r).map(([kind, text]) =>
+            `<span class="bcn-pill${kind ? ' po-receipt-' + kind : ''}">${escapeHtml(text)}</span>`).join('')}</div>
+          <div class="bcn-matrix-scroll">
+            <table class="bcn-table">
+              <thead><tr><th>Product</th><th>Variant</th><th class="bcn-num">Ordered</th><th class="bcn-num">Receiving</th><th class="bcn-num">Variance</th></tr></thead>
+              <tbody>${lines}</tbody>
+            </table>
+          </div>
+          <div class="po-receipt-actions">
+            <button class="bcn-btn bcn-btn--primary" type="button" data-confirm-receipt="${escapeHtml(r.draft_id)}">Confirm delivery</button>
+            <button class="bcn-btn bcn-btn--ghost" type="button" data-discard-receipt="${escapeHtml(r.draft_id)}">Discard</button>
+          </div>
+        </article>`;
+      }).join('');
+
+      el.receiptBody.querySelectorAll('[data-confirm-receipt]').forEach((b) => {
+        b.addEventListener('click', () => answerReceipt(b, b.dataset.confirmReceipt, true));
+      });
+      el.receiptBody.querySelectorAll('[data-discard-receipt]').forEach((b) => {
+        b.addEventListener('click', () => answerReceipt(b, b.dataset.discardReceipt, false));
+      });
+    }
+
+    /* Confirming is what creates the shipment, and it runs as this person
+       under their own RLS: a person who may not change this PO still gets the
+       shipment, and the answer says the status was not applied rather than
+       pretending it was. */
+    async function answerReceipt(button, draftId, confirm){
+      const buttons = el.receiptBody.querySelectorAll('button');
+      buttons.forEach((b) => { b.disabled = true; });
+      try {
+        if(confirm){
+          const { data, error } = await sb.rpc('silo_receiving_confirm_draft', { p_draft_id: draftId });
+          if(error) throw error;
+          if(data && data.changed === false){
+            setStatus('That delivery was already answered.', 'info');
+          } else if(data && data.po_status_requested && data.po_status_applied !== true){
+            setStatus('Shipment recorded. The PO\'s status was not changed: your account may not change this purchase order.', 'warn', 9000);
+          } else {
+            setStatus('Delivery confirmed and the shipment recorded.', 'success');
+          }
+        } else {
+          const { error } = await sb.rpc('silo_receiving_reject_draft', { p_draft_id: draftId, p_reason: null });
+          if(error) throw error;
+          setStatus('Draft discarded. Nothing was recorded.', 'info');
+        }
+        await loadShipments();
+        await loadDraftedReceipts();
+      } catch (err) {
+        setStatus(err?.message || 'That did not work.', 'error', 9000);
+        buttons.forEach((b) => { b.disabled = false; });
+      }
     }
 
     function renderShipmentTable(){
@@ -2104,6 +2244,20 @@
       if (qTo) el.arrivalTo.value = qTo;
 
       await loadData();
+
+      /* Deep link: ?receipt=<draft id> is the link an AI connection hands the
+         person. It opens the Shipments tab on the drafted deliveries, because
+         a link that lands on the default tab reads as "nothing is here". */
+      const wanted = qp.get('receipt');
+      if (wanted) {
+        const tab = document.querySelector('.po-report-tab[data-tab="shipments"]');
+        if (tab) tab.click();
+        const card = el.receiptBody && el.receiptBody.querySelector(`[data-receipt="${CSS.escape(wanted)}"]`);
+        if (card) card.scrollIntoView({ block: 'center' });
+        else if (state.receipts.length === 0) {
+          setStatus('That delivery has already been answered.', 'info', 9000);
+        }
+      }
     }
 
     [

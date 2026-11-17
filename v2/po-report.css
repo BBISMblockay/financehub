@@ -1126,3 +1126,27 @@ table.po-rpt-table--shipments td.po-shipment-notes { min-width: 140px; max-width
 .po-map-card-head[aria-expanded="false"] .po-map-legend {
   display: none;
 }
+
+/* Deliveries a connected AI drafted, waiting for a person (20261117220000).
+   The card is the only place in SILO that turns one into a shipment, so it is
+   deliberately loud and deliberately above the shipment table. */
+.po-receipt-card { border-color: var(--bcn-warn); }
+.po-receipt-count { font-size: 12px; color: var(--bcn-ink-2); }
+.po-receipt {
+  border: 1px solid var(--bcn-border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.po-receipt + .po-receipt { margin-top: 12px; }
+.po-receipt-head {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  align-items: baseline; justify-content: space-between;
+}
+.po-receipt-title { font-weight: 600; }
+.po-receipt-meta { font-size: 12px; color: var(--bcn-ink-2); margin: 6px 0 0; }
+.po-receipt-flags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.po-receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.po-receipt table.bcn-table { margin-top: 10px; }
+.po-receipt-over { color: var(--bcn-neg); }
+.po-receipt-check { color: var(--bcn-warn); }
+.po-receipt-src { display: block; font-size: 11px; color: var(--bcn-ink-3); }

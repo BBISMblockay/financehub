@@ -66,6 +66,7 @@
     'work:write': 'Open a task in this company, marked as this application \u2014 it can create one, and cannot change, complete or delete anything that already exists',
     'outreach:send': 'Take affiliate outreach a person already approved in Affiliate Studio, so it can send it from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot approve or write outreach',
     'codes:create': 'See the affiliate codes someone asked for in Affiliate Studio, so it can create them in your own Shopify store, and record each one it created, marked as this application \u2014 SILO writes nothing to Shopify, and it cannot ask for codes',
+    'receiving:write': 'Read a purchase order\u2019s lines and draft a delivery against them, marked as this application \u2014 the draft changes nothing in SILO until someone confirms it in PO Report, and it cannot record a shipment, change a PO or move a quantity by itself',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -156,6 +157,12 @@
      and record as created. Never implied by another scope. */
   const CODES_SCOPE = 'codes:create';
 
+  /* Its own box too (20261117220000): reading a purchase order's lines and
+     DRAFTING a delivery against them for a person to confirm in PO Report.
+     Never implied by another scope, and never a write of its own -- the
+     shipment is the confirming person's. */
+  const RECEIVING_SCOPE = 'receiving:write';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -167,7 +174,7 @@
   }
 
   const api = {
-    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, STATUS_COPY, SCOPE_COPY,
+    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, RECEIVING_SCOPE, STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
   };

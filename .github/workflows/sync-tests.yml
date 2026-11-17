@@ -272,6 +272,10 @@ on:
       # PO Report shipment audit columns (incoming-shipment-audit-database.test.mjs).
       - 'supabase/migrations/*incoming_shipment_audit*.sql'
       - 'scripts/tests/incoming-shipment-audit-database.test.mjs'
+      # Receiving drafted by a connected AI (receiving-mcp-database.test.mjs).
+      - 'supabase/migrations/*receiving_write_scope.sql'
+      - 'scripts/tests/receiving-mcp-database.test.mjs'
+      - 'supabase/functions/mcp/**'
       # Freight bookings and the one arrival date
       # (shipment-booking-arrival-database.test.mjs; also its own workflow).
       - 'supabase/migrations/*shipment_bookings*.sql'
@@ -2817,6 +2821,23 @@ jobs:
           set -u
           for m in creator-no-handle session-company no-manager-gate drafts-too no-cap no-claim-once mark-any ignore-pause no-path not-offered plain-token authenticated active-program html-unescaped html-no-button followup-by-prospect-only followup-reopen-joined html-no-text-link logo-not-passed logo-any-folder logo-upload-any-folder logo-upload-any-member feed-any-member feed-other-program feed-signup-link feed-other-program-items feed-expired-codes feed-offsite-path codes-not-offered codes-no-path codes-any-status codes-no-cap codes-no-cap-lock cap-no-trigger codes-pending-earns codes-pending-no-reserve codes-store-oldest feed-store-guessed codes-no-scope feed-images-any-folder feed-images-any-member signin-no-limit signin-no-reserve signin-any-status signin-anon sales-ledger-basis sales-other-affiliate loop-no-service loop-service-for-all loop-requeue loop-join-fails loop-claim-twice loop-claim-public loop-no-stamp seed-any-state seed-other-company stores-any stores-link stores-freeze content-no-money content-twice content-any-company content-unfinished content-read-any; do
             if OUTREACH_MCP_MUTATION="$m" node scripts/tests/affiliate-outreach-mcp-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # The opt-in receiving:write scope (20261117220000): a user's own AI
+      # drafts a delivery against a purchase order, and a person confirms it
+      # in PO Report. Proves the draft is inert, the lines belong to that PO,
+      # and that confirming is the confirming person's own write.
+      - name: Receiving via MCP database (real PostgreSQL)
+        run: node scripts/tests/receiving-mcp-database.test.mjs
+      - name: The receiving:write guards, removed, must break it
+        run: |
+          set -u
+          for m in not-offered no-path no-scope session-company any-po-line no-cap no-idem ignore-pause confirm-definer po-status-silent confirm-twice any-po-status no-match-flag no-grants po-shrinks; do
+            if RECEIVING_MUTATION="$m" node scripts/tests/receiving-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
