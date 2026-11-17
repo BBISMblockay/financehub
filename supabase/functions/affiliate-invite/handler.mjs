@@ -41,6 +41,8 @@ import { pickConnection, canMakeCodes, makeCode } from './shopify-codes.mjs';
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
 // A paid-payout email claim older than this was abandoned and may be taken again.
 const PAID_CLAIM_STALE_MS = 15 * 60 * 1000;
+// Pages of 25 pending codes the nightly sweep walks (createShopifyCodes).
+export const SWEEP_PAGES = 8;
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -178,13 +180,26 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
   // anything but created/adopted leaves the code pending for the next try or
   // for the brand's own AI (codes:create), exactly as before.
   async function createShopifyCodes({ company = null, codeIds = null, actor = null }) {
-    let q = service.from('affiliate_codes')
-      .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent')
-      .eq('status', 'pending').order('created_at').limit(25);
-    if (company) q = q.eq('company_entity_id', company);
-    if (codeIds?.length) q = q.in('id', codeIds);
-    const { data: codes, error } = await q;
-    if (error) throw new Error(error.message);
+    // Keyset pages of 25 by (created_at, id). A code SILO cannot make stays
+    // pending, so re-reading the first page would let one company's waiting
+    // codes hide every newer one; the sweep walks past them instead, up to
+    // SWEEP_PAGES pages a run. A staff call or a single code is one page.
+    const pages = !company && !codeIds?.length ? SWEEP_PAGES : 1;
+    const codes = [];
+    let after = null;
+    for (let page = 0; page < pages; page++) {
+      let q = service.from('affiliate_codes')
+        .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent, created_at')
+        .eq('status', 'pending').order('created_at').order('id').limit(25);
+      if (company) q = q.eq('company_entity_id', company);
+      if (codeIds?.length) q = q.in('id', codeIds);
+      if (after) q = q.or(`created_at.gt."${after.created_at}",and(created_at.eq."${after.created_at}",id.gt.${after.id})`);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      codes.push(...(data || []));
+      if (!data || data.length < 25) break;
+      after = data[data.length - 1];
+    }
     const results = [];
     const conns = new Map(); const ready = new Map(); const tzs = new Map(); const progs = new Map();
     for (const c of codes || []) {

@@ -28,6 +28,8 @@ const muts = {
   scanyco: ['handler.mjs', 'return reply({ results: await createShopifyCodes({ company, codeIds', 'return reply({ results: await createShopifyCodes({ company: null, codeIds'],
   // A store's own app is never asked again with a fresh token.
   scnoremint: ['handler.mjs', "if (!ok && conn.auth_method === 'client_credentials') {", 'if (false) {'],
+  // The sweep re-reads the first page instead of walking on.
+  scfirstpage: ['handler.mjs', '      after = data[data.length - 1];', '      after = null;'],
   // End dates are inclusive of the whole last day.
   scendday: ['shopify-codes.mjs', 'endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,', 'endsAt: code.ends_on ? dayStartIso(code.ends_on, tz) : null,'],
 };
@@ -138,13 +140,21 @@ function fakeService({ codes, conns = [CONN], program = { id: PROG, store_url: n
     from: (table) => {
       const f = {}; let op = 'select'; let payload = null;
       const b = {
-        select() { return b; }, order() { return b; }, limit() { return b; }, maybeSingle() { b.one = true; return b; },
+        select() { return b; }, order(k) { (f.__order ||= []).push(k); return b; }, limit(n) { f.__limit = n; return b; }, maybeSingle() { b.one = true; return b; },
+        or(x) { f.__or = x; return b; },
         eq(k, v) { f[k] = v; return b; }, in(k, v) { f[k] = { in: v }; return b; },
         update(p) { op = 'update'; payload = p; return b; },
         then(res) {
           log.push({ table, op, f: { ...f }, payload });
           let data = null;
-          if (table === 'affiliate_codes' && op === 'select') data = (codes || []).filter((c) => (!f.company_entity_id || c.company_entity_id === f.company_entity_id) && (!f.id?.in || f.id.in.includes(c.id)));
+          if (table === 'affiliate_codes' && op === 'select') {
+            // Like PostgREST: ordered, keyset filter, limited.
+            const m = /created_at\.gt\."([^"]+)",and\(created_at\.eq\."([^"]+)",id\.gt\.([^)]+)\)/.exec(f.__or || '');
+            data = (codes || []).filter((c) => (!f.company_entity_id || c.company_entity_id === f.company_entity_id) && (!f.id?.in || f.id.in.includes(c.id))
+              && (!m || c.created_at > m[1] || (c.created_at === m[2] && c.id > m[3])))
+              .sort((x, y) => (x.created_at < y.created_at ? -1 : x.created_at > y.created_at ? 1 : x.id < y.id ? -1 : 1))
+              .slice(0, f.__limit ?? Infinity);
+          }
           if (table === 'affiliate_codes' && op === 'update') data = stillPending && f.status === 'pending' ? [{ id: f.id }] : [];
           if (table === 'shopify_connections') data = op === 'update' ? null : conns;
           if (table === 'shopify_client_credentials') data = { client_id: 'id', client_secret: 'sec' };
@@ -158,7 +168,7 @@ function fakeService({ codes, conns = [CONN], program = { id: PROG, store_url: n
     auth: { getUser: async () => ({ data: { user: { id: 'staff-user' } }, error: null }) },
   };
 }
-const pending = (over = {}) => ({ id: CODE, company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', code: 'PAT10', starts_on: '2026-11-17', ends_on: null, discount_percent: 10, ...over });
+const pending = (over = {}) => ({ id: CODE, created_at: '2026-11-17T00:00:00Z', company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', code: 'PAT10', starts_on: '2026-11-17', ends_on: null, discount_percent: 10, ...over });
 const staff = (gate = { data: CO, error: null }) => () => ({ rpc: async () => gate });
 const post = (body, auth = 'Bearer staff.jwt') => new Request('https://fn.test', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: auth }, body: JSON.stringify(body) });
 const mk = (svc, shop, extra = {}) => createInviteHandler({ service: svc, userClientFor: staff(), siteUrl: 'https://app.test', resendKey: '', serviceKey: 'svc-key', fetchImpl: shop.fetchImpl, isServiceToken: async () => false, ...extra });
@@ -235,6 +245,21 @@ await test('portal: joining kicks SILO to make the new code', async () => {
   assert.equal(typeof createPortalHandler, 'function');
   const idx = await readFile(new URL('supabase/functions/affiliate-portal/index.ts', ROOT), 'utf8');
   assert.match(idx, /action: 'create_shopify_codes', code_id: codeId/);
+});
+
+await test('the nightly sweep walks past codes that stay waiting, to a newer company\'s code', async () => {
+  const OTHER_PROG = '3f000000-0000-4000-8000-0000000000aa';
+  const stuck = Array.from({ length: 25 }, (_, i) => pending({ id: `3f000000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`, program_id: OTHER_PROG, created_at: '2026-11-01T00:00:00Z' }));
+  const fresh = pending({ id: '3f000000-0000-4000-8000-000000000200', company_entity_id: OTHER, created_at: '2026-11-17T00:00:00Z' });
+  const svc = fakeService({ codes: [fresh, ...stuck] });
+  const prog = svc.from;
+  // The stuck company's program names no store it has: no_store, no Shopify call.
+  svc.from = (t) => (t === 'affiliate_programs' ? { select() { return this; }, eq(k, v) { this.v = this.v || {}; this.v[k] = v; return this; }, maybeSingle() { return this; },
+    then(res) { res({ data: this.v.id === OTHER_PROG ? { id: OTHER_PROG, shop_domains: ['gone.myshopify.com'] } : { id: PROG, shop_domains: ['brand.myshopify.com'] }, error: null }); } } : prog(t));
+  const out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes' }, 'Bearer svc-key'))).json();
+  assert.equal(out.results.length, 26, 'every waiting code was looked at');
+  assert.equal(out.results.find((r) => r.code_id === fresh.id)?.status, 'created', 'the newer company\'s code was made');
+  assert.equal(out.results.filter((r) => r.status === 'no_store').length, 25);
 });
 
 await test('a store\'s own app: re-minted once before saying it lacks the permission, and told where to allow it', async () => {
