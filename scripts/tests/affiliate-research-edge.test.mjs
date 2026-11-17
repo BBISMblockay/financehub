@@ -675,7 +675,9 @@ await test('Refresh stats: YouTube numbers from the official API, pooled, source
   assert.deepEqual(prof.other_profiles.map((x) => x.profile_url), ['https://www.instagram.com/one_ig']);
   const mail = s.service.tables.affiliate_prospects.find((p) => p.id === 'y-mail');
   assert.equal(mail.contact_email, 'kept@onfile.invalid', 'an email on file is never replaced');
+  assert.equal(s.rpcs.find((x) => x.args?.p_id === 'y-mail')?.args.p_contact_email, null, 'and none is even offered for a prospect that has one');
   assert.deepEqual(s.service.tables.affiliate_prospects.find((p) => p.id === 'y-other').evidence, {}, 'another company\'s prospect is untouched');
+  assert.ok(!s.rpcs.some((x) => x.args?.p_id === 'y-other'), 'another company\'s prospect is never even looked up');
   // A field the API did not return never blanks one already stored.
   const api2 = ytApi();
   const s2 = setup({ youtubeKey: 'yt-key', youtubeFetch: async (url) => { const res = await api2(url); const b = await res.json(); if (b.items?.[0]?.snippet?.country) delete b.items[0].snippet.country; return { ok: res.ok, status: res.status, json: async () => b }; } });
