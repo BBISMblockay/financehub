@@ -30,6 +30,8 @@ const muts = {
   scnoremint: ['handler.mjs', "if (!ok && conn.auth_method === 'client_credentials') {", 'if (false) {'],
   // The sweep re-reads the first page instead of walking on.
   scfirstpage: ['handler.mjs', '      after = data[data.length - 1];', '      after = null;'],
+  // The sweep never says where it stopped.
+  scnonext: ['handler.mjs', '    results.next = next;\n', ''],
   // End dates are inclusive of the whole last day.
   scendday: ['shopify-codes.mjs', 'endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,', 'endsAt: code.ends_on ? dayStartIso(code.ends_on, tz) : null,'],
 };
@@ -260,6 +262,28 @@ await test('the nightly sweep walks past codes that stay waiting, to a newer com
   assert.equal(out.results.length, 26, 'every waiting code was looked at');
   assert.equal(out.results.find((r) => r.code_id === fresh.id)?.status, 'created', 'the newer company\'s code was made');
   assert.equal(out.results.filter((r) => r.status === 'no_store').length, 25);
+});
+
+await test('past the per-request budget, the sweep says where it stopped and the next request carries on', async () => {
+  const { SWEEP_PAGES } = await load('handler.mjs');
+  const OTHER_PROG = '3f000000-0000-4000-8000-0000000000aa';
+  const n = 25 * SWEEP_PAGES;
+  const stuck = Array.from({ length: n }, (_, i) => pending({ id: `3f000000-0000-4000-8000-${String(100000000 + i).padStart(12, '0')}`, program_id: OTHER_PROG, created_at: '2026-11-01T00:00:00Z' }));
+  const fresh = pending({ id: '3f000000-0000-4000-8000-900000000000', company_entity_id: OTHER, created_at: '2026-11-17T00:00:00Z' });
+  const svc = fakeService({ codes: [fresh, ...stuck] });
+  const prog = svc.from;
+  svc.from = (t) => (t === 'affiliate_programs' ? { select() { return this; }, eq(k, v) { this.v = this.v || {}; this.v[k] = v; return this; }, maybeSingle() { return this; },
+    then(res) { res({ data: this.v.id === OTHER_PROG ? { id: OTHER_PROG, shop_domains: ['gone.myshopify.com'] } : { id: PROG, shop_domains: ['brand.myshopify.com'] }, error: null }); } } : prog(t));
+  const h = mk(svc, fakeShopify());
+  const first = await (await h(post({ action: 'create_shopify_codes' }, 'Bearer svc-key'))).json();
+  assert.equal(first.results.length, n, 'one request stays within its budget');
+  assert.ok(first.next?.id, 'and says where it stopped');
+  const second = await (await h(post({ action: 'create_shopify_codes', after: first.next }, 'Bearer svc-key'))).json();
+  assert.equal(second.results.find((r) => r.code_id === fresh.id)?.status, 'created', 'the next request reaches the newer code');
+  assert.equal(second.next, null, 'and reports the end');
+  const caller = await readFile(new URL('scripts/affiliate-commissions.mjs', ROOT), 'utf8');
+  assert.match(caller, /if \(!body\.next\) break;\s*after = body\.next;/, 'the nightly run follows it');
+  assert.match(caller, /\.\.\.\(after \? \{ after \} : \{\}\)/);
 });
 
 await test('a store\'s own app: re-minted once before saying it lacks the permission, and told where to allow it', async () => {

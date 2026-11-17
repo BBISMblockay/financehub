@@ -179,14 +179,16 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
   // named (created / adopted / needs_scope / no_store / failed / skipped) and
   // anything but created/adopted leaves the code pending for the next try or
   // for the brand's own AI (codes:create), exactly as before.
-  async function createShopifyCodes({ company = null, codeIds = null, actor = null }) {
+  async function createShopifyCodes({ company = null, codeIds = null, actor = null, from = null }) {
     // Keyset pages of 25 by (created_at, id). A code SILO cannot make stays
     // pending, so re-reading the first page would let one company's waiting
     // codes hide every newer one; the sweep walks past them instead, up to
     // SWEEP_PAGES pages a run. A staff call or a single code is one page.
     const pages = !company && !codeIds?.length ? SWEEP_PAGES : 1;
     const codes = [];
-    let after = null;
+    // The sweep resumes where the caller's last request stopped (next, below).
+    let after = from && UUID_RE.test(String(from.id || '')) && !Number.isNaN(Date.parse(from.created_at || '')) ? { id: String(from.id), created_at: String(from.created_at) } : null;
+    let more = false;
     for (let page = 0; page < pages; page++) {
       let q = service.from('affiliate_codes')
         .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent, created_at')
@@ -197,9 +199,11 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       const { data, error } = await q;
       if (error) throw new Error(error.message);
       codes.push(...(data || []));
-      if (!data || data.length < 25) break;
+      if (!data || data.length < 25) { more = false; break; }
       after = data[data.length - 1];
+      more = true;
     }
+    const next = pages > 1 && more ? { created_at: after.created_at, id: after.id } : null;
     const results = [];
     const conns = new Map(); const ready = new Map(); const tzs = new Map(); const progs = new Map();
     for (const c of codes || []) {
@@ -261,6 +265,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         results.push({ ...out, status: e?.kind === 'needs_scope' ? 'needs_scope' : 'failed', reason: String(e?.message || 'failed').slice(0, 240) });
       }
     }
+    results.next = next;
     return results;
   }
 
@@ -299,7 +304,10 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         }
       }
       if (codeId || sweep) {
-        try { return reply({ results: await createShopifyCodes({ codeIds: codeId ? [codeId] : null }) }); }
+        try {
+          const results = await createShopifyCodes({ codeIds: codeId ? [codeId] : null, from: codeId ? null : peek.after });
+          return reply({ results, next: results.next ?? null });
+        }
         catch (err) { console.error('[affiliate-invite] shopify codes', err?.message); return reply({ error: 'Could not make codes' }, 500); }
       }
       // Otherwise a staff session, below: that person's own company.
