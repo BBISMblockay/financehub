@@ -19840,4 +19840,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261117200000: codes named after the creator; 'seed_code' notices.
 -- Apply BEFORE deploying affiliate-invite.
 \i migrations/20261117200000_affiliate_creator_codes.sql
+-- 20261117220000: receiving:write -- a connected AI drafts a delivery against
+-- a purchase order and a person confirms it in PO Report. Apply BEFORE
+-- deploying mcp, and the scope cannot be granted until it is applied.
+\i migrations/20261117220000_receiving_write_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

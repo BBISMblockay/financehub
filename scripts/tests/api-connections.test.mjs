@@ -174,7 +174,7 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   assert.ok(!K.SILO_SCOPES.includes(K.WRITE_SCOPE), 'writing is never implied by the reads');
   assert.match(CONSENT, /chosenScopes[\s\S]{0,300}?optWrite[\s\S]{0,200}?checked/,
     'the only thing that adds it is the checkbox');
-  assert.match(CONSENT, /READS\.concat\(on \? \[WRITE\] : \[\], send \? \[OUTREACH\] : \[\], codes \? \[CODES\] : \[\]\)/,
+  assert.match(CONSENT, /READS\.concat\(on \? \[WRITE\] : \[\], send \? \[OUTREACH\] : \[\], codes \? \[CODES\] : \[\],\s*\n?\s*recv \? \[RECEIVING\] : \[\]\)/,
     'and each write scope is appended to the reads rather than replacing them');
   // outreach:send (20261110093000) is its own tick box, never implied by
   // work:write or the reads.
@@ -188,14 +188,24 @@ test('the write scope is added only by the tick box, and is not a read scope', (
   // database. The literals are the fallback, and the grant is read back.
   assert.match(CONSENT, /const WRITE = \(K && K\.WRITE_SCOPE\) \|\| 'work:write'/);
   assert.match(CONSENT, /\.filter\(Boolean\)/, 'and a missing name never reaches the database');
-  assert.match(CONSENT, /did not record permission to '\s*\+ \(missing\.includes\(WRITE\) \? 'open tasks' : missing\.includes\(OUTREACH\) \? 'send approved outreach' : 'create affiliate codes'\)/,
+  assert.match(CONSENT, /did not record permission to '\s*\+ \(missing\.includes\(WRITE\)/,
     'the page checks what was stored before reporting success');
+  assert.match(CONSENT, /const extras = \[WRITE, OUTREACH, CODES, RECEIVING\]/,
+    'every optional permission is read back, not just the first few');
   // codes:create (20261110160000) is its own tick box as well.
   assert.equal(K.CODES_SCOPE, 'codes:create');
   assert.ok(!K.SILO_SCOPES.includes(K.CODES_SCOPE));
   assert.match(CONSENT, /optCodes[\s\S]{0,60}?checked/, 'only its own checkbox adds codes:create');
   assert.match(CONSENT, /const CODES = \(K && K\.CODES_SCOPE\) \|\| 'codes:create'/);
-  assert.match(CONSENT, /\[WRITE, OUTREACH, CODES\]\.filter/, 'and the grant is read back for it too');
+  assert.match(CONSENT, /\[WRITE, OUTREACH, CODES, RECEIVING\]\.filter/, 'and the grant is read back for it too');
+  // receiving:write (20261117220000) is its own tick box too: drafting a
+  // delivery against a purchase order for a person to confirm.
+  assert.equal(K.RECEIVING_SCOPE, 'receiving:write');
+  assert.ok(!K.SILO_SCOPES.includes(K.RECEIVING_SCOPE));
+  assert.match(CONSENT, /optReceiving[\s\S]{0,60}?checked/, 'only its own checkbox adds receiving:write');
+  assert.match(CONSENT, /const RECEIVING = \(K && K\.RECEIVING_SCOPE\) \|\| 'receiving:write'/);
+  assert.ok(/draft/i.test(K.SCOPE_COPY['receiving:write']) && /confirm/i.test(K.SCOPE_COPY['receiving:write']),
+    'and the person is told the draft changes nothing until someone confirms it');
 });
 
 test('the fresh path writes the grant before asking Supabase to approve', () => {

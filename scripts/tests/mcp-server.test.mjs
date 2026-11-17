@@ -259,7 +259,8 @@ test('the write tools are exactly create_task and the two outreach tools', async
   const writers = body.result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name);
   assert.deepEqual(writers, ['create_task', 'claim_outreach_to_send', 'mark_outreach_sent']);
   for (const t of TOOLS) {
-    if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent', 'mark_affiliate_code_created'].includes(t.name)) {
+    if (['create_task', 'claim_outreach_to_send', 'mark_outreach_sent', 'mark_affiliate_code_created',
+      'record_shipment_receipt'].includes(t.name)) {
       assert.equal(t.annotations.readOnlyHint, false);
       assert.equal(t.annotations.destructiveHint, false, `${t.name} destroys nothing`);
       assert.equal(t.annotations.idempotentHint, true, `${t.name}: a retry returns the first result`);
@@ -630,8 +631,9 @@ test('the function never reaches for the database service role; live access adds
   const rpcs = [...src.matchAll(/(?:callRpc|rawRpc)\(authorization, '([a-z_]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(rpcs)].sort(),
     ['silo_api_claim_outreach', 'silo_api_codes_to_create', 'silo_api_connect', 'silo_api_create_task', 'silo_api_describe_tables', 'silo_api_list_reports',
-     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_query', 'silo_api_record_failure',
-     'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
+     'silo_api_mark_code_created', 'silo_api_mark_outreach_sent', 'silo_api_po_lines_for_receiving',
+     'silo_api_pos_awaiting_receipt', 'silo_api_query', 'silo_api_record_failure',
+     'silo_api_record_shipment_receipt', 'silo_api_run_report', 'silo_api_scopes', 'silo_api_windsor_connections']);
   // Every PostgREST request goes through rawRpc, so that pin is the whole list.
   assert.equal([...src.matchAll(/fetchImpl\(base \+ '\/rest\/v1\/rpc\/'/g)].length, 1);
 });
@@ -771,3 +773,114 @@ test('run_report pages are cut the same way, and a small page is left alone', ()
   assert.equal(fitRows({ reports: [] }).reports.length, 0, 'not a page of rows: untouched');
 });
 
+
+// ── 7. receiving:write: drafting a delivery (20261117220000) ───────────────
+
+const PO = 'd0000000-0000-4000-a000-000000000001';
+const LINE = 'd0000000-0000-4000-a000-000000000002';
+const DRAFT_OK = { draft_id: 'd0000000-0000-4000-a000-000000000003', state: 'pending' };
+const recvScopes = (fn, body) => fn === 'silo_api_scopes'
+  ? [200, ['reports:read', 'data:read', 'receiving:write']]
+  : [200, fn === 'silo_api_record_shipment_receipt' ? DRAFT_OK : CATALOG];
+const callRecv = async (handle, args, name = 'record_shipment_receipt') =>
+  (await (await handle(post(rpc('tools/call', { name, arguments: args })))).json());
+
+test('the receiving tools appear only with receiving:write, and the draft tool is the only writer among them', async () => {
+  const withScope = harness(recvScopes);
+  const listed = (await (await withScope.handle(post(rpc('tools/list')))).json()).result.tools.map((t) => t.name);
+  for (const n of ['pos_awaiting_receipt', 'po_lines_for_receiving', 'record_shipment_receipt']) {
+    assert.ok(listed.includes(n), `${n} is listed for a connection that was granted the scope`);
+  }
+  const without = harness((fn) => fn === 'silo_api_scopes' ? [200, ['reports:read', 'data:read']] : [200, CATALOG]);
+  const plain = (await (await without.handle(post(rpc('tools/list')))).json()).result.tools.map((t) => t.name);
+  for (const n of ['pos_awaiting_receipt', 'po_lines_for_receiving', 'record_shipment_receipt']) {
+    assert.ok(!plain.includes(n), `${n} is not advertised to a connection without the scope`);
+  }
+  const t = TOOLS.find((x) => x.name === 'record_shipment_receipt');
+  assert.equal(t.annotations.readOnlyHint, false);
+  assert.equal(t.annotations.idempotentHint, true);
+  assert.ok(/draft/i.test(t.description) && /confirm/i.test(t.description),
+    'the description says a person confirms it, because that is the whole design');
+  for (const n of ['pos_awaiting_receipt', 'po_lines_for_receiving']) {
+    assert.equal(TOOLS.find((x) => x.name === n).annotations.readOnlyHint, true);
+  }
+});
+
+test('a drafted receipt is passed to the database as the person\'s own call, with the lines rebuilt', async () => {
+  const { handle, calls } = harness(recvScopes);
+  const body = await callRecv(handle, {
+    po_header_id: PO,
+    lines: [{ po_line_id: LINE, qty: 180, source_text: 'BB-YS-Hoodie', notes: 'carton 3' }],
+    idempotency_key: 'slack-1700000000',
+    shipment_status: 'Delivered',
+    qty_basis: 'expected',
+    received_date: '2026-11-16',
+    container_ref: 'KCMTAR-38/39/42',
+    set_po_status: 'Received',
+    source_label: 'Slack #receiving',
+    source_url: 'https://example.slack.com/archives/C1/p1700000000',
+  });
+  assert.equal(body.result.isError, false);
+  assert.deepEqual(body.result.structuredContent, DRAFT_OK);
+  const call = calls.find((c) => c.fn === 'silo_api_record_shipment_receipt');
+  assert.ok(call, 'it reaches the database RPC');
+  assert.equal(call.headers.Authorization, INTEGRATION, 'with the caller\'s own token, never a service role');
+  assert.equal(call.body.p_po_header_id, PO);
+  assert.equal(call.body.p_idempotency_key, 'slack-1700000000');
+  assert.equal(call.body.p_set_po_status, 'Received');
+  assert.equal(call.body.p_source_url, 'https://example.slack.com/archives/C1/p1700000000');
+  // Each line is rebuilt field by field, so nothing a model invents is forwarded.
+  assert.deepEqual(call.body.p_lines, [{ po_line_id: LINE, qty: 180, source_text: 'BB-YS-Hoodie', notes: 'carton 3' }]);
+});
+
+test('a receipt the model got wrong is a tool error, and never reaches the database', async () => {
+  const bad = [
+    [{ lines: [{ po_line_id: LINE }], idempotency_key: 'k' }, 'no PO'],
+    [{ po_header_id: 'PO-1', lines: [{ po_line_id: LINE }], idempotency_key: 'k' }, 'a PO name instead of an id'],
+    [{ po_header_id: PO, lines: [], idempotency_key: 'k' }, 'no lines'],
+    [{ po_header_id: PO, lines: [{ po_line_id: 'BB-YS-Hoodie' }], idempotency_key: 'k' }, 'a SKU instead of a line id'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 0 }], idempotency_key: 'k' }, 'a zero quantity'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: '180' }], idempotency_key: 'k' }, 'a quantity as text'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }] }, 'no idempotency key'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k', shipment_status: 'Arrived' }, 'an invented shipment status'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k', set_po_status: 'Closed' }, 'a PO status that is not a receipt\'s to set'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k', qty_basis: 'guessed' }, 'an invented quantity basis'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k', received_date: '11/16/2026' }, 'a date in another format'],
+    [{ po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k', source_url: 'http://example.com/x' }, 'a link that is not https'],
+  ];
+  for (const [args, why] of bad) {
+    const { handle, calls } = harness(recvScopes);
+    const body = await callRecv(handle, args);
+    assert.equal(body.result.isError, true, why);
+    assert.equal(calls.filter((c) => c.fn === 'silo_api_record_shipment_receipt').length, 0, `${why}: never reaches the database`);
+  }
+});
+
+test('the read side forwards a PO id and a search, and refuses anything else', async () => {
+  const { handle, calls } = harness(recvScopes);
+  const lines = await callRecv(handle, { po_header_id: PO }, 'po_lines_for_receiving');
+  assert.equal(lines.result.isError, false);
+  assert.equal(calls.at(-1).body.p_po_header_id, PO);
+  const list = await callRecv(handle, { search: 'Factory', limit: 10 }, 'pos_awaiting_receipt');
+  assert.equal(list.result.isError, false);
+  assert.equal(calls.at(-1).body.p_search, 'Factory');
+  assert.equal(calls.at(-1).body.p_limit, 10);
+  const bad = await callRecv(handle, { po_header_id: 'PO-1' }, 'po_lines_for_receiving');
+  assert.equal(bad.result.isError, true);
+  const badLimit = await callRecv(handle, { limit: 0 }, 'pos_awaiting_receipt');
+  assert.equal(badLimit.result.isError, true);
+});
+
+test('a database refusal of a receipt is a tool error the model can act on, not a dead connection', async () => {
+  const { handle } = harness((fn) => fn === 'silo_api_scopes'
+    ? [200, ['reports:read', 'data:read', 'receiving:write']]
+    : fn === 'silo_api_record_shipment_receipt'
+      ? [400, { code: 'P0001', message: 'unknown_po_line: 1 of 2 lines are not lines of this purchase order' }]
+      : [200, CATALOG]);
+  const body = await callRecv(handle, {
+    po_header_id: PO, lines: [{ po_line_id: LINE, qty: 1 }], idempotency_key: 'k',
+  });
+  assert.equal(body.result.isError, true);
+  // decodeRefusal strips the error's own code prefix, so the model gets the sentence.
+  assert.match(body.result.content[0].text, /are not lines of this purchase order/);
+});

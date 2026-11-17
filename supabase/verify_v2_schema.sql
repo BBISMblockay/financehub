@@ -7888,6 +7888,11 @@ select 'developer API boundary' as check_name, case
         -- codes a person asked for, and recording the one the bot created in
         -- the company's own Shopify. Both on silo_api_path_allowed().
         'silo_api_codes_to_create', 'silo_api_mark_code_created',
+        -- receiving:write since 20261117220000: finding a purchase order,
+        -- reading its lines, and DRAFTING a delivery against them for a
+        -- person to confirm. All three on silo_api_path_allowed().
+        'silo_api_pos_awaiting_receipt', 'silo_api_po_lines_for_receiving',
+        'silo_api_record_shipment_receipt',
         -- 20261112030000: the MCP server's connect probe and its failure
         -- record. No scope; each touches only the connection's own log.
         -- Both on silo_api_path_allowed().
@@ -7911,6 +7916,8 @@ select 'developer API boundary' as check_name, case
                 'silo_api_create_task', 'silo_api_scopes',
                 'silo_api_claim_outreach', 'silo_api_mark_outreach_sent',
                 'silo_api_codes_to_create', 'silo_api_mark_code_created',
+                'silo_api_pos_awaiting_receipt', 'silo_api_po_lines_for_receiving',
+                'silo_api_record_shipment_receipt',
                 'silo_api_connect', 'silo_api_record_failure',
                 'silo_check_request', 'mfa_session_satisfied',
                 'silo_api_claims', 'silo_api_is_integration', 'silo_api_grant',
@@ -10144,5 +10151,53 @@ select 'Affiliate creator codes' as check_name,
                   where has_function_privilege(r.role, 'public.affiliate_suggest_code(uuid, text, integer)', 'execute')
                      or has_function_privilege(r.role, 'public.affiliate_queue_first_code()', 'execute'))
       then 'BROKEN — a client role can call the code helper'
+    else 'ok'
+  end as status;
+
+-- Receiving drafted by a connected AI (20261117220000): the draft is inert,
+-- the scope is grantable, only the integration role may draft, confirming is
+-- the CONFIRMING PERSON's write (security invoker, so their RLS and the
+-- shipment audit trigger apply), and no browser role may read a draft by id.
+select 'Receiving via AI' as check_name,
+  case
+    when to_regprocedure('public.silo_api_record_shipment_receipt(uuid,jsonb,text,text,text,date,date,date,text,text,text,text,text,text,text,text,text,text)') is null
+      or to_regprocedure('public.silo_api_po_lines_for_receiving(uuid)') is null
+      or to_regprocedure('public.silo_api_pos_awaiting_receipt(text,integer)') is null
+      or to_regprocedure('public.silo_receiving_confirm_draft(uuid)') is null
+      or to_regclass('public.incoming_shipment_drafts') is null
+      or to_regclass('public.incoming_shipment_draft_lines') is null
+      then 'MISSING — run 20261117220000_receiving_write_scope.sql'
+    when position('receiving:write' in pg_get_functiondef(to_regprocedure('public.silo_api_consent(text,text[])'))) = 0
+      then 'BROKEN — the consent screen cannot grant receiving:write'
+    when position('/rpc/silo_api_record_shipment_receipt' in pg_get_functiondef('public.silo_api_path_allowed()'::regprocedure)) = 0
+      then 'BROKEN — the receiving tools are not on the API path allowlist'
+    when (select prosecdef from pg_proc where oid = to_regprocedure('public.silo_receiving_confirm_draft(uuid)'))
+      then 'CRITICAL: confirming a drafted receipt runs as the definer, so a member who may not change a PO could change it'
+    when position('get diagnostics' in lower(pg_get_functiondef(to_regprocedure('public.silo_receiving_confirm_draft(uuid)')))) = 0
+      then 'BROKEN — an RLS-refused PO status change would be reported as applied'
+    when position('pg_advisory_xact_lock' in pg_get_functiondef(to_regprocedure('public.silo_api_record_shipment_receipt(uuid,jsonb,text,text,text,date,date,date,text,text,text,text,text,text,text,text,text,text)'))) = 0
+      then 'BROKEN — two calls may both take a connection''s last free write'
+    when position('shipment_receipt' in pg_get_constraintdef((select oid from pg_constraint where conname = 'silo_api_writes_kind_check' and conrelid = 'public.silo_api_writes'::regclass))) = 0
+      then 'BROKEN — a drafted receipt does not count against the connection''s daily writes'
+    when exists (select 1 from unnest(array['anon', 'authenticated']) r(role)
+                  where has_function_privilege(r.role, to_regprocedure('public.silo_api_record_shipment_receipt(uuid,jsonb,text,text,text,date,date,date,text,text,text,text,text,text,text,text,text,text)'), 'execute')
+                     or has_function_privilege(r.role, to_regprocedure('public.silo_receiving_draft_json(uuid,boolean)'), 'execute'))
+      then 'BROKEN — a browser role can draft a receipt or read any draft by id'
+    when has_function_privilege('silo_integration', to_regprocedure('public.silo_receiving_confirm_draft(uuid)'), 'execute')
+      then 'CRITICAL: an AI connection can confirm its own drafted receipt'
+    when not exists (select 1 from pg_policies where schemaname = 'public'
+                      and tablename = 'incoming_shipment_drafts' and cmd = 'SELECT')
+      or exists (select 1 from pg_policies where schemaname = 'public'
+                  and tablename = 'incoming_shipment_drafts' and cmd = 'INSERT')
+      then 'BROKEN — the drafts table is readable by nobody, or writable by a browser (only the connection''s definer tool writes one)'
+    when position('company_entity_id = v_company' in pg_get_functiondef('public.silo_receiving_pending_drafts()'::regprocedure)) = 0
+      then 'CRITICAL: the drafted-receipt wrapper is definer with no company filter'
+    when not has_table_privilege('authenticated', 'public.incoming_shipment_drafts', 'select, update')
+      then 'BROKEN — the confirm card has policies nobody can exercise (no table grant)'
+    when has_table_privilege('anon', 'public.incoming_shipment_drafts', 'select')
+      or has_table_privilege('silo_integration', 'public.incoming_shipment_drafts', 'select')
+      then 'CRITICAL: a drafted receipt is readable by anon or by an AI connection directly'
+    when position('v_lines <> v_d.line_count' in pg_get_functiondef('public.silo_receiving_confirm_draft(uuid)'::regprocedure)) = 0
+      then 'BROKEN — a PO line deleted after drafting would silently shrink the confirmed delivery'
     else 'ok'
   end as status;

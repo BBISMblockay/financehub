@@ -151,6 +151,14 @@
             it, and pausing writing pauses this too.</span>
         </label>
 
+        <label class="cs-opt" for="optReceiving">
+          <input type="checkbox" id="optReceiving" />
+          <span><strong>Also let it draft deliveries against a purchase order.</strong> It can read a PO's lines and
+            draft what a receiving document says arrived, marked as this application. The draft changes nothing: no
+            shipment exists and no PO changes until someone confirms it in PO Report. Off unless you tick it, and
+            pausing writing pauses this too.</span>
+        </label>
+
         <p class="cs-label">It will not be able to</p>
         <ul class="cs-list cs-cannot">
           <li id="cannotChange">Change, add or delete anything</li>
@@ -373,6 +381,7 @@
   const WRITE = (K && K.WRITE_SCOPE) || 'work:write';
   const OUTREACH = (K && K.OUTREACH_SCOPE) || 'outreach:send';
   const CODES = (K && K.CODES_SCOPE) || 'codes:create';
+  const RECEIVING = (K && K.RECEIVING_SCOPE) || 'receiving:write';
   const READS = (K && Array.isArray(K.SILO_SCOPES) && K.SILO_SCOPES.length)
     ? K.SILO_SCOPES : ['reports:read', 'data:read'];
 
@@ -380,7 +389,9 @@
     const on = !!(el('optWrite') && el('optWrite').checked);
     const send = !!(el('optOutreach') && el('optOutreach').checked);
     const codes = !!(el('optCodes') && el('optCodes').checked);
-    return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : [], codes ? [CODES] : []).filter(Boolean);
+    const recv = !!(el('optReceiving') && el('optReceiving').checked);
+    return READS.concat(on ? [WRITE] : [], send ? [OUTREACH] : [], codes ? [CODES] : [],
+      recv ? [RECEIVING] : []).filter(Boolean);
   }
 
   async function writeGrant(clientId) {
@@ -397,7 +408,7 @@
        the write. Anything unreadable here is NOT treated as a failure: the
        grant exists either way, and blocking the connection over a failed
        verification read would be a worse bug than the one it guards. */
-    const extras = [WRITE, OUTREACH, CODES].filter((s) => wanted.includes(s));
+    const extras = [WRITE, OUTREACH, CODES, RECEIVING].filter((s) => wanted.includes(s));
     if (!extras.length) return;
     try {
       const { data } = await db
@@ -411,7 +422,8 @@
       const missing = Array.isArray(stored) ? extras.filter((s) => !stored.includes(s)) : [];
       if (missing.length) {
         throw new Error('SILO approved the connection but did not record permission to '
-          + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach' : 'create affiliate codes')
+          + (missing.includes(WRITE) ? 'open tasks' : missing.includes(OUTREACH) ? 'send approved outreach'
+            : missing.includes(CODES) ? 'create affiliate codes' : 'draft deliveries')
           + '. Reload this page and approve again.');
       }
     } catch (e) {
@@ -512,7 +524,8 @@
          the "add" -- and the thing people need to know is that nothing which
          already exists can be touched. */
       const writes = el('optWrite').checked || !!(el('optOutreach') && el('optOutreach').checked)
-        || !!(el('optCodes') && el('optCodes').checked);
+        || !!(el('optCodes') && el('optCodes').checked)
+        || !!(el('optReceiving') && el('optReceiving').checked);
       el('cannotChange').textContent = writes
         ? 'Change, complete or delete anything that already exists'
         : 'Change, add or delete anything';
@@ -520,6 +533,7 @@
     el('optWrite').addEventListener('change', paintScopes);
     if (el('optOutreach')) el('optOutreach').addEventListener('change', paintScopes);
     if (el('optCodes')) el('optCodes').addEventListener('change', paintScopes);
+    if (el('optReceiving')) el('optReceiving').addEventListener('change', paintScopes);
     paintScopes();
 
     const sel = el('coSelect');

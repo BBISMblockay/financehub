@@ -58,7 +58,10 @@ const INSTRUCTIONS = [
   'granted outreach:send, claim_outreach_to_send hands over affiliate outreach a person already approved in SILO,',
   'for YOU to send from the person\'s own mailbox, and mark_outreach_sent records each one you sent. Where they',
   'granted codes:create, affiliate_codes_to_create lists affiliate discount codes a person asked for in SILO, for',
-  'YOU to create in the person\'s own Shopify (with a Shopify tool), and mark_affiliate_code_created records each one. Nothing',
+  'YOU to create in the person\'s own Shopify (with a Shopify tool), and mark_affiliate_code_created records each one. Where',
+  'they granted receiving:write, pos_awaiting_receipt and po_lines_for_receiving read a purchase order\'s lines and',
+  'record_shipment_receipt DRAFTS a delivery against them for a person to confirm in SILO -- it creates no shipment and',
+  'changes no purchase order, so say it is waiting for them and send the link. Nothing',
   'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
   'and SILO itself sends nothing. Asked for one of those, say what you would do and give the person the SILO link.',
   'Reading, in order of use:',
@@ -318,6 +321,104 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'pos_awaiting_receipt',
+    title: 'List purchase orders awaiting a delivery',
+    description: 'Lists the company\'s open purchase orders -- anything not draft, cancelled or closed -- with the '
+      + 'factory, how many lines each has, how many shipments are already logged against it and whether a drafted '
+      + 'receipt is already waiting for a person. Use it to find the PO a receiving document is about, then call '
+      + 'po_lines_for_receiving with its po_header_id. Needs the receiving:write permission, which the person grants '
+      + 'separately. Reads only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search: { type: 'string', description: 'Text in the PO name or the factory name.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'po_lines_for_receiving',
+    title: 'Read a purchase order\'s lines to receive against',
+    description: 'One purchase order\'s lines with their po_line_ids, SKUs, titles, ordered quantities and how many '
+      + 'units earlier shipments already cover, plus the shipments already logged and any drafted receipt still '
+      + 'waiting for a person. Call this before record_shipment_receipt and MATCH EACH ROW OF THE DOCUMENT TO A LINE '
+      + 'BY SKU, not by position: a receiving sheet\'s order is not the PO\'s. SILO does no matching of its own -- it '
+      + 'stores the text you read and flags a line whose text does not resemble the line you chose, for the person '
+      + 'confirming. Reads only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        po_header_id: { type: 'string', description: 'The purchase order\'s id, from pos_awaiting_receipt.' },
+      },
+      required: ['po_header_id'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'record_shipment_receipt',
+    title: 'Draft a shipment receipt for a person to confirm',
+    description: 'Records ONE delivery against one purchase order -- its dates and references, and one line per PO '
+      + 'line received -- as a DRAFT that a person confirms in SILO. It writes nothing operational: no shipment '
+      + 'exists, no PO status changes and no quantity moves in SILO until a person opens PO Report and confirms it, '
+      + 'so always tell the person it is waiting and give them the link the answer returns. Get every po_line_id from '
+      + 'po_lines_for_receiving; a line that is not a line of that PO is refused, not dropped. Put the item as the '
+      + 'document wrote it in source_text, and pass source_label (and source_url where the document has a link, for '
+      + 'example a chat message) so the person can read the source. qty_basis is "expected" for a packing list or '
+      + 'factory document and "counted" only for a warehouse count. set_po_status may suggest "Partially Received" or '
+      + '"Received" and is applied by the confirming person if they may change that PO. Needs the receiving:write '
+      + 'permission, which the person grants separately; one write a day against the connection\'s 50. Pass '
+      + 'idempotency_key and REUSE THE SAME ONE if you retry, or you will draft the delivery twice.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        po_header_id: { type: 'string', description: 'The purchase order this delivery is against.' },
+        lines: {
+          type: 'array', minItems: 1, maxItems: 500,
+          description: 'One entry per PO line received. Leave a line out entirely if the delivery did not carry it.',
+          items: {
+            type: 'object',
+            properties: {
+              po_line_id: { type: 'string', description: 'From po_lines_for_receiving.' },
+              qty: { type: 'number', description: 'Units received on this line. Leave out to mean the line\'s full ordered quantity.' },
+              source_text: { type: 'string', description: 'The item exactly as the receiving document named it.' },
+              notes: { type: 'string', description: 'Anything about this line a person should see.' },
+            },
+            required: ['po_line_id'],
+            additionalProperties: false,
+          },
+        },
+        idempotency_key: { type: 'string', description: 'Your own id for this delivery, up to 100 characters. Required; the same key returns the first draft.' },
+        shipment_status: {
+          type: 'string', enum: ['Not Shipped', 'Booked', 'Shipped', 'In Transit', 'Delayed', 'Delivered', 'Received'],
+          default: 'Received',
+        },
+        qty_basis: {
+          type: 'string', enum: ['expected', 'counted'], default: 'expected',
+          description: '"expected" = the quantities on a packing list or factory document; "counted" = a warehouse count.',
+        },
+        ship_date: { type: 'string', description: 'YYYY-MM-DD.' },
+        eta: { type: 'string', description: 'YYYY-MM-DD.' },
+        received_date: { type: 'string', description: 'YYYY-MM-DD.' },
+        tracking_number: { type: 'string', description: 'A carrier tracking number. A container or shipment reference goes in container_ref.' },
+        carrier: { type: 'string' },
+        container_ref: { type: 'string', description: 'The container or shipment reference, for example a consolidated shipment\'s own number.' },
+        warehouse_location: { type: 'string' },
+        received_by: { type: 'string', description: 'Who received it, as the document names them.' },
+        notes: { type: 'string', description: 'Where the quantities came from, and anything else a person should see.' },
+        set_po_status: { type: 'string', enum: ['Partially Received', 'Received'], description: 'Suggest a PO status. Left out, the PO\'s status is not touched.' },
+        po_status_note: { type: 'string', description: 'Why you suggest that status.' },
+        source_label: { type: 'string', description: 'Where the document came from, in a few words.' },
+        source_url: { type: 'string', description: 'An https link to the document (a chat message, an email). SILO never fetches it.' },
+      },
+      required: ['po_header_id', 'lines', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 /* Tools that need a scope the connection may not have been given. Only
@@ -330,9 +431,17 @@ const TOOL_SCOPE = {
   mark_outreach_sent: 'outreach:send',
   affiliate_codes_to_create: 'codes:create',
   mark_affiliate_code_created: 'codes:create',
+  pos_awaiting_receipt: 'receiving:write',
+  po_lines_for_receiving: 'receiving:write',
+  record_shipment_receipt: 'receiving:write',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* incoming_shipments' own CHECK list (20260818210000). Named here so a bad
+   status is a tool error the model can read and correct, not a database
+   refusal it has to parse. */
+const SHIPMENT_STATUSES = ['Not Shipped', 'Booked', 'Shipped', 'In Transit', 'Delayed', 'Delivered', 'Received'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -727,6 +836,119 @@ export function createMcpHandler({ env, fetchImpl }) {
       // sends anything this misses. Public key only -- affiliate-invite sends
       // just the one notice the database owes for this code, once.
       if (r.data && r.data.replayed === false) await kickCodeNotice(code);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'pos_awaiting_receipt') {
+      const body = {};
+      if (args.search != null) {
+        if (typeof args.search !== 'string' || args.search.trim().length < 2) {
+          return rpcResult(id, toolErr('search must be text of 2 or more characters.'));
+        }
+        body.p_search = args.search.trim();
+      }
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 100.'));
+        }
+        body.p_limit = args.limit;
+      }
+      const r = await callRpc(authorization, 'silo_api_pos_awaiting_receipt', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'po_lines_for_receiving') {
+      const po = String(args.po_header_id ?? '').trim();
+      if (!UUID.test(po)) return rpcResult(id, toolErr('po_header_id must be a purchase order id from pos_awaiting_receipt.'));
+      const r = await callRpc(authorization, 'silo_api_po_lines_for_receiving', { p_po_header_id: po });
+      if (!r.ok) return refusalResponse(id, r, true);
+      // Not fitRows: this answer is a PO and its lines, not a page of rows, and
+      // a receipt drafted from half a PO's lines would be worse than a long
+      // answer. A PO's own line count bounds it.
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'record_shipment_receipt') {
+      const po = String(args.po_header_id ?? '').trim();
+      if (!UUID.test(po)) return rpcResult(id, toolErr('po_header_id must be a purchase order id from pos_awaiting_receipt.'));
+      if (!Array.isArray(args.lines) || !args.lines.length || args.lines.length > 500) {
+        return rpcResult(id, toolErr('lines must be a list of 1 to 500 entries, one per PO line received.'));
+      }
+      const lines = [];
+      for (const raw of args.lines) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+          return rpcResult(id, toolErr('each line must be an object with po_line_id and qty.'));
+        }
+        const lineId = String(raw.po_line_id ?? '').trim();
+        if (!UUID.test(lineId)) {
+          return rpcResult(id, toolErr('each line\'s po_line_id must come from po_lines_for_receiving.'));
+        }
+        const line = { po_line_id: lineId };
+        if (raw.qty != null) {
+          if (typeof raw.qty !== 'number' || !Number.isFinite(raw.qty) || raw.qty <= 0) {
+            return rpcResult(id, toolErr('a line\'s qty must be a number above zero. Leave it out to mean the line\'s full ordered quantity.'));
+          }
+          line.qty = raw.qty;
+        }
+        for (const k of ['source_text', 'notes']) {
+          if (raw[k] == null) continue;
+          if (typeof raw[k] !== 'string' || raw[k].length > 500) {
+            return rpcResult(id, toolErr('a line\'s ' + k + ' must be text up to 500 characters.'));
+          }
+          line[k] = raw[k];
+        }
+        lines.push(line);
+      }
+      const key = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
+      if (!key || key.length > 100) {
+        return rpcResult(id, toolErr('idempotency_key must be your own id for this delivery, up to 100 characters. Reuse it if you retry.'));
+      }
+      const body = { p_po_header_id: po, p_lines: lines, p_idempotency_key: key };
+      if (args.shipment_status != null) {
+        if (!SHIPMENT_STATUSES.includes(args.shipment_status)) {
+          return rpcResult(id, toolErr('shipment_status must be one of ' + SHIPMENT_STATUSES.join(', ') + '.'));
+        }
+        body.p_shipment_status = args.shipment_status;
+      }
+      if (args.qty_basis != null) {
+        if (args.qty_basis !== 'expected' && args.qty_basis !== 'counted') {
+          return rpcResult(id, toolErr('qty_basis must be "expected" (a packing list or factory document) or "counted" (a warehouse count).'));
+        }
+        body.p_qty_basis = args.qty_basis;
+      }
+      for (const [arg, param] of [['ship_date', 'p_ship_date'], ['eta', 'p_eta'], ['received_date', 'p_received_date']]) {
+        if (args[arg] == null) continue;
+        if (typeof args[arg] !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(args[arg].trim())) {
+          return rpcResult(id, toolErr(arg + ' must look like 2026-11-16.'));
+        }
+        body[param] = args[arg].trim();
+      }
+      for (const [arg, param] of [['tracking_number', 'p_tracking_number'], ['carrier', 'p_carrier'],
+        ['container_ref', 'p_container_ref'], ['warehouse_location', 'p_warehouse_location'],
+        ['received_by', 'p_received_by'], ['notes', 'p_notes'], ['po_status_note', 'p_po_status_note'],
+        ['source_label', 'p_source_label']]) {
+        if (args[arg] == null) continue;
+        if (typeof args[arg] !== 'string' || args[arg].length > 2000) {
+          return rpcResult(id, toolErr(arg + ' must be text up to 2000 characters.'));
+        }
+        body[param] = args[arg];
+      }
+      if (args.set_po_status != null) {
+        if (args.set_po_status !== 'Partially Received' && args.set_po_status !== 'Received') {
+          return rpcResult(id, toolErr('set_po_status may only suggest "Partially Received" or "Received"; any other status change is a person\'s to make in SILO.'));
+        }
+        body.p_set_po_status = args.set_po_status;
+      }
+      if (args.source_url != null) {
+        const url = String(args.source_url).trim();
+        if (!/^https:\/\/[^\s<>"]{4,492}$/.test(url)) {
+          return rpcResult(id, toolErr('source_url must be an https link to the document, up to 500 characters.'));
+        }
+        body.p_source_url = url;
+      }
+      const r = await callRpc(authorization, 'silo_api_record_shipment_receipt', body);
+      if (!r.ok) return refusalResponse(id, r, true);
       return rpcResult(id, toolOk(r.data));
     }
 

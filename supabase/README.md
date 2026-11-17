@@ -3915,6 +3915,22 @@ and `affiliate_payouts.paid_notice_claimed_at` (reserved by one conditional
 update before sending) lets affiliate-invite announce a paid payout once;
 `affiliate_notifications.payout_id` records which payout a notice was for. Apply before deploying affiliate-invite.
 
+### Receiving drafted by a connected AI — 2026-11-17
+
+`20261117220000_receiving_write_scope.sql` adds the `receiving:write` scope and
+`incoming_shipment_drafts` / `incoming_shipment_draft_lines`: a person's own AI
+can read a purchase order's lines (`silo_api_pos_awaiting_receipt`,
+`silo_api_po_lines_for_receiving`) and record a delivery against them
+(`silo_api_record_shipment_receipt`) as a DRAFT. The draft is inert — nothing in
+SILO reads it but the confirm card in PO Report — and
+`silo_receiving_confirm_draft()` is SECURITY INVOKER, so the shipment is the
+confirming person's write under their own RLS and audit trigger, and a PO status
+their account may not change is reported as not applied rather than silently
+skipped. The AI matches the document to lines itself; SILO stores the text it
+read, flags a line whose text does not resemble the line chosen, and flags
+over-receipts and packing-list (vs counted) quantities. Apply before deploying
+`mcp`; the scope cannot be granted until it is applied.
+
 ### Affiliate creator codes — 2026-11-17
 
 `20261117200000_affiliate_creator_codes.sql` names a new affiliate's first code after

@@ -85,7 +85,7 @@ const RULES = [
   'Do not assemble an answer from reports that measure different things; query the tables.',
   'This connection cannot see the screen, open a page or change anything that already exists -- no editing,',
   'completing, reassigning, money, approvals or messages. Where the person granted write access it can open',
-  'a task with create_task, and nothing else; asked for more, say what you would do and give them the',
+  'a task, or draft a delivery for a person to confirm; asked for more, say what you would do and give them the',
   'SILO page. A task is not an answer: create_task refuses when SILO already reports what was asked',
   'for, and hands you that report to run. Send the dashboard link when a report has one: it is the page,',
   'not one tile. Two tiles are two different measures -- ordered is not owed, and a filtered view and an',
@@ -518,6 +518,12 @@ const TOOL_NOTES = {
     + 'back with created false and the report instead of a task, and then your job is to run that report '
     + 'and give the person the numbers, not to try again. Only if they say they want the task as well, '
     + 'call again with confirm true.',
+  record_shipment_receipt: 'A receiving document is not a decision. Get the po_line_ids from '
+    + 'po_lines_for_receiving and match each row by SKU, not by position; pass the document\'s own words as '
+    + 'source_text so a person can see what you matched to what, and say which lines you were unsure about. '
+    + 'Nothing is recorded in SILO: the answer is a draft waiting for a person, so tell them it is waiting, '
+    + 'give them the link, and name the over-receipts and whether the quantities were a packing list or a '
+    + 'warehouse count. Never report the delivery as received, and never retry with a new idempotency_key.',
   run_report: 'Prefer one report\'s own answer over combining reports. A blank measure means that source '
     + 'had no rows for that day, never zero, and revenue a platform or Redo "claims", "credits" or '
     + '"attributes" overlaps other sources and net sales, so it is never summed.',

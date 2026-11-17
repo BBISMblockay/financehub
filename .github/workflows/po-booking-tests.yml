@@ -14,6 +14,7 @@ on:
       - 'v2/underwriting/**'
       - 'v2/tests/browser/po-report-*.test.js'
       - 'supabase/migrations/*shipment_bookings*'
+      - 'supabase/migrations/*receiving_write_scope*'
       - 'scripts/tests/shipment-booking-arrival-database.test.mjs'
       - 'package.json'
       - 'package-lock.json'
@@ -64,6 +65,24 @@ jobs:
           for m in own-dates no-ata no-conflict no-slip; do
             echo "--- $m ---"
             if PO_BOOKING_MUTATION="$m" node v2/tests/browser/po-report-bookings.test.js; then
+              echo "::error::mutation $m did not fail the suite -- the behaviour it removes is untested"
+              exit 1
+            fi
+          done
+
+      # 20261117220000: a delivery a connected AI drafted, waiting for a person.
+      # Proves the variance and the AI's own doubts are on screen, that a PO
+      # status the person may not change is reported rather than swallowed, and
+      # that the tab is unchanged where the RPCs are not applied yet.
+      - name: PO Report drafted deliveries
+        run: node v2/tests/browser/po-report-drafted-receipts.test.js
+
+      - name: Each drafted-delivery behaviour, removed one at a time, must break it
+        run: |
+          set -u
+          for m in always-visible no-variance silent-po no-source-text hard-fail; do
+            echo "--- $m ---"
+            if PO_RECEIPT_MUTATION="$m" node v2/tests/browser/po-report-drafted-receipts.test.js; then
               echo "::error::mutation $m did not fail the suite -- the behaviour it removes is untested"
               exit 1
             fi
