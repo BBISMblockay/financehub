@@ -41,6 +41,20 @@ export function pickConnection(program, connections) {
   return live.length === 1 ? live[0] : null;
 }
 
+const bareHost = (h) => String(h || '').toLowerCase().replace(/^www\./, '');
+
+/**
+ * Do the program's affiliate links open THIS store? Links go to the
+ * program's store address; a code made in another store would not apply
+ * there. No address yet, or a store Shopify did not describe: no objection.
+ */
+export function storeMatches(program, conn) {
+  if (!program?.store_url || !conn?.shop_hosts?.length) return true;
+  let host;
+  try { host = bareHost(new URL(program.store_url).host); } catch { return true; }
+  return conn.shop_hosts.includes(host);
+}
+
 /** The UTC instant a calendar day starts in a timezone (YYYY-MM-DD in, ISO out). */
 export function dayStartIso(day, tz) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
@@ -76,14 +90,15 @@ export function discountInput(code, tz) {
     title: `Affiliate: ${String(code.affiliate || text).slice(0, 200)}`,
     code: text,
     startsAt: dayStartIso(code.starts_on, tz),
-    endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,
+    // The last second of ends_on, so Shopify shows that day as the last one.
+    endsAt: code.ends_on ? new Date(Date.parse(dayStartIso(nextDay(code.ends_on), tz)) - 1000).toISOString() : null,
     customerSelection: { all: true },
     customerGets: { value: { percentage: Math.round(pct * 100) / 10000 }, items: { all: true } },
     appliesOncePerCustomer: false,
   };
 }
 
-const SCOPES_Q = 'query SiloScopes { currentAppInstallation { accessScopes { handle } } }';
+const SCOPES_Q = 'query SiloScopes { currentAppInstallation { accessScopes { handle } } shop { myshopifyDomain primaryDomain { host } } }';
 const FIND_Q = 'query SiloFindCode($code: String!) { codeDiscountNodeByCode(code: $code) { id } }';
 const CREATE_M = `mutation SiloCreateCode($basicCodeDiscount: DiscountCodeBasicInput!) {
   discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
@@ -125,6 +140,8 @@ export async function adminGraphql({ shop, token, apiVersion, query, variables, 
 export async function canMakeCodes(conn, fetchImpl = fetch) {
   const data = await adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query: SCOPES_Q, fetchImpl });
   const handles = (data?.currentAppInstallation?.accessScopes || []).map((s) => s?.handle);
+  // Which addresses this store answers to, for storeMatches below.
+  conn.shop_hosts = [data?.shop?.myshopifyDomain, data?.shop?.primaryDomain?.host].filter(Boolean).map(bareHost);
   return handles.includes(CODE_SCOPE);
 }
 

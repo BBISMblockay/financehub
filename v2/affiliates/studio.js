@@ -206,7 +206,8 @@ function shopifyCodesMessage(results) {
   if (made) parts.push(`${num(made)} code(s) live in Shopify.`);
   const scope = results.find((r) => r.status === 'needs_scope');
   if (scope) parts.push(`${num(n(['needs_scope']))} waiting: ${scope.reason || 'reconnect Shopify in Integrations so SILO can make codes'}.`);
-  if (n(['no_store'])) parts.push(`${num(n(['no_store']))} waiting: pick this program's Shopify store in Setup.`);
+  const nostore = results.find((r) => r.status === 'no_store');
+  if (nostore) parts.push(`${num(n(['no_store']))} waiting: ${nostore.reason || 'pick this program\'s Shopify store in Setup'}.`);
   const failed = results.filter((r) => r.status === 'failed');
   if (failed.length) parts.push(`${num(failed.length)} not made: ${failed[0].reason || 'Shopify said no'}.`);
   return parts.join(' ') || 'Nothing was waiting.';

@@ -35,7 +35,7 @@
 //                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 import { ensureShopifyAccessToken } from './shopify-auth-lib.mjs';
-import { pickConnection, canMakeCodes, makeCode } from './shopify-codes.mjs';
+import { pickConnection, canMakeCodes, makeCode, storeMatches } from './shopify-codes.mjs';
 
 // Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
@@ -249,6 +249,10 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           continue;
         }
         if (r !== true) { results.push({ ...out, status: 'failed', reason: 'Shopify did not answer. Try again.' }); continue; }
+        if (!storeMatches(progs.get(c.program_id), conn)) {
+          results.push({ ...out, status: 'no_store', reason: `the program's store address is not ${conn.shop_domain}; fix it in Setup` });
+          continue;
+        }
         const { data: a } = await service.from('affiliates').select('display_name').eq('id', c.affiliate_id).eq('company_entity_id', co).maybeSingle();
         const made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl);
         // Conditional on still pending: a code cancelled (or made by the AI)
