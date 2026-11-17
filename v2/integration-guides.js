@@ -42,6 +42,11 @@
   // release, INSTALL, then silo-2 adding read_all_orders, release, Install
   // app again, Test -> full history. The guide follows it step for step.
   const SHOPIFY_OWN_APP_SCOPES = SHOPIFY_SCOPES.concat(['read_all_orders']);
+  // Optional, only for Affiliate Studio: write_discounts lets SILO make each
+  // affiliate's discount code in the store (affiliate-invite, shopify-codes.mjs).
+  // The only write SILO ever asks for; a store without it still works and its
+  // codes wait for the person's own AI route instead.
+  const SHOPIFY_AFFILIATE_SCOPES = SHOPIFY_OWN_APP_SCOPES.concat(['write_discounts']);
   // Deep links verified 2026-10-05: each resolves to Meta login with ?next= pointing
   // at the same path (business.facebook.com/settings/*, developers.facebook.com/apps).
   const META_BUSINESS_SETTINGS = 'https://business.facebook.com/settings';
@@ -114,6 +119,13 @@
           copy: [{ label: 'Copy all scopes', value: SHOPIFY_OWN_APP_SCOPES.join(',') }],
           scopes: SHOPIFY_OWN_APP_SCOPES,
           note: '<strong>Don\'t skip <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders, so SILO cannot import your sales history.',
+        },
+        {
+          title: 'Optional: let SILO make affiliate codes',
+          body: 'Only if you use Affiliate Studio. Release one more <strong>New version</strong> with these scopes (the list above plus <code>write_discounts</code>), then <strong>Install app</strong> again. SILO then creates each affiliate\'s discount code in your store.',
+          copy: [{ label: 'Copy scopes with discounts', value: SHOPIFY_AFFILIATE_SCOPES.join(',') }],
+          scopes: SHOPIFY_AFFILIATE_SCOPES,
+          note: '<code>write_discounts</code> is the only write SILO asks for, and only for discount codes. Already connected? Add it the same way; no need to reconnect in SILO.',
         },
         {
           title: 'Copy the Client ID and Client secret',
@@ -279,6 +291,44 @@
       ],
       action: { id: 'redo_row', label: 'Go to the Redo row' },
     },
+    paypal_payouts: {
+      title: 'Pay affiliates with PayPal',
+      summary: 'Affiliate Studio pays affiliates from your own PayPal business balance. SILO never holds or moves your money; you approve every payout.',
+      time: 'About 10 minutes, plus PayPal\'s approval',
+      needs: [
+        'A PayPal <strong>business</strong> account with a linked bank account',
+        'Someone in SILO who can approve payouts',
+      ],
+      steps: [
+        {
+          title: 'Request Payouts access',
+          body: 'Signed in to your PayPal business account, request <strong>Payouts</strong>. PayPal reviews it, usually within a few business days. Link a bank account first if PayPal asks.',
+          link: { href: 'https://www.paypal.com/payoutsweb/landing', label: 'Request Payouts' },
+          note: 'Until PayPal approves, SILO can connect but cannot send, and says so on the PayPal card.',
+        },
+        {
+          title: 'Create a Live app',
+          body: 'In the PayPal Developer Dashboard, switch to <strong>Live</strong>, open <strong>Apps &amp; Credentials</strong> and create an app (any name, e.g. <code>SILO</code>). Copy its <strong>Client ID</strong> and <strong>Secret</strong>.',
+          link: { href: 'https://developer.paypal.com/dashboard/applications', label: 'Open Apps & Credentials' },
+          note: 'Treat the secret like a password. Paste it only into SILO, never into email or chat.',
+        },
+        {
+          title: 'Connect it in SILO',
+          body: 'In <strong>Affiliate Studio → Money → Connect PayPal</strong>, choose <strong>Live</strong>, paste the Client ID and Secret, then <strong>Connect</strong>. SILO checks them with PayPal before saving.',
+        },
+        {
+          title: 'Send a small first payout',
+          body: 'Approve a small payout to an affiliate, press <strong>Send with PayPal</strong>, then <strong>Check payment status</strong>. It turns paid once PayPal confirms.',
+          note: 'PayPal cannot pay the account that is sending, so the affiliate needs their own PayPal email.',
+        },
+      ],
+      troubleshooting: [
+        { q: 'The card says PayPal has not enabled Payouts', a: 'PayPal has not approved your Payouts request yet. Check its status in PayPal, then press <strong>Check connection</strong>.' },
+        { q: 'Connect refuses the keys', a: 'Make sure the app is a <strong>Live</strong> app and <strong>Live</strong> is chosen in SILO. Sandbox keys only work with Sandbox.' },
+        { q: 'You would rather pay by hand', a: 'Skip PayPal. Affiliate Studio still tracks what each affiliate is owed, and you mark payouts paid yourself.' },
+      ],
+    },
+
     klaviyo: {
       title: 'Connect Klaviyo',
       summary: 'SILO reads your Klaviyo campaign and flow reporting every night. Read-only: it never sends, edits or imports a profile.',
@@ -371,6 +421,7 @@
     { key: 'meta_ads', section: 'Meta Ads — replacing a system user token' },
     { key: 'redo', section: 'Redo — returns & marketing' },
     { key: 'klaviyo', section: 'Klaviyo — email & SMS' },
+    { key: 'paypal_payouts', section: 'PayPal — affiliate payouts' },
   ];
 
   function stepHtmlPrint(s, i) {
@@ -635,7 +686,7 @@
   }
 
   const api = {
-    GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES,
+    GUIDES, SHOPIFY_SCOPES, SHOPIFY_OWN_APP_SCOPES, SHOPIFY_AFFILIATE_SCOPES,
     META_BUSINESS_SETTINGS, META_SYSTEM_USERS, META_PORTFOLIO_APPS, META_DEVELOPERS_APPS, META_SYSTEM_USER_HELP,
     META_ADS_SCOPES, META_ORGANIC_SCOPES, REDO_MARKETING_SCOPES,
     ONBOARDING_PRINT_ORDER,
