@@ -66,6 +66,7 @@ await test('every copy of the lib is identical', () => {
     'supabase/functions/test-shopify-connection/shopify-auth-lib.mjs',
     'supabase/functions/shopify-sync-run/lib/shopify-auth-lib.mjs',
     'supabase/functions/shopify-app-install/shopify-auth-lib.mjs',
+    'supabase/functions/affiliate-invite/shopify-auth-lib.mjs',
     'supabase/functions/shopify-install-claim/shopify-auth-lib.mjs',
   ]) assert.equal(read(p), canon, `${p} has drifted from scripts/lib/shopify-auth-lib.mjs`);
 });

@@ -105,6 +105,7 @@ const MUTATIONS = {
   sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
+  makeall: ['/affiliates/studio.js', "makeInShopify(id ? [id] : S.d.codes.filter((c) => c.status === 'pending').map((c) => c.id))", 'makeInShopify(id ? [id] : S.d.codes.map((c) => c.id))'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   silentswitch: ['/affiliates/portal.html', '  if (!brands.length) {', '  if (false) {'],
   codeblame: ['/affiliates/portal.html', '      : `<span class="af-sub">${feed?.code', '      : `<span class="af-sub">${false'],
@@ -323,7 +324,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await openCodeTool(page);
     R.has(await text(page, '#affiliatesBody'), 'Connect your AI', 'with no AI that can make codes, the code form offers to connect one');
     R.eq(await page.inputValue('#cPct'), '10', 'percent off defaults to 10');
-    R.eq(await page.inputValue('#cHow'), 'exists', 'with no AI that can make codes, the code is one you made');
+    R.eq(await page.inputValue('#cHow'), 'ai', 'new codes default to SILO making them in Shopify');
     await page.fill('#cCode', 'pat15');
     await page.selectOption('#cHow', 'ai');
     await page.fill('#cPct', '');
@@ -539,11 +540,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       affiliates: [{ ...tables.affiliates[0], photo_url: 'https://photos.invalid/pat-own.png', photo_hidden: false }],
       affiliate_codes: [...tables.affiliate_codes, { id: 'c2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10-2', starts_on: '2026-11-10', ends_on: null, status: 'pending', discount_percent: 10 }],
       affiliate_payouts: [{ id: 'po-d', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now }] };
-    const loop = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    const loop = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true },
+      edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c2', code: 'PAT10-2', status: 'needs_scope' }] } } } });
     loop.on('pageerror', (e) => errors.push(e.message));
     const todo = await text(loop, '#overviewBody');
-    R.has(todo, 'code(s) waiting for your MCP agent to create', 'a code waiting on the AI is on the list');
+    R.has(todo, 'code(s) waiting to be made in Shopify', 'a waiting code is on the list');
     R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
+    // SILO makes it in Shopify itself; a store that has not granted it says how.
+    await loop.click('#overviewBody [data-act="code-make"]');
+    await loop.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
+    const mk = await loop.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.name === 'affiliate-invite').pop().body);
+    R.eq(mk.action, 'create_shopify_codes', 'Make in Shopify asks SILO to make the code');
+    R.eq(mk.code_ids, ['c2'], 'only the codes that are waiting');
+    await loop.waitForFunction(() => /reconnect Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('a store without the permission is told to reconnect', true);
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
@@ -793,7 +803,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(how, 'ChatGPT', 'tab copy does not name other connections');
     R.ok('with an app that can send, the button manages connections instead', !!(await ai.$('#outreachBody a.bcn-btn[href="../settings-connect-ai.html"]:not(.bcn-btn--primary)')) && !(await ai.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     await openCodeTool(ai);
-    R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI that can make codes, new codes default to it');
+    R.eq(await ai.inputValue('#cHow'), 'ai', 'with an AI connected, new codes still default to SILO making them');
     R.has(await text(ai, '#aiCodesHow'), 'Shopify codes', 'Affiliates explains codes via MCP without naming an app');
     await ai.evaluate(() => { window.__COPIED__ = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__COPIED__ = t; } } }); });
     await ai.click('#aiCodesHow [data-act="copy-codes-prompt"]');

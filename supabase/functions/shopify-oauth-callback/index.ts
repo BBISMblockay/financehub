@@ -71,6 +71,12 @@ Deno.serve(async (req) => {
 
   const scopesGranted: string[] = (tokenData.scope ?? '').split(',').filter(Boolean);
 
+  // A RECONNECT (the store is already connected for this company -- e.g. to
+  // grant write_discounts, 2026-11-17) keeps the store's sync switch and who
+  // first connected it. Only a NEW connection starts with sync off.
+  const { data: existing } = await supabase.from('shopify_connections').select('id')
+    .eq('company_entity_id', stateRow.company_entity_id).eq('shop_domain', shop).maybeSingle();
+
   const { error: upsertErr } = await supabase
     .from('shopify_connections')
     .upsert({
@@ -91,8 +97,7 @@ Deno.serve(async (req) => {
       last_test_status: 'ok',
       last_test_success: true,
       is_active: true,
-      sync_enabled: false,
-      created_by: stateRow.user_id,
+      ...(existing ? {} : { sync_enabled: false, created_by: stateRow.user_id }),
     }, { onConflict: 'company_entity_id,shop_domain' });
 
   if (upsertErr) return errorRedirect(`save_failed: ${upsertErr.message}`);

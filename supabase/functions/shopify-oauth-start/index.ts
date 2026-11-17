@@ -18,7 +18,7 @@ const APP = chooseOAuthApp({
 });
 const CALLBACK_URL = 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/shopify-oauth-callback';
 
-// The LEGACY app's scopes, unchanged: Baseballism's stores were installed
+// The LEGACY app's scopes: Baseballism's stores were installed
 // with these (read_all_orders included) and a reconnect must not quietly lose
 // any. The public app asks for PUBLIC_SCOPES -- what the sync reads, since
 // Shopify's review rejects unused scopes.
@@ -45,6 +45,10 @@ const LEGACY_SCOPES = [
   'read_shopify_payments_bank_accounts','read_shopify_payments_disputes',
   'read_shopify_payments_payouts','read_content','read_store_credit_account_transactions',
   'read_store_credit_accounts','read_third_party_fulfillment_orders','read_translations',
+  // The ONE write (Blake 2026-11-17): SILO makes affiliate discount codes in
+  // the store itself (affiliate-invite, shopify-codes.mjs). A store connected
+  // before this keeps working read-only; reconnecting grants it.
+  'write_discounts',
 ].join(',');
 
 Deno.serve(async (req) => {

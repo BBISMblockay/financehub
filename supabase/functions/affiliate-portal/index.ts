@@ -19,4 +19,17 @@ Deno.serve(createPortalHandler({
   service,
   siteUrl: Deno.env.get('SILO_APP_URL') ?? Deno.env.get('SILO_SITE_URL') ?? 'https://get-silo.com',
   resendKey: Deno.env.get('RESEND_API_KEY') ?? '',
+  // affiliate-invite makes a waiting code in Shopify by id, no session needed.
+  makeShopifyCode: async (codeId: string) => {
+    const anon = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    try {
+      await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/affiliate-invite`, {
+        method: 'POST', signal: ctl.signal,
+        headers: { apikey: anon, Authorization: `Bearer ${anon}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_shopify_codes', code_id: codeId }),
+      });
+    } catch (_) { /* the nightly run makes it */ } finally { clearTimeout(timer); }
+  },
 }));
