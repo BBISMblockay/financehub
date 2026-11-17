@@ -10061,14 +10061,28 @@ select 'Creator photo and stats writes merge' as check_name,
     then 'MISSING: affiliate_prospect_merge_evidence(); apply 20261117020000'
     else 'ok' end as status;
 
--- Affiliate program stores (20261117030000).
+-- Affiliate program stores (20261117030000, 20261117040000).
 select 'Affiliate programs cover only their picked stores' as check_name,
   case when not exists (select 1 from information_schema.columns
                          where table_schema = 'public' and table_name = 'affiliate_programs'
                            and column_name = 'shop_domains')
     then 'MISSING: affiliate_programs.shop_domains; apply 20261117030000'
-    when pg_get_functiondef(to_regprocedure('public.affiliate_resolve_attributions(uuid,date,date)')) not like '%v_prog.shop_domains is null or lower(o.shop_domain) = any (v_prog.shop_domains)%'
+    when pg_get_functiondef(to_regprocedure('public.affiliate_resolve_attributions(uuid,date,date)')) not like '%or lower(o.shop_domain) = any (v_prog.shop_domains)%'
     then 'BROKEN: attribution reads orders from stores the program does not cover; apply 20261117030000'
+    when pg_get_functiondef(to_regprocedure('public.affiliate_resolve_attributions(uuid,date,date)')) not like '%and pa.program_id = p_program))%'
+    then 'BROKEN: an unticked store freezes refunds on orders already credited; apply 20261117040000'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_notifications'
+                        and column_name = 'payout_id')
+    then 'MISSING: affiliate_notifications.payout_id; apply 20261117040000'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_payouts'
+                        and column_name = 'paid_notice_claimed_at')
+    then 'MISSING: affiliate_payouts.paid_notice_claimed_at; apply 20261117040000'
+    when not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_payouts'
+                        and column_name = 'paid_notice_done_at')
+    then 'MISSING: affiliate_payouts.paid_notice_done_at; apply 20261117040000'
     when pg_get_functiondef(to_regprocedure('public.affiliate_program_store_url(uuid,uuid)')) not like '%cardinality(p.shop_domains) = 1%'
     then 'BROKEN: links ignore the one store a program picked; apply 20261117030000'
     when has_function_privilege('anon', 'public.affiliate_program_store_url(uuid,uuid)', 'execute')

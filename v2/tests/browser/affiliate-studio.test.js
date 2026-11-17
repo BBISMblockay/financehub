@@ -79,6 +79,9 @@ const MUTATIONS = {
   storepickall: ['/affiliates/studio-core.js', 'row.shop_domains = on.length === f.shop_domains.length ? null : on;', 'row.shop_domains = null;'],
   autonothrottle: ['/affiliates/studio.js', "if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;", "if (!MANAGE || !id || autoRefreshing === id) return;"],
   paidsilent: ['/affiliates/studio.js', 'return `Recorded as paid.${await tellPayout(id)}`;', "return 'Recorded as paid.';"],
+  refreshwipes: ['/affiliates/studio.js', "S.tab !== 'program' && !formDirty();", "S.tab !== 'program';"],
+  norecheck: ['/affiliates/studio.js', '      if (quiet()) render();', '      render();'],
+  nocatchup: ['/affiliates/studio.js', '  announcePaidPayouts();\n', '\n'],
   savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
@@ -601,6 +604,79 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('recording a payment emails the affiliate on its own, about that payout', told.length === 1 && told[0].kind === 'payout_status' && told[0].payout_id === '66666666-6666-4666-8666-666666666666' && told[0].affiliate_id === AFF);
     R.has(await text(autoMail, '#status'), 'The affiliate was emailed', 'and says so');
     await autoMail.close();
+
+    // A payout paid some other way (Send all, a PayPal payment that settled
+    // later) is announced when the page next loads, once.
+    const PY2 = '77777777-7777-4777-8777-777777777777';
+    const PA9 = '99999999-9999-4999-8999-999999999999';
+    const catchUp = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_notifications: [], affiliate_payouts: [
+        { id: PY2, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: null, paid_notice_done_at: null },
+        { id: PX, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: '2026-01-01T00:00:00Z', paid_notice_claimed_at: null, paid_notice_done_at: null },
+        { id: PA9, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: new Date().toISOString(), paid_notice_done_at: new Date().toISOString() },
+      ] },
+      { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true }, edge: { 'affiliate-invite': { status: 200, body: { email: 'sent' } } } });
+    catchUp.on('pageerror', (e) => errors.push(e.message));
+    await catchUp.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 }).catch(() => {});
+    await catchUp.click('#tabs [data-tab="payouts"]');
+    await catchUp.waitForTimeout(500);
+    const caught = await catchUp.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.name === 'affiliate-invite').map((c) => c.body.payout_id));
+    R.eq(caught.join(), '77777777-7777-4777-8777-777777777777', 'a recently paid payout never announced is announced once; an old one, or one already reserved, is not');
+    await catchUp.close();
+
+    // A background refresh that lands while someone is typing does not wipe it.
+    const PROG3 = '88888888-8888-4888-8888-888888888888';
+    const typing = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: [{ ...tables.affiliate_programs[0], id: PROG3 }],
+        affiliate_prospects: [{ ...tables.affiliate_prospects[0], program_id: PROG3, evidence: { title: 'Sam Runs' } }] },
+      { ready, rpc: { can_manage_affiliate_programs: true } });
+    typing.on('pageerror', (e) => errors.push(e.message));
+    let releasePhotos; const photosHeld = new Promise((r) => { releasePhotos = r; });
+    await typing.route('**/functions/v1/affiliate-research', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      if (body.action === 'refresh_photos') { await photosHeld; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 1, stored: 1 }) }); }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 0, updated: 0 }) });
+    });
+    await typing.evaluate(() => { try { Object.keys(localStorage).filter((k) => k.startsWith('silo.affiliates.autorefresh.')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} });
+    await typing.reload();
+    await typing.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
+    await openRecords(typing);
+    await typing.fill('#mpName', 'Half typed');
+    await typing.click('body');   // focus off the field: only the typed value keeps it
+    const loadsBefore = await typing.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs').length);
+    releasePhotos();
+    await typing.waitForTimeout(1200);
+    R.eq(await typing.inputValue('#mpName'), 'Half typed', 'what someone typed survives a background refresh');
+    R.ok('and the page was not reloaded under them', (await typing.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs').length)) === loadsBefore);
+    await typing.close();
+
+    // The other order: the form is clean when the photos land, and the person
+    // starts typing while the redraw's own reads are still out.
+    const typing2 = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_programs: [{ ...tables.affiliate_programs[0], id: PROG3 }],
+        affiliate_prospects: [{ ...tables.affiliate_prospects[0], program_id: PROG3, evidence: { title: 'Sam Runs' } }] },
+      { ready, rpc: { can_manage_affiliate_programs: true } });
+    typing2.on('pageerror', (e) => errors.push(e.message));
+    let release2; const held2 = new Promise((r) => { release2 = r; });
+    await typing2.route('**/functions/v1/affiliate-research', async (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      if (body.action === 'refresh_photos') { await held2; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 1, stored: 1 }) }); }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 0, updated: 0 }) });
+    });
+    await typing2.evaluate(() => { try { Object.keys(localStorage).filter((k) => k.startsWith('silo.affiliates.autorefresh.')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} });
+    await typing2.reload();
+    await typing2.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
+    await openRecords(typing2);
+    // Hold the redraw's reads, let the photos land on a clean form, then type.
+    await typing2.evaluate(() => { let open; window.__FIXTURE_TABLE_GATES__ = { affiliate_programs: new Promise((r) => { open = r; }) }; window.__openGate = open; });
+    release2();
+    await typing2.waitForTimeout(600);
+    await typing2.fill('#mpName', 'Typed during the reads');
+    await typing2.click('body');
+    await typing2.evaluate(() => { window.__openGate(); window.__FIXTURE_TABLE_GATES__ = {}; });
+    await typing2.waitForTimeout(800);
+    R.eq(await typing2.inputValue('#mpName'), 'Typed during the reads', 'typing that starts during the redraw\'s reads survives too');
+    await typing2.close();
 
     // ── payout export: the file is what the database claimed ─────────────
     // Two payouts look approved on the page; by the time Export runs one was
