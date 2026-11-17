@@ -76,6 +76,7 @@ const MUTATIONS = {
   bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
+  storepickall: ['/affiliates/studio-core.js', 'row.shop_domains = on.length === f.shop_domains.length ? null : on;', 'row.shop_domains = null;'],
   savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
@@ -390,6 +391,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(sb, 'Text only', 'an ad with no picture is not offered');
     R.ok('each recent ad shows its picture', await page.evaluate((p) => [...document.querySelectorAll('#shareBody img')].some((i) => i.getAttribute('src') === 'https://fixture.local/signed/' + p), AD_IMG));
     R.ok('with several Shopify stores and no store address, Studio asks for the address', !!(await page.$('#shareBody #storeNeeded')));
+    R.ok('before 20261117030000 there is no store picker', !(await page.$('#programBody .pStore')));
     await page.click('#shareBody [data-act="feed-add"][data-kind="launch"]');
     await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_items' && q._op === 'insert'), null, { timeout: 5000 });
     const shared = await page.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').pop().rows);
@@ -495,7 +497,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
 
     // ── the loop: after 20261110180000 ────────────────────────────────────
     const loopTables = { ...tables,
-      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 10, outreach_subject: 'Ride with {brand}', outreach_body: 'Yo {name}! Join us: {signup_link}' }],
+      affiliate_programs: [{ ...tables.affiliate_programs[0], default_discount_percent: 10, outreach_subject: 'Ride with {brand}', outreach_body: 'Yo {name}! Join us: {signup_link}', shop_domains: null }],
       affiliates: [{ ...tables.affiliates[0], photo_url: 'https://photos.invalid/pat-own.png', photo_hidden: false }],
       affiliate_codes: [...tables.affiliate_codes, { id: 'c2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PAT10-2', starts_on: '2026-11-10', ends_on: null, status: 'pending', discount_percent: 10 }],
       affiliate_payouts: [{ id: 'po-d', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now }] };
@@ -555,6 +557,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const progRow = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
     R.ok('blank saves as off (null), not 0', progRow && 'default_discount_percent' in progRow && progRow.default_discount_percent === null);
     R.eq(progRow?.outreach_body, 'Hey {name}, here: {signup_link}', 'the edited outreach message is saved');
+    // Several Shopify stores: the brand ticks which ones count (20261117030000).
+    R.eq(await loop.$$eval('#programBody .pStore', (els) => els.map((e) => `${e.textContent}:${e.classList.contains('is-on')}`).join()), 'brand-a:true,brand-a-retail:true', 'every store is ticked while the program covers all of them');
+    const beforeStore = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').length);
+    await loop.click('#programBody .pStore[data-store="brand-a-retail.myshopify.com"]');
+    await loop.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').length > n, beforeStore, { timeout: 5000 });
+    const storeRow = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
+    R.eq(JSON.stringify(storeRow?.shop_domains), '["brand-a.myshopify.com"]', 'unticking a store saves only the stores still ticked');
     // A chip press saves too, with the choice it shows.
     const before = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').length);
     await loop.click('#programBody [data-seg="pKind"][data-v="fixed_per_order"]');

@@ -113,6 +113,13 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   // The automatic first code's % off: only sent when the form carries it.
   assert.ok(!('default_discount_percent' in fixed.row), 'a form without the field leaves the column alone');
   assert.equal(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: '' }).row.default_discount_percent, null, 'blank turns it off');
+  // Which stores count (20261117030000).
+  const st = (on) => C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5',
+    shop_domains: [{ d: 'a.myshopify.com', on: on[0] }, { d: 'B.myshopify.com', on: on[1] }] });
+  assert.equal(st([true, true]).row.shop_domains, null, 'every store ticked is stored as all stores');
+  assert.deepEqual(st([false, true]).row.shop_domains, ['b.myshopify.com'], 'only the ticked store, lowercased');
+  assert.ok(st([false, false]).errors.includes('Pick at least one store.'), 'no store is refused');
+  assert.ok(!('shop_domains' in fixed.row), 'a form without the store picker leaves the column alone');
   assert.equal(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: '15' }).row.default_discount_percent, 15);
   for (const bad of ['0', '101', '7.5', 'x']) {
     assert.ok(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: bad }).errors.some((e) => /% off/.test(e)), bad);

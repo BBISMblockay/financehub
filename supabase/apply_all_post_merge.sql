@@ -19825,4 +19825,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 2026-11-17: affiliate_notifications accepts 'signup_invite' (the emailed
 -- onboarding invite). Apply BEFORE deploying affiliate-invite.
 \i migrations/20261117020000_affiliate_signup_invite_mail.sql
+-- 2026-11-17: affiliate_programs.shop_domains (which stores a program covers);
+-- attribution and links honour it. No deploy needed.
+\i migrations/20261117030000_affiliate_program_stores.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

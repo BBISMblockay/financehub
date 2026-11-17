@@ -249,6 +249,9 @@ const files = {
   // re-states the feed from the pre-160000 text and carries the guessing
   // body back with it.
   feedstore: '20261116060000_affiliate_portal_feed_store_guard.sql',
+  // Which stores a program covers (20261117030000). After the loop: it
+  // re-states the loop's resolver.
+  stores: '20261117030000_affiliate_program_stores.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -264,8 +267,15 @@ function mutate(from, to) {
 const seedMut = (from, to) => { assert.ok(sql.seedcodes.includes(from), `mutation ${MUT}: pattern not found`); sql.seedcodes = sql.seedcodes.split(from).join(to); };
 const storeMut = (from, to) => { assert.ok(sql.feedstore.includes(from), `mutation ${MUT}: pattern not found`); sql.feedstore = sql.feedstore.split(from).join(to); };
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
+const storesMut = (from, to) => { assert.ok(sql.stores.includes(from), `mutation ${MUT}: pattern not found`); sql.stores = sql.stores.split(from).join(to); };
 switch (MUT) {
   case '': break;
+  // Every store's orders count again, whatever the brand picked.
+  case 'stores-any':
+    storesMut('      and (v_prog.shop_domains is null or lower(o.shop_domain) = any (v_prog.shop_domains))\n', ''); break;
+  // Links ignore the one store the brand picked.
+  case 'stores-link':
+    storesMut('        and cardinality(p.shop_domains) = 1),', '        and false),'); break;
   case 'loop-no-service':
     loopMut("  if coalesce(auth.role()::text, '') <> 'service_role'\n     and (", '  if true and ('); break;
   case 'loop-service-for-all':
@@ -1294,6 +1304,45 @@ await check('N2 the production verify check for the store rule reads ok once thi
   await db.exec('reset role');
   const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   const i = v.indexOf("select 'Affiliate codes via AI' as check_name");
+  assert.ok(i > 0, 'verify_v2_schema has the check');
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
+});
+
+// ── S: which stores a program covers (20261117030000) ───────────────────
+await check('S1 only orders from the stores a program picked are credited; links open on the one picked store', async () => {
+  await db.exec('reset role');
+  await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`);
+  await db.exec(sql.stores);
+  await db.exec(sql.stores);
+  const aff = await loopAff('Vic');
+  const [{ id: code }] = await all('select id from affiliate_codes where affiliate_id = $1', [aff]);
+  await db.query(`update affiliate_codes set status = 'active', starts_on = current_date - 10 where id = $1`, [code]);
+  const cur = (await one('select currency from affiliate_programs where id = $1', [progA])).currency;
+  for (const [shop, oid] of [['retail.myshopify.com', 'S-1'], ['Wholesale.myshopify.com', 'S-2']]) {
+    await db.query(`insert into shopify_orders(company_entity_id, shop_domain, order_id, currency, subtotal_price, refunded_subtotal, discount_codes, shopify_created_at)
+      values ($1,$2,$3,$4,40,0,'["VIC10"]', now() - interval '2 days')`, [A, shop, oid, cur]);
+  }
+  await db.query(`update affiliate_programs set shop_domains = array['retail.myshopify.com'], store_url = null where id = $1`, [progA]);
+  await db.exec(`select set_config('test.role', 'service_role', false)`);
+  try { await db.query('select public.affiliate_resolve_attributions($1, current_date - 5, current_date + 1)', [progA]); }
+  finally { await db.exec(`select set_config('test.role', '', false)`); }
+  const got = (await all(`select order_id from affiliate_attributions where order_id in ('S-1','S-2') order by 1`)).map((r) => r.order_id);
+  assert.deepEqual(got, ['S-1'], 'the wholesale order is not credited');
+  assert.equal((await one('select public.affiliate_program_store_url($1,$2) as u', [A, progA])).u, 'https://retail.myshopify.com');
+  await db.query('update affiliate_programs set shop_domains = null where id = $1', [progA]);
+  await db.exec(`select set_config('test.role', 'service_role', false)`);
+  try { await db.query('select public.affiliate_resolve_attributions($1, current_date - 5, current_date + 1)', [progA]); }
+  finally { await db.exec(`select set_config('test.role', '', false)`); }
+  assert.equal((await all(`select order_id from affiliate_attributions where order_id in ('S-1','S-2')`)).length, 2, 'NULL = every store');
+  await assert.rejects(db.query(`update affiliate_programs set shop_domains = array['Bad Store'] where id = $1`, [progA]), /shop_domains_shape/);
+  await assert.rejects(db.query(`update affiliate_programs set shop_domains = array[]::text[] where id = $1`, [progA]), /shop_domains_shape/);
+});
+
+await check('S2 the production verify check for program stores reads ok', async () => {
+  await db.exec('reset role');
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate programs cover only their picked stores' as check_name");
   assert.ok(i > 0, 'verify_v2_schema has the check');
   const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
   assert.equal((await one(q)).status, 'ok');

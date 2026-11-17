@@ -324,10 +324,14 @@ const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
 // affiliate_program_store_url -- the store address, else the only Shopify store.
 function storeOf(p) {
   if (p?.store_url) return p.store_url;
+  if (Array.isArray(p?.shop_domains) && p.shop_domains.length === 1) return `https://${p.shop_domains[0]}`;
   const st = S.d?.stores;
   return Array.isArray(st) && st.length === 1 ? `https://${st[0]}` : null;
 }
-const needsStore = (p) => !p?.store_url && !(Array.isArray(S.d?.stores) && S.d.stores.length === 1);
+const needsStore = (p) => !storeOf(p);
+// The stores a program covers (20261117030000): NULL = every store.
+const hasStorePick = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'shop_domains'));
+const storeName = (d) => String(d).replace(/\.myshopify\.com$/, '');
 // The code an affiliate's links apply today: an active one in its window.
 function liveCodeOf(affId) {
   const t = today();
@@ -622,6 +626,12 @@ const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty
 // The program's own outreach message exists once 20261111020000 is applied.
 // Product seeding exists once 20261113093000 is applied.
 const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'seeding_enabled'));
+const storesCard = (p, dis) => {
+  const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
+  if (!hasStorePick() || st.length < 2) return '';
+  const picked = Array.isArray(p.shop_domains) ? p.shop_domains : null;
+  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${st.map((x) => { const on = !picked || picked.includes(x); return `<button type="button" class="af-chip-tog pStore${on ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${on}" ${dis}>${esc(storeName(x))}</button>`; }).join('')}</div>`));
+};
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 // Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
 // windows forms, need modernized"; "i don't want hiding"). Every setting is
@@ -701,7 +711,7 @@ function renderProgram(isNew = S.creating) {
   const create = isNew && MANAGE ? `<div class="af-settings-save">${btn('Create program', 'save-program', {}, 'primary')}${S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : '';
   const saved = !isNew && MANAGE ? '<span class="af-set-saved" id="setSaved" aria-live="polite"></span>' : '';
   $('programBody').innerHTML = `<div class="af-settings">${saved}
-    <div class="af-settings-col">${program}${pay}${seeding}${codes}${create}</div>
+    <div class="af-settings-col">${program}${storesCard(p, dis)}${pay}${seeding}${codes}${create}</div>
     <div class="af-settings-col">${recruit}${message}${terms}${access}</div></div>`;
   syncCommissionFields();
   if (!isNew && p.id) renderManagers();
@@ -717,7 +727,7 @@ document.addEventListener('click', (ev) => {
     syncCommissionFields();
     return;
   }
-  const c = ev.target.closest('[data-plat]');
+  const c = ev.target.closest('[data-plat], [data-store]');
   if (c && !c.disabled) {
     c.classList.toggle('is-on'); c.setAttribute('aria-pressed', String(c.classList.contains('is-on')));
     c.dispatchEvent(new Event('change', { bubbles: true }));
@@ -781,6 +791,7 @@ function readProgramForm() {
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
     ...($('pPayMethod') ? { payout_method: val('pPayMethod') } : {}),
     ...(hasAutoCode() ? { default_discount_percent: val('pAutoPct') } : {}),
+    ...($('programBody')?.querySelector('.pStore') ? { shop_domains: [...document.querySelectorAll('.pStore')].map((x) => ({ d: x.dataset.store, on: x.classList.contains('is-on') })) } : {}),
     ...(hasOutreachMessage() ? { outreach_subject: val('pOutSubject'), outreach_body: $('pOutBody').value } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });

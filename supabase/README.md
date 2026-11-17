@@ -3898,3 +3898,12 @@ active-owner invariant remain separate decisions.
 now emails (someone a manager added by hand, or who applied, once approved) is
 recorded. No table, policy or grant changes. Apply before deploying
 affiliate-invite.
+
+### Affiliate program stores — 2026-11-17
+
+`20261117030000_affiliate_program_stores.sql` adds `affiliate_programs.shop_domains`
+(the company's Shopify stores a program covers; NULL = every store, the old
+behaviour). `affiliate_resolve_attributions()` reads only orders from those
+stores, and `affiliate_program_store_url()` opens links on the one picked store
+when no address was typed. Unticking a store never claws back what was already
+attributed. No new grants; no deploy needed (both functions are called by name).
