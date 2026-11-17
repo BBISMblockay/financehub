@@ -41,7 +41,7 @@ export const MAX_IMPORT_ROWS = 500;
 export const MAX_MODEL_CALLS = 10;
 export const MAX_PER_SOURCE = 5;
 // Google leads handed to the AI per run (profiles the program's searches found).
-export const MAX_LEADS = 40;
+export const MAX_LEADS = 60;
 // Google searches per run: one per social platform the program ticked, so one
 // busy platform cannot crowd the others out of a single combined search.
 export const MAX_LEAD_SEARCHES = 4;
@@ -85,6 +85,16 @@ export const WEB_SEARCH_USES = 8;
 export const WEB_FETCH_USES = 8;
 export const FETCH_CONTENT_TOKENS = 6000;
 export const MAX_OUTPUT_TOKENS = 16000;
+// Shortlist mode (Blake 2026-11-17: "more free Google, less roaming Claude").
+// When the free searches (YouTube's own API, Google) already found at least
+// as many leads as creators asked for, Claude mostly judges that list from
+// the details shown, and only searches or opens a page to fill a gap: fewer
+// tool uses per step and fewer steps. With too few leads it researches as
+// before.
+export const LEAN_SEARCH_USES = 3;
+export const LEAN_FETCH_USES = 3;
+export const LEAN_MAX_CALLS = 4;
+export const leanRun = (leads, wanted) => (leads?.length || 0) >= clampCount(wanted);
 const PLATFORMS = ['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog'];
 
 const nullable = (type) => ({ type: [type, 'null'] });
@@ -164,7 +174,7 @@ export function knownCreators(rows) {
 }
 export const isKnown = (known, c) => !!known && creatorKeys(c).some((k) => known.keys.has(k));
 
-export function buildResearchRequest({ program, focus, count, model, today, leads = [], known = null }) {
+export function buildResearchRequest({ program, focus, count, model, today, leads = [], known = null, lean = false }) {
   const platforms = (program?.platforms || []).filter((p) => PLATFORMS.includes(p));
   const brief = [
     `Program: ${program?.name || 'affiliate program'}`,
@@ -174,7 +184,7 @@ export function buildResearchRequest({ program, focus, count, model, today, lead
     (program?.geographies || []).length ? `Countries: ${program.geographies.join(', ')}` : '',
     focus ? `Look for: ${String(focus).slice(0, 500)}` : '',
     `Find ${clampCount(count)} creators. Today is ${today}.`,
-    leads.length ? leadsBrief(leads) : '',
+    leads.length ? leadsBrief(leads, lean) : '',
     known?.handles?.length ? `\nAlready known to this brand, skip them: ${known.handles.join(', ')}` : '',
   ].filter(Boolean).join('\n');
   return {
@@ -185,8 +195,8 @@ export function buildResearchRequest({ program, focus, count, model, today, lead
     cache_control: { type: 'ephemeral' },
     system: RESEARCH_SYSTEM,
     tools: [
-      { type: 'web_search_20250305', name: 'web_search', max_uses: WEB_SEARCH_USES },
-      { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: WEB_FETCH_USES, max_content_tokens: FETCH_CONTENT_TOKENS },
+      { type: 'web_search_20250305', name: 'web_search', max_uses: lean ? LEAN_SEARCH_USES : WEB_SEARCH_USES },
+      { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: lean ? LEAN_FETCH_USES : WEB_FETCH_USES, max_content_tokens: FETCH_CONTENT_TOKENS },
       RECORD_TOOL,
     ],
     tool_choice: { type: 'auto' },
@@ -199,8 +209,9 @@ export function buildResearchRequest({ program, focus, count, model, today, lead
  * search results, so they count as seen; whether each one FITS is the AI's
  * call, and a lead it does not record is never stored.
  */
-export function leadsBrief(leads) {
-  const lines = leads.slice(0, MAX_LEADS).map((l) => `- ${String(l.display_name || l.handle || '').slice(0, 80)} (${l.platform}) ${l.profile_url}${l.evidence?.snippet ? ` | ${String(l.evidence.snippet).slice(0, 140)}` : ''}`);
+export function leadsBrief(leads, lean = false) {
+  const lines = leads.slice(0, MAX_LEADS).map((l) => `- ${String(l.display_name || l.handle || '').slice(0, 80)} (${l.platform}) ${l.profile_url}${l.evidence?.snippet ? ` | ${String(l.evidence.snippet).slice(0, lean ? 240 : 140)}` : ''}`);
+  if (lean) return `\nLeads from Google and YouTube search. They are real search results, so they count as seen. Build your list mainly from these: judge fit from the details shown and record the ones who fit, without opening their pages. Drop businesses, stores, news sites and unrelated accounts. Search or open a page only when the leads cannot fill the list.\n${lines.join('\n')}`;
   return `\nLeads from a Google search (not yet checked). Open each one that looks relevant, keep only real creators who fit this program, and drop businesses, stores, news sites and unrelated accounts. Then search for more beyond these leads.\n${lines.join('\n')}`;
 }
 

@@ -176,6 +176,37 @@ export async function fetchChannelStats({ profileUrl, apiKey, fetchImpl = fetch,
   };
 }
 
+// YouTube's own channel search, as research leads (Blake 2026-11-17: "more
+// free Google, less roaming Claude"). search.list costs 100 quota units and
+// channels.list 1, out of SILO's free 10,000 a day: no money. -> leads shaped
+// like discovery candidates (real API results, so they count as seen), with
+// subscribers and the channel's own description. Throws on an API error.
+export const YT_SEARCH_RESULTS = 25;
+export async function searchYouTubeChannels({ query, apiKey, fetchImpl = fetch, regionCode = null, max = YT_SEARCH_RESULTS, collectedAt = null }) {
+  const q = String(query || '').trim().slice(0, 200);
+  if (!q || !apiKey) return [];
+  const params = { part: 'snippet', type: 'channel', q, maxResults: Math.min(Math.max(Math.round(Number(max) || YT_SEARCH_RESULTS), 1), 50) };
+  if (/^[A-Z]{2}$/.test(String(regionCode || ''))) params.regionCode = regionCode;
+  const sr = await ytGet({ path: 'search', params, apiKey, fetchImpl });
+  const ids = [...new Set((sr?.items || []).map((i) => i?.id?.channelId || i?.snippet?.channelId).filter((x) => /^UC[\w-]{22}$/.test(x || '')))];
+  if (!ids.length) return [];
+  const ch = await ytGet({ path: 'channels', params: { part: 'snippet,statistics', id: ids.join(','), maxResults: ids.length }, apiKey, fetchImpl });
+  const byId = new Map((ch?.items || []).map((c) => [c.id, c]));
+  const out = [];
+  for (const id of ids) {
+    const c = byId.get(id); if (!c) continue;
+    const custom = String(c.snippet?.customUrl || '');
+    const p = classifyProfileUrl(/^@[\w.-]+$/.test(custom) ? `https://www.youtube.com/${custom}` : `https://www.youtube.com/channel/${id}`);
+    if (!p) continue;
+    const title = String(c.snippet?.title || '').trim().slice(0, 200) || p.handle;
+    const subs = c.statistics?.hiddenSubscriberCount ? null : intOrNull(c.statistics?.subscriberCount);
+    const desc = String(c.snippet?.description || '').replace(/\s+/g, ' ').trim();
+    out.push({ ...p, display_name: title, source_url: p.profile_url, collected_at: collectedAt,
+      evidence: { title, snippet: `${subs !== null ? `${subs} subscribers. ` : ''}${desc}`.slice(0, 600), source: YT_SOURCE } });
+  }
+  return out;
+}
+
 const field = (value, source, source_url = null, as_of = null) => (value === null || value === undefined ? null : { value, source, source_url, as_of });
 
 /**

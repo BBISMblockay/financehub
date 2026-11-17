@@ -28,6 +28,10 @@
 //   AFFILIATE_RESEARCH_MUTATION=oneround     a short run stops after one round
 //   AFFILIATE_RESEARCH_MUTATION=partial      a failed later round throws away what was found
 //   AFFILIATE_RESEARCH_MUTATION=onesource    one list article supplies the whole list
+//   AFFILIATE_RESEARCH_MUTATION=ytnoleads    YouTube's own search never runs
+//   AFFILIATE_RESEARCH_MUTATION=ytanyplat    YouTube is searched for a program that did not tick it
+//   AFFILIATE_RESEARCH_MUTATION=leanoff      enough leads, but Claude still roams the web
+//   AFFILIATE_RESEARCH_MUTATION=leanalways   too few leads, but Claude is held to the shortlist
 //   AFFILIATE_RESEARCH_MUTATION=photoredirect a photo redirect hop is followed without the safety check
 //   AFFILIATE_RESEARCH_MUTATION=photomagic   a page that is not an image is stored as a photo
 //   AFFILIATE_RESEARCH_MUTATION=photostored  Refresh photos re-fetches creators that already have a stored copy
@@ -101,6 +105,10 @@ const MUTS = {
   photoclobber: ['lib/affiliate-photo-core.mjs', "if (await mergeProspectEvidence({ service, company, id: p.id, patch })) out.stored += 1;", "if (!(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...patch } }).eq('id', p.id).eq('company_entity_id', company)).error) out.stored += 1;"],
   ytclobber: ['lib/affiliate-youtube-core.mjs', "const ok = await mergeProspectEvidence({", "const ok = await (async (a) => !(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...a.patch } }).eq('id', p.id).eq('company_entity_id', company)).error)({"],
   rpcfallback: ['lib/affiliate-youtube-core.mjs', "  return !error && data === true;\n}", "  if (!error) return data === true;\n  const { data: row } = await service.from('affiliate_prospects').select('evidence').eq('id', id).eq('company_entity_id', company).maybeSingle();\n  return !(await service.from('affiliate_prospects').update({ evidence: { ...(row?.evidence || {}), ...patch } }).eq('id', id).eq('company_entity_id', company)).error;\n}"],
+  ytnoleads: ['handler.mjs', "    if (!youtubeKey || !q ||", '    if (true ||'],
+  ytanyplat: ['handler.mjs', " || (plats.length && !plats.includes('youtube'))", ''],
+  leanoff: [CORE, '(leads?.length || 0) >= clampCount(wanted);', 'false;'],
+  leanalways: [CORE, '(leads?.length || 0) >= clampCount(wanted);', 'true;'],
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -443,6 +451,7 @@ await test('Google leads go to the AI first; only the ones it checks and records
   assert.deepEqual(ps.map((p) => p.handle), ['@leadcreator'], 'a lead the AI recorded is kept on the strength of the real search result; one it dropped is never stored');
   assert.equal(ps[0].source, 'ai_research');
   assert.match(s.service.tables.affiliate_discovery_runs[0].error, /2 Google leads checked$/, 'the same profile from two searches is one lead');
+  assert.equal(s.calls[0].tools.find((x) => x.name === 'web_search').max_uses, 8, 'too few leads for the run: Claude researches as before');
 });
 
 await test('a typed site: filter is one search, as typed, however many platforms are ticked', async () => {
@@ -746,6 +755,51 @@ await test('a YouTube photo comes from the channel thumbnail the API gave, witho
   assert.equal(out.stored, 1);
   assert.equal(svc.tables.affiliate_prospects[0].evidence.profile_image_stored, true);
   assert.ok(!web.asked.includes('https://www.youtube.com/@one'), 'the channel page is not opened');
+});
+
+function ytSearchApi(n = 6) {
+  const asked = [];
+  const ids = [...'bcdefghijk'].slice(0, n).map((c) => 'UC' + c.repeat(22));
+  const json = (b) => ({ ok: true, status: 200, json: async () => b });
+  const f = async (url) => {
+    const u = new URL(url); asked.push(u);
+    if (u.pathname.endsWith('/search')) return json({ items: ids.map((id) => ({ id: { kind: 'youtube#channel', channelId: id } })) });
+    if (u.pathname.endsWith('/channels') && u.searchParams.get('id')) {
+      return json({ items: ids.map((id, i) => ({ id, snippet: { title: `Coach ${i}`, customUrl: `@coach${i}`, description: `Baseball   drills every week.` }, statistics: { subscriberCount: String(1000 * (i + 1)), hiddenSubscriberCount: i === 5 } })) });
+    }
+    return json({ items: [] });
+  };
+  f.asked = asked;
+  return f;
+}
+
+await test('YouTube search finds creators first; with enough leads Claude works from that shortlist', async () => {
+  const yt = ytSearchApi();
+  const s = setup({ youtubeKey: 'yt-key', youtubeFetch: yt, script: [msg([{ type: 'tool_use', id: 't', name: 'record_creators', input: { creators: [
+    creator({ name: 'Coach 0', platform: 'youtube', handle: '@coach0', profile_url: 'https://www.youtube.com/@coach0', found_on_url: 'https://www.youtube.com/@coach0' }),
+  ] } }], 'tool_use')] });
+  await s.call({ action: 'research', program_id: PA, focus: 'baseball drills', count: 5 });
+  const q = yt.asked.find((u) => u.pathname.endsWith('/search'));
+  assert.ok(q, 'YouTube is searched');
+  assert.deepEqual([q.searchParams.get('q'), q.searchParams.get('type'), q.searchParams.get('regionCode')], ['baseball drills', 'channel', 'US']);
+  const brief = s.calls[0].messages[0].content;
+  assert.match(brief, /Leads from Google and YouTube search/);
+  assert.match(brief, /https:\/\/www\.youtube\.com\/@coach3 \| 4000 subscribers\. Baseball drills every week\./, 'subscribers and the channel description, from the API');
+  assert.doesNotMatch(brief, /@coach5 \| \d+ subscribers/, 'a hidden count is not shown as a number');
+  assert.equal(s.calls[0].tools.find((x) => x.name === 'web_search').max_uses, 3, 'enough leads: few searches');
+  assert.equal(s.calls[0].tools.find((x) => x.name === 'web_fetch').max_uses, 3, 'and few pages opened');
+  assert.deepEqual(s.service.tables.affiliate_prospects.map((p) => p.handle), ['@coach0'], 'a YouTube lead the AI recorded is kept on the strength of the API result');
+  assert.match(s.service.tables.affiliate_discovery_runs[0].error, /6 leads checked \(6 from YouTube\), shortlist mode$/);
+});
+
+await test('YouTube is searched only for a program that ticked it, and no words means no search', async () => {
+  const yt = ytSearchApi();
+  const s = setup({ youtubeKey: 'yt-key', youtubeFetch: yt, script: [msg([{ type: 'tool_use', id: 't', name: 'record_creators', input: { creators: [] } }], 'tool_use')] });
+  s.service.tables.affiliate_programs.find((p) => p.id === PA).platforms = ['tiktok'];
+  await s.call({ action: 'research', program_id: PA, focus: 'baseball drills', count: 5 });
+  assert.ok(!yt.asked.some((u) => u.pathname.endsWith('/search')), 'TikTok only: YouTube is not searched');
+  const { searchYouTubeChannels } = await import(new URL('lib/affiliate-youtube-core.mjs', LIVE).href);
+  assert.deepEqual(await searchYouTubeChannels({ query: '  ', apiKey: 'k', fetchImpl: yt }), []);
 });
 
 await test('the research request is cached and reads short pages', async () => {
