@@ -196,6 +196,15 @@
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">3</div>
       <div class="ig-step-main">
+        <div class="ig-step-title">Allow discount codes (optional)</div>
+        <div class="ig-step-body">Only if you use Affiliate Studio. In the same <strong>Configuration</strong>, also tick <code>write_discounts</code> and save. SILO then creates each affiliate's discount code in your store.</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code><code>write_discounts</code></div>
+        
+        <div class="ig-step-note"><code>write_discounts</code> is the only write SILO asks for, and only for discount codes. The token stays the same; click <strong>Re-test</strong> in SILO after saving.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
         <div class="ig-step-title">Copy the Admin API access token</div>
         <div class="ig-step-body">Under <strong>API credentials</strong>, the token starts with <code>shpat_</code>. Shopify shows it only once; if it was never saved, it cannot be revealed again — use the store's own app route instead.</div>
         
@@ -203,7 +212,7 @@
         
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-num" aria-hidden="true">5</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Paste it into SILO</div>
         <div class="ig-step-body">In <strong>Add Shopify store</strong>, enter the store address, open <strong>Already have an Admin API token?</strong>, paste it and click <strong>Save token</strong>. Then Test the row.</div>

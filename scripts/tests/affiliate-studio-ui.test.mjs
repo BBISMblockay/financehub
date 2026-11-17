@@ -280,4 +280,13 @@ await t('a one-press code is named from the affiliate and never repeats one alre
   assert.ok(C.suggestCode('A'.repeat(40), 100).length <= 20);
 });
 
+await t('the import template is a file the import reads back: one creator, every column', async () => {
+  const { importRowsToCandidates } = await import(pathToFileURL(join(process.cwd(), 'supabase/functions/affiliate-research/lib/affiliate-research-core.mjs')).href);
+  const rows = C.parseCsv(C.toCsv(...C.IMPORT_TEMPLATE));
+  const r = importRowsToCandidates({ rows, program: { niche_keywords: [] }, collectedAt: '2026-11-17T00:00:00Z' });
+  assert.equal(r.stats.kept, 1, 'its example row imports');
+  assert.equal(r.stats.followers_kept, 1, 'followers column is read');
+  assert.equal(r.stats.emails_kept, 1, 'email column is read');
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);

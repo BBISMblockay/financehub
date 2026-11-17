@@ -166,6 +166,12 @@
           note: '<strong>Include <code>read_all_orders</code>.</strong> Without it Shopify only returns the last 60 days of orders. If you add it now, save the configuration and Test the row in SILO again.',
         },
         {
+          title: 'Allow discount codes (optional)',
+          body: 'Only if you use Affiliate Studio. In the same <strong>Configuration</strong>, also tick <code>write_discounts</code> and save. SILO then creates each affiliate\'s discount code in your store.',
+          scopes: SHOPIFY_AFFILIATE_SCOPES,
+          note: '<code>write_discounts</code> is the only write SILO asks for, and only for discount codes. The token stays the same; click <strong>Re-test</strong> in SILO after saving.',
+        },
+        {
           title: 'Copy the Admin API access token',
           body: 'Under <strong>API credentials</strong>, the token starts with <code>shpat_</code>. Shopify shows it only once; if it was never saved, it cannot be revealed again — use the store\'s own app route instead.',
         },

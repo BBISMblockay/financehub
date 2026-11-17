@@ -226,6 +226,9 @@ export function csvCell(v) {
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
+// The creator import's template: the columns affiliate-research reads, one example row.
+export const IMPORT_TEMPLATE = [['name', 'profile_url', 'platform', 'email', 'followers', 'notes'],
+  [['Pat Trails', 'https://www.instagram.com/pattrails', 'instagram', 'pat@pattrails.com', '12400', 'Baseball training videos']]];
 export const toCsv = (header, rows) => [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 
 export function fillTemplate(text, vars) {

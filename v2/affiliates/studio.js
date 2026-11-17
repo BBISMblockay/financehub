@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -1071,7 +1071,7 @@ function renderProspects() {
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament"'))}<div class="af-row" style="margin-top:8px;">${btn('Add', 'prospect-add', {}, 'primary')}${btn('Close', 'add-creators-close')}</div><div id="mpOut"></div>
-    <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '';
+    <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}${btn('Download template', 'import-template', {}, 'ghost')}</div>`) : '';
   $('prospectsBody').innerHTML = [
     editor,
     adder,
@@ -2223,6 +2223,11 @@ const A = {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
+  },
+  // The columns the import reads (affiliate-research importRowsToCandidates).
+  'import-template': async () => {
+    download('affiliate-import-template.csv', toCsv(...IMPORT_TEMPLATE));
+    return 'Template downloaded. One creator per row; profile_url is required.';
   },
   'import-run': async () => {
     const file = $('impFile')?.files?.[0];
