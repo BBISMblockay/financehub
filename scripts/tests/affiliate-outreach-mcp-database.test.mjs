@@ -261,6 +261,8 @@ const files = {
   storesfix: '20261117040000_affiliate_store_refunds_paid_notice.sql',
   // Affiliate content uploads and the content bonus.
   content: '20261117050000_affiliate_content.sql',
+  // Same-company twin keys for the content and payout-notice references.
+  twins: '20261117090000_affiliate_same_company_twins.sql',
 };
 const sql = {};
 let CT = null;
@@ -1407,6 +1409,10 @@ await check('CT1 an affiliate shares a link or uploads a file; the brand sees a 
   await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`);
   await db.exec(sql.content);
   await db.exec(sql.content);
+  await db.exec(sql.twins);
+  await db.exec(sql.twins);
+  const twins = (await db.query(`select conname from pg_constraint where conname like '%\\_same\\_co' and conrelid in ('public.affiliate_content_submissions'::regclass, 'public.affiliate_notifications'::regclass)`)).rows.map((r) => r.conname).sort();
+  assert.ok(['affiliate_content_submissions_affiliate_id_same_co', 'affiliate_content_submissions_bonus_ledger_id_same_co', 'affiliate_content_submissions_program_id_same_co', 'affiliate_notifications_payout_id_same_co'].every((n) => twins.includes(n)), `every reference has a same-company twin (${twins.join(', ')})`);
   const aff = await loopAff('Cam Creates');
   const h = sha(`content-${Math.random()}`);
   await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)

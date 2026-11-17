@@ -3915,6 +3915,13 @@ and `affiliate_payouts.paid_notice_claimed_at` (reserved by one conditional
 update before sending) lets affiliate-invite announce a paid payout once;
 `affiliate_notifications.payout_id` records which payout a notice was for. Apply before deploying affiliate-invite.
 
+### Affiliate same-company keys — 2026-11-17
+
+`20261117090000_affiliate_same_company_twins.sql` adds the two-column
+(x_id, company_entity_id) twin foreign keys that `affiliate_content_submissions`
+(program, affiliate, bonus ledger line) and `affiliate_notifications.payout_id`
+shipped without, so none can point at another company's row. Additive.
+
 ### Affiliate content — 2026-11-17
 
 `20261117050000_affiliate_content.sql` adds `affiliate_content_submissions`

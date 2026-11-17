@@ -159,6 +159,7 @@ const MUTATIONS = {
   nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
   noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
   showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '') => (false ? ''"],
+  moneyplain: ['/affiliates/studio.js', "  moneyTop(),\n  paypalRail", "  paypalRail"],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
@@ -413,6 +414,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
     R.has(await text(page, '#payoutsBody'), 'Pay from your bank or payment tool', 'the payout tab says where money moves');
+    R.has(await text(page, '#payoutsBody .af-ov-metrics'), 'Owed now', 'Money opens with what is owed, earned and paid');
+    R.ok('ready-to-pay rows carry the affiliate photo or initials', !!(await page.$('#payoutsBody .af-item--pay .af-list-thumb')));
     // ── Share tab: the brand picks what affiliates see ──────────────────
     await page.click('#tabs [data-tab="comms"]');
     await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
@@ -572,7 +575,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq([draft?.subject, draft?.body], ['Ride with Brand A', 'Yo Sam Runs! Join us: {signup_link}'], 'a new draft starts from the program\'s own message, filled in');
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
-    R.has(await text(loop, '#commissionsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
+    R.has(await text(loop, '#payoutsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
     await loop.click('#tabs [data-tab="program"]');
     // Setup is a settings page: a card per subject, chips instead of
     // dropdowns, and it saves as you go -- no Save button on a live program.

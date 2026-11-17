@@ -1451,7 +1451,8 @@ function commissionsBodyHtml() {
   };
   const ledgerRow = (l) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[l.affiliate_id]?.display_name || '—')} · ${formatMoney(l.amount_cents, l.currency)}</div><div class="af-muted">${fmtTime(l.created_at)} · ${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? ` · <span class="af-mono">${esc(l.order_id)}</span>` : ''}</div>${l.memo ? `<div class="af-kv-line">${esc(l.memo)}</div>` : ''}</div></article>`;
   return [
-    card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
+    // The same photo leaderboard as Home when the history loaded.
+    Array.isArray(d.ovAttributions) && Array.isArray(d.ovLedger) ? ovLeaderboard(ovList()) : card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
     more('Every order', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet.'), 'latest 300')]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
@@ -1659,12 +1660,14 @@ function payoutPayHtml() {
       </div>
       <p class="af-muted"><a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Get Payouts access</a> · <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener">Create an app</a></p>`);
   };
-  const balanceRow = (r) => `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')}</div><div class="af-item-stats">${formatMoney(r.unclaimed_cents, r.currency)}<span class="af-muted" style="font-size:12px;font-weight:400;"> not yet in a payout</span></div><div class="af-muted" style="margin-top:4px;">Earned ${formatMoney(r.earned_cents, r.currency)} · Paid ${formatMoney(r.paid_cents, r.currency)}</div></div><div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[x.affiliate_id]?.display_name || '—')} ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  const face = (a) => (a ? listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)) : '');
+  const balanceRow = (r) => `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div><div class="af-item-stats">${formatMoney(r.unclaimed_cents, r.currency)}<span class="af-muted" style="font-size:12px;font-weight:400;"> not yet in a payout</span></div><div class="af-muted" style="margin-top:4px;">Earned ${formatMoney(r.earned_cents, r.currency)} · Paid ${formatMoney(r.paid_cents, r.currency)}</div></div><div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
   return [
+  moneyTop(),
   paypalRail
-    ? `<p class="af-muted">Approve a payout, then send it from your own PayPal. Payable ${num(p.refund_hold_days)} days after the order.</p>`
-    : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
+    ? `<p class="af-muted">Approve a payout, then send it from your own PayPal. Payable ${num(p.refund_hold_days)} days after the order. Commissions update every night.</p>`
+    : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order. Commissions update every night.</p>`,
   payConnCard(),
   surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
   d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
@@ -1848,9 +1851,36 @@ function ovReachOutCard(items) {
 function ovChartCard() {
   const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
   const weekly = ovWeekly(S.d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) });
+  return weekBarsCard('Sales from affiliate codes', weekly, 'Weekly sales from affiliate codes over the last 12 weeks', 'No order has carried an affiliate code in the last 12 weeks.');
+}
+// The Money tab's header (Blake, 2026-11-17: "way boring ... just boxes"):
+// the same metric tiles and weekly chart as Home, about money owed and paid.
+function moneyTop() {
+  const d = S.d; const p = prog();
+  if (!d || !p || !Array.isArray(d.ovLedger)) return '';
+  const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  const w = ovWindows();
+  const owed = ovUnpaid(d.balances, p.currency);
+  const toPay = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
+  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  const since = Date.now() - w.days * 86400000;
+  const paid = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since)
+    .reduce((t, x) => t + Number(x.amount_cents || 0), 0);
+  const weekly = ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) });
+  const waiting = (d.payouts || []).filter((x) => x.status === 'draft').length;
+  const tiles = [
+    ovMetricCard('Owed now', money(owed), `<span>${esc(ovPlural(toPay, 'affiliate'))} to pay</span>`),
+    ovMetricCard('Commission earned', moneyRound(comm), `${ovDelta(comm, commPrev)}<span>last ${num(w.days)} days</span>`, ovSpark(weekly, 'pos')),
+    ovMetricCard('Paid out', money(paid), `<span>last ${num(w.days)} days</span>`),
+    ovMetricCard('Payouts to approve', num(waiting), `<span>${esc(p.payout_method === 'paypal_payouts' ? 'via PayPal' : 'paid by hand')}</span>`),
+  ].join('');
+  return `<div class="af-ov-metrics">${tiles}</div>${weekBarsCard('Commission earned', weekly, 'Weekly commission earned over the last 12 weeks', '')}`;
+}
+function weekBarsCard(title, weekly, aria, emptyText) {
   const units = minorUnits(ovCur());
   const peak = Math.max(...weekly.map((v) => v / units), 0);
-  if (!peak) return card('Sales from affiliate codes', empty('No order has carried an affiliate code in the last 12 weeks.'));
+  if (!peak) return emptyText ? card(title, empty(emptyText)) : '';
   const step = Math.pow(10, Math.floor(Math.log10(peak)));
   const max = Math.ceil(peak / step) * step;
   const W = 760; const H = 220; const L = 54; const R = 8; const T = 10; const B = 26;
@@ -1870,8 +1900,8 @@ function ovChartCard() {
   }).join('');
   const labels = weekly.map((_, i) => (i % 2 === 0
     ? `<text class="af-ov-tick" x="${cx(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(ovDay((OV_WEEKS - 1 - i) * 7).slice(5))}</text>` : '')).join('');
-  return card('Sales from affiliate codes', '<div class="af-ov-chart">'
-    + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly sales from affiliate codes over the last 12 weeks">`
+  return card(title, '<div class="af-ov-chart">'
+    + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">`
     + `${grid}${bars}${labels}<line class="af-ov-axis" x1="${L}" y1="${y(0).toFixed(1)}" x2="${W - R}" y2="${y(0).toFixed(1)}"></line></svg></div>`,
   '<span class="af-ov-legend">Weekly, last 12 weeks</span>');
 }
