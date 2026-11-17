@@ -2,11 +2,13 @@
 // affiliates their TRANSACTIONAL mail.
 //
 // What this function will not do is the point of it:
-//   * It never emails a PROSPECT. `signup_link` returns a URL for a person to
-//     paste into outreach they send themselves (the export batch carries it).
-//     Recruitment mail to someone who never asked is not transactional, and
-//     sending it through SILO's provider would put SILO's sending domain
-//     behind it.
+//   * It never cold-emails a creator SILO FOUND. `signup_link` returns a URL
+//     for a person to paste into outreach they send themselves (the export
+//     batch carries it). Recruitment mail to someone who never asked is not
+//     transactional, and sending it through SILO's provider would put SILO's
+//     sending domain behind it. The one invite SILO does mail (`email: true`)
+//     goes only to someone a manager added by hand or who applied
+//     (INVITE_SOURCES): onboarding, not prospecting (Blake 2026-11-17).
 //   * It never takes the company from the request. The company is the
 //     caller's own active company, read through their JWT.
 //   * It never decides authority itself. The FIRST thing it does is ask the
@@ -17,8 +19,9 @@
 //     service role, and only to write what the caller was just allowed to.
 //
 // Actions:
-//   signup_link { prospect_id, contact_email? }  -> creates the affiliate (invited) if needed,
-//                                                   returns a 14-day signup URL
+//   signup_link { prospect_id, contact_email?, email? } -> creates the affiliate (invited) if needed,
+//                                                   returns a 14-day signup URL; email=true also
+//                                                   MAILS it, for INVITE_SOURCES only
 //   portal_link { affiliate_id, email? }          -> 90-day portal link. email=true MAILS it to the
 //                                                   address on file and returns no URL (see mintMailed);
 //                                                   otherwise it returns the URL for the caller to send
@@ -34,6 +37,10 @@ export const corsHeaders = {
 };
 export const SIGNUP_LINK_DAYS = 14;
 export const PORTAL_LINK_DAYS = 90;
+// Prospects SILO may email an onboarding invite: added by a manager, or
+// applied themselves. Never 'serp' / 'ai_research' / 'csv_import' -- a
+// creator a search found has not asked to hear from this brand.
+export const INVITE_SOURCES = new Set(['manual', 'applied']);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A date (YYYY-MM-DD) as the company's own calendar day; UTC when the zone
 // is missing or unknown.
@@ -213,7 +220,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       if (action === 'signup_link') {
         if (!UUID_RE.test(String(body.prospect_id || ''))) return reply({ error: 'prospect_id is required' }, 400);
         const { data: p } = await service.from('affiliate_prospects')
-          .select('id, program_id, display_name, platform, handle, profile_url, contact_email, status')
+          .select('id, program_id, display_name, platform, handle, profile_url, contact_email, status, source')
           .eq('id', body.prospect_id).eq('company_entity_id', company).maybeSingle();
         if (!p) return reply({ error: 'No such prospect in this company' }, 404);
         if (!['approved', 'invited'].includes(p.status)) {
@@ -266,7 +273,20 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         // token is how a link in an unsent draft dies.
         await service.from('affiliate_outreach_drafts').update({ token_id: link.token_id })
           .eq('company_entity_id', company).eq('prospect_id', p.id).in('state', ['draft', 'approved', 'exported']);
-        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false });
+        if (body.email !== true) return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false, email: 'not_requested', reason: null });
+        if (!INVITE_SOURCES.has(p.source)) {
+          return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: false, email: 'not_sent', reason: 'found by a search, so send it yourself' });
+        }
+        const { data: co } = await service.from('entities').select('title').eq('id', company).maybeSingle();
+        const { data: prog } = await service.from('affiliate_programs').select('name').eq('id', p.program_id).eq('company_entity_id', company).maybeSingle();
+        const brand = co?.title || 'Affiliate program';
+        const name = p.display_name || p.handle || 'there';
+        const { html, text } = renderMail({ brand, heading: `Join the ${brand} affiliate program`,
+          paragraphs: [`Hi ${escapeHtml(name)}, ${escapeHtml(brand)} has invited you to join ${escapeHtml(prog?.name || 'its affiliate program')}. Open the link to read the terms and sign up. You get your own code and a portal for your sales and payouts.`],
+          cta: { url: link.url, label: 'Join now' }, footer: `This link is personal to you and works for ${SIGNUP_LINK_DAYS} days. Not expecting this? You can ignore it.` });
+        const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id,
+          kind: 'signup_invite', to: email, subject: `${brand}: you're invited to our affiliate program`, html, text, triggeredBy: actor });
+        return reply({ affiliate_id: aff.id, signup_url: link.url, expires_at: link.expires_at, emailed: mail?.status === 'sent', email: mail?.status ?? 'not_sent', reason: mail?.reason ?? null });
       }
 
       if (action === 'portal_link' || action === 'notify') {

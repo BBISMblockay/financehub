@@ -10046,6 +10046,21 @@ select 'Meta import leases' as check_name,
    then 'BROKEN: the bootstrap dispatch throttle is gone'
   else 'ok' end as status;
 
+-- Affiliate onboarding invite (20261117020000).
+select 'Affiliate onboarding invite can be recorded' as check_name,
+  case when not exists (
+      select 1 from pg_constraint
+      where conrelid = 'public.affiliate_notifications'::regclass
+        and conname = 'affiliate_notifications_kind_check'
+        and pg_get_constraintdef(oid) like '%signup_invite%')
+    then 'MISSING: affiliate_notifications cannot record signup_invite; apply 20261117020000'
+    else 'ok' end as status;
+
+select 'Creator photo and stats writes merge' as check_name,
+  case when to_regprocedure('public.affiliate_prospect_merge_evidence(uuid,uuid,jsonb,text,text,boolean)') is null
+    then 'MISSING: affiliate_prospect_merge_evidence(); apply 20261117020000'
+    else 'ok' end as status;
+
 -- Workspace profile activity containment (outside the Plaid fixture markers).
 select 'Workspace profile editing preserves global activity' as check_name,
   case when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null

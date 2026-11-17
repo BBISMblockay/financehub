@@ -19822,4 +19822,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261116060000_affiliate_portal_feed_store_guard.sql
 -- Workspace profile editing cannot change global account activity.
 \i migrations/20261116165355_workspace_profile_active_safety.sql
+-- 2026-11-17: affiliate_notifications accepts 'signup_invite' (the emailed
+-- onboarding invite). Apply BEFORE deploying affiliate-invite.
+\i migrations/20261117020000_affiliate_signup_invite_mail.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

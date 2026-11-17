@@ -39,6 +39,19 @@
 //   AFFILIATE_RESEARCH_MUTATION=leadevidence a Google lead does not count as found
 //   AFFILIATE_RESEARCH_MUTATION=nobrief      the Google leads never reach the AI
 //   AFFILIATE_RESEARCH_MUTATION=freecharge   a run that kept nobody is charged
+//   AFFILIATE_RESEARCH_MUTATION=ytcompany    Refresh stats updates another company's prospect
+//   AFFILIATE_RESEARCH_MUTATION=ytavgrate    engagement is an average of per-video rates, not pooled
+//   AFFILIATE_RESEARCH_MUTATION=ythiddenzero a hidden like count reads as zero likes
+//   AFFILIATE_RESEARCH_MUTATION=ytoverwrite  an email in the channel description replaces one on file
+//   AFFILIATE_RESEARCH_MUTATION=ytblank      a field the API did not return blanks a stored one
+//   AFFILIATE_RESEARCH_MUTATION=ytstale      Refresh stats re-checks channels checked this week
+//   AFFILIATE_RESEARCH_MUTATION=photoclobber the photo job rewrites evidence from its stale snapshot
+//   AFFILIATE_RESEARCH_MUTATION=ytclobber    the stats job rewrites evidence from its stale snapshot
+//   AFFILIATE_RESEARCH_MUTATION=rpcfallback  without the merge function, evidence is rewritten by read-then-write
+//   AFFILIATE_RESEARCH_MUTATION=nocache      the research request is not cached
+//   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
+//   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
+//   AFFILIATE_RESEARCH_MUTATION=knownallco   known creators are read across every company
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -74,8 +87,22 @@ const MUTS = {
   leadevidence: [CORE, '  const evidence = leadsEvidence(leads);', '  const evidence = { urls: new Set(), text: [] };'],
   nobrief: [CORE, "    leads.length ? leadsBrief(leads) : '',", "    '',"],
   freecharge: ['handler.mjs', "outcome = stats.kept > 0 ? 'succeeded' : 'failed';", "outcome = 'succeeded';"],
+  ytcompany: ['handler.mjs', "      .eq('company_entity_id', company).eq('program_id', program.id).eq('platform', 'youtube');", "      .eq('platform', 'youtube');"],
+  ytavgrate: ['lib/affiliate-youtube-core.mjs', "engagement_rate: rateViews > 0 ? Math.round(((likes + comments) / rateViews) * 10000) / 10000 : null,", "engagement_rate: rateViews > 0 ? Math.round((vs.reduce((t, v) => t + (Number(v.statistics.likeCount || 0) + Number(v.statistics.commentCount || 0)) / Math.max(1, Number(v.statistics.viewCount || 1)), 0) / vs.length) * 10000) / 10000 : null,"],
+  ythiddenzero: ['lib/affiliate-youtube-core.mjs', "    if (vw !== null && lk !== null && cm !== null) { rateViews += vw; likes += lk; comments += cm; }", "    if (vw !== null) { rateViews += vw; likes += lk || 0; comments += cm || 0; }"],
+  ytoverwrite: ['lib/affiliate-youtube-core.mjs', "        if (!p.contact_email && merged.description_email) {", "        if (merged.description_email) {"],
+  ytblank: ['lib/affiliate-youtube-core.mjs', "const merged = { ...prior, ...Object.fromEntries(Object.entries(yt).filter(([, v]) => v !== null && v !== undefined)) };", "const merged = { ...prior, ...yt };"],
+  ytstale: ['handler.mjs', "(urls ? true : needsYouTubeRefresh(p, at))", "(urls ? true : true)"],
+  knownkept: [CORE, "    if (isKnown(known, profile)) { stats.known += 1; continue; }\n", ''],
+  knownbrief: [CORE, "    known?.handles?.length ? `\\nAlready known", "    false ? `\\nAlready known"],
+  knownallco: ['handler.mjs', "        .eq('company_entity_id', company).order('created_at', { ascending: false }).limit(cap);", "        .order('created_at', { ascending: false }).limit(cap);"],
+  photoclobber: ['lib/affiliate-photo-core.mjs', "if (await mergeProspectEvidence({ service, company, id: p.id, patch })) out.stored += 1;", "if (!(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...patch } }).eq('id', p.id).eq('company_entity_id', company)).error) out.stored += 1;"],
+  ytclobber: ['lib/affiliate-youtube-core.mjs', "const ok = await mergeProspectEvidence({", "const ok = await (async (a) => !(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...a.patch } }).eq('id', p.id).eq('company_entity_id', company)).error)({"],
+  rpcfallback: ['lib/affiliate-youtube-core.mjs', "  return !error && data === true;\n}", "  if (!error) return data === true;\n  const { data: row } = await service.from('affiliate_prospects').select('evidence').eq('id', id).eq('company_entity_id', company).maybeSingle();\n  return !(await service.from('affiliate_prospects').update({ evidence: { ...(row?.evidence || {}), ...patch } }).eq('id', id).eq('company_entity_id', company)).error;\n}"],
+  nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
+let LIVE = FN; // the folder under test: the mutated copy when a mutation runs
 async function load() {
   if (!MUT) return import(new URL('handler.mjs', FN));
   const tmp = await mkdtemp(join(tmpdir(), 'affresearch-'));
@@ -85,6 +112,7 @@ async function load() {
   const code = await readFile(path, 'utf8');
   assert.ok(code.includes(from), `mutation ${MUT}: pattern not found`);
   await writeFile(path, code.split(from).join(to));
+  LIVE = pathToFileURL(join(tmp, '/'));
   return import(pathToFileURL(join(tmp, 'handler.mjs')).href);
 }
 const { createResearchHandler } = await load();
@@ -140,6 +168,14 @@ function fakeService(seed, log, rpcs) {
   }
   const rpc = async (name, args) => {
     log.push(`service:rpc:${name}`); rpcs.push({ name, args });
+    if (name === 'affiliate_prospect_merge_evidence') {
+      const r = (tables.affiliate_prospects || []).find((x) => x.id === args.p_id && x.company_entity_id === args.p_company);
+      if (!r) return { data: null, error: null };
+      r.evidence = { ...(r.evidence || {}), ...(args.p_patch || {}) };
+      if (r.contact_email == null && args.p_contact_email != null) { r.contact_source_url = args.p_contact_source_url; r.contact_email = args.p_contact_email; }
+      if (args.p_touch) r.updated_at = new Date().toISOString();
+      return { data: true, error: null };
+    }
     if (name === 'affiliate_outreach_can_contact') return { data: args.p_handle !== '@donotcontact', error: null };
     if (name === 'ai_credit_open') return { data: { ok: true, mode: 'enforce', held_micros: 1000 }, error: null };
     if (name === 'ai_credit_step') return { data: { ok: true, held_micros: 2000 }, error: null };
@@ -203,7 +239,7 @@ const SCRIPT = () => [
   msg([{ type: 'tool_use', id: 't1', name: 'record_creators', input: { creators: LIST } }], 'tool_use'),
 ];
 
-function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200, serp = null, photoFetch = null } = {}) {
+function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT(), runs = [], modelStatus = 200, serp = null, photoFetch = null, youtubeKey = '', youtubeFetch = null } = {}) {
   const log = []; const rpcs = []; const calls = []; const bg = []; const searches = [];
   const service = fakeService(seed(runs), log, rpcs);
   const handler = createResearchHandler({
@@ -224,6 +260,8 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
     fetchSerp: serp ? async (task) => { searches.push(task); if (serp === 'fail') throw new Error('SERP provider HTTP 500'); return { items: serp, cost: 0.002 }; } : null,
     now: () => new Date('2026-11-10T12:00:00Z'),
     photoFetch,
+    youtubeKey,
+    ...(youtubeFetch ? { youtubeFetch } : {}),
   });
   const call = async (body, auth = 'Bearer t') => {
     const r = await handler(new Request('https://x/fn', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
@@ -245,6 +283,21 @@ await test('a photo URL is kept only if the profile page text showed it, exactly
     assert.ok(p, 'the creator is still kept');
     assert.equal(p.evidence.profile_image_url ?? null, null, `not stored: ${img}`);
   }
+});
+
+await test('creators the company already has, in any program, are named to the AI and never re-found', async () => {
+  const s = setup();
+  s.service.tables.affiliates = [{ id: 'a-j', company_entity_id: CO_A, program_id: PPAUSED, platform: 'tiktok', handle: '@Jenna.And.Her.Gents', profile_url: null, created_at: '2026-11-01' }];
+  s.service.tables.affiliate_prospects.push({ id: 'p-dm-b', company_entity_id: CO_B, program_id: PB, platform: 'instagram', handle: '@diamondmama', profile_url: 'https://www.instagram.com/diamondmama', created_at: '2026-11-01', evidence: {} });
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  const brief = JSON.stringify(s.calls[0].messages[0].content);
+  assert.match(brief, /Already known to this brand, skip them: @jenna\.and\.her\.gents/, 'the AI is told who to skip');
+  assert.doesNotMatch(brief, /@diamondmama/, 'another company\'s creators are not this brand\'s');
+  const mine = s.service.tables.affiliate_prospects.filter((x) => x.program_id === PA);
+  assert.ok(!mine.some((x) => x.handle === '@jenna.and.her.gents'), 'an existing affiliate is not added again as a prospect');
+  assert.ok(mine.some((x) => x.handle === '@diamondmama'), 'another company knowing a creator does not hide them');
+  const run = s.service.tables.affiliate_discovery_runs.at(-1);
+  assert.match(run.error || '', /1 already known/);
 });
 
 await test('the caller-token gate runs first, and a refused session stops everything', async () => {
@@ -561,8 +614,139 @@ await test('Refresh photos checks this program\'s prospects that have no stored 
   assert.equal((await off.call({ action: 'refresh_photos', program_id: PA })).status, 503, 'with photos off it says so');
 });
 
+// A fake YouTube Data API: one channel with 3 recent uploads, one with likes hidden.
+function ytApi({ quota = false } = {}) {
+  const asked = [];
+  const json = (body, status = 200) => ({ ok: status === 200, status, json: async () => body });
+  const f = async (url) => {
+    const u = new URL(url); asked.push(u.pathname + u.search);
+    if (quota) return json({ error: { errors: [{ reason: 'quotaExceeded' }] } }, 403);
+    if (u.pathname.endsWith('/channels')) {
+      if (u.searchParams.get('forHandle') !== '@one') return json({ items: [] });
+      return json({ items: [{ id: 'UC' + 'a'.repeat(22),
+        snippet: { title: 'One', customUrl: '@one', country: 'US', description: 'Biz: one@creator.invalid  https://www.instagram.com/one_ig  https://shop.one.example', thumbnails: { high: { url: 'https://yt3.example/one.jpg' } } },
+        statistics: { subscriberCount: '50000', viewCount: '9000000', videoCount: '120', hiddenSubscriberCount: false },
+        contentDetails: { relatedPlaylists: { uploads: 'UUone' } },
+        topicDetails: { topicCategories: ['https://en.wikipedia.org/wiki/Baseball', 'https://en.wikipedia.org/wiki/Sport'] } }] });
+    }
+    if (u.pathname.endsWith('/playlistItems')) return json({ items: [1, 2, 3].map((i) => ({ contentDetails: { videoId: `v${i}` } })) });
+    if (u.pathname.endsWith('/videos')) return json({ items: [
+      { snippet: { publishedAt: '2026-11-01T00:00:00Z', description: 'Sponsored by Bat Co https://batco.example/x use code ONE' }, statistics: { viewCount: '1000', likeCount: '100', commentCount: '0' } },
+      { snippet: { publishedAt: '2026-11-05T00:00:00Z', description: 'https://batco.example/y https://youtu.be/z' }, statistics: { viewCount: '9000', likeCount: '90', commentCount: '10' } },
+      { snippet: { publishedAt: '2026-11-03T00:00:00Z', description: 'likes hidden' }, statistics: { viewCount: '2000', commentCount: '5' } },
+    ] });
+    return json({}, 404);
+  };
+  f.asked = asked;
+  return f;
+}
+
+await test('Refresh stats: YouTube numbers from the official API, pooled, sourced, this company only', async () => {
+  const api = ytApi();
+  const s = setup({ youtubeKey: 'yt-key', youtubeFetch: api });
+  const base = { company_entity_id: CO_A, program_id: PA, platform: 'youtube', collected_at: '2026-11-10', contact_email: null };
+  s.service.tables.affiliate_prospects.push(
+    { id: 'y-one', ...base, handle: '@one', display_name: 'One', profile_url: 'https://www.youtube.com/@one', evidence: { note: 'kept', youtube: { country: 'CA', video_count: 99 } } },
+    { id: 'y-fresh', ...base, handle: '@fresh', profile_url: 'https://www.youtube.com/@fresh', evidence: { youtube: { as_of: '2026-11-09' } } },
+    { id: 'y-other', ...base, company_entity_id: CO_B, program_id: PB, handle: '@one', profile_url: 'https://www.youtube.com/@one', evidence: {} },
+    { id: 'y-mail', ...base, handle: '@one', profile_url: 'https://www.youtube.com/@one', contact_email: 'kept@onfile.invalid', contact_source_url: null, evidence: {} },
+  );
+  const r = await s.call({ action: 'refresh_stats', program_id: PA });
+  assert.equal(r.status, 200);
+  const out = await r.json();
+  assert.equal(out.updated, 2, JSON.stringify(out));
+  assert.ok(!api.asked.some((q) => q.includes('fresh')), 'a channel checked this week is not checked again');
+  assert.ok(api.asked.every((q) => q.includes('key=yt-key')), 'SILO\'s own key is used');
+  const one = s.service.tables.affiliate_prospects.find((p) => p.id === 'y-one');
+  const yt = one.evidence.youtube;
+  assert.equal(yt.subscribers, 50000);
+  assert.equal(yt.country, 'US');
+  assert.equal(yt.recent.avg_views, 4000);
+  // Pooled over the two videos with every count public: (100+0+90+10)/(1000+9000).
+  assert.equal(yt.recent.engagement_rate, 0.02);
+  assert.equal(yt.recent.sponsored_videos, 1);
+  assert.deepEqual(yt.recent.brand_domains, [{ domain: 'batco.example', videos: 2 }]);
+  assert.deepEqual(yt.topics, ['Baseball', 'Sport']);
+  assert.equal(one.evidence.note, 'kept', 'other evidence is kept');
+  assert.equal(one.contact_email, 'one@creator.invalid', 'a public email in the channel description fills an empty contact');
+  assert.equal(one.contact_source_url, 'https://www.youtube.com/channel/UC' + 'a'.repeat(22));
+  const prof = one.evidence.creator_profile;
+  assert.deepEqual([prof.followers.value, prof.followers.source], [50000, 'youtube_api']);
+  assert.equal(prof.engagement.rate, 0.02);
+  assert.equal(prof.contact.value, 'one@creator.invalid');
+  assert.deepEqual(prof.other_profiles.map((x) => x.profile_url), ['https://www.instagram.com/one_ig']);
+  const mail = s.service.tables.affiliate_prospects.find((p) => p.id === 'y-mail');
+  assert.equal(mail.contact_email, 'kept@onfile.invalid', 'an email on file is never replaced');
+  assert.equal(s.rpcs.find((x) => x.args?.p_id === 'y-mail')?.args.p_contact_email, null, 'and none is even offered for a prospect that has one');
+  assert.deepEqual(s.service.tables.affiliate_prospects.find((p) => p.id === 'y-other').evidence, {}, 'another company\'s prospect is untouched');
+  assert.ok(!s.rpcs.some((x) => x.args?.p_id === 'y-other'), 'another company\'s prospect is never even looked up');
+  // A field the API did not return never blanks one already stored.
+  const api2 = ytApi();
+  const s2 = setup({ youtubeKey: 'yt-key', youtubeFetch: async (url) => { const res = await api2(url); const b = await res.json(); if (b.items?.[0]?.snippet?.country) delete b.items[0].snippet.country; return { ok: res.ok, status: res.status, json: async () => b }; } });
+  s2.service.tables.affiliate_prospects.push({ id: 'y-one', ...base, handle: '@one', profile_url: 'https://www.youtube.com/@one', evidence: { youtube: { country: 'CA' } } });
+  await s2.call({ action: 'refresh_stats', program_id: PA });
+  assert.equal(s2.service.tables.affiliate_prospects[0].evidence.youtube.country, 'CA');
+  assert.equal((await setup().call({ action: 'refresh_stats', program_id: PA })).status, 503, 'with no key it says so');
+});
+
+await test('YouTube: a quota error stops the batch and changes nothing', async () => {
+  const api = ytApi({ quota: true });
+  const s = setup({ youtubeKey: 'yt-key', youtubeFetch: api });
+  const base = { company_entity_id: CO_A, program_id: PA, platform: 'youtube', collected_at: '2026-11-10', evidence: {} };
+  for (const i of [1, 2, 3, 4, 5, 6]) s.service.tables.affiliate_prospects.push({ id: `q${i}`, ...base, handle: '@one', profile_url: `https://www.youtube.com/@one${i}` });
+  const out = await (await s.call({ action: 'refresh_stats', program_id: PA })).json();
+  assert.equal(out.quota, true);
+  assert.equal(out.updated, 0);
+  assert.ok(out.checked <= 4, `the batch stops at the quota (checked ${out.checked})`);
+});
+
+await test('photo and stats jobs running at once keep each other\'s results', async () => {
+  const YT = await import(new URL('lib/affiliate-youtube-core.mjs', LIVE));
+  const LPH = await import(new URL('lib/affiliate-photo-core.mjs', LIVE));
+  const svc = fakeService({ affiliate_prospects: [] }, [], []);
+  const row = { id: 'both', company_entity_id: CO_A, program_id: PA, platform: 'youtube', handle: '@one', profile_url: 'https://www.youtube.com/@one', contact_email: null, evidence: { note: 'kept' } };
+  svc.tables.affiliate_prospects.push(structuredClone(row));
+  // Both jobs read the same snapshot before either writes.
+  const stale = structuredClone(row);
+  const web = photoWeb({
+    'https://www.youtube.com/@one': () => resp(200, { body: '<meta property="og:image" content="https://yt3.example/one.jpg">' }),
+    'https://yt3.example/one.jpg': () => resp(200, { body: JPEG, type: 'image/jpeg' }),
+  });
+  const st = await YT.enrichYouTubeProspects({ service: svc, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ph = await LPH.storeProspectPhotos({ service: svc, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  assert.deepEqual([st.updated, ph.stored], [1, 1]);
+  const ev = svc.tables.affiliate_prospects[0].evidence;
+  assert.equal(ev.profile_image_stored, true, 'the photo is kept');
+  assert.equal(ev.youtube?.subscribers, 50000, 'the stats written first are kept by the photo job');
+  assert.ok(ev.creator_profile, 'the creator profile is kept');
+  assert.equal(ev.note, 'kept');
+  // And the other order.
+  const svc2 = fakeService({ affiliate_prospects: [structuredClone(row)] }, [], []);
+  await LPH.storeProspectPhotos({ service: svc2, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  await YT.enrichYouTubeProspects({ service: svc2, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ev2 = svc2.tables.affiliate_prospects[0].evidence;
+  assert.equal(ev2.profile_image_stored, true, 'the photo written first is kept by the stats job');
+  assert.equal(ev2.youtube?.subscribers, 50000);
+  // Before the migration (no merge function): nothing is written, and it is counted as failed.
+  const svc3 = fakeService({ affiliate_prospects: [structuredClone(row)] }, [], []);
+  svc3.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
+  const st3 = await YT.enrichYouTubeProspects({ service: svc3, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ph3 = await LPH.storeProspectPhotos({ service: svc3, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  assert.deepEqual([st3.updated, st3.failed, ph3.stored], [0, 1, 0], 'no unsafe read-then-write fallback');
+  assert.deepEqual(svc3.tables.affiliate_prospects[0].evidence, { note: 'kept' });
+});
+
+await test('the research request is cached and reads short pages', async () => {
+  const s = setup();
+  await s.call({ action: 'research', program_id: PA, count: 5 });
+  assert.ok(s.calls.length >= 1);
+  for (const c of s.calls) assert.deepEqual(c.cache_control, { type: 'ephemeral' }, 'every model call is cached');
+  const fetchTool = s.calls[0].tools.find((t) => t.name === 'web_fetch');
+  assert.ok(fetchTool.max_content_tokens <= 6000 && fetchTool.max_uses <= 8, 'pages are short and few');
+});
+
 await test('the shipped libs are byte-identical to scripts/lib', async () => {
-  for (const f of ['affiliate-research-core.mjs', 'affiliate-discovery-core.mjs', 'affiliate-photo-core.mjs']) {
+  for (const f of ['affiliate-research-core.mjs', 'affiliate-discovery-core.mjs', 'affiliate-photo-core.mjs', 'affiliate-youtube-core.mjs']) {
     const a = await readFile(new URL(`scripts/lib/${f}`, ROOT), 'utf8');
     const b = await readFile(new URL(`lib/${f}`, FN), 'utf8');
     assert.equal(b, a, `${f} copy drifted: re-copy it`);

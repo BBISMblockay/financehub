@@ -2,7 +2,8 @@
 // for Affiliate Studio. See handler.mjs.
 //
 // Secrets: SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY
-// (the same key Ask SILO uses), DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD (optional). AFFILIATE_RESEARCH_MODEL optionally overrides
+// (the same key Ask SILO uses), DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD (optional),
+// YOUTUBE_API_KEY (optional: SILO's own YouTube Data API v3 key for channel numbers). AFFILIATE_RESEARCH_MODEL optionally overrides
 // the model; it must have a row in ai_provider_rates or metered workspaces
 // refuse it.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -29,5 +30,7 @@ Deno.serve(createResearchHandler({
   model: Deno.env.get('AFFILIATE_RESEARCH_MODEL') || 'claude-sonnet-5-5',
   // SILO opens creators' own profile pages for their photo (lib/affiliate-photo-core.mjs).
   photoFetch: fetch,
+  // YouTube channel numbers from the official API (lib/affiliate-youtube-core.mjs); unset = off.
+  youtubeKey: Deno.env.get('YOUTUBE_API_KEY') ?? '',
   background: (p: Promise<unknown>) => { if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(p); },
 }));

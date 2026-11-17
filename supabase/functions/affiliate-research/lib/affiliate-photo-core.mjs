@@ -16,6 +16,8 @@
 //   * a page that declares no image, or refuses us, just means no photo --
 //     never an error for the run that asked.
 
+import { mergeProspectEvidence } from './affiliate-youtube-core.mjs';
+
 export const PHOTO_BUCKET = 'affiliate-feed-images';
 export const PAGE_MAX_BYTES = 1_500_000;
 export const IMAGE_MAX_BYTES = 2_000_000;
@@ -140,9 +142,9 @@ export async function storeProspectPhotos({ service, company, prospects, fetchIm
         if (upErr) continue;
         const at = now();
         const publicUrl = `${bucket.getPublicUrl(path).data.publicUrl}?v=${at.getTime()}`;
-        const evidence = { ...(p.evidence || {}), profile_image_url: publicUrl, profile_image_source_url: p.profile_url, profile_image_as_of: at.toISOString().slice(0, 10), profile_image_stored: true };
-        const { error } = await service.from('affiliate_prospects').update({ evidence }).eq('id', p.id).eq('company_entity_id', company);
-        if (!error) out.stored += 1;
+        // Only the photo keys: stats stored meanwhile are kept.
+        const patch = { profile_image_url: publicUrl, profile_image_source_url: p.profile_url, profile_image_as_of: at.toISOString().slice(0, 10), profile_image_stored: true };
+        if (await mergeProspectEvidence({ service, company, id: p.id, patch })) out.stored += 1;
       } catch { /* one creator's photo never stops the rest */ }
     }
   };

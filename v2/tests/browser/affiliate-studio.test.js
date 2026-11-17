@@ -61,6 +61,9 @@
  *   AFFILIATE_UI_MUTATION=qpayanycur  Build payouts includes balances in another currency
  *   AFFILIATE_UI_MUTATION=autopaymoney the Friday auto-pay switch is live for someone who cannot approve money
  *   AFFILIATE_UI_MUTATION=autopayearly the Friday auto-pay switch is shown before its columns exist
+ *   AFFILIATE_UI_MUTATION=listnophoto the list view drops the photos
+ *   AFFILIATE_UI_MUTATION=bulkunsent  a refused invite in a bulk approval is dropped silently
+ *   AFFILIATE_UI_MUTATION=addlinkhidden a refused invite for someone added by hand puts the link on a hidden tab
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -69,6 +72,9 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
+  bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
+  addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
   savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
@@ -187,7 +193,7 @@ const tables = {
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'ok', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
-  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09' }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
+  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09', creator_profile: { version: 1, engagement: { avg_views: 4000, rate: 0.02, sample: 12, source: 'youtube_api' }, topics: { value: ['Running'] }, brand_mentions: { domains: [{ domain: 'shoe.example', videos: 3 }], sponsored_videos: 2, sample: 12 }, other_profiles: [{ platform: 'instagram', profile_url: 'https://www.instagram.com/samruns' }] } }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
   affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now, from_prospect_id: 'p1' }],
@@ -316,6 +322,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('an expired photo is removed so the initials show', broken.gone && broken.initials.length > 0);
     await page.click('#tabs [data-tab="people"]');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    // Tiles or List: the list is a table that keeps the photos, and the choice sticks.
+    await page.click('#prospectsBody [data-act="view-set"][data-v="list"]');
+    R.ok('List shows creators as a table', !!(await page.$('#prospectsBody table.bcn-table')) && !(await page.$('#prospectsBody .af-item--catalog')));
+    R.ok('with their photo in each row', await photoLoaded('#prospectsBody table.bcn-table .af-list-thumb img.af-avatar-photo'));
+    R.ok('and the select boxes and actions', !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-pick"]')) && !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-status"]')));
+    R.ok('affiliates follow the same choice, photo included', !!(await page.$('#affiliatesBody table.bcn-table .af-list-thumb')) && await photoLoaded('#affiliatesBody table.bcn-table img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    R.eq(await page.evaluate(() => localStorage.getItem('silo.affiliates.view')), 'list', 'the choice is remembered');
+    if (process.env.LIST_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#prospectsBody')).screenshot({ path: process.env.LIST_SHOT }); await (await page.$('#affiliatesBody')).screenshot({ path: process.env.LIST_SHOT.replace('.png', '-aff.png') }); }
+    await page.click('#affiliatesBody [data-act="view-set"][data-v="tiles"]');
+    R.ok('Tiles brings the cards back', !!(await page.$('#prospectsBody .af-item--catalog')) && !(await page.$('#prospectsBody table.bcn-table')));
     await page.click('#tabs [data-tab="people"]');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
@@ -325,6 +341,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
     R.ok('the follower count links to where it was stated', await page.$('#prospectsBody a[href="https://www.youtube.com/@samruns"]'));
+    const card1 = await text(page, '#prospectsBody');
+    R.has(card1, '2.0%', 'measured engagement is shown');
+    R.has(card1, '4,000 avg views', 'with average views');
+    R.has(card1, 'Links: shoe.example', 'and the brands they link');
+    R.has(card1, '2 of 12 recent videos sponsored', 'and how many recent videos were sponsored');
+    R.ok('other profiles the channel links are links', !!(await page.$('#prospectsBody a[href="https://www.instagram.com/samruns"]')));
     // Find creators with AI: starts a background run and says so; the company is never sent.
     const researchCalls = [];
     await suite.context.route('**/functions/v1/affiliate-research', (route) => {
@@ -393,6 +415,83 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('before the loop migration, settings has no automatic-code field (saving still works)', !(await page.$('#pAutoPct')));
     R.ok('before 20261111020000, settings has no outreach message box (saving still works)', !(await page.$('#pOutBody')));
     await page.close();
+
+    // ── onboarding invites: added by hand or applied => emailed ─────────
+    {
+      const inviteTables = { ...tables, affiliate_prospects: [
+        ...tables.affiliate_prospects,
+        { id: 'p-app', company_entity_id: CO, program_id: PROG, display_name: 'Ana Applies', platform: 'instagram', handle: '@ana', profile_url: 'https://www.instagram.com/ana', contact_email: 'ana@creator.invalid', source: 'applied', collected_at: now, evidence: { pitch: 'I run trails' }, status: 'new' },
+        { id: 'p-app2', company_entity_id: CO, program_id: PROG, display_name: 'Bo Bounce', platform: 'instagram', handle: '@bo', profile_url: 'https://www.instagram.com/bo', contact_email: 'bo@creator.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'rejected' },
+        { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
+      ] };
+      const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      inv.on('pageerror', (e) => errors.push(e.message));
+      const inviteCalls = []; let mailOk = true;
+      await inv.context().route('**/functions/v1/affiliate-invite', (route) => {
+        const body = JSON.parse(route.request().postData() || '{}'); inviteCalls.push(body);
+        const out = mailOk ? { emailed: true, email: 'sent' } : { emailed: false, email: 'not_sent', reason: 'The mail provider refused it' };
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ affiliate_id: 'a-new', signup_url: `https://app.test/v2/affiliates/join.html?t=${body.prospect_id}`, expires_at: '2026-12-01T00:00:00Z', ...out }) });
+      });
+      await inv.click('#tabs [data-tab="people"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-status"][data-id="p-app"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p-app"]');
+      await inv.waitForFunction(() => /Invite emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('approving an applicant emails their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'p-app' && c.email === true && !('company_entity_id' in c)));
+      R.has(await text(inv, '#status'), 'Invite emailed to ana@creator.invalid');
+      R.ok('approving an applicant drafts no outreach message', !(await inv.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'))));
+      await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]');
+      await inv.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+      R.ok('a creator a search found is not emailed on approval', !inviteCalls.some((c) => c.prospect_id === 'p1'));
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
+      R.has(await text(inv, '#prospectsBody [data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
+      R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('#prospectsBody [data-act="invite-send"][data-id="p1"]')));
+      // Bulk: pick several, act once.
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-select-all"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-select-all"]');
+      await inv.waitForFunction(() => /selected/.test(document.querySelector('#prospectsBody .af-bulk')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const nNew = await inv.$$eval('#prospectsBody [data-act="prospect-pick"]', (els) => els.length);
+      R.has(await text(inv, '#prospectsBody .af-bulk'), `${nNew} selected`, 'Select all picks every prospect in the view');
+      R.ok('every card is ticked', await inv.$$eval('#prospectsBody [data-act="prospect-pick"]', (els) => els.every((e) => e.checked)));
+      await inv.click('#prospectsBody [data-act="prospect-pick"]');
+      R.has(await text(inv, '#prospectsBody .af-bulk'), `${nNew - 1} selected`, 'unticking one leaves the rest');
+      const before = await inv.evaluate(() => window.__QUERIES__.length);
+      await inv.click('#prospectsBody [data-act="prospect-bulk"][data-s="rejected"]');
+      await inv.waitForFunction(() => /Rejected/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const bulk = await inv.evaluate((b) => window.__QUERIES__.slice(b).filter((q) => q.table === 'affiliate_prospects' && q._op === 'update'), before);
+      R.ok('one update rejects the selection', bulk.length === 1 && bulk[0].patch.status === 'rejected');
+      R.ok('scoped to this company and the picked ids', JSON.stringify(bulk[0].filters).includes('company_entity_id') && JSON.stringify(bulk[0].filters).includes('"in"'));
+      // Bulk approve when the mail is refused (HTTP 200, emailed:false): said, with the link.
+      mailOk = false;
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
+      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-pick"][data-id="p-app2"]'), null, { timeout: 5000 });
+      await inv.click('#prospectsBody [data-act="prospect-pick"][data-id="p-app2"]');
+      await inv.click('#prospectsBody [data-act="prospect-bulk"][data-s="approved"]');
+      await inv.waitForFunction(() => /Approved/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.has(await text(inv, '#status'), '1 invite(s) not emailed', 'a refused invite in a bulk approval is reported, not counted as sent');
+      const unsentBox = await text(inv, '#signupOut');
+      R.has(unsentBox, 'Bo Bounce', 'naming who did not get it');
+      R.has(unsentBox, 'The mail provider refused it', 'with the reason');
+      R.has(unsentBox, 'join.html?t=p-app2', 'and the link to send by hand');
+      mailOk = true;
+      // Added by hand with an email: approved and invited at once.
+      await openRecords(inv);
+      await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
+      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.waitForFunction(() => /Added\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const added = await inv.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+      R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
+      R.ok('and emailed their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'fixture-inserted-id' && c.email === true));
+      R.has(await text(inv, '#status'), 'Invite emailed to ned@creator.invalid');
+      // Added by hand when the mail is refused: the link shows beside the form.
+      mailOk = false;
+      await inv.fill('#mpName', 'Nia New'); await inv.fill('#mpHandle', '@nia'); await inv.fill('#mpEmail', 'nia@creator.invalid');
+      await inv.click('#recordsBody [data-act="prospect-add"]');
+      await inv.waitForFunction(() => /not emailed/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('the fallback link is visible on the Records tab', await inv.evaluate(() => { const el = document.querySelector('#recordsBody #mpOut'); return !!el && el.offsetParent !== null && /join\.html\?t=/.test(el.textContent); }));
+      await inv.close();
+    }
 
     // ── the loop: after 20261110180000 ────────────────────────────────────
     const loopTables = { ...tables,
