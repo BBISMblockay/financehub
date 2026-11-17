@@ -217,9 +217,9 @@ await test('a code SILO picked that a store promo already uses gets the next fre
   let svc = fakeService({ codes: [pending({ created_by: null })] });
   let shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
   let out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
-  assert.deepEqual(out.results.map((r) => [r.status, r.code]), [['created', 'PAT10-2']]);
-  assert.equal(shop.calls.find((c) => c.op === 'create').vars.basicCodeDiscount.code, 'PAT10-2');
-  assert.ok(svc.log.some((x) => x.table === 'affiliate_codes' && x.op === 'update' && x.payload.code === 'PAT10-2' && x.f.status === 'pending'), 'renamed only while still waiting');
+  assert.deepEqual(out.results.map((r) => [r.status, r.code]), [['created', 'PAT10B']]);
+  assert.equal(shop.calls.find((c) => c.op === 'create').vars.basicCodeDiscount.code, 'PAT10B');
+  assert.ok(svc.log.some((x) => x.table === 'affiliate_codes' && x.op === 'update' && x.payload.code === 'PAT10B' && x.f.status === 'pending'), 'renamed only while still waiting');
   svc = fakeService({ codes: [pending({ created_by: 'staff-user' })] });
   shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
   out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();

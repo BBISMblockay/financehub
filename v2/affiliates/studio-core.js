@@ -659,16 +659,15 @@ export function displayImage(url, px = 800) {
 // AFF, and a code already in use takes the next free suffix -- the database
 // still has the last word, since (program_id, code) is unique there.
 export function suggestCode(name, percent, taken = []) {
+  // The creator's handle or whole name plus the percent (BLAKETESTINGS10), as
+  // affiliate_suggest_code does (20261117200000); a taken text gets a letter.
   const used = new Set((taken || []).map((c) => String(c || '').toUpperCase()));
-  const stem = String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) || 'AFF';
+  const stem = String(name || '').replace(/^@/, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 14);
   const pct = Number(percent);
-  const base = `${stem}${Number.isFinite(pct) && pct > 0 ? Math.round(pct) : ''}`.slice(0, 20) || 'AFF';
+  const base = `${stem.length >= 2 ? stem : 'PARTNER'}${Number.isFinite(pct) && pct > 0 ? Math.round(pct) : ''}`;
   if (!used.has(base)) return base;
-  for (let i = 2; i < 100; i += 1) {
-    const next = `${base}${i}`.slice(0, 20);
-    if (!used.has(next)) return next;
-  }
-  return `${base}${Date.now().toString().slice(-4)}`.slice(0, 20);
+  for (const l of 'BCDEFGHJKLMNPQRSTUVWXYZ') if (!used.has(base + l)) return base + l;
+  return `${base}${Date.now().toString(36).slice(-4).toUpperCase()}`;
 }
 
 // Product seeding (20261113093000): one claim -> what both the rep and the

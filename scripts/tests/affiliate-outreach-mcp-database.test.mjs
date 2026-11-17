@@ -263,6 +263,8 @@ const files = {
   content: '20261117050000_affiliate_content.sql',
   // Same-company twin keys for the content and payout-notice references.
   twins: '20261117090000_affiliate_same_company_twins.sql',
+  // Codes named after the creator; the seed-code notice.
+  creator: '20261117200000_affiliate_creator_codes.sql',
 };
 const sql = {};
 let CT = null;
@@ -281,9 +283,13 @@ const storeMut = (from, to) => { assert.ok(sql.feedstore.includes(from), `mutati
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
 const fixMut = (from, to) => { assert.ok(sql.storesfix.includes(from), `mutation ${MUT}: pattern not found`); sql.storesfix = sql.storesfix.split(from).join(to); };
 const contentMut = (from, to) => { assert.ok(sql.content.includes(from), `mutation ${MUT}: pattern not found`); sql.content = sql.content.split(from).join(to); };
+const creatorMut = (from, to) => { assert.ok(sql.creator.includes(from), `mutation ${MUT}: pattern not found`); sql.creator = sql.creator.split(from).join(to); };
 const storesMut = (from, to) => { assert.ok(sql.stores.includes(from), `mutation ${MUT}: pattern not found`); sql.stores = sql.stores.split(from).join(to); };
 switch (MUT) {
   case '': break;
+  // The code is named from the display name again, ignoring the handle.
+  case 'creator-no-handle':
+    creatorMut("coalesce(nullif(btrim(regexp_replace(coalesce(new.handle, ''), '^@', '')), ''), new.display_name)", 'new.display_name'); break;
   // A content bonus is paid without the money gate.
   case 'content-no-money':
     contentMut('        if not public.can_approve_affiliate_commissions() then', '        if false then'); break;
@@ -1411,6 +1417,8 @@ await check('CT1 an affiliate shares a link or uploads a file; the brand sees a 
   await db.exec(sql.content);
   await db.exec(sql.twins);
   await db.exec(sql.twins);
+  await db.exec(sql.creator);
+  await db.exec(sql.creator);
   const twins = (await db.query(`select conname from pg_constraint where conname like '%\\_same\\_co' and conrelid in ('public.affiliate_content_submissions'::regclass, 'public.affiliate_notifications'::regclass)`)).rows.map((r) => r.conname).sort();
   assert.ok(['affiliate_content_submissions_affiliate_id_same_co', 'affiliate_content_submissions_bonus_ledger_id_same_co', 'affiliate_content_submissions_program_id_same_co', 'affiliate_notifications_payout_id_same_co'].every((n) => twins.includes(n)), `every reference has a same-company twin (${twins.join(', ')})`);
   const aff = await loopAff('Cam Creates');
@@ -1507,6 +1515,28 @@ await check('CT4 the production verify check for affiliate content reads ok', as
   assert.ok(i > 0, 'verify_v2_schema has the check');
   const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
   assert.equal((await one(q)).status, 'ok');
+});
+
+// ── CR: codes named after the creator (20261117200000) ───────────────────
+await check('CR1 a new affiliate\'s code is their handle (else whole name) + percent; a taken one gets a letter', async () => {
+  await db.exec('reset role');
+  await db.exec(sql.creator);
+  const withHandle = (await one(`insert into affiliates(company_entity_id, program_id, display_name, handle, contact_email, status, terms_accepted_at, terms_version_accepted)
+    values ($1,$2,'Blake Testings','@blaketestings','bt1@loop.test','active', now(), 1) returning id`, [A, progA])).id;
+  assert.equal((await codesOf(withHandle))[0].code, 'BLAKETESTINGS10', 'the handle, without the @');
+  const again = (await one(`insert into affiliates(company_entity_id, program_id, display_name, handle, contact_email, status, terms_accepted_at, terms_version_accepted)
+    values ($1,$2,'Someone Else','@blake.testings','bt2@loop.test','active', now(), 1) returning id`, [A, progA])).id;
+  assert.equal((await codesOf(again))[0].code, 'BLAKETESTINGS10B', 'taken: a letter, no dash');
+  const noHandle = await loopAff('Silo Flow Test');
+  assert.equal((await codesOf(noHandle))[0].code, 'SILOFLOWTEST10', 'the whole name, not its first word');
+  for (const role of ['anon', 'authenticated', 'silo_integration']) {
+    assert.equal((await one(`select has_function_privilege('${role}', 'public.affiliate_suggest_code(uuid, text, integer)', 'execute') as v`)).v, false, role);
+  }
+  await db.query(`insert into affiliate_notifications(company_entity_id, program_id, affiliate_id, kind, to_email, status, provider) values ($1,$2,$3,'seed_code','x@loop.test','sent','resend')`, [A, progA, noHandle]);
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate creator codes' as check_name");
+  assert.ok(i > 0, 'verify_v2_schema has the check');
+  assert.equal((await one(v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length))).status, 'ok');
 });
 
 console.log(`\n${passed} checks passed${MUT ? ` (mutation ${MUT} did not fail -- the suite is not testing it)` : ''}`);

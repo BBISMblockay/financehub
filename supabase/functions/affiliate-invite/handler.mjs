@@ -270,8 +270,10 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           // A code a person chose is theirs to change.
           if (e?.kind !== 'taken' || c.created_by) throw e;
           made = null;
-          for (let n = 2; n <= 4 && !made; n++) {
-            const text = `${String(c.code).replace(/-\d+$/, '')}-${n}`;
+          const stem = String(c.code);
+          for (const l of 'BCD') {
+            if (made) break;
+            const text = `${stem}${l}`;
             const { data: re, error: rErr } = await service.from('affiliate_codes').update({ code: text })
               .eq('id', c.id).eq('company_entity_id', co).eq('status', 'pending').select('id');
             if (rErr || !re?.length) continue;

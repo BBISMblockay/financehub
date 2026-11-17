@@ -272,9 +272,10 @@ await t('an affiliate card asks the image CDN for the size the card uses, and to
 
 await t('a one-press code is named from the affiliate and never repeats one already taken', () => {
   assert.equal(C.suggestCode('Pat Trails', 10), 'PATTRAILS10');
-  assert.equal(C.suggestCode('Pat Trails', 10, ['pattrails10']), 'PATTRAILS102', 'taken is judged without case, as Shopify does');
-  assert.equal(C.suggestCode('Pat Trails', 10, ['PATTRAILS10', 'PATTRAILS102']), 'PATTRAILS103');
-  assert.equal(C.suggestCode('', 15), 'AFF15', 'no usable name still gives a code');
+  assert.equal(C.suggestCode('@blaketestings', 10), 'BLAKETESTINGS10', 'a handle, without the @');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['pattrails10']), 'PATTRAILS10B', 'taken is judged without case, as Shopify does; a letter, no dash');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['PATTRAILS10', 'PATTRAILS10B']), 'PATTRAILS10C');
+  assert.equal(C.suggestCode('', 15), 'PARTNER15', 'no usable name still gives a code');
   assert.equal(C.suggestCode('José-María 🎉', 12.4), 'JOSMARA12', 'only letters and digits Shopify accepts');
   assert.ok(C.suggestCode('A'.repeat(40), 100).length <= 20);
 });

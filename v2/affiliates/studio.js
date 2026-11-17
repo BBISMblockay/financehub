@@ -2099,7 +2099,7 @@ const A = {
     if (!todo.length) return 'Every active affiliate has a code.';
     const taken = S.d.codes.map((c) => c.code);
     const rows = todo.map((a) => {
-      const code = suggestCode(a.display_name || a.handle, pct, taken); taken.push(code);
+      const code = suggestCode(a.handle || a.display_name, pct, taken); taken.push(code);
       return { company_entity_id: CO, program_id: S.programId, affiliate_id: a.id, code, starts_on: today(), created_by: me.id, status: 'pending', discount_percent: pct };
     });
     const made = must(await db.from('affiliate_codes').insert(rows).select('id'));
