@@ -303,6 +303,7 @@ await test('portal: acceptance mails the address on file and mints a portal link
   assert.match(body.portal_url, /^https:\/\/app\.test\/v2\/affiliates\/portal\.html\?t=P+$/);
   assert.equal(body.confirmation_email, 'sent');
   assert.deepEqual(mail.sent[0].body.to, ['pat@onfile.invalid']);
+  assert.equal(mail.sent[0].body.from, 'Brand A <notifications@get-silo.com>', 'affiliates see the brand, not SILO');
   const acc = svc.log.find((c) => c.name === 'affiliate_portal_accept_terms').args;
   assert.equal(acc.p_terms_version, 2);
   assert.equal(acc.p_acceptance.ip, '203.0.113.9');

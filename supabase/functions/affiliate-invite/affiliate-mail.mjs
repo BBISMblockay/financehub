@@ -60,7 +60,9 @@ export async function resolveAffiliateSender(service, { companyId, programId, fa
       p_company_entity_id: companyId, p_purpose: 'general_ops', p_actor_email: null,
     });
     const row = Array.isArray(data) ? data[0] : data;
-    if (row?.from_header) from = row.from_header;
+    // Affiliates see the brand, not SILO (Blake 2026-11-17): "Brand - SILO
+    // <x@...>" is sent as "Brand <x@...>". A company's own sender is kept.
+    if (row?.from_header) from = String(row.from_header).replace(/^\s*(.+?)\s+-\s+SILO\s*</, '$1 <');
     if (row?.reply_to) replyTo = row.reply_to;
   } catch { /* the message matters more than the header */ }
   if (programId) {

@@ -131,7 +131,8 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     const paras = live
       ? [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} code is live. Share it, or your link, and you earn on every sale that uses it.`]
       : [`Hi ${escapeHtml(a.display_name)}, here is your ${escapeHtml(brand)} code.`];
-    const others = (codes || []).filter((c) => c.code !== shown);
+    // Only codes that still work: one that ended is not 'also yours'.
+    const others = (codes || []).filter((c) => c.code !== shown && (!c.ends_on || c.ends_on >= today));
     if (others.length) paras.push(`Also yours: ${others.map((c) => `<strong>${escapeHtml(c.code)}</strong> (${escapeHtml(dates(c.starts_on, c.ends_on))})`).join(', ')}.`);
     const own = (codes || []).find((c) => c.code === shown);
     if (own?.ends_on) paras.push(`Works ${escapeHtml(dates(own.starts_on, own.ends_on))}.`);
