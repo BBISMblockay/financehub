@@ -12,6 +12,11 @@
 -- 3. affiliate_notifications.kind gains 'seed_code' (SILO makes a seed code in
 --    Shopify itself and emails it to that affiliate only) and 'earnings' (the
 --    nightly "you earned $X" notice).
+-- 4. affiliate_autoshare_launch_trg(): a shared launch FOLLOWS a date change
+--    (Blake 2026-11-17: "nimble"). The card an affiliate sees moves to the new
+--    day -- shared automatically or by hand, same row. It still never re-shares
+--    a launch someone unshared: it only updates a card that is there. Otherwise
+--    the 20261113080000 body, verbatim.
 --
 -- Idempotent. No data changes: codes already made keep their text.
 
@@ -93,3 +98,38 @@ revoke all on function public.affiliate_queue_first_code() from public, anon, au
 alter table public.affiliate_notifications drop constraint if exists affiliate_notifications_kind_check;
 alter table public.affiliate_notifications add constraint affiliate_notifications_kind_check
   check (kind in ('signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal', 'signup_invite', 'seed_code', 'earnings'));
+
+create or replace function public.affiliate_autoshare_launch_trg()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- A launch is shared once: when it is created, or when a launch saved
+  -- without a date first gets one. A later date change moves the card that
+  -- is already shared; it never brings back one someone unshared.
+  if tg_op = 'UPDATE' and old.launch_date is not null then
+    if new.launch_date is not null and new.launch_date is distinct from old.launch_date then
+      begin
+        update public.affiliate_feed_items f
+           set event_on = new.launch_date
+         where f.company_entity_id = new.company_entity_id
+           and f.kind = 'launch'
+           and f.source_id = new.id::text;
+      exception when others then
+        raise warning 'affiliate_autoshare_launch date follow skipped for launch %: %', new.id, sqlerrm;
+      end;
+    end if;
+    return null;
+  end if;
+  begin
+    perform public.affiliate_autoshare_launch(new.id);
+  exception when others then
+    raise warning 'affiliate_autoshare_launch skipped for launch %: %', new.id, sqlerrm;
+  end;
+  return null;
+end;
+$$;
+
+revoke all on function public.affiliate_autoshare_launch_trg() from public, anon, authenticated;

@@ -1455,9 +1455,16 @@ async function renderShare() {
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
   const sharedRows = d.feed.filter((f) => !f.parent_source_id).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
-  const storeCard = MANAGE ? (needsStore(p)
-    ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
-    : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`)) : '';
+  // The store links open is picked from the program's connected Shopify
+  // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
+  const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
+  const curHost = (() => { try { return new URL(storeOf(p) || '').hostname; } catch { return ''; } })();
+  const storeCard = !MANAGE ? '' : pickable.length
+    ? card('Store', `${setRow('Affiliate links open', `<div class="af-chips-tog">${pickable.map((x) => { const on = curHost === x; return `<button type="button" class="af-chip-tog${on ? ' is-on' : ''}" data-act="store-pick" data-store="${esc(x)}" aria-pressed="${on}">${esc(storeName(x))}</button>`; }).join('')}</div>`)}${
+      curHost && !pickable.includes(curHost) ? `<p class="af-muted">Now: ${esc(curHost)}</p>` : ''}${needsStore(p) ? '<p class="bcn-status bcn-status--warn" id="storeNeeded">Pick one to turn on affiliate links.</p>' : ''}`)
+    : needsStore(p)
+      ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
+      : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`);
   $('shareBody').innerHTML = [
     card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
       `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
@@ -2378,6 +2385,11 @@ const A = {
         .eq('company_entity_id', CO).eq('program_id', gone.program_id).eq('parent_source_id', String(gone.source_id));
     }
     return 'No longer shared.';
+  },
+  'store-pick': async ({ store }) => {
+    if (!(S.d.stores || []).includes(store)) throw new Error('Pick one of your connected stores.');
+    await updateRows('affiliate_programs', { store_url: `https://${store}`, changed_by: me.id }, { id: S.programId });
+    return `Affiliate links open ${storeName(store)}.`;
   },
   'store-save': async () => {
     const v = val('storeUrl').toLowerCase().replace(/\/+$/, '');

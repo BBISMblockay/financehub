@@ -10137,6 +10137,7 @@ select 'Affiliate creator codes' as check_name,
     when position('BCDEFGHJKLMNPQRSTUVWXYZ' in pg_get_functiondef('public.affiliate_suggest_code(uuid, text, integer)'::regprocedure)) = 0
       or position('new.handle' in pg_get_functiondef('public.affiliate_queue_first_code()'::regprocedure)) = 0
       or position('seed_code' in pg_get_constraintdef((select oid from pg_constraint where conname = 'affiliate_notifications_kind_check' and conrelid = 'public.affiliate_notifications'::regclass))) = 0
+      or position('new.launch_date is distinct from old.launch_date' in pg_get_functiondef('public.affiliate_autoshare_launch_trg()'::regprocedure)) = 0
       or position('''earnings''' in pg_get_constraintdef((select oid from pg_constraint where conname = 'affiliate_notifications_kind_check' and conrelid = 'public.affiliate_notifications'::regclass))) = 0
       then 'MISSING — run 20261117200000_affiliate_creator_codes.sql'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
