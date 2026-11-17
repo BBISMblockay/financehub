@@ -304,7 +304,7 @@
           title: 'Request Payouts access',
           body: 'Signed in to your PayPal business account, request <strong>Payouts</strong>. PayPal reviews it, usually within a few business days. Link a bank account first if PayPal asks.',
           link: { href: 'https://www.paypal.com/payoutsweb/landing', label: 'Request Payouts' },
-          note: 'Until PayPal approves, SILO can connect but cannot send, and says so on the PayPal card.',
+          note: 'In the PayPal Developer Dashboard, Payouts under <strong>Live</strong> shows <strong>Contact Us</strong> until PayPal turns it on; that link is the same request. Until then SILO can connect but cannot send.',
         },
         {
           title: 'Create a Live app',
