@@ -2824,6 +2824,70 @@
       search_console: 'https://www.example.com/ or sc-domain:example.com',
     };
 
+    // ── Guards on the boxes that REPLACE a working value ────────────────
+    // After Süti 2026-11-16: a field that saves whatever is typed, the moment
+    // you click away, can wipe a working connection, and the only sign is the
+    // nightly sync skipping. Same shape as the Klaviyo pk_ guard: say what the
+    // value should look like, leave the stored one alone, and put the box back
+    // as it was. Clearing a box to empty is still allowed -- that is a
+    // deliberate unset, and the health pass reports the connection as
+    // unconfigured rather than silently wrong.
+    const AD_FIELD_GUARD = {
+      meta_ad_account_id: {
+        // Both forms get typed; act_ is the one Meta's API accepts.
+        normalize: (v) => (/^\d{5,}$/.test(v) ? `act_${v}` : v),
+        ok: (v) => /^act_\d{5,}$/.test(v),
+        say: 'A Meta ad account ID looks like act_1234567890.',
+      },
+      google_customer_id: {
+        normalize: (v) => v.replace(/[\s-]/g, ''),
+        ok: (v) => /^\d{8,12}$/.test(v),
+        say: 'A Google Ads customer ID is ten digits, like 123-456-7890.',
+      },
+      tiktok_advertiser_id: {
+        normalize: (v) => v.replace(/\s/g, ''),
+        ok: (v) => /^\d{8,}$/.test(v),
+        say: 'A TikTok advertiser ID is digits only.',
+      },
+      ga4_property_id: {
+        normalize: (v) => v.replace(/^properties\//, '').replace(/\s/g, ''),
+        ok: (v) => /^\d{6,}$/.test(v),
+        say: 'A GA4 property ID is digits only, like 123456789 — the G-… one is the measurement ID and cannot be read from.',
+      },
+      search_console_site_url: {
+        normalize: (v) => v.replace(/\s/g, ''),
+        ok: (v) => /^https?:\/\/\S+$/.test(v) || /^sc-domain:\S+$/.test(v),
+        say: 'A Search Console property is either a URL (https://www.example.com/) or sc-domain:example.com — paste what Test returns, verbatim.',
+      },
+      facebook_page_id: {
+        normalize: (v) => v.replace(/\s/g, ''),
+        ok: (v) => /^\d{6,}$/.test(v),
+        say: 'A Facebook Page ID is digits only.',
+      },
+      instagram_business_account_id: {
+        normalize: (v) => v.replace(/\s/g, ''),
+        ok: (v) => /^\d{6,}$/.test(v),
+        say: 'An Instagram Business Account ID is digits only.',
+      },
+    };
+
+    /** Save one id box, or refuse it and put the box back. */
+    function saveAdField(input, id, field) {
+      const prev = input.dataset.prev ?? '';
+      const guard = AD_FIELD_GUARD[field];
+      const raw = String(input.value || '').trim();
+      const value = raw && guard?.normalize ? guard.normalize(raw) : raw;
+      if (value && guard && !guard.ok(value)) {
+        setStatus(`${guard.say} Nothing was changed.`, 'neg', 12000);
+        input.value = prev;
+        return;
+      }
+      if (value === prev) return;
+      input.value = value;
+      input.dataset.prev = value;
+      updateAdConnection(id, { [field]: value || null });
+    }
+
     let _adRows = [];
     async function loadAdConnections() {
       const { data, error } = await db
@@ -3005,7 +3069,8 @@
             <span class="int-detail-lbl">${escHtml(AD_ACCOUNT_NOUN[row.platform] || 'Account')}</span>
             <input class="bcn-field bcn-field--mono" style="min-width:${wide}px;" value="${escAttr(acctVal)}"
               placeholder="${escAttr(AD_ACCOUNT_PLACEHOLDER[row.platform] || '')}"
-              onchange="updateAdConnection('${row.id}', { ${acctField}: this.value.trim() || null })" />
+              data-prev="${escAttr(acctVal)}"
+              onchange="saveAdField(this, '${row.id}', '${acctField}')" />
             <button class="int-btn ${acctVal ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openAccountPicker('${row.id}')">${acctVal ? 'Change' : 'Choose…'}</button>
           </div>`;
       // Organic is Meta's alone: no other platform carries a Page.
@@ -3025,10 +3090,12 @@
             <button class="int-btn ${row.facebook_page_id ? 'int-btn--ghost' : 'int-btn--primary'}" onclick="openPagePicker('${row.id}')">${row.facebook_page_id ? 'Change Page' : 'Choose Page…'}</button>
             <input class="bcn-field bcn-field--mono" style="min-width:160px;font-size:11px;"
               value="${escAttr(row.facebook_page_id || '')}" placeholder="Facebook Page ID"
-              onchange="updateAdConnection('${row.id}', { facebook_page_id: this.value.trim() || null })" />
+              data-prev="${escAttr(row.facebook_page_id || '')}"
+              onchange="saveAdField(this, '${row.id}', 'facebook_page_id')" />
             <input class="bcn-field bcn-field--mono" style="min-width:190px;font-size:11px;"
               value="${escAttr(row.instagram_business_account_id || '')}" placeholder="Instagram Business Account ID"
-              onchange="updateAdConnection('${row.id}', { instagram_business_account_id: this.value.trim() || null })" />
+              data-prev="${escAttr(row.instagram_business_account_id || '')}"
+              onchange="saveAdField(this, '${row.id}', 'instagram_business_account_id')" />
             <span class="int-detail-note">— the Page's Instagram account comes with it</span>
           </div>`;
       const detailRow = `<tr class="int-detail" id="conn-detail-${row.id}" hidden>
@@ -3106,6 +3173,14 @@
       const input = el?.querySelector('input');
       const token = (input?.value || '').trim();
       if (!token) { setStatus('Paste the new token first', 'neg', 5000); return; }
+      // Replacing the token here DESTROYS the working one, so refuse what is
+      // plainly not a token: an ad account id, a page id, a stray word. A real
+      // Meta token is one long unbroken string (they start "EAA", which is not
+      // required here in case Meta ever changes the prefix).
+      if (/\s/.test(token) || token.length < 40 || /^act_/.test(token) || /^\d+$/.test(token)) {
+        setStatus('That does not look like a Meta access token — those are one long string with no spaces, usually starting “EAA”. The existing token is unchanged.', 'neg', 12000);
+        return;
+      }
       const { error } = await db.from('ad_platform_connections')
         .update({
           access_token: token,
@@ -3543,7 +3618,8 @@
           <div style="margin-top:6px;">
             <input class="bcn-field bcn-field--mono" style="min-width:320px;" type="password"
               value="${escAttr(row.api_secret || '')}" placeholder="REDO_API_SECRET"
-              onchange="updateRedoConnection({ api_secret: this.value.trim() || null })" />
+              data-prev="${escAttr(row.api_secret || '')}"
+              onchange="saveRedoSecret(this)" />
           </div>
         </td>
         <td><label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -3553,6 +3629,22 @@
         <td>${lastEvent}</td>
         <td><button class="int-btn int-btn--danger" onclick="removeRedoConnection()">Remove</button></td>
       </tr>`;
+    }
+
+    /** Same guard as the id boxes: this field holds the live secret, so a
+     *  half-pasted value here stops Redo's marketing sync with nothing to
+     *  recover it from. */
+    function saveRedoSecret(input) {
+      const prev = input.dataset.prev ?? '';
+      const value = String(input.value || '').trim();
+      if (value && !/^\S{12,}$/.test(value)) {
+        setStatus('A Redo API secret is one long string with no spaces. The existing secret is unchanged.', 'neg', 12000);
+        input.value = prev;
+        return;
+      }
+      if (value === prev) return;
+      input.dataset.prev = value;
+      updateRedoConnection({ api_secret: value || null });
     }
 
     async function updateRedoConnection(patch) {
