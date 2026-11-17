@@ -149,6 +149,14 @@ export function validateProgram(f) {
     if (row.outreach_body && row.outreach_body.length > 5000) errors.push('Keep the outreach message under 5,000 characters.');
     if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the outreach message: it is how the creator joins.');
   }
+  // Which stores count (20261117030000). Every store ticked is stored as
+  // NULL ("all"), so a store connected later is covered without a visit here.
+  if (Array.isArray(f.shop_domains)) {
+    const on = f.shop_domains.filter((x) => x && x.on).map((x) => String(x.d || '').toLowerCase());
+    if (!on.length) errors.push('Pick at least one store.');
+    else if (on.some((x) => !/^[a-z0-9.-]+$/.test(x))) errors.push('Unknown store.');
+    row.shop_domains = on.length === f.shop_domains.length ? null : on;
+  }
   if (!row.name) errors.push('Give the program a name.');
   if (!SLUG_RE.test(row.slug)) errors.push('The short name (slug) must be 3–40 lowercase letters, digits or dashes.');
   if (!/^[A-Z]{3}$/.test(currency)) errors.push('Currency must be a three-letter code such as USD.');

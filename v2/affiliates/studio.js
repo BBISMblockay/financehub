@@ -96,6 +96,7 @@ function watchResearch(runId) {
       .eq('id', runId).eq('company_entity_id', CO).maybeSingle();
     if (data && data.status !== 'running') {
       S.watching = null;
+      autoRefreshMark(S.programId, true);
       await reload();
       setStatus(researchSummary(data), data.status === 'ok' ? 'pos' : 'neg', 10000);
       return;
@@ -104,6 +105,54 @@ function watchResearch(runId) {
     setTimeout(tick, 15000);
   };
   setTimeout(tick, 15000);
+}
+
+// Creator photos and YouTube stats cost nothing to refresh, so nobody
+// presses a button for them: a manager's visit runs both in the background,
+// at most once per program every 12 hours in this browser (a finished
+// research run clears that, so its creators are filled in straight away).
+const AUTO_REFRESH_MS = 12 * 3600 * 1000;
+const autoKey = (id) => `silo.affiliates.autorefresh.${id}`;
+function autoRefreshDue(id) {
+  try { return Date.now() - Number(localStorage.getItem(autoKey(id)) || 0) > AUTO_REFRESH_MS; } catch (_) { return true; }
+}
+function autoRefreshMark(id, clear = false) {
+  try { if (clear) localStorage.removeItem(autoKey(id)); else localStorage.setItem(autoKey(id), String(Date.now())); } catch (_) { /* per-browser convenience only */ }
+}
+let autoRefreshing = null;
+async function autoRefreshCreators(id) {
+  if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;
+  const pros = S.d?.prospects || [];
+  const wantPhotos = pros.some((x) => !prospectPhotoUrl(x.evidence));
+  const wantStats = pros.some((x) => x.platform === 'youtube');
+  if (!wantPhotos && !wantStats) return;
+  autoRefreshing = id; autoRefreshMark(id);
+  try {
+    const [ph, st] = await Promise.all([
+      wantPhotos ? invoke('affiliate-research', { action: 'refresh_photos', program_id: id }).catch(() => null) : null,
+      wantStats ? invoke('affiliate-research', { action: 'refresh_stats', program_id: id }).catch(() => null) : null,
+    ]);
+    // Redraw only when something changed and the person is still on this program.
+    if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && S.programId === id && !S.creating && S.tab !== 'program') await reload();
+  } finally { autoRefreshing = null; }
+}
+
+// The affiliate hears about a payment without anyone pressing a button.
+// Fail-soft: the payment is recorded either way; the reply says if no email went.
+async function tellPayout(id) {
+  const aff = (S.d?.payouts || []).find((x) => x.id === id)?.affiliate_id;
+  if (!aff) return '';
+  try {
+    const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: aff, kind: 'payout_status', payout_id: id });
+    return out.email === 'sent' ? ' The affiliate was emailed.' : ` Not emailed: ${out.reason || out.email}.`;
+  } catch (e) { return ` Not emailed: ${e.message}.`; }
+}
+// Same for a code a person added that is live now.
+async function tellCodes(aff) {
+  try {
+    const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: aff, kind: 'codes_and_links' });
+    return out.email === 'sent' ? ' The affiliate was emailed their code.' : ` Not emailed: ${out.reason || out.email}.`;
+  } catch (e) { return ` Not emailed: ${e.message}.`; }
 }
 
 async function invoke(fn, body) {
@@ -258,6 +307,7 @@ async function loadProgramData() {
   // A research run started earlier (another tab, a reload) is still watched.
   const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
   if (live && S.watching !== live.id) watchResearch(live.id);
+  autoRefreshCreators(p.id);
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
 
@@ -324,10 +374,14 @@ const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
 // affiliate_program_store_url -- the store address, else the only Shopify store.
 function storeOf(p) {
   if (p?.store_url) return p.store_url;
+  if (Array.isArray(p?.shop_domains) && p.shop_domains.length === 1) return `https://${p.shop_domains[0]}`;
   const st = S.d?.stores;
   return Array.isArray(st) && st.length === 1 ? `https://${st[0]}` : null;
 }
-const needsStore = (p) => !p?.store_url && !(Array.isArray(S.d?.stores) && S.d.stores.length === 1);
+const needsStore = (p) => !storeOf(p);
+// The stores a program covers (20261117030000): NULL = every store.
+const hasStorePick = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'shop_domains'));
+const storeName = (d) => String(d).replace(/\.myshopify\.com$/, '');
 // The code an affiliate's links apply today: an active one in its window.
 function liveCodeOf(affId) {
   const t = today();
@@ -622,6 +676,12 @@ const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty
 // The program's own outreach message exists once 20261111020000 is applied.
 // Product seeding exists once 20261113093000 is applied.
 const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'seeding_enabled'));
+const storesCard = (p, dis) => {
+  const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
+  if (!hasStorePick() || st.length < 2) return '';
+  const picked = Array.isArray(p.shop_domains) ? p.shop_domains : null;
+  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${st.map((x) => { const on = !picked || picked.includes(x); return `<button type="button" class="af-chip-tog pStore${on ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${on}" ${dis}>${esc(storeName(x))}</button>`; }).join('')}</div>`));
+};
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 // Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
 // windows forms, need modernized"; "i don't want hiding"). Every setting is
@@ -701,7 +761,7 @@ function renderProgram(isNew = S.creating) {
   const create = isNew && MANAGE ? `<div class="af-settings-save">${btn('Create program', 'save-program', {}, 'primary')}${S.programs.length ? btn('Cancel', 'cancel-new', {}, 'surface') : ''}</div>` : '';
   const saved = !isNew && MANAGE ? '<span class="af-set-saved" id="setSaved" aria-live="polite"></span>' : '';
   $('programBody').innerHTML = `<div class="af-settings">${saved}
-    <div class="af-settings-col">${program}${pay}${seeding}${codes}${create}</div>
+    <div class="af-settings-col">${program}${storesCard(p, dis)}${pay}${seeding}${codes}${create}</div>
     <div class="af-settings-col">${recruit}${message}${terms}${access}</div></div>`;
   syncCommissionFields();
   if (!isNew && p.id) renderManagers();
@@ -717,7 +777,7 @@ document.addEventListener('click', (ev) => {
     syncCommissionFields();
     return;
   }
-  const c = ev.target.closest('[data-plat]');
+  const c = ev.target.closest('[data-plat], [data-store]');
   if (c && !c.disabled) {
     c.classList.toggle('is-on'); c.setAttribute('aria-pressed', String(c.classList.contains('is-on')));
     c.dispatchEvent(new Event('change', { bubbles: true }));
@@ -781,6 +841,7 @@ function readProgramForm() {
     attribution_window_days: val('pGrace'), code_precedence: val('pPrec'), refund_hold_days: val('pHold'),
     ...($('pPayMethod') ? { payout_method: val('pPayMethod') } : {}),
     ...(hasAutoCode() ? { default_discount_percent: val('pAutoPct') } : {}),
+    ...($('programBody')?.querySelector('.pStore') ? { shop_domains: [...document.querySelectorAll('.pStore')].map((x) => ({ d: x.dataset.store, on: x.classList.contains('is-on') })) } : {}),
     ...(hasOutreachMessage() ? { outreach_subject: val('pOutSubject'), outreach_body: $('pOutBody').value } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });
@@ -909,7 +970,6 @@ function renderProspects() {
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
     more('Recruiting tools', [
-    MANAGE ? card('Creator photos and stats', `<div class="af-row">${btn('Refresh photos', 'photos-refresh', {}, 'surface')}${btn('Refresh stats', 'stats-refresh', {}, 'surface')}</div>`) : '',
     MANAGE ? card('How many to find', field('Creators per run (5 to 50)', input('rsCount', 'type="number" min="5" max="50" value="25"'))) : '',
     MANAGE ? card('Import a list', `<p class="af-muted">CSV, one creator per row with a profile link.</p>
       <div class="af-row">${field('File', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '',
@@ -947,7 +1007,7 @@ function renderOutreach() {
       ${aiSendBlock(d.aiApps)}
       <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
     more('Message history', [
-    card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Replied', 'draft-outcome', { id: x.id, s: 'replied' }, 'surface')}${btn('Declined', 'draft-outcome', { id: x.id, s: 'declined' }, 'surface')}${btn('Bounced', 'draft-outcome', { id: x.id, s: 'bounced' }, 'surface')}${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
+    card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
     card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.')),
     ]),
   ].join('');
@@ -1019,7 +1079,7 @@ function renderAffiliates() {
   const actions = (a) => {
     if (!MANAGE) return '';
     const b = [];
-    if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }), btn('Email codes & links', 'notify-codes', { id: a.id }));
+    if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
     if (a.status === 'active') b.push(btn('Pause', 'affiliate-status', { id: a.id, s: 'paused' }));
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
@@ -1210,9 +1270,6 @@ async function renderShare() {
 // ── Commissions ──────────────────────────────────────────────────────────
 function commissionsBodyHtml() {
   const d = S.d; const p = prog();
-  const from = S.rangeFrom || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const to = S.rangeTo || today();
-  const openPeriods = d.periods.filter((x) => x.status === 'open');
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
   const perfRow = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')}</div><div class="af-kv-line">${num(r.attributed_orders)} credited orders · base ${formatMoney(r.commissionable_cents, r.order_currency)}${r.orders_with_unknown_base ? ` · ${num(r.orders_with_unknown_base)} unknown base` : ''}</div></div></article>`;
   const attrRow = (r) => {
@@ -1227,13 +1284,7 @@ function commissionsBodyHtml() {
   };
   const ledgerRow = (l) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[l.affiliate_id]?.display_name || '—')} · ${formatMoney(l.amount_cents, l.currency)}</div><div class="af-muted">${fmtTime(l.created_at)} · ${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? ` · <span class="af-mono">${esc(l.order_id)}</span>` : ''}</div>${l.memo ? `<div class="af-kv-line">${esc(l.memo)}</div>` : ''}</div></article>`;
   return [
-    card('Commissions', `<p class="af-muted">Commissions update every night.</p>
-      <div class="af-grid--settings" style="margin-top:10px;">${field('From', input('rFrom', `type="date" value="${from}"`))}${field('To', input('rTo', `type="date" value="${to}"`))}
-      ${field('Put new lines in period', `<select class="bcn-field" id="rPeriod"><option value="">open period for each order</option>${openPeriods.map((x) => `<option value="${x.id}">${fmtDate(x.period_start)} → ${fmtDate(x.period_end)}</option>`).join('')}</select>`)}
-      </div>
-      <div class="af-row" style="margin-top:10px;">${MANAGE ? `${btn('Match orders', 'resolve', {}, 'surface')}${btn('Calculate', 'accrue', {}, 'surface')}${btn('Update now', 'update-commissions', {}, 'primary')}` : ''}</div>
-      <div id="runOut"></div>`),
-    card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.')),
+    card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
     more('Every order', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet.'), 'latest 300')]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
@@ -1383,7 +1434,6 @@ function payoutPayHtml() {
       }
     }
     if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
-    if (MANAGE && ['approved', 'exported', 'marked_paid'].includes(x.status)) b.push(btn('Tell affiliate', 'payout-notify', { id: x.id, aff: x.affiliate_id }));
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) b.push(`<input class="bcn-field" id="vr-${x.id}" placeholder="Reason to void" style="max-width:160px;" />`, btn('Void', 'payout-void', { id: x.id }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
   };
@@ -1858,15 +1908,6 @@ const A = {
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
   },
-  'stats-refresh': async () => {
-    const out = await invoke('affiliate-research', { action: 'refresh_stats', program_id: S.programId });
-    return `Updated stats for ${num(out.updated)} of ${num(out.checked)} YouTube creators.${out.quota ? ' Daily limit reached; the rest update tomorrow.' : ''}`;
-  },
-  'photos-refresh': async () => {
-    const out = await invoke('affiliate-research', { action: 'refresh_photos', program_id: S.programId });
-    if (!out.checked) return 'Every creator already has a photo.';
-    return `Found ${out.stored} photo${out.stored === 1 ? '' : 's'} for ${out.checked} creator${out.checked === 1 ? '' : 's'}.`;
-  },
   'import-run': async () => {
     const file = $('impFile')?.files?.[0];
     if (!file) throw new Error('Choose a CSV file first.');
@@ -1918,7 +1959,6 @@ const A = {
     await updateRows('affiliate_outreach_drafts', { state: 'sent', sent_marked_by: me.id, sent_marked_at: new Date().toISOString(), sent_evidence: ev }, { id, state: 'exported' });
     return 'Marked sent.';
   },
-  'draft-outcome': async ({ id, s }) => { await updateRows('affiliate_outreach_drafts', { state: s }, { id, state: 'sent' }); return `Recorded: ${s}.`; },
   'draft-optout': async ({ id }) => {
     const x = S.d.drafts.find((r) => r.id === id);
     await A['prospect-suppress']({ id: x.prospect_id });
@@ -1955,16 +1995,19 @@ const A = {
       : `<p>Not emailed (${esc(out.reason || out.email)}). Send this to them yourself; it opens ${esc(co?.title || 'this brand')} only. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.portal_url || '')}</div>`) };
     return out.email === 'sent' ? 'Portal link emailed.' : 'Portal link created.';
   },
-  'notify-codes': async ({ id }) => { const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: id, kind: 'codes_and_links' }); return out.email === 'sent' ? 'Emailed.' : `Not emailed: ${out.reason || out.email}.`; },
   'affiliate-status': async ({ id, s }) => { await updateRows('affiliates', { status: s, changed_by: me.id }, { id }); return `Affiliate ${s}.`; },
   'code-add': async () => {
     if (!val('cAff') || !val('cCode')) throw new Error('Pick an affiliate and type the code.');
     const ai = val('cHow') === 'ai';
     const pct = Number(val('cPct'));
     if (ai && !(pct > 0 && pct <= 100)) throw new Error('Type the percent off your AI should give, from 1 to 100.');
-    must(await db.from('affiliate_codes').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: val('cAff'), code: val('cCode'), starts_on: val('cStart') || today(), ends_on: val('cEnd') || null, created_by: me.id,
+    const aff = val('cAff'); const starts = val('cStart') || today();
+    must(await db.from('affiliate_codes').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: aff, code: val('cCode'), starts_on: starts, ends_on: val('cEnd') || null, created_by: me.id,
       ...(ai ? { status: 'pending', discount_percent: pct } : {}) }));
-    return ai ? 'Code saved. Ask your AI to create your waiting SILO affiliate codes in Shopify.' : 'Code added. It is credited from the next “Match orders” run.';
+    if (ai) return 'Code saved. Ask your AI to create your waiting SILO affiliate codes in Shopify.';
+    // A code made by hand is live now (or on its start day): tell the rep.
+    const live = starts <= today() && S.d.affiliates.find((a) => a.id === aff)?.status === 'active';
+    return `Code added. Orders using it are credited overnight.${live ? await tellCodes(aff) : ''}`;
   },
   'feed-add': async ({ kind, src, p }) => {
     const x = JSON.parse(p || '{}');
@@ -2025,24 +2068,6 @@ const A = {
     must(await db.from('affiliate_links').insert({ company_entity_id: CO, program_id: S.programId, affiliate_id: val('lAff'), slug: val('lSlug'), destination_url: dest, utm_source: 'affiliate', utm_medium: 'affiliate', utm_campaign: val('lCamp') || null, starts_on: today(), created_by: me.id }));
     return 'Link added.';
   },
-  'update-commissions': async () => {
-    const m = await A.resolve(); const runOut = S.flash?.html || '';
-    await A.accrue(); S.flash = { el: 'runOut', html: runOut + (S.flash?.html || '') };
-    return 'Commissions updated.';
-  },
-  resolve: async () => {
-    S.rangeFrom = val('rFrom'); S.rangeTo = val('rTo');
-    const r = must(await db.rpc('affiliate_resolve_attributions', { p_program: S.programId, p_from: S.rangeFrom, p_to: S.rangeTo }));
-    const parts = Object.entries(r.by_basis || {}).map(([k, v]) => `${basisLabel(k)}: ${v}`);
-    S.flash = { el: 'runOut', html: `<p>${num(r.rows_written)} order(s) recorded${r.conflict_other_program ? `, ${num(r.conflict_other_program)} skipped because another program already credits them` : ''}. ${esc(parts.join('; '))}</p>` };
-    return 'Orders matched.';
-  },
-  accrue: async () => {
-    S.rangeFrom = val('rFrom'); S.rangeTo = val('rTo');
-    const r = must(await db.rpc('affiliate_accrue_commissions', { p_program: S.programId, p_from: S.rangeFrom, p_to: S.rangeTo, p_period: val('rPeriod') || null }));
-    S.flash = { el: 'runOut', html: `<p>${num(r.entries_accrued)} new line(s), ${num(r.entries_reduced)} correction(s), ${num(r.unchanged)} unchanged. Net ${money(r.net_amount_cents)}. Skipped: ${num(r.skipped_inactive_affiliate)} for an affiliate who is not active, ${num(r.skipped_unknown_base)} with refunds not yet measured.</p>` };
-    return 'Commissions calculated.';
-  },
   'period-add': async () => { must(await db.from('affiliate_commission_periods').insert({ company_entity_id: CO, program_id: S.programId, period_start: val('perStart'), period_end: val('perEnd'), created_by: me.id })); return 'Period opened.'; },
   'period-submit': async ({ id }) => { must(await db.rpc('affiliate_submit_period', { p_period: id })); return 'Submitted for approval.'; },
   'period-approve': async ({ id }) => { must(await db.rpc('affiliate_approve_period', { p_period: id })); return 'Period approved.'; },
@@ -2076,7 +2101,7 @@ const A = {
     if (r.state === 'paid') {
       return S.d.payConn?.environment !== 'live'
         ? 'Sandbox test succeeded. Nobody was paid and the payout is still owed.'
-        : 'Paid.';
+        : `Paid.${await tellPayout(id)}`;
     }
     if (r.state === 'refused') return `PayPal refused it: ${r.message || r.code || 'no reason given'}. Nothing was sent.`;
     if (r.state === 'unclaimed') return 'Sent. They need a PayPal account to claim it; it comes back after 30 days if they do not.';
@@ -2158,14 +2183,13 @@ const A = {
   'payout-paid': async ({ id }) => {
     if (!val(`ref-${id}`) || !val(`pev-${id}`)) throw new Error('Enter the payment reference and where it shows as paid.');
     must(await db.rpc('affiliate_mark_payout_paid', { p_payout: id, p_external_reference: val(`ref-${id}`), p_evidence: val(`pev-${id}`) }));
-    return 'Recorded as paid.';
+    return `Recorded as paid.${await tellPayout(id)}`;
   },
   'payout-void': async ({ id }) => {
     if (!val(`vr-${id}`)) throw new Error('Say why it is being voided.');
     must(await db.rpc('affiliate_void_payout', { p_payout: id, p_reason: val(`vr-${id}`) }));
     return 'Payout voided. Its lines can be paid again in a new payout.';
   },
-  'payout-notify': async ({ id, aff }) => { const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: aff, kind: 'payout_status', payout_id: id }); return out.email === 'sent' ? 'Affiliate emailed.' : `Not emailed: ${out.reason || out.email}.`; },
 };
 
 // Two-click confirm for anything that cannot be quietly undone: the first
