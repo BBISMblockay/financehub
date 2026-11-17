@@ -77,6 +77,8 @@ const MUTATIONS = {
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
   storepickall: ['/affiliates/studio-core.js', 'row.shop_domains = on.length === f.shop_domains.length ? null : on;', 'row.shop_domains = null;'],
+  autonothrottle: ['/affiliates/studio.js', "if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;", "if (!MANAGE || !id || autoRefreshing === id) return;"],
+  paidsilent: ['/affiliates/studio.js', 'return `Recorded as paid.${await tellPayout(id)}`;', "return 'Recorded as paid.';"],
   savelate: ['/affiliates/studio.js', 'pendingSave = { id: S.programId, row: programRowFromForm() };', 'pendingSave = { get id() { return S.programId; }, get row() { return programRowFromForm(); } };'],
   nullzero: ['/affiliates/studio-core.js', "if (minor === null || minor === undefined || minor === '' || !Number.isFinite(Number(minor))) return '—';", 'if (minor === undefined) return \'—\'; minor = Number(minor) || 0;'],
   termshtml: ['/affiliates/public.js', 'return paras.length ? paras.map((p) => `<p>${esc(p).replace(/\\n/g, \'<br>\')}</p>`).join(\'\')', 'return paras.length ? paras.map((p) => `<p>${p}</p>`).join(\'\')'],
@@ -234,6 +236,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const AD_IMG = `${CO}/${'ab12'.repeat(16)}.jpg`;
     const PHOTO_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
     await suite.context.route('https://photos.invalid/samruns.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
+    const researchCalls = [];
+    await suite.context.route('**/functions/v1/affiliate-research', (route) => {
+      const body = JSON.parse(route.request().postData() || '{}'); researchCalls.push(body);
+      if (body.action === 'refresh_photos') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 3, stored: 2 }) });
+      if (body.action === 'import') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ kept: 2, prospects_new: 2, prospects_updated: 0, skipped_minors: 1, skipped_not_profile: 0, suppressed_skipped: 0 }) });
+      return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ run_id: 'r9' }) });
+    });
     const page = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
       ad_studio_ads: () => [
         { ad_id: 'ad1', ad_name: 'Mud season v2', title: 'Mud season', body: 'Grip that holds.', link_path: '/products/mud-shoe', image_path: `test-company/${'ab12'.repeat(16)}.jpg`, image_shared_by: 1, recent_spend: 50, last_day: '2026-11-08', effective_status: 'ACTIVE' },
@@ -349,17 +358,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(card1, '2 of 12 recent videos sponsored', 'and how many recent videos were sponsored');
     R.ok('other profiles the channel links are links', !!(await page.$('#prospectsBody a[href="https://www.instagram.com/samruns"]')));
     // Find creators with AI: starts a background run and says so; the company is never sent.
-    const researchCalls = [];
-    await suite.context.route('**/functions/v1/affiliate-research', (route) => {
-      const body = JSON.parse(route.request().postData() || '{}'); researchCalls.push(body);
-      if (body.action === 'refresh_photos') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 3, stored: 2 }) });
-      if (body.action === 'import') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ kept: 2, prospects_new: 2, prospects_updated: 0, skipped_minors: 1, skipped_not_profile: 0, suppressed_skipped: 0 }) });
-      return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ run_id: 'r9' }) });
-    });
     await page.fill('#rsFocus', 'trail running moms');
     await page.click('#prospectsBody [data-act="research-run"]');
     await page.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
-    R.ok('research asks for this program with the focus, never a company', researchCalls.length === 1 && researchCalls[0].action === 'research' && researchCalls[0].program_id === PROG && researchCalls[0].focus === 'trail running moms' && !('company_entity_id' in researchCalls[0]));
+    const rc = researchCalls.filter((c) => c.action === 'research');
+    R.ok('research asks for this program with the focus, never a company', rc.length === 1 && rc[0].program_id === PROG && rc[0].focus === 'trail running moms' && !('company_entity_id' in rc[0]));
     // Import a list: the file is parsed in the page and sent as rows.
     await openRecords(page);
     await page.setInputFiles('#impFile', { name: 'list.csv', mimeType: 'text/csv', buffer: Buffer.from('name,url,followers,minor\r\n"Ann, Runs",https://www.tiktok.com/@annruns,41.2K,FALSE\r\nKid,https://www.tiktok.com/@kid,10,TRUE\r\n') });
@@ -368,12 +371,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const imp = researchCalls.find((c) => c.action === 'import');
     R.ok('the import sends parsed rows', imp && imp.rows.length === 2 && imp.rows[0].name === 'Ann, Runs' && imp.rows[0].url === 'https://www.tiktok.com/@annruns');
     R.has(await text(page, '#status'), '1 skipped as likely minors', 'the import says what it skipped');
-    await openRecords(page);
-    await page.click('#recordsBody [data-act="photos-refresh"]');
-    await page.waitForFunction(() => /Found 2 photos/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-    const ph = researchCalls.find((c) => c.action === 'refresh_photos');
-    R.ok('Refresh photos asks for this program only, never a company', ph && ph.program_id === PROG && !('company_entity_id' in ph));
-    R.has(await text(page, '#status'), 'Found 2 photos for 3 creators', 'Refresh photos says what it found');
+    // Photos refresh on their own: no button, one background call per visit.
+    const ph = researchCalls.filter((c) => c.action === 'refresh_photos');
+    const stc = researchCalls.filter((c) => c.action === 'refresh_stats');
+    R.ok(`YouTube stats refresh without a button, once, for this program only (${stc.length})`, stc.length === 1 && stc[0].program_id === PROG && !('company_entity_id' in stc[0]));
+    R.ok('creators who all have photos ask for no photo refresh', ph.length === 0);
+    const again = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    await again.waitForTimeout(1500);
+    R.ok('a second visit within 12 hours does not refresh again', researchCalls.filter((c) => c.action === 'refresh_stats').length === 1);
+    await again.close();
+    R.ok('there is no Refresh photos or Refresh stats button', !(await page.$('[data-act="photos-refresh"], [data-act="stats-refresh"]')));
     await openRecords(page);
     const cm = await page.evaluate(() => [...document.querySelectorAll('#recordsBody .bcn-card')].find((c) => c.querySelector('h2')?.textContent === 'Orders')?.textContent || '');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
@@ -573,6 +580,27 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const nomoney = await suite.open('/v2/affiliates/index.html', loopTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: false } });
     R.not(await text(nomoney, '#overviewBody'), 'payout(s) to approve', 'someone who cannot approve money is not asked to');
     await nomoney.close();
+
+    // ── no logic buttons: the nightly run and automatic emails do it ──────
+    const PX = '66666666-6666-4666-8666-666666666666';
+    const autoMail = await suite.open('/v2/affiliates/index.html',
+      { ...tables, affiliate_payouts: [{ id: PX, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'exported', amount_cents: 700, currency: 'USD', item_count: 1, created_at: now, approved_at: now }] },
+      { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true, affiliate_mark_payout_paid: true },
+        edge: { 'affiliate-invite': { status: 200, body: { email: 'sent' } } } });
+    autoMail.on('pageerror', (e) => errors.push(e.message));
+    R.ok('no Match orders, Calculate, Update now, Tell affiliate, Email codes or outcome buttons anywhere',
+      !(await autoMail.$('[data-act="resolve"], [data-act="accrue"], [data-act="update-commissions"], [data-act="payout-notify"], [data-act="notify-codes"], [data-act="draft-outcome"]')));
+    await autoMail.click('#tabs [data-tab="payouts"]');
+    await autoMail.waitForFunction(() => !!document.querySelector('#payoutsBody [data-act="payout-paid"]'), null, { timeout: 5000 });
+    await autoMail.fill(`#ref-${PX}`, 'BANK-1');
+    await autoMail.fill(`#pev-${PX}`, 'bank statement');
+    await autoMail.click('#payoutsBody [data-act="payout-paid"]');
+    await autoMail.click('#payoutsBody [data-act="payout-paid"]').catch(() => {});   // the confirm
+    await autoMail.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 }).catch(() => {});
+    const told = await autoMail.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.name === 'affiliate-invite').map((c) => c.body));
+    R.ok('recording a payment emails the affiliate on its own, about that payout', told.length === 1 && told[0].kind === 'payout_status' && told[0].payout_id === '66666666-6666-4666-8666-666666666666' && told[0].affiliate_id === AFF);
+    R.has(await text(autoMail, '#status'), 'The affiliate was emailed', 'and says so');
+    await autoMail.close();
 
     // ── payout export: the file is what the database claimed ─────────────
     // Two payouts look approved on the page; by the time Export runs one was

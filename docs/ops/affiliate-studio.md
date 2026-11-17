@@ -112,7 +112,7 @@ own data (`stageLabels()` in `v2/affiliates/studio-core.js`).
 
 `affiliate-research` looks up YouTube prospects with the official YouTube Data API v3 using SILO's own key (`YOUTUBE_API_KEY`, a Supabase secret; unset = off). About 3 quota units a creator against 10,000 free a day. It runs after each research run and import, and from **Refresh stats** (channels missing numbers or a week old, 60 at a time). Writes `evidence.youtube` and `evidence.creator_profile`: followers, engagement (pooled over the last 12 uploads), topics, country, brand sites linked in descriptions, sponsored-video count, contact email stated in the channel description (only fills an empty contact), and other profiles the channel links -- each field with its source. `/c/` custom URLs cannot be looked up without a paid search and are skipped.
 
-The photo job and the stats job each write only the evidence keys they own, through `affiliate_prospect_merge_evidence()` (one statement, service role only, added by 20261117020000), so running Refresh photos and Refresh stats together keeps both. Without that function they write nothing (no read-then-write fallback).
+The photo job and the stats job each write only the evidence keys they own, through `affiliate_prospect_merge_evidence()` (one statement, service role only, added by 20261117020000), so the two background refreshes (run on a manager's visit, at most every 12 hours per program per browser, since 2026-11-17 no buttons) keep both. Without that function they write nothing (no read-then-write fallback).
 
 ## Daily use
 
@@ -496,3 +496,8 @@ Connect platform and SILO orchestrates it. Design:
 | `scripts/tests/affiliate-edge.test.mjs` | Both edge functions: hash-only tokens, gates before service role, company from the caller, no prospect email, no draft payout news. 6 mutations |
 | `scripts/tests/affiliate-studio-ui.test.mjs` | Page logic: money, form validation, CSV formula guard, fingerprints, labels. 3 mutations |
 | `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim), database period totals, the Switch brand hint and the no-store banner. Mutations listed in its header |
+
+
+## Which stores a program covers (20261117030000)
+
+`affiliate_programs.shop_domains` lists the company's Shopify stores the program covers; NULL means every store. Attribution (`affiliate_resolve_attributions`) reads only orders from those stores, and with exactly one picked store links open there when `store_url` is empty. Setup shows the chips only when the company has two or more active stores. Unticking a store is forward-looking: orders already credited from it stay credited.
