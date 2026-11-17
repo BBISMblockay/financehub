@@ -2871,21 +2871,31 @@
       },
     };
 
-    /** Save one id box, or refuse it and put the box back. */
-    function saveAdField(input, id, field) {
+    /** Save one id box, or refuse it and put the box back.
+     *  Emptiness is judged on what was TYPED, never on the normalised value:
+     *  '---' in the customer-id box and 'properties/' in the GA4 box both
+     *  normalise to nothing, and treating those as "the box was cleared"
+     *  would clear a working id with exactly the typo this guard exists to
+     *  catch. The remembered value only advances once the write came back
+     *  clean, so a failed save can be retried by typing the same value
+     *  again. */
+    async function saveAdField(input, id, field) {
       const prev = input.dataset.prev ?? '';
       const guard = AD_FIELD_GUARD[field];
       const raw = String(input.value || '').trim();
       const value = raw && guard?.normalize ? guard.normalize(raw) : raw;
-      if (value && guard && !guard.ok(value)) {
+      if (raw && guard && !guard.ok(value)) {
         setStatus(`${guard.say} Nothing was changed.`, 'neg', 12000);
         input.value = prev;
         return;
       }
       if (value === prev) return;
       input.value = value;
+      if (!await updateAdConnection(id, { [field]: value || null })) {
+        input.value = prev;
+        return;
+      }
       input.dataset.prev = value;
-      updateAdConnection(id, { [field]: value || null });
     }
 
     let _adRows = [];
@@ -3203,8 +3213,9 @@
     async function updateAdConnection(id, patch) {
       const { error } = await db.from('ad_platform_connections')
         .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
-      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return; }
+      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return false; }
       loadAdConnections();
+      return true;
     }
 
     async function removeAdConnection(id) {
@@ -3634,7 +3645,7 @@
     /** Same guard as the id boxes: this field holds the live secret, so a
      *  half-pasted value here stops Redo's marketing sync with nothing to
      *  recover it from. */
-    function saveRedoSecret(input) {
+    async function saveRedoSecret(input) {
       const prev = input.dataset.prev ?? '';
       const value = String(input.value || '').trim();
       if (value && !/^\S{12,}$/.test(value)) {
@@ -3643,15 +3654,20 @@
         return;
       }
       if (value === prev) return;
+      // Only once the write came back clean, so a failed save can be retried
+      // with the same secret instead of being short-circuited as saved.
+      if (!await updateRedoConnection({ api_secret: value || null })) {
+        input.value = prev;
+        return;
+      }
       input.dataset.prev = value;
-      updateRedoConnection({ api_secret: value || null });
     }
 
     async function updateRedoConnection(patch) {
       const { error } = await db.from('redo_connections')
         .update({ ...patch, updated_at: new Date().toISOString() })
         .eq('company_entity_id', _co.id);
-      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return; }
+      if (error) { setStatus('Update failed: ' + error.message, 'neg', 5000); return false; }
       // An API secret arriving after the connection is what makes the history
       // importable at all, so it queues the catch-up that the secret-less
       // connect could only skip. The prior-job check stops a re-paste from
@@ -3671,6 +3687,7 @@
         });
       }
       loadRedoConnection();
+      return true;
     }
 
     async function regenerateRedoSecret() {
