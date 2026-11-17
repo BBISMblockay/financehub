@@ -24,6 +24,7 @@
 //   AFFILIATE_PAYOUTS_MUTATION=noidem       the send carries no idempotency key
 //   AFFILIATE_PAYOUTS_MUTATION=noclaim      the send skips the database's claim
 //   AFFILIATE_PAYOUTS_MUTATION=unknownpaid  an unrecognised item status counts as paid
+//   AFFILIATE_PAYOUTS_MUTATION=noauthflag     a send refused for authorization is not explained or flagged
 //   AFFILIATE_PAYOUTS_MUTATION=timeoutrefused a call that never answered is recorded as refused
 //   AFFILIATE_PAYOUTS_MUTATION=secretout    the status reply carries the credentials
 //   AFFILIATE_PAYOUTS_MUTATION=zerodecimal  a zero-decimal currency is divided by 100
@@ -76,6 +77,10 @@ const MUTS = {
   secretout: [
     '  const publicStatus = (c) => (c ? {',
     '  const publicStatus = (c) => (c ? {\n    client_id: c.client_id, client_secret: c.client_secret,',
+  ],
+  noauthflag: [
+    "        if (e.code === 'AUTHORIZATION_ERROR' || r.status === 403) {",
+    '        if (false) {',
   ],
   stalereplay: [
     '      if (ageDays > 29) {',
@@ -444,6 +449,18 @@ await test('a refusal is recorded as a refusal, so it can be tried again', async
   const rec = service.log.find((e) => e.name === 'affiliate_payout_send_record');
   assert.equal(rec.args.p_state, 'refused');
   assert.equal(rec.args.p_error_code, 'RECEIVER_UNREGISTERED');
+});
+
+await test('a send refused for authorization says Payouts is not enabled and flags the connection', async () => {
+  const service = fakeService({ connection: { ...CONN, payouts_enabled: true } });
+  const fetchImpl = fakePaypal({
+    paths: { '/v1/payments/payouts': res(403, { name: 'AUTHORIZATION_ERROR', message: 'Authorization error occurred.' }) },
+  });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'send', payout_id: PAYOUT }));
+  const body = await r.json();
+  assert.equal(body.state, 'refused');
+  assert.match(body.message, /not enabled Payouts/);
+  assert.equal(service.state.connection.payouts_enabled, false, 'the card warns until PayPal approves');
 });
 
 await test('an unclaimed payment is not a paid payout', async () => {

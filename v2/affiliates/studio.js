@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -69,6 +69,9 @@ function friendly(err) {
   const m = String(err?.message || err || 'Something went wrong');
   if (err?.code === '42501' || /not permitted|permission denied|row-level security/i.test(m)) return 'You do not have permission for that. ' + m.replace(/^[a-z_]+: /, '');
   if (err?.code === '23505' || /duplicate key|unique/i.test(m)) return 'That already exists. ' + (err?.details || '');
+  // The ledger speaks in cents; say it in money.
+  const min = /(\d+) is below the program minimum of (\d+)/.exec(m);
+  if (min) return `${money(+min[1])} owed is under the ${money(+min[2])} payout minimum. Lower it in Setup to pay now.`;
   return m.replace(/^[a-z_]+: /, '');
 }
 const must = ({ data, error }) => { if (error) throw error; return data; };
@@ -208,6 +211,10 @@ function shopifyCodesMessage(results) {
   if (scope) parts.push(`${num(n(['needs_scope']))} waiting: ${scope.reason || 'reconnect Shopify in Integrations so SILO can make codes'}.`);
   const nostore = results.find((r) => r.status === 'no_store');
   if (nostore) parts.push(`${num(n(['no_store']))} waiting: ${nostore.reason || 'pick this program\'s Shopify store in Setup'}.`);
+  const taken = results.find((r) => r.status === 'taken');
+  if (taken) parts.push(`${num(n(['taken']))} waiting: ${taken.reason}.`);
+  const noprod = results.find((r) => r.status === 'no_product');
+  if (noprod) parts.push(`${num(n(['no_product']))} waiting: ${noprod.reason}.`);
   const failed = results.filter((r) => r.status === 'failed');
   if (failed.length) parts.push(`${num(failed.length)} not made: ${failed[0].reason || 'Shopify said no'}.`);
   return parts.join(' ') || 'Nothing was waiting.';
@@ -549,23 +556,34 @@ const RECORDS = new Map();
 const more = (label, parts) => { RECORDS.set(label, parts.filter(Boolean)); return ''; };
 // A plain, always-open section with a heading.
 const section = (label, parts) => { const p = parts.filter(Boolean); return p.length ? `<section class="af-section"><h3 class="af-settings-title">${esc(label)}</h3><div class="af-stack">${p.join('')}</div></section>` : ''; };
+// Records is one list at a time, picked from a row of chips (Blake
+// 2026-11-17: it read as "a big spreadsheet of slop"). Each list shows its
+// first RECORD_ROWS rows; "Show all" opens the rest in place.
 const RECORD_GROUPS = [
-  ['Products and codes', ['Codes and links']],
-  ['Team', ['Team and status']],
-  ['Recruiting', ['Recruiting tools']],
-  ['Messages', ['Message history']],
-  ['Money', ['Every order', 'Periods and ledger', 'Balances']],
+  ['codes', 'Codes', ['Codes and links']],
+  ['orders', 'Orders', ['Every order']],
+  ['money', 'Ledger', ['Balances', 'Periods and ledger']],
+  ['messages', 'Messages', ['Message history']],
+  ['recruiting', 'Recruiting', ['Recruiting tools']],
+  ['team', 'Team', ['Team and status']],
 ];
+const RECORD_ROWS = 12;
 function renderRecords() {
   RECORDS.clear();
   // The screens these come from draw into their own (hidden) panels, which
   // fills RECORDS; the records themselves are drawn only here.
   renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
   if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d ? stageCard() : '']);
-  $('recordsBody').innerHTML = RECORD_GROUPS.map(([title, keys]) => {
-    const parts = keys.flatMap((k) => RECORDS.get(k) || []);
-    return parts.length ? surface(title, `<div class="af-stack">${parts.join('')}</div>`) : '';
-  }).join('');
+  const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
+  if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
+  const g = groups.find((x) => x.key === S.recTab);
+  const chips = `<div class="af-rec-chips" role="tablist" aria-label="Records">${groups.map((x) => `<button type="button" class="af-rec-chip${x.key === S.recTab ? ' is-on' : ''}" role="tab" aria-selected="${x.key === S.recTab}" data-act="rec-tab" data-k="${x.key}">${esc(x.title)}</button>`).join('')}</div>`;
+  $('recordsBody').innerHTML = g ? `${chips}<div class="af-rec-list${S.recAll ? '' : ' af-rec-capped'}" id="recList">${g.parts.join('')}</div>` : empty('Nothing recorded yet.');
+  // "Show all" only where a list is longer than the first rows.
+  const list = $('recList');
+  if (list && !S.recAll && [...list.querySelectorAll('[role="list"]')].some((l) => l.children.length > RECORD_ROWS)) {
+    list.insertAdjacentHTML('beforeend', `<div class="af-row">${btn('Show all', 'rec-all', {}, 'surface')}</div>`);
+  }
   renderManagers();
 }
 const surface = (title, body, meta = '', id = '') => {
@@ -697,7 +715,7 @@ function todoItems() {
   add(dmReady, `${num(dmReady)} creator(s) with no email to message on social.`, 'outreach');
   add(Number(h.outreach_exported || 0), `${num(h.outreach_exported)} sent message(s) to mark as sent.`, 'outreach');
   const pending = d.codes.filter((c) => c.status === 'pending').length;
-  add(pending, `${num(pending)} code(s) waiting to be made in Shopify.`, 'affiliates', MANAGE ? `${btn('Make in Shopify', 'code-make', {}, 'primary')}${btn('Copy AI prompt', 'copy-codes-prompt', {}, 'surface')}` : '');
+  add(pending, `${num(pending)} code(s) waiting to be made in Shopify.`, 'affiliates', MANAGE ? btn('Make in Shopify', 'code-make', {}, 'primary') : '');
   const coded = new Set(d.codes.filter((c) => c.status !== 'retired').map((c) => c.affiliate_id));
   const codeless = d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id)).length;
   add(codeless, `${num(codeless)} affiliate(s) without a code.`, 'affiliates', MANAGE ? btn(`Make ${num(codeless)} code(s)`, 'q-codes', {}, 'primary') : '');
@@ -707,7 +725,7 @@ function todoItems() {
   const seedAsks = (d.seeds || []).filter((x) => x.state === 'requested').length;
   add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'people', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '');
   const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
-  add(seedCodes, `${num(seedCodes)} product code(s) waiting for your MCP agent to create in Shopify.`, 'people', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
+  add(seedCodes, `${num(seedCodes)} product code(s) waiting to be made in Shopify.`, 'people', MANAGE ? btn('Make in Shopify', 'seed-make', {}, 'primary') : '');
   const contentAsks = (d.content || []).filter((x) => x.state === 'submitted').length;
   add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'affiliates');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
@@ -1064,7 +1082,7 @@ function renderProspects() {
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
       ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="https://"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament"'))}<div class="af-row" style="margin-top:8px;">${btn('Add', 'prospect-add', {}, 'primary')}${btn('Close', 'add-creators-close')}</div><div id="mpOut"></div>
-    <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}</div>`) : '';
+    <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}${btn('Download template', 'import-template', {}, 'ghost')}</div>`) : '';
   $('prospectsBody').innerHTML = [
     editor,
     adder,
@@ -1184,14 +1202,20 @@ function aiSendBlock(apps) {
 
 // ── Product seeding ──────────────────────────────────────────────────────
 // An affiliate asks for a product at the seeding price; approving makes a
-// one-use code for that product and that person, which the brand's AI creates
-// in Shopify. Selling the multiple pays the purchase back through the ledger.
+// one-use code for that product, which SILO makes in Shopify and emails to
+// that person only. Selling the multiple pays the purchase back through the ledger.
 async function seedDecide(ids, approve) {
   const { data, error } = await db.rpc('affiliate_seed_decide', { p_claims: ids, p_approve: approve });
   if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
   const n = Number(data?.decided || 0); const skipped = Number(data?.skipped || 0);
   const tail = skipped ? `, ${num(skipped)} skipped (no email on file, or already answered)` : '';
-  return approve ? `${num(n)} approved. Your AI makes each code${tail}.` : `${num(n)} declined${tail}.`;
+  if (!approve) return `${num(n)} declined${tail}.`;
+  // SILO makes each approved product code in Shopify and emails it to that
+  // affiliate. One it cannot make waits on the To do list.
+  let made = '';
+  try { made = ' ' + shopifyCodesMessage((await invoke('affiliate-invite', { action: 'create_shopify_codes', seed_ids: ids }))?.results || []); }
+  catch (e) { made = ` Codes not made yet: ${e.message}`; }
+  return `${num(n)} approved${tail}.${made}`;
 }
 function seedsCard() {
   const d = S.d; const p = prog();
@@ -1442,9 +1466,16 @@ async function renderShare() {
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
   const sharedRows = d.feed.filter((f) => !f.parent_source_id).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
-  const storeCard = MANAGE ? (needsStore(p)
-    ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
-    : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`)) : '';
+  // The store links open is picked from the program's connected Shopify
+  // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
+  const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
+  const curHost = (() => { try { return new URL(storeOf(p) || '').hostname; } catch { return ''; } })();
+  const storeCard = !MANAGE ? '' : pickable.length
+    ? card('Store', `${setRow('Affiliate links open', `<div class="af-chips-tog">${pickable.map((x) => { const on = curHost === x; return `<button type="button" class="af-chip-tog${on ? ' is-on' : ''}" data-act="store-pick" data-store="${esc(x)}" aria-pressed="${on}">${esc(storeName(x))}</button>`; }).join('')}</div>`)}${
+      curHost && !pickable.includes(curHost) ? `<p class="af-muted">Now: ${esc(curHost)}</p>` : ''}${needsStore(p) ? '<p class="bcn-status bcn-status--warn" id="storeNeeded">Pick one to turn on affiliate links.</p>' : ''}`)
+    : needsStore(p)
+      ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
+      : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`);
   $('shareBody').innerHTML = [
     card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
       `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
@@ -1660,7 +1691,7 @@ function payoutPayHtml() {
     // invisible until then (Blake, first run: "very hidden and bad UI UX").
     if (!paypalRail) {
       return MANAGE
-        ? card('PayPal', `<p class="af-muted">This program pays by hand.</p>
+        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">This program pays by hand.</p>
           <div class="af-row" style="margin-top:8px;">${btn('Pay with PayPal instead', 'pp-use-rail', {}, 'primary', { confirm: true })}</div>`)
         : '';
     }
@@ -1671,11 +1702,12 @@ function payoutPayHtml() {
       const sandbox = conn.environment !== 'live'
         ? '<p class="af-muted">Sandbox: test payments only. Nobody is paid and no payout is recorded as paid.</p>'
         : '';
-      return card('PayPal', `<div class="af-kv-line">${esc(conn.environment)}${conn.account_email ? ` · ${esc(conn.account_email)}` : ''}</div>${sandbox}${warn}
+      const state = conn.payouts_enabled === false ? pill('Payouts not enabled', 'warn') : conn.environment === 'live' ? pill('Live', 'pos') : pill('Sandbox', 'warn');
+      return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${state}${conn.account_email ? `<span class="af-mono af-muted">${esc(conn.account_email)}</span>` : ''}</div>${sandbox}${warn}
         <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
     }
-    if (!MONEY) return card('PayPal', '<p class="af-muted">Not connected. Someone who can approve payouts connects it.</p>');
-    return card('Connect PayPal', `<div class="af-row">
+    if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
+    return card('Connect PayPal', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><div class="af-row">
         ${field('Account', '<select class="bcn-field" id="ppEnv"><option value="sandbox" selected>Sandbox</option><option value="live">Live</option></select>')}
         ${field('Client ID', input('ppId', 'autocomplete="off" style="min-width:220px;"'))}
         ${field('Secret', input('ppSecret', 'type="password" autocomplete="off" style="min-width:220px;"'))}
@@ -1683,14 +1715,27 @@ function payoutPayHtml() {
       </div>
       <p class="af-muted"><a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Get Payouts access</a> · <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener">Create an app</a></p>`);
   };
+  const ppChip = (affId) => {
+    const em = d.payEmailByAff[affId];
+    if (!paypalRail) return '';
+    return em ? `<span class="af-pp-chip" title="Paid to this PayPal">${paypalMark('af-pp-chip-logo')}<span class="af-mono">${esc(em)}</span></span>`
+      : '<span class="af-pp-chip af-pp-chip--none">No PayPal email yet</span>';
+  };
   const face = (a) => (a ? listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)) : '');
-  const balanceRow = (r) => `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div><div class="af-item-stats">${formatMoney(r.unclaimed_cents, r.currency)}<span class="af-muted" style="font-size:12px;font-weight:400;"> not yet in a payout</span></div><div class="af-muted" style="margin-top:4px;">Earned ${formatMoney(r.earned_cents, r.currency)} · Paid ${formatMoney(r.paid_cents, r.currency)}</div></div><div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  // Owed, big; how much of what they earned is already paid, as a meter;
+  // and the PayPal account it goes to (Blake 2026-11-17: visuals, logos).
+  const balanceRow = (r) => {
+    const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
+    const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
+    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>`
+      + `<div class="af-pay-owed"><span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span><span class="af-muted">owed</span></div>`
+      + `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div>`
+      + `<div class="af-muted af-pay-meter-cap">${formatMoney(paidC, r.currency)} paid of ${formatMoney(earned, r.currency)} earned</div>${ppChip(r.affiliate_id)}</div>`
+      + `<div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+  };
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
   return [
   moneyTop(),
-  paypalRail
-    ? `<p class="af-muted">Approve a payout, then send it from your own PayPal. Payable ${num(p.refund_hold_days)} days after the order. Commissions update every night.</p>`
-    : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order. Commissions update every night.</p>`,
   payConnCard(),
   surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
   d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
@@ -1876,29 +1921,38 @@ function ovChartCard() {
   const weekly = ovWeekly(S.d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) });
   return weekBarsCard('Sales from affiliate codes', weekly, 'Weekly sales from affiliate codes over the last 12 weeks', 'No order has carried an affiliate code in the last 12 weeks.');
 }
-// The Money tab's header (Blake, 2026-11-17: "way boring ... just boxes"):
-// the same metric tiles and weekly chart as Home, about money owed and paid.
+// The Money tab's header. Blake 2026-11-17: the tiles and chart "don't help,
+// want better visuals, PayPal logos, Shopify logos". So: where the money is,
+// as one flow from the store to PayPal, each stage with its own mark.
+const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-color.svg';
+const shopifyMark = (cls = '') => `<svg class="af-flow-shopify ${cls}" viewBox="0 0 24 24" aria-hidden="true"><use href="../../assets/landing/integration-icons.svg#icon-shopify"></use></svg>`;
+const paypalMark = (cls = '') => `<img class="af-flow-paypal ${cls}" src="${PAYPAL_MARK}" alt="PayPal" width="74" height="20" loading="lazy" />`;
 function moneyTop() {
   const d = S.d; const p = prog();
   if (!d || !p || !Array.isArray(d.ovLedger)) return '';
-  const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
   const w = ovWindows();
+  const sales = Array.isArray(d.ovAttributions) ? ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() }) : null;
+  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
   const owed = ovUnpaid(d.balances, p.currency);
   const toPay = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
-  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
   const since = Date.now() - w.days * 86400000;
-  const paid = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since)
-    .reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const weekly = ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) });
-  const waiting = (d.payouts || []).filter((x) => x.status === 'draft').length;
-  const tiles = [
-    ovMetricCard('Owed now', money(owed), `<span>${esc(ovPlural(toPay, 'affiliate'))} to pay</span>`),
-    ovMetricCard('Commission earned', moneyRound(comm), `${ovDelta(comm, commPrev)}<span>last ${num(w.days)} days</span>`, ovSpark(weekly, 'pos')),
-    ovMetricCard('Paid out', money(paid), `<span>last ${num(w.days)} days</span>`),
-    ovMetricCard('Payouts to approve', num(waiting), `<span>${esc(p.payout_method === 'paypal_payouts' ? 'via PayPal' : 'paid by hand')}</span>`),
-  ].join('');
-  return `<div class="af-ov-metrics">${tiles}</div>${weekBarsCard('Commission earned', weekly, 'Weekly commission earned over the last 12 weeks', '')}`;
+  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since);
+  const paid = paidRows.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
+  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === p.currency);
+  const flightCents = inFlight.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
+  const viaPaypal = p.payout_method === 'paypal_payouts';
+  const stage = (mark, label, value, sub, tone = '') => `<div class="af-flow-step${tone ? ` af-flow-step--${tone}` : ''}"><div class="af-flow-mark">${mark}</div><div class="af-flow-lab">${esc(label)}</div><div class="af-flow-val">${value}</div><div class="af-flow-sub">${sub}</div></div>`;
+  const arrow = '<div class="af-flow-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>';
+  const icon = (path) => `<svg class="af-flow-ico" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+  return `<section class="af-flow" aria-label="Where the money is, last ${num(w.days)} days">
+    ${stage(shopifyMark(), 'Sales from codes', sales ? esc(moneyRound(sales.sales)) : '—', sales ? `${esc(ovPlural(sales.orders, 'order'))} in Shopify` : 'Shopify')}
+    ${arrow}
+    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(rateShort(p)), 'pos')}
+    ${arrow}
+    ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${num(inFlight.length)} payout(s)` : ''}`, owed > 0 ? 'warn' : '')}
+    ${arrow}
+    ${stage(viaPaypal ? paypalMark() : icon('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>'), viaPaypal ? 'Paid with PayPal' : 'Paid by hand', esc(money(paid)), `${esc(ovPlural(paidRows.length, 'payout'))}`, 'accent')}
+  </section><p class="af-flow-note">Last ${num(w.days)} days · owed is today</p>`;
 }
 function weekBarsCard(title, weekly, aria, emptyText) {
   const units = minorUnits(ovCur());
@@ -2008,6 +2062,8 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
+  'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
+  'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
@@ -2094,7 +2150,7 @@ const A = {
     if (!todo.length) return 'Every active affiliate has a code.';
     const taken = S.d.codes.map((c) => c.code);
     const rows = todo.map((a) => {
-      const code = suggestCode(a.display_name || a.handle, pct, taken); taken.push(code);
+      const code = suggestCode(a.handle || a.display_name, pct, taken); taken.push(code);
       return { company_entity_id: CO, program_id: S.programId, affiliate_id: a.id, code, starts_on: today(), created_by: me.id, status: 'pending', discount_percent: pct };
     });
     const made = must(await db.from('affiliate_codes').insert(rows).select('id'));
@@ -2117,6 +2173,11 @@ const A = {
     return seedDecide(ids, true);
   },
   'seed-decide': async ({ id, ok }) => seedDecide([id], ok === '1'),
+  'seed-make': async () => {
+    const ids = (S.d.seeds || []).filter((x) => x.state === 'approved').map((x) => x.id).slice(0, 25);
+    if (!ids.length) return 'Nothing is waiting.';
+    return shopifyCodesMessage((await invoke('affiliate-invite', { action: 'create_shopify_codes', seed_ids: ids }))?.results || []);
+  },
   'seed-cancel': async ({ id }) => {
     const { error } = await db.rpc('affiliate_seed_cancel', { p_claim: id });
     if (error) throw new Error(error.message.replace(/^affiliate_seed_\w+:\s*/, ''));
@@ -2198,6 +2259,11 @@ const A = {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
+  },
+  // The columns the import reads (affiliate-research importRowsToCandidates).
+  'import-template': async () => {
+    download('affiliate-import-template.csv', toCsv(...IMPORT_TEMPLATE));
+    return 'Template downloaded. One creator per row; profile_url is required.';
   },
   'import-run': async () => {
     const file = $('impFile')?.files?.[0];
@@ -2360,6 +2426,11 @@ const A = {
         .eq('company_entity_id', CO).eq('program_id', gone.program_id).eq('parent_source_id', String(gone.source_id));
     }
     return 'No longer shared.';
+  },
+  'store-pick': async ({ store }) => {
+    if (!(S.d.stores || []).includes(store)) throw new Error('Pick one of your connected stores.');
+    await updateRows('affiliate_programs', { store_url: `https://${store}`, changed_by: me.id }, { id: S.programId });
+    return `Affiliate links open ${storeName(store)}.`;
   },
   'store-save': async () => {
     const v = val('storeUrl').toLowerCase().replace(/\/+$/, '');

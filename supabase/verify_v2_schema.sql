@@ -10128,3 +10128,21 @@ select 'Workspace profile editing preserves global activity' as check_name,
         and prosrc !~* 'is_active\s*='
     ) then 'CRITICAL: workspace profile editing can change global activity or lacks the compatibility guard'
     else 'ok' end as status;
+
+-- Affiliate creator codes (20261117200000): a new affiliate's code is their
+-- handle or whole name plus the percent, a taken one gets a letter, and SILO
+-- can record the seed-code email it sends.
+select 'Affiliate creator codes' as check_name,
+  case
+    when position('BCDEFGHJKLMNPQRSTUVWXYZ' in pg_get_functiondef('public.affiliate_suggest_code(uuid, text, integer)'::regprocedure)) = 0
+      or position('new.handle' in pg_get_functiondef('public.affiliate_queue_first_code()'::regprocedure)) = 0
+      or position('seed_code' in pg_get_constraintdef((select oid from pg_constraint where conname = 'affiliate_notifications_kind_check' and conrelid = 'public.affiliate_notifications'::regclass))) = 0
+      or position('new.launch_date is distinct from old.launch_date' in pg_get_functiondef('public.affiliate_autoshare_launch_trg()'::regprocedure)) = 0
+      or position('''earnings''' in pg_get_constraintdef((select oid from pg_constraint where conname = 'affiliate_notifications_kind_check' and conrelid = 'public.affiliate_notifications'::regclass))) = 0
+      then 'MISSING — run 20261117200000_affiliate_creator_codes.sql'
+    when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
+                  where has_function_privilege(r.role, 'public.affiliate_suggest_code(uuid, text, integer)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_queue_first_code()', 'execute'))
+      then 'BROKEN — a client role can call the code helper'
+    else 'ok'
+  end as status;

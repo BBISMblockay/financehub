@@ -35,7 +35,17 @@ const muts = {
   // A code is made in a store the program's links do not open.
   scwrongstore: ['handler.mjs', '        if (!storeMatches(progs.get(c.program_id), conn)) {', '        if (false) {'],
   // End dates are inclusive of the whole last day.
-  scendday: ['shopify-codes.mjs', 'endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,', 'endsAt: code.ends_on ? dayStartIso(code.ends_on, tz) : null,'],
+  scendday: ['shopify-codes.mjs', 'dayStartIso(nextDay(code.ends_on), tz)) - 1000', 'dayStartIso(code.ends_on, tz)) - 1000'],
+  // Any discount with the same text is adopted, a store promo included.
+  scadoptany: ['shopify-codes.mjs', "if (d.__typename === 'DiscountCodeBasic' && String(d.title || '').startsWith(SILO_TITLE)) return node.id;", 'return node.id;'],
+  // Seeding: any near match counts as the product; the claim is marked whatever its state; every sweep page makes seeds.
+  scseednear: ['shopify-codes.mjs', '.find((n) => n?.handle === handle)', '.find(Boolean)'],
+  scseedstate: ['handler.mjs', ".eq('id', c.id).eq('company_entity_id', co).eq('state', 'approved').select('id');", ".eq('id', c.id).eq('company_entity_id', co).select('id');"],
+  scseedpages: ['handler.mjs', 'if (sweep && !peek.after) results.push', 'if (sweep) results.push'],
+  scearnagain: ['handler.mjs', 'const fresh = list.filter((r) => !after || r.created_at > after);', 'const fresh = list;'],
+  scearnanon: ['handler.mjs', 'if (isService && !codeId) {', 'if (!codeId || codeId) {'],
+  // A code SILO picked itself is left waiting instead of taking the next free text.
+  scnorename: ['handler.mjs', "if (e?.kind !== 'taken' || c.created_by) throw e;", 'throw e;'],
 };
 if (MUT && !muts[MUT]) throw new Error(`unknown mutation ${MUT}`);
 
@@ -60,16 +70,29 @@ const test = async (name, fn) => {
 };
 
 // ── Shopify fake ───────────────────────────────────────────────────────────
-function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false } = {}) {
+function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false, products = { 'blue-hat': 'gid://shopify/Product/5' } } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
     const q = body.query;
-    calls.push({ url, op: /SiloScopes/.test(q) ? 'scopes' : /SiloFindCode/.test(q) ? 'find' : /SiloCreateCode/.test(q) ? 'create' : 'other', vars: body.variables, token: init.headers['X-Shopify-Access-Token'] });
+    calls.push({ url, op: /SiloScopes/.test(q) ? 'scopes' : /SiloFindCode/.test(q) ? 'find' : /SiloCreateCode/.test(q) ? 'create' : /SiloProduct/.test(q) ? 'product' : 'other', vars: body.variables, token: init.headers['X-Shopify-Access-Token'] });
     if (status !== 200) return new Response('{"errors":"nope"}', { status });
     const last = calls[calls.length - 1];
     if (last.op === 'scopes') return Response.json({ data: { currentAppInstallation: { accessScopes: scopes.map((h) => ({ handle: h })) }, shop: { myshopifyDomain: 'brand.myshopify.com', primaryDomain: { host: primary } } } });
-    if (last.op === 'find') return Response.json({ data: { codeDiscountNodeByCode: existing[body.variables.code] ? { id: existing[body.variables.code] } : null } });
+    if (last.op === 'find') {
+      // A string is a discount SILO made ("Affiliate: ..."); { id, title } is anyone else's.
+      const e = existing[body.variables.code];
+      const node = !e ? null : typeof e === 'string'
+        ? { id: e, codeDiscount: { __typename: 'DiscountCodeBasic', title: 'Affiliate: Pat' } }
+        : { id: e.id, codeDiscount: { __typename: e.type || 'DiscountCodeBasic', title: e.title } };
+      return Response.json({ data: { codeDiscountNodeByCode: node } });
+    }
+    if (last.op === 'product') {
+      // Shopify's search is loose: it can return a near match, which must not count.
+      const h = /^handle:'(.*)'$/.exec(body.variables.q)?.[1];
+      const nodes = Object.entries(products).filter(([k]) => k.startsWith(h || '\u0000')).map(([handle, id]) => ({ id, handle }));
+      return Response.json({ data: { products: { nodes } } });
+    }
     if (last.op === 'create') {
       if (refuse) return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'INVALID', message: refuse }] } } });
       if (taken) { existing[body.variables.basicCodeDiscount.code] = 'gid://shopify/DiscountCodeNode/77'; return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'TAKEN', message: 'Code must be unique.' }] } } }); }
@@ -125,6 +148,12 @@ await test('Shopify: a code that exists is adopted; a new one is made; a race is
   await assert.rejects(L.makeCode(CONN, { code: 'PAT10', discount_percent: 10, starts_on: '2026-11-17' }, 'UTC', s.fetchImpl), /too long/);
 });
 
+await test('Shopify: another discount with the same text (a promo) is never adopted', async () => {
+  const s = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Black Friday' } } });
+  await assert.rejects(L.makeCode(CONN, { code: 'PAT10', discount_percent: 10, starts_on: '2026-11-17' }, 'UTC', s.fetchImpl), (e) => e.kind === 'taken');
+  assert.ok(!s.calls.some((c) => c.op === 'create'), 'nothing made over it');
+});
+
 await test('scope: asked of Shopify; missing write_discounts or a 403 means reconnect', async () => {
   assert.equal(await L.canMakeCodes(CONN, fakeShopify().fetchImpl), true);
   assert.equal(await L.canMakeCodes(CONN, fakeShopify({ scopes: ['read_orders', 'read_discounts'] }).fetchImpl), false);
@@ -136,18 +165,20 @@ const CO = '3f000000-0000-4000-8000-000000000001';
 const OTHER = '3f000000-0000-4000-8000-0000000000ff';
 const PROG = '3f000000-0000-4000-8000-000000000002';
 const CODE = '3f000000-0000-4000-8000-000000000009';
-function fakeService({ codes, conns = [CONN], program = { id: PROG, store_url: null, shop_domains: ['brand.myshopify.com'] }, stillPending = true } = {}) {
+function fakeService({ codes, seeds = [], ledger = [], sentEarnings = [], conns = [CONN], program = { id: PROG, store_url: 'https://brand.myshopify.com', shop_domains: ['brand.myshopify.com'] }, stillPending = true } = {}) {
   const log = [];
   return {
     log,
-    rpc: async (name, args) => { log.push({ kind: 'rpc', name, args }); return { data: name === 'silo_company_timezone' ? 'America/Los_Angeles' : name === 'affiliate_claim_code_notices' ? [] : null, error: null }; },
+    rpc: async (name, args) => { log.push({ kind: 'rpc', name, args }); return { data: name === 'affiliate_issue_access_token' ? 'tok-id' : name === 'silo_company_timezone' ? 'America/Los_Angeles' : name === 'affiliate_claim_code_notices' ? [] : name === 'affiliate_program_store_url' ? 'https://brand.com' : name === 'affiliate_outreach_can_contact' ? true : null, error: null }; },
     from: (table) => {
       const f = {}; let op = 'select'; let payload = null;
       const b = {
         select() { return b; }, order(k) { (f.__order ||= []).push(k); return b; }, limit(n) { f.__limit = n; return b; }, maybeSingle() { b.one = true; return b; },
         or(x) { f.__or = x; return b; },
         eq(k, v) { f[k] = v; return b; }, in(k, v) { f[k] = { in: v }; return b; },
+        is(k, v) { f[`${k}__is`] = v; return b; }, gt(k, v) { f[`${k}__gt`] = v; return b; }, not(k, o, v) { f[`${k}__not`] = [o, v]; return b; },
         update(p) { op = 'update'; payload = p; return b; },
+        insert(p) { op = 'insert'; payload = p; return b; },
         then(res) {
           log.push({ table, op, f: { ...f }, payload });
           let data = null;
@@ -163,7 +194,14 @@ function fakeService({ codes, conns = [CONN], program = { id: PROG, store_url: n
           if (table === 'shopify_connections') data = op === 'update' ? null : conns;
           if (table === 'shopify_client_credentials') data = { client_id: 'id', client_secret: 'sec' };
           if (table === 'affiliate_programs') data = program;
-          if (table === 'affiliates') data = { display_name: 'Pat' };
+          if (table === 'affiliates') data = { id: 'aff', program_id: PROG, display_name: 'Pat', contact_email: 'pat@example.test', status: 'active' };
+          if (table === 'entities') data = { title: 'Brandco' };
+          if (table === 'affiliate_commission_ledger') data = ledger.filter((r) => r.kind === f.kind && r.created_at > f.created_at__gt);
+          if (table === 'affiliate_notifications' && op === 'select') data = sentEarnings.filter((n) => n.affiliate_id === f.affiliate_id);
+          if (table === 'affiliate_seed_claims' && op === 'select') {
+            data = seeds.filter((c) => c.state === 'approved' && !c.shopify_discount_id && (!f.company_entity_id || c.company_entity_id === f.company_entity_id) && (!f.id?.in || f.id.in.includes(c.id)));
+          }
+          if (table === 'affiliate_seed_claims' && op === 'update') data = stillPending && f.state === 'approved' ? [{ id: f.id }] : [];
           res({ data, error: null });
         },
       };
@@ -196,6 +234,21 @@ await test('staff: makes the waiting code in Shopify, then marks it live -- only
   assert.equal(made.vars.basicCodeDiscount.startsAt, '2026-11-17T08:00:00.000Z', 'the company\'s own day');
 });
 
+await test('a code SILO picked that a store promo already uses gets the next free text; a code a person chose waits', async () => {
+  let svc = fakeService({ codes: [pending({ created_by: null })] });
+  let shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
+  let out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.deepEqual(out.results.map((r) => [r.status, r.code]), [['created', 'PAT10B']]);
+  assert.equal(shop.calls.find((c) => c.op === 'create').vars.basicCodeDiscount.code, 'PAT10B');
+  assert.ok(svc.log.some((x) => x.table === 'affiliate_codes' && x.op === 'update' && x.payload.code === 'PAT10B' && x.f.status === 'pending'), 'renamed only while still waiting');
+  svc = fakeService({ codes: [pending({ created_by: 'staff-user' })] });
+  shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
+  out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'taken');
+  assert.match(out.results[0].reason, /different code/);
+  assert.ok(!svc.log.some((x) => x.op === 'update'), 'a chosen code is not renamed or marked live');
+});
+
 await test('staff: a code cancelled meanwhile is left alone', async () => {
   const svc = fakeService({ codes: [pending()], stillPending: false });
   const out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
@@ -218,6 +271,94 @@ await test('fail soft: no write_discounts, no store, or a refusal leaves the cod
   assert.equal(out.results[0].status, 'failed');
   assert.match(out.results[0].reason, /too long/);
   assert.ok(!svc.log.some((x) => x.op === 'update'));
+});
+
+const SEED = '3f000000-0000-4000-8000-00000000005e';
+const seed = (over = {}) => ({ id: SEED, company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', product_title: 'Blue Hat', product_path: '/products/blue-hat', code: 'PATSEEDAB12C', discount_percent: 50, multiple: 3, goal_days: 60, state: 'approved', ...over });
+
+await test('seeding: SILO makes an approved product code in Shopify -- that product, one use -- and emails it to that affiliate only', async () => {
+  const svc = fakeService({ codes: [], seeds: [seed()] }); const shop = fakeShopify();
+  let sent = null;
+  const fetchImpl = async (url, init) => {
+    if (String(url).startsWith('https://api.resend.com')) { sent = JSON.parse(init.body); return Response.json({ id: 'em_1' }); }
+    return shop.fetchImpl(url, init);
+  };
+  const out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'create_shopify_codes', seed_ids: [SEED] }))).json();
+  assert.deepEqual(out.results.map((r) => [r.status, r.code]), [['created', 'PATSEEDAB12C']]);
+  const made = shop.calls.find((c) => c.op === 'create').vars.basicCodeDiscount;
+  assert.deepEqual(made.customerGets.items, { products: { productsToAdd: ['gid://shopify/Product/5'] } }, 'that product only');
+  assert.equal(made.customerGets.value.percentage, 0.5);
+  assert.equal(made.usageLimit, 1, 'one use');
+  const upd = svc.log.find((x) => x.table === 'affiliate_seed_claims' && x.op === 'update');
+  assert.equal(upd.payload.state, 'code_ready');
+  assert.equal(upd.payload.code_created_via_app, 'SILO');
+  assert.equal(upd.f.state, 'approved', 'only a claim still approved');
+  assert.equal(upd.f.company_entity_id, CO);
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_codes' && x.op === 'select'), 'asked by id: the affiliate codes are not swept too');
+  assert.ok(sent, 'emailed');
+  assert.deepEqual(sent.to, ['pat@example.test']);
+  assert.match(sent.subject, /^Brandco: your code for Blue Hat$/);
+  assert.match(sent.html, /PATSEEDAB12C/);
+  assert.match(sent.html, /discount%2FPATSEEDAB12C|discount\/PATSEEDAB12C/, 'a button that applies the code');
+  assert.match(sent.html, /blue-hat/, 'straight to the product');
+  const n = svc.log.find((x) => x.table === 'affiliate_notifications');
+  assert.equal(n.payload.kind, 'seed_code');
+});
+
+await test('seeding: a product the store does not have (or a near match) waits, nothing made or mailed; a claim answered meanwhile is left alone', async () => {
+  let svc = fakeService({ codes: [], seeds: [seed({ product_path: '/products/blue' })] }); let shop = fakeShopify();
+  let out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', seed_ids: [SEED] }))).json();
+  assert.equal(out.results[0].status, 'no_product');
+  assert.match(out.results[0].reason, /Blue Hat is not a product in brand\.myshopify\.com/);
+  assert.ok(!shop.calls.some((c) => c.op === 'create'));
+  assert.ok(!svc.log.some((x) => x.op === 'update' || x.op === 'insert'));
+  svc = fakeService({ codes: [], seeds: [seed({ product_path: null })] }); shop = fakeShopify();
+  out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', seed_ids: [SEED] }))).json();
+  assert.equal(out.results[0].status, 'no_product', 'a private request with no product page');
+  svc = fakeService({ codes: [], seeds: [seed()], stillPending: false });
+  out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes', seed_ids: [SEED] }))).json();
+  assert.equal(out.results[0].status, 'skipped');
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_notifications'), 'no email for a code nobody owns now');
+});
+
+await test('seeding: the staff "make everything" and the nightly sweep include product codes; the sweep only on its first request', async () => {
+  let svc = fakeService({ codes: [pending()], seeds: [seed()] });
+  let out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes' }))).json();
+  assert.deepEqual(out.results.map((r) => r.status), ['created', 'created']);
+  const sel = svc.log.find((x) => x.table === 'affiliate_seed_claims' && x.op === 'select');
+  assert.equal(sel.f.company_entity_id, CO, 'the caller\'s company only');
+  svc = fakeService({ codes: [pending()], seeds: [seed()] });
+  out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes' }, 'Bearer svc-key'))).json();
+  assert.equal(out.results.filter((r) => r.seed_id).length, 1, 'sweep makes product codes');
+  svc = fakeService({ codes: [pending()], seeds: [seed()] });
+  out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes', after: { id: CODE, created_at: '2026-11-16T00:00:00Z' } }, 'Bearer svc-key'))).json();
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_seed_claims'), 'later pages do not repeat them');
+  svc = fakeService({ codes: [], seeds: [seed()] });
+  out = await (await mk(svc, fakeShopify())(post({ action: 'create_shopify_codes', code_id: CODE }, 'Bearer anon'))).json();
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_seed_claims'), 'the portal\'s one-code kick never makes product codes');
+});
+
+await test('earnings: the nightly run mails each affiliate what they earned since their last notice, once; never a backlog', async () => {
+  const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const L = (h, cents, order) => ({ company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', amount_cents: cents, currency: 'USD', created_at: at(h), order_id: order, kind: 'accrual' });
+  let sent = [];
+  const fetchImpl = async (url, init) => { if (String(url).startsWith('https://api.resend.com')) { sent.push(JSON.parse(init.body)); return Response.json({ id: 'em' }); } return fakeShopify().fetchImpl(url, init); };
+  let svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1'), L(4, 330, 'o2'), L(200, 9999, 'old')] });
+  let out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices' }, 'Bearer svc-key'))).json();
+  assert.deepEqual(out.earnings.map((r) => [r.email, r.cents]), [['sent', 550]], 'two orders in the window; the old one is never mailed');
+  assert.equal(sent[0].subject, 'Brandco: you earned $5.50');
+  assert.match(sent[0].html, /on 2 orders with Brandco/);
+  assert.match(sent[0].html, /See my earnings/);
+  assert.equal(svc.log.find((x) => x.table === 'affiliate_notifications' && x.op === 'insert').payload.kind, 'earnings');
+  sent = [];
+  svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1'), L(1, 100, 'o3')], sentEarnings: [{ affiliate_id: 'aff', created_at: at(3) }] });
+  out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices' }, 'Bearer svc-key'))).json();
+  assert.deepEqual(out.earnings.map((r) => r.cents), [100], 'only what came after the last notice');
+  sent = [];
+  svc = fakeService({ codes: [], ledger: [L(5, 220, 'o1')] });
+  out = await (await mk(svc, { fetchImpl }, { resendKey: 're_x' })(post({ action: 'deliver_code_notices', code_id: CODE }, 'Bearer anon'))).json();
+  assert.equal(out.earnings, null, 'a single-code call (no service key) sends no earnings mail');
+  assert.equal(sent.length, 0);
 });
 
 await test('access: no gate, no codes; one code by id needs no session; the all-company sweep needs the service key', async () => {

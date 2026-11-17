@@ -154,7 +154,7 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
       let op = 'select'; let payload = null;
       const b = {
         select() { return b; }, limit() { return b; }, is(k, v) { filters[k] = { is: v }; return b; }, or(x) { filters.__or = x; return b; }, eq(k, v) { filters[k] = v; return b; }, ilike(k, v) { filters[k] = { ilike: v }; return b; }, in() { return b; },
-        insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
+        insert(p) { op = 'insert'; payload = p; return b; }, upsert(p) { op = 'upsert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
         maybeSingle() { return b; }, single() { return b; },
         then(res) {
           log.push({ kind: 'table', table, op, filters: { ...filters }, payload });
@@ -303,6 +303,7 @@ await test('portal: acceptance mails the address on file and mints a portal link
   assert.match(body.portal_url, /^https:\/\/app\.test\/v2\/affiliates\/portal\.html\?t=P+$/);
   assert.equal(body.confirmation_email, 'sent');
   assert.deepEqual(mail.sent[0].body.to, ['pat@onfile.invalid']);
+  assert.equal(mail.sent[0].body.from, 'Brand A <notifications@get-silo.com>', 'affiliates see the brand, not SILO');
   const acc = svc.log.find((c) => c.name === 'affiliate_portal_accept_terms').args;
   assert.equal(acc.p_terms_version, 2);
   assert.equal(acc.p_acceptance.ip, '203.0.113.9');
@@ -313,6 +314,24 @@ await test('portal: acceptance mails the address on file and mints a portal link
   const recorded = svc.log.find((c) => c.table === 'affiliate_notifications');
   assert.equal(recorded.payload.status, 'sent');
   assert.equal(recorded.payload.kind, 'signup_confirmation');
+});
+
+await test('portal: the PayPal email given at signup is saved for that affiliate; a bad one refuses before anything is saved', async () => {
+  const mk = () => fakeService({ rpc: { ...noSuppression,
+    affiliate_portal_resolve: { data: [resolvedRow()], error: null },
+    affiliate_portal_accept_terms: { data: { status: 'active', terms_version: 2 }, error: null },
+    affiliate_issue_access_token: { data: 'id', error: null } } });
+  let svc = mk();
+  let body = await (await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, payout_email: ' Pat@Pay.Invalid ' }))).json();
+  assert.equal(body.payout_email_saved, true);
+  const up = svc.log.find((c) => c.table === 'affiliate_payout_accounts');
+  assert.equal(up.payload.payout_email, 'pat@pay.invalid');
+  assert.equal(up.payload.provider, 'paypal');
+  assert.ok(up.payload.affiliate_id && up.payload.company_entity_id, 'the token\'s own affiliate and company, never the body\'s');
+  svc = mk();
+  const res = await createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '' })(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2, payout_email: 'not-an-email' }));
+  assert.equal(res.status, 400);
+  assert.ok(!svc.log.some((c) => c.name === 'affiliate_portal_accept_terms'), 'not accepted with a bad address');
 });
 
 await test('portal: no mail key still activates, and the skip is recorded', async () => {
@@ -809,7 +828,7 @@ await test('invite: a paid payout is announced once, even when two ask at the sa
   assert.equal(lmail.sent.length, 0, 'the log says it went; nothing is sent again');
 });
 
-await test('invite: the codes email gives links that apply the code, on the store the brand named', async () => {
+await test('invite: the codes email shows the code and buttons that apply it, on the store the brand named', async () => {
   const mail = fakeResend();
   const svc = fakeService({ rpc: { ...noSuppression, affiliate_program_store_url: { data: 'https://shop.brand.test', error: null } }, tables: {
     affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@onfile.invalid', status: 'active' },
@@ -821,8 +840,11 @@ await test('invite: the codes email gives links that apply the code, on the stor
     authed({ action: 'notify', affiliate_id: AFF, kind: 'codes_and_links' }));
   assert.equal(res.status, 200);
   const html = mail.sent[0].body.html;
-  assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'the store home with the code');
-  assert.ok(html.includes('https://shop.brand.test/discount/PAT10?redirect=%2Fproducts%2Fhat'), 'the store page with the code');
+  assert.ok(html.includes('href="https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'a button to the store home with the code');
+  assert.ok(/>Shop with my code<\/a>/.test(html), 'labelled, not the address');
+  assert.ok(!/>https?:\/\//.test(html), 'no address is shown as text');
+  assert.ok(/letter-spacing:\.06em">PAT10<\/div>/.test(html), 'the code itself, large');
+  assert.ok(html.includes('Your portal has a ready link'), 'store pages live in the portal');
   assert.ok(svc.log.some((c) => c.name === 'affiliate_program_store_url' && c.args.p_company === CO && c.args.p_program === PROG));
 });
 

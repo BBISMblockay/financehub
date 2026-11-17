@@ -272,11 +272,21 @@ await t('an affiliate card asks the image CDN for the size the card uses, and to
 
 await t('a one-press code is named from the affiliate and never repeats one already taken', () => {
   assert.equal(C.suggestCode('Pat Trails', 10), 'PATTRAILS10');
-  assert.equal(C.suggestCode('Pat Trails', 10, ['pattrails10']), 'PATTRAILS102', 'taken is judged without case, as Shopify does');
-  assert.equal(C.suggestCode('Pat Trails', 10, ['PATTRAILS10', 'PATTRAILS102']), 'PATTRAILS103');
-  assert.equal(C.suggestCode('', 15), 'AFF15', 'no usable name still gives a code');
+  assert.equal(C.suggestCode('@blaketestings', 10), 'BLAKETESTINGS10', 'a handle, without the @');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['pattrails10']), 'PATTRAILS10B', 'taken is judged without case, as Shopify does; a letter, no dash');
+  assert.equal(C.suggestCode('Pat Trails', 10, ['PATTRAILS10', 'PATTRAILS10B']), 'PATTRAILS10C');
+  assert.equal(C.suggestCode('', 15), 'PARTNER15', 'no usable name still gives a code');
   assert.equal(C.suggestCode('José-María 🎉', 12.4), 'JOSMARA12', 'only letters and digits Shopify accepts');
   assert.ok(C.suggestCode('A'.repeat(40), 100).length <= 20);
+});
+
+await t('the import template is a file the import reads back: one creator, every column', async () => {
+  const { importRowsToCandidates } = await import(pathToFileURL(join(process.cwd(), 'supabase/functions/affiliate-research/lib/affiliate-research-core.mjs')).href);
+  const rows = C.parseCsv(C.toCsv(...C.IMPORT_TEMPLATE));
+  const r = importRowsToCandidates({ rows, program: { niche_keywords: [] }, collectedAt: '2026-11-17T00:00:00Z' });
+  assert.equal(r.stats.kept, 1, 'its example row imports');
+  assert.equal(r.stats.followers_kept, 1, 'followers column is read');
+  assert.equal(r.stats.emails_kept, 1, 'email column is read');
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);

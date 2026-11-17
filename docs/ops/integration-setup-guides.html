@@ -54,10 +54,10 @@
     <p class="ig-print-brand">SILO</p>
     <h1>Integration setup guides</h1>
     <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
-    <p class="ig-print-meta">Generated 2026-11-09 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
+    <p class="ig-print-meta">Generated 2026-11-17 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
     <section class="ig-print-toc">
       <h2 class="ig-section-label">Contents</h2>
-      <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li><li><a href="#guide-klaviyo">Klaviyo — email &amp; SMS</a></li></ol>
+      <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — replacing a system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li><li><a href="#guide-klaviyo">Klaviyo — email &amp; SMS</a></li><li><a href="#guide-paypal_payouts">PayPal — affiliate payouts</a></li></ol>
     </section>
     <p class="ig-print-oauth">One-click in SILO (no separate guide): Google Ads, GA4, TikTok Ads, QuickBooks Online, Shopify OAuth, and Stripe Connect.</p>
   </header>
@@ -121,6 +121,15 @@
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">6</div>
       <div class="ig-step-main">
+        <div class="ig-step-title">Optional: let SILO make affiliate codes</div>
+        <div class="ig-step-body">Only if you use Affiliate Studio. Release one more <strong>New version</strong> with these scopes (the list above plus <code>write_discounts</code>), then <strong>Install app</strong> again. SILO then creates each affiliate's discount code in your store.</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code><code>write_discounts</code></div>
+        <p class="ig-print-copy"><span class="ig-print-copy-label">Copy scopes with discounts</span> <code class="ig-print-code">read_orders,read_products,read_inventory,read_locations,read_shopify_payments_payouts,read_draft_orders,read_reports,read_publications,read_all_orders,write_discounts</code></p>
+        <div class="ig-step-note"><code>write_discounts</code> is the only write SILO asks for, and only for discount codes. Already connected? Add it the same way; no need to reconnect in SILO.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">7</div>
+      <div class="ig-step-main">
         <div class="ig-step-title">Copy the Client ID and Client secret</div>
         <div class="ig-step-body">In the app's <strong>Settings</strong>, copy the <strong>Client ID</strong> and the <strong>Client secret</strong>.</div>
         
@@ -128,7 +137,7 @@
         <div class="ig-step-note">Treat the secret like a password. SILO checks the pair with Shopify before saving and stores the secret where only SILO's servers can read it.</div>
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">7</div>
+      <div class="ig-step-num" aria-hidden="true">8</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Paste them into SILO</div>
         <div class="ig-step-body">In <strong>Add Shopify store</strong>, enter the store address, Client ID and Client secret, then click <strong>Connect store</strong>.</div>
@@ -137,7 +146,7 @@
         
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">8</div>
+      <div class="ig-step-num" aria-hidden="true">9</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Finish setup in SILO</div>
         <div class="ig-step-body">On the new store row: <strong>Test</strong> (confirms every scope is granted), map its locations, then switch on <strong>Nightly sync</strong> and start the history import.</div>
@@ -187,6 +196,15 @@
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">3</div>
       <div class="ig-step-main">
+        <div class="ig-step-title">Allow discount codes (optional)</div>
+        <div class="ig-step-body">Only if you use Affiliate Studio. In the same <strong>Configuration</strong>, also tick <code>write_discounts</code> and save. SILO then creates each affiliate's discount code in your store.</div>
+        <div class="ig-scopes"><code>read_orders</code><code>read_products</code><code>read_inventory</code><code>read_locations</code><code>read_shopify_payments_payouts</code><code>read_draft_orders</code><code>read_reports</code><code>read_publications</code><code>read_all_orders</code><code>write_discounts</code></div>
+        
+        <div class="ig-step-note"><code>write_discounts</code> is the only write SILO asks for, and only for discount codes. The token stays the same; click <strong>Re-test</strong> in SILO after saving.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
         <div class="ig-step-title">Copy the Admin API access token</div>
         <div class="ig-step-body">Under <strong>API credentials</strong>, the token starts with <code>shpat_</code>. Shopify shows it only once; if it was never saved, it cannot be revealed again — use the store's own app route instead.</div>
         
@@ -194,7 +212,7 @@
         
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-num" aria-hidden="true">5</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Paste it into SILO</div>
         <div class="ig-step-body">In <strong>Add Shopify store</strong>, enter the store address, open <strong>Already have an Admin API token?</strong>, paste it and click <strong>Save token</strong>. Then Test the row.</div>
@@ -212,12 +230,12 @@
       <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
     </article>
       </section><section class="ig-print-part">
-        <h2 class="ig-print-part-title">Meta Ads — system user token</h2>
+        <h2 class="ig-print-part-title">Meta Ads — replacing a system user token</h2>
         <article class="ig-print-guide" id="guide-meta_ads">
       <header class="ig-print-guide-head">
         <p class="ig-kicker">Setup guide · About 15 minutes</p>
-        <h2 class="ig-print-guide-title">Connect Meta Ads with a System User token</h2>
-        <p class="ig-summary">Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.</p>
+        <h2 class="ig-print-guide-title">Replace a Meta System User token</h2>
+        <p class="ig-summary"><strong>Connect Meta is the way to connect Meta</strong> — it takes a minute and sets up the ad account, Page and Instagram for you. This guide is only for regenerating the token on a connection that was set up with one, before Connect Meta existed.<br><br>Meta splits this across two sites: create/register a <strong>Business app</strong> once, then do everything else in <strong>Business settings → System users</strong> (create user, assign assets, generate token) without leaving that screen.</p>
       </header>
       <section class="ig-needs ig-needs--print">
         <div class="ig-section-label">Before you start</div>
@@ -310,8 +328,8 @@
     </li><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">10</div>
       <div class="ig-step-main">
-        <div class="ig-step-title">Fill in the two IDs</div>
-        <div class="ig-step-body">Click <strong>Test</strong> on the Meta row — it lists the Pages the token can see with their linked Instagram account. Enter the <strong>Facebook Page ID</strong> and <strong>Instagram Business Account ID</strong> on the row.</div>
+        <div class="ig-step-title">Choose the Page</div>
+        <div class="ig-step-body">Open <strong>Manage</strong> on the Meta row and press <strong>Choose Page</strong>. It lists the Pages the token can see, and the linked Instagram account comes with the Page.</div>
         
         
         
@@ -320,7 +338,7 @@
         </section>
       <section class="ig-print-trouble">
           <h3 class="ig-section-label">If something goes wrong</h3>
-          <div class="ig-print-faq"><p class="ig-print-q">I regenerated the token — where does the new one go?</p><div class="ig-print-a">Use <strong>Replace token</strong> on the existing Meta row. Do not use Add Meta Ads token again; that creates a second connection for the same account.</div></div><div class="ig-print-faq"><p class="ig-print-q">Test lists no ad accounts</p><div class="ig-print-a">The ad account is not assigned to the system user (step 4), or the token was generated without <code>ads_read</code>.</div></div><div class="ig-print-faq"><p class="ig-print-q">Generate token does not list my app</p><div class="ig-print-a">The app is missing under Accounts → Apps (step 1B), or the system user does not have <strong>Develop app</strong> on that app (step 4).</div></div><div class="ig-print-faq"><p class="ig-print-q">Links open the wrong business</p><div class="ig-print-a">Use the portfolio picker (top-left in Business settings) before continuing. Every deep link keeps you in Business settings once signed in.</div></div><div class="ig-print-faq"><p class="ig-print-q">&quot;Could not derive a Page access token&quot; / error #190</p><div class="ig-print-a">The Page isn't assigned to the system user. Assign it (organic step 2); no new token is needed.</div></div>
+          <div class="ig-print-faq"><p class="ig-print-q">I regenerated the token — where does the new one go?</p><div class="ig-print-a">Open <strong>Manage</strong> on the existing Meta row and use <strong>Replace token</strong>. Never connect the same ad account a second time; it would pull that account twice every night.</div></div><div class="ig-print-faq"><p class="ig-print-q">Test lists no ad accounts</p><div class="ig-print-a">The ad account is not assigned to the system user (step 4), or the token was generated without <code>ads_read</code>.</div></div><div class="ig-print-faq"><p class="ig-print-q">Generate token does not list my app</p><div class="ig-print-a">The app is missing under Accounts → Apps (step 1B), or the system user does not have <strong>Develop app</strong> on that app (step 4).</div></div><div class="ig-print-faq"><p class="ig-print-q">Links open the wrong business</p><div class="ig-print-a">Use the portfolio picker (top-left in Business settings) before continuing. Every deep link keeps you in Business settings once signed in.</div></div><div class="ig-print-faq"><p class="ig-print-q">&quot;Could not derive a Page access token&quot; / error #190</p><div class="ig-print-a">The Page isn't assigned to the system user. Assign it (organic step 2); no new token is needed.</div></div>
         </section>
       <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
       <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
@@ -435,6 +453,63 @@
       <section class="ig-print-trouble">
           <h3 class="ig-section-label">If something goes wrong</h3>
           <div class="ig-print-faq"><p class="ig-print-q">&quot;The Klaviyo key is valid but lacks the metrics:read scope&quot;</p><div class="ig-print-a">The key was created without that scope and Klaviyo cannot add one. Create a new custom read-only key with all five scopes and paste it over the old one.</div></div><div class="ig-print-faq"><p class="ig-print-q">Numbers do not match Klaviyo&#39;s dashboard</p><div class="ig-print-a">Check the conversion metric on the row is the same one Klaviyo's own report uses, and compare the same window: SILO stores campaign numbers per reporting window, not per day, because Klaviyo publishes no daily series for campaigns.</div></div><div class="ig-print-faq"><p class="ig-print-q">SMS numbers are blank</p><div class="ig-print-a">Klaviyo returns no SMS statistics before 1 October 2025, or on a contracted plan. Blank means not reported, not zero.</div></div><div class="ig-print-faq"><p class="ig-print-q">Flow names show but message names do not</p><div class="ig-print-a">Klaviyo did not return the flow message list for this account. Nothing is lost: every number is still attributed to the right message, only its name is missing.</div></div>
+        </section>
+      <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
+      <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>
+    </article>
+      </section><section class="ig-print-part">
+        <h2 class="ig-print-part-title">PayPal — affiliate payouts</h2>
+        <article class="ig-print-guide" id="guide-paypal_payouts">
+      <header class="ig-print-guide-head">
+        <p class="ig-kicker">Setup guide · About 10 minutes, plus PayPal&#39;s approval</p>
+        <h2 class="ig-print-guide-title">Pay affiliates with PayPal</h2>
+        <p class="ig-summary">Affiliate Studio pays affiliates from your own PayPal business balance. SILO never holds or moves your money; you approve every payout.</p>
+      </header>
+      <section class="ig-needs ig-needs--print">
+        <div class="ig-section-label">Before you start</div>
+        <ul><li>A PayPal <strong>business</strong> account with a linked bank account</li><li>Someone in SILO who can approve payouts</li></ul>
+      </section>
+      <ol class="ig-print-steps"><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">1</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Request Payouts access</div>
+        <div class="ig-step-body">Signed in to your PayPal business account, request <strong>Payouts</strong>. PayPal reviews it, usually within a few business days. Link a bank account first if PayPal asks.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Request Payouts</span> <a href="https://www.paypal.com/payoutsweb/landing">https://www.paypal.com/payoutsweb/landing</a></p>
+        <div class="ig-step-note">In the PayPal Developer Dashboard, Payouts under <strong>Live</strong> shows <strong>Contact Us</strong> until PayPal turns it on; that link is the same request. Until then SILO can connect but cannot send.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Create a Live app</div>
+        <div class="ig-step-body">In the PayPal Developer Dashboard, switch to <strong>Live</strong>, open <strong>Apps &amp; Credentials</strong> and create an app (any name, e.g. <code>SILO</code>). Copy its <strong>Client ID</strong> and <strong>Secret</strong>.</div>
+        
+        <p class="ig-print-url"><span class="ig-print-url-label">Open Apps &amp; Credentials</span> <a href="https://developer.paypal.com/dashboard/applications">https://developer.paypal.com/dashboard/applications</a></p>
+        <div class="ig-step-note">Treat the secret like a password. Paste it only into SILO, never into email or chat.</div>
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Connect it in SILO</div>
+        <div class="ig-step-body">In <strong>Affiliate Studio → Money → Connect PayPal</strong>, choose <strong>Live</strong>, paste the Client ID and Secret, then <strong>Connect</strong>. SILO checks them with PayPal before saving.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-main">
+        <div class="ig-step-title">Send a small first payout</div>
+        <div class="ig-step-body">Approve a small payout to an affiliate, press <strong>Send with PayPal</strong>, then <strong>Check payment status</strong>. It turns paid once PayPal confirms.</div>
+        
+        
+        <div class="ig-step-note">PayPal cannot pay the account that is sending, so the affiliate needs their own PayPal email.</div>
+      </div>
+    </li></ol>
+      
+      <section class="ig-print-trouble">
+          <h3 class="ig-section-label">If something goes wrong</h3>
+          <div class="ig-print-faq"><p class="ig-print-q">The card says PayPal has not enabled Payouts</p><div class="ig-print-a">PayPal has not approved your Payouts request yet. Check its status in PayPal, then press <strong>Check connection</strong>.</div></div><div class="ig-print-faq"><p class="ig-print-q">Connect refuses the keys</p><div class="ig-print-a">Make sure the app is a <strong>Live</strong> app and <strong>Live</strong> is chosen in SILO. Sandbox keys only work with Sandbox.</div></div><div class="ig-print-faq"><p class="ig-print-q">You would rather pay by hand</p><div class="ig-print-a">Skip PayPal. Affiliate Studio still tracks what each affiliate is owed, and you mark payouts paid yourself.</div></div>
         </section>
       <p class="ig-fineprint">Button names on the other site can shift slightly as they update their dashboards.</p>
       <p class="ig-print-silo">In SILO: Workspace → Settings → <strong>Integrations</strong> (<code>/v2/integrations.html</code>).</p>

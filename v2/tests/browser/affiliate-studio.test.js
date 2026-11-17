@@ -161,7 +161,7 @@ const MUTATIONS = {
   nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
   noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
   showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '') => (false ? ''"],
-  moneyplain: ['/affiliates/studio.js', "  moneyTop(),\n  paypalRail", "  paypalRail"],
+  moneyplain: ['/affiliates/studio.js', "  moneyTop(),\n  payConnCard(),", "  payConnCard(),"],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
@@ -252,6 +252,10 @@ const openRecords = async (page) => {
   await page.click('#tabs [data-tab="records"]');
   await page.waitForFunction(() => !!document.querySelector('#recordsBody .bcn-card'), null, { timeout: 5000 });
 };
+// Records shows one list at a time, picked by chip (Blake 2026-11-17).
+const recTab = async (page, k) => { await page.click(`#recordsBody [data-act="rec-tab"][data-k="${k}"]`); await page.waitForSelector(`#recordsBody [data-k="${k}"].is-on`, { timeout: 5000 }); };
+// The portal shows one tab at a time (Blake 2026-11-17).
+const tab = (page, k) => page.click(`#tabs [data-tab="${k}"]`);
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
 
 (async () => {
@@ -304,6 +308,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(next, 'Commissions update nightly', 'nightly commissions are listed as running');
     R.not(await text(page, '#prospectsBody'), 'Fit is scored', 'no scoring jargon on the main list');
     await openRecords(page);
+    const chipsR = await page.evaluate(() => [...document.querySelectorAll('#recordsBody [data-act="rec-tab"]')].map((x) => x.textContent));
+    R.ok('Records is chips, one list at a time', chipsR.length >= 3 && chipsR[0] === 'Codes');
+    await recTab(page, 'team');
     const ov = await text(page, '#recordsBody');
     R.has(ov, 'Outreach to prospects', 'Records states how each part works');
     R.ok('a live, successful run makes discovery verified', /Discovery\s*verified/.test(ov))
@@ -319,6 +326,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await page.click('#tabs [data-tab="people"]');
     R.ok('Affiliates says links wait for a store address', !!(await page.$('#affiliatesBody #storeNeeded')));
     await openRecords(page);
+    if (process.env.RECORDS_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#recordsBody')).screenshot({ path: process.env.RECORDS_SHOT }); }
     R.ok('no fold-outs on Records either', !(await page.$('#recordsBody details')));
     R.ok('Records has no code, link or add-creator forms', !(await page.$('#recordsBody #cCode, #recordsBody #lDest, #recordsBody #mpName, #recordsBody #impFile')));
     R.ok('Setup has no team or status boxes', !(await page.$('#programBody #managersCard')));
@@ -410,13 +418,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await again.close();
     R.ok('there is no Refresh photos or Refresh stats button', !(await page.$('[data-act="photos-refresh"], [data-act="stats-refresh"]')));
     await openRecords(page);
+    await recTab(page, 'orders');
     const cm = await page.evaluate(() => [...document.querySelectorAll('#recordsBody .bcn-card')].find((c) => c.querySelector('h2')?.textContent === 'Orders')?.textContent || '');
     R.has(cm, 'refunds not measured', 'an unmeasured order says why');
     R.has(cm, '—', 'an unknown base renders as a dash');
     R.not(cm, '$0.00', 'an unknown base is never shown as $0');
     await page.click('#tabs [data-tab="payouts"]');
-    R.has(await text(page, '#payoutsBody'), 'Pay from your bank or payment tool', 'the payout tab says where money moves');
-    R.has(await text(page, '#payoutsBody .af-ov-metrics'), 'Owed now', 'Money opens with what is owed, earned and paid');
+    // Money opens with the flow from the store to the payout (Blake 2026-11-17: visuals, logos).
+    const flow = await page.$$eval('#payoutsBody .af-flow .af-flow-lab', (l) => l.map((x) => x.textContent));
+    R.eq(flow, ['Sales from codes', 'Commission earned', 'Owed now', 'Paid by hand'], 'Money opens with the flow: sales, earned, owed, paid');
+    R.ok('the sales stage carries the Shopify mark', !!(await page.$('#payoutsBody .af-flow-step:first-child use[href$="#icon-shopify"]')));
+    R.ok('and the old bar chart is gone', !(await page.$('#payoutsBody .af-ov-chart')));
+    if (process.env.MONEY_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#payoutsBody')).screenshot({ path: process.env.MONEY_SHOT }); }
+    R.ok('each affiliate owed shows a paid-of-earned meter', !!(await page.$('#payoutsBody .af-item--pay .af-pay-meter')));
     R.ok('ready-to-pay rows carry the affiliate photo or initials', !!(await page.$('#payoutsBody .af-item--pay .af-list-thumb')));
     // ── Share tab: the brand picks what affiliates see ──────────────────
     await page.click('#tabs [data-tab="comms"]');
@@ -546,7 +560,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     loop.on('pageerror', (e) => errors.push(e.message));
     const todo = await text(loop, '#overviewBody');
     R.has(todo, 'code(s) waiting to be made in Shopify', 'a waiting code is on the list');
-    R.ok('with a prompt to copy', !!(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
+    // SILO makes every code itself (Blake 2026-11-17): the To do offers that, no AI prompt.
+    R.ok('with SILO making it, no AI prompt', !!(await loop.$('#overviewBody [data-act="code-make"]')) && !(await loop.$('#overviewBody [data-act="copy-codes-prompt"]')));
     // SILO makes it in Shopify itself; a store that has not granted it says how.
     await loop.click('#overviewBody [data-act="code-make"]');
     await loop.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
@@ -601,7 +616,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq([draft?.subject, draft?.body], ['Ride with Brand A', 'Yo Sam Runs! Join us: {signup_link}'], 'a new draft starts from the program\'s own message, filled in');
     await loop.click('#tabs [data-tab="payouts"]');
     await loop.waitForFunction(() => !!document.querySelector('#payoutsBody .bcn-card'), null, { timeout: 5000 });
-    R.has(await text(loop, '#payoutsBody'), 'Commissions update every night', 'the Update button is no longer the way commissions happen');
+    R.ok('the Update button is no longer the way commissions happen', !(await loop.$('#payoutsBody [data-act="commissions-run"]')));
     await loop.click('#tabs [data-tab="program"]');
     // Setup is a settings page: a card per subject, chips instead of
     // dropdowns, and it saves as you go -- no Save button on a live program.
@@ -767,6 +782,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await pay.selectOption('#programSel', PROG);
     await pay.waitForFunction(() => /Pat Trails/.test(document.querySelector('#payoutsBody')?.textContent || ''), null, { timeout: 5000 });
     await openRecords(pay);
+    await recTab(pay, 'money');
     R.has(await text(pay, '#recordsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
 
@@ -865,7 +881,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           statement: { currency: 'USD', totals: { earned_cents: 0, paid_cents: 0, unclaimed_cents: 0, orders: 0, today: '2026-11-09' }, monthly: [], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', display_name: 'Pat', terms_version_accepted: 3, terms_accepted_at: now } } });
       }
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
-      if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
+      if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent', codes_live: ['PAT10'] });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', photo_url: 'https://photos.invalid/samruns.png', photo_own: false, feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { id: 'f1', kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring', claimed: false, push: [] },
         { id: 'f2', kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold', claimed: false, push: [] },
@@ -925,14 +941,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(await join.evaluate(() => document.querySelector('#hero .af-brand img.af-logo')?.getAttribute('src')), LOGO, 'the company logo heads the invitation');
     R.eq(await join.evaluate(() => document.querySelector('#hero img.af-logo')?.alt), 'Brand A', 'with the brand name as its text');
     R.ok('the platform terms are linked next to the program terms', !!(await join.$('a[href="/legal/affiliate-terms.html"]')));
+    await join.fill('#paypal', 'pat@pay.invalid');
     await join.fill('#signed', 'Pat Trails');
     await join.check('#agree');
     await join.click('#go');
-    await join.waitForFunction(() => /You are in/.test(document.body.textContent), null, { timeout: 5000 });
+    // innerText, not textContent: the page's own inline script contains the words.
+    await join.waitForFunction(() => /You are in/.test(document.body.innerText), null, { timeout: 5000 });
+    const doneText = await join.evaluate(() => document.body.innerText);
     const acc = calls.find((c) => c.action === 'accept');
     R.eq(acc?.terms_version, 3, 'acceptance sends the version that was on screen');
     R.eq(acc?.platform_terms_version, 1, 'and the platform terms version');
     R.eq(acc?.signed_name, 'Pat Trails');
+    R.eq(acc?.payout_email, 'pat@pay.invalid', 'the PayPal email is asked at signup');
+    R.has(doneText.replace(/\s+/g, ' '), 'Your code PAT10 is live', 'a code SILO already made is named, not promised');
     await join.close();
 
     // ── portal page ───────────────────────────────────────────────────────
@@ -956,10 +977,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const up = calls.filter((c) => c.action === 'photo' && c.image);
     R.ok('a picked photo is sent once, as a square JPEG the page made', up.length === 1 && up[0].image.startsWith('/9j/') && up[0].token === 'P'.repeat(43) && !('affiliate_id' in up[0]));
     R.ok('the card shows the new photo', !!(await portal.$('#meCard img[src="https://photos.invalid/me.jpg?v=2"]')));
+    await tab(portal, 'profile');
     await portal.click('#meRemove');
     await portal.waitForFunction(() => (document.getElementById('meCard')?.textContent || '').includes('Add photo'), null, { timeout: 5000 }).catch(() => {});
     R.ok('removing asks the portal to remove it', calls.some((c) => c.action === 'photo' && c.remove === true));
     R.ok('a removed photo leaves the initial', !(await portal.$('#meCard img')) && (await text(portal, '#meCard')).includes('Add photo'));
+    await tab(portal, 'home');
     const fb = await text(portal, '#body');
     R.has(fb, 'Share and earn', 'the portal shows what the brand shared');
     R.has(fb, 'Spring <b>Drop</b>', 'shared titles are text, never markup');
@@ -990,6 +1013,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(ords, '$9.00', 'an order shows what the rep earned on it');
     R.has(ords, 'coming to you', 'and whether it is paid');
     R.ok('an order opens onto the lines behind it', !!(await portal.$('#ordersCard details.af-ord-row')));
+    await tab(portal, 'earnings');
     await portal.click('#ordersCard details.af-ord-row > summary');
     R.has(await text(portal, '#ordersCard details.af-ord-row[open]'), '10% of $90.00', 'the drill-down says how the commission was worked out');
     R.eq((await portal.$$('#ordersCard .af-ord-row')).length, 1, 'a long history pages, rather than arriving at once');
@@ -1001,8 +1025,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(ords2, '#1001', 'an order with no shop number is numbered from its id');
     R.ok('and the raw store id is not shown', !(await text(portal, '#ordersCard')).includes('gid://'));
     R.ok('the portal never asks for customer data', !calls.some((c) => c.action === 'orders' && ('customer' in c)));
-    // The shot is taken with a drop claimed and an order open, which is what
-    // the two new surfaces look like in use.
+    // The shot is taken with a drop claimed, which is what the calendar looks like in use.
+    await tab(portal, 'home');
     await portal.click('#calendar [data-cal-item="f3"] [data-claim]');
     await portal.waitForFunction(() => !!document.querySelector('#calendar [data-cal-item="f3"] .af-push'), null, { timeout: 5000 });
     if (process.env.PORTAL_SHOT) { await portal.setViewportSize({ width: 1280, height: 900 }); await portal.screenshot({ path: process.env.PORTAL_SHOT, fullPage: true }); await portal.setViewportSize({ width: 390, height: 844 }); await portal.screenshot({ path: process.env.PORTAL_SHOT.replace('.png', '-phone.png'), fullPage: true }); }
@@ -1043,9 +1067,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a product cannot be typed in: only what the brand shared is asked for', !(await seedPage.$('#seedCard input, #seedAsk, #seedTitle')));
     // Where the rep gets paid: right under their photo, shown as their
     // PayPal account once set, with the field only while changing it.
-    const side = await seedPage.evaluate(() => [...document.querySelectorAll('.af-side h2')].map((h) => h.textContent));
-    R.eq(side.slice(0, 3), ['Your photo', 'Where you get paid', 'Your codes'], 'the payout card sits between the photo and the codes');
+    const tabs = await seedPage.$$eval('#tabs [data-tab]', (b) => b.map((x) => x.textContent));
+    R.eq(tabs, ['Home', 'Earnings', 'Products', 'Posts', 'Profile', 'Support'], 'the portal is tabs, with Profile and Support');
+    R.ok('one tab shows at a time', (await seedPage.$$eval('[data-panel]', (p) => p.filter((x) => !x.hidden).length)) === 1);
+    await tab(seedPage, 'profile');
+    const prof = await seedPage.evaluate(() => [...document.querySelectorAll('[data-panel="profile"] h2')].map((h) => h.textContent));
+    R.eq(prof, ['Where you get paid', 'Your photo'], 'Profile holds where they get paid and their photo');
+    await tab(seedPage, 'support');
+    R.has(await text(seedPage, '[data-panel="support"]'), 'reply to any email from Brand A', 'Support names the brand');
     R.ok('it carries the PayPal mark', !!(await seedPage.$('#payEmailCard img.af-pay-mark[alt="PayPal"]')));
+    await tab(seedPage, 'profile');
     await seedPage.fill('#payEmail', 'Pat@Pay.Invalid');
     await seedPage.press('#payEmail', 'Enter');
     await seedPage.waitForSelector('#payEmailCard .af-pay-email', { timeout: 5000 });
@@ -1061,6 +1092,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const cc = await text(ctPage, '#contentCard');
     R.has(cc, 'Picked content earns $25.00', 'the portal says what picked content earns');
     R.has(cc, '+$25.00', 'a picked piece shows its bonus');
+    await tab(ctPage, 'content');
     await ctPage.fill('#ctLink', 'https://www.tiktok.com/@pat/video/1');
     await ctPage.fill('#ctCaption', 'Cage drill');
     await ctPage.click('#ctLinkGo');
@@ -1152,6 +1184,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ppNoAddr.click('#tabs [data-tab="payouts"]');
     const noAddr = await text(ppNoAddr, '#payoutsBody');
     R.has(noAddr, 'brand@pay.invalid', 'a connected rail names the account it pays from');
+    R.ok('under the PayPal mark, marked Sandbox', !!(await ppNoAddr.$('#payoutsBody .af-pp-head img[alt="PayPal"]')) && (await text(ppNoAddr, '#payoutsBody .af-pp-head')).includes('Sandbox'));
+    R.ok('the flow ends in PayPal', !!(await ppNoAddr.$('#payoutsBody .af-flow-step:last-child img[alt="PayPal"]')));
     R.has(noAddr, 'No PayPal address from them yet', 'an affiliate who has not given an address cannot be paid');
     R.ok('and there is nothing to click', !(await ppNoAddr.$('#payoutsBody [data-act="pp-send"]')));
     await ppNoAddr.close();

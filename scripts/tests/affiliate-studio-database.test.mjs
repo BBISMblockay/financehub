@@ -250,11 +250,15 @@ const files = {
   // The sweep, corrected on review (20261113220000): refunds per product,
   // the seed order re-read before the payback.
   seedsweep: '20261113220000_affiliate_seed_sweep_refunds.sql',
+  // A shared launch follows a date change (20261117200000). Only its trigger
+  // function is applied here; the rest of that file is tested elsewhere.
+  follow: '20261117200000_affiliate_creator_codes.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
   sql[k] = await readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8');
 }
+sql.follow = sql.follow.slice(sql.follow.indexOf('create or replace function public.affiliate_autoshare_launch_trg()'));
 function mutate(key, from, to) {
   assert.ok(sql[key].includes(from), `mutation ${MUT}: pattern not found in ${files[key]}`);
   sql[key] = sql[key].split(from).join(to);
@@ -288,7 +292,12 @@ switch (MUT) {
   case 'autosharecrossco': mutate('autoshare', '      on p.company_entity_id = l.company_entity_id\n', '      on true\n'); break;
   case 'autoshareagain': mutate('autoshare', `  if tg_op = 'UPDATE' and old.launch_date is not null then
     return null;
-  end if;`, ''); break;
+  end if;`, ''); mutate('follow', `    end if;
+    return null;
+  end if;`, `    end if;
+  end if;`); break;
+  case 'autosharenofollow': mutate('follow', 'set event_on = new.launch_date', 'set event_on = old.launch_date'); break;
+  case 'autosharefollowany': mutate('follow', "           and f.source_id = new.id::text;", "           and true;"); break;
   case 'autoshareproduct': mutate('autoshare', '    perform public.affiliate_autoshare_launch_products(new.launch_id);', '    perform public.affiliate_autoshare_launch(new.launch_id);'); break;
   // Product seeding (20261113093000).
   case 'seedgate': mutate('seeding', `  if v_company is null or not public.can_manage_affiliate_programs() then
@@ -312,6 +321,8 @@ switch (MUT) {
      for update`, `       and c.state in ('purchased', 'earned')
      for update`); break;
   case 'autosharefails': mutate('autoshare', `  exception when others then
+    raise warning 'affiliate_autoshare_launch skipped for launch %: %', new.id, sqlerrm;`, `  exception when division_by_zero then
+    null;`); mutate('follow', `  exception when others then
     raise warning 'affiliate_autoshare_launch skipped for launch %: %', new.id, sqlerrm;`, `  exception when division_by_zero then
     null;`); break;
   case 'company':
@@ -516,7 +527,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1986,6 +1997,13 @@ await check('M3 a launch is shared once: unsharing it by hand is final', async (
   const cards = (await feedOf(progA)).filter((x) => x.kind === 'launch' && x.source_id === autoLaunch);
   assert.equal(cards.length, 1, 'saving it again writes nothing new');
   assert.equal(cards[0].title, 'Holiday drop', 'and never rewrites what an affiliate was told');
+  // A date change moves the shared card (Blake 2026-11-17, nimble), and only that card.
+  const otherBefore = (await feedOf(progA)).filter((x) => x.kind === 'launch' && x.source_id !== autoLaunch).map((x) => x.event_on);
+  await as(U.memberA, A);
+  await db.query(`update launch_calendar set launch_date = current_date + 13 where id = $1`, [autoLaunch]);
+  const moved = (await feedOf(progA)).find((x) => x.kind === 'launch' && x.source_id === autoLaunch);
+  assert.equal(moved.event_on, (await one(`select (current_date + 13)::text as d`)).d, 'a shared launch follows its new date');
+  assert.deepEqual((await feedOf(progA)).filter((x) => x.kind === 'launch' && x.source_id !== autoLaunch).map((x) => x.event_on), otherBefore, 'no other card moves');
   await as(U.ownerA, A);
   await db.query(`delete from affiliate_feed_items where program_id = $1 and (source_id = $2 or parent_source_id = $2)`, [progA, autoLaunch]);
   await as(U.memberA, A);

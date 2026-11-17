@@ -19837,4 +19837,7 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261117050000_affiliate_content.sql
 -- 20261117090000: same-company twin keys on the content and payout-notice references.
 \i migrations/20261117090000_affiliate_same_company_twins.sql
+-- 20261117200000: codes named after the creator; 'seed_code' notices.
+-- Apply BEFORE deploying affiliate-invite.
+\i migrations/20261117200000_affiliate_creator_codes.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

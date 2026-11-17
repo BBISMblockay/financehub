@@ -3915,6 +3915,13 @@ and `affiliate_payouts.paid_notice_claimed_at` (reserved by one conditional
 update before sending) lets affiliate-invite announce a paid payout once;
 `affiliate_notifications.payout_id` records which payout a notice was for. Apply before deploying affiliate-invite.
 
+### Affiliate creator codes — 2026-11-17
+
+`20261117200000_affiliate_creator_codes.sql` names a new affiliate's first code after
+their handle (or whole name) plus the percent, e.g. `BLAKETESTINGS10`; a text already
+used in the company gets a letter (`…10B`). It also allows the `seed_code` notice, the
+email SILO sends when it makes a seed code in Shopify. Apply before deploying affiliate-invite.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

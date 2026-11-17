@@ -14,7 +14,7 @@
 
 export const NOTIFICATION_KINDS = new Set([
   'signup_confirmation', 'portal_link', 'codes_and_links', 'payout_status', 'link_renewal',
-  'signup_invite',
+  'signup_invite', 'seed_code', 'earnings',
 ]);
 
 const encoder = new TextEncoder();
@@ -60,7 +60,9 @@ export async function resolveAffiliateSender(service, { companyId, programId, fa
       p_company_entity_id: companyId, p_purpose: 'general_ops', p_actor_email: null,
     });
     const row = Array.isArray(data) ? data[0] : data;
-    if (row?.from_header) from = row.from_header;
+    // Affiliates see the brand, not SILO (Blake 2026-11-17): "Brand - SILO
+    // <x@...>" is sent as "Brand <x@...>". A company's own sender is kept.
+    if (row?.from_header) from = String(row.from_header).replace(/^\s*(.+?)\s+-\s+SILO\s*</, '$1 <');
     if (row?.reply_to) replyTo = row.reply_to;
   } catch { /* the message matters more than the header */ }
   if (programId) {
@@ -127,19 +129,26 @@ export async function sendAffiliateMail(deps, msg) {
 }
 
 /** A minimal, brand-neutral layout. The tenant's name comes from data. */
-export function renderMail({ brand, heading, paragraphs = [], cta = null, footer = '' }) {
+export function renderMail({ brand, heading, paragraphs = [], cta = null, ctas = null, code = null, footer = '' }) {
+  // Buttons, never a long address in the text (Blake 2026-11-17). The first is
+  // the main one; any others sit beside it, outlined.
+  const buttons = (ctas || (cta ? [cta] : [])).filter((b) => b && b.url && b.label);
+  const btn = (b, i) => `<a href="${escapeHtml(b.url)}" style="display:inline-block;margin:0 8px 8px 0;${i === 0
+    ? 'background:#14181d;color:#fff;border:1px solid #14181d'
+    : 'background:#fff;color:#14181d;border:1px solid #c9d0d7'};text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;font-size:14px">${escapeHtml(b.label)}</a>`;
   const html = `<!doctype html><html><body style="margin:0;background:#f6f7f8;font-family:-apple-system,'Segoe UI',system-ui,sans-serif;color:#14181d">
 <div style="max-width:560px;margin:0 auto;padding:28px 16px">
 <div style="font-weight:800;font-size:15px;margin-bottom:16px">${escapeHtml(brand)}</div>
 <div style="background:#fff;border:1px solid #e2e6ea;border-radius:12px;padding:22px">
 <h1 style="font-size:19px;margin:0 0 12px">${escapeHtml(heading)}</h1>
 ${paragraphs.map((p) => `<p style="font-size:14px;line-height:1.55;margin:0 0 12px">${p}</p>`).join('\n')}
-${cta ? `<p style="margin:18px 0 4px"><a href="${escapeHtml(cta.url)}" style="background:#14181d;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;font-size:14px">${escapeHtml(cta.label)}</a></p>` : ''}
+${code ? `<div style="margin:6px 0 16px;padding:14px;border:1px dashed #c9d0d7;border-radius:10px;text-align:center;font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:700;letter-spacing:.06em">${escapeHtml(code)}</div>` : ''}
+${buttons.length ? `<p style="margin:18px 0 4px">${buttons.map(btn).join('')}</p>` : ''}
 </div>
 <p style="font-size:12px;color:#77828d;margin-top:14px;line-height:1.5">${footer}</p>
 </div></body></html>`;
   const strip = (s) => String(s).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-  const text = [heading, '', ...paragraphs.map(strip), ...(cta ? ['', `${cta.label}: ${cta.url}`] : []), '', strip(footer)].join('\n');
+  const text = [heading, '', ...paragraphs.map(strip), ...(code ? ['', `Code: ${code}`] : []), ...buttons.flatMap((b) => ['', `${b.label}: ${b.url}`]), '', strip(footer)].join('\n');
   return { html, text };
 }
 

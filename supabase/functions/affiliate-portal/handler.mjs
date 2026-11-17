@@ -303,6 +303,9 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           terms_version: t.terms_version, currency: t.currency,
           commission: { kind: t.commission_kind, percent: t.commission_percent, fixed_cents: t.commission_fixed_cents } },
         affiliate: t.affiliate_id ? { display_name: t.affiliate_display_name, status: t.affiliate_status,
+          // The address this signup link was sent to: the join page shows it
+          // and offers it as the PayPal address.
+          email: t.purpose === 'signup' ? (t.affiliate_contact_email || null) : undefined,
           terms_version_accepted: t.terms_version_accepted, terms_accepted_at: t.terms_accepted_at } : null,
         expires_at: t.expires_at,
       });
@@ -356,6 +359,12 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       if (t.purpose !== 'signup') return reply({ error: 'This link is for the portal, not for signing up.' }, 400);
       const signed = clip(body.signed_name, 120);
       if (!signed) return reply({ error: 'Type your full name to accept.' }, 400);
+      // Where they take money, asked at signup (Blake 2026-11-17) so the first
+      // payout needs nothing more from them. Checked before anything is saved.
+      const payoutEmail = body.payout_email == null ? '' : String(body.payout_email).trim().toLowerCase();
+      if (payoutEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payoutEmail) || payoutEmail.length > 127)) {
+        return reply({ error: 'Check your PayPal email address.' }, 400);
+      }
       // A page that showed the platform terms sends their version; one that
       // showed an older version is asked to reload. A page from before the
       // platform terms existed sends none, and the record says so (null).
@@ -376,6 +385,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         p_acceptance: acceptance, p_contact_name: clip(body.contact_name, 120), p_payout_note: null,
       });
       if (error) return dbError(error);
+
+      let payoutSaved = null;
+      if (payoutEmail) {
+        const { error: pErr } = await service.from('affiliate_payout_accounts').upsert({
+          company_entity_id: t.company_entity_id, affiliate_id: t.affiliate_id, provider: 'paypal', payout_email: payoutEmail,
+        }, { onConflict: 'company_entity_id,affiliate_id,provider' });
+        payoutSaved = !pErr;
+        if (pErr) log('[affiliate-portal] payout email at signup', pErr.message);
+      }
 
       // The terms are accepted whatever happens next; the link and the mail
       // are a convenience on top, and each failure is reported, not hidden.
@@ -411,8 +429,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           for (const w of waiting || []) await makeShopifyCode(w.id);
         } catch (err) { log('[affiliate-portal] shopify code kick failed', err?.message); }
       }
+      // So the page can say the code is live instead of "the brand will send it".
+      let codesLive = [];
+      try {
+        const { data: live } = await service.from('affiliate_codes').select('code')
+          .eq('company_entity_id', t.company_entity_id).eq('affiliate_id', t.affiliate_id).eq('status', 'active');
+        codesLive = (live || []).map((r) => r.code);
+      } catch { /* the page falls back to its general line */ }
       return reply({ status: res?.status || 'active', already_accepted: !!res?.already_accepted,
-        portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent' });
+        portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent', codes_live: codesLive, payout_email_saved: payoutSaved });
     }
 
     // ── the rep's own photo ──────────────────────────────────────────────
