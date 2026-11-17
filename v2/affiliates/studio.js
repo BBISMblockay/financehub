@@ -206,7 +206,8 @@ function shopifyCodesMessage(results) {
   if (made) parts.push(`${num(made)} code(s) live in Shopify.`);
   const scope = results.find((r) => r.status === 'needs_scope');
   if (scope) parts.push(`${num(n(['needs_scope']))} waiting: ${scope.reason || 'reconnect Shopify in Integrations so SILO can make codes'}.`);
-  if (n(['no_store'])) parts.push(`${num(n(['no_store']))} waiting: pick this program's Shopify store in Setup.`);
+  const nostore = results.find((r) => r.status === 'no_store');
+  if (nostore) parts.push(`${num(n(['no_store']))} waiting: ${nostore.reason || 'pick this program\'s Shopify store in Setup'}.`);
   const failed = results.filter((r) => r.status === 'failed');
   if (failed.length) parts.push(`${num(failed.length)} not made: ${failed[0].reason || 'Shopify said no'}.`);
   return parts.join(' ') || 'Nothing was waiting.';
@@ -2312,7 +2313,14 @@ const A = {
       : `<p>Not emailed (${esc(out.reason || out.email)}). Send this to them yourself; it opens ${esc(co?.title || 'this brand')} only. Valid until ${fmtTime(out.expires_at)}.</p><div class="bcn-field af-mono af-copy">${esc(out.portal_url || '')}</div>`) };
     return out.email === 'sent' ? 'Portal link emailed.' : 'Portal link created.';
   },
-  'affiliate-status': async ({ id, s }) => { await updateRows('affiliates', { status: s, changed_by: me.id }, { id }); return `Affiliate ${s}.`; },
+  'affiliate-status': async ({ id, s }) => {
+    await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
+    if (s !== 'active') return `Affiliate ${s}.`;
+    // Turning an affiliate on queues their first code in the database
+    // (affiliate_queue_first_code); make it in Shopify now, not overnight.
+    const { data: waiting } = await db.from('affiliate_codes').select('id').eq('company_entity_id', CO).eq('affiliate_id', id).eq('status', 'pending');
+    return waiting?.length ? `Affiliate active. ${await makeInShopify(waiting.map((r) => r.id))}` : 'Affiliate active.';
+  },
   'code-add': async () => {
     if (!val('cAff') || !val('cCode')) throw new Error('Pick an affiliate and type the code.');
     const ai = val('cHow') === 'ai';

@@ -105,6 +105,7 @@ const MUTATIONS = {
   sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
+  resumenomake: ['/affiliates/studio.js', "    return waiting?.length ? `Affiliate active. ${await makeInShopify(waiting.map((r) => r.id))}` : 'Affiliate active.';", "    return 'Affiliate active.';"],
   makeall: ['/affiliates/studio.js', "makeInShopify(id ? [id] : S.d.codes.filter((c) => c.status === 'pending').map((c) => c.id))", 'makeInShopify(id ? [id] : S.d.codes.map((c) => c.id))'],
   pendingactive: ['/affiliates/studio.js', "...(ai ? { status: 'pending', discount_percent: pct } : {})", '...{}'],
   silentswitch: ['/affiliates/portal.html', '  if (!brands.length) {', '  if (false) {'],
@@ -555,6 +556,21 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await loop.waitForFunction(() => /reconnect Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
     R.ok('a store without the permission is told to reconnect', true);
     R.has(todo, 'payout(s) to approve', 'a payout to approve is on the list for someone who may approve money');
+    // Turning an affiliate back on makes their waiting code in Shopify at once.
+    {
+      const rs = await suite.open('/v2/affiliates/index.html', { ...loopTables, affiliates: [{ ...loopTables.affiliates[0], status: 'paused' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c2', code: 'PAT10-2', status: 'created' }] } } } });
+      rs.on('pageerror', (e) => errors.push(e.message));
+      await rs.click('#tabs [data-tab="people"]');
+      await rs.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="active"]', { timeout: 5000 });
+      await rs.click('#affiliatesBody [data-act="affiliate-status"][data-s="active"]');
+      await rs.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
+      const call = await rs.evaluate(() => window.__EDGE_CALLS__.find((c) => c.name === 'affiliate-invite').body);
+      R.eq(call.code_ids, ['c2'], 'resuming an affiliate makes their waiting code');
+      await rs.waitForFunction(() => /live in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('and says it is live', true);
+      await rs.close();
+    }
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
     await loop.click('#tabs [data-tab="people"]');

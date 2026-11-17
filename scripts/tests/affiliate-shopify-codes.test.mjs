@@ -32,6 +32,8 @@ const muts = {
   scfirstpage: ['handler.mjs', '      after = data[data.length - 1];', '      after = null;'],
   // The sweep never says where it stopped.
   scnonext: ['handler.mjs', '    results.next = next;\n', ''],
+  // A code is made in a store the program's links do not open.
+  scwrongstore: ['handler.mjs', '        if (!storeMatches(progs.get(c.program_id), conn)) {', '        if (false) {'],
   // End dates are inclusive of the whole last day.
   scendday: ['shopify-codes.mjs', 'endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,', 'endsAt: code.ends_on ? dayStartIso(code.ends_on, tz) : null,'],
 };
@@ -58,7 +60,7 @@ const test = async (name, fn) => {
 };
 
 // ── Shopify fake ───────────────────────────────────────────────────────────
-function fakeShopify({ scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false } = {}) {
+function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -66,7 +68,7 @@ function fakeShopify({ scopes = ['read_orders', 'write_discounts'], existing = {
     calls.push({ url, op: /SiloScopes/.test(q) ? 'scopes' : /SiloFindCode/.test(q) ? 'find' : /SiloCreateCode/.test(q) ? 'create' : 'other', vars: body.variables, token: init.headers['X-Shopify-Access-Token'] });
     if (status !== 200) return new Response('{"errors":"nope"}', { status });
     const last = calls[calls.length - 1];
-    if (last.op === 'scopes') return Response.json({ data: { currentAppInstallation: { accessScopes: scopes.map((h) => ({ handle: h })) } } });
+    if (last.op === 'scopes') return Response.json({ data: { currentAppInstallation: { accessScopes: scopes.map((h) => ({ handle: h })) }, shop: { myshopifyDomain: 'brand.myshopify.com', primaryDomain: { host: primary } } } });
     if (last.op === 'find') return Response.json({ data: { codeDiscountNodeByCode: existing[body.variables.code] ? { id: existing[body.variables.code] } : null } });
     if (last.op === 'create') {
       if (refuse) return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'INVALID', message: refuse }] } } });
@@ -103,7 +105,7 @@ await test('dates: the company\'s own day, the whole last day included', () => {
   assert.deepEqual(i.customerGets.items, { all: true });
   assert.deepEqual(i.customerSelection, { all: true });
   assert.equal(i.startsAt, '2026-11-17T08:00:00.000Z');
-  assert.equal(i.endsAt, '2026-12-01T08:00:00.000Z', 'ends at the end of Nov 30, Pacific');
+  assert.equal(i.endsAt, '2026-12-01T07:59:59.000Z', 'ends at the last second of Nov 30, Pacific, so Shopify shows Nov 30');
   assert.equal(i.usageLimit, undefined, 'no usage limit');
   assert.equal(L.discountInput({ code: 'X', discount_percent: 10, starts_on: '2026-11-17', ends_on: null }, 'UTC').endsAt, null, 'open-ended');
   assert.throws(() => L.discountInput({ code: 'X', discount_percent: 0, starts_on: '2026-11-17' }, 'UTC'), /percent/);
@@ -284,6 +286,21 @@ await test('past the per-request budget, the sweep says where it stopped and the
   const caller = await readFile(new URL('scripts/affiliate-commissions.mjs', ROOT), 'utf8');
   assert.match(caller, /if \(!body\.next\) break;\s*after = body\.next;/, 'the nightly run follows it');
   assert.match(caller, /\.\.\.\(after \? \{ after \} : \{\}\)/);
+});
+
+await test('a code is made only in the store the program\'s links open', async () => {
+  assert.equal(L.storeMatches({ store_url: 'https://brand.com' }, { shop_hosts: ['brand.myshopify.com', 'brand.com'] }), true, 'www and bare are one store');
+  assert.equal(L.storeMatches({ store_url: 'https://brand.myshopify.com' }, { shop_hosts: ['brand.myshopify.com', 'brand.com'] }), true);
+  assert.equal(L.storeMatches({ store_url: 'https://other.com' }, { shop_hosts: ['brand.myshopify.com', 'brand.com'] }), false);
+  assert.equal(L.storeMatches({ store_url: null }, { shop_hosts: ['brand.myshopify.com'] }), true, 'no address yet: no objection');
+  const svc = fakeService({ codes: [pending()], program: { id: PROG, store_url: 'https://other-brand.com', shop_domains: ['brand.myshopify.com'] } });
+  const shop = fakeShopify();
+  const out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'no_store');
+  assert.match(out.results[0].reason, /store address is not brand\.myshopify\.com/);
+  assert.ok(!shop.calls.some((c) => c.op === 'create'), 'nothing made in the wrong store');
+  const ok = await (await mk(fakeService({ codes: [pending()], program: { id: PROG, store_url: 'https://brand.com', shop_domains: ['brand.myshopify.com'] } }), fakeShopify())(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(ok.results[0].status, 'created', 'the store\'s own domain is fine');
 });
 
 await test('a store\'s own app: re-minted once before saying it lacks the permission, and told where to allow it', async () => {

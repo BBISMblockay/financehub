@@ -1791,6 +1791,7 @@
           <td>
             <div class="int-btn-group">
               <button class="int-btn int-btn--ghost" onclick="retest('${row.id}')">Re-test</button>
+              ${(!row.auth_method || row.auth_method === 'oauth') ? `<button class="int-btn int-btn--ghost" onclick="reconnectShopify('${escAttr(row.shop_domain)}')" title="Reconnect through SILO's Shopify app to grant new permissions">Reconnect</button>` : ''}
               <button class="int-btn int-btn--danger" onclick="removeConnection('${row.id}')">Remove</button>
             </div>
           </td>`;
@@ -1945,6 +1946,14 @@
         btn.textContent = 'Connect with Shopify →';
       }
     });
+
+    // A store connected through SILO's own Shopify app reconnects the same
+    // way (to grant a new permission such as discounts). Same flow as the
+    // Connect with Shopify button; the store keeps its sync setting.
+    window.reconnectShopify = (domain) => {
+      document.getElementById('shop-domain').value = domain;
+      document.getElementById('btn-connect-shopify').click();
+    };
 
     // The button above is left disabled/"Redirecting…" right before navigating
     // to Shopify. If that navigation fails (bad domain, Shopify grant expired,
