@@ -172,7 +172,7 @@ function download(name, text, type = 'text/csv') {
 
 // ── State ────────────────────────────────────────────────────────────────
 const PROSPECT_LIST_CAP = 20;
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set() };
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 
 async function loadPrograms() {
@@ -345,7 +345,7 @@ const card = (title, body, meta = '', extraClass = '') => `<div class="bcn-card$
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
 function table(cols, rows, emptyText = 'Nothing here yet.') {
   if (!rows.length) return empty(emptyText);
-  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
+  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
@@ -368,6 +368,13 @@ function photoAvatar(person, photo) {
   return personAvatar(person, 'lg') + (photo ? `<img class="af-avatar-photo" src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '');
 }
 document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
+// Tiles or a list (table with the same photos). Remembered per viewer.
+const VIEW_KEY = 'silo.affiliates.view';
+function readView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'tiles'; } catch { return 'tiles'; } }
+function viewToggle() {
+  return `<div class="af-view-toggle" role="group" aria-label="View">${[['tiles', 'Tiles'], ['list', 'List']].map(([v, label]) => `<button type="button" class="bcn-btn${S.view === v ? ' bcn-btn--primary' : ' bcn-btn--ghost'}" data-act="view-set" data-v="${v}" aria-pressed="${S.view === v}">${label}</button>`).join('')}</div>`;
+}
+const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;
 function evidenceSummary(x, max = 160) {
   const e = x?.evidence || {};
   const t = String(e.snippet || e.note || e.pitch || e.title || '').trim().replace(/\s+/g, ' ');
@@ -882,13 +889,23 @@ function renderProspects() {
     ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}</div>`
     : '';
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}</div>
+    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}${viewToggle()}</div>
       ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
         ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
         ${btn(`Select all ${list.length}`, 'prospect-select-all')}
         ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Approve', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Reject', 'prospect-bulk', { s: 'rejected' })}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
       </div>` : ''}
-      ${itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
+      ${S.view === 'list'
+        ? table([
+          ...(MANAGE ? [{ h: '', f: (x) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
+          { left: true, h: 'Creator', f: (x) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
+          { h: 'Followers', num: true, f: (x) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
+          { h: 'Engagement', num: true, f: (x) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
+          { left: true, h: 'Email', f: (x) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
+          { left: true, h: 'Status', f: (x) => statusPill(x.status) },
+          { h: '', f: (x) => actions(x) },
+        ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
+        : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
     more('Recruiting tools', [
@@ -1047,7 +1064,15 @@ function renderAffiliates() {
     </article>`;
   };
   $('affiliatesBody').innerHTML = [
-    surface('Affiliates', `${itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
+    surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${viewToggle()}</div>` : ''}${S.view === 'list'
+      ? table([
+        { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
+        { left: true, h: 'Status', f: (a) => statusPill(a.status) },
+        { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
+        { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
+        { h: '', f: (a) => actions(a) },
+      ], d.affiliates, 'No affiliates yet. They appear here when someone you invite opens their signup link.')
+      : itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website in Setup to turn on affiliate links.</div>` : '',
     seedsCard(),
     more('Codes and links', [
@@ -1711,6 +1736,7 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
+  'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
   // Every prospect in the view, not only the cards on screen.

@@ -61,6 +61,7 @@
  *   AFFILIATE_UI_MUTATION=qpayanycur  Build payouts includes balances in another currency
  *   AFFILIATE_UI_MUTATION=autopaymoney the Friday auto-pay switch is live for someone who cannot approve money
  *   AFFILIATE_UI_MUTATION=autopayearly the Friday auto-pay switch is shown before its columns exist
+ *   AFFILIATE_UI_MUTATION=listnophoto the list view drops the photos
  *   AFFILIATE_UI_MUTATION=bulkunsent  a refused invite in a bulk approval is dropped silently
  *   AFFILIATE_UI_MUTATION=addlinkhidden a refused invite for someone added by hand puts the link on a hidden tab
  */
@@ -71,6 +72,7 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
   bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
@@ -320,6 +322,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('an expired photo is removed so the initials show', broken.gone && broken.initials.length > 0);
     await page.click('#tabs [data-tab="people"]');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    // Tiles or List: the list is a table that keeps the photos, and the choice sticks.
+    await page.click('#prospectsBody [data-act="view-set"][data-v="list"]');
+    R.ok('List shows creators as a table', !!(await page.$('#prospectsBody table.bcn-table')) && !(await page.$('#prospectsBody .af-item--catalog')));
+    R.ok('with their photo in each row', await photoLoaded('#prospectsBody table.bcn-table .af-list-thumb img.af-avatar-photo'));
+    R.ok('and the select boxes and actions', !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-pick"]')) && !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-status"]')));
+    R.ok('affiliates follow the same choice, photo included', !!(await page.$('#affiliatesBody table.bcn-table .af-list-thumb')) && await photoLoaded('#affiliatesBody table.bcn-table img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    R.eq(await page.evaluate(() => localStorage.getItem('silo.affiliates.view')), 'list', 'the choice is remembered');
+    if (process.env.LIST_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#prospectsBody')).screenshot({ path: process.env.LIST_SHOT }); await (await page.$('#affiliatesBody')).screenshot({ path: process.env.LIST_SHOT.replace('.png', '-aff.png') }); }
+    await page.click('#affiliatesBody [data-act="view-set"][data-v="tiles"]');
+    R.ok('Tiles brings the cards back', !!(await page.$('#prospectsBody .af-item--catalog')) && !(await page.$('#prospectsBody table.bcn-table')));
     await page.click('#tabs [data-tab="people"]');
     R.not(pr, '$0.0020', 'discovery cost is not shown to the company');
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
