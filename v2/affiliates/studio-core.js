@@ -93,6 +93,22 @@ const intOr = (v, d) => (v === '' || v === null || v === undefined ? d : Number(
 
 // The program form -> a row the table's CHECKs will accept, or the reasons
 // it would not. The database re-checks every one of these.
+// The outreach template, as stored: SILO's own wording is stored as blank, so
+// it is never pinned to a copy of itself. Shared by Setup and Comms.
+export function templateRow(subject, body) {
+  const errors = [];
+  const subj = String(subject ?? '').trim();
+  const text = String(body ?? '').replace(/\r\n/g, '\n').trim();
+  const row = {
+    outreach_subject: subj === '' || subj === DEFAULT_OUTREACH.subject ? null : subj,
+    outreach_body: text === '' || text === DEFAULT_OUTREACH.body ? null : text,
+  };
+  if (row.outreach_subject && row.outreach_subject.length > 200) errors.push('Keep the outreach subject under 200 characters.');
+  if (row.outreach_body && row.outreach_body.length > 5000) errors.push('Keep the outreach message under 5,000 characters.');
+  if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the outreach message: it is how the creator joins.');
+  return { row, errors };
+}
+
 export function validateProgram(f) {
   const errors = [];
   const currency = String(f.currency || 'USD').trim().toUpperCase();
@@ -141,13 +157,15 @@ export function validateProgram(f) {
   // saves. SILO's own wording is stored as blank, so it is never pinned to a
   // copy of itself.
   if (f.outreach_subject !== undefined || f.outreach_body !== undefined) {
-    const subj = String(f.outreach_subject ?? '').trim();
-    const body = String(f.outreach_body ?? '').replace(/\r\n/g, '\n').trim();
-    row.outreach_subject = subj === '' || subj === DEFAULT_OUTREACH.subject ? null : subj;
-    row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;
-    if (row.outreach_subject && row.outreach_subject.length > 200) errors.push('Keep the outreach subject under 200 characters.');
-    if (row.outreach_body && row.outreach_body.length > 5000) errors.push('Keep the outreach message under 5,000 characters.');
-    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the outreach message: it is how the creator joins.');
+    const t = templateRow(f.outreach_subject, f.outreach_body);
+    Object.assign(row, t.row); errors.push(...t.errors);
+  }
+  // What a piece of content the brand uses earns (20261117050000). Blank =
+  // nothing extra. Only sent when the form carries it.
+  if (f.content_bonus !== undefined) {
+    const c = parseMajorToMinor(f.content_bonus, currency);
+    if (Number.isNaN(c) || (c !== null && (c < 0 || c > 100000000))) errors.push('Content bonus must be a positive amount, or blank for none.');
+    else row.content_bonus_cents = c ? c : null;
   }
   // Which stores count (20261117030000). Every store ticked is stored as
   // NULL ("all"), so a store connected later is covered without a visit here.

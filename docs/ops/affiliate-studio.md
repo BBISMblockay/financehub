@@ -498,6 +498,30 @@ Connect platform and SILO orchestrates it. Design:
 | `v2/tests/browser/affiliate-studio.test.js` | The real pages in Chromium. Includes the claim-first payout export (also with a program switch mid-claim), database period totals, the Switch brand hint and the no-store banner. Mutations listed in its header |
 
 
+## Content from affiliates (20261117050000)
+
+- **Portal:** "Your content" takes a photo/video (JPEG, PNG, WebP, GIF, HEIC,
+  MP4, MOV, WebM; 50 MB) or an https post link, with an optional caption. A file
+  goes straight to the private `affiliate-content` bucket with a signed upload
+  URL for the one path the database picked; the brand sees it only after the
+  upload landed.
+- **Studio, People → Content:** To review / Approved / Decided. Tick rows, then
+  Use, Approve or Decline. **Use** pays the program's **Content bonus** (Setup →
+  Pay; blank = none) once, as a `manual_adjustment` ledger line memo'd
+  "Content bonus: …", paid with the next payout like any other earnings. Only a
+  payout approver can Use when a bonus is set. Codes and commissions are
+  unchanged; the bonus is on top.
+- Not yet: no email to the affiliate when a piece is used (the portal shows it),
+  and no usage-rights terms of their own -- those belong in the program terms.
+
+## Queues and Comms (2026-11-17)
+
+Every list that waits on a person is a tick-box queue: Select all, then act on
+the ticked rows (messages, content, product requests, draft payouts; creators
+already had it). Home keeps its one-press "Approve all" rows. Comms holds the
+message queue, Ready to send, the message template (moved from Setup), and the
+emails SILO sent affiliates.
+
 ## Which stores a program covers (20261117030000)
 
 `affiliate_programs.shop_domains` lists the company's Shopify stores the program covers; NULL means every store. Attribution (`affiliate_resolve_attributions`) reads only orders from those stores, and with exactly one picked store links open there when `store_url` is empty. Setup shows the chips only when the company has two or more active stores. Unticking a store is forward-looking: orders already credited from it stay credited.

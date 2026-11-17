@@ -34,6 +34,11 @@
 //   switch    { token, affiliate_id }         -> a fresh portal token for one of them
 //   photo     { token, image } | { token, remove: true }
 //                                             -> the rep sets (a JPEG the page made) or removes their photo
+//   content_start  { token, kind: 'link', link_url, caption? }
+//                | { token, kind: 'file', file_type, file_bytes, caption? }
+//                                             -> shares content; a file gets a one-object signed upload URL
+//   content_finish { token, id }              -> the upload landed: the brand can now see it
+//   content        { token }                  -> the rep's own pieces and what a picked one earns
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -53,6 +58,10 @@ const MAX_BODY = 16 * 1024;
 export const PHOTO_MAX_BYTES = 300_000;
 const MAX_PHOTO_BODY = 420 * 1024;
 export const PHOTO_BUCKET = 'affiliate-feed-images';
+// Content an affiliate shares (20261117050000): PRIVATE. The browser uploads
+// straight to storage with a signed URL for the one path the database chose,
+// so a video never passes through this function.
+export const CONTENT_BUCKET = 'affiliate-content';
 const TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -434,6 +443,50 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       const old = ownPhotoPath(before?.photo_url, folder);
       if (old) await bucket.remove([old]).catch(() => {});
       return reply({ photo_url: patch.photo_url, own: !!patch.photo_url });
+    }
+
+    // ── content the rep made for the brand (20261117050000) ──────────────
+    // The database picks the row and the path from the token; this function
+    // only signs an upload for that one path. Nothing pays until a manager
+    // with payout approval presses Use in Studio.
+    if (action === 'content_start') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const kind = body?.kind === 'file' ? 'file' : body?.kind === 'link' ? 'link' : null;
+      if (!kind) return reply({ error: 'Upload a file or paste a link.' }, 400);
+      const bytes = Number(body?.file_bytes);
+      const { data, error } = await service.rpc('affiliate_portal_content_start', {
+        p_token_hash: hash, p_kind: kind,
+        p_link_url: kind === 'link' ? clip(body?.link_url, 500) : null,
+        p_caption: clip(body?.caption, 500),
+        p_file_type: kind === 'file' ? clip(body?.file_type, 60) : null,
+        p_file_bytes: kind === 'file' && Number.isFinite(bytes) ? Math.floor(bytes) : null,
+      });
+      if (error) return dbError(error);
+      if (kind === 'link') return reply({ id: data?.id ?? null, state: data?.state ?? 'submitted' });
+      const path = String(data?.path || '');
+      if (!/^[0-9a-f-]{36}\/content\.[a-z0-9]{1,5}$/.test(path)) return reply({ error: 'Something went wrong. Please try again.' }, 500);
+      const { data: up, error: upErr } = await service.storage.from(CONTENT_BUCKET).createSignedUploadUrl(path);
+      if (upErr || !up?.signedUrl) {
+        console.error('[affiliate-portal] content upload url failed', upErr?.message);
+        return reply({ error: 'Uploads are not available yet. Please try again later.' }, 503);
+      }
+      return reply({ id: data.id, state: 'uploading', upload_url: up.signedUrl });
+    }
+
+    if (action === 'content_finish') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const id = String(body?.id ?? '');
+      if (!UUID_RE.test(id)) return reply({ error: 'Unknown upload.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_content_finish', { p_token_hash: hash, p_id: id });
+      if (error) return dbError(error);
+      return reply({ id, state: data?.state ?? 'submitted' });
+    }
+
+    if (action === 'content') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_content', { p_token_hash: hash });
+      if (error) return dbError(error);
+      return reply(data && typeof data === 'object' ? data : { bonus_cents: null, items: [] });
     }
 
     // Where this affiliate takes money. Set by THE AFFILIATE, from their own

@@ -152,6 +152,11 @@ const MUTATIONS = {
   qcodesall: ['/affiliates/studio.js', "    const todo = S.d.affiliates.filter((a) => a.status === 'active' && !coded.has(a.id));", "    const todo = S.d.affiliates.filter((a) => a.status === 'active');"],
   qpayanycur: ['/affiliates/studio.js', "    const owed = (S.d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0);", '    const owed = (S.d.balances || []).filter((x) => Number(x.unclaimed_cents) > 0);'],
   autopaymoney: ['/affiliates/studio.js', "${MONEY ? '' : ' disabled title=", "${true ? '' : ' disabled title="],
+  // Queues and content (20261117050000).
+  qpickall: ['/affiliates/studio.js', "    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';\n    const rows", "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);\n    const rows"],
+  contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
+  dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
+  tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
 };
 const MUT = process.env.AFFILIATE_UI_MUTATION || '';
@@ -254,7 +259,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     page.on('pageerror', (e) => errors.push(e.message));
     // Pinched page (Blake, 2026-11-13): Home, People, Money, Setup, and
     // Records for everything that used to fold open.
-    R.ok('the page has five tabs', (await page.$$('#tabs [data-tab]')).length === 5);
+    R.ok('the page has six tabs', (await page.$$('#tabs [data-tab]')).length === 6);
     R.ok('nothing on the page folds open', !(await page.$('details')));
     R.ok('the page opens on Overview', await page.evaluate(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'overview'));
     const over = await text(page, '#overviewBody');
@@ -289,7 +294,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.not(ov, 'Incremental sales', 'the card lists what SILO does, not what it does not')
     R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
-    for (const [tab, body] of [['people', 'prospectsBody'], ['people', 'outreachBody'], ['people', 'affiliatesBody'], ['program', 'shareBody'], ['payouts', 'payoutsBody']]) {
+    for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['program', 'shareBody'], ['payouts', 'payoutsBody']]) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card, #${b} .af-surface`), body, { timeout: 5000 });
     }
@@ -313,7 +318,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const codeRow = await page.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_codes' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.eq(codeRow?.status, 'pending', 'a code for the AI waits for Shopify');
     R.eq(codeRow?.discount_percent, 15);
-    await page.click('#tabs [data-tab="people"]');
+    await page.click('#tabs [data-tab="comms"]');
     const ob = await text(page, '#outreachBody');
     R.has(ob, 'Your own MCP client sends approved messages', 'Messages leads with sending through a connected MCP client');
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
@@ -554,19 +559,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('settings leads with name, status and what you pay', !!(await loop.$('#programBody div.af-settings-col:first-of-type #pName')) && !!(await loop.$('#programBody div.af-settings-col:first-of-type #pKind')));
     R.ok('status is a row of chips, not a dropdown', (await loop.$$('#programBody [data-seg="pStatus"]')).length === 4 && !(await loop.$('#programBody select#pStatus')));
     R.ok('a live program has no Save button', !(await loop.$('#programBody [data-act="save-program"]')));
-    R.ok('the message to creators is in plain sight, not folded away', await loop.evaluate(() => document.querySelector('#pOutBody')?.checkVisibility?.() ?? false));
+    R.ok('the message to creators is prepped on Comms, not Setup', !(await loop.$('#programBody #pOutBody')));
     R.ok('Setup folds nothing open', !(await loop.$('#programBody details, #shareBody details')));
     if (process.env.STUDIO_SHOT) { await loop.setViewportSize({ width: 1280, height: 1200 }); await (await loop.$('#programBody')).screenshot({ path: process.env.STUDIO_SHOT }); }
     R.eq(await loop.inputValue('#pAutoPct'), '10', 'settings shows the % off for new affiliates');
     await loop.fill('#pAutoPct', '');
-    R.eq([await loop.inputValue('#pOutSubject'), await loop.inputValue('#pOutBody')], ['Ride with {brand}', 'Yo {name}! Join us: {signup_link}'], 'settings shows the program\'s own outreach message');
-    await loop.fill('#pOutBody', 'Hey {name}, here: {signup_link}');
-    await loop.press('#pOutBody', 'Tab');
+    await loop.press('#pAutoPct', 'Tab');
     await loop.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
     await loop.waitForFunction(() => document.getElementById('setSaved')?.textContent === 'Saved', null, { timeout: 5000 });
     const progRow = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
     R.ok('blank saves as off (null), not 0', progRow && 'default_discount_percent' in progRow && progRow.default_discount_percent === null);
-    R.eq(progRow?.outreach_body, 'Hey {name}, here: {signup_link}', 'the edited outreach message is saved');
+    R.ok('a Setup save does not touch the message template', progRow && !('outreach_body' in progRow));
     // Several Shopify stores: the brand ticks which ones count (20261117030000).
     R.eq(await loop.$$eval('#programBody .pStore', (els) => els.map((e) => `${e.textContent}:${e.classList.contains('is-on')}`).join()), 'brand-a:true,brand-a-retail:true', 'every store is ticked while the program covers all of them');
     const beforeStore = await loop.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').length);
@@ -758,7 +761,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
       silo_api_connection_labels: `function () { return [{ grant_id: 'g1', client_name: 'Claude' }, { grant_id: 'g2', client_name: 'ChatGPT' }, { grant_id: 'g3', client_name: 'Old Bot' }]; }`,
     } });
-    await ai.click('#tabs [data-tab="people"]');
+    await ai.click('#tabs [data-tab="comms"]');
     await ai.waitForFunction(() => !!document.querySelector('#outreachBody .af-surface'), null, { timeout: 5000 });
     const how = await text(ai, '#aiSendHow');
     R.has(how, 'send approved messages', 'Messages explains send via a connected MCP client');
@@ -789,6 +792,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── join page ─────────────────────────────────────────────────────────
     const calls = [];
     const claimed = new Set();
+    const contentItems = [{ id: 'c-old', kind: 'link', link_url: 'https://www.instagram.com/p/old/', caption: 'Old reel', state: 'used', bonus_cents: 2500, currency: 'USD' }];
+    const uploads = [];
+    await suite.context.route('https://storage.invalid/**', (route) => { uploads.push({ method: route.request().method(), type: route.request().headers()['content-type'] }); return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
     // Product seeding: what the rep has asked for so far.
     const seedClaims = [{ id: 's-old', feed_item_id: null, title: 'Rain shell', state: 'purchased', percent: 50, multiple: 3, code: null, email: null, currency: 'USD', paid_cents: 2000, goal_cents: 6000, progress_cents: 3000 }];
     let program = { name: 'Creators', status: 'active', terms_markdown: 'Rule one.\n\n<img src=x onerror="window.__pwned=1">', terms_version: 3, currency: 'USD', commission: { kind: 'percent_of_net', percent: 10, fixed_cents: null } };
@@ -844,6 +850,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       }
       if (body.action === 'photo') return reply(200, body.remove ? { photo_url: null, own: false } : { photo_url: 'https://photos.invalid/me.jpg?v=2', own: true });
       if (body.action === 'apply') return reply(200, { status: 'received' });
+      // Content (20261117050000): what the rep shared, and the signed upload.
+      if (body.action === 'content') return reply(200, { bonus_cents: 2500, currency: 'USD', items: contentItems });
+      if (body.action === 'content_start') {
+        if (body.kind === 'link') { contentItems.unshift({ id: 'cl' + contentItems.length, kind: 'link', link_url: body.link_url, caption: body.caption || null, state: 'submitted' }); return reply(200, { id: 'cl', state: 'submitted' }); }
+        return reply(200, { id: 'cf1', state: 'uploading', upload_url: 'https://storage.invalid/upload/sign/affiliate-content/cf1/content.mp4?token=t' });
+      }
+      if (body.action === 'content_finish') { contentItems.unshift({ id: body.id, kind: 'file', file_type: 'video/mp4', caption: null, state: 'submitted' }); return reply(200, { id: body.id, state: 'submitted' }); }
       return reply(400, { error: 'unexpected' });
     });
     const LOGO = `https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/public/company-logos/${PROG}/logo-1762758000000.png`;
@@ -993,6 +1006,28 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await seedPage.click('#payEmailEdit');
     R.eq(await seedPage.inputValue('#payEmail'), 'pat@pay.invalid', 'Change opens the field with the address on file');
     await seedPage.close();
+
+    // ── portal: content for the brand ─────────────────────────────────────
+    const ctPage = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !!document.getElementById('contentCard') });
+    ctPage.on('pageerror', (e) => errors.push(e.message));
+    const cc = await text(ctPage, '#contentCard');
+    R.has(cc, 'Picked content earns $25.00', 'the portal says what picked content earns');
+    R.has(cc, '+$25.00', 'a picked piece shows its bonus');
+    await ctPage.fill('#ctLink', 'https://www.tiktok.com/@pat/video/1');
+    await ctPage.fill('#ctCaption', 'Cage drill');
+    await ctPage.click('#ctLinkGo');
+    await ctPage.waitForFunction(() => /Cage drill/.test(document.getElementById('contentCard')?.textContent || ''), null, { timeout: 5000 });
+    const sl = calls.filter((c) => c.action === 'content_start').pop();
+    R.eq([sl.kind, sl.link_url, sl.caption], ['link', 'https://www.tiktok.com/@pat/video/1', 'Cage drill'], 'a link is shared with its caption');
+    await ctPage.setInputFiles('#ctFile', { name: 'reel.mp4', mimeType: 'video/mp4', buffer: Buffer.from('fake video bytes') });
+    await ctPage.waitForFunction(() => /Uploaded/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+    const sf = calls.filter((c) => c.action === 'content_start').pop();
+    R.eq([sf.kind, sf.file_type, sf.file_bytes], ['file', 'video/mp4', 16], 'the file is announced by type and size, never sent through the function');
+    R.eq(uploads.map((u) => [u.method, u.type]), [['PUT', 'video/mp4']], 'the file goes straight to the signed upload address');
+    R.eq(calls.filter((c) => c.action === 'content_finish').pop()?.id, 'cf1', 'and the upload is finished only after it landed');
+    await ctPage.setInputFiles('#ctFile', { name: 'notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('x') });
+    R.has(await text(ctPage, '#status'), 'Upload a photo or a video', 'other files are refused before anything is sent');
+    await ctPage.close();
 
     // A rep with a live code whose brand has no store address: the banner
     // names the code they can use and the real gap, not a missing code.
@@ -1439,6 +1474,82 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(await text(noSeed, '#overviewBody'), 'product request', 'no seeding rows before the migration');
     R.not(await text(noSeed, '#status'), 'did not load', 'a missing seeding table is not reported as a failure');
     await noSeed.close();
+
+    // ── Content, tick-box queues and Comms (20261117050000) ──────────────
+    const ctTables = { ...qTables,
+      affiliate_programs: [{ ...qTables.affiliate_programs[0], content_bonus_cents: 2500, outreach_subject: null, outreach_body: null }],
+      affiliate_outreach_drafts: [...qTables.affiliate_outreach_drafts,
+        { id: 'd4', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'approved', channel: 'dm', recipient_email: null, recipient_handle: '@samruns', subject: 'Hi', body: 'Hey! Join: {signup_link}', created_at: now }],
+      affiliate_content_submissions: [
+        { id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'file', storage_path: 'ct1/content.mp4', file_type: 'video/mp4', caption: 'Cage reel', state: 'submitted', submitted_at: now },
+        { id: 'ct2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF_Q, kind: 'link', link_url: 'https://www.instagram.com/p/x/', state: 'submitted', submitted_at: now },
+        { id: 'ct3', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'file', storage_path: 'ct3/content.jpg', file_type: 'image/jpeg', caption: 'Half sent', state: 'uploading', submitted_at: now }],
+      affiliate_payouts: [
+        { id: 'po1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, currency: 'USD', amount_cents: 900, status: 'draft', method: 'manual', created_at: now },
+        { id: 'po2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF_Q, currency: 'USD', amount_cents: 700, status: 'draft', method: 'manual', created_at: now }] };
+    const ctRpc = { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+      affiliate_content_decide: (args) => ({ decided: args.p_ids.length, skipped: 0, bonus_cents: args.p_decision === 'use' ? 2500 * args.p_ids.length : 0 }),
+      affiliate_approve_payout: () => ({}) };
+    const ct = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
+    ct.on('pageerror', (e) => errors.push(e.message));
+    R.has(await text(ct, '#overviewBody'), '2 piece(s) of content', 'Home lists content waiting for review');
+    await ct.click('#tabs [data-tab="people"]');
+    await ct.waitForFunction(() => /Cage reel/.test(document.getElementById('affiliatesBody')?.textContent || ''), null, { timeout: 5000 });
+    const cb = await text(ct, '#affiliatesBody');
+    R.has(cb, 'Used content earns $25.00', 'the bonus is named once');
+    R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
+    const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
+    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#affiliatesBody video.af-content-media')));
+    R.ok('nothing moves until something is ticked', !(await ct.$('#affiliatesBody [data-act="q-content-use"]')));
+    await ct.click('#affiliatesBody [data-act="q-all"][data-q="content"]');
+    await ct.click('#affiliatesBody [data-act="q-content-use"]');
+    await ct.click('#affiliatesBody [data-act="q-content-use"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_content_decide'), null, { timeout: 5000 });
+    const cd = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_content_decide').pop().args);
+    R.eq([cd.p_ids.slice().sort(), cd.p_decision], [['ct1', 'ct2'], 'use'], 'Use selected uses exactly the ticked pieces');
+    await ct.waitForFunction(() => /\$50\.00 in bonuses/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('and says what it added to the next payout', true);
+    // Comms: the message queue, ticked one at a time.
+    await ct.click('#tabs [data-tab="comms"]');
+    await ct.waitForFunction(() => !!document.querySelector('#outreachBody [data-act="q-pick"][data-q="msgs"]'), null, { timeout: 5000 });
+    await ct.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]');
+    await ct.click('#outreachBody [data-act="q-msg-ok"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update'), null, { timeout: 5000 });
+    const mu = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').pop());
+    R.eq((mu.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals, ['d1'], 'Approve selected approves only the ticked message');
+    R.ok('and only while it is still a draft', mu.filters.some((f) => f.op === 'eq' && f.col === 'state' && f.val === 'draft'));
+    R.has(await text(ct, '#outreachBody'), 'Emails to affiliates', 'Comms shows what SILO emailed affiliates');
+    await ct.fill('#tplBody', 'Hey {name}: {signup_link}');
+    await ct.click('#outreachBody [data-act="tpl-save"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
+    R.eq((await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch)).outreach_body, 'Hey {name}: {signup_link}', 'the template is saved from Comms');
+    // A creator with no email: the person sends a DM by hand, SILO sends nothing.
+    const dmBody = await text(ct, '#outreachBody');
+    R.has(dmBody, 'Send by DM', 'a creator with no email is listed to message on social');
+    R.has(dmBody, 'Join: http', 'with open applications the DM carries the application link');
+    R.ok('never a placeholder', !(await ct.evaluate(() => document.querySelector('#outreachBody [data-act="dm-copy"]').closest('article').textContent)).includes('{signup_link}'));
+    await ct.click('#outreachBody [data-act="dm-sent"][data-id="d4"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent'), null, { timeout: 5000 });
+    const dmu = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent').pop());
+    R.ok('Mark sent records the DM as where it was sent', /^Sent by DM on /.test(dmu.patch.sent_evidence) && dmu.filters.some((f) => f.col === 'id' && f.val === 'd4'));
+    R.ok('and only while it was still approved', dmu.filters.some((f) => f.col === 'state' && f.val === 'approved'));
+    // Money: drafts wait in a queue; Approve selected approves the ticked ones.
+    await ct.click('#tabs [data-tab="payouts"]');
+    await ct.waitForFunction(() => !!document.querySelector('#payoutsBody [data-act="q-all"][data-q="payouts"]'), null, { timeout: 5000 });
+    await ct.click('#payoutsBody [data-act="q-pick"][data-q="payouts"][data-id="po2"]');
+    await ct.click('#payoutsBody [data-act="q-payout-ok"]');
+    await ct.click('#payoutsBody [data-act="q-payout-ok"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_approve_payout'), null, { timeout: 5000 });
+    R.eq(await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_approve_payout').map((q) => q.args.p_payout)), ['po2'], 'only the ticked payout is approved');
+    await ct.close();
+    // A manager who cannot approve payouts may approve content, never pay its bonus.
+    const ctNoMoney = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: { ...ctRpc, can_approve_affiliate_commissions: false } });
+    ctNoMoney.on('pageerror', (e) => errors.push(e.message));
+    await ctNoMoney.click('#tabs [data-tab="people"]');
+    await ctNoMoney.waitForFunction(() => !!document.querySelector('#affiliatesBody [data-act="q-all"][data-q="content"]'), null, { timeout: 5000 });
+    await ctNoMoney.click('#affiliatesBody [data-act="q-all"][data-q="content"]');
+    R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#affiliatesBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#affiliatesBody [data-act="q-content-ok"]')));
+    await ctNoMoney.close();
 
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });

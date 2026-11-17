@@ -120,6 +120,17 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   assert.deepEqual(st([false, true]).row.shop_domains, ['b.myshopify.com'], 'only the ticked store, lowercased');
   assert.ok(st([false, false]).errors.includes('Pick at least one store.'), 'no store is refused');
   assert.ok(!('shop_domains' in fixed.row), 'a form without the store picker leaves the column alone');
+  // The content bonus (20261117050000): blank is none, only sent when carried.
+  const cb = (v) => C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', content_bonus: v });
+  assert.equal(cb('25').row.content_bonus_cents, 2500);
+  assert.equal(cb('').row.content_bonus_cents, null, 'blank is no bonus');
+  assert.equal(cb('0').row.content_bonus_cents, null, 'zero is no bonus');
+  assert.ok(cb('-5').errors.some((e) => /Content bonus/.test(e)), 'a negative bonus is refused');
+  assert.ok(!('content_bonus_cents' in fixed.row), 'a form without the field leaves the column alone');
+  // The outreach template, saved from Comms: the same rules Setup used.
+  assert.deepEqual(C.templateRow('', '').row, { outreach_subject: null, outreach_body: null }, 'blank keeps SILO wording');
+  assert.ok(C.templateRow('Hi', 'no link here').errors.some((e) => /signup_link/.test(e)), 'the signup link must stay');
+  assert.equal(C.templateRow('Hi', 'Join: {signup_link}').row.outreach_body, 'Join: {signup_link}');
   assert.equal(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: '15' }).row.default_discount_percent, 15);
   for (const bad of ['0', '101', '7.5', 'x']) {
     assert.ok(C.validateProgram({ name: 'F', slug: 'fixed-one', commission_percent: '5', default_discount_percent: bad }).errors.some((e) => /% off/.test(e)), bad);
