@@ -22,7 +22,12 @@ Per-table rules for what the syncs write: `docs/agents/database.md`.
 - Shopify's Admin API exposes only CURRENT inventory. A missed snapshot is unrecoverable.
 - **Meta Graph API:** one bad field name refuses the whole request. Use the field-negotiation helpers
   (drop exactly the field Meta names) rather than a fixed field list. A null destination means
-  "not resolved", never "none".
+  "not resolved", never "none". **Meta does not keep its rows inside the `time_range` you asked for:**
+  a window whose `until` is a DST spring-forward day also returns the NEXT day (measured live
+  2026-11-17 on an America/Los_Angeles account), so chunked fetches get the same day twice and one
+  upsert batch carries one `row_hash` twice -- which Postgres refuses outright. Collapse on identity
+  before writing (`createDailyRowDeduper` / `dedupeOnConflictKey`), never assume a chunked response
+  is disjoint.
 - Backfills ONLY ADD: never blank a resolved value with a null.
 - Record each run in `sync_jobs`. `job_type` has a CHECK constraint; extend it for a new type.
 - **A failure only the ACCOUNT OWNER can fix does not fail the run.** `lib/ad-sync-client-errors.mjs` holds the
