@@ -8,8 +8,9 @@
 -- to the CHECK. It also adds affiliate_prospect_merge_evidence() (below),
 -- service role only. No table or policy changes.
 --
--- Apply BEFORE deploying affiliate-invite, or the invite still goes out but
--- its delivery record is refused (logged, not raised).
+-- Apply BEFORE deploying affiliate-invite and affiliate-research. Without it
+-- the invite still goes out but its delivery record is refused (logged, not
+-- raised), and photo and stats refreshes write nothing.
 
 alter table public.affiliate_notifications drop constraint if exists affiliate_notifications_kind_check;
 alter table public.affiliate_notifications add constraint affiliate_notifications_kind_check

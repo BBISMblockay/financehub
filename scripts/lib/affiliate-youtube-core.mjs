@@ -218,26 +218,19 @@ export function buildCreatorProfile(prospect) {
 /**
  * Merge only the evidence keys this writer owns into one prospect, in one
  * statement (affiliate_prospect_merge_evidence), so the photo job and the
- * stats job never erase each other's fields. Before that migration is
- * applied, falls back to re-reading the row just before writing.
+ * stats job never erase each other's fields. No fallback: without the
+ * function (migration 20261117020000 not applied) nothing is written and the
+ * prospect counts as failed, because a read-then-write could lose the other
+ * job's result.
  * contact = { email, source_url } fills contact_email only when none is on file.
  * -> true when the row was written.
  */
-export async function mergeProspectEvidence({ service, company, id, patch, contact = null, touch = false, now = () => new Date() }) {
+export async function mergeProspectEvidence({ service, company, id, patch, contact = null, touch = false }) {
   const { data, error } = await service.rpc('affiliate_prospect_merge_evidence', {
     p_id: id, p_company: company, p_patch: patch,
     p_contact_email: contact?.email ?? null, p_contact_source_url: contact?.source_url ?? null, p_touch: touch,
   });
-  if (!error) return data === true;
-  if (!/PGRST202|42883|could not find the function/i.test(`${error.code || ''} ${error.message || ''}`)) return false;
-  const { data: row, error: readErr } = await service.from('affiliate_prospects').select('evidence, contact_email')
-    .eq('id', id).eq('company_entity_id', company).maybeSingle();
-  if (readErr || !row) return false;
-  const update = { evidence: { ...(row.evidence || {}), ...patch } };
-  if (!row.contact_email && contact?.email) { update.contact_email = contact.email; update.contact_source_url = contact.source_url ?? null; }
-  if (touch) update.updated_at = now().toISOString();
-  const { error: upErr } = await service.from('affiliate_prospects').update(update).eq('id', id).eq('company_entity_id', company);
-  return !upErr;
+  return !error && data === true;
 }
 
 /**
@@ -273,7 +266,7 @@ export async function enrichYouTubeProspects({ service, company, prospects, apiK
         // Only the keys this job owns: a photo stored meanwhile is kept.
         const ok = await mergeProspectEvidence({
           service, company, id: p.id, patch: { youtube: merged, creator_profile: creatorProfile },
-          contact: patch.contact_email ? { email: patch.contact_email, source_url: patch.contact_source_url } : null, touch: true, now,
+          contact: patch.contact_email ? { email: patch.contact_email, source_url: patch.contact_source_url } : null, touch: true,
         });
         if (ok) out.updated += 1; else out.failed += 1;
       } catch (err) {

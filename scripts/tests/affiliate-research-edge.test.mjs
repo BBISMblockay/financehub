@@ -47,6 +47,7 @@
 //   AFFILIATE_RESEARCH_MUTATION=ytstale      Refresh stats re-checks channels checked this week
 //   AFFILIATE_RESEARCH_MUTATION=photoclobber the photo job rewrites evidence from its stale snapshot
 //   AFFILIATE_RESEARCH_MUTATION=ytclobber    the stats job rewrites evidence from its stale snapshot
+//   AFFILIATE_RESEARCH_MUTATION=rpcfallback  without the merge function, evidence is rewritten by read-then-write
 //   AFFILIATE_RESEARCH_MUTATION=nocache      the research request is not cached
 //   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
 //   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
@@ -96,7 +97,8 @@ const MUTS = {
   knownbrief: [CORE, "    known?.handles?.length ? `\\nAlready known", "    false ? `\\nAlready known"],
   knownallco: ['handler.mjs', "        .eq('company_entity_id', company).order('created_at', { ascending: false }).limit(cap);", "        .order('created_at', { ascending: false }).limit(cap);"],
   photoclobber: ['lib/affiliate-photo-core.mjs', "if (await mergeProspectEvidence({ service, company, id: p.id, patch })) out.stored += 1;", "if (!(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...patch } }).eq('id', p.id).eq('company_entity_id', company)).error) out.stored += 1;"],
-  ytclobber: ['lib/affiliate-youtube-core.mjs', "service, company, id: p.id, patch: { youtube: merged, creator_profile: creatorProfile },", "service: { rpc: async () => ({ error: { code: 'PGRST202' } }), from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: p, error: null }) }) }) }), update: (u) => service.from('affiliate_prospects').update(u) }) }, company, id: p.id, patch: { youtube: merged, creator_profile: creatorProfile },"],
+  ytclobber: ['lib/affiliate-youtube-core.mjs', "const ok = await mergeProspectEvidence({", "const ok = await (async (a) => !(await service.from('affiliate_prospects').update({ evidence: { ...(p.evidence || {}), ...a.patch } }).eq('id', p.id).eq('company_entity_id', company)).error)({"],
+  rpcfallback: ['lib/affiliate-youtube-core.mjs', "  return !error && data === true;\n}", "  if (!error) return data === true;\n  const { data: row } = await service.from('affiliate_prospects').select('evidence').eq('id', id).eq('company_entity_id', company).maybeSingle();\n  return !(await service.from('affiliate_prospects').update({ evidence: { ...(row?.evidence || {}), ...patch } }).eq('id', id).eq('company_entity_id', company)).error;\n}"],
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -725,6 +727,13 @@ await test('photo and stats jobs running at once keep each other\'s results', as
   const ev2 = svc2.tables.affiliate_prospects[0].evidence;
   assert.equal(ev2.profile_image_stored, true, 'the photo written first is kept by the stats job');
   assert.equal(ev2.youtube?.subscribers, 50000);
+  // Before the migration (no merge function): nothing is written, and it is counted as failed.
+  const svc3 = fakeService({ affiliate_prospects: [structuredClone(row)] }, [], []);
+  svc3.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
+  const st3 = await YT.enrichYouTubeProspects({ service: svc3, company: CO_A, prospects: [structuredClone(stale)], apiKey: 'k', fetchImpl: ytApi() });
+  const ph3 = await LPH.storeProspectPhotos({ service: svc3, company: CO_A, prospects: [structuredClone(stale)], fetchImpl: web });
+  assert.deepEqual([st3.updated, st3.failed, ph3.stored], [0, 1, 0], 'no unsafe read-then-write fallback');
+  assert.deepEqual(svc3.tables.affiliate_prospects[0].evidence, { note: 'kept' });
 });
 
 await test('the research request is cached and reads short pages', async () => {
