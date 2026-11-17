@@ -51,6 +51,8 @@
 //   AFFILIATE_EDGE_MUTATION=photonotjpeg  any bytes are stored as the rep's photo
 //   AFFILIATE_EDGE_MUTATION=photohidden   a removed photo comes back as the one found for the rep
 //   AFFILIATE_EDGE_MUTATION=photoshared   every upload overwrites one object, so a racing Remove deletes the new photo
+//   AFFILIATE_EDGE_MUTATION=contentpath   the upload is signed for a path the request names, not the database's
+//   AFFILIATE_EDGE_MUTATION=contentsignup a signup link (not yet joined) may share content
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -101,6 +103,8 @@ async function load(fn, file) {
     photosignup: ['affiliate-portal', "      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);\n      const path", "      if (!t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);\n      const path"],
     photonotjpeg: ['affiliate-portal', "if (!bytes || !isJpeg(bytes))", 'if (!bytes)'],
     photoshared: ['affiliate-portal', "const path = `${folder}-${now().getTime()}-${makeToken().slice(0, 8)}.jpg`;", "const path = `${folder}-a.jpg`;"],
+    contentpath: ['affiliate-portal', "const path = String(data?.path || '');", "const path = String(body?.path || data?.path || '');"],
+    contentsignup: ['affiliate-portal', "    if (action === 'content_start') {\n      if (t.purpose !== 'portal' || !t.affiliate_id) return", "    if (action === 'content_start') {\n      if (!t.affiliate_id) return"],
     photohidden: ['affiliate-portal', "if (error || !a || a.photo_hidden === true) return", 'if (error || !a) return'],
     unboundmail: ['affiliate-invite', "            const sent = await mintMailed({ company, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS });", "            const sent = await mint({ company, program: a.program_id, purpose: 'portal', affiliateId: a.id, days: PORTAL_LINK_DAYS, createdBy: actor });"],
   };
@@ -114,7 +118,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -167,7 +171,9 @@ function fakeService({ rpc = {}, tables = {} } = {}) {
       upload: async (path, bytes, opts) => { svc.uploads.push({ bucket, path, bytes, opts }); return { error: null }; },
       remove: async (paths) => { svc.removed.push(...paths.map((p) => `${bucket}/${p}`)); return { error: null }; },
       getPublicUrl: (path) => ({ data: { publicUrl: `https://ref.supabase.co/storage/v1/object/public/${bucket}/${path}` } }),
+      createSignedUploadUrl: async (path) => { svc.signed.push({ bucket, path }); return { data: { signedUrl: `https://ref.supabase.co/storage/v1/object/upload/sign/${bucket}/${path}?token=t` }, error: null }; },
     }) },
+    signed: [],
   };
   return svc;
 }
@@ -1089,6 +1095,51 @@ await test('the mail module ships byte-identical in both functions', async () =>
 await test('the mail module refuses any kind outside the transactional set', async () => {
   const { sendAffiliateMail } = await import(new URL('supabase/functions/affiliate-portal/affiliate-mail.mjs', ROOT));
   await assert.rejects(sendAffiliateMail({ service: fakeService() }, { companyId: CO, kind: 'outreach', to: 'x@y.invalid' }), /unknown/);
+});
+
+// ── affiliate content (20261117050000) ──────────────────────────────────
+const CID = '0b0b0b0b-0000-4000-8000-000000000001';
+function contentSvc({ purpose = 'portal' } = {}) {
+  return fakeService({
+    rpc: {
+      affiliate_portal_resolve: { data: [resolvedRow({ purpose })], error: null },
+      affiliate_portal_content_start: (args) => (args.p_kind === 'link'
+        ? { data: { id: CID, state: 'submitted' }, error: null }
+        : { data: { id: CID, state: 'uploading', path: `${CID}/content.mp4` }, error: null }),
+      affiliate_portal_content_finish: { data: { id: CID, state: 'submitted' }, error: null },
+      affiliate_portal_content: { data: { bonus_cents: 2500, currency: 'USD', items: [] }, error: null },
+    },
+  });
+}
+
+await test('portal content: a file is signed for the path the database chose, never one the request names', async () => {
+  const svc = contentSvc();
+  const out = await portalCall(svc, { action: 'content_start', kind: 'file', file_type: 'video/mp4', file_bytes: 1234, path: `${CO}/evil.mp4`, caption: 'Reel' });
+  assert.equal(out.status, 200, JSON.stringify(out.body));
+  assert.deepEqual(svc.signed, [{ bucket: 'affiliate-content', path: `${CID}/content.mp4` }]);
+  assert.match(out.body.upload_url, /\/upload\/sign\/affiliate-content\//);
+  const call = svc.log.find((x) => x.name === 'affiliate_portal_content_start');
+  assert.equal(call.args.p_kind, 'file'); assert.equal(call.args.p_file_bytes, 1234); assert.equal(call.args.p_link_url, null);
+  assert.ok(call.args.p_token_hash && call.args.p_token_hash !== TOKEN, 'only the hash reaches the database');
+});
+
+await test('portal content: a link needs no upload; finish and list go to the database by token', async () => {
+  const svc = contentSvc();
+  const out = await portalCall(svc, { action: 'content_start', kind: 'link', link_url: 'https://www.tiktok.com/@x/video/1' });
+  assert.equal(out.status, 200); assert.equal(out.body.state, 'submitted'); assert.equal(svc.signed.length, 0);
+  assert.equal((await portalCall(svc, { action: 'content_start', kind: 'pdf' })).status, 400, 'an unknown kind is refused');
+  assert.equal((await portalCall(svc, { action: 'content_finish', id: 'not-a-uuid' })).status, 400);
+  const fin = await portalCall(svc, { action: 'content_finish', id: CID });
+  assert.equal(fin.body.state, 'submitted');
+  const list = await portalCall(svc, { action: 'content' });
+  assert.equal(list.body.bonus_cents, 2500);
+});
+
+await test('portal content: a signup link (not yet joined) cannot share content', async () => {
+  const svc = contentSvc({ purpose: 'signup' });
+  const out = await portalCall(svc, { action: 'content_start', kind: 'link', link_url: 'https://x.test/p' });
+  assert.equal(out.status, 400);
+  assert.ok(!svc.log.some((x) => x.name === 'affiliate_portal_content_start'), 'nothing reached the database');
 });
 
 console.log(`\naffiliate-edge: ${passed} passed`);

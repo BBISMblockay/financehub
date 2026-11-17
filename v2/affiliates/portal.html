@@ -237,8 +237,10 @@ async function load() {
   wireBrandMark($('mark'));
   // Seeding is a second, fail-soft call: an older server without it just
   // shows no seeding.
-  const [st, seeds] = await Promise.all([call('statement', { token }), call('seeds', { token }).catch(() => null)]);
+  const [st, seeds, content] = await Promise.all([call('statement', { token }), call('seeds', { token }).catch(() => null),
+    call('content', { token }).catch(() => null)]);
   SEEDS = seeds && seeds.offer ? seeds : { offer: { enabled: false }, claims: [] };
+  CONTENT = content && Array.isArray(content.items) ? content : null;
   const s = st.statement || {};
   const cur = s.currency; const m = (c) => formatMoney(c, cur); const t = s.totals || {};
   const kpi = (l, v, cls = '', sub = '') => `<div class="af-stat ${cls}"><div class="af-stat-label">${esc(l)}</div><div class="af-stat-value">${v}</div>${sub ? `<div class="af-stat-sub">${esc(sub)}</div>` : ''}</div>`;
@@ -263,10 +265,11 @@ async function load() {
     card('Payouts', (s.payouts || []).length ? `<div class="af-rows">${s.payouts.map((p) => `<div><span class="af-num">${m(p.amount_cents)}</span><span>${esc(p.status === 'marked_paid' ? `paid ${day(p.marked_paid_at)}` : p.status)}</span></div>`).join('')}</div>` : empty('No payouts yet.')),
     `<p class="af-muted">Terms v${esc(s.affiliate?.terms_version_accepted ?? '—')}, accepted ${esc(day(s.affiliate?.terms_accepted_at))}.</p>`,
   ].join('');
-  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}${seedCard()}<div id="ordersCard"></div></div><div class="af-side">${side}</div></div>`;
+  $('body').innerHTML = `<div class="af-dash"><div class="af-main">${calendarCard(st.feed, t.today)}${feedCard(st.feed)}${seedCard()}${contentCard()}<div id="ordersCard"></div></div><div class="af-side">${side}</div></div>`;
   brandSwitcher();
   wirePhoto();
   wirePayoutEmail();
+  wireContent();
   ORD = { rows: [], total: 0, cur, loaded: false, open: new Set() };
   loadOrders();
 }
@@ -626,6 +629,65 @@ async function seedAsk(body, btn) {
     document.querySelectorAll('[data-seed]').forEach((x) => { if (seedFor(x.dataset.seed)) x.outerHTML = seedBtn({ kind: 'product', id: x.dataset.seed }); });
     setStatus(r.replayed ? 'Already asked.' : 'Asked. The brand will approve it.', 'pos');
   } catch (e) { setStatus(e.message, 'neg'); if (btn) btn.disabled = false; }
+}
+
+// Content the rep made for the brand (20261117050000). A file goes straight
+// to private storage with a signed URL the server made for one path; the
+// brand sees it only once it has landed.
+const CONTENT_MAX = 50 * 1024 * 1024;
+const CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'video/mp4', 'video/quicktime', 'video/webm'];
+let CONTENT = null;
+const CONTENT_PILL = { submitted: ['Waiting', 'warn'], approved: ['Approved', 'pos'], used: ['Picked', 'pos'], declined: ['Not used', ''] };
+function contentCard() {
+  if (!CONTENT) return '';
+  const m = (c) => formatMoney(c, CONTENT.currency);
+  const row = (c) => {
+    const [label, tone] = CONTENT_PILL[c.state] || [c.state, ''];
+    const what = c.kind === 'link' ? `<a href="${esc(c.link_url)}" target="_blank" rel="noopener noreferrer">${esc(linkLabel(c.link_url))}</a>` : esc(/^video\//.test(c.file_type || '') ? 'Video' : 'Photo');
+    const bonus = c.state === 'used' && c.bonus_cents ? `<span class="af-num">+${esc(formatMoney(c.bonus_cents, c.currency))}</span>` : '';
+    return `<div class="af-seed"><div class="af-row"><strong>${what}</strong><span class="bcn-pill${tone ? ` bcn-pill--${tone}` : ''}">${esc(label)}</span>${bonus}</div>${c.caption ? `<span class="af-muted">${esc(c.caption)}</span>` : ''}</div>`;
+  };
+  const terms = CONTENT.bonus_cents ? `<p class="af-muted">Picked content earns ${esc(m(CONTENT.bonus_cents))}</p>` : '';
+  return `<div id="contentCard">${card('Your content', `${terms}<div class="af-form" id="ctForm">
+    <input class="bcn-field" id="ctCaption" maxlength="500" placeholder="Caption (optional)" />
+    <div class="af-row"><input class="bcn-field" id="ctLink" type="url" maxlength="500" placeholder="https://… post link" />
+    <button class="bcn-btn bcn-btn--ghost" type="button" id="ctLinkGo">Share link</button></div>
+    <div class="af-row"><label class="bcn-btn bcn-btn--primary" for="ctFile">Upload photo or video</label><input type="file" id="ctFile" accept="${CONTENT_TYPES.join(',')}" hidden /></div>
+  </div><div class="af-seeds">${CONTENT.items.map(row).join('') || empty('Nothing shared yet.')}</div>`)}</div>`;
+}
+function contentBusy(on) {
+  for (const id of ['ctFile', 'ctLinkGo', 'ctLink', 'ctCaption']) { const el = $(id); if (el) el.disabled = on; }
+  $('contentCard')?.querySelector('label[for="ctFile"]')?.classList.toggle('is-disabled', on);
+}
+async function contentRefresh(msg) {
+  CONTENT = await call('content', { token });
+  const el = $('contentCard'); if (el) el.outerHTML = contentCard();
+  wireContent();
+  setStatus(msg, 'pos');
+}
+function wireContent() {
+  $('ctLinkGo')?.addEventListener('click', async () => {
+    const link = $('ctLink').value.trim();
+    if (!/^https:\/\//.test(link)) { setStatus('Paste a link that starts with https://', 'neg'); return; }
+    contentBusy(true);
+    try { await call('content_start', { token, kind: 'link', link_url: link, caption: $('ctCaption').value }); await contentRefresh('Shared. The brand will review it.'); }
+    catch (e) { setStatus(e.message, 'neg'); contentBusy(false); }
+  });
+  $('ctFile')?.addEventListener('change', async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    if (!CONTENT_TYPES.includes(file.type)) { setStatus('Upload a photo or a video (JPEG, PNG, WebP, GIF, HEIC, MP4, MOV or WebM).', 'neg'); return; }
+    if (file.size > CONTENT_MAX) { setStatus('Files can be up to 50 MB.', 'neg'); return; }
+    contentBusy(true);
+    setStatus('Uploading…', 'info');
+    try {
+      const r = await call('content_start', { token, kind: 'file', file_type: file.type, file_bytes: file.size, caption: $('ctCaption').value });
+      const up = await fetch(r.upload_url, { method: 'PUT', headers: { 'Content-Type': file.type, 'x-upsert': 'false' }, body: file });
+      if (!up.ok) throw new Error('The upload did not finish. Try again.');
+      await call('content_finish', { token, id: r.id });
+      await contentRefresh('Uploaded. The brand will review it.');
+    } catch (e) { setStatus(e.message, 'neg'); contentBusy(false); }
+  });
 }
 
 document.addEventListener('click', async (ev) => {

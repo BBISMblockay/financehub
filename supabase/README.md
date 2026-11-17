@@ -3914,3 +3914,20 @@ after its store is unticked, so a later refund still reduces the commission;
 and `affiliate_payouts.paid_notice_claimed_at` (reserved by one conditional
 update before sending) lets affiliate-invite announce a paid payout once;
 `affiliate_notifications.payout_id` records which payout a notice was for. Apply before deploying affiliate-invite.
+
+### Affiliate content — 2026-11-17
+
+`20261117050000_affiliate_content.sql` adds `affiliate_content_submissions`
+(an affiliate's uploaded photo/video or post link), the PRIVATE storage bucket
+`affiliate-content` (50 MB, photos and videos; paths `<submission id>/content.<ext>`,
+readable only by a member of the row's company), and
+`affiliate_programs.content_bonus_cents`. The portal writes only through three
+service-role functions (`affiliate_portal_content_start`, `_finish`,
+`affiliate_portal_content`); a file is uploaded by the browser straight to
+storage with a signed URL affiliate-portal makes for the one path the database
+chose, and the row is hidden until `_finish` sees the object.
+`affiliate_content_decide(ids, 'approve'|'use'|'decline')` is the only review
+path: `use` writes the program's content bonus once as a `manual_adjustment`
+ledger line (unique `bonus_ledger_id`) and needs
+`can_approve_affiliate_commissions()` when a bonus is set. Apply before
+deploying affiliate-portal.

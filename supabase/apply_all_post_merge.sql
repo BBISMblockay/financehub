@@ -19832,4 +19832,7 @@ $c$select (select count(*) from v_po_header_summary
 -- affiliate_notifications.payout_id (a paid payout is announced once).
 -- Apply BEFORE deploying affiliate-invite.
 \i migrations/20261117040000_affiliate_store_refunds_paid_notice.sql
+-- 2026-11-17: affiliate content uploads (private bucket affiliate-content)
+-- and the content bonus. Apply BEFORE deploying affiliate-portal.
+\i migrations/20261117050000_affiliate_content.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

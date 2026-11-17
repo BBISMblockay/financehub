@@ -78,6 +78,11 @@
 //   OUTREACH_MCP_MUTATION=loop-join-fails            a refused code insert stops the join
 //   OUTREACH_MCP_MUTATION=loop-claim-twice           a live notice can be claimed (sent) twice
 //   OUTREACH_MCP_MUTATION=loop-claim-public          a signed-in browser can claim live notices
+//   OUTREACH_MCP_MUTATION=content-no-money           a content bonus is paid without payout approval
+//   OUTREACH_MCP_MUTATION=content-twice              a used piece pays its bonus again
+//   OUTREACH_MCP_MUTATION=content-any-company        a manager decides another company's content
+//   OUTREACH_MCP_MUTATION=content-unfinished         an upload counts before its file arrived
+//   OUTREACH_MCP_MUTATION=content-read-any           any signed-in user reads every company's files
 //   OUTREACH_MCP_MUTATION=loop-no-stamp              a code going live owes the rep nothing
 //   L  the loop (20261110180000): joining queues a code, going live owes one
 //      email claimed once, the nightly run may calculate as the service role
@@ -254,8 +259,11 @@ const files = {
   stores: '20261117030000_affiliate_program_stores.sql',
   // Review cycle 1 of #1300: refunds after unticking, the paid notice key.
   storesfix: '20261117040000_affiliate_store_refunds_paid_notice.sql',
+  // Affiliate content uploads and the content bonus.
+  content: '20261117050000_affiliate_content.sql',
 };
 const sql = {};
+let CT = null;
 for (const [k, f] of Object.entries(files)) {
   sql[k] = await readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8');
 }
@@ -270,9 +278,25 @@ const seedMut = (from, to) => { assert.ok(sql.seedcodes.includes(from), `mutatio
 const storeMut = (from, to) => { assert.ok(sql.feedstore.includes(from), `mutation ${MUT}: pattern not found`); sql.feedstore = sql.feedstore.split(from).join(to); };
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
 const fixMut = (from, to) => { assert.ok(sql.storesfix.includes(from), `mutation ${MUT}: pattern not found`); sql.storesfix = sql.storesfix.split(from).join(to); };
+const contentMut = (from, to) => { assert.ok(sql.content.includes(from), `mutation ${MUT}: pattern not found`); sql.content = sql.content.split(from).join(to); };
 const storesMut = (from, to) => { assert.ok(sql.stores.includes(from), `mutation ${MUT}: pattern not found`); sql.stores = sql.stores.split(from).join(to); };
 switch (MUT) {
   case '': break;
+  // A content bonus is paid without the money gate.
+  case 'content-no-money':
+    contentMut('        if not public.can_approve_affiliate_commissions() then', '        if false then'); break;
+  // A used piece can be used again, paying its bonus twice.
+  case 'content-twice':
+    contentMut("    if v_c.state in ('uploading', 'used')", "    if v_c.state in ('uploading')"); break;
+  // A manager decides another company's content.
+  case 'content-any-company':
+    contentMut('     where c.id = any(coalesce(p_ids, \'{}\'::uuid[]))\n       and c.company_entity_id = v_company\n', '     where c.id = any(coalesce(p_ids, \'{}\'::uuid[]))\n'); break;
+  // An upload counts before its file arrived.
+  case 'content-unfinished':
+    contentMut("  if not exists (select 1 from storage.objects o where o.bucket_id = 'affiliate-content' and o.name = v_c.storage_path) then", '  if false then'); break;
+  // Any signed-in user reads every company's files.
+  case 'content-read-any':
+    contentMut("    and exists (select 1 from public.affiliate_content_submissions s\n                 where s.storage_path = name\n                   and s.company_entity_id = public.active_company_id())\n", ''); break;
   // Every store's orders count again, whatever the brand picked.
   case 'stores-any':
     storesMut('      and (v_prog.shop_domains is null or lower(o.shop_domain) = any (v_prog.shop_domains))\n', '');
@@ -1372,6 +1396,108 @@ await check('S2 the production verify check for program stores reads ok', async 
   await db.exec('reset role');
   const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   const i = v.indexOf("select 'Affiliate programs cover only their picked stores' as check_name");
+  assert.ok(i > 0, 'verify_v2_schema has the check');
+  const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
+  assert.equal((await one(q)).status, 'ok');
+});
+
+// ── C: affiliate content (20261117050000) ───────────────────────────────
+await check('CT1 an affiliate shares a link or uploads a file; the brand sees a file only once it landed', async () => {
+  await db.exec('reset role');
+  await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`);
+  await db.exec(sql.content);
+  await db.exec(sql.content);
+  const aff = await loopAff('Cam Creates');
+  const h = sha(`content-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, aff, h]);
+  const start = (kind, link, type, bytes, cap = null) => one('select public.affiliate_portal_content_start($1,$2,$3,$4,$5,$6) as r', [h, kind, link, cap, type, bytes]).then((x) => x.r);
+  const link = await start('link', 'https://www.instagram.com/p/abc123/', null, null, 'Batting cage reel');
+  assert.equal(link.state, 'submitted', 'a link is ready at once');
+  await assert.rejects(start('link', 'javascript:alert(1)', null, null), /https/, 'a link must be https');
+  await assert.rejects(start('file', null, 'application/pdf', 1000), /photo or a video/, 'only photos and videos');
+  await assert.rejects(start('file', null, 'video/mp4', 60 * 1024 * 1024), /50 MB/, 'files up to 50 MB');
+  const file = await start('file', null, 'video/mp4', 5_000_000);
+  assert.equal(file.state, 'uploading');
+  assert.match(file.path, new RegExp(`^${file.id}/content\\.mp4$`), 'the path starts with the row id');
+  const finish = () => one('select public.affiliate_portal_content_finish($1,$2) as r', [h, file.id]).then((x) => x.r);
+  await assert.rejects(finish(), /did not arrive/, 'no object yet: still uploading');
+  const listed = async () => (await one('select public.affiliate_portal_content($1) as r', [h])).r;
+  assert.deepEqual((await listed()).items.map((x) => x.state).sort(), ['submitted'], 'an unfinished upload is not listed');
+  await db.query(`insert into storage.objects(bucket_id, name) values ('affiliate-content', $1)`, [file.path]);
+  assert.equal((await finish()).state, 'submitted');
+  assert.equal((await finish()).state, 'submitted', 'a replay answers the same');
+  assert.equal((await listed()).items.length, 2);
+  // Another affiliate's token cannot finish this one.
+  const other = await loopAff('Dee Other');
+  const h2 = sha(`content2-${Math.random()}`);
+  await db.query(`insert into affiliate_access_tokens(company_entity_id, program_id, affiliate_id, purpose, token_hash, expires_at)
+    values ($1,$2,$3,'portal',$4, now() + interval '1 day')`, [A, progA, other, h2]);
+  await assert.rejects(db.query('select public.affiliate_portal_content_finish($1,$2)', [h2, file.id]), /no such upload/);
+  const b = await one(`select public, file_size_limit from storage.buckets where id = 'affiliate-content'`);
+  assert.equal(b.public, false, 'the content bucket is private');
+  CT = { aff, link: link.id, file: file.id, path: file.path };
+});
+
+await check('CT2 a manager approves or declines; using a piece pays its bonus once, and only with payout approval', async () => {
+  const as = async (uid, q, p) => {
+    await db.exec(`select set_config('test.uid', '${uid}', false)`);
+    await db.exec('set role authenticated');
+    try { return await db.query(q, p); } finally { await db.exec('reset role'); await db.exec(`select set_config('test.uid', '', false)`); }
+  };
+  const decide = async (uid, ids, d) => (await as(uid, 'select public.affiliate_content_decide($1::uuid[], $2) as r', [ids, d])).rows[0].r;
+  const ledger = async () => all(`select amount_cents, kind, source, memo from affiliate_commission_ledger where affiliate_id = $1 and memo like 'Content bonus%'`, [CT.aff]);
+  // mgrA manages affiliates in A but may not approve money there.
+  await db.query('update profiles set active_company_id = $1 where id = $2', [A, U.mgrA]);
+  try {
+    assert.equal((await decide(U.mgrA, [CT.link], 'approve')).decided, 1, 'a manager approves');
+    await assert.rejects(decide(U.memberA, [CT.file], 'decline'), /only an Affiliate Studio manager/, 'a member cannot review');
+    // No bonus set: using it pays nothing, so a manager may.
+    const r0 = await decide(U.mgrA, [CT.link], 'use');
+    assert.equal(r0.decided, 1); assert.equal(Number(r0.bonus_cents), 0);
+    assert.equal((await ledger()).length, 0, 'no bonus, no ledger line');
+    await db.query('update affiliate_programs set content_bonus_cents = 2500 where id = $1', [progA]);
+    await assert.rejects(decide(U.mgrA, [CT.file], 'use'), /payout approval/, 'a bonus needs the money gate');
+    assert.equal((await one('select state from affiliate_content_submissions where id = $1', [CT.file])).state, 'submitted', 'the refusal changed nothing');
+  } finally { await db.query('update profiles set active_company_id = $1 where id = $2', [B, U.mgrA]); }
+  assert.equal((await decide(U.ownerB, [CT.file], 'use')).decided, 0, 'another company cannot touch it');
+  const r = await decide(U.ownerA, [CT.file, CT.link], 'use');
+  assert.equal(r.decided, 1, 'the file is used'); assert.equal(r.skipped, 1, 'the link was already used');
+  assert.equal(Number(r.bonus_cents), 2500);
+  assert.deepEqual((await ledger()).map((l) => [Number(l.amount_cents), l.kind, l.source]), [[2500, 'manual_adjustment', 'manual']]);
+  const again = await decide(U.ownerA, [CT.file], 'use');
+  assert.equal(again.decided, 0, 'a used piece is final');
+  assert.equal((await ledger()).length, 1, 'the bonus is paid once');
+  const row = await one('select state, bonus_cents, bonus_ledger_id is not null as has_line from affiliate_content_submissions where id = $1', [CT.file]);
+  assert.deepEqual([row.state, Number(row.bonus_cents), row.has_line], ['used', 2500, true]);
+  await assert.rejects(db.query('update affiliate_programs set content_bonus_cents = 0 where id = $1', [progA]), /content_bonus_shape/);
+  await db.query('update affiliate_programs set content_bonus_cents = null where id = $1', [progA]);
+});
+
+await check('CT3 files are readable only by the company they belong to; the portal functions are the service role\'s', async () => {
+  const read = async (uid) => {
+    await db.exec(`select set_config('test.uid', '${uid}', false)`);
+    await db.exec('set role authenticated');
+    try { return (await db.query(`select name from storage.objects where bucket_id = 'affiliate-content'`)).rows.map((x) => x.name); }
+    finally { await db.exec('reset role'); await db.exec(`select set_config('test.uid', '', false)`); }
+  };
+  assert.deepEqual(await read(U.memberA), [CT.path], 'a member of the company can view it');
+  assert.deepEqual(await read(U.ownerB), [], 'another company cannot');
+  for (const role of ['anon', 'authenticated']) {
+    for (const f of ['affiliate_portal_content_start(text, text, text, text, text, bigint)', 'affiliate_portal_content_finish(text, uuid)', 'affiliate_portal_content(text)']) {
+      assert.equal((await one(`select has_function_privilege('${role}', 'public.${f}', 'execute') as v`)).v, false, `${role} ${f}`);
+    }
+    for (const op of ['insert', 'update', 'delete']) {
+      assert.equal((await one(`select has_table_privilege('${role}', 'public.affiliate_content_submissions', '${op}') as v`)).v, false, `${role} ${op}`);
+    }
+  }
+  assert.equal((await one(`select has_function_privilege('anon', 'public.affiliate_content_decide(uuid[], text)', 'execute') as v`)).v, false);
+});
+
+await check('CT4 the production verify check for affiliate content reads ok', async () => {
+  await db.exec('reset role');
+  const v = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const i = v.indexOf("select 'Affiliate content uploads and bonuses' as check_name");
   assert.ok(i > 0, 'verify_v2_schema has the check');
   const q = v.slice(i, v.indexOf('end as status;', i) + 'end as status'.length);
   assert.equal((await one(q)).status, 'ok');

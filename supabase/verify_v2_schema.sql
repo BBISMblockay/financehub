@@ -10090,6 +10090,32 @@ select 'Affiliate programs cover only their picked stores' as check_name,
     then 'CRITICAL: affiliate_program_store_url is client-callable'
     else 'ok' end as status;
 
+-- Affiliate content uploads and bonuses (20261117050000).
+select 'Affiliate content uploads and bonuses' as check_name,
+  case when to_regclass('public.affiliate_content_submissions') is null
+      or to_regprocedure('public.affiliate_content_decide(uuid[],text)') is null
+      or to_regprocedure('public.affiliate_portal_content_start(text,text,text,text,text,bigint)') is null
+      or to_regprocedure('public.affiliate_portal_content_finish(text,uuid)') is null
+      or to_regprocedure('public.affiliate_portal_content(text)') is null
+    then 'MISSING: affiliate content; apply 20261117050000'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_content_submissions'::regclass)
+    then 'BROKEN: affiliate_content_submissions has RLS off'
+    when exists (select 1 from (values ('anon'), ('authenticated')) r(role)
+                  where has_table_privilege(r.role, 'public.affiliate_content_submissions', 'insert')
+                     or has_table_privilege(r.role, 'public.affiliate_content_submissions', 'update')
+                     or has_table_privilege(r.role, 'public.affiliate_content_submissions', 'delete')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_content_start(text,text,text,text,text,bigint)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_content_finish(text,uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_portal_content(text)', 'execute'))
+    then 'CRITICAL: a client role can write affiliate content or call the portal content functions'
+    when coalesce((select public from storage.buckets where id = 'affiliate-content'), true)
+    then 'CRITICAL: the affiliate-content bucket is missing or public'
+    when position('can_approve_affiliate_commissions' in pg_get_functiondef('public.affiliate_content_decide(uuid[],text)'::regprocedure)) = 0
+    then 'CRITICAL: a content bonus can be paid without payout approval; apply 20261117050000'
+    when not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_content_bonus_once')
+    then 'BROKEN: a content bonus could be paid twice; apply 20261117050000'
+    else 'ok' end as status;
+
 -- Workspace profile activity containment (outside the Plaid fixture markers).
 select 'Workspace profile editing preserves global activity' as check_name,
   case when to_regprocedure('public.admin_update_profile(uuid,text,text,text,boolean,text)') is null

@@ -149,6 +149,15 @@
     .af-board-head h3 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-2); font-family: var(--bcn-mono); }
     .af-board-cards { display: flex; flex-direction: column; gap: 8px; }
     .af-board-empty { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 4px; }
+    /* Queues: tick rows, then act on the ticked ones. */
+    .af-q { display: flex; flex-direction: column; gap: 8px; }
+    .af-q-bar { align-items: center; margin-bottom: 8px; }
+    .af-q-all { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .af-q-row { display: flex; align-items: flex-start; gap: 10px; }
+    .af-q-row > .af-q-pick { margin-top: 14px; flex: none; }
+    .af-q-body { flex: 1; min-width: 0; }
+    .af-q-row.is-selected .af-item { box-shadow: inset 0 0 0 2px var(--bcn-accent); }
+    .af-content-media { display: block; max-width: 100%; max-height: 220px; border-radius: 8px; background: var(--bcn-band); }
     .af-codes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .af-code-pill { font-family: var(--bcn-mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--bcn-border); background: var(--bcn-bg); }
     .af-kpis-off { display: none !important; }
@@ -576,6 +585,7 @@
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
       <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Home</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="comms" id="tab-comms">Comms</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Money</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="program" id="tab-program">Setup</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="records" id="tab-records">Records</button>
@@ -588,8 +598,10 @@
     <section class="af-panel" data-panel="people" hidden>
       <div class="af-stack" id="affiliatesBody"></div>
       <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
-      <div class="af-stack" id="outreachBody"></div>
     </section>
+    <!-- Comms: every message to a creator or an affiliate, prepped and
+         approved in queues, plus the template they start from. -->
+    <section class="af-panel" data-panel="comms" hidden><div class="af-stack" id="outreachBody"></div></section>
     <section class="af-panel" data-panel="payouts" hidden><div class="af-stack af-stack--pinched" id="payoutsBody"></div></section>
     <!-- Setup: the programme's own settings, and what it shares. -->
     <section class="af-panel" data-panel="program" hidden>

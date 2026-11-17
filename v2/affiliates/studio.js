@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, fillTemplate, outreachTemplate, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, fillTemplate, outreachTemplate, templateRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -296,6 +296,8 @@ async function loadProgramData() {
     // Product seeding (20261113093000). Read fail-soft below: before the
     // migration there is no table, and the page simply has no seeding.
     seeds: by('affiliate_seed_claims').order('requested_at', { ascending: false }).limit(300),
+    // Affiliate content (20261117050000), fail-soft like seeding.
+    content: by('affiliate_content_submissions').neq('state', 'uploading').order('submitted_at', { ascending: false }).limit(200),
     // The payout rail (20261113040000). The status VIEW, never the connection
     // table: the credentials are not readable by a browser session at all.
     payConn: db.from('affiliate_payout_connection_status_v').select('*').eq('provider', 'paypal').maybeSingle(),
@@ -314,6 +316,7 @@ async function loadProgramData() {
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
     if (r.error && keys[i] === 'seeds') { d.seeds = null; return; }
+    if (r.error && keys[i] === 'content') { d.content = null; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
@@ -324,6 +327,15 @@ async function loadProgramData() {
     d.payouts.forEach((x) => { x.item_count = n[x.id] || 0; });
   }
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
+  // Files are private: a signed URL for each one on screen, for an hour.
+  d.contentUrl = {};
+  const files = (d.content || []).filter((x) => x.kind === 'file' && x.storage_path && ['submitted', 'approved', 'used'].includes(x.state)).slice(0, 60);
+  if (files.length) {
+    try {
+      const { data: urls } = await db.storage.from('affiliate-content').createSignedUrls(files.map((x) => x.storage_path), 3600);
+      for (const u of urls || []) if (u?.signedUrl && u.path) d.contentUrl[u.path] = u.signedUrl;
+    } catch { /* no preview: the row still shows */ }
+  }
   // maybeSingle() answers one row, not a list.
   d.payConn = Array.isArray(d.payConn) ? (d.payConn[0] || null) : (d.payConn || null);
   d.payEmailByAff = Object.fromEntries((d.payAccounts || []).filter((x) => x.payout_email).map((x) => [x.affiliate_id, x.payout_email]));
@@ -443,6 +455,25 @@ function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'st
   const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
   return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
 }
+// ── Queues ───────────────────────────────────────────────────────────────
+// Blake, 2026-11-17: "selection boxes or approved queues". Tick rows, then
+// act on the ticked ones; nothing moves until a person presses. Each queue
+// keeps its own ticks, and a tick on a row that left the queue is dropped.
+const QSEL = {}; const QROWS = {};
+const qsel = (k) => (QSEL[k] ||= new Set());
+function queue(k, rows, renderRow, actions, emptyText) {
+  const sel = qsel(k);
+  const ids = rows.map((r) => r.id); QROWS[k] = ids;
+  for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
+  if (!rows.length) return empty(emptyText);
+  const can = actions.length > 0;
+  const all = ids.every((id) => sel.has(id));
+  const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
+  const pick = (r) => (can ? `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />` : '');
+  return `${bar}<div class="af-q" role="list">${rows.map((r) => `<div class="af-q-row${sel.has(r.id) ? ' is-selected' : ''}" role="listitem">${pick(r)}<div class="af-q-body">${renderRow(r)}</div></div>`).join('')}</div>`;
+}
+const picked = (k) => [...qsel(k)];
+
 function personAvatar(person, size = 'lg') {
   const g = globalThis.SiloAvatar;
   if (g?.html) return g.html(person, size, 'af-item-avatar');
@@ -540,7 +571,8 @@ function renderWorkflowTabCounts() {
   const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
   const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
   const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
-  const counts = { people: Number(h.prospects_new || 0) + msgN + onboardN, payouts: payN };
+  const contentN = (d.content || []).filter((x) => x.state === 'submitted').length;
+  const counts = { people: Number(h.prospects_new || 0) + onboardN + contentN, comms: msgN, payouts: payN };
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const n = counts[b.dataset.tab];
     let badge = b.querySelector('.af-tab-count');
@@ -555,14 +587,15 @@ function renderWorkflowTabCounts() {
 // SECTION inside a panel, and PANEL_OF says which panel holds each one.
 const PANEL_OF = {
   overview: 'overview', people: 'people', payouts: 'payouts', program: 'program', records: 'records',
-  prospects: 'people', outreach: 'people', affiliates: 'people', share: 'program',
+  prospects: 'people', outreach: 'comms', comms: 'comms', affiliates: 'people', share: 'program',
 };
 // Where a panel's "no program yet" message goes, since People and Setup each
 // hold more than one body.
-const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
+const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', comms: 'outreachBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
 const PANEL_RENDERERS = {
   overview: [renderOverview],
-  people: [renderAffiliates, renderProspects, renderOutreach],
+  people: [renderAffiliates, renderProspects],
+  comms: [renderOutreach],
   payouts: [renderPayoutsTab],
   program: [renderProgram, renderShare],
   records: [renderRecords],
@@ -635,6 +668,8 @@ function todoItems() {
   add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'people', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '');
   const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
   add(seedCodes, `${num(seedCodes)} product code(s) waiting for your MCP agent to create in Shopify.`, 'people', MANAGE ? btn('Copy prompt', 'copy-codes-prompt', {}, 'surface') : '');
+  const contentAsks = (d.content || []).filter((x) => x.state === 'submitted').length;
+  add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'affiliates');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
   add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts', btn(`Build ${num(owed)} payout(s)`, 'q-payouts', {}, 'primary'));
   const toApprove = d.payouts.filter((x) => x.status === 'draft').length;
@@ -712,6 +747,8 @@ const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty
 // The program's own outreach message exists once 20261111020000 is applied.
 // Product seeding exists once 20261113093000 is applied.
 const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'seeding_enabled'));
+// Content bonus exists once 20261117050000 is applied.
+const hasContentBonus = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'content_bonus_cents'));
 const storesCard = (p, dis) => {
   const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
   if (!hasStorePick() || st.length < 2) return '';
@@ -758,6 +795,7 @@ function renderProgram(isNew = S.creating) {
     setRow('Pay affiliates', seg('pPayMethod', [['manual', 'By hand'], ['paypal_payouts', 'PayPal']], p.payout_method ?? 'manual', dis)),
     setRow('Payout minimum', `<div class="af-set-unit">${setInput('pMin', `${dis} inputmode="decimal" placeholder="0" value="${esc(major(p.payout_minimum_cents))}"`)}<span>${cur}</span></div>`),
     setRow('Payable after', `<div class="af-set-unit">${setInput('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`)}<span>days</span></div>`),
+    hasContentBonus() ? setRow('Content bonus', `<div class="af-set-unit">${setInput('pBonus', `${dis} inputmode="decimal" placeholder="—" value="${esc(major(p.content_bonus_cents))}"`)}<span>${cur} per piece you use</span></div>`) : '',
   ].join(''));
   const seeding = hasSeeding() ? card('Product seeding', [
     setRow('Offer products', seg('pSeedOn', [['1', 'On'], ['0', 'Off']], p.seeding_enabled === false ? '0' : '1', dis)),
@@ -770,10 +808,8 @@ function renderProgram(isNew = S.creating) {
     setRow('Countries', setInput('pGeo', `${dis} value="${esc((p.geographies || []).join(', '))}" placeholder="US, CA"`)),
     setRow('Platforms', `<div class="af-chips-tog">${plats.map((x) => `<button type="button" class="af-chip-tog pPlat${(p.platforms || []).includes(x) ? ' is-on' : ''}" data-plat="${x}" aria-pressed="${(p.platforms || []).includes(x)}" ${dis}>${esc(PLATFORM_NAMES[x] || x)}</button>`).join('')}</div>`),
   ].join(''));
-  const message = hasOutreachMessage() ? card('Message to creators', [
-    setRow('Subject', setInput('pOutSubject', `${dis} maxlength="200" value="${esc(outreachTemplate(p).subject)}"`)),
-    setRow('Message', `<textarea class="bcn-field af-set-input" id="pOutBody" rows="8" ${dis}>${esc(outreachTemplate(p).body)}</textarea><div class="af-set-tags">${['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'].map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>`),
-  ].join('')) : '';
+  // The message to creators is prepped on Comms now (Blake, 2026-11-17).
+  const message = '';
   const terms = card(`Terms${p.terms_version ? ` · v${p.terms_version}` : ''}`,
     `<textarea class="bcn-field af-set-input" id="pTerms" rows="8" ${dis} placeholder="Commission, crediting, refunds, payouts, rules">${esc(p.terms_markdown || '')}</textarea>`);
   const codes = card('Codes', [
@@ -878,7 +914,7 @@ function readProgramForm() {
     ...($('pPayMethod') ? { payout_method: val('pPayMethod') } : {}),
     ...(hasAutoCode() ? { default_discount_percent: val('pAutoPct') } : {}),
     ...($('programBody')?.querySelector('.pStore') ? { shop_domains: [...document.querySelectorAll('.pStore')].map((x) => ({ d: x.dataset.store, on: x.classList.contains('is-on') })) } : {}),
-    ...(hasOutreachMessage() ? { outreach_subject: val('pOutSubject'), outreach_body: $('pOutBody').value } : {}),
+    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
   });
 }
@@ -1024,8 +1060,8 @@ function renderProspects() {
 
 // ── Outreach ─────────────────────────────────────────────────────────────
 function renderOutreach() {
-  const d = S.d;
-  const byState = (s) => d.drafts.filter((x) => (Array.isArray(s) ? s.includes(x.state) : x.state === s));
+  const d = S.d; const p = prog();
+  const byState = (st) => d.drafts.filter((x) => (Array.isArray(st) ? st.includes(x.state) : x.state === st));
   const who = (x) => `${esc(x.recipient_email || x.recipient_handle)}<div class="af-muted">${esc(d.prospectById[x.prospect_id]?.display_name || '')} · ${esc(x.channel)}</div>`;
   const msg = (x) => `<div class="af-evidence"><strong>${esc(x.subject)}</strong><br>${esc(String(x.body || '').slice(0, 220))}${String(x.body || '').length > 220 ? '…' : ''}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
@@ -1033,15 +1069,29 @@ function renderOutreach() {
   // the approver's own mailbox, and a send it recorded. Null for a person.
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
-  const draftCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? `${btn('Edit', 'draft-edit', { id: x.id })}${btn('Approve', 'draft-approve', { id: x.id }, 'primary')}${btn('Delete', 'draft-delete', { id: x.id }, 'ghost', { confirm: true })}` : ''}</div></article>`;
-  const approvedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div></article>`;
+  const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Edit', 'draft-edit', { id: x.id }) : ''}</div></article>`;
+  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div></article>`;
   const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
-  const boardCol = (title, items, render, empty) => `<section class="af-board-col"><header class="af-board-head"><h3>${esc(title)}</h3>${items.length ? pill(String(items.length), 'accent') : ''}</header><div class="af-board-cards">${items.length ? items.map(render).join('') : `<p class="af-board-empty">${esc(empty)}</p>`}</div></section>`;
+  const drafts = byState('draft'); const ready = byState('approved'); const out = byState('exported');
+  const canSend = (d.aiApps || []).some((a) => a.canSend);
+  const tpl = outreachTemplate(p);
+  const TAGS = ['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'];
+  // The emails SILO sent affiliates on its own (invites, codes, payouts).
+  const NOTE_KIND = { signup_invite: 'Invite', signup_confirmation: 'Welcome', portal_link: 'Portal link', link_renewal: 'New portal link', codes_and_links: 'Codes and links', payout_status: 'Payout' };
+  const noteRow = (n) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' '))} · ${esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—')} ${statusPill(n.status)}</div><div class="af-muted">${fmtTime(n.created_at)}${n.status !== 'sent' && n.reason ? ` · ${esc(n.reason)}` : ''}</div></div></article>`;
   $('outreachBody').innerHTML = [
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    surface('Messages', `<div class="af-board">${boardCol('Drafts', byState('draft'), draftCard, 'No drafts. Approve a creator on Recruiting to draft one.')}${boardCol('Ready to send', byState('approved'), approvedCard, 'Nothing approved yet.')}${boardCol('Mark sent', byState('exported'), exportedCard, 'Nothing is waiting.')}</div>
+    surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+      'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`),
+    surface('Ready to send', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
       ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${(d.aiApps || []).some((a) => a.canSend) ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && byState('approved').length ? btn(`Or export ${byState('approved').length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${byState('draft').length + byState('approved').length + byState('exported').length} in the workflow`),
+      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Or export ${ready.length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`),
+    out.length ? surface('Mark sent', itemList(out, exportedCard), `${num(out.length)} exported`) : '',
+    hasOutreachMessage() ? card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
+      ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
+      <div class="af-set-tags">${TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save template', 'tpl-save', {}, 'primary')}${drafts.length ? btn(`Redraft ${num(drafts.length)} waiting`, 'tpl-redraft', {}, 'surface', { confirm: true }) : ''}</div>` : ''}`, 'New drafts start from this') : '',
+    card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'),
     more('Message history', [
     card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
     card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.')),
@@ -1102,9 +1152,63 @@ function seedsCard() {
       <div class="af-item-head">${esc(c.product_title)} · ${esc(a?.display_name || '—')} ${pill(v.label, v.tone)}</div>
       ${sub ? `<div class="af-kv-line">${sub}</div>` : ''}${bar}</div>${acts ? `<div class="af-item-foot">${acts}</div>` : ''}</article>`;
   };
-  const asks = rows.filter((x) => x.state === 'requested').length;
+  const asks = rows.filter((x) => x.state === 'requested');
+  const rest = rows.filter((x) => x.state !== 'requested');
   const meta = p.seeding_enabled ? `${esc(Number(p.seed_discount_percent))}% off · sell ${esc(Number(p.seed_multiple))}×` : 'Off';
-  return surface('Products', `${MANAGE && asks > 1 ? `<div class="af-row">${btn(`Approve all ${num(asks)}`, 'q-seeds', {}, 'primary')}</div>` : ''}${itemList(rows, row, 'No product requests yet. Affiliates ask from their portal.')}`, meta);
+  const acts = MANAGE ? [['Approve selected', 'q-seed-ok', 'primary'], ['Decline selected', 'q-seed-no']] : [];
+  return surface('Products', `${asks.length ? queue('seeds', asks, row, acts, '') : ''}${rest.length ? itemList(rest, row) : asks.length ? '' : empty('No product requests yet. Affiliates ask from their portal.')}`, meta);
+}
+
+// ── Content ──────────────────────────────────────────────────────────────
+// What affiliates made for the brand (20261117050000). Use = the brand picked
+// it, and pays the program's content bonus once through the normal payout
+// approval. Nothing is decided without a press.
+async function contentDecide(ids, decision) {
+  if (!ids.length) return 'Tick at least one.';
+  const { data, error } = await db.rpc('affiliate_content_decide', { p_ids: ids, p_decision: decision });
+  if (error) throw new Error(error.message.replace(/^affiliate_content_\w+:\s*/, ''));
+  qsel('content').clear();
+  const n = Number(data?.decided || 0); const skipped = Number(data?.skipped || 0); const paid = Number(data?.bonus_cents || 0);
+  const word = { approve: 'approved', use: 'used', decline: 'declined' }[decision];
+  return `${num(n)} ${word}.${paid ? ` ${money(paid)} in bonuses added; it pays with the next payout.` : ''}${skipped ? ` ${num(skipped)} skipped (already decided).` : ''}`;
+}
+const CONTENT_PILL = { submitted: ['To review', 'warn'], approved: ['Approved', 'pos'], used: ['Used', 'pos'], declined: ['Declined', ''] };
+function contentCard() {
+  const d = S.d; const p = prog();
+  if (!d.content) return '';
+  const bonus = Number(p.content_bonus_cents || 0);
+  const media = (x) => {
+    if (x.kind === 'link') return `<div class="af-kv-line">${ext(x.link_url, x.link_url)}</div>`;
+    const u = d.contentUrl?.[x.storage_path];
+    if (!u) return `<div class="af-muted">${esc(/^video\//.test(x.file_type || '') ? 'Video' : 'Photo')}</div>`;
+    return /^video\//.test(x.file_type || '')
+      ? `<video class="af-content-media" src="${esc(u)}" controls preload="metadata"></video>`
+      : `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" /></a>`;
+  };
+  const row = (x) => {
+    const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
+    const a = d.affById[x.affiliate_id];
+    const paid = x.state === 'used' && x.bonus_cents ? ` · +${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
+    return `<article class="af-item af-item--compact"><div class="af-item-body">
+      <div class="af-item-head">${esc(a?.display_name || '—')} ${pill(label, tone)}</div>
+      ${media(x)}${x.caption ? `<div class="af-kv-line">${esc(x.caption)}</div>` : ''}
+      <div class="af-muted">${fmtDate(x.submitted_at)}${paid}</div></div></article>`;
+  };
+  const waiting = d.content.filter((x) => x.state === 'submitted');
+  const approved = d.content.filter((x) => x.state === 'approved');
+  const done = d.content.filter((x) => ['used', 'declined'].includes(x.state)).slice(0, 30);
+  const useLabel = bonus ? `Use selected (+${money(bonus)} each)` : 'Use selected';
+  // Using a piece with a bonus is a money decision: only payout approvers.
+  const canUse = MANAGE && (!bonus || MONEY);
+  const actsNew = MANAGE ? [...(canUse ? [[useLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []), ['Approve selected', 'q-content-ok'], ['Decline selected', 'q-content-no']] : [];
+  const actsOk = MANAGE ? [...(canUse ? [[useLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []), ['Decline selected', 'q-content-no']] : [];
+  const meta = bonus ? `Used content earns ${money(bonus)}` : 'No content bonus set';
+  return surface('Content', [
+    waiting.length ? `<h3 class="af-settings-title">To review</h3>${queue('content', waiting, row, actsNew, '')}` : '',
+    approved.length ? `<h3 class="af-settings-title">Approved</h3>${queue('contentOk', approved, row, actsOk, '')}` : '',
+    done.length ? `<h3 class="af-settings-title">Decided</h3>${itemList(done, row)}` : '',
+    d.content.length ? '' : empty('No content yet. Affiliates share it from their portal.'),
+  ].join(''), meta);
 }
 
 // ── Affiliates ───────────────────────────────────────────────────────────
@@ -1171,6 +1275,7 @@ function renderAffiliates() {
       : itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website in Setup to turn on affiliate links.</div>` : '',
     seedsCard(),
+    contentCard(),
     more('Codes and links', [
       MANAGE ? card('Give an affiliate a code', `<div class="af-grid--settings">
       ${field('Affiliate', `<select class="bcn-field" id="cAff">${affOpts}</select>`)}
@@ -1536,7 +1641,9 @@ function payoutPayHtml() {
     : `<p class="af-muted">Pay from your bank or payment tool, then record it. Payable ${num(p.refund_hold_days)} days after the order.</p>`,
   payConnCard(),
   surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
-  surface('Payouts', `${itemList(d.payouts, payoutRow, 'No payouts yet.')}
+  d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
+    MONEY ? [['Approve selected', 'q-payout-ok', 'primary', { confirm: true }]] : [], ''), `${num(d.payouts.filter((x) => x.status === 'draft').length)} draft(s)`) : '',
+  surface('Payouts', `${itemList(d.payouts.filter((x) => x.status !== 'draft'), payoutRow, 'No payouts yet.')}
     ${MANAGE && (approved.length || sendable.length) ? `<div class="af-row" style="margin-top:8px;">${
       // Pay day is one button, not one per affiliate. Each payout is still its
       // own attempt, its own idempotency key and its own row -- the loop is in
@@ -1829,6 +1936,54 @@ const A = {
   'prospect-select-all': () => { for (const id of S.viewIds || []) S.sel.add(id); render(); return null; },
   'prospect-select-none': () => { S.sel.clear(); render(); return null; },
   'prospect-bulk': async ({ s }) => bulkProspects([...S.sel], s),
+  // Queues: tick one, tick all, then act on the ticked rows.
+  'q-pick': ({ q, id }) => { const sel = qsel(q); if (sel.has(id)) sel.delete(id); else sel.add(id); render(); return null; },
+  'q-all': ({ q }) => { const sel = qsel(q); const ids = QROWS[q] || []; if (ids.length && ids.every((id) => sel.has(id))) sel.clear(); else ids.forEach((id) => sel.add(id)); render(); return null; },
+  'q-msg-ok': async () => {
+    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
+    const rows = await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: ids, state: 'draft' });
+    qsel('msgs').clear();
+    return `${num(rows.length)} message(s) approved.${rows.length < ids.length ? ` ${num(ids.length - rows.length)} were no longer drafts.` : ''}`;
+  },
+  'q-msg-del': async () => {
+    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
+    const r = must(await db.from('affiliate_outreach_drafts').delete().in('id', ids).eq('state', 'draft').eq('company_entity_id', CO).select('id'));
+    qsel('msgs').clear();
+    return `${num(r.length)} draft(s) deleted.`;
+  },
+  'q-seed-ok': async () => { const ids = picked('seeds'); if (!ids.length) return 'Tick at least one.'; const m = await seedDecide(ids, true); qsel('seeds').clear(); return m; },
+  'q-seed-no': async () => { const ids = picked('seeds'); if (!ids.length) return 'Tick at least one.'; const m = await seedDecide(ids, false); qsel('seeds').clear(); return m; },
+  'q-content-use': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'use'); qsel(q).clear(); return m; },
+  'q-content-ok': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'approve'); qsel(q).clear(); return m; },
+  'q-content-no': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'decline'); qsel(q).clear(); return m; },
+  'q-payout-ok': async () => {
+    const ids = picked('payouts'); if (!ids.length) return 'Tick at least one.';
+    let ok = 0; let failed = 0;
+    for (const id of ids) { const { error } = await db.rpc('affiliate_approve_payout', { p_payout: id }); if (error) failed += 1; else ok += 1; }
+    qsel('payouts').clear();
+    if (!ok && failed) throw new Error('No payout was approved. Approve them one at a time to see why.');
+    return `${num(ok)} payout(s) approved${failed ? `, ${num(failed)} not approved` : ''}.`;
+  },
+  'tpl-save': async () => {
+    const { row, errors } = templateRow(val('tplSubject'), $('tplBody').value);
+    if (errors.length) throw new Error(errors.join(' '));
+    await updateRows('affiliate_programs', { ...row, changed_by: me.id }, { id: S.programId });
+    return 'Template saved. New drafts start from it.';
+  },
+  // Waiting drafts re-filled from the saved template; approved ones are left alone.
+  'tpl-redraft': async () => {
+    const tpl = outreachTemplate(prog());
+    const drafts = S.d.drafts.filter((x) => x.state === 'draft' && S.d.prospectById[x.prospect_id]);
+    let n = 0;
+    for (const x of drafts) {
+      const vars = outreachVars(S.d.prospectById[x.prospect_id]);
+      try {
+        const rows = await updateRows('affiliate_outreach_drafts', { subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), changed_by: me.id, updated_at: new Date().toISOString() }, { id: x.id, state: 'draft' });
+        n += rows.length;
+      } catch { /* approved meanwhile: left as approved */ }
+    }
+    return `${num(n)} draft(s) redrafted from the template.`;
+  },
   'ov-window': ({ n }) => { S.ovDays = Number(n) === 90 ? 90 : 30; render(); },
   'ov-rank': ({ r }) => { S.ovRank = ['sales', 'orders', 'growth'].includes(r) ? r : 'sales'; render(); },
   'ov-filter': ({ f }) => { S.ovFilter = f; render(); },
@@ -1981,8 +2136,7 @@ const A = {
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
       subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
     }));
-    S.tab = 'people';
-    return 'Draft created. Review it on the Outreach tab.';
+    return 'Draft created. Approve it on Comms.';
   },
   'draft-edit': ({ id }) => { S.editDraft = id; render(); },
   'draft-edit-close': () => { S.editDraft = null; render(); },
