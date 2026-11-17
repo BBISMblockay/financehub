@@ -611,9 +611,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const PA9 = '99999999-9999-4999-8999-999999999999';
     const catchUp = await suite.open('/v2/affiliates/index.html',
       { ...tables, affiliate_notifications: [], affiliate_payouts: [
-        { id: PY2, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: null },
-        { id: PX, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: '2026-01-01T00:00:00Z', paid_notice_claimed_at: null },
-        { id: PA9, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: new Date().toISOString() },
+        { id: PY2, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: null, paid_notice_done_at: null },
+        { id: PX, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: '2026-01-01T00:00:00Z', paid_notice_claimed_at: null, paid_notice_done_at: null },
+        { id: PA9, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'marked_paid', amount_cents: 900, currency: 'USD', item_count: 1, created_at: now, approved_at: now, marked_paid_at: new Date().toISOString(), paid_notice_claimed_at: new Date().toISOString(), paid_notice_done_at: new Date().toISOString() },
       ] },
       { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true }, edge: { 'affiliate-invite': { status: 200, body: { email: 'sent' } } } });
     catchUp.on('pageerror', (e) => errors.push(e.message));

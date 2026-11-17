@@ -32,6 +32,8 @@ import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, form
 
 // Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
+// A paid-payout email claim older than this was abandoned and may be taken again.
+const PAID_CLAIM_STALE_MS = 15 * 60 * 1000;
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -342,18 +344,33 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           const words = { approved: 'has been approved and is being prepared', exported: 'has been approved and sent for payment', marked_paid: 'has been paid' };
           if (!words[po.status]) return reply({ error: `A ${po.status} payout is not announced to the affiliate.` }, 409);
           // A paid payout is announced ONCE, however many paths or tabs ask
-          // (Record as paid, a PayPal send, the Studio's catch-up on load):
-          // the email is RESERVED by one conditional update before it is sent,
-          // so of two concurrent asks only one wins. Unreadable state fails
-          // closed -- no reservation, no email (20261117040000).
+          // (Record as paid, a PayPal send, the Studio's catch-up on load).
+          // Two marks on the payout (20261117040000):
+          //   paid_notice_done_at    -- terminal: sent, or skipped on purpose.
+          //   paid_notice_claimed_at -- a send in flight. One conditional
+          //     update takes it, so of two concurrent asks only one sends. A
+          //     claim older than PAID_CLAIM_STALE_MS was abandoned (a crash, a
+          //     release that failed) and may be taken again; the provider's
+          //     idempotency key keeps a retry of an unknown outcome to one email.
+          // Unreadable state fails closed -- no claim, no email.
           const paid = po.status === 'marked_paid';
           if (paid) {
+            const stale = new Date(Date.now() - PAID_CLAIM_STALE_MS).toISOString();
             const { data: claim, error: claimErr } = await service.from('affiliate_payouts')
               .update({ paid_notice_claimed_at: new Date().toISOString() })
-              .eq('id', po.id).eq('company_entity_id', company).eq('status', 'marked_paid').is('paid_notice_claimed_at', null)
+              .eq('id', po.id).eq('company_entity_id', company).eq('status', 'marked_paid').is('paid_notice_done_at', null)
+              .or(`paid_notice_claimed_at.is.null,paid_notice_claimed_at.lt.${stale}`)
               .select('id');
             if (claimErr) return reply({ email: 'not_sent', reason: 'could not reserve the payout email; it is tried again later' });
             if (!Array.isArray(claim) || !claim.length) return reply({ email: 'already_sent', reason: null });
+            // A send whose done mark was lost is still on the log: finish it, send nothing.
+            const { data: prior, error: priorErr } = await service.from('affiliate_notifications').select('id')
+              .eq('company_entity_id', company).eq('payout_id', po.id).eq('kind', 'payout_status').eq('status', 'sent').limit(1);
+            if (priorErr) return reply({ email: 'not_sent', reason: 'could not read the email log; it is tried again later' });
+            if (Array.isArray(prior) && prior.length) {
+              await service.from('affiliate_payouts').update({ paid_notice_done_at: new Date().toISOString() }).eq('id', po.id).eq('company_entity_id', company);
+              return reply({ email: 'already_sent', reason: null });
+            }
           }
           const amount = formatMoney(po.amount_cents, po.currency);
           const paras = [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} affiliate payout of <strong>${escapeHtml(amount)}</strong> ${words[po.status]}.`];
@@ -366,9 +383,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           // do-not-contact check or the mail provider failed) gives the
           // reservation back, so a later load retries. A deliberate skip
           // keeps it: there is no address, or the person asked not to hear.
-          if (paid && mail.status !== 'sent' && !DELIBERATE_SKIPS.has(mail.reason)) {
-            await service.from('affiliate_payouts').update({ paid_notice_claimed_at: null })
+          // Sent, or skipped on purpose (no address, asked not to hear): done.
+          // Anything else gives the claim back so a later load retries; if
+          // either write fails, the claim goes stale and is taken again.
+          if (paid) {
+            const done = mail.status === 'sent' || DELIBERATE_SKIPS.has(mail.reason);
+            const { error: markErr } = await service.from('affiliate_payouts')
+              .update(done ? { paid_notice_done_at: new Date().toISOString() } : { paid_notice_claimed_at: null })
               .eq('id', po.id).eq('company_entity_id', company);
+            if (markErr) console.error('[affiliate-invite] could not record the payout email outcome', markErr.message);
           }
           return reply({ email: mail.status, reason: mail.reason ?? null });
         }

@@ -9,7 +9,8 @@
 --    "your payout was paid" email with one conditional update before sending,
 --    so two tabs or managers asking at once send it once. A send that failed
 --    for a reason SILO can fix releases the reservation for a retry; a
---    deliberate skip (no address, do-not-contact) keeps it.
+--    deliberate skip (no address, do-not-contact) is final (paid_notice_done_at).
+--    A claim abandoned for 15 minutes (a crash, a failed release) is taken again.
 --    affiliate_notifications.payout_id records which payout a notice was for.
 --
 -- Apply AFTER 20261117030000 (it reads affiliate_programs.shop_domains) and
@@ -307,6 +308,11 @@ comment on column public.affiliate_notifications.payout_id is
 
 alter table public.affiliate_payouts
   add column if not exists paid_notice_claimed_at timestamptz;
+alter table public.affiliate_payouts
+  add column if not exists paid_notice_done_at timestamptz;
+
+comment on column public.affiliate_payouts.paid_notice_done_at is
+  'When this paid payout''s "your payout was paid" email was sent, or skipped on purpose (no address, do-not-contact). Terminal: affiliate-invite never claims it again. 20261117040000.';
 
 comment on column public.affiliate_payouts.paid_notice_claimed_at is
-  'When affiliate-invite reserved this paid payout''s "your payout was paid" email. Set by one conditional update before sending, so concurrent asks send once; cleared again only when the send failed for a retryable reason. NULL on a paid payout = not announced yet. 20261117040000.';
+  'A "your payout was paid" email in flight: set by one conditional update before sending, so concurrent asks send once; cleared when the send failed for a fixable reason. A claim older than 15 minutes with no paid_notice_done_at was abandoned and may be taken again (the provider idempotency key keeps that to one email). 20261117040000.';

@@ -168,16 +168,17 @@ async function tellPayout(id) {
 }
 // Every way a payout becomes paid (Record as paid, Send, Send all, a pending
 // PayPal payment that settles later) ends in a reload, and this catches up:
-// a payout paid in the last 14 days whose email was never reserved is
-// announced. affiliate-invite reserves the email in the database before
-// sending (affiliate_payouts.paid_notice_claimed_at), so two tabs cannot
-// double it. Before 20261117040000 the field is absent and nothing is sent.
+// a payout paid in the last 14 days whose email is not done (and not in
+// flight in the last 15 minutes) is announced. affiliate-invite claims the
+// email in the database before sending, so two tabs cannot double it.
+// Before 20261117040000 the fields are absent and nothing is sent.
 const PAID_NOTICE_DAYS = 14;
 async function announcePaidPayouts() {
   if (!MANAGE) return;
   const since = Date.now() - PAID_NOTICE_DAYS * 86400000;
   const due = (S.d?.payouts || []).filter((x) => x.status === 'marked_paid' && !told.has(x.id)
-    && Object.prototype.hasOwnProperty.call(x, 'paid_notice_claimed_at') && x.paid_notice_claimed_at == null
+    && Object.prototype.hasOwnProperty.call(x, 'paid_notice_done_at') && x.paid_notice_done_at == null
+    && (x.paid_notice_claimed_at == null || Date.now() - new Date(x.paid_notice_claimed_at).getTime() > 15 * 60000)
     && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since);
   for (const x of due) await tellPayout(x.id);
 }
