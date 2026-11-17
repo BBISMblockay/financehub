@@ -338,12 +338,23 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           // with a reference. A draft is not news to send anyone.
           const words = { approved: 'has been approved and is being prepared', exported: 'has been approved and sent for payment', marked_paid: 'has been paid' };
           if (!words[po.status]) return reply({ error: `A ${po.status} payout is not announced to the affiliate.` }, 409);
+          // A paid payout is announced ONCE, however many paths ask (Record
+          // as paid, a PayPal send, the Studio's catch-up on load). Until
+          // 20261117030000 adds payout_id the read errors and nothing is
+          // de-duplicated, which is the old behaviour.
+          const paid = po.status === 'marked_paid';
+          if (paid) {
+            const { data: prior, error: priorErr } = await service.from('affiliate_notifications').select('id')
+              .eq('company_entity_id', company).eq('payout_id', po.id).eq('kind', 'payout_status').eq('status', 'sent').limit(1);
+            if (!priorErr && Array.isArray(prior) && prior.length) return reply({ email: 'already_sent', reason: null });
+          }
           const amount = formatMoney(po.amount_cents, po.currency);
           const paras = [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} affiliate payout of <strong>${escapeHtml(amount)}</strong> ${words[po.status]}.`];
           if (po.status === 'marked_paid' && po.external_reference) paras.push(`Payment reference: ${escapeHtml(po.external_reference)}`);
           const { html, text } = renderMail({ brand, heading: 'Payout update', paragraphs: paras, footer: 'Reply to this email if anything looks wrong.' });
           const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
-            kind, to: a.contact_email, subject: `${brand}: payout ${po.status === 'marked_paid' ? 'paid' : 'update'}`, html, text, triggeredBy: actor });
+            kind, to: a.contact_email, subject: `${brand}: payout ${po.status === 'marked_paid' ? 'paid' : 'update'}`, html, text, triggeredBy: actor,
+            ...(paid ? { payoutId: po.id } : {}) });
           return reply({ email: mail.status, reason: mail.reason ?? null });
         }
         return reply({ error: 'kind must be codes_and_links or payout_status' }, 400);

@@ -120,6 +120,13 @@ function autoRefreshMark(id, clear = false) {
   try { if (clear) localStorage.removeItem(autoKey(id)); else localStorage.setItem(autoKey(id), String(Date.now())); } catch (_) { /* per-browser convenience only */ }
 }
 let autoRefreshing = null;
+// Something typed and not yet saved, or a field in use, on the page.
+function formDirty() {
+  const a = document.activeElement;
+  if (a && a.matches?.('input, textarea, select')) return true;
+  return [...document.querySelectorAll('.af-panel input, .af-panel textarea')].some((el) =>
+    (el.type === 'checkbox' || el.type === 'radio') ? el.checked !== el.defaultChecked : (el.type !== 'file' ? el.value !== el.defaultValue : !!el.files?.length));
+}
 async function autoRefreshCreators(id) {
   if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;
   const pros = S.d?.prospects || [];
@@ -133,19 +140,45 @@ async function autoRefreshCreators(id) {
       wantStats ? invoke('affiliate-research', { action: 'refresh_stats', program_id: id }).catch(() => null) : null,
     ]);
     // Redraw only when something changed and the person is still on this program.
-    if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && S.programId === id && !S.creating && S.tab !== 'program') await reload();
+    // Never under someone's typing: a half-filled form (a payment reference,
+    // a prospect by hand) would be redrawn empty. The new photos then show on
+    // the next redraw instead.
+    if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && S.programId === id && !S.creating && S.tab !== 'program' && !formDirty()) await reload();
   } finally { autoRefreshing = null; }
 }
 
 // The affiliate hears about a payment without anyone pressing a button.
 // Fail-soft: the payment is recorded either way; the reply says if no email went.
+const told = new Set();   // payouts this page already asked to announce
 async function tellPayout(id) {
   const aff = (S.d?.payouts || []).find((x) => x.id === id)?.affiliate_id;
-  if (!aff) return '';
+  if (!aff || told.has(id)) return '';
+  told.add(id);
   try {
     const out = await invoke('affiliate-invite', { action: 'notify', affiliate_id: aff, kind: 'payout_status', payout_id: id });
+    if (out.email === 'already_sent') return ' The affiliate was already emailed.';
     return out.email === 'sent' ? ' The affiliate was emailed.' : ` Not emailed: ${out.reason || out.email}.`;
   } catch (e) { return ` Not emailed: ${e.message}.`; }
+}
+// Every way a payout becomes paid (Record as paid, Send, Send all, a pending
+// PayPal payment that settles later) ends in a reload, and this catches up:
+// a payout paid in the last 14 days with no notice sent or deliberately
+// skipped is announced. affiliate-invite sends a paid notice once per payout,
+// so two tabs cannot double it. Before 20261117030000 the read fails and
+// nothing is sent from here.
+const PAID_NOTICE_DAYS = 14;
+async function announcePaidPayouts() {
+  if (!MANAGE) return;
+  const since = Date.now() - PAID_NOTICE_DAYS * 86400000;
+  const paid = (S.d?.payouts || []).filter((x) => x.status === 'marked_paid' && !told.has(x.id) && x.marked_paid_at && new Date(x.marked_paid_at).getTime() >= since);
+  if (!paid.length) return;
+  try {
+    const { data, error } = await db.from('affiliate_notifications').select('payout_id, status')
+      .eq('company_entity_id', CO).eq('kind', 'payout_status').in('payout_id', paid.map((x) => x.id));
+    if (error || !Array.isArray(data)) return;
+    const done = new Set(data.filter((n) => n.status === 'sent' || n.status === 'skipped').map((n) => n.payout_id));
+    for (const x of paid) if (!done.has(x.id)) await tellPayout(x.id);
+  } catch (_) { /* the payment is recorded either way */ }
 }
 // Same for a code a person added that is live now.
 async function tellCodes(aff) {
@@ -308,6 +341,7 @@ async function loadProgramData() {
   const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
   if (live && S.watching !== live.id) watchResearch(live.id);
   autoRefreshCreators(p.id);
+  announcePaidPayouts();
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
 

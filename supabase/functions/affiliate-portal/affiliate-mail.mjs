@@ -84,13 +84,15 @@ export async function resolveAffiliateSender(service, { companyId, programId, fa
  */
 export async function sendAffiliateMail(deps, msg) {
   const { service, resendKey, fetchImpl = fetch, fallbackFrom = 'SILO <notifications@get-silo.com>' } = deps;
-  const { companyId, programId = null, affiliateId = null, kind, to, subject, html, text, triggeredBy = null } = msg;
+  const { companyId, programId = null, affiliateId = null, kind, to, subject, html, text, triggeredBy = null, payoutId = null } = msg;
   if (!NOTIFICATION_KINDS.has(kind)) throw new Error(`unknown affiliate notification kind ${kind}`);
 
   const record = async (status, extra = {}) => {
     const { error } = await service.from('affiliate_notifications').insert({
       company_entity_id: companyId, program_id: programId, affiliate_id: affiliateId,
-      kind, to_email: to || '(none)', subject, status, triggered_by: triggeredBy, ...extra,
+      kind, to_email: to || '(none)', subject, status, triggered_by: triggeredBy,
+      // The paid payout a notice announces (20261117030000), so it is sent once.
+      ...(payoutId ? { payout_id: payoutId } : {}), ...extra,
     });
     if (error) console.error('[affiliate-mail] could not record delivery result', error.message);
     return { status, ...extra };

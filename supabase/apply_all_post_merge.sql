@@ -19828,4 +19828,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 2026-11-17: affiliate_programs.shop_domains (which stores a program covers);
 -- attribution and links honour it. No deploy needed.
 \i migrations/20261117030000_affiliate_program_stores.sql
+-- 2026-11-17: refunds keep being read after a store is unticked;
+-- affiliate_notifications.payout_id (a paid payout is announced once).
+-- Apply BEFORE deploying affiliate-invite.
+\i migrations/20261117040000_affiliate_store_refunds_paid_notice.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

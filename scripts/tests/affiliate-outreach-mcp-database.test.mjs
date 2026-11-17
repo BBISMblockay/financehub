@@ -252,6 +252,8 @@ const files = {
   // Which stores a program covers (20261117030000). After the loop: it
   // re-states the loop's resolver.
   stores: '20261117030000_affiliate_program_stores.sql',
+  // Review cycle 1 of #1300: refunds after unticking, the paid notice key.
+  storesfix: '20261117040000_affiliate_store_refunds_paid_notice.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -267,12 +269,17 @@ function mutate(from, to) {
 const seedMut = (from, to) => { assert.ok(sql.seedcodes.includes(from), `mutation ${MUT}: pattern not found`); sql.seedcodes = sql.seedcodes.split(from).join(to); };
 const storeMut = (from, to) => { assert.ok(sql.feedstore.includes(from), `mutation ${MUT}: pattern not found`); sql.feedstore = sql.feedstore.split(from).join(to); };
 const loopMut = (from, to) => { assert.ok(sql.loop.includes(from), `mutation ${MUT}: pattern not found`); sql.loop = sql.loop.split(from).join(to); };
+const fixMut = (from, to) => { assert.ok(sql.storesfix.includes(from), `mutation ${MUT}: pattern not found`); sql.storesfix = sql.storesfix.split(from).join(to); };
 const storesMut = (from, to) => { assert.ok(sql.stores.includes(from), `mutation ${MUT}: pattern not found`); sql.stores = sql.stores.split(from).join(to); };
 switch (MUT) {
   case '': break;
   // Every store's orders count again, whatever the brand picked.
   case 'stores-any':
-    storesMut('      and (v_prog.shop_domains is null or lower(o.shop_domain) = any (v_prog.shop_domains))\n', ''); break;
+    storesMut('      and (v_prog.shop_domains is null or lower(o.shop_domain) = any (v_prog.shop_domains))\n', '');
+    fixMut('           or lower(o.shop_domain) = any (v_prog.shop_domains)\n', '           or true\n'); break;
+  // Unticking a store freezes refunds on orders already credited.
+  case 'stores-freeze':
+    fixMut('           or exists (select 1 from public.affiliate_attributions pa', '           or false and exists (select 1 from public.affiliate_attributions pa'); break;
   // Links ignore the one store the brand picked.
   case 'stores-link':
     storesMut('        and cardinality(p.shop_domains) = 1),', '        and false),'); break;
@@ -1315,6 +1322,8 @@ await check('S1 only orders from the stores a program picked are credited; links
   await db.exec(`select set_config('test.role', '', false), set_config('test.uid', '', false)`);
   await db.exec(sql.stores);
   await db.exec(sql.stores);
+  await db.exec(sql.storesfix);
+  await db.exec(sql.storesfix);
   const aff = await loopAff('Vic');
   const [{ id: code }] = await all('select id from affiliate_codes where affiliate_id = $1', [aff]);
   await db.query(`update affiliate_codes set status = 'active', starts_on = current_date - 10 where id = $1`, [code]);
@@ -1337,6 +1346,26 @@ await check('S1 only orders from the stores a program picked are credited; links
   assert.equal((await all(`select order_id from affiliate_attributions where order_id in ('S-1','S-2')`)).length, 2, 'NULL = every store');
   await assert.rejects(db.query(`update affiliate_programs set shop_domains = array['Bad Store'] where id = $1`, [progA]), /shop_domains_shape/);
   await assert.rejects(db.query(`update affiliate_programs set shop_domains = array[]::text[] where id = $1`, [progA]), /shop_domains_shape/);
+});
+
+await check('S3 unticking a store stops new credit but never freezes a refund on credit already given', async () => {
+  const svc = async (fn) => { await db.exec(`select set_config('test.role', 'service_role', false)`);
+    try { return (await one(`select public.${fn}($1, current_date - 5, current_date + 1) as r`, [progA])).r; } finally { await db.exec(`select set_config('test.role', '', false)`); } };
+  await svc('affiliate_accrue_commissions');
+  const earned = async () => Number((await one(`select coalesce(sum(amount_cents), 0) as n from affiliate_commission_ledger where order_id = 'S-1'`)).n);
+  const before = await earned();
+  assert.ok(before > 0, 'the retail order earned commission while every store counted');
+  await db.query(`update affiliate_programs set shop_domains = array['wholesale.myshopify.com'] where id = $1`, [progA]);
+  await db.query(`update shopify_orders set refunded_subtotal = 10 where order_id = 'S-1'`);
+  const cur = (await one('select currency from affiliate_programs where id = $1', [progA])).currency;
+  await db.query(`insert into shopify_orders(company_entity_id, shop_domain, order_id, currency, subtotal_price, refunded_subtotal, discount_codes, shopify_created_at)
+    values ($1,'retail.myshopify.com','S-3',$2,40,0,'["VIC10"]', now() - interval '1 day')`, [A, cur]);
+  await svc('affiliate_resolve_attributions');
+  assert.equal(Number((await one(`select commissionable_cents from affiliate_attributions where order_id = 'S-1'`)).commissionable_cents), 3000, 'the partial refund is still read');
+  assert.equal((await all(`select 1 from affiliate_attributions where order_id = 'S-3'`)).length, 0, 'a new order from the unticked store is not credited');
+  await svc('affiliate_accrue_commissions');
+  assert.ok(await earned() < before, 'the refund reduces what was earned');
+  await db.query('update affiliate_programs set shop_domains = null where id = $1', [progA]);
 });
 
 await check('S2 the production verify check for program stores reads ok', async () => {
