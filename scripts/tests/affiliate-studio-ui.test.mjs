@@ -127,6 +127,13 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   assert.equal(cb('0').row.content_bonus_cents, null, 'zero is no bonus');
   assert.ok(cb('-5').errors.some((e) => /Content bonus/.test(e)), 'a negative bonus is refused');
   assert.ok(!('content_bonus_cents' in fixed.row), 'a form without the field leaves the column alone');
+  // A person's edit of a creator (2026-11-17).
+  const pe = C.prospectEditRow({ name: '', handle: '@sam', url: '', email: ' Sam@Runs.Example ' }, { contact_email: null, platform: 'youtube' });
+  assert.deepEqual([pe.display_name, pe.platform, pe.contact_email, pe.contact_source_url], ['@sam', 'youtube', 'sam@runs.example', null]);
+  assert.ok(!('contact_source_url' in C.prospectEditRow({ handle: '@s', email: 'a@b.co' }, { contact_email: 'A@b.co' })), 'an unchanged email keeps where it was stated');
+  assert.throws(() => C.prospectEditRow({ handle: '', url: '' }), /handle or a profile URL/);
+  assert.throws(() => C.prospectEditRow({ handle: '@s', email: 'nope' }), /not valid/);
+  assert.throws(() => C.prospectEditRow({ url: 'javascript:alert(1)' }), /https/);
   // The outreach template, saved from Comms: the same rules Setup used.
   assert.deepEqual(C.templateRow('', '').row, { outreach_subject: null, outreach_body: null }, 'blank keeps SILO wording');
   assert.ok(C.templateRow('Hi', 'no link here').errors.some((e) => /signup_link/.test(e)), 'the signup link must stay');

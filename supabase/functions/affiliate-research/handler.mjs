@@ -25,11 +25,11 @@
 // one creator survived the checks, free otherwise.
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
 import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
-import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef } from './lib/affiliate-youtube-core.mjs';
+import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef, searchYouTubeChannels } from './lib/affiliate-youtube-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
   RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
-  knownCreators, isKnown,
+  knownCreators, isKnown, leanRun, LEAN_MAX_CALLS, MAX_MODEL_CALLS,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
 
@@ -80,17 +80,31 @@ export function createResearchHandler({
   // so each platform gets a share. Leads are only handed to the AI; nothing is
   // stored from them unless the AI checks and records the creator. A failed
   // or unconfigured search just means fewer leads.
+  //
+  // YouTube's own channel search goes first (SILO's free API quota, real
+  // subscriber numbers): the typed words, or the program's niche.
+  async function youtubeLeads(program, focus) {
+    const plats = program.platforms || [];
+    const q = String(focus || program.niche || '').trim();
+    if (!youtubeKey || !q || (plats.length && !plats.includes('youtube'))) return [];
+    const geo = program.geographies || [];
+    return searchYouTubeChannels({ query: q, apiKey: youtubeKey, fetchImpl: youtubeFetch, regionCode: geo.length === 1 ? geo[0] : null, collectedAt: now().toISOString() });
+  }
+
   async function gatherLeads(program, focus) {
-    if (!search) return { leads: [], searched: 0, failed: 0 };
-    let searched = 0; let failed = 0;
-    const lists = await Promise.all(leadSearches(program, focus).map(async (src) => {
+    let searched = 0; let failed = 0; let youtube = 0;
+    const yt = (async () => {
+      try { const l = await youtubeLeads(program, focus); youtube = l.length; return l; }
+      catch { failed += 1; return []; }
+    })();
+    const lists = await Promise.all([yt, ...(search ? leadSearches(program, focus) : []).map(async (src) => {
       try {
         const { items } = await search(buildSerpTask(src, program));
         searched += 1;
         return candidatesFromResults({ items, program, source: src, collectedAt: now().toISOString() }).candidates;
       } catch { failed += 1; return []; }
-    }));
-    return { leads: interleaveLeads(lists, MAX_LEADS), searched, failed };
+    })]);
+    return { leads: interleaveLeads(lists, MAX_LEADS), searched, failed, youtube };
   }
 
   // Photos for prospects of THIS company and program, by profile URL (null = the
@@ -190,7 +204,8 @@ export function createResearchHandler({
         const g = await gatherLeads(program, focus).catch(() => ({ leads: [], searched: 0, failed: 1 }));
         // A lead the company already has is not worth the AI's time.
         g.leads = g.leads.filter((l) => !isKnown(known, l));
-        const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10), leads: g.leads, known });
+        const lean = leanRun(g.leads, body?.count);
+        const request = buildResearchRequest({ program, focus, count: body?.count, model, today: now().toISOString().slice(0, 10), leads: g.leads, known, lean });
         const callModel = async (b) => {
           const left = RUN_BUDGET_MS - (now().getTime() - startedAt);
           if (left <= 5_000) { outcome = 'timed_out'; throw new Error('research ran out of time'); }
@@ -217,7 +232,7 @@ export function createResearchHandler({
         const wanted = clampCount(body?.count);
         const collectedAt = now().toISOString();
         const countKept = (list, ev) => validateResearchCreators({ creators: list, evidence: ev, program, focus, collectedAt, known }).stats.kept;
-        const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads });
+        const out = await runResearchConversation({ request, callModel, beforeNextCall, wanted, countKept, leads: g.leads, maxCalls: lean ? LEAN_MAX_CALLS : MAX_MODEL_CALLS });
         usages = out.usages;
         const { candidates, stats } = validateResearchCreators({ creators: out.creators, evidence: out.evidence, program, focus, collectedAt: now().toISOString(), fillTo: wanted, known });
         const wrote = await upsertCandidates({ supabase: service, program, source: { id: null, query: focus || null }, candidates: withProfile(candidates), runId,
@@ -233,7 +248,7 @@ export function createResearchHandler({
           prospects_new: wrote.prospects_new, prospects_updated: wrote.prospects_updated,
           suppressed_skipped: wrote.suppressed_skipped, emails_found: stats.emails_kept,
           error: stats.minors || stats.unverified || stats.not_profile || stats.over_source || stats.topped_up || stats.known || stats.kept < wanted || g.leads.length
-            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.known ? `, ${stats.known} already known` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} Google leads checked` : ''}`
+            ? `skipped: ${stats.minors} likely minors, ${stats.unverified} not found on a page read, ${stats.not_profile} not a profile link${stats.over_source ? `, ${stats.over_source} over the per-source limit` : ''}${stats.topped_up ? `, ${stats.topped_up} added from a list page to fill the run` : ''}${stats.known ? `, ${stats.known} already known` : ''}${stats.kept < wanted ? `; found ${stats.kept} of ${wanted}` : ''}${g.leads.length ? `; ${g.leads.length} ${g.youtube ? `leads checked (${g.youtube} from YouTube)` : 'Google leads checked'}` : ''}${lean ? ', shortlist mode' : ''}`
             : null,
         });
       } catch (err) {
