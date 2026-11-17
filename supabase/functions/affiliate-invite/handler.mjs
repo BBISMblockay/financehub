@@ -191,7 +191,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     let more = false;
     for (let page = 0; page < pages; page++) {
       let q = service.from('affiliate_codes')
-        .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent, created_at')
+        .select('id, company_entity_id, program_id, affiliate_id, code, starts_on, ends_on, discount_percent, created_at, created_by')
         .eq('status', 'pending').order('created_at').order('id').limit(25);
       if (company) q = q.eq('company_entity_id', company);
       if (codeIds?.length) q = q.in('id', codeIds);
@@ -254,7 +254,25 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           continue;
         }
         const { data: a } = await service.from('affiliates').select('display_name').eq('id', c.affiliate_id).eq('company_entity_id', co).maybeSingle();
-        const made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl);
+        let made;
+        try { made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl); }
+        catch (e) {
+          // A code SILO picked by itself on joining (created_by null) has not
+          // been shown to anyone yet: take the next free text and try again.
+          // A code a person chose is theirs to change.
+          if (e?.kind !== 'taken' || c.created_by) throw e;
+          made = null;
+          for (let n = 2; n <= 4 && !made; n++) {
+            const text = `${String(c.code).replace(/-\d+$/, '')}-${n}`;
+            const { data: re, error: rErr } = await service.from('affiliate_codes').update({ code: text })
+              .eq('id', c.id).eq('company_entity_id', co).eq('status', 'pending').select('id');
+            if (rErr || !re?.length) continue;
+            c.code = text; out.code = text;
+            try { made = await makeCode(conn, { ...c, affiliate: a?.display_name }, tzs.get(co), fetchImpl); }
+            catch (e2) { if (e2?.kind !== 'taken') throw e2; }
+          }
+          if (!made) throw e;
+        }
         // Conditional on still pending: a code cancelled (or made by the AI)
         // meanwhile is left as it is. Activating runs the overlap guard.
         const { data: upd, error: uErr } = await service.from('affiliate_codes')
@@ -266,7 +284,9 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         try { await deliverCodeNotices({ code_id: c.id }); } catch (e) { console.error('[affiliate-invite] live notice', c.id, e?.message); }
       } catch (e) {
         console.error('[affiliate-invite] shopify code', c.id, e?.message);
-        results.push({ ...out, status: e?.kind === 'needs_scope' ? 'needs_scope' : 'failed', reason: String(e?.message || 'failed').slice(0, 240) });
+        const kind = ['needs_scope', 'taken'].includes(e?.kind) ? e.kind : 'failed';
+        const reason = kind === 'taken' ? `${String(e.message)}; give this affiliate a different code, or Cancel it and add it as made by hand if it is theirs` : String(e?.message || 'failed');
+        results.push({ ...out, status: kind, reason: reason.slice(0, 240) });
       }
     }
     results.next = next;

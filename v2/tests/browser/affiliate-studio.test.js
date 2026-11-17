@@ -865,7 +865,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           statement: { currency: 'USD', totals: { earned_cents: 0, paid_cents: 0, unclaimed_cents: 0, orders: 0, today: '2026-11-09' }, monthly: [], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', display_name: 'Pat', terms_version_accepted: 3, terms_accepted_at: now } } });
       }
       if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
-      if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent' });
+      if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent', codes_live: ['PAT10'] });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', photo_url: 'https://photos.invalid/samruns.png', photo_own: false, feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { id: 'f1', kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring', claimed: false, push: [] },
         { id: 'f2', kind: 'launch', title: 'Old drop', event_on: '2026-11-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fold', claimed: false, push: [] },
@@ -928,11 +928,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await join.fill('#signed', 'Pat Trails');
     await join.check('#agree');
     await join.click('#go');
-    await join.waitForFunction(() => /You are in/.test(document.body.textContent), null, { timeout: 5000 });
+    // innerText, not textContent: the page's own inline script contains the words.
+    await join.waitForFunction(() => /You are in/.test(document.body.innerText), null, { timeout: 5000 });
+    const doneText = await join.evaluate(() => document.body.innerText);
     const acc = calls.find((c) => c.action === 'accept');
     R.eq(acc?.terms_version, 3, 'acceptance sends the version that was on screen');
     R.eq(acc?.platform_terms_version, 1, 'and the platform terms version');
     R.eq(acc?.signed_name, 'Pat Trails');
+    R.has(doneText.replace(/\s+/g, ' '), 'Your code PAT10 is live', 'a code SILO already made is named, not promised');
     await join.close();
 
     // ── portal page ───────────────────────────────────────────────────────

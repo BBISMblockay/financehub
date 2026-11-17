@@ -35,7 +35,11 @@ const muts = {
   // A code is made in a store the program's links do not open.
   scwrongstore: ['handler.mjs', '        if (!storeMatches(progs.get(c.program_id), conn)) {', '        if (false) {'],
   // End dates are inclusive of the whole last day.
-  scendday: ['shopify-codes.mjs', 'endsAt: code.ends_on ? dayStartIso(nextDay(code.ends_on), tz) : null,', 'endsAt: code.ends_on ? dayStartIso(code.ends_on, tz) : null,'],
+  scendday: ['shopify-codes.mjs', 'dayStartIso(nextDay(code.ends_on), tz)) - 1000', 'dayStartIso(code.ends_on, tz)) - 1000'],
+  // Any discount with the same text is adopted, a store promo included.
+  scadoptany: ['shopify-codes.mjs', "if (d.__typename === 'DiscountCodeBasic' && String(d.title || '').startsWith(SILO_TITLE)) return node.id;", 'return node.id;'],
+  // A code SILO picked itself is left waiting instead of taking the next free text.
+  scnorename: ['handler.mjs', "if (e?.kind !== 'taken' || c.created_by) throw e;", 'throw e;'],
 };
 if (MUT && !muts[MUT]) throw new Error(`unknown mutation ${MUT}`);
 
@@ -69,7 +73,14 @@ function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'writ
     if (status !== 200) return new Response('{"errors":"nope"}', { status });
     const last = calls[calls.length - 1];
     if (last.op === 'scopes') return Response.json({ data: { currentAppInstallation: { accessScopes: scopes.map((h) => ({ handle: h })) }, shop: { myshopifyDomain: 'brand.myshopify.com', primaryDomain: { host: primary } } } });
-    if (last.op === 'find') return Response.json({ data: { codeDiscountNodeByCode: existing[body.variables.code] ? { id: existing[body.variables.code] } : null } });
+    if (last.op === 'find') {
+      // A string is a discount SILO made ("Affiliate: ..."); { id, title } is anyone else's.
+      const e = existing[body.variables.code];
+      const node = !e ? null : typeof e === 'string'
+        ? { id: e, codeDiscount: { __typename: 'DiscountCodeBasic', title: 'Affiliate: Pat' } }
+        : { id: e.id, codeDiscount: { __typename: e.type || 'DiscountCodeBasic', title: e.title } };
+      return Response.json({ data: { codeDiscountNodeByCode: node } });
+    }
     if (last.op === 'create') {
       if (refuse) return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'INVALID', message: refuse }] } } });
       if (taken) { existing[body.variables.basicCodeDiscount.code] = 'gid://shopify/DiscountCodeNode/77'; return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'TAKEN', message: 'Code must be unique.' }] } } }); }
@@ -123,6 +134,12 @@ await test('Shopify: a code that exists is adopted; a new one is made; a race is
   assert.deepEqual(await L.makeCode(CONN, { code: 'PAT10', discount_percent: 10, starts_on: '2026-11-17' }, 'UTC', s.fetchImpl), { id: 'gid://shopify/DiscountCodeNode/77', adopted: true });
   s = fakeShopify({ refuse: 'Code is too long' });
   await assert.rejects(L.makeCode(CONN, { code: 'PAT10', discount_percent: 10, starts_on: '2026-11-17' }, 'UTC', s.fetchImpl), /too long/);
+});
+
+await test('Shopify: another discount with the same text (a promo) is never adopted', async () => {
+  const s = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Black Friday' } } });
+  await assert.rejects(L.makeCode(CONN, { code: 'PAT10', discount_percent: 10, starts_on: '2026-11-17' }, 'UTC', s.fetchImpl), (e) => e.kind === 'taken');
+  assert.ok(!s.calls.some((c) => c.op === 'create'), 'nothing made over it');
 });
 
 await test('scope: asked of Shopify; missing write_discounts or a 403 means reconnect', async () => {
@@ -194,6 +211,21 @@ await test('staff: makes the waiting code in Shopify, then marks it live -- only
   assert.ok(svc.log.some((x) => x.name === 'affiliate_claim_code_notices'), 'the "your code is live" email follows');
   const made = shop.calls.find((c) => c.op === 'create');
   assert.equal(made.vars.basicCodeDiscount.startsAt, '2026-11-17T08:00:00.000Z', 'the company\'s own day');
+});
+
+await test('a code SILO picked that a store promo already uses gets the next free text; a code a person chose waits', async () => {
+  let svc = fakeService({ codes: [pending({ created_by: null })] });
+  let shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
+  let out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.deepEqual(out.results.map((r) => [r.status, r.code]), [['created', 'PAT10-2']]);
+  assert.equal(shop.calls.find((c) => c.op === 'create').vars.basicCodeDiscount.code, 'PAT10-2');
+  assert.ok(svc.log.some((x) => x.table === 'affiliate_codes' && x.op === 'update' && x.payload.code === 'PAT10-2' && x.f.status === 'pending'), 'renamed only while still waiting');
+  svc = fakeService({ codes: [pending({ created_by: 'staff-user' })] });
+  shop = fakeShopify({ existing: { PAT10: { id: 'gid://shopify/DiscountCodeNode/1', title: 'Store promo' } } });
+  out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'taken');
+  assert.match(out.results[0].reason, /different code/);
+  assert.ok(!svc.log.some((x) => x.op === 'update'), 'a chosen code is not renamed or marked live');
 });
 
 await test('staff: a code cancelled meanwhile is left alone', async () => {

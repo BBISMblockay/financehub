@@ -9,13 +9,17 @@
 // a discount CODE (not automatic), the exact code text, percent_off off the
 // whole order, all products, all customers, starting at the start of
 // starts_on and ending at the end of ends_on in the company's timezone, no
-// minimum, no usage limit. A discount that already has this exact code is
-// adopted, never duplicated -- that is what makes a retry, a race with the
-// AI route, or a code the brand made by hand all safe.
+// minimum, no usage limit. A discount SILO already made with this exact code
+// (titled "Affiliate: ...") is adopted, never duplicated -- that is what makes
+// a retry safe. A DIFFERENT discount that happens to use the text (a store
+// promo, someone else's code) is never adopted: crediting matches orders by
+// code text, so adopting it would pay this affiliate for every order that
+// used the promo. That is refused as 'taken'.
 //
 // Fail soft, by name, never by guessing:
 //   needs_scope  the store has not granted write_discounts (reconnect)
 //   no_store     the program has no single Shopify store SILO can tell
+//   taken        the store already has another discount with this code
 //   failed       Shopify said no, or did not answer
 // In every one of those the code stays 'pending'.
 
@@ -87,7 +91,7 @@ export function discountInput(code, tz) {
   const text = String(code.code || '').trim();
   if (!text) throw new Error('This code has no text.');
   return {
-    title: `Affiliate: ${String(code.affiliate || text).slice(0, 200)}`,
+    title: `${SILO_TITLE}${String(code.affiliate || text).slice(0, 200)}`,
     code: text,
     startsAt: dayStartIso(code.starts_on, tz),
     // The last second of ends_on, so Shopify shows that day as the last one.
@@ -99,7 +103,9 @@ export function discountInput(code, tz) {
 }
 
 const SCOPES_Q = 'query SiloScopes { currentAppInstallation { accessScopes { handle } } shop { myshopifyDomain primaryDomain { host } } }';
-const FIND_Q = 'query SiloFindCode($code: String!) { codeDiscountNodeByCode(code: $code) { id } }';
+export const SILO_TITLE = 'Affiliate: ';
+const FIND_Q = `query SiloFindCode($code: String!) { codeDiscountNodeByCode(code: $code) { id codeDiscount { __typename
+  ... on DiscountCodeBasic { title } ... on DiscountCodeBxgy { title } ... on DiscountCodeFreeShipping { title } ... on DiscountCodeApp { title } } } }`;
 const CREATE_M = `mutation SiloCreateCode($basicCodeDiscount: DiscountCodeBasicInput!) {
   discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
     codeDiscountNode { id }
@@ -147,12 +153,20 @@ export async function canMakeCodes(conn, fetchImpl = fetch) {
 
 /**
  * Make (or adopt) one code in Shopify. Returns { id, adopted }.
- * The lookup runs first so a code that already exists is adopted, and runs
+ * The lookup runs first so a code SILO already made is adopted, and runs
  * again after a TAKEN refusal, for the race where it appeared in between.
+ * Any other discount with the same text throws 'taken'.
  */
 export async function makeCode(conn, code, tz, fetchImpl = fetch) {
   const call = (query, variables) => adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query, variables, fetchImpl });
-  const find = async () => (await call(FIND_Q, { code: String(code.code).trim() }))?.codeDiscountNodeByCode?.id || null;
+  const text = String(code.code).trim();
+  const find = async () => {
+    const node = (await call(FIND_Q, { code: text }))?.codeDiscountNodeByCode;
+    if (!node?.id) return null;
+    const d = node.codeDiscount || {};
+    if (d.__typename === 'DiscountCodeBasic' && String(d.title || '').startsWith(SILO_TITLE)) return node.id;
+    throw new ShopifyCodeError(`${text} is already a different discount in this Shopify store`, 'taken');
+  };
   const existing = await find();
   if (existing) return { id: existing, adopted: true };
   const data = await call(CREATE_M, { basicCodeDiscount: discountInput(code, tz) });

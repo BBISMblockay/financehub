@@ -411,8 +411,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
           for (const w of waiting || []) await makeShopifyCode(w.id);
         } catch (err) { log('[affiliate-portal] shopify code kick failed', err?.message); }
       }
+      // So the page can say the code is live instead of "the brand will send it".
+      let codesLive = [];
+      try {
+        const { data: live } = await service.from('affiliate_codes').select('code')
+          .eq('company_entity_id', t.company_entity_id).eq('affiliate_id', t.affiliate_id).eq('status', 'active');
+        codesLive = (live || []).map((r) => r.code);
+      } catch { /* the page falls back to its general line */ }
       return reply({ status: res?.status || 'active', already_accepted: !!res?.already_accepted,
-        portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent' });
+        portal_url: link?.url ?? null, confirmation_email: mail?.status ?? 'not_sent', codes_live: codesLive });
     }
 
     // ── the rep's own photo ──────────────────────────────────────────────

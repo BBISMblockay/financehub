@@ -103,7 +103,7 @@ async function load() {
       try { sessionStorage.removeItem('silo_affiliate_signup'); } catch {}
       $('body').innerHTML = card('You are in', `<p>Thanks for joining. ${out.confirmation_email === 'sent' ? 'We emailed you a confirmation with your portal link.' : 'Keep the portal link below: a confirmation email could not be sent.'}</p>
         ${out.portal_url ? `<p><a class="bcn-btn bcn-btn--primary" href="${esc(out.portal_url)}">Open my affiliate portal</a></p>` : '<p>The brand will send you your portal link.</p>'}
-        <p class="af-muted">The brand will send your discount code and links once they are set up.</p>`);
+        <p class="af-muted">${out.codes_live?.length ? `Your code <strong>${esc(out.codes_live[0])}</strong> is live. We emailed it with your links.` : 'The brand will send your discount code and links once they are set up.'}</p>`);
     } catch (e) {
       if (e.code === 'terms_changed') { setStatus('The terms were just updated. Please read the new version.', 'neg'); await load(); return; }
       setStatus(e.message, 'neg'); $('go').disabled = false;
