@@ -2103,7 +2103,7 @@ const A = {
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
-  'aff-filter': ({ f }) => { S.affFilter = f === 'ended' ? 'ended' : 'current'; render(); return null; },
+  'aff-filter': ({ f }) => { S.affFilter = f === 'ended' ? 'ended' : 'current'; keepFields('affiliatesBody', render); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
   // Every prospect in the view, not only the cards on screen.
@@ -2657,6 +2657,24 @@ const A = {
 
 // Shows or hides one payout's void reason box in place (no render(), which
 // would rebuild the whole Money tab and drop anything typed elsewhere).
+// Re-render without losing what someone has typed in an open form (review
+// on #1321: the Current/Ended filter wiped a half-filled Add code form).
+function keepFields(rootId, fn) {
+  const root = $(rootId);
+  const saved = [...(root?.querySelectorAll('input[id], select[id], textarea[id]') || [])]
+    .filter((el) => el.type !== 'file')
+    .map((el) => [el.id, el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value]);
+  fn();
+  for (const [id, v] of saved) {
+    const el = $(id);
+    if (!el) continue;
+    if (typeof v === 'boolean') el.checked = v; else el.value = v;
+    document.querySelectorAll(`[data-seg="${CSS.escape(id)}"]`).forEach((b) => {
+      const on = b.dataset.v === String(v);
+      b.classList.toggle('is-on', on); b.setAttribute('aria-checked', String(on));
+    });
+  }
+}
 function voidToggle(id, open) {
   const wrap = $(`vw-${id}`);
   const opener = document.querySelector(`#payoutsBody [data-act="payout-void-open"][data-id="${CSS.escape(id)}"]`);
