@@ -20,6 +20,8 @@ const fmtTime = (s) => (s ? new Date(s).toLocaleString() : '—');
 // A link to a stored URL, or the text alone when the URL is not http(s).
 const ext = (u, label) => { const h = safeHref(u); return h ? `<a href="${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label); };
 const num = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('en-US'));
+// "1 payout", "2 payouts": the Money tab reads as words, not "payout(s)".
+const plural = (n, one, many = `${one}s`) => `${num(n)} ${Number(n) === 1 ? one : many}`;
 
 function setStatus(msg, type = 'info', ms = 0) {
   const el = $('status');
@@ -1649,7 +1651,7 @@ function payoutPayHtml() {
   const act = (x) => {
     const b = [];
     if (MONEY && x.status === 'draft') b.push(btn('Approve', 'payout-approve', { id: x.id }, 'primary', { confirm: true }));
-    if (MONEY && x.status === 'exported') b.push(`<input class="bcn-field" id="ref-${x.id}" placeholder="Payment reference" style="max-width:160px;" /><input class="bcn-field" id="pev-${x.id}" placeholder="Evidence: where it shows as paid" style="max-width:220px;" />`, btn('Record as paid', 'payout-paid', { id: x.id }, 'primary', { confirm: true }));
+    if (MONEY && x.status === 'exported') b.push(`<input class="bcn-field" id="ref-${x.id}" placeholder="Payment reference" aria-label="Payment reference" /><input class="bcn-field" id="pev-${x.id}" placeholder="Where it shows as paid" aria-label="Where it shows as paid" />`, btn('Record as paid', 'payout-paid', { id: x.id }, 'primary', { confirm: true }));
     // The PayPal rail. A payout with an attempt in flight has no Send button:
     // the database refuses it anyway, and offering it would invite a person to
     // keep clicking at a payment that may already have gone.
@@ -1666,7 +1668,14 @@ function payoutPayHtml() {
       }
     }
     if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
-    if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) b.push(`<input class="bcn-field" id="vr-${x.id}" placeholder="Reason to void" style="max-width:160px;" />`, btn('Void', 'payout-void', { id: x.id }, 'danger', { confirm: true }));
+    // Void is one quiet button; the reason box opens only once it is pressed
+    // (Blake 2026-11-18: no always-on input boxes on Money).
+    if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) {
+      // Opening and closing only toggles these nodes, never redraws the tab,
+      // so text typed into any other box on Money survives.
+      b.push(btn('Void', 'payout-void-open', { id: x.id }, 'ghost'),
+        `<span class="af-void" id="vw-${x.id}" hidden><input class="bcn-field" id="vr-${x.id}" placeholder="Why void it?" aria-label="Reason to void" />${btn('Void payout', 'payout-void', { id: x.id }, 'danger', { confirm: true })}${btn('Cancel', 'payout-void-close', { id: x.id }, 'ghost')}</span>`);
+    }
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
@@ -1717,13 +1726,18 @@ function payoutPayHtml() {
         <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
     }
     if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
-    return card('Connect PayPal', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><div class="af-row">
-        ${field('Account', '<select class="bcn-field" id="ppEnv"><option value="sandbox" selected>Sandbox</option><option value="live">Live</option></select>')}
-        ${field('Client ID', input('ppId', 'autocomplete="off" style="min-width:220px;"'))}
-        ${field('Secret', input('ppSecret', 'type="password" autocomplete="off" style="min-width:220px;"'))}
-        ${btn('Connect', 'pp-connect', {}, 'primary')}
-      </div>
-      <p class="af-muted"><a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Get Payouts access</a> · <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener">Create an app</a></p>`);
+    // Live only (Blake 2026-11-18): the sandbox choice is gone from setup. A
+    // company still on a sandbox app keeps working above until it reconnects.
+    const ext = (href, label) => `<a class="af-ppc-link" href="${href}" target="_blank" rel="noopener">${label}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></a>`;
+    return `<section class="af-ppc" aria-label="Connect PayPal">
+      <div class="af-ppc-intro">${paypalMark('af-ppc-logo')}<h3 class="af-ppc-title">Connect PayPal</h3>
+        <p class="af-ppc-sub">Pay affiliates straight from your own PayPal balance.</p>
+        <div class="af-ppc-links">${ext('https://www.paypal.com/payoutsweb/landing', 'Get Payouts access')}${ext('https://developer.paypal.com/dashboard/applications', 'Create a Live app')}</div></div>
+      <div class="af-ppc-form">
+        <label class="af-ppc-field"><span>Client ID</span><input class="bcn-field" id="ppId" autocomplete="off" spellcheck="false" placeholder="From your Live app" /></label>
+        <label class="af-ppc-field"><span>Secret</span><input class="bcn-field" id="ppSecret" type="password" autocomplete="off" placeholder="••••••••" /></label>
+        ${btn('Connect PayPal', 'pp-connect', {}, 'primary')}</div>
+    </section>`;
   };
   const ppChip = (affId) => {
     const em = d.payEmailByAff[affId];
@@ -1743,20 +1757,20 @@ function payoutPayHtml() {
       + `<div class="af-muted af-pay-meter-cap">${formatMoney(paidC, r.currency)} paid of ${formatMoney(earned, r.currency)} earned</div>${ppChip(r.affiliate_id)}</div>`
       + `<div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   };
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${num(x.item_count)} line(s)${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
   return [
   moneyTop(),
   payConnCard(),
-  surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), `${bal.length} affiliate(s)`),
+  surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), plural(bal.length, 'affiliate')),
   d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
     MONEY ? [['Approve selected', 'q-payout-ok', 'primary', { confirm: true }]] : [], ''), `${num(d.payouts.filter((x) => x.status === 'draft').length)} draft(s)`) : '',
   surface('Payouts', `${itemList(d.payouts.filter((x) => x.status !== 'draft'), payoutRow, 'No payouts yet.')}
-    ${MANAGE && (approved.length || sendable.length) ? `<div class="af-row" style="margin-top:8px;">${
+    ${MANAGE && (approved.length || sendable.length) ? `<div class="af-pay-actions">${
       // Pay day is one button, not one per affiliate. Each payout is still its
       // own attempt, its own idempotency key and its own row -- the loop is in
       // the page, not in the payment -- so nothing about sending twice changes.
-      MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${sendable.length} approved payout(s)`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
-    }${approved.length ? btn(`Export ${approved.length} approved payout(s)`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
+      MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
+    }${approved.length ? btn(`Export ${plural(approved.length, 'approved payout')}`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
   more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
@@ -1959,7 +1973,7 @@ function moneyTop() {
     ${arrow}
     ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(rateShort(p)), 'pos')}
     ${arrow}
-    ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${num(inFlight.length)} payout(s)` : ''}`, owed > 0 ? 'warn' : '')}
+    ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${esc(plural(inFlight.length, 'payout'))}` : ''}`, owed > 0 ? 'warn' : '')}
     ${arrow}
     ${stage(viaPaypal ? paypalMark() : icon('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>'), viaPaypal ? 'Paid with PayPal' : 'Paid by hand', esc(money(paid)), `${esc(ovPlural(paidRows.length, 'payout'))}`, 'accent')}
   </section><p class="af-flow-note">Last ${num(w.days)} days · owed is today</p>`;
@@ -2509,7 +2523,7 @@ const A = {
   'pp-connect': async () => {
     const id = val('ppId'); const secret = $('ppSecret')?.value?.trim();
     if (!id || !secret) throw new Error('Paste the client ID and the secret from your PayPal app.');
-    const r = await invoke('affiliate-payouts', { action: 'connect', environment: val('ppEnv'), client_id: id, client_secret: secret });
+    const r = await invoke('affiliate-payouts', { action: 'connect', environment: 'live', client_id: id, client_secret: secret });
     return r.warning ? `Connected. ${r.warning}` : 'PayPal connected.';
   },
   'pp-test': async () => {
@@ -2610,12 +2624,24 @@ const A = {
     must(await db.rpc('affiliate_mark_payout_paid', { p_payout: id, p_external_reference: val(`ref-${id}`), p_evidence: val(`pev-${id}`) }));
     return `Recorded as paid.${await tellPayout(id)}`;
   },
+  'payout-void-open': async ({ id }) => voidToggle(id, true),
+  'payout-void-close': async ({ id }) => voidToggle(id, false),
   'payout-void': async ({ id }) => {
     if (!val(`vr-${id}`)) throw new Error('Say why it is being voided.');
     must(await db.rpc('affiliate_void_payout', { p_payout: id, p_reason: val(`vr-${id}`) }));
     return 'Payout voided. Its lines can be paid again in a new payout.';
   },
 };
+
+// Shows or hides one payout's void reason box in place (no render(), which
+// would rebuild the whole Money tab and drop anything typed elsewhere).
+function voidToggle(id, open) {
+  const wrap = $(`vw-${id}`);
+  const opener = document.querySelector(`#payoutsBody [data-act="payout-void-open"][data-id="${CSS.escape(id)}"]`);
+  if (!wrap || !opener) return;
+  wrap.hidden = !open; opener.hidden = open;
+  if (open) $(`vr-${id}`)?.focus(); else { const r = $(`vr-${id}`); if (r) r.value = ''; opener.focus(); }
+}
 
 // Two-click confirm for anything that cannot be quietly undone: the first
 // click arms the button for four seconds.

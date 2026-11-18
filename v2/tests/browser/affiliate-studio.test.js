@@ -1217,6 +1217,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(offText, 'Connect PayPal', 'an unconnected program is asked to connect');
     R.ok('with somewhere to get Payouts access', !!(await ppOff.$('#payoutsBody a[href*="payoutsweb/landing"]')));
     R.ok('no Send button before PayPal is connected', !(await ppOff.$('#payoutsBody [data-act="pp-send"]')));
+    R.ok('setup offers no Sandbox choice (live only)', !(await ppOff.$('#ppEnv')) && !/sandbox/i.test(offText));
+    if (process.env.PP_SHOT) { await ppOff.setViewportSize({ width: 1280, height: 1000 }); await (await ppOff.$('#payoutsBody')).screenshot({ path: process.env.PP_SHOT }); }
+    const voidOpener = `#payoutsBody [data-act="payout-void-open"][data-id="${PP}"]`;
+    R.ok('void starts as one button, no reason box showing', !(await ppOff.isVisible(`#vr-${PP}`)) && await ppOff.isVisible(voidOpener));
+    await ppOff.fill('#ppId', 'typed-before-void');
+    await ppOff.click(voidOpener);
+    R.ok('pressing Void opens the reason box', await ppOff.isVisible(`#vr-${PP}`));
+    await ppOff.click(`#payoutsBody [data-act="payout-void-close"][data-id="${PP}"]`);
+    R.ok('Cancel closes it and brings the Void button back', !(await ppOff.isVisible(`#vr-${PP}`)) && await ppOff.isVisible(voidOpener));
+    R.ok('opening and cancelling Void keeps what was typed elsewhere on Money', (await ppOff.inputValue('#ppId')) === 'typed-before-void');
     R.has(offText, 'Connect PayPal first', 'and the payout says why it cannot be sent');
     await ppOff.close();
 
@@ -1296,7 +1306,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     ppAll.on('pageerror', (e) => errors.push(e.message));
     await ppAll.click('#tabs [data-tab="payouts"]');
     const allText = await text(ppAll, '#payoutsBody');
-    R.has(allText, 'Test send 1 approved payout(s)', 'Send all counts only the payouts it can actually send');
+    R.has(allText, 'Test send 1 approved payout', 'Send all counts only the payouts it can actually send');
     await ppAll.click('[data-act="pp-send-all"]');
     await ppAll.click('[data-act="pp-send-all"]');   // the confirm
     await ppAll.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.body?.action === 'send'), { timeout: 5000 }).catch(() => {});
