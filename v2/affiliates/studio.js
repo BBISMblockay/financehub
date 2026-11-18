@@ -1717,13 +1717,12 @@ function payoutPayHtml() {
         <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
     }
     if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
-    return card('Connect PayPal', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><div class="af-row">
-        ${field('Account', '<select class="bcn-field" id="ppEnv"><option value="sandbox" selected>Sandbox</option><option value="live">Live</option></select>')}
-        ${field('Client ID', input('ppId', 'autocomplete="off" style="min-width:220px;"'))}
-        ${field('Secret', input('ppSecret', 'type="password" autocomplete="off" style="min-width:220px;"'))}
-        ${btn('Connect', 'pp-connect', {}, 'primary')}
-      </div>
-      <p class="af-muted"><a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Get Payouts access</a> · <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener">Create an app</a></p>`);
+    // Live only (Blake 2026-11-18): the sandbox choice is gone from setup. A
+    // company still on a sandbox app keeps working above until it reconnects.
+    const ppRow = (id, label, attrs) => `<div class="af-set-row"><label class="af-set-label" for="${id}">${label}</label><div class="af-set-ctl"><input class="bcn-field af-set-input" id="${id}" ${attrs} /></div></div>`;
+    return card('Connect PayPal', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div>
+      <div class="af-pp-form">${ppRow('ppId', 'Client ID', 'autocomplete="off" spellcheck="false"')}${ppRow('ppSecret', 'Secret', 'type="password" autocomplete="off"')}</div>
+      <div class="af-pp-foot">${btn('Connect PayPal', 'pp-connect', {}, 'primary')}<span class="af-muted"><a href="https://www.paypal.com/payoutsweb/landing" target="_blank" rel="noopener">Get Payouts access</a> · <a href="https://developer.paypal.com/dashboard/applications" target="_blank" rel="noopener">Create a Live app</a></span></div>`);
   };
   const ppChip = (affId) => {
     const em = d.payEmailByAff[affId];
@@ -2509,7 +2508,7 @@ const A = {
   'pp-connect': async () => {
     const id = val('ppId'); const secret = $('ppSecret')?.value?.trim();
     if (!id || !secret) throw new Error('Paste the client ID and the secret from your PayPal app.');
-    const r = await invoke('affiliate-payouts', { action: 'connect', environment: val('ppEnv'), client_id: id, client_secret: secret });
+    const r = await invoke('affiliate-payouts', { action: 'connect', environment: 'live', client_id: id, client_secret: secret });
     return r.warning ? `Connected. ${r.warning}` : 'PayPal connected.';
   },
   'pp-test': async () => {

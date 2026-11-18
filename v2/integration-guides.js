@@ -324,7 +324,7 @@
         },
         {
           title: 'Connect it in SILO',
-          body: 'In <strong>Affiliate Studio → Money → Connect PayPal</strong>, choose <strong>Live</strong>, paste the Client ID and Secret, then <strong>Connect</strong>. SILO checks them with PayPal before saving.',
+          body: 'In <strong>Affiliate Studio → Money → Connect PayPal</strong>, paste the Client ID and Secret, then <strong>Connect PayPal</strong>. SILO checks them with PayPal before saving.',
         },
         {
           title: 'Send a small first payout',
@@ -334,7 +334,7 @@
       ],
       troubleshooting: [
         { q: 'The card says PayPal has not enabled Payouts', a: 'PayPal has not approved your Payouts request yet. Check its status in PayPal, then press <strong>Check connection</strong>.' },
-        { q: 'Connect refuses the keys', a: 'Make sure the app is a <strong>Live</strong> app and <strong>Live</strong> is chosen in SILO. Sandbox keys only work with Sandbox.' },
+        { q: 'Connect refuses the keys', a: 'Make sure you copied the keys from a <strong>Live</strong> app, not a Sandbox app.' },
         { q: 'You would rather pay by hand', a: 'Skip PayPal. Affiliate Studio still tracks what each affiliate is owed, and you mark payouts paid yourself.' },
       ],
     },

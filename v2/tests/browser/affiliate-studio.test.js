@@ -1217,6 +1217,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(offText, 'Connect PayPal', 'an unconnected program is asked to connect');
     R.ok('with somewhere to get Payouts access', !!(await ppOff.$('#payoutsBody a[href*="payoutsweb/landing"]')));
     R.ok('no Send button before PayPal is connected', !(await ppOff.$('#payoutsBody [data-act="pp-send"]')));
+    R.ok('setup offers no Sandbox choice (live only)', !(await ppOff.$('#ppEnv')) && !/sandbox/i.test(offText));
+    if (process.env.PP_SHOT) { await ppOff.setViewportSize({ width: 1280, height: 1000 }); await (await ppOff.$('#payoutsBody')).screenshot({ path: process.env.PP_SHOT }); }
     R.has(offText, 'Connect PayPal first', 'and the payout says why it cannot be sent');
     await ppOff.close();
 
