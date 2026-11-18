@@ -348,6 +348,20 @@
       background: transparent;
     }
     .af-catalog-links { margin: 0; padding: 0 2px; }
+    /* Condensed (Blake 2026-11-18: "still some condensing to do"): flat
+       filter rows, smaller card buttons on one line, tighter tiles. */
+    .af-studio .af-filter-bar { padding: 0; background: none; border: 0; gap: 6px; margin-bottom: 12px; }
+    .af-studio .af-filter-chip { padding: 5px 12px; font-size: 12.5px; box-shadow: none; }
+    .af-studio .af-filter-chip--on, .af-studio .af-filter-chip.bcn-btn--primary { box-shadow: none; }
+    .af-studio .af-catalog-foot .bcn-btn, .af-studio .af-item-foot .bcn-btn { min-height: 28px; padding: 3px 9px; font-size: 12px; box-shadow: none; }
+    .af-studio .af-catalog-foot .bcn-btn--danger { border-color: transparent; background: transparent; }
+    .af-studio .af-catalog-foot .af-actions { gap: 4px; padding: 0; background: none; }
+    .af-studio .af-item--catalog .af-catalog-foot { padding: 10px 0 0; background: transparent; }
+    .af-studio .af-items--grid { gap: 14px; }
+    .af-studio .af-item--catalog { padding: 14px 14px 12px; gap: 10px; }
+    .af-studio .af-catalog-thumb,
+    .af-studio .af-catalog-thumb .bcn-avatar, .af-studio .af-catalog-thumb .af-avatar,
+    .af-studio .af-catalog-thumb .af-avatar-photo { width: 56px; height: 56px; font-size: 18px; }
     .af-studio .af-item--tile:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(15, 23, 42, .06), 0 14px 28px rgba(15, 23, 42, .07); }
     .af-item-top {
       display: flex; gap: 14px; align-items: center;
