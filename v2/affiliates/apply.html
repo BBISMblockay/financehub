@@ -13,61 +13,131 @@
   <link rel="stylesheet" href="../silo-brand.css" />
   <script src="/pages/config.js"></script>
   <style>
-    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only.
-       One public link per program (Blake 2026-11-17): a creator who finds it applies,
-       an affiliate who already joined signs in to their portal. */
-    body { background: var(--bcn-bg); }
-    .af-wrap { max-width: 560px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
-    .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
-    .af-form { display: flex; flex-direction: column; gap: 10px; }
-    .af-form .bcn-btn--primary { width: 100%; justify-content: center; padding: 12px 16px; font-size: 15px; }
-    .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-    .af-hero { display: flex; flex-direction: column; gap: 12px; padding: 24px; border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); }
-    .af-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; color: var(--bcn-ink); }
-    .af-logo { height: 40px; width: auto; max-width: 200px; object-fit: contain; border-radius: 8px; display: block; }
-    .af-badge { width: 34px; height: 34px; border-radius: 9px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; }
-    .af-hero h1 { margin: 0; font-size: 24px; line-height: 1.2; color: var(--bcn-ink); }
-    .af-perks { display: flex; flex-wrap: wrap; gap: 6px; }
-    .af-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-surface); }
-    .af-seg button { border: 0; background: transparent; padding: 10px; border-radius: 9px; font: inherit; font-weight: 600; color: var(--bcn-ink-2); cursor: pointer; }
-    .af-seg button.is-on { background: var(--bcn-ink); color: var(--bcn-surface); }
+    /* Affiliate-facing page: no SILO chrome. Beacon tokens only, no new variables.
+       One public link per program (Blake 2026-11-17): apply, or sign in.
+       Redesigned 2026-11-18 (Blake: "not modern enough"): a brand panel beside a
+       roomy form card; stacked on a phone. */
+    html, body { min-height: 100%; }
+    body { margin: 0; background: var(--bcn-bg); color: var(--bcn-ink); }
+    .ap-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    /* The same panel as SILO's own sign-in (pages/login.html .silo-brand-panel), laces and all (Blake 2026-11-18). */
+    .ap-brand { position: relative; overflow: hidden; color: #fff; padding: 56px clamp(24px, 6vw, 72px); display: flex; flex-direction: column; justify-content: space-between; gap: 40px;
+      background:
+        radial-gradient(circle at 85% 8%, oklch(0.30 0.09 245 / .55) 0%, transparent 45%),
+        radial-gradient(circle at 10% 95%, oklch(0.34 0.10 200 / .35) 0%, transparent 50%),
+        linear-gradient(160deg, oklch(0.19 0.012 240) 0%, oklch(0.13 0.01 240) 65%); }
+    .ap-laces { position: absolute; right: -112px; bottom: -112px; width: 420px; height: 420px; opacity: .08; pointer-events: none; z-index: 0; }
+    .ap-brand-in { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; }
+    .ap-mark { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; }
+    .ap-mark .af-logo { height: 44px; width: auto; max-width: 180px; object-fit: contain; border-radius: 10px; display: block; }
+    .ap-mark .af-badge { width: 44px; height: 44px; border-radius: 12px; background: rgba(255,255,255,.12); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 20px; }
+    .ap-kicker { font-family: var(--bcn-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; margin: 0 0 14px; }
+    .ap-brand h1 { margin: 0; font-size: clamp(32px, 4.2vw, 52px); line-height: 1.05; letter-spacing: -.03em; font-weight: 800; max-width: 14ch; }
+    .ap-perks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; max-width: 460px; }
+    .ap-perks li { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: color-mix(in oklch, var(--bcn-surface) 9%, transparent); border: 1px solid color-mix(in oklch, var(--bcn-surface) 14%, transparent); font-size: 13.5px; font-weight: 600; backdrop-filter: blur(6px); }
+    .ap-perks svg { flex: none; width: 16px; height: 16px; }
+    .ap-lead { margin: 16px 0 0; font-size: 17px; line-height: 1.5; opacity: .85; max-width: 40ch; }
+    .ap-steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 14px; max-width: 440px; counter-reset: st; }
+    .ap-steps li { display: grid; grid-template-columns: 32px 1fr; gap: 14px; align-items: start; counter-increment: st; }
+    .ap-steps li::before { content: counter(st); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-family: var(--bcn-mono); font-size: 13px; font-weight: 600; background: color-mix(in oklch, var(--bcn-surface) 14%, transparent); }
+    .ap-steps b { display: block; font-size: 15px; }
+    .ap-steps span { font-size: 13.5px; opacity: .7; }
+    .ap-now { margin: 26px 0 10px; font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .6; }
+    .ap-foot { font-size: 12px; opacity: .6; }
+    .ap-main { display: flex; align-items: center; justify-content: center; padding: 48px 24px; }
+    .ap-card { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 22px; }
+    .ap-card h2 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+    .ap-sub { margin: 6px 0 0; color: var(--bcn-ink-3); font-size: 15px; }
+    .ap-seg { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px; background: color-mix(in oklch, var(--bcn-ink) 6%, transparent); }
+    .ap-seg button { border: 0; background: transparent; padding: 11px; border-radius: 999px; font: inherit; font-weight: 700; font-size: 14px; color: var(--bcn-ink-3); cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+    .ap-seg button.is-on { background: var(--bcn-surface); color: var(--bcn-ink); box-shadow: 0 1px 2px color-mix(in oklch, var(--bcn-ink) 12%, transparent), 0 4px 14px color-mix(in oklch, var(--bcn-ink) 8%, transparent); }
+    .ap-form { display: flex; flex-direction: column; gap: 14px; }
+    .ap-field { display: flex; flex-direction: column; gap: 6px; }
+    .ap-field label { font-size: 13px; font-weight: 600; color: var(--bcn-ink-2); }
+    .ap-field input, .ap-field textarea { font: inherit; font-size: 16px; color: var(--bcn-ink); background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 12px; padding: 13px 14px; outline: none; transition: border-color .15s, box-shadow .15s; width: 100%; box-sizing: border-box; }
+    .ap-field textarea { resize: vertical; min-height: 96px; }
+    .ap-field input:focus, .ap-field textarea:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 18%, transparent); }
+    .ap-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .ap-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ap-chips button { font: inherit; font-size: 14px; font-weight: 600; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); cursor: pointer; transition: all .15s; }
+    .ap-chips button.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
+    .ap-go { margin-top: 6px; font: inherit; font-size: 16px; font-weight: 700; padding: 15px 18px; border: 0; border-radius: 999px; background: var(--bcn-ink); color: var(--bcn-surface); cursor: pointer; transition: transform .1s, opacity .15s; }
+    .ap-go:hover { opacity: .92; } .ap-go:active { transform: scale(.99); } .ap-go:disabled { opacity: .5; cursor: default; }
+    .ap-done { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 0; }
+    .ap-done-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in oklch, var(--bcn-pos) 14%, transparent); color: var(--bcn-pos); }
+    .ap-done h2 { font-size: 24px; }
+    .ap-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    .ap-muted { color: var(--bcn-ink-3); font-size: 13px; text-align: center; margin: 0; }
+    #status:empty { display: none; }
+    @media (max-width: 860px) {
+      .ap-shell { grid-template-columns: 1fr; }
+      .ap-brand { padding: 32px 22px 36px; }
+      .ap-brand-in { gap: 24px; }
+      .ap-brand h1 { font-size: 34px; }
+      .ap-steps { margin-top: 20px; }
+      .ap-foot { display: none; }
+      .ap-main { padding: 28px 18px 48px; align-items: flex-start; }
+      .ap-row { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body class="silo-brand">
-<main class="af-wrap">
-  <div id="hero"></div>
-  <div class="bcn-status" id="status" hidden></div>
-  <div id="seg"></div>
-  <div id="body"><div class="bcn-card"><div class="bcn-card-body">Loading…</div></div></div>
-  <p class="af-muted" id="foot"></p>
-</main>
+<div class="ap-shell">
+  <aside class="ap-brand"><svg class="ap-laces" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+      <circle cx="100" cy="100" r="96" stroke="white" stroke-width="1.4" />
+      <path d="M42 16 Q104 100 42 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" />
+      <path d="M158 16 Q96 100 158 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" /></svg>
+    <div class="ap-brand-in" id="hero"></div></aside>
+  <main class="ap-main"><div class="ap-card">
+    <div id="seg"></div>
+    <div id="head"></div>
+    <div class="bcn-status" id="status" hidden></div>
+    <div id="body"></div>
+    <p class="ap-muted" id="foot"></p>
+  </div></main>
+</div>
 <script type="module">
 import { $, esc, call, setStatus, brandMark, wireBrandMark } from './public.js';
 const qp = new URLSearchParams(location.search);
 const company = qp.get('c') || ''; const program = qp.get('p') || '';
-const f = (id, label, attrs = '') => `<div class="bcn-field-group"><label class="bcn-label" for="${id}">${esc(label)}</label><input class="bcn-field" id="${id}" ${attrs} /></div>`;
-const card = (inner) => `<div class="bcn-card"><div class="bcn-card-body">${inner}</div></div>`;
+const f = (id, label, attrs = '', tag = 'input') => `<div class="ap-field"><label for="${id}">${esc(label)}</label>${tag === 'textarea' ? `<textarea id="${id}" ${attrs}></textarea>` : `<input id="${id}" ${attrs} />`}</div>`;
+const ICON = {
+  money: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6.5v11"/></svg>',
+  tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v9H5v-9M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>',
+  check: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+};
+const perkIcon = (p) => /code/.test(p) ? ICON.tag : /product/.test(p) ? ICON.gift : ICON.money;
+const PLATFORMS = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['twitch', 'Twitch'], ['x', 'X'], ['pinterest', 'Pinterest'], ['blog', 'Blog'], ['other', 'Other']];
 let BRAND = 'the brand';
+let platform = 'instagram';
+
+function head(title, sub) { $('head').innerHTML = `<h2>${esc(title)}</h2>${sub ? `<p class="ap-sub">${esc(sub)}</p>` : ''}`; }
 
 function applyForm() {
-  $('body').innerHTML = card(`<form class="af-form" id="form">
-    ${f('name', 'Your name or channel name', 'required maxlength="120" autocomplete="name"')}
-    ${f('email', 'Email', 'type="email" required maxlength="254" autocomplete="email"')}
-    <div class="bcn-field-group"><label class="bcn-label" for="platform">Main platform</label><select class="bcn-field" id="platform">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select></div>
-    ${f('handle', 'Handle', 'maxlength="80" placeholder="@yourname"')}
-    ${f('profile_url', 'Link to your profile or site', 'type="url" maxlength="500" placeholder="https://"')}
-    <div class="bcn-field-group"><label class="bcn-label" for="pitch">About your audience</label><textarea class="bcn-field" id="pitch" rows="4" maxlength="2000"></textarea></div>
-    <div class="af-hp" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off" /></div>
-    <button class="bcn-btn bcn-btn--primary" type="submit" id="go">Apply</button>
-  </form>`);
+  head('Apply', `Tell ${BRAND} where you post.`);
+  $('body').innerHTML = `<form class="ap-form" id="form" novalidate>
+    <div class="ap-row">${f('name', 'Name', 'required maxlength="120" autocomplete="name" placeholder="Your name or channel"')}${f('email', 'Email', 'type="email" required maxlength="254" autocomplete="email" placeholder="you@email.com"')}</div>
+    <div class="ap-field"><label>Where you post most</label><div class="ap-chips" id="plat">${PLATFORMS.map(([v, l]) => `<button type="button" data-v="${v}" class="${v === platform ? 'is-on' : ''}">${esc(l)}</button>`).join('')}</div></div>
+    <div class="ap-row">${f('handle', 'Handle', 'maxlength="80" placeholder="@yourname"')}${f('profile_url', 'Profile link', 'type="url" maxlength="500" placeholder="https://"')}</div>
+    ${f('pitch', 'About your audience (optional)', 'rows="3" maxlength="2000"', 'textarea')}
+    <div class="ap-hp" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off" /></div>
+    <button class="ap-go" type="submit" id="go">Apply</button>
+  </form>`;
+  $('plat').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-v]'); if (!b) return;
+    platform = b.dataset.v;
+    for (const x of $('plat').querySelectorAll('button')) x.classList.toggle('is-on', x === b);
+  });
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    if (!$('handle').value.trim() && !$('profile_url').value.trim()) { setStatus(`Add your handle or a link to your profile so ${BRAND} can find you.`, 'neg'); return; }
+    if (!$('name').value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('email').value.trim())) { setStatus('Add your name and email.', 'neg'); return; }
+    if (!$('handle').value.trim() && !$('profile_url').value.trim()) { setStatus(`Add your handle or a profile link so ${BRAND} can find you.`, 'neg'); return; }
     $('go').disabled = true; setStatus('');
     try {
-      await call('apply', { company_id: company, program, name: $('name').value.trim(), email: $('email').value.trim(), platform: $('platform').value, handle: $('handle').value.trim(), profile_url: $('profile_url').value.trim(), pitch: $('pitch').value.trim(), website: $('website').value });
-      $('seg').innerHTML = '';
-      $('body').innerHTML = card(`<p><strong>Thanks, your application is in.</strong> If ${esc(BRAND)} accepts it, you'll get an email to finish signing up.</p>`);
+      await call('apply', { company_id: company, program, name: $('name').value.trim(), email: $('email').value.trim(), platform, handle: $('handle').value.trim(), profile_url: $('profile_url').value.trim(), pitch: $('pitch').value.trim(), website: $('website').value });
+      $('seg').innerHTML = ''; $('head').innerHTML = '';
+      $('body').innerHTML = `<div class="ap-done"><div class="ap-done-icon">${ICON.check}</div><h2>Your application is in</h2><p class="ap-sub">If ${esc(BRAND)} accepts it, we'll email you to finish signing up.</p></div>`;
     } catch (e) { setStatus(e.message, 'neg'); $('go').disabled = false; }
   });
 }
@@ -75,9 +145,10 @@ function applyForm() {
 // No password: the link goes to the email on file. The answer never says
 // whether the address belongs to an affiliate (affiliate-portal 'signin').
 function signInForm() {
-  $('body').innerHTML = card(`<form class="af-form" id="signin" novalidate>
-    ${f('siEmail', 'The email you joined with', 'type="email" required maxlength="254" autocomplete="email"')}
-    <button class="bcn-btn bcn-btn--primary" type="submit" id="siGo">Email me a sign-in link</button></form>`);
+  head('Sign in', "We'll email you a link to your portal.");
+  $('body').innerHTML = `<form class="ap-form" id="signin" novalidate>
+    ${f('siEmail', 'Email', 'type="email" required maxlength="254" autocomplete="email" placeholder="The email you joined with"')}
+    <button class="ap-go" type="submit" id="siGo">Email me a sign-in link</button></form>`;
   $('signin').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     $('siGo').disabled = true; setStatus('');
@@ -88,7 +159,7 @@ function signInForm() {
 
 function seg(open, which) {
   if (!open) { $('seg').innerHTML = ''; return; }
-  $('seg').innerHTML = `<div class="af-seg" role="tablist">
+  $('seg').innerHTML = `<div class="ap-seg" role="tablist">
     <button type="button" role="tab" data-k="apply" class="${which === 'apply' ? 'is-on' : ''}">Apply</button>
     <button type="button" role="tab" data-k="signin" class="${which === 'signin' ? 'is-on' : ''}">Sign in</button></div>`;
   for (const b of $('seg').querySelectorAll('button')) b.addEventListener('click', () => { setStatus(''); show(open, b.dataset.k); });
@@ -100,14 +171,20 @@ function show(open, which) { seg(open, which); if (which === 'apply' && open) ap
   if (company && program) { try { info = await call('program_info', { company_id: company, program }); } catch { /* sign-in still works */ } }
   if (info.open) {
     BRAND = info.brand;
-    document.title = `${info.brand} affiliate program`;
-    $('hero').innerHTML = `<div class="af-hero"><div class="af-brand">${brandMark(info.brand, info.brand_logo)}<span>${esc(info.brand)}</span></div>
-      <h1>Join the ${esc(info.brand)} affiliate program</h1>
-      ${info.perks?.length ? `<div class="af-perks">${info.perks.map((p) => `<span class="bcn-pill">${esc(p)}</span>`).join('')}</div>` : ''}</div>`;
+    document.title = `${info.brand} partner program`;
+    $('hero').innerHTML = `<div class="ap-mark">${brandMark(info.brand, info.brand_logo)}<span>${esc(info.brand)}</span></div>
+      <div><p class="ap-kicker">Partner program</p><h1>Become a ${esc(info.brand)} partner</h1>
+      <p class="ap-lead">Share ${esc(info.brand)} in your content. Post your own link and discount code, and earn on every sale you send.</p>
+      <ol class="ap-steps"><li><div><b>Apply</b><span>Tell us where you post.</span></div></li>
+        <li><div><b>Share</b><span>Your link and code, ready in your partner portal.</span></div></li>
+        <li><div><b>Get paid</b><span>Track every sale and payout in one place.</span></div></li></ol>
+      ${info.perks?.length ? `<p class="ap-now">Right now</p><ul class="ap-perks">${info.perks.map((p) => `<li>${perkIcon(p)}<span>${esc(p)}</span></li>`).join('')}</ul>` : ''}</div>
+      <div class="ap-foot">Every application is reviewed by ${esc(info.brand)}.</div>`;
     wireBrandMark($('hero'));
-    $('foot').textContent = `Run by ${info.brand}. Every application is reviewed.`;
+    $('foot').textContent = `Run by ${info.brand}.`;
   } else {
-    $('hero').innerHTML = `<div class="af-hero"><h1>Affiliate sign in</h1>${company && program ? '<p class="af-muted">This program is not taking applications right now. Affiliates can still sign in.</p>' : ''}</div>`;
+    $('hero').innerHTML = `<div class="ap-mark"></div><div><p class="ap-kicker">Partner portal</p><h1>Welcome back</h1></div><div class="ap-foot"></div>`;
+    if (company && program) $('foot').textContent = 'This program is not taking applications right now.';
   }
   show(info.open, info.open && qp.get('m') !== 'signin' ? 'apply' : 'signin');
 })();
