@@ -1009,7 +1009,7 @@ function renderProspects() {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
     return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
   };
-  const sourceLine = (x) => { const e = x.evidence || {}; return `${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}`; };
+  const sourceLine = (x) => { const e = x.evidence || {}; return `${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''}${e.found_via ? ` · found via ${esc(String(e.found_via).slice(0, 120))}` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}`; };
   const provenance = (x) => {
     const e = x.evidence || {};
     return `<div class="af-evidence">${e.title ? `<strong>${esc(e.title)}</strong><br>` : ''}${esc(e.snippet || e.note || e.pitch || '')}</div>
