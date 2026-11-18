@@ -3938,6 +3938,11 @@ their handle (or whole name) plus the percent, e.g. `BLAKETESTINGS10`; a text al
 used in the company gets a letter (`…10B`). It also allows the `seed_code` notice, the
 email SILO sends when it makes a seed code in Shopify. Apply before deploying affiliate-invite.
 
+`20261118010000_affiliate_add_to_program.sql` adds `affiliate_add_to_program()`: a person already active in one
+program of the active company is added to another of its programs, active at once, with an optional rate of
+their own. Terms are recorded as carried from their first acceptance; their PayPal email follows them. Managers
+only (`can_manage_affiliate_programs()`), never anon.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

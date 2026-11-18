@@ -525,3 +525,19 @@ emails SILO sent affiliates.
 ## Which stores a program covers (20261117030000)
 
 `affiliate_programs.shop_domains` lists the company's Shopify stores the program covers; NULL means every store. Attribution (`affiliate_resolve_attributions`) reads only orders from those stores, and with exactly one picked store links open there when `store_url` is empty. Setup shows the chips only when the company has two or more active stores. Unticking a store is forward-looking: orders already credited from it stay credited.
+
+## 2026-11-18: more programs, apply / sign-in, home screen, emails
+
+- **One affiliate per company.** People → an affiliate → **Add to program** puts a joined person into another
+  active program at once, with the program's rate or their own (`affiliate_add_to_program()`, 20261118010000).
+  A program membership is an `affiliates` row, so the ledger, codes and payouts are unchanged. Terms are recorded
+  as carried (`terms_acceptance.carried_from`); the PayPal email is copied. The portal's brand menu already lists
+  every program on the rep's mailed address.
+- **Apply / sign-in page.** `apply.html?c=&p=` names the brand and offer (`affiliate-portal` `program_info`, only
+  for an active program with open intake) and has a Sign in tab that emails a portal link. A closed program shows
+  sign-in only.
+- **Add to home screen.** `v2/affiliates/install.js`: Android uses Chrome's install prompt from a page-built
+  manifest whose `start_url` carries the rep's link; iPhone gets the Share → Add to Home Screen steps with the link
+  put back in the address bar. Icon = the brand logo (or initial). Hidden on computers and once dismissed.
+- **Emails.** `renderMail` redesigned; `brandMail` (at send) adds the brand logo from Settings and a sign-off naming
+  the program owner and their email.

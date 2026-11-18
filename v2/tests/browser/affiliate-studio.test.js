@@ -586,6 +586,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('and says it is live', true);
       await rs.close();
     }
+    // One affiliate per company, added to another program with their own rate (Blake 2026-11-17).
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const ap = await suite.open('/v2/affiliates/index.html', { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs, { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          affiliate_add_to_program: (args) => { window.__addArgs = args; return { affiliate_id: '77777777-7777-4777-8777-777777777777', added: true }; } } });
+      ap.on('pageerror', (e) => errors.push(e.message));
+      await ap.click('#tabs [data-tab="people"]');
+      await ap.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await ap.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await ap.waitForSelector('#apProg', { timeout: 5000 });
+      R.eq(await ap.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'], 'only the other programs are offered');
+      await ap.click('[data-seg="apKind"][data-v="percent_of_net"]');
+      await ap.fill('#apPct', '15');
+      await ap.click('[data-act="aff-add-program"]');
+      await ap.waitForFunction(() => /Added to Wholesale/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      const args = await ap.evaluate(() => window.__addArgs);
+      R.eq([args.p_program, args.p_commission_kind, args.p_commission_percent, args.p_commission_fixed_cents], [P2, 'percent_of_net', 15, null], 'adds them with their own rate, no second signup');
+      await ap.close();
+    }
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
     await loop.click('#tabs [data-tab="people"]');

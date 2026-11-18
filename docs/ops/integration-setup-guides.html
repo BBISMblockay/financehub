@@ -54,7 +54,7 @@
     <p class="ig-print-brand">SILO</p>
     <h1>Integration setup guides</h1>
     <p class="ig-print-lead">Step-by-step instructions for connections that need work in Shopify, Meta, or Redo before credentials land in SILO. Same content as the setup drawers on the Integrations page.</p>
-    <p class="ig-print-meta">Generated 2026-11-17 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
+    <p class="ig-print-meta">Generated 2026-11-18 · SILO Integrations: <a href="/v2/integrations.html">/v2/integrations.html</a></p>
     <section class="ig-print-toc">
       <h2 class="ig-section-label">Contents</h2>
       <ol><li><a href="#guide-shopify_dev_app">Shopify — store-owned app (recommended)</a></li><li><a href="#guide-shopify_token">Shopify — legacy Admin API token</a></li><li><a href="#guide-meta_ads">Meta Ads — replacing a system user token</a></li><li><a href="#guide-redo">Redo — returns &amp; marketing</a></li><li><a href="#guide-klaviyo">Klaviyo — email &amp; SMS</a></li><li><a href="#guide-paypal_payouts">PayPal — affiliate payouts</a></li></ol>
@@ -472,6 +472,15 @@
       <ol class="ig-print-steps"><li class="ig-step ig-step--print">
       <div class="ig-step-num" aria-hidden="true">1</div>
       <div class="ig-step-main">
+        <div class="ig-step-title">Confirm your bank</div>
+        <div class="ig-step-body">In PayPal, link your bank account. PayPal sends two small test deposits within 1 to 3 business days; enter both amounts in PayPal to confirm the bank.</div>
+        
+        
+        
+      </div>
+    </li><li class="ig-step ig-step--print">
+      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-main">
         <div class="ig-step-title">Request Payouts access</div>
         <div class="ig-step-body">Signed in to your PayPal business account, request <strong>Payouts</strong>. PayPal reviews it, usually within a few business days. Link a bank account first if PayPal asks.</div>
         
@@ -479,7 +488,7 @@
         <div class="ig-step-note">In the PayPal Developer Dashboard, Payouts under <strong>Live</strong> shows <strong>Contact Us</strong> until PayPal turns it on; that link is the same request. Until then SILO can connect but cannot send.</div>
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">2</div>
+      <div class="ig-step-num" aria-hidden="true">3</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Create a Live app</div>
         <div class="ig-step-body">In the PayPal Developer Dashboard, switch to <strong>Live</strong>, open <strong>Apps &amp; Credentials</strong> and create an app (any name, e.g. <code>SILO</code>). Copy its <strong>Client ID</strong> and <strong>Secret</strong>.</div>
@@ -488,7 +497,7 @@
         <div class="ig-step-note">Treat the secret like a password. Paste it only into SILO, never into email or chat.</div>
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">3</div>
+      <div class="ig-step-num" aria-hidden="true">4</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Connect it in SILO</div>
         <div class="ig-step-body">In <strong>Affiliate Studio → Money → Connect PayPal</strong>, choose <strong>Live</strong>, paste the Client ID and Secret, then <strong>Connect</strong>. SILO checks them with PayPal before saving.</div>
@@ -497,7 +506,7 @@
         
       </div>
     </li><li class="ig-step ig-step--print">
-      <div class="ig-step-num" aria-hidden="true">4</div>
+      <div class="ig-step-num" aria-hidden="true">5</div>
       <div class="ig-step-main">
         <div class="ig-step-title">Send a small first payout</div>
         <div class="ig-step-body">Approve a small payout to an affiliate, press <strong>Send with PayPal</strong>, then <strong>Check payment status</strong>. It turns paid once PayPal confirms.</div>

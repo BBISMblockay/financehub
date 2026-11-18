@@ -19844,4 +19844,7 @@ $c$select (select count(*) from v_po_header_summary
 -- a purchase order and a person confirms it in PO Report. Apply BEFORE
 -- deploying mcp, and the scope cannot be granted until it is applied.
 \i migrations/20261117220000_receiving_write_scope.sql
+-- 20261118010000: one affiliate per company, added to more programs, each
+-- with its own rate. Apply BEFORE using Add to program in Affiliate Studio.
+\i migrations/20261118010000_affiliate_add_to_program.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

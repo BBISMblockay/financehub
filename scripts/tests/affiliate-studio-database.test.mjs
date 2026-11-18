@@ -40,6 +40,8 @@
 //   AFFILIATE_DB_MUTATION=autoshareagain editing a launch brings back one that was unshared
 //   AFFILIATE_DB_MUTATION=autoshareproduct adding a product to an unshared launch shares it again
 //   AFFILIATE_DB_MUTATION=autosharefails a failed share fails the launch save
+//   AFFILIATE_DB_MUTATION=addproggate  anyone in the company can add an affiliate to another program
+//   AFFILIATE_DB_MUTATION=addprogco    add to program takes a person from another company
 //   AFFILIATE_DB_MUTATION=seedgate      anyone in the company can approve a product request
 //   AFFILIATE_DB_MUTATION=seedcountsseed the seed order counts toward its own goal
 //   AFFILIATE_DB_MUTATION=seedrefund    a sale counts before its refund window has passed
@@ -253,6 +255,8 @@ const files = {
   // A shared launch follows a date change (20261117200000). Only its trigger
   // function is applied here; the rest of that file is tested elsewhere.
   follow: '20261117200000_affiliate_creator_codes.sql',
+  // One affiliate per company, added to more programs (20261118010000).
+  addprog: '20261118010000_affiliate_add_to_program.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -265,6 +269,8 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  case 'addproggate': mutate('addprog', "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
+  case 'addprogco': mutate('addprog', "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
   case 'rls': mutate('ledger', 'alter table public.affiliate_attributions enable row level security;', ''); break;
   // A paused affiliate may read their portal but must not raise a hand: the
   // brand's launch page would then name someone who is not earning.
@@ -527,7 +533,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -717,6 +723,35 @@ const affFix = (await one(
 const affPaused = (await one(
   `insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
    values ($1,$2,'Paused','paused@creator.test','paused',1,now()) returning id`, [A, progA])).id;
+
+await check('C00 a joined affiliate is added to another program once, active, with its own rate and their PayPal email', async () => {
+  const prog2 = await seedProgram(U.ownerA, A, 'wholesale', { terms_version: 3 });
+  await as(U.mgrA, A);
+  const affPat = await newAff('Multi', 'multi@coach.test');
+  await asSuper();
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','pat@pay.test')`, [A, affPat]);
+  await as(U.memberA, A);
+  await assert.rejects(db.query('select affiliate_add_to_program($1,$2)', [affPat, prog2]), /not allowed/, 'a member cannot');
+  await as(U.ownerB, B);
+  await assert.rejects(db.query('select affiliate_add_to_program($1,$2)', [affPat, progB]), /no such affiliate/, 'another company cannot take the person');
+  await as(U.mgrA, A);
+  await assert.rejects(db.query('select affiliate_add_to_program($1,$2)', [affPat, progB]), /no such program/, 'nor add them to another company\'s program');
+  const r = (await one(`select affiliate_add_to_program($1,$2,'percent_of_net',15,null) as r`, [affPat, prog2])).r;
+  assert.equal(r.added, true);
+  const row = await one('select program_id, status, contact_email, commission_kind, commission_percent, terms_version_accepted, terms_acceptance from affiliates where id = $1', [r.affiliate_id]);
+  assert.equal(row.program_id, prog2); assert.equal(row.status, 'active'); assert.equal(row.contact_email, 'multi@coach.test');
+  assert.equal(row.commission_kind, 'percent_of_net'); assert.equal(Number(row.commission_percent), 15);
+  assert.equal(row.terms_version_accepted, 3);
+  assert.equal(row.terms_acceptance.carried_from, affPat, 'the acceptance is recorded as carried, not invented');
+  assert.equal((await one('select payout_email from affiliate_payout_accounts where affiliate_id = $1', [r.affiliate_id])).payout_email, 'pat@pay.test');
+  const again = (await one('select affiliate_add_to_program($1,$2) as r', [affPat, prog2])).r;
+  assert.deepEqual(again, { affiliate_id: r.affiliate_id, added: false }, 'twice is once');
+  const invited = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status) values ($1,$2,'Inv','inv@creator.test','invited') returning id`, [A, progA])).id;
+  await assert.rejects(db.query('select affiliate_add_to_program($1,$2)', [invited, prog2]), /only someone who has joined/);
+  await asSuper();
+  assert.equal((await one(`select has_function_privilege('anon','public.affiliate_add_to_program(uuid,uuid,text,numeric,integer)','execute') as x`)).x, false);
+  await as(U.mgrA, A);
+});
 
 await check('C0 an affiliate cannot be active without an accepted terms version', async () => {
   await assert.rejects(db.query(
@@ -2245,7 +2280,7 @@ await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Stud
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));
