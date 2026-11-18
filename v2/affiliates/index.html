@@ -449,8 +449,33 @@
     .af-pp-chip .af-mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .af-pp-chip-logo { height: 13px; width: auto; flex-shrink: 0; }
     .af-pp-chip--none { color: var(--bcn-warn); border-color: var(--bcn-warn); }
-    .af-pp-form { margin: 6px 0 4px; }
-    .af-pp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+    /* Money tab, modern pass (Blake 2026-11-18: "windows 98 boxes"). Scoped to
+       this panel; Beacon tokens only. Beacon styles inputs and buttons with
+       element+class, so each override names the element too. */
+    .af-money button.bcn-btn { border-radius: 999px; padding: 9px 16px; font-weight: 600; font-size: 13.5px; line-height: 1.2; box-shadow: none; transition: background .15s, border-color .15s, opacity .15s; }
+    .af-money button.bcn-btn--ghost { background: transparent; border-color: transparent; color: var(--bcn-ink-3); }
+    .af-money button.bcn-btn--ghost:hover { background: var(--bcn-sunken); color: var(--bcn-ink); }
+    .af-money input.bcn-field { height: 40px; border-radius: 10px; padding: 0 12px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); font-size: 14px; box-shadow: none; transition: border-color .15s, box-shadow .15s; min-width: 0; }
+    .af-money input.bcn-field:focus { outline: none; border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 16%, transparent); }
+    .af-money .af-item { border-radius: 16px; }
+    .af-money .af-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
+    .af-money .af-actions input.bcn-field { width: 180px; }
+    .af-void { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .af-pay-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+    .af-ppc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; padding: 28px; border-radius: 20px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); }
+    .af-ppc-logo { height: 26px; width: auto; display: block; margin-bottom: 18px; }
+    .af-ppc-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+    .af-ppc-sub { margin: 6px 0 0; font-size: 14px; line-height: 1.5; color: var(--bcn-ink-3); max-width: 36ch; }
+    .af-ppc-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .af-ppc-link { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; background: var(--bcn-sunken); color: var(--bcn-ink-2); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .af-ppc-link:hover { background: var(--bcn-accent-soft); color: var(--bcn-ink); }
+    .af-ppc-link svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .af-ppc-form { display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 16px; background: var(--bcn-sunken); }
+    .af-ppc-field { display: flex; flex-direction: column; gap: 6px; }
+    .af-ppc-field span { font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2); }
+    .af-money .af-ppc-field input.bcn-field { width: 100%; height: 44px; font-family: var(--bcn-mono); font-size: 13px; }
+    .af-money .af-ppc-form button.bcn-btn { width: 100%; padding: 12px 16px; font-size: 14px; margin-top: 2px; }
+    @media (max-width: 760px) { .af-ppc { grid-template-columns: 1fr; gap: 20px; padding: 20px; } .af-money .af-actions { justify-content: flex-start; } }
     .af-pay-owed { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; }
     .af-pay-owed-num { font-family: var(--bcn-mono); font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
     .af-pay-meter { height: 6px; border-radius: 99px; background: var(--bcn-sunken); overflow: hidden; margin-top: 8px; }
@@ -648,7 +673,7 @@
     <!-- Comms: every message to a creator or an affiliate, prepped and
          approved in queues, plus the template they start from. -->
     <section class="af-panel" data-panel="comms" hidden><div class="af-stack" id="outreachBody"></div><div class="af-stack" id="shareBody"></div></section>
-    <section class="af-panel" data-panel="payouts" hidden><div class="af-stack af-stack--pinched" id="payoutsBody"></div></section>
+    <section class="af-panel af-money" data-panel="payouts" hidden><div class="af-stack af-stack--pinched" id="payoutsBody"></div></section>
     <!-- Setup: the programme's own settings, and what it shares. -->
     <section class="af-panel" data-panel="program" hidden>
       <div class="af-stack" id="programBody"></div>
