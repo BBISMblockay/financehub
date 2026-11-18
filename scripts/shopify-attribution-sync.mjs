@@ -11,11 +11,20 @@ import {coverageConfig,runCoverage,canPublish,storeToday} from './lib/shopify-at
 
 const env=process.env, scheduled=env.ATTRIBUTION_MODE === 'scheduled';
 // Days at or below the threshold publish in the single call they always have; only a day
-// too large to send whole takes the staged path. The default sits above the largest day
-// ever published successfully (4,118), so nothing that works today changes behaviour.
+// too large to send whole takes the staged path.
+//
+// The default used to sit ABOVE the largest day ever published successfully (5,000 against
+// 4,118), on the reasoning that nothing already working should change path. The first day
+// past that ceiling proved the reasoning backwards: a 4,122-order day failed its single
+// publish call on 2026-11-15 and again on 2026-11-17, landed on 2026-11-16, and so turned
+// the nightly run red on two nights out of three while its own snapshot was fine. The
+// single call is not reliable at that size for any store, so the default now sits BELOW
+// the sizes that have been seen to fail: a day of more than 2,000 orders goes up in
+// slices and still commits in one transaction. Raise it per repository only to reproduce
+// the old path deliberately.
 // An unset GitHub repo variable arrives as '' rather than undefined, and Number('') is 0.
 const positive=(value,fallback)=>{const n=Number(value===undefined||value===''?fallback:value);if(!Number.isInteger(n)||n<1)throw Error('Publish chunking must be positive integers');return n;};
-const publishChunk=positive(env.ATTRIBUTION_PUBLISH_CHUNK,500), publishThreshold=positive(env.ATTRIBUTION_PUBLISH_THRESHOLD,5000);
+const publishChunk=positive(env.ATTRIBUTION_PUBLISH_CHUNK,500), publishThreshold=positive(env.ATTRIBUTION_PUBLISH_THRESHOLD,2000);
 // Collection speed. Both batch sizes default to 1, which is the serial order-at-a-time path
 // that has published every snapshot so far, so an unset variable changes nothing. A day used
 // to be two sequential HTTP calls per order -- a 4,103-order day measured 32 minutes at a

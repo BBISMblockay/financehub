@@ -93,6 +93,32 @@ export function planDays({ today, state, snapshots, fullHistory, gapDays, histor
     permissionLimited: floor > state.start_day };
 }
 
+/** What a swallowed failure is allowed to say about itself, in the run log only.
+ *
+ *  Every failure below is counted and then dropped: a day that fails leaves `failed: 1`
+ *  in a receipt and nothing else, which is how one store's 2026-11-14 day failed on two
+ *  separate nights without ever naming a reason. The run log is the only place a reason
+ *  can go -- upstream text may carry credentials or whole response bodies, so it is still
+ *  never persisted to the checkpoint, and what IS logged is redacted first, because a
+ *  public repository's Actions logs are readable by anyone.
+ *
+ *  Redaction is deliberately blunt: known token shapes, anything that looks like a
+ *  secret-bearing parameter or header, then any long opaque run of token characters.
+ *  Over-redacting a message costs a few characters of a reason; under-redacting one
+ *  publishes a credential.
+ */
+export function failureDetail(error) {
+  const name = String(error?.name || (error === undefined ? 'unknown' : typeof error)).slice(0, 60);
+  const detail = String(error?.message ?? (typeof error === 'string' ? error : '')).replace(/\s+/g, ' ')
+    .replace(/\bsh(pat|pca|ppa|psa)_[A-Za-z0-9]+/g, '[redacted]')
+    .replace(/\bey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, '[redacted]')
+    .replace(/([?&](?:access_token|token|key|apikey|api_key|signature|hmac)=)[^&\s"']+/gi, '$1[redacted]')
+    .replace(/"?(access_token|refresh_token|client_secret|password|X-Shopify-Access-Token)"?\s*[:=]\s*"?[A-Za-z0-9._-]{8,}"?/gi, '$1=[redacted]')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted]')
+    .trim().slice(0, 300);
+  return detail ? { error: name, detail } : { error: name };
+}
+
 // Injected I/O lets the real orchestration run against deterministic fixtures.
 //
 // TWO PASSES, and the order is the whole point. Pass one is the work every report
@@ -109,7 +135,7 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
   let failures = 0;
   for (const connection of connections) {
     try { work.push({ connection, state: await loadState(connection.id) }); }
-    catch { failures++; log(JSON.stringify({ connection_id: connection.id, status: 'checkpoint_read_failed' })); }
+    catch (error) { failures++; log(JSON.stringify({ connection_id: connection.id, status: 'checkpoint_read_failed', ...failureDetail(error) })); }
   }
   work.sort((a, b) => (a.state?.last_attempt_at || '').localeCompare(b.state?.last_attempt_at || '') || a.connection.id.localeCompare(b.connection.id));
 
@@ -128,12 +154,15 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
         await runDay(connection, day);
         receipt.succeeded++;
         if (history) receipt.history_succeeded = (receipt.history_succeeded || 0) + 1;
-      } catch {
+      } catch (error) {
         // Do not persist upstream errors: they may contain credentials or response bodies.
+        // The run log gets a redacted reason instead (`failureDetail`), because a counted
+        // failure with no reason cannot be diagnosed from the run at all.
         // A day of deep history that cannot be read is recorded and walked past: old days
         // fail for reasons nobody can fix tonight (a journey Shopify no longer holds, a
         // later refund that no longer reconciles), and that must not turn the nightly run
         // that keeps every store current into a failure.
+        log(JSON.stringify({ connection_id: connection.id, day, event: 'day_failed', pass: history ? 'history' : 'current', ...failureDetail(error) }));
         if (history) { receipt.history_failed = (receipt.history_failed || 0) + 1; receipt.history_failed_day = day; }
         else {
           receipt.failed++; failures++;
@@ -156,9 +185,9 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
     await saveState(state);
     log(JSON.stringify({ ...receipt, status: state.last_status }));
   };
-  const storeFailed = async (state, receipt) => {
+  const storeFailed = async (state, receipt, error) => {
     failures++;
-    log(JSON.stringify({ ...receipt, status: 'store_failed' }));
+    log(JSON.stringify({ ...receipt, status: 'store_failed', ...failureDetail(error) }));
     if (state) {
       state.last_status = 'store_failed'; state.last_attempt_at = now().toISOString(); state.last_result = receipt;
       try { await saveState(state); } catch { /* Next run can still find missing snapshots. */ }
@@ -216,8 +245,8 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
       // written once, after it.
       if (plan.history.length) { pending.push(ctx); continue; }
       await finish(ctx);
-    } catch {
-      await storeFailed(state, receipt);
+    } catch (error) {
+      await storeFailed(state, receipt, error);
     }
   }
   // Pass two: every store's current days are published. What is left of the run is
@@ -231,7 +260,7 @@ export async function runCoverage({ config, listConnections, loadState, saveStat
       ? Math.min(deadline, +now() + Math.max(0, deadline - +now()) / (pending.length - index))
       : Infinity;
     try { await runDays(ctx, ctx.plan.history, share); }
-    catch { await storeFailed(ctx.state, ctx.receipt); continue; }
+    catch (error) { await storeFailed(ctx.state, ctx.receipt, error); continue; }
     await finish(ctx);
   }
   return { failures };

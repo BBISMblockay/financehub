@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { coverageConfig, eligible, missingScopes, canPublish, planDays, runCoverage, storeToday, historyFloorDay } from '../lib/shopify-attribution-coverage.mjs';
+import { coverageConfig, eligible, missingScopes, canPublish, planDays, runCoverage, storeToday, historyFloorDay, failureDetail } from '../lib/shopify-attribution-coverage.mjs';
 const company='00000000-0000-0000-0000-000000000001';
 const config=coverageConfig({ATTRIBUTION_COVERAGE_COMPANIES:company,ATTRIBUTION_GAP_DAYS:'3'});
 const connection=id=>({id,company_entity_id:company,is_active:true,sync_enabled:true,scopes_granted:['read_orders','read_reports']});
@@ -77,6 +77,52 @@ test('a failed checkpoint read does not prevent healthy stores from progressing'
   assert.equal(f.states.get('b').last_result.succeeded,10);
 });
 
+test('a counted failure names its reason in the run log, redacted and never persisted',async()=>{
+  // A day that fails used to leave `failed: 1` in a receipt and nothing else, so two
+  // nights of the same failure said nothing about itself. The reason belongs in the log.
+  const f=fixture(),publish=f.io.runDay,lines=[];
+  f.io.log=line=>lines.push(JSON.parse(line));
+  f.io.runDay=async(c,day)=>{
+    if(c.id==='a'&&day==='2026-09-05')throw Error('Snapshot publication failed: upstream refused for shpat_abcdef0123456789 at https://x.test/admin?access_token=sekritvalue');
+    return publish(c,day);
+  };
+  assert.equal((await runCoverage(f.io)).failures,1);
+  const failed=lines.filter(l=>l.event==='day_failed');
+  assert.equal(failed.length,1);
+  assert.equal(failed[0].day,'2026-09-05');
+  assert.equal(failed[0].connection_id,'a');
+  assert.equal(failed[0].pass,'current');
+  assert.equal(failed[0].error,'Error');
+  assert.match(failed[0].detail,/Snapshot publication failed/);
+  // Redacted, and still only in the log: the checkpoint carries no upstream text at all.
+  assert.ok(!failed[0].detail.includes('shpat_abcdef0123456789'));
+  assert.ok(!failed[0].detail.includes('sekritvalue'));
+  assert.ok(!JSON.stringify(f.states.get('a')).includes('shpat_'));
+  assert.ok(!JSON.stringify(f.states.get('a')).includes('refused'));
+  // A store that cannot even be prepared, and a checkpoint that cannot be read, say why too.
+  const g=fixture(),glines=[];
+  g.io.log=line=>glines.push(JSON.parse(line));
+  g.io.prepare=async c=>{if(c.id==='a')throw Error('Store calendar unreachable');return 'America/Los_Angeles';};
+  await runCoverage(g.io);
+  const store=glines.find(l=>l.status==='store_failed');
+  assert.equal(store.connection_id,'a');
+  assert.match(store.detail,/Store calendar unreachable/);
+  const h=fixture(),hlines=[],load=h.io.loadState;
+  h.io.log=line=>hlines.push(JSON.parse(line));
+  h.io.loadState=async id=>{if(id==='a')throw Error('database failed');return load(id);};
+  await runCoverage(h.io);
+  assert.match(hlines.find(l=>l.status==='checkpoint_read_failed').detail,/database failed/);
+});
+test('failure detail redacts credentials and opaque tokens, and survives a non-Error throw',()=>{
+  assert.deepEqual(failureDetail(Error('plain reason')),{error:'Error',detail:'plain reason'});
+  const dirty=failureDetail(Error('refused shpat_0123456789abcdef token=supersecretvaluesupersecretvalue "access_token": "abcdefghijkl" eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzaWxvIn0.c2lnbmF0dXJlX3ZhbHVl'));
+  for(const secret of ['shpat_0123456789abcdef','supersecretvaluesupersecretvalue','abcdefghijkl','eyJhbGciOiJIUzI1NiJ9'])assert.ok(!dirty.detail.includes(secret),secret);
+  assert.match(dirty.detail,/refused/);
+  assert.ok(failureDetail(Error('x'.repeat(900))).detail.length<=300);
+  assert.deepEqual(failureDetail('bare string'),{error:'string',detail:'bare string'});
+  assert.deepEqual(failureDetail(undefined),{error:'unknown'});
+  assert.equal(failureDetail(Error('')).detail,undefined);
+});
 test('publication eligibility rejects changed tenant, domain, opt-out, scopes and aged history',()=>{
   const original={...connection('a'),shop_domain:'a.myshopify.com'};
   const allowed=fresh=>canPublish(fresh,original,config,'2026-10-01','2026-10-07');
