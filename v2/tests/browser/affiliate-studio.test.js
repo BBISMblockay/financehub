@@ -1247,10 +1247,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await endPage.click('#tabs [data-tab="people"]');
       R.ok('an ended affiliate is archived out of the current list', !(await text(endPage, '#affiliatesBody')).includes('Quin Ended'));
       R.has(await text(endPage, '#affiliatesBody [data-act="aff-filter"][data-f="ended"]'), '1', 'the Ended chip counts the archived affiliate');
+      await endPage.click('#affiliatesBody [data-act="aff-tool"][data-k="code"]');
+      await endPage.fill('#cCode', 'DRAFT25'); await endPage.fill('#cPct', '25');
       await endPage.click('#affiliatesBody [data-act="aff-filter"][data-f="ended"]');
       R.has(await text(endPage, '#affiliatesBody'), 'Quin Ended', 'Ended shows the archived affiliate');
+      R.ok('switching to Ended keeps a half-filled Add code form', (await endPage.inputValue('#cCode')) === 'DRAFT25' && (await endPage.inputValue('#cPct')) === '25');
       R.ok('an ended, never-signed-up affiliate can be invited again from their card', !!(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p-end"]')));
       await endPage.click('#affiliatesBody [data-act="aff-filter"][data-f="current"]');
+      R.ok('switching back to Current still keeps it', (await endPage.inputValue('#cCode')) === 'DRAFT25');
       R.ok('a signed-up affiliate gets no invite button', !(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p1"]')));
       await endPage.click('#prospectsBody [data-f="approved"]').catch(() => {});
       R.has(await text(endPage, '#prospectsBody'), 'found via met at a tournament', 'a saved "where found" note is shown on the creator card');
