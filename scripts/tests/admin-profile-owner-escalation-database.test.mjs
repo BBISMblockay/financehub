@@ -80,6 +80,40 @@ const one = async (sql, params = []) => (await q(sql, params))[0];
 // The verify statement under test, read from the file rather than retyped: a
 // check that drifts from what the drift run executes proves nothing.
 const VERIFY_MARKER = "select 'Owner grants are bound to the company being written' as check_name";
+
+// verify_v2_schema.sql grows: new checks are APPENDED after the ones these tests
+// read. Slicing from a marker to EOF therefore hands the driver every later check
+// as well -- which fails with "cannot insert multiple commands into a prepared
+// statement" the first time anything is added below (it did, 2026-11-17, taking
+// the whole Finance database regressions job red and skipping every later suite).
+// Always extract exactly ONE statement: from the marker to its own terminating
+// semicolon.
+// Semicolons inside these checks' message strings and -- comments are not
+// statement boundaries, so count only the bare ones.
+function countStatements(sql) {
+  let n = 0, inStr = false, inComment = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (inComment) { if (c === '\n') inComment = false; continue; }
+    if (inStr) { if (c === "'") inStr = false; continue; }
+    if (c === "'") { inStr = true; continue; }
+    if (c === '-' && sql[i + 1] === '-') { inComment = true; i++; continue; }
+    if (c === ';') n++;
+  }
+  return n;
+}
+
+function firstStatementFrom(sql, marker) {
+  const start = sql.indexOf(marker);
+  assert.ok(start >= 0, `verify_v2_schema.sql no longer contains: ${marker}`);
+  const rest = sql.slice(start);
+  const end = rest.search(/;\s*(?:\r?\n|$)/);
+  assert.ok(end >= 0, `the check starting at "${marker}" has no terminating semicolon`);
+  const statement = rest.slice(0, end) + ';';
+  assert.equal(countStatements(statement), 1,
+    `extracted more than one statement for "${marker}"`);
+  return statement;
+}
 let VERIFY_SQL = '';
 const verifyStatement = () => VERIFY_SQL;
 
@@ -398,7 +432,7 @@ VERIFY_SQL = await (async () => {
   const claimed = verify.indexOf('-- \u2500\u2500 Workspace Settings administration (20260920120000)');
   assert.ok(claimed > start,
     'the check must stay above the workspace-settings/admin-scope claimed region');
-  return verify.slice(start).split(/;\s*\n/)[0] + ';';
+  return firstStatementFrom(verify, VERIFY_MARKER);
 })();
 
 // ── 5a. Review cycle 1, P1: authority follows the company, not the session ───
@@ -839,7 +873,7 @@ await test('activity: sole owner cannot be disabled or removed by a workspace ad
 });
 await test('activity: reapply is idempotent and the actual drift check detects missing guard or writes', async () => {
   const verify = await readFile(new URL('supabase/verify_v2_schema.sql',root),'utf8');
-  const statement = verify.slice(verify.indexOf("select 'Workspace profile editing preserves global activity'"));
+  const statement = firstStatementFrom(verify, "select 'Workspace profile editing preserves global activity'");
   assert.equal((await one(statement)).status,'ok');
   if (!mutation) {
     await db.exec(activityFix);
@@ -855,6 +889,27 @@ await test('activity: reapply is idempotent and the actual drift check detects m
     assert.match((await one(statement)).status,/CRITICAL/);
     await db.exec('rollback');
   }
+});
+
+await test('regression: appending new checks to verify_v2_schema.sql cannot widen the extraction', async () => {
+  const verify = await readFile(new URL('supabase/verify_v2_schema.sql',root),'utf8');
+  const markers = [VERIFY_MARKER, "select 'Workspace profile editing preserves global activity'"];
+  const appended = verify
+    + "\n-- a later, unrelated check appended after these ones\n"
+    + "select 'Appended check' as check_name, 'ok' as status;\n"
+    + "select 'Another appended check' as check_name,\n  case when true then 'ok' else 'CRITICAL' end as status;\n";
+  for (const marker of markers) {
+    const before = firstStatementFrom(verify, marker);
+    const after = firstStatementFrom(appended, marker);
+    assert.equal(after, before, `appending below "${marker}" changed what the test extracts`);
+    assert.ok(!/Appended check/.test(after), 'the extraction swallowed a later check');
+    // and it must still be a single statement the driver accepts
+    assert.equal((await one(after)).status, 'ok');
+  }
+  // the whole-file slice this replaced is what broke: prove the driver refuses it
+  await assert.rejects(() => one(appended.slice(appended.indexOf(markers[1]))),
+    /multiple commands|cannot insert/i,
+    'an unbounded slice must still be refused -- that is the failure this guards');
 });
 
 console.log(`\nadmin_update_profile owner escalation: ${passed}/${passed} passed`);
