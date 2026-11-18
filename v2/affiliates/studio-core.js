@@ -109,16 +109,30 @@ export function templateRow(subject, body) {
   return { row, errors };
 }
 
+// A web address as the database accepts it (affiliate_prospects' *_url CHECKs
+// want http(s)://, no spaces). People type "instagram.com/name" or
+// "www.site.com", so a bare domain gets https:// in front. Returns null for
+// blank and undefined for text that is not an address ("Instagram", "a
+// friend"), so the caller decides whether that is an error or a note.
+export function asWebUrl(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  if (/^https?:\/\/\S+$/i.test(t)) return t;
+  const bare = t.replace(/^\/\//, '');
+  if (/^[^\s/]+\.[a-z]{2,}(?:[/?#]\S*)?$/i.test(bare)) return `https://${bare}`;
+  return undefined;
+}
+
 // A person's edit of a creator (Blake, 2026-11-17). An email typed here was
 // given or found by a person, so its "where it was stated" link is cleared
 // when the email changes. Throws a message a person can act on.
 export function prospectEditRow(f, before = {}) {
   const name = String(f.name ?? '').trim();
   const handle = String(f.handle ?? '').trim();
-  const url = String(f.url ?? '').trim();
+  const url = asWebUrl(f.url);
   const email = String(f.email ?? '').trim().toLowerCase();
-  if (!handle && !url) throw new Error('A handle or a profile URL is needed to tell creators apart.');
-  if (url && !/^https?:\/\/\S+$/i.test(url)) throw new Error('The profile URL must start with https://');
+  if (!handle && !url && url !== undefined) throw new Error('A handle or a profile URL is needed to tell creators apart.');
+  if (url === undefined) throw new Error('The profile URL should be a web address, like instagram.com/name.');
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('That email address is not valid.');
   const row = { display_name: name || handle || url, platform: String(f.platform || before.platform || 'other'), handle: handle || null, profile_url: url || null, contact_email: email || null };
   if ((email || null) !== (String(before.contact_email || '').toLowerCase() || null)) row.contact_source_url = null;

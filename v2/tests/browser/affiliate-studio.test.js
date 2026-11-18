@@ -534,10 +534,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // Added by hand with an email: approved and invited at once.
       await openAddCreators(inv);
       await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
+      // Typed the way people type (Blake 2026-11-18, source_url CHECK): a bare
+      // profile domain and a word for where they were found.
+      await inv.fill('#mpUrl', 'instagram.com/ned'); await inv.fill('#mpSource', 'Instagram');
       await inv.click('#prospectsBody [data-act="prospect-add"]');
       await inv.waitForFunction(() => /Added\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const added = await inv.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
+      R.eq([added?.profile_url, added?.source_url, added?.evidence?.found_via], ['https://instagram.com/ned', null, 'Instagram'], 'a bare domain gets https:// and a non-address "where found" is kept as a note, so the CHECK cannot refuse the save');
       R.ok('and emailed their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'fixture-inserted-id' && c.email === true));
       R.has(await text(inv, '#status'), 'Invite emailed to ned@creator.invalid');
       // Added by hand when the mail is refused: the link shows beside the form.

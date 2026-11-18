@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, asWebUrl, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -1083,7 +1083,7 @@ function renderProspects() {
   const adder = S.addCreators && MANAGE ? card('Add creators', `<div class="af-grid">
       ${field('Name', input('mpName'))}${field('Platform', `<select class="bcn-field" id="mpPlat">${PLATS.map((x) => `<option value="${x}">${esc(PLATFORM_NAMES[x] || x)}</option>`).join('')}</select>`)}
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
-      ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="https://"'))}
+      ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="A link, or how you met"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament"'))}<div class="af-row" style="margin-top:8px;">${btn('Add', 'prospect-add', {}, 'primary')}${btn('Close', 'add-creators-close')}</div><div id="mpOut"></div>
     <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}${btn('Download template', 'import-template', {}, 'ghost')}</div>`) : '';
   $('prospectsBody').innerHTML = [
@@ -2280,7 +2280,14 @@ const A = {
     return `Saved.${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
   },
   'prospect-add': async () => {
-    const url = val('mpUrl'); const handle = val('mpHandle');
+    // Addresses are tidied the way people type them (instagram.com/name gets
+    // https://); "Where you found them" that is not an address ("Instagram",
+    // "met at a show") is kept as a note instead of failing the save
+    // (Blake 2026-11-18: affiliate_prospects_source_url_check).
+    const url = asWebUrl(val('mpUrl')); const handle = val('mpHandle');
+    if (url === undefined) throw new Error('The profile URL should be a web address, like instagram.com/name.');
+    const source = asWebUrl(val('mpSource'));
+    const foundVia = source === undefined ? val('mpSource') : null;
     if (!url && !handle) throw new Error('A handle or a profile URL is needed to tell creators apart.');
     if (val('mpEmail') && !val('mpEmail').includes('@')) throw new Error('That email address is not valid.');
     // Added with an email: approved and invited at once (the invite is emailed).
@@ -2289,7 +2296,7 @@ const A = {
     const row = must(await db.from('affiliate_prospects').insert({
       company_entity_id: CO, program_id: S.programId, display_name: val('mpName') || handle || url, platform: val('mpPlat'),
       handle: handle || null, profile_url: url || null, contact_email: email,
-      source: 'manual', source_url: val('mpSource') || null, evidence: { note: val('mpNote') || null, entered_by: me.email || me.id }, created_by: me.id,
+      source: 'manual', source_url: source || null, evidence: { note: val('mpNote') || null, ...(foundVia ? { found_via: foundVia } : {}), entered_by: me.email || me.id }, created_by: me.id,
       ...(email ? { status: 'approved', reviewed_by: me.id, reviewed_at: now } : {}),
     }).select('id').single());
     if (!email) return 'Prospect added.';

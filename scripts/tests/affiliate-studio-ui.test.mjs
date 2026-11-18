@@ -133,7 +133,18 @@ await t('program form: valid input becomes a row the CHECKs accept; invalid inpu
   assert.ok(!('contact_source_url' in C.prospectEditRow({ handle: '@s', email: 'a@b.co' }, { contact_email: 'A@b.co' })), 'an unchanged email keeps where it was stated');
   assert.throws(() => C.prospectEditRow({ handle: '', url: '' }), /handle or a profile URL/);
   assert.throws(() => C.prospectEditRow({ handle: '@s', email: 'nope' }), /not valid/);
-  assert.throws(() => C.prospectEditRow({ url: 'javascript:alert(1)' }), /https/);
+  assert.throws(() => C.prospectEditRow({ url: 'javascript:alert(1)' }), /web address/);
+  // The form takes addresses the way people type them (Blake 2026-11-18,
+  // affiliate_prospects_source_url_check): a bare domain gets https://.
+  assert.equal(C.asWebUrl('instagram.com/sam'), 'https://instagram.com/sam');
+  assert.equal(C.asWebUrl(' www.sam.co '), 'https://www.sam.co');
+  assert.equal(C.asWebUrl('https://x.com/sam'), 'https://x.com/sam');
+  assert.equal(C.asWebUrl(''), null);
+  assert.equal(C.asWebUrl('Instagram'), undefined, 'a word is not an address');
+  assert.equal(C.asWebUrl('met at a show'), undefined);
+  assert.equal(C.asWebUrl('javascript:alert(1)'), undefined, 'no other scheme gets through');
+  for (const ok of ['instagram.com/sam', 'www.sam.co', 'https://x.com/sam']) assert.match(C.asWebUrl(ok), /^\s*https?:\/\/\S+\s*$/i, 'every result passes the database CHECK');
+  assert.equal(C.prospectEditRow({ url: 'tiktok.com/@sam' }).profile_url, 'https://tiktok.com/@sam');
   // The outreach template, saved from Comms: the same rules Setup used.
   assert.deepEqual(C.templateRow('', '').row, { outreach_subject: null, outreach_body: null }, 'blank keeps SILO wording');
   assert.ok(C.templateRow('Hi', 'no link here').errors.some((e) => /signup_link/.test(e)), 'the signup link must stay');
