@@ -112,7 +112,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
   // by the automatic "your code is live" notice. Returns null when the rep
   // has nothing live to send.
   async function sendCodesAndLinks({ company, a, brand, actor, live = null }) {
-    const { data: codes } = await service.from('affiliate_codes').select('code, starts_on, ends_on, status')
+    const { data: codes } = await service.from('affiliate_codes').select('code, starts_on, ends_on, status, discount_percent')
       .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
     const { data: links } = await service.from('affiliate_links').select('destination_url, utm_source, utm_medium, utm_campaign, starts_on, ends_on')
       .eq('company_entity_id', company).eq('affiliate_id', a.id).eq('status', 'active');
@@ -153,8 +153,9 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       for (const [k, v] of [['utm_source', l.utm_source], ['utm_medium', l.utm_medium], ['utm_campaign', l.utm_campaign]]) if (v) x.searchParams.set(k, v);
       ctas.push({ url: x.toString(), label: x.hostname.replace(/^www\./, '') });
     }
-    const { html, text } = renderMail({ brand, heading: live ? 'Your code is live' : 'Your code', paragraphs: paras, code: shown, ctas,
-      footer: 'A sale counts when the customer uses your code at checkout. Reply to this email with any questions.' });
+    const { html, text } = renderMail({ brand, eyebrow: live ? 'You are in' : 'Your code', heading: live ? 'Your code is live' : 'Your code', paragraphs: paras, code: shown, ctas,
+      codeNote: own?.discount_percent ? `${Number(own.discount_percent)}% off for your audience` : '',
+      footer: 'A sale counts when the customer uses your code at checkout.' });
     return sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
       kind: 'codes_and_links', to: a.contact_email,
       subject: live ? `${brand}: your code ${live} is live` : `${brand}: your affiliate codes and links`, html, text, triggeredBy: actor });
@@ -275,7 +276,8 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         let portal = null;
         try { if (a.contact_email) portal = await mintMailed({ company: f.company_entity_id, program: a.program_id, affiliateId: a.id, mailedTo: a.contact_email, days: PORTAL_LINK_DAYS }); }
         catch (e) { console.error('[affiliate-invite] portal link for earnings mail', e?.message); }
-        const { html, text } = renderMail({ brand, heading: `You earned ${amount}`,
+        const { html, text } = renderMail({ brand, eyebrow: 'Earnings', heading: `You earned ${amount}`,
+          stats: [{ label: 'Orders', value: String(orders) }, { label: 'Earned', value: amount }],
           paragraphs: [`Hi ${escapeHtml(a.display_name)}, you earned <strong>${escapeHtml(amount)}</strong> on ${orders} ${orders === 1 ? 'order' : 'orders'} with ${escapeHtml(brand)}.`,
             `It is paid to your PayPal after ${escapeHtml(brand)}'s refund window.`],
           ctas: portal ? [{ url: portal.url, label: 'See my earnings' }] : [] });
@@ -298,7 +300,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
   // own AI, codes:create) can still make it.
   async function createSeedCodes({ company = null, claimIds = null, actor = null }) {
     let q = service.from('affiliate_seed_claims')
-      .select('id, company_entity_id, program_id, affiliate_id, product_title, product_path, code, discount_percent, multiple, goal_days')
+      .select('id, company_entity_id, program_id, affiliate_id, product_title, product_path, code, discount_percent, multiple, goal_days, feed_item_id')
       .eq('state', 'approved').is('shopify_discount_id', null).not('code', 'is', null)
       .order('decided_at', { ascending: true }).limit(25);
     if (company) q = q.eq('company_entity_id', company);
@@ -346,11 +348,20 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     const pct = Number(claim.discount_percent);
     const paras = [
       `Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} request for <strong>${escapeHtml(claim.product_title)}</strong> is approved.`,
-      `This code takes ${escapeHtml(String(pct))}% off that product, once. It is for you only.`,
       `Sell ${escapeHtml(String(Number(claim.multiple)))}× what you pay within ${escapeHtml(String(claim.goal_days))} days and ${escapeHtml(brand)} pays it back.`,
     ];
-    const { html, text } = renderMail({ brand, heading: 'Your product code', paragraphs: paras, code: claim.code,
-      ctas: shop ? [{ url: shop, label: 'Get it now' }] : [], footer: 'Please do not share this code. Reply to this email with any questions.' });
+    // The product's own photo, from the item the brand shared to the portal.
+    let image = null;
+    if (claim.feed_item_id) {
+      try {
+        const { data: item } = await service.from('affiliate_feed_items').select('image_url, title')
+          .eq('id', claim.feed_item_id).eq('company_entity_id', company).maybeSingle();
+        if (item?.image_url) image = { url: item.image_url, alt: item.title || claim.product_title };
+      } catch { /* no photo: the email still goes */ }
+    }
+    const { html, text } = renderMail({ brand, eyebrow: 'Product request approved', heading: claim.product_title || 'Your product code', image,
+      paragraphs: paras, code: claim.code, codeNote: `${pct}% off this product · one use · for you only`,
+      ctas: shop ? [{ url: shop, label: 'Get it now' }] : [], footer: 'Please do not share this code.' });
     return sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
       kind: 'seed_code', to: a.contact_email, subject: `${brand}: your code for ${claim.product_title}`, html, text, triggeredBy: actor });
   }
@@ -595,7 +606,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         const { data: prog } = await service.from('affiliate_programs').select('name').eq('id', p.program_id).eq('company_entity_id', company).maybeSingle();
         const brand = co?.title || 'Affiliate program';
         const name = p.display_name || p.handle || 'there';
-        const { html, text } = renderMail({ brand, heading: `Join the ${brand} affiliate program`,
+        const { html, text } = renderMail({ brand, eyebrow: "You're invited", heading: `Join the ${brand} affiliate program`,
           paragraphs: [`Hi ${escapeHtml(name)}, ${escapeHtml(brand)} has invited you to join ${escapeHtml(prog?.name || 'its affiliate program')}. Open the link to read the terms and sign up. You get your own code and a portal for your sales and payouts.`],
           cta: { url: link.url, label: 'Join now' }, footer: `This link is personal to you and works for ${SIGNUP_LINK_DAYS} days. Not expecting this? You can ignore it.` });
         const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: p.program_id, affiliateId: aff.id,
@@ -684,7 +695,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           const amount = formatMoney(po.amount_cents, po.currency);
           const paras = [`Hi ${escapeHtml(a.display_name)}, your ${escapeHtml(brand)} affiliate payout of <strong>${escapeHtml(amount)}</strong> ${words[po.status]}.`];
           if (po.status === 'marked_paid' && po.external_reference) paras.push(`Payment reference: ${escapeHtml(po.external_reference)}`);
-          const { html, text } = renderMail({ brand, heading: 'Payout update', paragraphs: paras, footer: 'Reply to this email if anything looks wrong.' });
+          const { html, text } = renderMail({ brand, eyebrow: 'Payout', heading: po.status === 'marked_paid' ? `You were paid ${amount}` : 'Payout update', paragraphs: paras });
           const mail = await sendAffiliateMail({ service, resendKey, fetchImpl }, { companyId: company, programId: a.program_id, affiliateId: a.id,
             kind, to: a.contact_email, subject: `${brand}: payout ${po.status === 'marked_paid' ? 'paid' : 'update'}`, html, text, triggeredBy: actor,
             ...(paid ? { payoutId: po.id, idempotencyKey: `silo-payout-paid-${po.id}` } : {}) });

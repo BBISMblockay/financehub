@@ -122,7 +122,7 @@ if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddre
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
-const { sha256hex } = await import(new URL('supabase/functions/affiliate-portal/affiliate-mail.mjs', ROOT));
+const { sha256hex, renderMail: renderMailP, brandMail: brandMailP, sendAffiliateMail: sendAffiliateMailP } = await import(new URL('supabase/functions/affiliate-portal/affiliate-mail.mjs', ROOT));
 
 let passed = 0;
 async function test(name, fn) {
@@ -843,7 +843,7 @@ await test('invite: the codes email shows the code and buttons that apply it, on
   assert.ok(html.includes('href="https://shop.brand.test/discount/PAT10?redirect=%2F%3F'), 'a button to the store home with the code');
   assert.ok(/>Shop with my code<\/a>/.test(html), 'labelled, not the address');
   assert.ok(!/>https?:\/\//.test(html), 'no address is shown as text');
-  assert.ok(/letter-spacing:\.06em">PAT10<\/div>/.test(html), 'the code itself, large');
+  assert.ok(/font:700 28px[^"]*letter-spacing:\.08em[^"]*">PAT10<\/div>/.test(html), 'the code itself, large');
   assert.ok(html.includes('Your portal has a ready link'), 'store pages live in the portal');
   assert.ok(svc.log.some((c) => c.name === 'affiliate_program_store_url' && c.args.p_company === CO && c.args.p_program === PROG));
 });
@@ -1162,6 +1162,27 @@ await test('portal content: a signup link (not yet joined) cannot share content'
   const out = await portalCall(svc, { action: 'content_start', kind: 'link', link_url: 'https://x.test/p' });
   assert.equal(out.status, 400);
   assert.ok(!svc.log.some((x) => x.name === 'affiliate_portal_content_start'), 'nothing reached the database');
+});
+
+await test('mail: the brand logo and the program rep sign off every affiliate email; neither is invented when missing', async () => {
+  const LOGO = 'https://abc.supabase.co/storage/v1/object/public/company-logos/549324ed-6e36-45c9-bf7b-b9dbb253d6fc/logo-1794295341729.png';
+  const base = renderMailP({ brand: 'Brand A', heading: 'Hi', paragraphs: ['x'], code: 'PAT10', codeNote: '10% off' });
+  const on = brandMailP(base, { brand: 'Brand A', rep: { name: 'Robin', email: 'robin@brand.invalid' }, logoUrl: LOGO });
+  assert.equal(on.html.split(LOGO).length - 1, 2, 'logo at the top and on the sign-off');
+  assert.ok(on.html.includes('Questions? Robin') && on.html.includes('href="mailto:robin@brand.invalid"'), 'names the rep and their email');
+  assert.ok(/Questions\? Robin, robin@brand\.invalid$/.test(on.text), 'plain text names the rep too');
+  assert.ok(!on.html.includes('<!--silo:'), 'no mark is left behind');
+  const off = brandMailP(base, { brand: 'Brand A' });
+  assert.ok(!off.html.includes('<img') && !off.html.includes('Questions?') && !off.html.includes('<!--silo:'), 'no rep, no logo: nothing invented');
+  // Through the real sender: the program owner is the rep, the logo comes from Settings; a foreign address is refused.
+  for (const [logo, expect] of [[LOGO, true], ['https://evil.test/logo.png', false]]) {
+    const mail = fakeResend();
+    const svc = fakeService({ rpc: { ...noSuppression }, tables: { affiliate_programs: { owner_user_id: 'u1' }, profiles: { email: 'robin@brand.invalid', name: 'Robin' }, company_settings: { logo_url: logo } } });
+    await sendAffiliateMailP({ service: svc, resendKey: 're_x', fetchImpl: mail.fetchImpl }, { companyId: CO, programId: PROG, kind: 'earnings', to: 'pat@onfile.invalid', subject: 's', ...base });
+    assert.equal(mail.sent[0].body.reply_to, 'robin@brand.invalid', 'replies reach the rep');
+    assert.ok(mail.sent[0].body.html.includes('Questions? Robin'));
+    assert.equal(mail.sent[0].body.html.includes(logo), expect, expect ? 'Settings logo used' : 'an address outside company-logos is never shown');
+  }
 });
 
 console.log(`\naffiliate-edge: ${passed} passed`);

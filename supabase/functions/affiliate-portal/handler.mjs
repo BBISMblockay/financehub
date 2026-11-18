@@ -402,7 +402,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       try {
         link = await mintPortalLink({ company_entity_id: t.company_entity_id, program_id: t.program_id, affiliate_id: t.affiliate_id });
         const { html, text } = renderMail({
-          brand: t.company_title,
+          brand: t.company_title, eyebrow: 'Welcome',
           heading: `You're in: ${t.program_name}`,
           paragraphs: [
             `Hi ${escapeHtml(t.affiliate_display_name || signed)}, thanks for joining the ${escapeHtml(t.company_title)} affiliate program. You accepted version ${Number(res?.terms_version)} of the program terms.`,
