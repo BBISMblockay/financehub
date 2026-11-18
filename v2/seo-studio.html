@@ -246,7 +246,11 @@
     const msg = String(e?.message || e);
     if (/42P01|42883|does not exist/i.test(msg) && /seo_recommendations_v/.test(msg)) return `${msg} — apply 20260926180000_seo_recommendations.sql`;
     if (/42P01|does not exist/i.test(msg) && /rollup_28d/.test(msg)) return `${msg} — apply 20260927170000_seo_landscape_28d_rollup.sql`;
-    if (/57014|statement timeout/i.test(msg)) return `${msg} — the recommendations took longer than the 8 s limit; apply 20260927170000_seo_landscape_28d_rollup.sql`;
+    // 20260927170000 is applied on production, so pointing at it here (which
+    // this line used to do) sent a reader after a migration that was already
+    // there. A timeout now means the recommendations query itself ran past the
+    // 8 s limit for this company's data — Refresh, then say so if it persists.
+    if (/57014|statement timeout/i.test(msg)) return `${msg} — the recommendations took longer than the 8 s limit. Try Refresh; if it keeps timing out, this company's SEO data has outgrown the query.`;
     return msg;
   }
 

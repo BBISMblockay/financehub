@@ -19847,4 +19847,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261118010000: one affiliate per company, added to more programs, each
 -- with its own rate. Apply BEFORE using Add to program in Affiliate Studio.
 \i migrations/20261118010000_affiliate_add_to_program.sql
+-- 20261118210000: seo_recommendations_v reads the keyword landscape once,
+-- not twice, and materializes its People Also Ask aggregate. Apply to stop
+-- /v2/seo-studio.html timing out at the 8 s authenticated limit.
+\i migrations/20261118210000_seo_recommendations_single_landscape_read.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
