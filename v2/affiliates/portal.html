@@ -174,12 +174,28 @@
     .af-me-acts { display: flex; flex-wrap: wrap; gap: 6px; }
     .af-me input[type=file] { display: none; }
     .af-me label.is-disabled { opacity: .5; pointer-events: none; }
+    /* Add to home screen (install.js) */
+    .af-install { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); }
+    .af-install-icon { width: 44px; height: 44px; border-radius: 10px; flex: none; border: 1px solid var(--bcn-border); }
+    .af-install-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 13px; color: var(--bcn-ink-2); }
+    .af-install-txt strong { color: var(--bcn-ink); font-size: 14px; }
+    .af-install-x { border: 0; background: transparent; color: var(--bcn-ink-3); font-size: 20px; line-height: 1; padding: 4px 6px; cursor: pointer; }
+    @media (max-width: 520px) { .af-install { flex-wrap: wrap; } .af-install .bcn-btn { order: 3; width: 100%; justify-content: center; } }
+    .af-sheet-back { position: fixed; inset: 0; background: color-mix(in srgb, var(--bcn-ink) 45%, transparent); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+    .af-sheet { background: var(--bcn-surface); width: 100%; max-width: 480px; border-radius: 18px 18px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 14px; }
+    .af-sheet .bcn-btn { justify-content: center; padding: 12px; }
+    .af-sheet-head { display: flex; align-items: center; gap: 12px; }
+    .af-sheet-head img { border-radius: 10px; border: 1px solid var(--bcn-border); }
+    .af-sheet-head h2 { margin: 0; font-size: 18px; }
+    .af-sheet-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; color: var(--bcn-ink-2); }
+    .af-install-glyph { font-size: 16px; }
   </style>
 </head>
 <body class="silo-brand">
 <main class="af-wrap">
   <header class="af-top"><div class="af-brand"><span id="mark"></span><h1 id="title">Affiliate portal</h1></div><div class="af-brand"><span class="af-switch" id="switch"></span><span class="af-muted" id="who"></span></div></header>
   <div class="bcn-status" id="status" hidden></div>
+  <div id="install"></div>
   <div id="hero"></div>
   <div class="af-stats" id="kpis" hidden></div>
   <div id="body"><div class="af-panel">Loading…</div></div>
@@ -188,6 +204,7 @@
 <script type="module">
 import { $, esc, call, setStatus, takeToken, brandMark, wireBrandMark } from './public.js';
 import { formatMoney, seedView } from './studio-core.js';
+import { setupInstall } from './install.js';
 const token = takeToken('silo_affiliate_portal');
 const card = (title, html) => `<div class="af-panel"><h2>${esc(title)}</h2>${html}</div>`;
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
@@ -241,6 +258,7 @@ async function load() {
   $('foot').textContent = `Run by ${r.brand}. This page is personal to you.`;
   $('mark').innerHTML = brandMark(r.brand, r.brand_logo);
   wireBrandMark($('mark'));
+  setupInstall({ token, brand: r.brand, logo: r.brand_logo, mount: $('install'), onStatus: setStatus }).catch(() => {});
   // Seeding is a second, fail-soft call: an older server without it just
   // shows no seeding.
   const [st, seeds, content] = await Promise.all([call('statement', { token }), call('seeds', { token }).catch(() => null),

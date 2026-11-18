@@ -1185,4 +1185,24 @@ await test('mail: the brand logo and the program rep sign off every affiliate em
   }
 });
 
+await test('portal: the public apply page learns the brand and offer only for an active, open program', async () => {
+  const prog = { name: 'Creators', status: 'active', intake_mode: 'open', commission_kind: 'fixed_per_order', commission_percent: null, commission_fixed_cents: 500, currency: 'USD', default_discount_percent: 10, seeding_enabled: true, seed_discount_percent: 50 };
+  const ask = async (p, extra = {}) => {
+    const svc = fakeService({ tables: { affiliate_programs: p, entities: { title: 'Brand A' }, company_settings: null } });
+    const h = createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: null, fetchImpl: fakeResend().fetchImpl });
+    const res = await h(post({ action: 'program_info', company_id: CO, program: 'creators', ...extra }));
+    return { status: res.status, body: await res.json() };
+  };
+  const open = await ask(prog);
+  assert.equal(open.status, 200);
+  assert.equal(open.body.open, true);
+  assert.equal(open.body.brand, 'Brand A');
+  assert.deepEqual(open.body.perks, ['$5.00 per order', '10% off code for your audience', '50% off products for you']);
+  for (const p of [{ ...prog, intake_mode: 'invite_only' }, { ...prog, status: 'paused' }, null]) {
+    const r = await ask(p);
+    assert.deepEqual(r.body, { open: false }, 'closed, paused and missing look the same');
+  }
+  assert.deepEqual((await ask(prog, { company_id: 'nope' })).body, { open: false });
+});
+
 console.log(`\naffiliate-edge: ${passed} passed`);
