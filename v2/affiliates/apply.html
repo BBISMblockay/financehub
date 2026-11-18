@@ -33,9 +33,16 @@
     .ap-mark .af-badge { width: 44px; height: 44px; border-radius: 12px; background: rgba(255,255,255,.12); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 20px; }
     .ap-kicker { font-family: var(--bcn-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .7; margin: 0 0 14px; }
     .ap-brand h1 { margin: 0; font-size: clamp(32px, 4.2vw, 52px); line-height: 1.05; letter-spacing: -.03em; font-weight: 800; max-width: 14ch; }
-    .ap-perks { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 12px; max-width: 420px; }
-    .ap-perks li { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: color-mix(in oklch, var(--bcn-surface) 9%, transparent); border: 1px solid color-mix(in oklch, var(--bcn-surface) 14%, transparent); font-size: 15px; font-weight: 600; backdrop-filter: blur(6px); }
-    .ap-perks svg { flex: none; width: 22px; height: 22px; }
+    .ap-perks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; max-width: 460px; }
+    .ap-perks li { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: color-mix(in oklch, var(--bcn-surface) 9%, transparent); border: 1px solid color-mix(in oklch, var(--bcn-surface) 14%, transparent); font-size: 13.5px; font-weight: 600; backdrop-filter: blur(6px); }
+    .ap-perks svg { flex: none; width: 16px; height: 16px; }
+    .ap-lead { margin: 16px 0 0; font-size: 17px; line-height: 1.5; opacity: .85; max-width: 40ch; }
+    .ap-steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 14px; max-width: 440px; counter-reset: st; }
+    .ap-steps li { display: grid; grid-template-columns: 32px 1fr; gap: 14px; align-items: start; counter-increment: st; }
+    .ap-steps li::before { content: counter(st); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-family: var(--bcn-mono); font-size: 13px; font-weight: 600; background: color-mix(in oklch, var(--bcn-surface) 14%, transparent); }
+    .ap-steps b { display: block; font-size: 15px; }
+    .ap-steps span { font-size: 13.5px; opacity: .7; }
+    .ap-now { margin: 26px 0 10px; font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .6; }
     .ap-foot { font-size: 12px; opacity: .6; }
     .ap-main { display: flex; align-items: center; justify-content: center; padding: 48px 24px; }
     .ap-card { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 22px; }
@@ -67,7 +74,7 @@
       .ap-brand { padding: 32px 22px 36px; }
       .ap-brand-in { gap: 24px; }
       .ap-brand h1 { font-size: 34px; }
-      .ap-perks { margin-top: 20px; }
+      .ap-steps { margin-top: 20px; }
       .ap-foot { display: none; }
       .ap-main { padding: 28px 18px 48px; align-items: flex-start; }
       .ap-row { grid-template-columns: 1fr; }
@@ -164,15 +171,19 @@ function show(open, which) { seg(open, which); if (which === 'apply' && open) ap
   if (company && program) { try { info = await call('program_info', { company_id: company, program }); } catch { /* sign-in still works */ } }
   if (info.open) {
     BRAND = info.brand;
-    document.title = `${info.brand} affiliate program`;
+    document.title = `${info.brand} partner program`;
     $('hero').innerHTML = `<div class="ap-mark">${brandMark(info.brand, info.brand_logo)}<span>${esc(info.brand)}</span></div>
-      <div><p class="ap-kicker">Affiliate program</p><h1>Get paid to share ${esc(info.brand)}</h1>
-      ${info.perks?.length ? `<ul class="ap-perks">${info.perks.map((p) => `<li>${perkIcon(p)}<span>${esc(p)}</span></li>`).join('')}</ul>` : ''}</div>
+      <div><p class="ap-kicker">Partner program</p><h1>Become a ${esc(info.brand)} partner</h1>
+      <p class="ap-lead">Share ${esc(info.brand)} in your content. Post your own link and discount code, and earn on every sale you send.</p>
+      <ol class="ap-steps"><li><div><b>Apply</b><span>Tell us where you post.</span></div></li>
+        <li><div><b>Share</b><span>Your link and code, ready in your partner portal.</span></div></li>
+        <li><div><b>Get paid</b><span>Track every sale and payout in one place.</span></div></li></ol>
+      ${info.perks?.length ? `<p class="ap-now">Right now</p><ul class="ap-perks">${info.perks.map((p) => `<li>${perkIcon(p)}<span>${esc(p)}</span></li>`).join('')}</ul>` : ''}</div>
       <div class="ap-foot">Every application is reviewed by ${esc(info.brand)}.</div>`;
     wireBrandMark($('hero'));
     $('foot').textContent = `Run by ${info.brand}.`;
   } else {
-    $('hero').innerHTML = `<div class="ap-mark"></div><div><p class="ap-kicker">Affiliate portal</p><h1>Welcome back</h1></div><div class="ap-foot"></div>`;
+    $('hero').innerHTML = `<div class="ap-mark"></div><div><p class="ap-kicker">Partner portal</p><h1>Welcome back</h1></div><div class="ap-foot"></div>`;
     if (company && program) $('foot').textContent = 'This program is not taking applications right now.';
   }
   show(info.open, info.open && qp.get('m') !== 'signin' ? 'apply' : 'signin');

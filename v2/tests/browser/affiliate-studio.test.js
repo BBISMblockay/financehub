@@ -1720,7 +1720,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });
     await apply.fill('#name', 'Lee'); await apply.fill('#email', 'lee@creator.invalid'); await apply.fill('#handle', '@lee');
-    R.has(await text(apply, '#hero'), 'Get paid to share Brand A', 'the apply page names the brand');
+    R.has(await text(apply, '#hero'), 'Become a Brand A partner', 'the apply page names the brand');
     R.has(await text(apply, '#hero'), '10% of every sale', 'and shows the offer');
     await apply.click('#go');
     await apply.waitForFunction(() => /application is in/.test(document.body.textContent), null, { timeout: 5000 });
