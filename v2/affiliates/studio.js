@@ -288,7 +288,7 @@ function download(name, text, type = 'text/csv') {
 
 // ── State ────────────────────────────────────────────────────────────────
 const PROSPECT_LIST_CAP = 20;
-const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
 
@@ -1363,17 +1363,23 @@ function renderAffiliates() {
       <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
     </article>`;
   };
+  // Ended affiliates are archived out of the main list (Blake 2026-11-18:
+  // "archive terminated or ended"). Nothing is deleted; Ended shows them.
+  const ended = d.affiliates.filter((a) => a.status === 'terminated');
+  const affShown = S.affFilter === 'ended' && ended.length ? ended : d.affiliates.filter((a) => a.status !== 'terminated');
+  const affChips = ended.length ? [['current', 'Current', d.affiliates.length - ended.length], ['ended', 'Ended', ended.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
+  const affEmpty = S.affFilter === 'ended' ? 'No ended affiliates.' : ended.length ? 'No current affiliates. Ended ones are under Ended.' : 'No affiliates yet. They appear here when someone you invite opens their signup link.';
   $('affiliatesBody').innerHTML = [
     tool,
-    surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${viewToggle()}</div>` : ''}${S.view === 'list'
+    surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${affChips}${viewToggle()}</div>` : ''}${S.view === 'list'
       ? table([
         { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
         { left: true, h: 'Status', f: (a) => statusPill(a.status) },
         { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
         { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
         { h: '', f: (a) => actions(a) },
-      ], d.affiliates, 'No affiliates yet. They appear here when someone you invite opens their signup link.')
-      : itemList(d.affiliates, affiliateRow, 'No affiliates yet. They appear here when someone you invite opens their signup link.', 'grid')}<div id="affOut"></div>`, `${d.affiliates.length} in this program`),
+      ], affShown, affEmpty)
+      : itemList(affShown, affiliateRow, affEmpty, 'grid')}<div id="affOut"></div>`, `${num(d.affiliates.length - ended.length)} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Outreach to turn on affiliate links.</div>` : '',
     seedsCard(),
     contentCard(),
@@ -2097,6 +2103,7 @@ const A = {
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
+  'aff-filter': ({ f }) => { S.affFilter = f === 'ended' ? 'ended' : 'current'; render(); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
   // Every prospect in the view, not only the cards on screen.
