@@ -1234,6 +1234,22 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(offText, 'Connect PayPal first', 'and the payout says why it cannot be sent');
     await ppOff.close();
 
+    // Invited, never signed up, then ended (Quintin, Blake 2026-11-18: "there is
+    // no resend button"): his own card offers the invite again; a signed-up
+    // affiliate's card does not.
+    {
+      const QA = 'aaaaaaaa-0000-4000-8000-00000000e0d0';
+      const endTables = { ...tables,
+        affiliate_prospects: [...tables.affiliate_prospects, { id: 'p-end', company_entity_id: CO, program_id: PROG, display_name: 'Quin Ended', platform: 'instagram', handle: '@quinend', contact_email: 'quinend@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited', affiliate_id: QA }],
+        affiliates: [...tables.affiliates, { id: QA, company_entity_id: CO, program_id: PROG, display_name: 'Quin Ended', contact_email: 'quinend@creator.invalid', status: 'terminated', terms_accepted_at: null, created_at: now, from_prospect_id: 'p-end' }] };
+      const endPage = await suite.open('/v2/affiliates/index.html', endTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      endPage.on('pageerror', (e) => errors.push(e.message));
+      await endPage.click('#tabs [data-tab="people"]');
+      R.ok('an ended, never-signed-up affiliate can be invited again from their card', !!(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p-end"]')));
+      R.ok('a signed-up affiliate gets no invite button', !(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p1"]')));
+      await endPage.close();
+    }
+
     const connected = [{ company_entity_id: CO, provider: 'paypal', environment: 'sandbox', is_active: true, account_email: 'brand@pay.invalid', payouts_enabled: true, credentials_set: true, last_tested_at: now, last_test_success: true, last_test_error: null, last_send_at: null }];
 
     const ppNoAddr = await suite.open('/v2/affiliates/index.html',

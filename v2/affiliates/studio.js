@@ -1305,6 +1305,14 @@ function renderAffiliates() {
     if (!MANAGE) return '';
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
+    // Someone invited who never signed up (or was ended before signing up)
+    // can be invited again from their own card (Blake 2026-11-18: "there is
+    // no resend button"). The server re-opens an ended, never-signed-up
+    // affiliate when it mints the new link.
+    const from = d.prospectById[a.from_prospect_id];
+    if (!a.terms_accepted_at && ['invited', 'terminated'].includes(a.status) && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
+      b.push(btn(a.status === 'invited' ? 'Resend invite' : 'Invite again', 'invite-send', { id: from.id }, 'primary'));
+    }
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
     // One affiliate per company, in any program (Blake 2026-11-17).
     if (['active', 'paused'].includes(a.status) && otherPrograms().length) b.push(btn('Add to program', 'aff-tool', { id: a.id, k: 'program' }));
