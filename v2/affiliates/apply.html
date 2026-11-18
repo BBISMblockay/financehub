@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <meta name="referrer" content="no-referrer" />
-  <title>Apply to an affiliate program</title>
+  <title>Apply or sign in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -13,53 +13,104 @@
   <link rel="stylesheet" href="../silo-brand.css" />
   <script src="/pages/config.js"></script>
   <style>
-    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only. */
+    /* Affiliate-facing page: no SILO chrome, no internal navigation. Beacon tokens only.
+       One public link per program (Blake 2026-11-17): a creator who finds it applies,
+       an affiliate who already joined signs in to their portal. */
     body { background: var(--bcn-bg); }
-    .af-wrap { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
-    .af-terms { max-height: 420px; overflow-y: auto; border: 1px solid var(--bcn-border); padding: 12px 14px; background: var(--bcn-surface); font-size: 14px; line-height: 1.55; }
-    .af-num { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
+    .af-wrap { max-width: 560px; margin: 0 auto; padding: 28px 16px 64px; display: flex; flex-direction: column; gap: 14px; }
     .af-muted { color: var(--bcn-ink-3); font-size: 12px; }
-    .af-copy { word-break: break-all; font-family: var(--bcn-mono); font-size: 12px; }
     .af-form { display: flex; flex-direction: column; gap: 10px; }
+    .af-form .bcn-btn--primary { width: 100%; justify-content: center; padding: 12px 16px; font-size: 15px; }
     .af-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-    .af-scroll { overflow-x: auto; }
+    .af-hero { display: flex; flex-direction: column; gap: 12px; padding: 24px; border: 1px solid var(--bcn-border); border-radius: 14px; background: var(--bcn-surface); }
+    .af-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; color: var(--bcn-ink); }
+    .af-logo { height: 40px; width: auto; max-width: 200px; object-fit: contain; border-radius: 8px; display: block; }
+    .af-badge { width: 34px; height: 34px; border-radius: 9px; background: var(--bcn-ink); color: var(--bcn-surface); display: grid; place-items: center; font-weight: 700; }
+    .af-hero h1 { margin: 0; font-size: 24px; line-height: 1.2; color: var(--bcn-ink); }
+    .af-perks { display: flex; flex-wrap: wrap; gap: 6px; }
+    .af-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-surface); }
+    .af-seg button { border: 0; background: transparent; padding: 10px; border-radius: 9px; font: inherit; font-weight: 600; color: var(--bcn-ink-2); cursor: pointer; }
+    .af-seg button.is-on { background: var(--bcn-ink); color: var(--bcn-surface); }
   </style>
 </head>
 <body class="silo-brand">
 <main class="af-wrap">
-  <header class="bcn-header"><div class="bcn-header-title"><h1>Apply to the affiliate program</h1></div></header>
+  <div id="hero"></div>
   <div class="bcn-status" id="status" hidden></div>
-  <div id="body"></div>
-  <p class="af-muted">The brand reviews every application. Applying does not make you an affiliate; if you are accepted you will get a link to read and accept the program terms. Run by the brand using SILO.</p>
+  <div id="seg"></div>
+  <div id="body"><div class="bcn-card"><div class="bcn-card-body">Loading…</div></div></div>
+  <p class="af-muted" id="foot"></p>
 </main>
 <script type="module">
-import { $, esc, call, setStatus } from './public.js';
+import { $, esc, call, setStatus, brandMark, wireBrandMark } from './public.js';
 const qp = new URLSearchParams(location.search);
 const company = qp.get('c') || ''; const program = qp.get('p') || '';
 const f = (id, label, attrs = '') => `<div class="bcn-field-group"><label class="bcn-label" for="${id}">${esc(label)}</label><input class="bcn-field" id="${id}" ${attrs} /></div>`;
-if (!company || !program) {
-  $('body').innerHTML = '<div class="bcn-card"><div class="bcn-card-body"><p>This application link is incomplete. Ask the brand for their link.</p></div></div>';
-} else {
-  $('body').innerHTML = `<div class="bcn-card"><div class="bcn-card-body"><form class="af-form" id="form">
+const card = (inner) => `<div class="bcn-card"><div class="bcn-card-body">${inner}</div></div>`;
+let BRAND = 'the brand';
+
+function applyForm() {
+  $('body').innerHTML = card(`<form class="af-form" id="form">
     ${f('name', 'Your name or channel name', 'required maxlength="120" autocomplete="name"')}
     ${f('email', 'Email', 'type="email" required maxlength="254" autocomplete="email"')}
     <div class="bcn-field-group"><label class="bcn-label" for="platform">Main platform</label><select class="bcn-field" id="platform">${['instagram', 'tiktok', 'youtube', 'twitch', 'x', 'pinterest', 'blog', 'web', 'other'].map((x) => `<option>${x}</option>`).join('')}</select></div>
     ${f('handle', 'Handle', 'maxlength="80" placeholder="@yourname"')}
     ${f('profile_url', 'Link to your profile or site', 'type="url" maxlength="500" placeholder="https://"')}
-    <div class="bcn-field-group"><label class="bcn-label" for="pitch">Tell the brand about your audience</label><textarea class="bcn-field" id="pitch" rows="5" maxlength="2000"></textarea></div>
+    <div class="bcn-field-group"><label class="bcn-label" for="pitch">About your audience</label><textarea class="bcn-field" id="pitch" rows="4" maxlength="2000"></textarea></div>
     <div class="af-hp" aria-hidden="true"><label for="website">Leave this empty</label><input id="website" tabindex="-1" autocomplete="off" /></div>
-    <div><button class="bcn-btn bcn-btn--primary" type="submit" id="go">Send application</button></div>
-  </form></div></div>`;
+    <button class="bcn-btn bcn-btn--primary" type="submit" id="go">Apply</button>
+  </form>`);
   $('form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    if (!$('handle').value.trim() && !$('profile_url').value.trim()) { setStatus('Add your handle or a link to your profile so the brand can find you.', 'neg'); return; }
+    if (!$('handle').value.trim() && !$('profile_url').value.trim()) { setStatus(`Add your handle or a link to your profile so ${BRAND} can find you.`, 'neg'); return; }
     $('go').disabled = true; setStatus('');
     try {
       await call('apply', { company_id: company, program, name: $('name').value.trim(), email: $('email').value.trim(), platform: $('platform').value, handle: $('handle').value.trim(), profile_url: $('profile_url').value.trim(), pitch: $('pitch').value.trim(), website: $('website').value });
-      $('body').innerHTML = '<div class="bcn-card"><div class="bcn-card-body"><p><strong>Thanks, your application was received.</strong> If the brand accepts it, you will get an email with a link to the program terms.</p></div></div>';
+      $('seg').innerHTML = '';
+      $('body').innerHTML = card(`<p><strong>Thanks, your application is in.</strong> If ${esc(BRAND)} accepts it, you'll get an email to finish signing up.</p>`);
     } catch (e) { setStatus(e.message, 'neg'); $('go').disabled = false; }
   });
 }
+
+// No password: the link goes to the email on file. The answer never says
+// whether the address belongs to an affiliate (affiliate-portal 'signin').
+function signInForm() {
+  $('body').innerHTML = card(`<form class="af-form" id="signin" novalidate>
+    ${f('siEmail', 'The email you joined with', 'type="email" required maxlength="254" autocomplete="email"')}
+    <button class="bcn-btn bcn-btn--primary" type="submit" id="siGo">Email me a sign-in link</button></form>`);
+  $('signin').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    $('siGo').disabled = true; setStatus('');
+    try { const r = await call('signin', { email: $('siEmail').value }); setStatus(r.message, 'pos'); }
+    catch (e) { setStatus(e.message, 'neg'); $('siGo').disabled = false; }
+  });
+}
+
+function seg(open, which) {
+  if (!open) { $('seg').innerHTML = ''; return; }
+  $('seg').innerHTML = `<div class="af-seg" role="tablist">
+    <button type="button" role="tab" data-k="apply" class="${which === 'apply' ? 'is-on' : ''}">Apply</button>
+    <button type="button" role="tab" data-k="signin" class="${which === 'signin' ? 'is-on' : ''}">Sign in</button></div>`;
+  for (const b of $('seg').querySelectorAll('button')) b.addEventListener('click', () => { setStatus(''); show(open, b.dataset.k); });
+}
+function show(open, which) { seg(open, which); if (which === 'apply' && open) applyForm(); else signInForm(); }
+
+(async () => {
+  let info = { open: false };
+  if (company && program) { try { info = await call('program_info', { company_id: company, program }); } catch { /* sign-in still works */ } }
+  if (info.open) {
+    BRAND = info.brand;
+    document.title = `${info.brand} affiliate program`;
+    $('hero').innerHTML = `<div class="af-hero"><div class="af-brand">${brandMark(info.brand, info.brand_logo)}<span>${esc(info.brand)}</span></div>
+      <h1>Join the ${esc(info.brand)} affiliate program</h1>
+      ${info.perks?.length ? `<div class="af-perks">${info.perks.map((p) => `<span class="bcn-pill">${esc(p)}</span>`).join('')}</div>` : ''}</div>`;
+    wireBrandMark($('hero'));
+    $('foot').textContent = `Run by ${info.brand}. Every application is reviewed.`;
+  } else {
+    $('hero').innerHTML = `<div class="af-hero"><h1>Affiliate sign in</h1>${company && program ? '<p class="af-muted">This program is not taking applications right now. Affiliates can still sign in.</p>' : ''}</div>`;
+  }
+  show(info.open, info.open && qp.get('m') !== 'signin' ? 'apply' : 'signin');
+})();
 </script>
 </body>
 </html>

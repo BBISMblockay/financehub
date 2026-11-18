@@ -251,6 +251,29 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       return reply({ status: data?.status || 'received' });
     }
 
+    // ── the public apply / sign-in page: who is this brand? ──────────────
+    // Only an ACTIVE program with OPEN intake is described, and anything else
+    // gets the same "not open" answer the apply RPC gives, so a slug cannot be
+    // probed. Sign-in on that page works either way (a rep of a closed
+    // program still needs their portal).
+    if (action === 'program_info') {
+      const closed = reply({ open: false });
+      if (!UUID_RE.test(String(body.company_id || ''))) return closed;
+      const slug = String(clip(body.program, 40) || '').trim().toLowerCase();
+      if (!slug) return closed;
+      const { data: prog, error } = await service.from('affiliate_programs')
+        .select('name, status, intake_mode, commission_kind, commission_percent, commission_fixed_cents, currency, default_discount_percent, seeding_enabled, seed_discount_percent')
+        .eq('company_entity_id', body.company_id).eq('slug', slug).maybeSingle();
+      if (error || !prog || prog.status !== 'active' || prog.intake_mode !== 'open') return closed;
+      const { data: co } = await service.from('entities').select('title').eq('id', body.company_id).maybeSingle();
+      const perks = [];
+      if (prog.commission_kind === 'percent_of_net' && Number(prog.commission_percent) > 0) perks.push(`${Number(prog.commission_percent)}% of every sale`);
+      else if (Number(prog.commission_fixed_cents) > 0) perks.push(`${formatMoney(prog.commission_fixed_cents, prog.currency)} per order`);
+      if (Number(prog.default_discount_percent) > 0) perks.push(`${Number(prog.default_discount_percent)}% off code for your audience`);
+      if (prog.seeding_enabled && Number(prog.seed_discount_percent) > 0) perks.push(`${Number(prog.seed_discount_percent)}% off products for you`);
+      return reply({ open: true, brand: co?.title || 'Affiliate program', brand_logo: await brandLogo(body.company_id), program: prog.name, perks });
+    }
+
     // ── sign in by email: no token ───────────────────────────────────────
     // The link always goes to the address on file, which is the address
     // typed, so a stranger can only make an affiliate's own inbox receive
@@ -402,7 +425,7 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       try {
         link = await mintPortalLink({ company_entity_id: t.company_entity_id, program_id: t.program_id, affiliate_id: t.affiliate_id });
         const { html, text } = renderMail({
-          brand: t.company_title,
+          brand: t.company_title, eyebrow: 'Welcome',
           heading: `You're in: ${t.program_name}`,
           paragraphs: [
             `Hi ${escapeHtml(t.affiliate_display_name || signed)}, thanks for joining the ${escapeHtml(t.company_title)} affiliate program. You accepted version ${Number(res?.terms_version)} of the program terms.`,

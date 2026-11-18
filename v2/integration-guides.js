@@ -307,6 +307,10 @@
       ],
       steps: [
         {
+          title: 'Confirm your bank',
+          body: 'In PayPal, link your bank account. PayPal sends two small test deposits within 1 to 3 business days; enter both amounts in PayPal to confirm the bank.',
+        },
+        {
           title: 'Request Payouts access',
           body: 'Signed in to your PayPal business account, request <strong>Payouts</strong>. PayPal reviews it, usually within a few business days. Link a bank account first if PayPal asks.',
           link: { href: 'https://www.paypal.com/payoutsweb/landing', label: 'Request Payouts' },

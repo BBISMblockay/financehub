@@ -10154,6 +10154,19 @@ select 'Affiliate creator codes' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate in more programs (20261118010000): a joined person is added to
+-- another program of the same company; managers only, never anon.
+select 'Affiliate add to program' as check_name,
+  case
+    when to_regprocedure('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)') is null
+      then 'MISSING — run 20261118010000_affiliate_add_to_program.sql'
+    when has_function_privilege('anon', 'public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)', 'execute')
+      or position('can_manage_affiliate_programs()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
+      or position('active_company_id()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
+      then 'BROKEN — add to program is not gated to managers of the active company'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the

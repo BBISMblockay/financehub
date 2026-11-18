@@ -586,6 +586,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('and says it is live', true);
       await rs.close();
     }
+    // One affiliate per company, added to another program with their own rate (Blake 2026-11-17).
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const ap = await suite.open('/v2/affiliates/index.html', { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs, { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          affiliate_add_to_program: (args) => { window.__addArgs = args; return { affiliate_id: '77777777-7777-4777-8777-777777777777', added: true }; } } });
+      ap.on('pageerror', (e) => errors.push(e.message));
+      await ap.click('#tabs [data-tab="people"]');
+      await ap.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await ap.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await ap.waitForSelector('#apProg', { timeout: 5000 });
+      R.eq(await ap.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'], 'only the other programs are offered');
+      await ap.click('[data-seg="apKind"][data-v="percent_of_net"]');
+      await ap.fill('#apPct', '15');
+      await ap.click('[data-act="aff-add-program"]');
+      await ap.waitForFunction(() => /Added to Wholesale/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      const args = await ap.evaluate(() => window.__addArgs);
+      R.eq([args.p_program, args.p_commission_kind, args.p_commission_percent, args.p_commission_fixed_cents], [P2, 'percent_of_net', 15, null], 'adds them with their own rate, no second signup');
+      await ap.close();
+    }
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
     await loop.click('#tabs [data-tab="people"]');
@@ -914,6 +934,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       }
       if (body.action === 'photo') return reply(200, body.remove ? { photo_url: null, own: false } : { photo_url: 'https://photos.invalid/me.jpg?v=2', own: true });
       if (body.action === 'apply') return reply(200, { status: 'received' });
+      if (body.action === 'program_info') return reply(200, body.program === 'creators' ? { open: true, brand: 'Brand A', brand_logo: LOGO, program: 'Creators', perks: ['10% of every sale', '10% off code for your audience'] } : { open: false });
       // Content (20261117050000): what the rep shared, and the signed upload.
       if (body.action === 'content') return reply(200, { bonus_cents: 2500, currency: 'USD', items: contentItems });
       if (body.action === 'content_start') {
@@ -1085,6 +1106,30 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await seedPage.click('#payEmailEdit');
     R.eq(await seedPage.inputValue('#payEmail'), 'pat@pay.invalid', 'Change opens the field with the address on file');
     await seedPage.close();
+
+    // ── portal: add to home screen (Blake 2026-11-17) ─────────────────────
+    const inst = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
+    inst.on('pageerror', (e) => errors.push(e.message));
+    R.ok('a computer is not offered a home screen', !(await inst.$('#afInstall')));
+    R.ok('the manifest opens the portal WITH the rep\'s link', await inst.evaluate(() => {
+      const h = document.querySelector('link[rel="manifest"]')?.href || '';
+      const m = JSON.parse(decodeURIComponent(h.replace(/^data:application\/manifest\+json,/, '')));
+      return m.start_url.endsWith('/v2/affiliates/portal.html?t=' + 'P'.repeat(43)) && m.display === 'standalone' && m.name === 'Brand A affiliate';
+    }));
+    await inst.evaluate(async () => {
+      Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1' });
+      const m = await import('/v2/affiliates/install.js');
+      await m.setupInstall({ token: 'P'.repeat(43), brand: 'Brand A', logo: null, mount: document.getElementById('install') });
+    });
+    R.has(await text(inst, '#install'), 'Get the Brand A app', 'a phone is offered the app, in the brand\'s name');
+    R.eq(new URL(inst.url()).searchParams.get('t'), null, 'the link is not in the address bar until asked');
+    await inst.click('#afInstallGo');
+    R.has(await text(inst, '#afInstallSheet'), 'Add to Home Screen', 'iPhone gets the Safari steps');
+    R.eq(new URL(inst.url()).searchParams.get('t'), 'P'.repeat(43), 'and the address Safari saves carries the rep\'s link');
+    await inst.click('#afSheetOk');
+    await inst.click('#afInstallX');
+    R.ok('Not now hides it', !(await inst.$('#afInstall')));
+    await inst.close();
 
     // ── portal: content for the brand ─────────────────────────────────────
     const ctPage = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !!document.getElementById('contentCard') });
@@ -1675,12 +1720,25 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── apply page ────────────────────────────────────────────────────────
     const apply = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });
     await apply.fill('#name', 'Lee'); await apply.fill('#email', 'lee@creator.invalid'); await apply.fill('#handle', '@lee');
+    R.has(await text(apply, '#hero'), 'Join the Brand A affiliate program', 'the apply page names the brand');
+    R.has(await text(apply, '#hero'), '10% of every sale', 'and shows the offer');
     await apply.click('#go');
-    await apply.waitForFunction(() => /received/.test(document.body.textContent), null, { timeout: 5000 });
+    await apply.waitForFunction(() => /application is in/.test(document.body.textContent), null, { timeout: 5000 });
     const ap = calls.find((c) => c.action === 'apply');
     R.eq(ap?.company_id, PROG, 'the application carries the company from the link');
     R.eq(ap?.website, '', 'the honeypot is sent empty by a person');
     await apply.close();
+    // The same public link signs an affiliate in (Blake 2026-11-17: "apply/login page").
+    const both = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=creators', {}, { ready: () => !!document.getElementById('form') });
+    await both.click('#seg [data-k="signin"]');
+    await both.waitForSelector('#signin', { timeout: 5000 });
+    await both.fill('#siEmail', 'lee@creator.invalid'); await both.click('#siGo');
+    await both.waitForFunction(() => /sign-in link is on its way/.test(document.getElementById('status').textContent), null, { timeout: 5000 });
+    R.eq(calls.filter((c) => c.action === 'signin').pop()?.email, 'lee@creator.invalid', 'the apply page signs an affiliate in');
+    await both.close();
+    const closed = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=closed', {}, { ready: () => !!document.getElementById('signin') });
+    R.ok('a closed program shows sign-in only, no apply form', !(await closed.$('#form')) && !(await closed.$('#seg button')));
+    await closed.close();
 
     R.eq(errors, [], 'no page errors on any affiliate page');
     R.ok('the whole flow ran to the end', true);

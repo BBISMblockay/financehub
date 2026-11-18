@@ -288,6 +288,7 @@ function download(name, text, type = 'text/csv') {
 const PROSPECT_LIST_CAP = 20;
 const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
+const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
 
 async function loadPrograms() {
   S.programs = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).order('created_at'));
@@ -1303,6 +1304,8 @@ function renderAffiliates() {
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
+    // One affiliate per company, in any program (Blake 2026-11-17).
+    if (['active', 'paused'].includes(a.status) && otherPrograms().length) b.push(btn('Add to program', 'aff-tool', { id: a.id, k: 'program' }));
     if (a.status === 'active') b.push(btn('Pause', 'affiliate-status', { id: a.id, s: 'paused' }));
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
@@ -1312,7 +1315,14 @@ function renderAffiliates() {
   // A code or a link is given from the affiliate's own card (Blake,
   // 2026-11-17: fewer forms): one small form, for that person, at the top.
   const toolAff = S.affTool ? d.affById[S.affTool.id] : null;
-  const tool = !MANAGE || !toolAff ? '' : S.affTool.k === 'link'
+  const tool = !MANAGE || !toolAff ? '' : S.affTool.k === 'program'
+    ? card(`Add ${toolAff.display_name} to another program`, `<input type="hidden" id="apAff" value="${esc(toolAff.id)}" /><div class="af-grid--settings">
+      ${field('Program', `<select class="bcn-field" id="apProg">${otherPrograms().map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>`)}
+      ${field('Their rate', seg('apKind', [['', "Program's rate"], ['percent_of_net', '% of order'], ['fixed_per_order', 'Fixed per order']], '', ''))}
+      ${field('%', input('apPct', 'type="number" min="0" max="100" step="0.5" placeholder="10"'))}
+      ${field('Per order', input('apFixed', 'type="number" min="0" step="0.01" placeholder="5.00"'))}
+      <div class="af-span-full af-row">${btn('Add to program', 'aff-add-program', {}, 'primary')}${btn('Close', 'aff-tool-close')}</div></div>`)
+    : S.affTool.k === 'link'
     ? card(`Link for ${toolAff.display_name}`, `<input type="hidden" id="lAff" value="${esc(toolAff.id)}" /><div class="af-row">${field('Name', input('lSlug', 'placeholder="pat-spring"'))}${field('Page (https)', input('lDest', 'placeholder="https://yourstore.com/collections/new"'))}${field('utm_campaign', input('lCamp', `value="${esc(p.slug)}"`))}${btn('Add link', 'link-add', {}, 'primary')}${btn('Close', 'aff-tool-close')}</div>`)
     : card(`Code for ${toolAff.display_name}`, `<input type="hidden" id="cAff" value="${esc(toolAff.id)}" /><div class="af-grid--settings">
       ${field('Code', input('cCode', 'class="bcn-field bcn-field--mono"'))}
@@ -2220,6 +2230,22 @@ const A = {
   },
   'aff-tool': ({ id, k }) => { S.affTool = { id, k }; render(); scrollWorkflowTo('affiliatesBody'); return null; },
   'aff-tool-close': () => { S.affTool = null; render(); return null; },
+  // Joined once, added anywhere: no second signup, their own rate if set.
+  'aff-add-program': async () => {
+    const kind = val('apKind') || null;
+    const pct = kind === 'percent_of_net' ? Number(val('apPct')) : null;
+    const fixed = kind === 'fixed_per_order' ? Math.round(Number(val('apFixed')) * 100) : null;
+    if (kind === 'percent_of_net' && !(pct >= 0 && pct <= 100 && val('apPct') !== '')) throw new Error('Enter their % of each order.');
+    if (kind === 'fixed_per_order' && !(fixed >= 0 && val('apFixed') !== '')) throw new Error('Enter their amount per order.');
+    const target = S.programs.find((x) => x.id === val('apProg'));
+    const r = must(await db.rpc('affiliate_add_to_program', { p_affiliate: val('apAff'), p_program: val('apProg'),
+      p_commission_kind: kind, p_commission_percent: pct, p_commission_fixed_cents: fixed }));
+    S.affTool = null;
+    if (!r?.added) return `Already in ${target?.name || 'that program'}.`;
+    const { data: waiting } = await db.from('affiliate_codes').select('id').eq('company_entity_id', CO).eq('affiliate_id', r.affiliate_id).eq('status', 'pending');
+    const made = waiting?.length ? ` ${await makeInShopify(waiting.map((x) => x.id))}` : '';
+    return `Added to ${target?.name || 'the program'}.${made}`;
+  },
   'add-creators': () => { S.addCreators = !S.addCreators; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'add-creators-close': () => { S.addCreators = false; render(); return null; },
   'prospect-edit': ({ id }) => { S.editProspect = id; render(); scrollWorkflowTo('prospectsBody'); return null; },

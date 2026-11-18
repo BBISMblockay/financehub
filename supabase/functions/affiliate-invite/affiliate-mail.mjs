@@ -65,15 +65,52 @@ export async function resolveAffiliateSender(service, { companyId, programId, fa
     if (row?.from_header) from = String(row.from_header).replace(/^\s*(.+?)\s+-\s+SILO\s*</, '$1 <');
     if (row?.reply_to) replyTo = row.reply_to;
   } catch { /* the message matters more than the header */ }
+  let rep = null;
   if (programId) {
-    const { data: prog } = await service.from('affiliate_programs')
-      .select('owner_user_id').eq('id', programId).eq('company_entity_id', companyId).maybeSingle();
-    if (prog?.owner_user_id) {
-      const { data: owner } = await service.from('profiles').select('email').eq('id', prog.owner_user_id).maybeSingle();
-      if (owner?.email) replyTo = owner.email;
-    }
+    try {
+      const { data: prog } = await service.from('affiliate_programs')
+        .select('owner_user_id').eq('id', programId).eq('company_entity_id', companyId).maybeSingle();
+      if (prog?.owner_user_id) {
+        const { data: owner } = await service.from('profiles').select('email, name').eq('id', prog.owner_user_id).maybeSingle();
+        if (owner?.email) { replyTo = owner.email; rep = { email: owner.email, name: owner.name || null }; }
+      }
+    } catch { /* no rep named: the email still goes */ }
   }
-  return { from, replyTo };
+  // The brand's logo from Settings -> Company, the same one the rep portal
+  // shows (Blake 2026-11-18). Only a company-logos bucket address is used.
+  let logoUrl = null;
+  try {
+    const { data } = await service.from('company_settings').select('logo_url').eq('company_entity_id', companyId).maybeSingle();
+    if (typeof data?.logo_url === 'string' && LOGO_RE.test(data.logo_url)) logoUrl = data.logo_url;
+  } catch { /* no logo: the brand name stands alone */ }
+  return { from, replyTo, rep, logoUrl };
+}
+
+export const LOGO_RE = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/company-logos\/[0-9a-f-]{36}\/logo-[0-9]{10,16}\.(png|jpg|jpeg|webp)$/;
+
+/**
+ * Fills the two marks renderMail leaves: the brand's logo beside its name at
+ * the top, and the sign-off naming the program's rep (Blake 2026-11-18:
+ * "reply to the rep of program's email", "use the logo on the sign off").
+ * With neither, the marks are simply removed.
+ */
+export function brandMail({ html, text }, { brand = '', rep = null, logoUrl = null } = {}) {
+  const font = MAIL_FONT;
+  const logo = logoUrl ? `<td style="padding-right:10px"><img src="${escapeHtml(logoUrl)}" alt="" height="36" style="display:block;height:36px;width:auto;border:0;border-radius:6px"></td>` : '';
+  let signoff = '';
+  if (rep?.email) {
+    const who = rep.name ? escapeHtml(rep.name) : 'Your contact';
+    const mark = logoUrl
+      ? `<td style="width:48px;vertical-align:middle;padding-right:12px"><img src="${escapeHtml(logoUrl)}" alt="" width="48" style="display:block;width:48px;height:auto;max-height:48px;border:0;border-radius:8px"></td>`
+      : `<td style="vertical-align:middle;padding-right:12px"><div style="width:40px;height:40px;border-radius:20px;background:#14181d;color:#fff;font:700 15px/40px ${font};text-align:center">${escapeHtml(String(rep.name || brand || rep.email).trim().charAt(0).toUpperCase())}</div></td>`;
+    signoff = `<tr><td style="border-top:1px solid #e6e9ec;padding:18px 32px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>${mark}
+<td style="vertical-align:middle;font-family:${font}"><div style="font:700 14px/1.3 ${font};color:#14181d">Questions? ${who}</div>
+<div style="font:400 13px/1.4 ${font}"><a href="mailto:${escapeHtml(rep.email)}" style="color:#14181d">${escapeHtml(rep.email)}</a> <span style="color:#7b8691">&middot; ${escapeHtml(brand)}</span></div></td></tr></table></td></tr>`;
+  }
+  return {
+    html: String(html).replace('<!--silo:logo-->', logo).replace('<!--silo:signoff-->', signoff),
+    text: rep?.email ? `${text}\n\nQuestions? ${rep.name ? `${rep.name}, ` : ''}${rep.email}` : text,
+  };
 }
 
 /**
@@ -111,13 +148,14 @@ export async function sendAffiliateMail(deps, msg) {
   if (!resendKey) return record('skipped', { reason: 'RESEND_API_KEY not set' });
 
   const sender = await resolveAffiliateSender(service, { companyId, programId, fallbackFrom });
+  const branded = brandMail({ html, text }, { brand: String(sender.from).replace(/\s*<.*$/, '').replace(/^"|"$/g, ''), rep: sender.rep, logoUrl: sender.logoUrl });
   try {
     const res = await fetchImpl('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${resendKey}`,
         // The same message asked for twice (a retry after an unknown outcome) is sent once.
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
-      body: JSON.stringify({ from: sender.from, to: [to], subject, html, text,
+      body: JSON.stringify({ from: sender.from, to: [to], subject, html: branded.html, text: branded.text,
         ...(sender.replyTo ? { reply_to: sender.replyTo } : {}) }),
     });
     const body = await res.json().catch(() => ({}));
@@ -129,26 +167,55 @@ export async function sendAffiliateMail(deps, msg) {
 }
 
 /** A minimal, brand-neutral layout. The tenant's name comes from data. */
-export function renderMail({ brand, heading, paragraphs = [], cta = null, ctas = null, code = null, footer = '' }) {
+export const MAIL_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const MAIL_MONO = "'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+
+// Email-safe (tables, inline styles), so it holds up in Gmail, Outlook and
+// Apple Mail. Redesigned 2026-11-18 (Blake: "enhance our design for
+// transactional emails"): optional eyebrow, product photo, a code card with a
+// terms line, a stats row and pill buttons. The logo and the rep's sign-off
+// are filled in at send time by brandMail.
+export function renderMail({ brand, heading, eyebrow = '', paragraphs = [], image = null, cta = null, ctas = null,
+  code = null, codeNote = '', stats = null, footer = '' }) {
+  const font = MAIL_FONT, mono = MAIL_MONO;
+  const ink = '#14181d', ink2 = '#4a545e', ink3 = '#7b8691', line = '#e6e9ec';
   // Buttons, never a long address in the text (Blake 2026-11-17). The first is
   // the main one; any others sit beside it, outlined.
   const buttons = (ctas || (cta ? [cta] : [])).filter((b) => b && b.url && b.label);
-  const btn = (b, i) => `<a href="${escapeHtml(b.url)}" style="display:inline-block;margin:0 8px 8px 0;${i === 0
-    ? 'background:#14181d;color:#fff;border:1px solid #14181d'
-    : 'background:#fff;color:#14181d;border:1px solid #c9d0d7'};text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;font-size:14px">${escapeHtml(b.label)}</a>`;
-  const html = `<!doctype html><html><body style="margin:0;background:#f6f7f8;font-family:-apple-system,'Segoe UI',system-ui,sans-serif;color:#14181d">
-<div style="max-width:560px;margin:0 auto;padding:28px 16px">
-<div style="font-weight:800;font-size:15px;margin-bottom:16px">${escapeHtml(brand)}</div>
-<div style="background:#fff;border:1px solid #e2e6ea;border-radius:12px;padding:22px">
-<h1 style="font-size:19px;margin:0 0 12px">${escapeHtml(heading)}</h1>
-${paragraphs.map((p) => `<p style="font-size:14px;line-height:1.55;margin:0 0 12px">${p}</p>`).join('\n')}
-${code ? `<div style="margin:6px 0 16px;padding:14px;border:1px dashed #c9d0d7;border-radius:10px;text-align:center;font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:700;letter-spacing:.06em">${escapeHtml(code)}</div>` : ''}
-${buttons.length ? `<p style="margin:18px 0 4px">${buttons.map(btn).join('')}</p>` : ''}
-</div>
-<p style="font-size:12px;color:#77828d;margin-top:14px;line-height:1.5">${footer}</p>
-</div></body></html>`;
+  const btn = (b, i) => `<a href="${escapeHtml(b.url)}" style="display:inline-block;margin:0 8px 8px 0;padding:13px 22px;border-radius:999px;font:700 15px/1 ${font};text-decoration:none;${i === 0
+    ? `background:${ink};color:#fff;border:1px solid ${ink}` : `background:#fff;color:${ink};border:1px solid #cfd5db`}">${escapeHtml(b.label)}</a>`;
+  const img = image && /^https:\/\//.test(String(image.url || ''))
+    ? `<tr><td align="center" style="background:#f7f8f9;padding:24px 24px 8px"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.alt || '')}" width="260" style="display:inline-block;width:260px;max-width:100%;height:auto;border:0"></td></tr>` : '';
+  const statRow = Array.isArray(stats) && stats.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:18px 0 6px;border:1px solid ${line};border-radius:12px"><tr>${stats.map((x, i) => `<td style="padding:16px 18px;${i ? `border-left:1px solid ${line};` : ''}"><div style="font:600 11px/1 ${font};text-transform:uppercase;letter-spacing:.08em;color:${ink3}">${escapeHtml(x.label)}</div><div style="font:700 22px/1.2 ${mono};color:${ink};margin-top:8px">${escapeHtml(x.value)}</div></td>`).join('')}</tr></table>` : '';
+  const codeCard = code
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 6px"><tr><td align="center" style="background:#f7f8f9;border:2px dashed ${ink};border-radius:14px;padding:20px 12px">
+<div style="font:600 11px/1 ${font};text-transform:uppercase;letter-spacing:.12em;color:${ink3};margin-bottom:10px">Your code</div>
+<div style="font:700 28px/1.1 ${mono};letter-spacing:.08em;color:${ink};word-break:break-all">${escapeHtml(code)}</div>
+${codeNote ? `<div style="font:500 13px/1.4 ${font};color:${ink2};margin-top:10px">${escapeHtml(codeNote)}</div>` : ''}</td></tr></table>` : '';
+  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"></head>
+<body style="margin:0;padding:0;background:#f2f3f5">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f3f5"><tr><td align="center" style="padding:32px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">
+<tr><td style="padding:0 4px 18px"><table role="presentation" cellpadding="0" cellspacing="0"><tr><!--silo:logo--><td style="font:800 18px/1 ${font};color:${ink};letter-spacing:-.01em">${escapeHtml(brand)}</td></tr></table></td></tr>
+<tr><td style="background:#fff;border:1px solid ${line};border-top:5px solid ${ink};border-radius:16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+${img}
+<tr><td style="padding:28px 32px 30px;font-family:${font};color:${ink}">
+${eyebrow ? `<div style="font:700 11px/1 ${mono};letter-spacing:.12em;text-transform:uppercase;color:${ink};margin:0 0 12px">${escapeHtml(eyebrow)}</div>` : ''}
+<h1 style="font:800 26px/1.2 ${font};letter-spacing:-.02em;margin:0 0 14px;color:${ink}">${escapeHtml(heading)}</h1>
+${paragraphs.map((p) => `<p style="font:400 15px/1.6 ${font};color:${ink2};margin:0 0 12px">${p}</p>`).join('\n')}
+${statRow}${codeCard}
+${buttons.length ? `<p style="margin:22px 0 0">${buttons.map(btn).join('')}</p>` : ''}
+</td></tr>
+<!--silo:signoff-->
+</table></td></tr>
+<tr><td style="padding:18px 8px 0;font:400 12px/1.5 ${font};color:${ink3};text-align:center">${footer}</td></tr>
+</table></td></tr></table></body></html>`;
   const strip = (s) => String(s).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-  const text = [heading, '', ...paragraphs.map(strip), ...(code ? ['', `Code: ${code}`] : []), ...buttons.flatMap((b) => ['', `${b.label}: ${b.url}`]), '', strip(footer)].join('\n');
+  const text = [heading, '', ...paragraphs.map(strip), ...(code ? ['', `Code: ${code}`, ...(codeNote ? [codeNote] : [])] : []),
+    ...(Array.isArray(stats) ? stats.map((x) => `${x.label}: ${x.value}`) : []),
+    ...buttons.flatMap((b) => ['', `${b.label}: ${b.url}`]), ...(footer ? ['', strip(footer)] : [])].join('\n');
   return { html, text };
 }
 
