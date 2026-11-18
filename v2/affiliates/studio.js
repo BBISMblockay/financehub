@@ -1671,9 +1671,10 @@ function payoutPayHtml() {
     // Void is one quiet button; the reason box opens only once it is pressed
     // (Blake 2026-11-18: no always-on input boxes on Money).
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) {
-      b.push(S.voidOpen === x.id
-        ? `<span class="af-void"><input class="bcn-field" id="vr-${x.id}" placeholder="Why void it?" aria-label="Reason to void" />${btn('Void payout', 'payout-void', { id: x.id }, 'danger', { confirm: true })}${btn('Cancel', 'payout-void-open', { id: '' }, 'ghost')}</span>`
-        : btn('Void', 'payout-void-open', { id: x.id }, 'ghost'));
+      // Opening and closing only toggles these nodes, never redraws the tab,
+      // so text typed into any other box on Money survives.
+      b.push(btn('Void', 'payout-void-open', { id: x.id }, 'ghost'),
+        `<span class="af-void" id="vw-${x.id}" hidden><input class="bcn-field" id="vr-${x.id}" placeholder="Why void it?" aria-label="Reason to void" />${btn('Void payout', 'payout-void', { id: x.id }, 'danger', { confirm: true })}${btn('Cancel', 'payout-void-close', { id: x.id }, 'ghost')}</span>`);
     }
     return `<div class="af-actions">${b.join('')}</div>`;
   };
@@ -2623,14 +2624,24 @@ const A = {
     must(await db.rpc('affiliate_mark_payout_paid', { p_payout: id, p_external_reference: val(`ref-${id}`), p_evidence: val(`pev-${id}`) }));
     return `Recorded as paid.${await tellPayout(id)}`;
   },
-  'payout-void-open': async ({ id }) => { S.voidOpen = id || null; render(); if (id) $(`vr-${id}`)?.focus(); },
+  'payout-void-open': async ({ id }) => voidToggle(id, true),
+  'payout-void-close': async ({ id }) => voidToggle(id, false),
   'payout-void': async ({ id }) => {
     if (!val(`vr-${id}`)) throw new Error('Say why it is being voided.');
     must(await db.rpc('affiliate_void_payout', { p_payout: id, p_reason: val(`vr-${id}`) }));
-    S.voidOpen = null;
     return 'Payout voided. Its lines can be paid again in a new payout.';
   },
 };
+
+// Shows or hides one payout's void reason box in place (no render(), which
+// would rebuild the whole Money tab and drop anything typed elsewhere).
+function voidToggle(id, open) {
+  const wrap = $(`vw-${id}`);
+  const opener = document.querySelector(`#payoutsBody [data-act="payout-void-open"][data-id="${CSS.escape(id)}"]`);
+  if (!wrap || !opener) return;
+  wrap.hidden = !open; opener.hidden = open;
+  if (open) $(`vr-${id}`)?.focus(); else { const r = $(`vr-${id}`); if (r) r.value = ''; opener.focus(); }
+}
 
 // Two-click confirm for anything that cannot be quietly undone: the first
 // click arms the button for four seconds.
