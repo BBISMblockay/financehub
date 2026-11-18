@@ -534,10 +534,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // Added by hand with an email: approved and invited at once.
       await openAddCreators(inv);
       await inv.fill('#mpName', 'Ned New'); await inv.fill('#mpHandle', '@ned'); await inv.fill('#mpEmail', 'ned@creator.invalid');
+      // Typed the way people type (Blake 2026-11-18, source_url CHECK): a bare
+      // profile domain and a word for where they were found.
+      await inv.fill('#mpUrl', 'instagram.com/ned'); await inv.fill('#mpSource', 'Instagram');
       await inv.click('#prospectsBody [data-act="prospect-add"]');
       await inv.waitForFunction(() => /Added\./.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const added = await inv.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.eq([added?.status, added?.source, added?.contact_email], ['approved', 'manual', 'ned@creator.invalid'], 'a person added by hand with an email is approved');
+      R.eq([added?.profile_url, added?.source_url, added?.evidence?.found_via], ['https://instagram.com/ned', null, 'Instagram'], 'a bare domain gets https:// and a non-address "where found" is kept as a note, so the CHECK cannot refuse the save');
       R.ok('and emailed their invite', inviteCalls.some((c) => c.action === 'signup_link' && c.prospect_id === 'fixture-inserted-id' && c.email === true));
       R.has(await text(inv, '#status'), 'Invite emailed to ned@creator.invalid');
       // Added by hand when the mail is refused: the link shows beside the form.
@@ -1229,6 +1233,24 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('opening and cancelling Void keeps what was typed elsewhere on Money', (await ppOff.inputValue('#ppId')) === 'typed-before-void');
     R.has(offText, 'Connect PayPal first', 'and the payout says why it cannot be sent');
     await ppOff.close();
+
+    // Invited, never signed up, then ended (Quintin, Blake 2026-11-18: "there is
+    // no resend button"): his own card offers the invite again; a signed-up
+    // affiliate's card does not.
+    {
+      const QA = 'aaaaaaaa-0000-4000-8000-00000000e0d0';
+      const endTables = { ...tables,
+        affiliate_prospects: [...tables.affiliate_prospects, { id: 'p-end', company_entity_id: CO, program_id: PROG, display_name: 'Quin Ended', platform: 'instagram', handle: '@quinend', contact_email: 'quinend@creator.invalid', source: 'manual', collected_at: now, evidence: { found_via: 'met at a tournament' }, status: 'invited', affiliate_id: QA }],
+        affiliates: [...tables.affiliates, { id: QA, company_entity_id: CO, program_id: PROG, display_name: 'Quin Ended', contact_email: 'quinend@creator.invalid', status: 'terminated', terms_accepted_at: null, created_at: now, from_prospect_id: 'p-end' }] };
+      const endPage = await suite.open('/v2/affiliates/index.html', endTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      endPage.on('pageerror', (e) => errors.push(e.message));
+      await endPage.click('#tabs [data-tab="people"]');
+      R.ok('an ended, never-signed-up affiliate can be invited again from their card', !!(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p-end"]')));
+      R.ok('a signed-up affiliate gets no invite button', !(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p1"]')));
+      await endPage.click('#prospectsBody [data-f="approved"]').catch(() => {});
+      R.has(await text(endPage, '#prospectsBody'), 'found via met at a tournament', 'a saved "where found" note is shown on the creator card');
+      await endPage.close();
+    }
 
     const connected = [{ company_entity_id: CO, provider: 'paypal', environment: 'sandbox', is_active: true, account_email: 'brand@pay.invalid', payouts_enabled: true, credentials_set: true, last_tested_at: now, last_test_success: true, last_test_error: null, last_send_at: null }];
 

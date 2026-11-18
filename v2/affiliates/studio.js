@@ -5,7 +5,7 @@
 // decides. Pure logic (money, CSV, validation, labels) is in studio-core.js.
 import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
-  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
+  toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, asWebUrl, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
   parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
@@ -1009,7 +1009,7 @@ function renderProspects() {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
     return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
   };
-  const sourceLine = (x) => { const e = x.evidence || {}; return `${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}`; };
+  const sourceLine = (x) => { const e = x.evidence || {}; return `${esc(sourceLabel(x.source))}${e.query ? ` · “${esc(e.query)}”` : ''}${e.found_via ? ` · found via ${esc(String(e.found_via).slice(0, 120))}` : ''} · ${fmtDate(x.collected_at)}${x.source_url ? ` · ${ext(x.source_url, 'source')}` : ''}`; };
   const provenance = (x) => {
     const e = x.evidence || {};
     return `<div class="af-evidence">${e.title ? `<strong>${esc(e.title)}</strong><br>` : ''}${esc(e.snippet || e.note || e.pitch || '')}</div>
@@ -1083,7 +1083,7 @@ function renderProspects() {
   const adder = S.addCreators && MANAGE ? card('Add creators', `<div class="af-grid">
       ${field('Name', input('mpName'))}${field('Platform', `<select class="bcn-field" id="mpPlat">${PLATS.map((x) => `<option value="${x}">${esc(PLATFORM_NAMES[x] || x)}</option>`).join('')}</select>`)}
       ${field('Handle', input('mpHandle', 'placeholder="@name"'))}${field('Profile URL', input('mpUrl', 'placeholder="https://"'))}
-      ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="https://"'))}
+      ${field('Email', input('mpEmail', 'type="email"'))}${field('Where you found them', input('mpSource', 'placeholder="A link, or how you met"'))}
     </div>${field('Note', input('mpNote', 'placeholder="e.g. met at a tournament"'))}<div class="af-row" style="margin-top:8px;">${btn('Add', 'prospect-add', {}, 'primary')}${btn('Close', 'add-creators-close')}</div><div id="mpOut"></div>
     <div class="af-row" style="margin-top:12px;">${field('Or import a CSV (one creator per row, with a profile link)', '<input class="bcn-field" type="file" id="impFile" accept=".csv,text/csv" />')}${btn('Import', 'import-run', {}, 'primary')}${btn('Download template', 'import-template', {}, 'ghost')}</div>`) : '';
   $('prospectsBody').innerHTML = [
@@ -1305,6 +1305,14 @@ function renderAffiliates() {
     if (!MANAGE) return '';
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
+    // Someone invited who never signed up (or was ended before signing up)
+    // can be invited again from their own card (Blake 2026-11-18: "there is
+    // no resend button"). The server re-opens an ended, never-signed-up
+    // affiliate when it mints the new link.
+    const from = d.prospectById[a.from_prospect_id];
+    if (!a.terms_accepted_at && ['invited', 'terminated'].includes(a.status) && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
+      b.push(btn(a.status === 'invited' ? 'Resend invite' : 'Invite again', 'invite-send', { id: from.id }, 'primary'));
+    }
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
     // One affiliate per company, in any program (Blake 2026-11-17).
     if (['active', 'paused'].includes(a.status) && otherPrograms().length) b.push(btn('Add to program', 'aff-tool', { id: a.id, k: 'program' }));
@@ -2280,7 +2288,14 @@ const A = {
     return `Saved.${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
   },
   'prospect-add': async () => {
-    const url = val('mpUrl'); const handle = val('mpHandle');
+    // Addresses are tidied the way people type them (instagram.com/name gets
+    // https://); "Where you found them" that is not an address ("Instagram",
+    // "met at a show") is kept as a note instead of failing the save
+    // (Blake 2026-11-18: affiliate_prospects_source_url_check).
+    const url = asWebUrl(val('mpUrl')); const handle = val('mpHandle');
+    if (url === undefined) throw new Error('The profile URL should be a web address, like instagram.com/name.');
+    const source = asWebUrl(val('mpSource'));
+    const foundVia = source === undefined ? val('mpSource') : null;
     if (!url && !handle) throw new Error('A handle or a profile URL is needed to tell creators apart.');
     if (val('mpEmail') && !val('mpEmail').includes('@')) throw new Error('That email address is not valid.');
     // Added with an email: approved and invited at once (the invite is emailed).
@@ -2289,7 +2304,7 @@ const A = {
     const row = must(await db.from('affiliate_prospects').insert({
       company_entity_id: CO, program_id: S.programId, display_name: val('mpName') || handle || url, platform: val('mpPlat'),
       handle: handle || null, profile_url: url || null, contact_email: email,
-      source: 'manual', source_url: val('mpSource') || null, evidence: { note: val('mpNote') || null, entered_by: me.email || me.id }, created_by: me.id,
+      source: 'manual', source_url: source || null, evidence: { note: val('mpNote') || null, ...(foundVia ? { found_via: foundVia } : {}), entered_by: me.email || me.id }, created_by: me.id,
       ...(email ? { status: 'approved', reviewed_by: me.id, reviewed_at: now } : {}),
     }).select('id').single());
     if (!email) return 'Prospect added.';
