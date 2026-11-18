@@ -14,6 +14,7 @@
 //   RECS_DB_MUTATION=content-brief-sc-zero  (a never-queried SC figure coalesced to 0, per 20260927140000)
 //   RECS_DB_MUTATION=content-brief-paa-zero (no-PAA-observed collapsed to "0 questions", per 20260927140000)
 //   RECS_DB_MUTATION=rollup-unscoped        (the 28-day rollup wrapper loses its active_company_id() filter, 20260927170000)
+//   RECS_DB_MUTATION=landscape-read-twice   (cluster_rank_evidence goes back to a SECOND landscape read, 20261118210000)
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -27,6 +28,7 @@ const MIGRATION = '20260926180000_seo_recommendations.sql';
 const FOLLOWUP_MIGRATION = '20260927120000_seo_recommendations_defend_requires_decline.sql';
 const FOLLOWUP2_MIGRATION = '20260927140000_seo_recommendations_absence_fixes.sql';
 const ROLLUP_MIGRATION = '20260927170000_seo_landscape_28d_rollup.sql';
+const PERF_MIGRATION = '20261118210000_seo_recommendations_single_landscape_read.sql';
 // The full chain this migration builds on, same list seo-serp-database.test.mjs
 // verifies against, plus the SERP/tactics/rollup migrations it reads.
 const dependencies = [
@@ -55,7 +57,7 @@ const dependencies = [
 ];
 const mutation = process.env.RECS_DB_MUTATION || '';
 assert.ok(['', 'score-not-halved', 'absence-as-zero', 'numeric-confidence', 'defend-not-filtered',
-  'content-brief-sc-zero', 'content-brief-paa-zero', 'rollup-unscoped'].includes(mutation), 'Unknown recommendations mutation');
+  'content-brief-sc-zero', 'content-brief-paa-zero', 'rollup-unscoped', 'landscape-read-twice'].includes(mutation), 'Unknown recommendations mutation');
 
 const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 const first = async (sql, params = []) => (await q(sql, params))[0];
@@ -224,6 +226,18 @@ try {
         case when coalesce(jsonb_array_length(paa.questions), 0) = 0 then 'would be' else 'are' end)`
         );
     }
+    if (mutation === 'landscape-read-twice') {
+      // Reverts 20261118210000: cluster_rank_evidence reads
+      // seo_keyword_landscape_v again instead of the base CTE that already
+      // holds those rows -- the 2.4 s this migration exists to remove. The
+      // rows are unchanged either way (that is the whole claim), so no
+      // behaviour assertion can catch it; the read-count assertion is what
+      // does. A no-op against every earlier migration's text.
+      // The paa MATERIALIZED half of the same migration has no mutation on
+      // purpose: materializing a CTE changes how often it is computed, never
+      // its rows, so nothing this test can observe would differ.
+      effective = effective.replaceAll('  from base b\n  group by b.keyword_id', '  from public.seo_keyword_landscape_v b\n  group by b.keyword_id');
+    }
     if (mutation === 'rollup-unscoped') {
       effective = effective.replaceAll('from public.search_console_query_rollup_28d_mv\nwhere company_entity_id = public.active_company_id();',
         'from public.search_console_query_rollup_28d_mv;');
@@ -276,6 +290,29 @@ try {
     assert.ok(def.includes('search_console_query_rollup_28d_v'), 'the landscape reads the rollup wrapper');
     assert.ok(!def.includes('search_console_query_daily'), 'the landscape no longer aggregates raw query rows on every read');
     assert.equal(await scalar("select count(*)::int from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='seo_recommendations_v' and c.relkind='v'"), 1, 'the recommendations view survived the replacement');
+  });
+
+  // 20261118210000 is applied LAST, in production's order, and BEFORE the
+  // keyword set is seeded -- so every class, score, evidence, absence and
+  // isolation assertion below this point runs against the single-landscape-read
+  // definition. That is the point of applying it here: this migration claims
+  // only to be faster, and the way to hold it to that is to make the existing
+  // behaviour assertions its assertions. applyMutation runs over its text too,
+  // for the same reason the follow-ups do -- its body is a copy of
+  // 20260927140000's, so an un-mutated replacement applied last would silently
+  // repair every mutation and make the mutation runs pass for nothing.
+  await test('the single-landscape-read migration (20261118210000) applies twice, cleanly, and the view reads the landscape once', async () => {
+    const sql = await readFile(new URL(`supabase/migrations/${PERF_MIGRATION}`, root), 'utf8');
+    const effective = applyMutation(sql);
+    await db.exec(effective);
+    await db.exec(effective);
+    const def = await scalar("select pg_get_viewdef('public.seo_recommendations_v'::regclass, true)");
+    // The whole point: ONE evaluation of the landscape, not two. (Carrying
+    // our_previous_serp_position through base is not asserted separately --
+    // without it cluster_rank_evidence does not compile, so the apply above
+    // is that check.)
+    assert.equal((def.match(/seo_keyword_landscape_v/g) || []).length, 1, 'seo_keyword_landscape_v is read exactly once');
+    assert.equal(await scalar("select 'security_invoker=true' = any(reloptions) from pg_class where relname='seo_recommendations_v'"), true, 'still security_invoker');
   });
 
   await test('the rollup holds exactly what the landscape used to compute, row for row', async () => {
