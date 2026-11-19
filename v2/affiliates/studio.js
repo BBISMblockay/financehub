@@ -564,6 +564,7 @@ const section = (label, parts) => { const p = parts.filter(Boolean); return p.le
 // first RECORD_ROWS rows; "Show all" opens the rest in place.
 const RECORD_GROUPS = [
   ['codes', 'Codes', ['Codes and links']],
+  ['products', 'Products', ['Products']],
   ['orders', 'Orders', ['Every order']],
   ['money', 'Ledger', ['Balances', 'Periods and ledger']],
   ['messages', 'Messages', ['Message history']],
@@ -703,7 +704,7 @@ function todoItems() {
   // row that can be done in one press carries that press, and Open is the way
   // to look rather than the way to act.
   const items_ = [];
-  const add = (n, text, tab, extra = '') => { if (n) items_.push({ text, tab, extra }); };
+  const add = (n, text, tab, extra = '', rec = '') => { if (n) items_.push({ text, tab, extra, rec }); };
   add(p.status !== 'active', `The program is ${p.status}. Set it to active in Setup to start recruiting.`, 'program');
   add(!p.terms_markdown, 'Write your program terms in Setup. Affiliates accept them to join.', 'program');
   const appliedWaiting = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status)).length;
@@ -726,9 +727,9 @@ function todoItems() {
   const unattributed = (h.attributions_ambiguous || 0) + (h.attributions_multi_code_refused || 0) + (h.attributions_outside_window || 0) + (h.attributions_currency_mismatch || 0) + (h.attributions_refunds_unmeasured || 0);
   add(unattributed, `${num(unattributed)} order(s) with an affiliate code were not credited.`, 'payouts');
   const seedAsks = (d.seeds || []).filter((x) => x.state === 'requested').length;
-  add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'people', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '');
+  add(seedAsks, `${num(seedAsks)} product request(s) from affiliates.`, 'records', MANAGE ? btn(`Approve all ${num(seedAsks)}`, 'q-seeds', {}, 'primary') : '', 'products');
   const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
-  add(seedCodes, `${num(seedCodes)} product code(s) waiting to be made in Shopify.`, 'people', MANAGE ? btn('Make in Shopify', 'seed-make', {}, 'primary') : '');
+  add(seedCodes, `${num(seedCodes)} product code(s) waiting to be made in Shopify.`, 'records', MANAGE ? btn('Make in Shopify', 'seed-make', {}, 'primary') : '', 'products');
   const contentAsks = (d.content || []).filter((x) => x.state === 'submitted').length;
   add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'affiliates');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
@@ -1238,10 +1239,16 @@ function seedsCard() {
       ${sub ? `<div class="af-kv-line">${sub}</div>` : ''}${bar}</div>${acts ? `<div class="af-item-foot">${acts}</div>` : ''}</article>`;
   };
   const asks = rows.filter((x) => x.state === 'requested');
-  const rest = rows.filter((x) => x.state !== 'requested');
+  const live = rows.filter((x) => ['approved', 'code_ready', 'purchased'].includes(x.state));
+  const done = rows.filter((x) => !['requested', 'approved', 'code_ready', 'purchased'].includes(x.state));
   const meta = p.seeding_enabled ? `${esc(Number(p.seed_discount_percent))}% off · sell ${esc(Number(p.seed_multiple))}×` : 'Off';
   const acts = MANAGE ? [['Approve selected', 'q-seed-ok', 'primary'], ['Decline selected', 'q-seed-no']] : [];
-  return surface('Products', `${asks.length ? queue('seeds', asks, row, acts, '') : ''}${rest.length ? itemList(rest, row) : asks.length ? '' : empty('No product requests yet. Affiliates ask from their portal.')}`, meta);
+  return surface('Products', [
+    asks.length ? `<h3 class="af-settings-title">To decide · ${num(asks.length)}</h3>${queue('seeds', asks, row, acts, '')}` : '',
+    live.length ? `<h3 class="af-settings-title">In progress · ${num(live.length)}</h3>${itemList(live, row)}` : '',
+    done.length ? `<h3 class="af-settings-title">Finished · ${num(done.length)}</h3>${itemList(done, row)}` : '',
+    rows.length ? '' : empty('No product requests yet. Affiliates ask from their portal.'),
+  ].join(''), meta);
 }
 
 // ── Content ──────────────────────────────────────────────────────────────
@@ -1381,7 +1388,9 @@ function renderAffiliates() {
       ], affShown, affEmpty)
       : itemList(affShown, affiliateRow, affEmpty, 'grid')}<div id="affOut"></div>`, `${num(d.affiliates.length - ended.length)} in this program`),
     MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Outreach to turn on affiliate links.</div>` : '',
-    seedsCard(),
+    // Product requests live in Records → Products, not People (Blake
+    // 2026-11-18: "shouldn't go in people and shouldn't just become giant list").
+    more('Products', [seedsCard()]),
     contentCard(),
     more('Codes and links', [
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
@@ -1879,7 +1888,7 @@ function ovWhy(x) {
 function ovTodoCard() {
   const items = todoItems();
   const rows = items.map((x) => `<div class="af-ov-ro-row"><div class="af-ov-ro-b"><div class="af-ov-why">${esc(x.text)}</div></div>`
-    + `<div class="af-todo-acts">${x.extra || ''}${btn('Open', 'go-tab', { t: x.tab })}</div></div>`).join('');
+    + `<div class="af-todo-acts">${x.extra || ''}${btn('Open', 'go-tab', x.rec ? { t: x.tab, k: x.rec } : { t: x.tab })}</div></div>`).join('');
   return card('Needs you', rows ? `<div class="af-ov-ro">${rows}</div>` : '<p class="af-muted">Nothing waiting on you.</p>',
     items.length ? pill(`${items.length} waiting`, 'accent') : pill('clear', 'pos'));
 }
@@ -2230,7 +2239,7 @@ const A = {
     await updateRows('affiliate_programs', { payout_mode: on === '1' ? 'auto_friday' : 'approve_each', changed_by: me.id }, { id: S.programId });
     return on === '1' ? 'Payouts go out every Friday.' : 'Each payout waits for approval again.';
   },
-  'go-tab': ({ t }) => { S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
+  'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-status': async ({ id, s }) => {
