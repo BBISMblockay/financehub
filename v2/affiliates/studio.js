@@ -1407,22 +1407,24 @@ function contentCard() {
   const d = S.d; const p = prog();
   if (!d.content) return '';
   const bonus = Number(p.content_bonus_cents || 0);
+  // A small square per piece; the full photo or video opens in a new tab.
   const media = (x) => {
-    if (x.kind === 'link') return `<div class="af-kv-line">${ext(x.link_url, x.link_url)}</div>`;
+    if (x.kind === 'link') return `<a class="af-srow-img af-srow-noimg af-srow-link" href="${esc(x.link_url)}" target="_blank" rel="noopener noreferrer" aria-label="Open link">Link</a>`;
     const u = d.contentUrl?.[x.storage_path];
-    if (!u) return `<div class="af-muted">${esc(/^video\//.test(x.file_type || '') ? 'Video' : 'Photo')}</div>`;
-    return /^video\//.test(x.file_type || '')
-      ? `<video class="af-content-media" src="${esc(u)}" controls preload="metadata"></video>`
-      : `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" /></a>`;
+    const video = /^video\//.test(x.file_type || '');
+    if (!u) return `<span class="af-srow-img af-srow-noimg af-srow-link">${video ? 'Video' : 'Photo'}</span>`;
+    return `<a class="af-srow-img" href="${esc(u)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${video ? 'video' : 'photo'}">${video
+      ? `<video class="af-content-media" src="${esc(u)}#t=0.1" muted playsinline preload="metadata"></video>`
+      : `<img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" />`}</a>`;
   };
   const row = (x) => {
     const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
     const a = d.affById[x.affiliate_id];
     const paid = x.state === 'used' && x.bonus_cents ? ` · +${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
-    return `<article class="af-item af-item--compact"><div class="af-item-body">
-      <div class="af-item-head">${esc(a?.display_name || '—')} ${pill(label, tone)}</div>
-      ${media(x)}${x.caption ? `<div class="af-kv-line">${esc(x.caption)}</div>` : ''}
-      <div class="af-muted">${fmtDate(x.submitted_at)}${paid}</div></div></article>`;
+    const sub = x.kind === 'link' ? `<div class="af-muted af-srow-clip">${ext(x.link_url, x.link_url)}</div>` : '';
+    return `<div class="af-srow">${media(x)}<div class="af-srow-txt"><strong>${esc(a?.display_name || '—')}</strong> ${pill(label, tone)}
+      ${x.caption ? `<div class="af-srow-clip">${esc(x.caption)}</div>` : ''}${sub}
+      <div class="af-muted">${fmtDate(x.submitted_at)}${paid}</div></div></div>`;
   };
   const waiting = d.content.filter((x) => x.state === 'submitted');
   const approved = d.content.filter((x) => x.state === 'approved');
@@ -1595,9 +1597,14 @@ function shareItem(kind, srcId, title, sub, img, payload) {
   const action = !MANAGE ? (shared ? pill('shared', 'pos') : '')
     : shared ? btn('Stop sharing', 'feed-remove', { id: shared.id })
     : btn('Share', 'feed-add', { kind, src: srcId, p: JSON.stringify(payload) }, 'primary');
-  return `<article class="af-share-card">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}</div><div class="af-item-foot" style="padding:0;border:0;background:transparent;margin-top:auto;">${action}</div></article>`;
+  return shareRow(img, title, sub, action);
 }
-function shareGrid(rows) { return rows.length ? `<div class="af-share-grid">${rows.join('')}</div>` : ''; }
+// Share is one compact list at a time (Blake 2026-11-18: "a lot of massive
+// things everywhere"): a small square picture, the title, one button.
+function shareRow(img, title, sub, action, extra = '') {
+  return `<div class="af-srow" role="listitem">${img ? `<img class="af-srow-img" src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-srow-img af-srow-noimg"></span>'}<div class="af-srow-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}${extra}</div>${action ? `<div class="af-srow-act">${action}</div>` : ''}</div>`;
+}
+const shareList = (rows, emptyText) => (rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : empty(emptyText));
 // Share shows the 10 most recent of each list (Blake 2026-11-18: "max
 // pagination at 10 most recent as default"); Show all opens the rest in place.
 const SHARE_CAP = 10;
@@ -1643,31 +1650,44 @@ async function renderShare() {
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
   const sharedAll = d.feed.filter((f) => !f.parent_source_id);
-  const sharedRows = shareCap(sharedAll).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
+  const KIND = { launch: 'Launch', product: 'Product', ad: 'Ad' };
+  const sharedRows = sharedAll.map((f) => shareRow(f.image_url, f.title,
+    `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}`,
+    MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''));
   // The store links open is picked from the program's connected Shopify
   // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
   const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
   const curHost = (() => { try { return new URL(storeOf(p) || '').hostname; } catch { return ''; } })();
-  const storeCard = !MANAGE ? '' : pickable.length
-    ? card('Store', `${setRow('Affiliate links open', `<div class="af-chips-tog">${pickable.map((x) => { const on = curHost === x; return `<button type="button" class="af-chip-tog${on ? ' is-on' : ''}" data-act="store-pick" data-store="${esc(x)}" aria-pressed="${on}">${esc(storeName(x))}</button>`; }).join('')}</div>`)}${
-      curHost && !pickable.includes(curHost) ? `<p class="af-muted">Now: ${esc(curHost)}</p>` : ''}${needsStore(p) ? '<p class="bcn-status bcn-status--warn" id="storeNeeded">Pick one to turn on affiliate links.</p>' : ''}`)
-    : needsStore(p)
-      ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
-      : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`);
-  $('shareBody').classList.toggle('af-share--list', S.view === 'list');
+  const storeLine = !MANAGE ? '' : pickable.length
+    ? `<div class="af-share-store"><span class="af-muted">Links open on</span><div class="af-chips-tog">${pickable.map((x) => { const on = curHost === x; return `<button type="button" class="af-chip-tog${on ? ' is-on' : ''}" data-act="store-pick" data-store="${esc(x)}" aria-pressed="${on}">${esc(storeName(x))}</button>`; }).join('')}</div>${
+      curHost && !pickable.includes(curHost) ? `<span class="af-muted">Now: ${esc(curHost)}</span>` : ''}${needsStore(p) ? '<span class="bcn-status bcn-status--warn" id="storeNeeded">Pick one to turn on affiliate links.</span>' : ''}</div>`
+    : `<div class="af-share-store"><div class="af-row">${field('Affiliate links open', input('storeUrl', needsStore(p) ? 'placeholder="https://www.yourstore.com"' : `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>${
+      needsStore(p) ? '<p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>' : ''}</div>`;
+  const waiting = (d.content || []).filter((x) => x.state === 'submitted').length;
+  const tabs = [
+    ['shared', 'Shared', sharedAll.length],
+    ['content', 'From affiliates', waiting || null],
+    ['launches', 'Launches', launches.length],
+    ['ads', 'Ads', ads.length],
+    ['products', 'Products', null],
+  ];
+  if (!tabs.some(([k]) => k === S.shareTab)) S.shareTab = waiting ? 'content' : 'shared';
+  const chips = `<div class="af-rec-chips" role="tablist" aria-label="Share">${tabs.map(([k, label, n]) => `<button type="button" class="af-rec-chip${k === S.shareTab ? ' is-on' : ''}" role="tab" aria-selected="${k === S.shareTab}" data-act="share-tab" data-k="${k}">${esc(label)}${n ? ` <span class="af-mono">${num(n)}</span>` : ''}</button>`).join('')}</div>`;
+  const capped = (rows, emptyText) => `${shareList(shareCap(rows), emptyText)}${shareMore(rows.length)}`;
+  const views = {
+    shared: () => card('What your affiliates see', capped(sharedRows, 'Nothing shared yet. Pick from Launches, Ads or Products.'), `${num(sharedAll.length)} shared`),
+    // What affiliates send in comes back through Share too (Blake 2026-11-18).
+    content: () => contentCard() || card('From affiliates', empty('Content did not load. Reload the page.')),
+    launches: () => card('Upcoming launches', capped(launches, 'No upcoming launches.')),
+    ads: () => card('Recent ads', capped(ads, 'No recent ads with a picture.')),
+    products: () => card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${
+      products.length ? capped(products, '') : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
+  };
   $('shareBody').innerHTML = [
-    `<div class="af-filter-bar">${viewToggle()}</div>`,
-    // What affiliates send in comes back through Share too (Blake 2026-11-18:
-    // "content share from affiliate should go in share tab too").
-    contentCard(),
-    card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>${shareMore(sharedAll.length)}` : empty('Nothing shared yet. Pick launches or ads below.')}`,
-      `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
-    storeCard,
-    card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(shareCap(launches))}${shareMore(launches.length)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(shareCap(ads))}${shareMore(ads.length)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
-    section('Add products', [
-      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${products.length ? `${shareGrid(shareCap(products))}${shareMore(products.length)}` : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
-      sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
-    ]),
+    storeLine,
+    chips,
+    views[S.shareTab](),
+    sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
   ].join('');
 }
 
@@ -2259,6 +2279,7 @@ const A = {
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'share-all': () => { S.shareAll = true; renderShare(); return null; },
+  'share-tab': ({ k }) => { S.shareTab = k; S.shareAll = false; renderShare(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
   'terms-file-upload': async () => {
