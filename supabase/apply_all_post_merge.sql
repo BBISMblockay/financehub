@@ -19861,4 +19861,6 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261119030000_affiliate_payout_recheck_reductions.sql
 -- 20261119040000: refunds on credited orders of any age and on retired codes.
 \i migrations/20261119040000_affiliate_refunds_any_age.sql
+-- 20261119050000: where turning an ended code off in Shopify is recorded.
+\i migrations/20261119050000_affiliate_codes_shopify_end.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

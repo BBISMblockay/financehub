@@ -198,6 +198,23 @@ async function tellCodes(aff) {
 // SILO makes waiting codes in the brand's Shopify (affiliate-invite). Each
 // code it cannot make stays waiting -- for a reconnect, a store pick, or the
 // brand's own AI -- and the message says which.
+// Ending a code in SILO also turns it off in Shopify (audit 2026-11-18), so
+// it stops working at checkout. A failure is said, never hidden: the code row
+// then offers "Turn off in Shopify" again.
+async function endInShopify(ids) {
+  ids = (ids || []).filter(Boolean);
+  if (!ids.length) return '';
+  let results = [];
+  try { results = (await invoke('affiliate-invite', { action: 'end_shopify_codes', code_ids: ids }))?.results || []; }
+  catch (e) { return `Could not turn it off in Shopify yet (${e.message}). Press Turn off in Shopify on the code.`; }
+  const n = (k) => results.filter((r) => r.status === k).length;
+  const parts = [];
+  if (n('ended')) parts.push(`${num(n('ended'))} turned off in Shopify.`);
+  if (n('manual')) parts.push(`${num(n('manual'))} made by hand: turn it off in Shopify yourself.`);
+  const bad = results.find((r) => !['ended', 'manual'].includes(r.status));
+  if (bad) parts.push(`Still on in Shopify: ${bad.reason || bad.status}.`);
+  return parts.join(' ');
+}
 async function makeInShopify(ids) {
   ids = (ids || []).filter(Boolean);
   if (!ids.length) return 'Nothing is waiting.';
@@ -1535,7 +1552,9 @@ function renderAffiliates() {
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
         const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
         const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
-        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : pill('retired');
+        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : c.shopify_ended_at ? pill('off in Shopify')
+          : c.shopify_discount_id && MANAGE ? `${pill('retired')}${btn('Turn off in Shopify', 'code-end', { id: c.id }, 'surface')}${c.shopify_end_error ? `<span class="af-muted">${esc(c.shopify_end_error)}</span>` : ''}`
+          : pill('retired');
         return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(c.code)}</span> · ${esc(d.affById[c.affiliate_id]?.display_name)}</div><div class="af-muted">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</div><div class="af-kv-line">${shop} · ${seen}</div></div><div class="af-item-foot">${act}</div></article>`;
       }, 'No codes yet.')) : '',
     ]),
@@ -2664,6 +2683,15 @@ const A = {
   },
   'affiliate-status': async ({ id, s }) => {
     await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
+    if (s === 'terminated') {
+      // Ending someone ends their codes, here and at checkout. Pausing does
+      // not: a paused affiliate comes back with the same code.
+      const { data: live } = await db.from('affiliate_codes').select('id, status').eq('company_entity_id', CO).eq('affiliate_id', id).in('status', ['active', 'pending']);
+      if (!live?.length) return 'Affiliate ended.';
+      await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id: live.map((c) => c.id) });
+      const ended = await endInShopify(live.filter((c) => c.status === 'active').map((c) => c.id));
+      return `Affiliate ended and ${num(live.length)} code(s) retired. ${ended}`.trim();
+    }
     if (s !== 'active') return `Affiliate ${s}.`;
     // Turning an affiliate on queues their first code in the database
     // (affiliate_queue_first_code); make it in Shopify now, not overnight.
@@ -2742,7 +2770,12 @@ const A = {
     return 'Copied. Paste it into your AI, or set it as a daily task there.';
   },
   'code-make': async ({ id }) => makeInShopify(id ? [id] : S.d.codes.filter((c) => c.status === 'pending').map((c) => c.id)),
-  'code-retire': async ({ id }) => { const was = S.d.codes.find((c) => c.id === id)?.status; await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id }); return was === 'pending' ? 'Code cancelled.' : 'Code retired.'; },
+  'code-retire': async ({ id }) => {
+    const was = S.d.codes.find((c) => c.id === id)?.status;
+    await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id });
+    return was === 'pending' ? 'Code cancelled.' : `Code retired. ${await endInShopify([id])}`.trim();
+  },
+  'code-end': async ({ id }) => (await endInShopify([id])) || 'Nothing to turn off.',
   'link-add': async () => {
     const dest = val('lDest');
     if (!/^https:\/\//i.test(dest)) throw new Error('The page must start with https://');

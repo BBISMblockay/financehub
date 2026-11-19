@@ -283,6 +283,8 @@ const files = {
   recheck: '20261119030000_affiliate_payout_recheck_reductions.sql',
   // Refunds on credited orders of any age, and on retired codes (20261119040000).
   anyage: '20261119040000_affiliate_refunds_any_age.sql',
+  // Where turning an ended code off in Shopify is recorded (20261119050000).
+  shopifyend: '20261119050000_affiliate_codes_shopify_end.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -569,7 +571,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2478,7 +2480,7 @@ await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Stud
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

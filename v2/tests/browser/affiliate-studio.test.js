@@ -15,6 +15,7 @@
  *   - the affiliate pages carry no SILO navigation.
  *
  * Mutations (each must fail at least one assertion):
+ *   AFFILIATE_UI_MUTATION=endnoshopify ending an affiliate leaves their code working in Shopify
  *   AFFILIATE_UI_MUTATION=nullzero    an unknown money amount renders as $0.00
  *   AFFILIATE_UI_MUTATION=termshtml   the program terms are rendered as HTML
  *   AFFILIATE_UI_MUTATION=tokenurl    the token is left in the address bar
@@ -139,6 +140,8 @@ const MUTATIONS = {
   autocheck: ['/affiliates/studio.js', '  if (ppAutoChecked) return;', '  if (false) return;'],
   // Each check names its payout: the untargeted refresh reads only the oldest
   // 50 open attempts, so a newer one can starve behind them (review cycle 1).
+  // Ending an affiliate leaves their code working in Shopify (audit 2026-11-18).
+  endnoshopify: ['/affiliates/studio.js', "    if (s === 'terminated') {", '    if (false) {'],
   untargeted: ['/affiliates/studio.js', "await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });", "await invoke('affiliate-payouts', { action: 'refresh' });"],
   checkfirst: ['/affiliates/studio.js', '    .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])\n', ''],
   checkotherenv: ['/affiliates/studio.js', "    .filter((sn) => (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)", '    .filter(() => true)'],
@@ -597,6 +600,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await rs.waitForFunction(() => /live in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
       R.ok('and says it is live', true);
       await rs.close();
+    }
+    // Ending an affiliate retires their codes and turns the live one off in Shopify (audit 2026-11-18).
+    {
+      const endTables = { ...loopTables, affiliate_codes: loopTables.affiliate_codes.map((c) => (c.id === 'c1' ? { ...c, shopify_discount_id: 'gid://shopify/DiscountCodeNode/55' } : c)) };
+      const en = await suite.open('/v2/affiliates/index.html', endTables,
+        { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c1', code: 'PAT10', status: 'ended' }] } } } });
+      en.on('pageerror', (e) => errors.push(e.message));
+      await en.click('#tabs [data-tab="people"]');
+      await en.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
+      await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await en.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
+      const ret = await en.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_codes' && q._op === 'update').pop());
+      R.eq(ret?.patch?.status, 'retired', 'ending an affiliate retires their codes');
+      R.eq((ret.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals?.slice().sort(), ['c1', 'c2'], 'the live one and the waiting one');
+      const endCall = await en.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.name === 'affiliate-invite').pop().body);
+      R.eq([endCall.action, endCall.code_ids], ['end_shopify_codes', ['c1']], 'and turns the live one off in Shopify');
+      await en.waitForFunction(() => /turned off in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('and says so', true);
+      await en.close();
     }
     // One affiliate per company, added to another program with their own rate (Blake 2026-11-17).
     {

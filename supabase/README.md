@@ -3964,6 +3964,10 @@ commissions run calls after its 45-day window. It re-reads every earning attribu
 `shopify_orders`, at any age and whatever its code's status, and appends a `refund_adjustment` at the rate the order was
 accrued at. It only ever reduces. Service role only. No deploy needed (the nightly script calls it once applied).
 
+`20261119050000_affiliate_codes_shopify_end.sql` adds `affiliate_codes.shopify_ended_at` and `shopify_end_error`.
+Retiring a code or ending an affiliate in Studio now calls affiliate-invite's `end_shopify_codes`, which deactivates
+the Shopify discount SILO made (never deletes it) and records the outcome there. Apply, then deploy affiliate-invite.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

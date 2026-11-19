@@ -24,6 +24,11 @@
  * write_discounts, used by exactly one file, for exactly one mutation
  * (discountCodeBasicCreate), and the syncs still issue none.
  *
+ * 2026-11-18 (audit, Blake: "end the affiliate and confirm the code stops
+ * working"): the same file may also DEACTIVATE a discount SILO made
+ * (discountCodeDeactivate), so ending an affiliate stops their code at
+ * checkout. Same scope; never a delete, never anything else.
+ *
  * No network, no database. Run:
  *   node scripts/tests/shopify-readonly.test.mjs
  */
@@ -99,11 +104,11 @@ for (const [label, path, name] of [
 }
 
 console.log('\n-- the one write: affiliate discount codes --');
-test('shopify-codes.mjs issues only discountCodeBasicCreate', () => {
+test('shopify-codes.mjs issues only discountCodeBasicCreate and discountCodeDeactivate', () => {
   const src = read('supabase/functions/affiliate-invite/shopify-codes.mjs');
-  const found = [...src.matchAll(/\bmutation\s+\w+[^{]*\{\s*(\w+)/g)].map((m) => m[1]);
-  if (found.length !== 1 || found[0] !== 'discountCodeBasicCreate') {
-    throw new Error(`expected one mutation, discountCodeBasicCreate; found ${JSON.stringify(found)}`);
+  const found = [...src.matchAll(/\bmutation\s+\w+[^{]*\{\s*(\w+)/g)].map((m) => m[1]).sort();
+  if (JSON.stringify(found) !== JSON.stringify(['discountCodeBasicCreate', 'discountCodeDeactivate'])) {
+    throw new Error(`expected exactly discountCodeBasicCreate and discountCodeDeactivate; found ${JSON.stringify(found)}`);
   }
 });
 

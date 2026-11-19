@@ -10230,6 +10230,15 @@ select 'Affiliate refunds any age' as check_name,
     else 'ok'
   end as status;
 
+-- Ending a code turns it off in Shopify (20261119050000): where the outcome is stored.
+select 'Affiliate codes end in Shopify' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_ended_at')
+      or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_end_error')
+      then 'MISSING — run 20261119050000_affiliate_codes_shopify_end.sql'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the
