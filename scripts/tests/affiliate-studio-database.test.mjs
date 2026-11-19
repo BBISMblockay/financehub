@@ -55,6 +55,9 @@
 //   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
+//   AFFILIATE_DB_MUTATION=anyagerate    an old order's refund is re-priced at today's rate
+//   AFFILIATE_DB_MUTATION=anyageup      re-reading a credited order can add commission
+//   AFFILIATE_DB_MUTATION=anyageactive  a refund on a retired code's order is never taken back
 //   AFFILIATE_DB_MUTATION=sendrecheck   a refund after approval does not stop a PayPal send
 //   AFFILIATE_DB_MUTATION=retryrecheck  Retry posts an unconfirmed attempt after a refund landed
 //   AFFILIATE_DB_MUTATION=exportrecheck a refund after approval does not keep a payout out of an export
@@ -278,18 +281,38 @@ const files = {
   portallinks: '20261119020000_affiliate_portal_links_stay_live.sql',
   // A refund after approval stops the send and the export (20261119030000).
   recheck: '20261119030000_affiliate_payout_recheck_reductions.sql',
+  // Refunds on credited orders of any age, and on retired codes (20261119040000).
+  anyage: '20261119040000_affiliate_refunds_any_age.sql',
+  // Where turning an ended code off in Shopify is recorded (20261119050000).
+  shopifyend: '20261119050000_affiliate_codes_shopify_end.sql',
+  // Why an order's earnings are pending, approved or paid (20261119060000).
+  orderstate: '20261119060000_affiliate_portal_order_state.sql',
+  // Earnings, payouts and PayPal addresses are finance-only reads (20261119070000).
+  financereads: '20261119070000_affiliate_finance_reads.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
   sql[k] = await readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8');
 }
 sql.follow = sql.follow.slice(sql.follow.indexOf('create or replace function public.affiliate_autoshare_launch_trg()'));
+// A later migration that redefines the same function carries the live body,
+// so a mutation must reach it too or it tests a body production never runs.
+function mutateLive(keys, from, to) {
+  for (const k of keys) mutate(k, from, to);
+}
 function mutate(key, from, to) {
   assert.ok(sql[key].includes(from), `mutation ${MUT}: pattern not found in ${files[key]}`);
   sql[key] = sql[key].split(from).join(to);
 }
 switch (MUT) {
   case '': break;
+  case 'financeopen': mutate('financereads', "             and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions()))", "             )"); break;
+  case 'anyageunknown': mutate('anyage', "              or (a.basis = 'refunds_not_measured'", "              or (false"); break;
+  case 'orderhold': mutate('orderstate', "(max(l.order_day) + max(p.refund_hold_days)) as payable_from", "max(l.order_day) as payable_from"); break;
+  case 'orderapproved': mutate('orderstate', "po.status in ('approved', 'exported')", "po.status in ('exported')"); break;
+  case 'anyagerate': mutate('anyage', "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_rate.rate_value, 0) / 100.0)::bigint", "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_prog.commission_percent, 0) / 100.0)::bigint"); break;
+  case 'anyageup': mutate('anyage', '    if v_delta >= 0 then continue; end if;', '    if v_delta = 0 then continue; end if;'); break;
+  case 'anyageactive': mutate('anyage', "       and a.basis in ('single_affiliate_code', 'first_affiliate_code')\n", "       and a.basis in ('single_affiliate_code', 'first_affiliate_code')\n         and exists (select 1 from public.affiliate_codes c where c.id = a.affiliate_code_id and c.status = 'active')\n"); break;
   case 'sendrecheck': mutate('recheck', '  if v_newer < 0 then\n    raise exception \'affiliate_payout_send_claim:', '  if false then\n    raise exception \'affiliate_payout_send_claim:'); break;
   case 'retryrecheck': mutate('recheck', "  v_newer := public.affiliate_payout_has_new_reductions(v_payout.id);\n  if v_newer < 0 then", "  v_newer := 0;\n  if v_newer < 0 then"); break;
   case 'exportrecheck': mutate('recheck', '\n       and public.affiliate_payout_has_new_reductions(id) = 0;', ';'); break;
@@ -316,7 +339,7 @@ switch (MUT) {
      and f.kind = 'launch';`, `     and f.kind = 'launch';`); break;
   // The order list is one affiliate's own, not the program's.
   case 'anyorders':
-    mutate('claims', `               where l.company_entity_id = v_tok.company_entity_id
+    mutateLive(['claims', 'orderstate'], `               where l.company_entity_id = v_tok.company_entity_id
                  and l.affiliate_id = v_tok.affiliate_id
                  and l.order_id is not null`, `               where l.company_entity_id = v_tok.company_entity_id
                  and l.order_id is not null`); break;
@@ -486,6 +509,10 @@ switch (MUT) {
     mutate('ledger', `       and program_id = p_program
        and status = 'approved';`, `       and program_id = p_program
        and status in ('approved', 'void');`);
+    // 20261119030000 redefines the export claim, so the live body is there too.
+    mutate('recheck', `       and status = 'approved'
+       and public.affiliate_payout_has_new_reductions(id) = 0;`, `       and status in ('approved', 'void')
+       and public.affiliate_payout_has_new_reductions(id) = 0;`);
     mutate('ledger', `     and p.export_batch_id = v_batch
      and p.status = 'exported';`, `     and p.export_batch_id = v_batch;`); break;
   case 'managedco':
@@ -519,10 +546,10 @@ switch (MUT) {
       `    c.client_secret,
     (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set`); break;
   case 'sendinflight':
-    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+    mutateLive(['paypal', 'recheck'], `     and state in ('unknown','sent','unclaimed','paid')`,
       `     and state in ('definitely-not-a-state')`); break;
   case 'sendunknown':
-    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+    mutateLive(['paypal', 'recheck'], `     and state in ('unknown','sent','unclaimed','paid')`,
       `     and state in ('sent','unclaimed','paid')`); break;
   case 'unclaimedpaid':
     mutate('paypal', `  if p_state <> 'paid' then`, `  if p_state not in ('paid','unclaimed') then`); break;
@@ -530,7 +557,7 @@ switch (MUT) {
     mutate('paypal', `  if v_send.state in ('paid','returned','refused') and p_state <> v_send.state then`,
       '  if false then'); break;
   case 'sendtenant':
-    mutate('paypal', `  if p_company is null or v_payout.company_entity_id is distinct from p_company then
+    mutateLive(['paypal', 'recheck'], `  if p_company is null or v_payout.company_entity_id is distinct from p_company then
     raise exception 'affiliate_payout_send_claim: that payout belongs to another company'
       using errcode = '42501';
   end if;`, '  -- tenant check removed'); break;
@@ -542,7 +569,7 @@ switch (MUT) {
     return;
   end if;`, '  -- sandbox settles too'); break;
   case 'sandboxblock':
-    mutate('paypal', "     and (environment = 'live' or environment = p_environment)", '     and true'); break;
+    mutateLive(['paypal', 'recheck'], "     and (environment = 'live' or environment = p_environment)", '     and true'); break;
   case 'recordlock':
     mutate('paypal', 'where id = p_send for update;', 'where id = p_send;'); break;
   case 'voidinflight':
@@ -561,7 +588,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -1982,6 +2009,34 @@ await check('L5 paging is bounded and stable', async () => {
   assert.deepEqual((await page(1, 9999)).orders, [], 'past the end is empty, not an error');
 });
 
+await check('L7 each order says when its refund hold ends and what is in an approved payout', async () => {
+  await as(null, null);
+  const o = (await one(`select public.affiliate_portal_orders('hash-pat') as o`)).o;
+  const row = o.orders.find((x) => x.order_day);
+  assert.ok(row, 'an order with a day');
+  await asSuper();
+  const hold = (await one(`select p.refund_hold_days as d from affiliates a join affiliate_programs p on p.id = a.program_id where a.id = $1`, [affPat])).d;
+  const want = new Date(Date.parse(`${row.order_day}T00:00:00Z`) + Number(hold) * 86400000).toISOString().slice(0, 10);
+  assert.equal(String(row.payable_from).slice(0, 10), want, 'payable_from is the order day plus the hold');
+  for (const r of o.orders) assert.ok(Number.isFinite(Number(r.approved_cents)), 'approved_cents is a number on every order');
+  // Put one of this order's lines in an approved payout: it shows as approved, not paid.
+  const prog = (await one('select program_id from affiliates where id = $1', [affPat])).program_id;
+  const line = await one(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo, order_id, order_day)
+    values ($1,$2,$3,'manual_adjustment',700,'USD','manual','L7 bonus',$4,$5) returning id, amount_cents, program_id, currency`, [A, prog, affPat, row.order_id, row.order_day]);
+  {
+    const po = await one(`insert into affiliate_payouts(company_entity_id, program_id, affiliate_id, amount_cents, currency, method, status, approved_at, approved_by)
+      values ($1,$2,$3,$4,$5,'manual','approved', now(), $6) returning id`, [A, line.program_id, affPat, line.amount_cents, line.currency, U.finA]);
+    await db.query(`insert into affiliate_payout_items(company_entity_id, payout_id, ledger_entry_id, amount_cents) values ($1,$2,$3,$4)`, [A, po.id, line.id, line.amount_cents]);
+    await as(null, null);
+    const again = (await one(`select public.affiliate_portal_orders('hash-pat') as o`)).o.orders.find((x) => x.order_id === row.order_id);
+    assert.equal(Number(again.approved_cents) - Number(row.approved_cents), Number(line.amount_cents), 'the approved payout is counted');
+    assert.equal(Number(again.paid_cents), Number(row.paid_cents), 'and is not counted as paid');
+    await asSuper();
+    await db.query('delete from affiliate_payout_items where payout_id = $1', [po.id]);
+    await db.query('delete from affiliate_payouts where id = $1', [po.id]);
+  }
+});
+
 await check('L6 no client role may claim, read orders or read the feed', async () => {
   for (const role of ['anon', 'authenticated']) {
     for (const fn of ['public.affiliate_portal_feed(text)', 'public.affiliate_portal_claim(text, uuid, boolean)',
@@ -2364,6 +2419,63 @@ await check('PL1 a new portal link leaves earlier ones working; a new sign-up li
   await db.query(`delete from affiliate_access_tokens where token_hash like 'pl1-%'`);
 });
 
+// ── Refunds on any credited order (20261119040000) ────────────────────────
+await check('RF1 a refund on a credited order whose code was retired is taken back, at the rate it earned', async () => {
+  const rex = await newActive('Rex', 'REX');
+  await orderA('1090', '2026-11-03', 'REX', 100);
+  await settle();
+  assert.equal(await ledgerSum('1090'), 1000, '10% of $100');
+  await asSuper();
+  await db.query(`update affiliate_codes set status = 'retired' where affiliate_id = $1`, [rex]);
+  await db.query(`update shopify_orders set refunded_subtotal = 40 where order_id = '1090'`);
+  await settle();
+  assert.equal(await ledgerSum('1090'), 1000, 'the window pass matches active codes only, so it never sees this refund');
+  await asSuper();
+  const rate = (await one(`select commission_percent from affiliate_programs where id = $1`, [progA])).commission_percent;
+  await db.query(`update affiliate_programs set commission_percent = 50 where id = $1`, [progA]);
+  await db.exec('set role service_role');
+  const r = (await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA])).r;
+  assert.ok(r.orders_changed >= 1);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'reduced to 10% of $60, the rate it was accrued at, not today\'s 50%');
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'running it again changes nothing');
+  // A refund that is later reversed in Shopify does not create credit here.
+  await db.query(`update shopify_orders set refunded_subtotal = 0 where order_id = '1090'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'this pass only ever reduces');
+  await db.query(`update affiliate_programs set commission_percent = $2 where id = $1`, [progA, rate]);
+  await db.query(`update shopify_orders set refunded_subtotal = 40 where order_id = '1090'`);
+  for (const role of ['anon', 'authenticated']) {
+    assert.equal((await one(`select has_function_privilege($1, 'public.affiliate_refresh_credited_orders(uuid)', 'execute') as x`, [role])).x, false, `${role} cannot call it`);
+  }
+});
+
+await check('RF2 a credited order whose refunds read unknown once is still reduced when a refund is reported later', async () => {
+  const kay = await newActive('Kay', 'KAY');
+  await orderA('1091', '2026-11-03', 'KAY', 100);
+  await settle();
+  assert.equal(await ledgerSum('1091'), 1000, '10% of $100');
+  await asSuper();
+  await db.query(`update affiliate_codes set status = 'retired' where affiliate_id = $1`, [kay]);
+  await db.query(`update shopify_orders set refunded_subtotal = null where order_id = '1091'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal((await one(`select basis from affiliate_attributions where order_id = '1091'`)).basis, 'refunds_not_measured', 'unknown is recorded as unknown');
+  assert.equal(await ledgerSum('1091'), 1000, 'and is not taken as a full refund');
+  await db.query(`update shopify_orders set refunded_subtotal = 100 where order_id = '1091'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1091'), 0, 'the later full refund is taken back');
+  assert.equal((await one(`select basis from affiliate_attributions where order_id = '1091'`)).basis, 'single_affiliate_code', 'and the order is measured again');
+});
+
 // ── A refund after approval (20261119030000) ──────────────────────────────
 await check('RR1 a refund that lands after approval stops the PayPal send and the export', async () => {
   await asSuper();
@@ -2428,13 +2540,28 @@ await check('RR2 Retry of an unconfirmed attempt is refused once a refund lands,
   assert.equal((await one(`select has_function_privilege('authenticated', 'public.affiliate_payout_retry_check(uuid,uuid)', 'execute') as x`)).x, false);
 });
 
+await check('FR1 a regular member reads no earnings, payouts or PayPal addresses; finance does', async () => {
+  const T = ['affiliate_commission_ledger', 'affiliate_payouts', 'affiliate_payout_items', 'affiliate_payout_sends', 'affiliate_payout_accounts'];
+  await asSuper();
+  const all = {};
+  for (const t of T) all[t] = Number((await one(`select count(*)::int as n from ${t} where company_entity_id = $1`, [A])).n);
+  assert.ok(all.affiliate_commission_ledger > 0 && all.affiliate_payouts > 0, 'there is money to hide');
+  await as(U.memberA, A);
+  for (const t of T) assert.equal(Number((await one(`select count(*)::int as n from ${t}`)).n), 0, `a member reads nothing from ${t}`);
+  assert.equal(Number((await one('select count(*)::int as n from affiliate_balances_v')).n), 0, 'nor through the balances view');
+  assert.ok(Number((await one('select count(*)::int as n from affiliates')).n) > 0, 'the program itself stays visible');
+  await as(U.finA, A);
+  for (const t of ['affiliate_commission_ledger', 'affiliate_payouts']) assert.equal(Number((await one(`select count(*)::int as n from ${t}`)).n), all[t], `finance reads all of ${t}`);
+  await asSuper();
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

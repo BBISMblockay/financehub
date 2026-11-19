@@ -53,6 +53,21 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
       if (r2.error) throw new Error(`accrue: ${r2.error.message}`);
       result = { ...result, orders_recorded: r1.data?.rows_written ?? null, entries_accrued: r2.data?.entries_accrued ?? 0,
         entries_reduced: r2.data?.entries_reduced ?? 0, net_amount_cents: r2.data?.net_amount_cents ?? 0 };
+      // Refunds and cancellations on credited orders of ANY age, and on
+      // orders whose code was since retired (20261119040000): the window above
+      // only re-reads recent orders, by order date, through active codes. The
+      // nightly sweep only -- chained runs stay short. Before the migration is
+      // applied the function does not exist, which is not a failure.
+      if (source === 'nightly') {
+        const rr = await supabase.rpc('affiliate_refresh_credited_orders', { p_program: p.id });
+        if (rr.error) {
+          const missing = rr.error.code === 'PGRST202' || /affiliate_refresh_credited_orders/.test(rr.error.message || '') && /not find|does not exist/i.test(rr.error.message || '');
+          if (!missing) throw new Error(`refresh credited: ${rr.error.message}`);
+        } else if (rr.data) {
+          result.credited_refresh = rr.data;
+          summary.entries_reduced += Number(rr.data.entries_reduced) || 0;
+        }
+      }
       // Product seeding (20261113093000): seed purchases, progress, the
       // payback (written once, to the ledger) and expiry. After accrual, so
       // it reads the orders this run just credited. Its own failure is

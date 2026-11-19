@@ -135,6 +135,13 @@ const CREATE_M = `mutation SiloCreateCode($basicCodeDiscount: DiscountCodeBasicI
   }
 }`;
 
+const END_M = `mutation SiloEndCode($id: ID!) {
+  discountCodeDeactivate(id: $id) {
+    codeDiscountNode { id }
+    userErrors { field code message }
+  }
+}`;
+
 export class ShopifyCodeError extends Error {
   constructor(message, kind = 'failed') { super(message); this.kind = kind; }
 }
@@ -200,4 +207,23 @@ export async function makeCode(conn, code, tz, fetchImpl = fetch) {
     if (again) return { id: again, adopted: true };
   }
   throw new ShopifyCodeError(`Shopify refused the code: ${errs.map((e) => e?.message).filter(Boolean).join('; ').slice(0, 200) || 'no reason given'}`);
+}
+
+/**
+ * Turn a code off in Shopify when SILO ends it (audit 2026-11-18: ending an
+ * affiliate in SILO left their discount working at checkout). Only a discount
+ * SILO knows by id is touched, and it is DEACTIVATED, never deleted, so the
+ * merchant keeps its history. A discount Shopify no longer has counts as off.
+ * Returns 'ended' or 'gone'; throws ShopifyCodeError otherwise.
+ */
+export async function endCode(conn, discountId, fetchImpl = fetch) {
+  if (!/^gid:\/\/shopify\/DiscountCodeNode\/[0-9]{1,20}$/.test(String(discountId || ''))) {
+    throw new ShopifyCodeError('SILO does not know this discount in Shopify', 'unknown');
+  }
+  const data = await adminGraphql({ shop: conn.shop_domain, token: conn.access_token, apiVersion: conn.api_version, query: END_M, variables: { id: discountId }, fetchImpl });
+  const out = data?.discountCodeDeactivate;
+  const errs = out?.userErrors || [];
+  if (out?.codeDiscountNode?.id && !errs.length) return 'ended';
+  if (errs.some((e) => /not.?found|does not exist/i.test(`${e?.code} ${e?.message}`))) return 'gone';
+  throw new ShopifyCodeError(`Shopify did not turn the code off: ${errs.map((e) => e?.message).filter(Boolean).join('; ').slice(0, 200) || 'no reason given'}`);
 }

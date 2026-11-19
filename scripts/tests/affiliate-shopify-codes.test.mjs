@@ -44,6 +44,11 @@ const muts = {
   scseedpages: ['handler.mjs', 'if (sweep && !peek.after) results.push', 'if (sweep) results.push'],
   scearnagain: ['handler.mjs', 'const fresh = list.filter((r) => !after || r.created_at > after);', 'const fresh = list;'],
   scearnanon: ['handler.mjs', 'if (isService && !codeId) {', 'if (!codeId || codeId) {'],
+  // Ending a code: any company's code; a failure recorded as off; a code with no Shopify id sent anyway.
+  scendanyco: ['handler.mjs', ".eq('company_entity_id', company).eq('status', 'retired').in('id', ids);", ".eq('status', 'retired').in('id', ids);"],
+  scendcut: ['handler.mjs', "        if (ids.length > 25) return reply({ error: 'At most 25 codes at a time.' }, 400);", ''],
+  scendmissing: ['handler.mjs', "        for (const id of ids) if (!seen.has(id)) results.push(", "        for (const id of []) if (!seen.has(id)) results.push("],
+  scendfailok: ['handler.mjs', "const done = status === 'ended' || status === 'gone';", "const done = true;"],
   // A code SILO picked itself is left waiting instead of taking the next free text.
   scnorename: ['handler.mjs', "if (e?.kind !== 'taken' || c.created_by) throw e;", 'throw e;'],
 };
@@ -70,12 +75,12 @@ const test = async (name, fn) => {
 };
 
 // ── Shopify fake ───────────────────────────────────────────────────────────
-function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false, products = { 'blue-hat': 'gid://shopify/Product/5' } } = {}) {
+function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'write_discounts'], existing = {}, refuse = null, status = 200, taken = false, products = { 'blue-hat': 'gid://shopify/Product/5' }, endErr = null } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
     const q = body.query;
-    calls.push({ url, op: /SiloScopes/.test(q) ? 'scopes' : /SiloFindCode/.test(q) ? 'find' : /SiloCreateCode/.test(q) ? 'create' : /SiloProduct/.test(q) ? 'product' : 'other', vars: body.variables, token: init.headers['X-Shopify-Access-Token'] });
+    calls.push({ url, op: /SiloScopes/.test(q) ? 'scopes' : /SiloFindCode/.test(q) ? 'find' : /SiloCreateCode/.test(q) ? 'create' : /SiloProduct/.test(q) ? 'product' : /SiloEndCode/.test(q) ? 'end' : 'other', vars: body.variables, token: init.headers['X-Shopify-Access-Token'] });
     if (status !== 200) return new Response('{"errors":"nope"}', { status });
     const last = calls[calls.length - 1];
     if (last.op === 'scopes') return Response.json({ data: { currentAppInstallation: { accessScopes: scopes.map((h) => ({ handle: h })) }, shop: { myshopifyDomain: 'brand.myshopify.com', primaryDomain: { host: primary } } } });
@@ -92,6 +97,10 @@ function fakeShopify({ primary = 'www.brand.com', scopes = ['read_orders', 'writ
       const h = /^handle:'(.*)'$/.exec(body.variables.q)?.[1];
       const nodes = Object.entries(products).filter(([k]) => k.startsWith(h || '\u0000')).map(([handle, id]) => ({ id, handle }));
       return Response.json({ data: { products: { nodes } } });
+    }
+    if (last.op === 'end') {
+      if (endErr) return Response.json({ data: { discountCodeDeactivate: { codeDiscountNode: null, userErrors: [{ field: ['id'], code: endErr.code, message: endErr.message }] } } });
+      return Response.json({ data: { discountCodeDeactivate: { codeDiscountNode: { id: body.variables.id }, userErrors: [] } } });
     }
     if (last.op === 'create') {
       if (refuse) return Response.json({ data: { discountCodeBasicCreate: { codeDiscountNode: null, userErrors: [{ field: ['code'], code: 'INVALID', message: refuse }] } } });
@@ -247,6 +256,53 @@ await test('a code SILO picked that a store promo already uses gets the next fre
   assert.equal(out.results[0].status, 'taken');
   assert.match(out.results[0].reason, /different code/);
   assert.ok(!svc.log.some((x) => x.op === 'update'), 'a chosen code is not renamed or marked live');
+});
+
+// Audit 2026-11-18: ending an affiliate in SILO left their code working.
+await test('ending: a retired code SILO made is turned off in Shopify, and the outcome is stored on the code', async () => {
+  const retired = (over = {}) => ({ ...pending(), status: 'retired', shopify_discount_id: 'gid://shopify/DiscountCodeNode/55', shopify_ended_at: null, ...over });
+  let svc = fakeService({ codes: [retired()] }); let shop = fakeShopify();
+  let out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
+  assert.deepEqual(out.results.map((r) => r.status), ['ended']);
+  assert.deepEqual(shop.calls.find((c) => c.op === 'end')?.vars, { id: 'gid://shopify/DiscountCodeNode/55' }, 'deactivated by its own id, never deleted');
+  const sel = svc.log.find((x) => x.table === 'affiliate_codes' && x.op === 'select');
+  assert.equal(sel.f.company_entity_id, CO, 'only the caller\'s company');
+  assert.equal(sel.f.status, 'retired', 'only a code already ended in SILO');
+  let upd = svc.log.find((x) => x.table === 'affiliate_codes' && x.op === 'update');
+  assert.ok(upd.payload.shopify_ended_at && upd.payload.shopify_end_error === null);
+  assert.equal(upd.f.company_entity_id, CO);
+  // Shopify says no: stored as an error, not as off.
+  svc = fakeService({ codes: [retired()] }); shop = fakeShopify({ endErr: { code: 'INVALID', message: 'Something went wrong' } });
+  out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'failed');
+  upd = svc.log.find((x) => x.table === 'affiliate_codes' && x.op === 'update');
+  assert.ok(!('shopify_ended_at' in upd.payload) && /Something went wrong/.test(upd.payload.shopify_end_error));
+  // Gone from Shopify already counts as off.
+  svc = fakeService({ codes: [retired()] }); shop = fakeShopify({ endErr: { code: 'NOT_FOUND', message: 'Discount does not exist' } });
+  out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'ended');
+  // A code made by hand is not touched, and says so.
+  svc = fakeService({ codes: [retired({ shopify_discount_id: null })] }); shop = fakeShopify();
+  out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'manual');
+  assert.ok(!shop.calls.some((c) => c.op === 'end'));
+  // No write scope: not off, and it says how to fix it.
+  svc = fakeService({ codes: [retired()] }); shop = fakeShopify({ scopes: ['read_orders'] });
+  out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
+  assert.equal(out.results[0].status, 'needs_scope');
+  assert.ok(!shop.calls.some((c) => c.op === 'end'));
+});
+
+await test('ending: more than 25 codes is refused, never cut short, and every id gets an outcome', async () => {
+  const many = Array.from({ length: 26 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+  let svc = fakeService({ codes: [] });
+  let res = await mk(svc, fakeShopify())(post({ action: 'end_shopify_codes', code_ids: many }));
+  assert.equal(res.status, 400, '26 ids are refused');
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_codes'), 'and nothing is read or written');
+  const other = '00000000-0000-4000-8000-0000000000ff';
+  svc = fakeService({ codes: [{ ...pending(), status: 'retired', shopify_discount_id: 'gid://shopify/DiscountCodeNode/55', shopify_ended_at: null }] });
+  const out = await (await mk(svc, fakeShopify())(post({ action: 'end_shopify_codes', code_ids: [CODE, other] }))).json();
+  assert.deepEqual(out.results.map((r) => [r.code_id, r.status]), [[CODE, 'ended'], [other, 'not_retired']], 'an id it did not act on is named, not dropped');
 });
 
 await test('staff: a code cancelled meanwhile is left alone', async () => {

@@ -3959,6 +3959,23 @@ the welcome email, the code email), and each new one used to revoke the last. No
 inside the money lock when a payout is sent with PayPal (`affiliate_payout_send_claim`, refused, nothing reserved) or
 exported (`affiliate_claim_payout_export`, left out and returned in `skipped`). Void and build again. No deploy needed.
 
+`20261119040000_affiliate_refunds_any_age.sql` adds `affiliate_refresh_credited_orders(program)`, which the nightly
+commissions run calls after its 45-day window. It re-reads every earning attribution of the program against
+`shopify_orders`, at any age and whatever its code's status, and appends a `refund_adjustment` at the rate the order was
+accrued at. It only ever reduces. Service role only. No deploy needed (the nightly script calls it once applied).
+
+`20261119050000_affiliate_codes_shopify_end.sql` adds `affiliate_codes.shopify_ended_at` and `shopify_end_error`.
+Retiring a code or ending an affiliate in Studio now calls affiliate-invite's `end_shopify_codes`, which deactivates
+the Shopify discount SILO made (never deletes it) and records the outcome there. Apply, then deploy affiliate-invite.
+
+`20261119060000_affiliate_portal_order_state.sql` adds `approved_cents` (in an approved or exported payout) and
+`payable_from` (order day plus the program's refund hold) to each order `affiliate_portal_orders` returns, so the
+portal can say why an order's earnings are pending, approved or paid. Apply only; no deploy.
+
+`20261119070000_affiliate_finance_reads.sql` makes the commission ledger, payouts, payout lines, PayPal send attempts
+and payout accounts readable only by `can_manage_affiliate_programs()` or `can_approve_affiliate_commissions()`
+(they were readable by every member of the company). Studio shows a viewer the program without the money. Apply only.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

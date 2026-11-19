@@ -355,7 +355,18 @@ function renderOrders() {
   };
   const row = (o) => {
     const paid = Number(o.paid_cents) || 0;
-    const state = paid >= Number(o.earned_cents) && Number(o.earned_cents) > 0 ? 'paid' : paid > 0 ? `${m(paid)} paid` : 'coming to you';
+    // Why it is where it is (Blake 2026-11-18): pending while the refund
+    // window runs, approved once it is in a payout, paid once it is sent.
+    // An older database without these fields keeps the plain wording.
+    const earned = Number(o.earned_cents) || 0;
+    const approved = Number(o.approved_cents) || 0;
+    const today = new Date().toISOString().slice(0, 10);
+    const state = earned <= 0 ? (o.entries || []).some((e) => e.kind === 'refund_adjustment') ? 'refunded' : 'nothing owed'
+      : paid >= earned ? 'paid'
+      : approved > 0 ? 'approved · payout on its way'
+      : o.payable_from && String(o.payable_from).slice(0, 10) > today ? `pending · refund window ends ${day(o.payable_from)}`
+      : o.payable_from ? 'ready for the next payout'
+      : paid > 0 ? `${m(paid)} paid` : 'coming to you';
     return `<details class="af-ord-row" data-order="${esc(o.order_id)}"${ORD.open.has(o.order_id) ? ' open' : ''}><summary>
       <span class="af-ord-day">${esc(day(o.order_day))}</span>
       <span><span class="af-ord-no">${esc(orderLabel(o))}</span>${o.code ? `<span class="af-ord-code">${esc(o.code)}</span>` : ''}</span>
@@ -365,7 +376,9 @@ function renderOrders() {
   };
   const more = ORD.rows.length < ORD.total
     ? `<div class="af-ord-foot"><button class="bcn-btn" type="button" id="ordMore">Show more</button></div>` : '';
-  el.innerHTML = card('Your orders', `<div class="af-ord">${ORD.rows.map(row).join('')}</div>${more}`);
+  const legend = ORD.rows.some((o) => o.payable_from !== undefined)
+    ? '<p class="af-muted" id="ordLegend">Pending: the refund window is still open. Approved: in a payout on its way. Paid: sent to your PayPal.</p>' : '';
+  el.innerHTML = card('Your orders', `${legend}<div class="af-ord">${ORD.rows.map(row).join('')}</div>${more}`);
   $('ordMore')?.addEventListener('click', (ev) => { ev.target.disabled = true; loadOrders(); });
   for (const d of el.querySelectorAll('[data-order]')) {
     d.addEventListener('toggle', () => { if (d.open) ORD.open.add(d.dataset.order); else ORD.open.delete(d.dataset.order); });

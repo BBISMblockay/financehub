@@ -64,6 +64,9 @@ const [{ data: canManage }, { data: canApprove }] = await Promise.all([
 ]);
 const MANAGE = canManage === true;
 const MONEY = canApprove === true;
+// Earnings, payouts and PayPal addresses are read only by Studio managers and
+// finance (20261119070000). Anyone else sees the program, not the money.
+const SEES_MONEY = MANAGE || MONEY;
 if (!MANAGE) setStatus('You can view Affiliate Studio. Changing it needs Affiliate Studio access (an owner or executive can grant it on the Program tab).', 'info');
 
 // ── Errors and writes ────────────────────────────────────────────────────
@@ -198,6 +201,28 @@ async function tellCodes(aff) {
 // SILO makes waiting codes in the brand's Shopify (affiliate-invite). Each
 // code it cannot make stays waiting -- for a reconnect, a store pick, or the
 // brand's own AI -- and the message says which.
+// Ending a code in SILO also turns it off in Shopify (audit 2026-11-18), so
+// it stops working at checkout. A failure is said, never hidden: the code row
+// then offers "Turn off in Shopify" again.
+async function endInShopify(ids) {
+  ids = (ids || []).filter(Boolean);
+  if (!ids.length) return '';
+  // In batches of 25 (the function's limit), and every id must come back
+  // with an outcome: one missing is reported as still on, never as done.
+  let results = [];
+  try {
+    for (const part of chunk(ids, 25)) results = results.concat((await invoke('affiliate-invite', { action: 'end_shopify_codes', code_ids: part }))?.results || []);
+  } catch (e) { return `Could not turn ${results.length ? 'all of them' : 'it'} off in Shopify yet (${e.message}). Press Turn off in Shopify on the code.`; }
+  const answered = new Set(results.map((r) => r.code_id));
+  for (const id of ids) if (!answered.has(id)) results.push({ code_id: id, status: 'unanswered', reason: 'no answer from Shopify for one code; press Turn off in Shopify on it' });
+  const n = (k) => results.filter((r) => r.status === k).length;
+  const parts = [];
+  if (n('ended')) parts.push(`${num(n('ended'))} turned off in Shopify.`);
+  if (n('manual')) parts.push(`${num(n('manual'))} made by hand: turn it off in Shopify yourself.`);
+  const bad = results.find((r) => !['ended', 'manual'].includes(r.status));
+  if (bad) parts.push(`Still on in Shopify: ${bad.reason || bad.status}.`);
+  return parts.join(' ');
+}
 async function makeInShopify(ids) {
   ids = (ids || []).filter(Boolean);
   if (!ids.length) return 'Nothing is waiting.';
@@ -1456,9 +1481,11 @@ function renderAffiliates() {
     // can be invited again from their own card (Blake 2026-11-18: "there is
     // no resend button"). The server re-opens an ended, never-signed-up
     // affiliate when it mints the new link.
+    // Resend and Send invite now sit on the affiliate's status line (stepsOf).
+    // Invite again, for one ended before signing up, stays here.
     const from = d.prospectById[a.from_prospect_id];
-    if (!a.terms_accepted_at && ['invited', 'terminated'].includes(a.status) && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
-      b.push(btn(a.status === 'invited' ? 'Resend invite' : 'Invite again', 'invite-send', { id: from.id }, 'primary'));
+    if (!a.terms_accepted_at && a.status === 'terminated' && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
+      b.push(btn('Invite again', 'invite-send', { id: from.id }, 'primary'));
     }
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
     // One affiliate per company, in any program (Blake 2026-11-17).
@@ -1467,6 +1494,28 @@ function renderAffiliates() {
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
+  };
+  const stepsOf = (a) => {
+    // Where this person is stuck, and the one thing that unsticks them
+    // (Blake 2026-11-18: "one place to see invite sent, accepted, code
+    // active, or code failed", with the next action right there).
+    const from = d.prospectById[a.from_prospect_id];
+    const invite = (d.notifications || []).find((n) => n.affiliate_id === a.id && n.kind === 'signup_invite');
+    const canInvite = MANAGE && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source);
+    const fixEmail = MANAGE && from ? btn('Fix email', 'prospect-edit', { id: from.id }, 'ghost') : '';
+    const step1 = a.terms_accepted_at ? `${pill('Signed up', 'pos')} <span class="af-muted">${fmtDate(a.terms_accepted_at)}</span>`
+      : a.status === 'terminated' ? pill('Ended before signing up')
+      : invite && invite.status !== 'sent' ? `${pill('Invite not delivered', 'neg')} <span class="af-muted">${esc(invite.reason || invite.to_email || '')}</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
+      : invite ? `${pill('Invite sent', 'accent')} <span class="af-muted">${fmtDate(invite.created_at)} to ${esc(invite.to_email || a.contact_email)} · not signed up yet</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
+      : `${pill(a.status === 'invited' ? 'Invited' : 'Not signed up', 'accent')} <span class="af-muted">no invite email on record</span>${fixEmail}${canInvite ? btn(a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }) : ''}`;
+    const code = liveCodeOf(a.id);
+    const all = codesOf(a);
+    const waiting = all.filter((c) => c.status === 'pending');
+    const step2 = a.status === 'terminated' ? ''
+      : code ? `${pill(`Code ${code} live`, 'pos')} <span class="af-muted">${all.find((c) => c.code === code)?.verified_at ? 'used on an order' : 'not used on an order yet'}</span>`
+      : waiting.length ? `${pill(`Code ${waiting[0].code} not in Shopify yet`, 'neg')}${MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }) : ''}`
+      : a.terms_accepted_at ? `${pill('No code', 'accent')}${MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }) : ''}` : '';
+    return `<div class="af-steps">${[step1, step2].filter(Boolean).map((x) => `<div class="af-row af-step">${x}</div>`).join('')}</div>`;
   };
   const canCode = (d.aiApps || []).some((a) => a.canCode);
   // A code or a link is given from the affiliate's own card (Blake,
@@ -1494,6 +1543,7 @@ function renderAffiliates() {
     const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
+    const steps = stepsOf(a);
     const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
@@ -1505,6 +1555,7 @@ function renderAffiliates() {
         </div>
         ${statusPill(a.status)}
       </header>
+      ${steps}
       <div class="af-codes">${codesHtml}</div>
       ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
       <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
@@ -1521,7 +1572,7 @@ function renderAffiliates() {
     surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${affChips}${viewToggle()}</div>` : ''}${S.view === 'list'
       ? table([
         { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
-        { left: true, h: 'Status', f: (a) => statusPill(a.status) },
+        { left: true, h: 'Status', f: (a) => `${statusPill(a.status)}${stepsOf(a)}` },
         { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
         { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
         { h: '', f: (a) => actions(a) },
@@ -1535,7 +1586,9 @@ function renderAffiliates() {
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
         const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
         const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
-        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : pill('retired');
+        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : c.shopify_ended_at ? pill('off in Shopify')
+          : c.shopify_discount_id && MANAGE ? `${pill('retired')}${btn('Turn off in Shopify', 'code-end', { id: c.id }, 'surface')}${c.shopify_end_error ? `<span class="af-muted">${esc(c.shopify_end_error)}</span>` : ''}`
+          : pill('retired');
         return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(c.code)}</span> · ${esc(d.affById[c.affiliate_id]?.display_name)}</div><div class="af-muted">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</div><div class="af-kv-line">${shop} · ${seen}</div></div><div class="af-item-foot">${act}</div></article>`;
       }, 'No codes yet.')) : '',
     ]),
@@ -1692,6 +1745,76 @@ async function renderShare() {
 }
 
 // ── Commissions ──────────────────────────────────────────────────────────
+// "Why didn't this order count?" / "why did my balance drop?" answered on the
+// page (Blake 2026-11-18): one order, the code, the eligible amount, every
+// commission line and where each one went.
+function orderLookupHtml() {
+  const L = S.lookup;
+  const form = `<div class="af-row">${field('Order number', input('olq', `placeholder="1001" value="${esc(L?.q || '')}" inputmode="numeric"`))}${btn('Look up', 'order-lookup', {}, 'surface')}${L ? btn('Clear', 'order-lookup-clear', {}, 'ghost') : ''}</div>`;
+  if (!L) return card('Look up an order', form);
+  if (L.loading) return card('Look up an order', `${form}<p class="af-muted">Looking…</p>`);
+  if (L.error) return card('Look up an order', `${form}<p class="af-muted">${esc(L.error)}</p>`);
+  const p = prog();
+  if (!L.attr) {
+    const o = L.order;
+    const why = !o ? `SILO has no order ${esc(L.q)} yet. Orders arrive a few times a day; a very new one may not be here yet.`
+      : !(o.discount_codes || []).length ? `Order ${esc(o.order_number || L.q)} used no discount code, so no affiliate is credited.`
+      : `Order ${esc(o.order_number || L.q)} used ${(o.discount_codes || []).map((c) => `<span class="af-mono">${esc(c)}</span>`).join(', ')}, which is not a code in ${esc(p?.name || 'this program')}.`;
+    return card('Look up an order', `${form}<p>${why}</p>`);
+  }
+  const a = L.attr;
+  const cur = a.order_currency || p?.currency;
+  const KIND = { accrual: 'Earned', refund_adjustment: 'Taken back (refund or cancellation)', manual_adjustment: 'Adjusted by hand', seed_payback: 'Product payback' };
+  const PAY = { draft: 'in a draft payout', approved: 'in an approved payout', exported: 'in an exported payout', marked_paid: 'paid', paid: 'paid' };
+  const kv = (k, v) => `<div class="af-kv-line"><span class="af-muted">${esc(k)}</span> ${v}</div>`;
+  const lines = L.lines.length ? `<div class="af-slist" role="list">${L.lines.map((l) => `<div class="af-srow" role="listitem"><div class="af-srow-txt"><strong>${esc(KIND[l.kind] || l.kind)}</strong><div class="af-muted">${fmtDate(l.created_at)}${l.memo ? ` · ${esc(l.memo)}` : ''}</div></div><div class="af-srow-act"><span class="af-mono">${esc(formatMoney(l.amount_cents, l.currency))}</span><div class="af-muted">${esc(L.payoutOf[l.id] ? PAY[L.payoutOf[l.id]] || L.payoutOf[l.id] : 'not in a payout yet')}</div></div></div>`).join('')}</div>`
+    : `<p class="af-muted">${BASIS_LABELS[a.basis]?.earns ? 'No commission yet. Commissions update every night.' : 'No commission: this order is not credited.'}</p>`;
+  const total = L.lines.reduce((n, l) => n + Number(l.amount_cents || 0), 0);
+  return card('Look up an order', `${form}
+    <div class="af-item-head">Order <span class="af-mono">${esc(a.order_number || a.order_id)}</span> · ${fmtDate(a.order_day)} ${BASIS_LABELS[a.basis]?.earns ? pill('counted', 'pos') : pill('not counted')}</div>
+    ${kv('Why', esc(basisLabel(a.basis)))}
+    ${kv('Affiliate', esc(S.d.affById[a.affiliate_id]?.display_name || '—'))}
+    ${kv('Code', a.matched_code ? `<span class="af-mono">${esc(a.matched_code)}</span>` : '—')}${a.codes_on_order > 1 ? kv('Codes on the order', num(a.codes_on_order)) : ''}
+    ${kv('Order subtotal', esc(formatMoney(a.gross_subtotal_cents, cur)))}
+    ${kv('Refunded', esc(formatMoney(a.refunded_subtotal_cents, cur)))}
+    ${kv('Eligible for commission', esc(formatMoney(a.commissionable_cents, cur)))}
+    <h3 class="af-settings-title" style="margin:12px 0 4px;">Commission</h3>${lines}
+    ${L.lines.length ? kv('Net', `<span class="af-mono">${esc(formatMoney(total, p?.currency))}</span>`) : ''}`);
+}
+async function orderLookup(q) {
+  const p = prog();
+  q = String(q || '').trim().replace(/^#/, '');
+  if (!q) return 'Type an order number.';
+  S.lookup = { q, loading: true }; renderPayoutsTab({ quiet: true });
+  const variants = [q, `#${q}`];
+  try {
+    const { data: at, error } = await db.from('affiliate_attributions').select('*').eq('company_entity_id', CO).eq('program_id', p.id)
+      .in('order_number', variants).limit(1);
+    if (error) throw error;
+    const attr = (at || [])[0] || null;
+    if (!attr) {
+      const { data: o } = await db.from('shopify_orders').select('order_number, discount_codes').eq('company_entity_id', CO).in('order_number', variants).limit(1);
+      S.lookup = { q, attr: null, order: (o || [])[0] || null };
+    } else {
+      const { data: lines, error: lErr } = await db.from('affiliate_commission_ledger').select('id, kind, amount_cents, currency, memo, created_at')
+        .eq('company_entity_id', CO).eq('attribution_id', attr.id).order('created_at');
+      if (lErr) throw lErr;
+      const payoutOf = {};
+      const ids = (lines || []).map((l) => l.id);
+      if (ids.length) {
+        const { data: items } = await db.from('affiliate_payout_items').select('ledger_entry_id, payout_id').eq('company_entity_id', CO).in('ledger_entry_id', ids);
+        const pids = [...new Set((items || []).map((i) => i.payout_id))];
+        const { data: pays } = pids.length ? await db.from('affiliate_payouts').select('id, status').eq('company_entity_id', CO).in('id', pids).neq('status', 'void') : { data: [] };
+        const st = Object.fromEntries((pays || []).map((x) => [x.id, x.status]));
+        for (const i of items || []) if (st[i.payout_id]) payoutOf[i.ledger_entry_id] = st[i.payout_id];
+      }
+      S.lookup = { q, attr, lines: lines || [], payoutOf };
+    }
+  } catch (e) { S.lookup = { q, error: `Could not look that up: ${e.message}` }; }
+  renderPayoutsTab({ quiet: true });
+  return null;
+}
+
 function commissionsBodyHtml() {
   const d = S.d; const p = prog();
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
@@ -1699,7 +1822,7 @@ function commissionsBodyHtml() {
   const attrRow = (r) => {
     const earns = BASIS_LABELS[r.basis]?.earns;
     const base = formatMoney(r.commissionable_cents, r.order_currency);
-    return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[r.affiliate_id]?.display_name || '—')} ${earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))}</div><div class="af-muted">${fmtDate(r.order_day)} · <span class="af-mono">${esc(r.order_number || r.order_id)}</span> · <span class="af-mono">${esc(r.matched_code || '—')}</span></div><div class="af-kv-line">Base ${base}${r.codes_on_order > 1 ? ` · ${r.codes_on_order} codes on order` : ''}</div></div></article>`;
+    return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[r.affiliate_id]?.display_name || '—')} ${earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))}</div><div class="af-muted">${fmtDate(r.order_day)} · <span class="af-mono">${esc(r.order_number || r.order_id)}</span> · <span class="af-mono">${esc(r.matched_code || '—')}</span></div><div class="af-kv-line">Base ${base}${r.codes_on_order > 1 ? ` · ${r.codes_on_order} codes on order` : ''}</div></div>${r.order_number ? `<div class="af-item-foot"><div class="af-actions">${btn('Explain', 'order-explain', { q: r.order_number })}</div></div>` : ''}</article>`;
   };
   const periodRow = (x) => {
     const t = d.periodTotals.filter((r) => r.period_id === x.id);
@@ -1708,6 +1831,7 @@ function commissionsBodyHtml() {
   };
   const ledgerRow = (l) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[l.affiliate_id]?.display_name || '—')} · ${formatMoney(l.amount_cents, l.currency)}</div><div class="af-muted">${fmtTime(l.created_at)} · ${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? ` · <span class="af-mono">${esc(l.order_id)}</span>` : ''}</div>${l.memo ? `<div class="af-kv-line">${esc(l.memo)}</div>` : ''}</div></article>`;
   return [
+    orderLookupHtml(),
     // The same photo leaderboard as Home when the history loaded.
     Array.isArray(d.ovAttributions) && Array.isArray(d.ovLedger) ? ovLeaderboard(ovList()) : card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
     more('Every order', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet.'), 'latest 300')]),
@@ -1722,6 +1846,7 @@ function commissionsBodyHtml() {
 
 // ── Payouts ──────────────────────────────────────────────────────────────
 function renderPayoutsTab({ quiet = false } = {}) {
+  if (!SEES_MONEY) { $('payoutsBody').innerHTML = card('Money', '<p class="af-muted" id="moneyHidden">Earnings and payouts are shown to Affiliate Studio managers and finance.</p>'); return; }
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
   if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
@@ -2200,6 +2325,28 @@ function weekBarsCard(title, weekly, aria, emptyText) {
     + `${grid}${bars}${labels}<line class="af-ov-axis" x1="${L}" y1="${y(0).toFixed(1)}" x2="${W - R}" y2="${y(0).toFixed(1)}"></line></svg></div>`,
   '<span class="af-ov-legend">Weekly, last 12 weeks</span>');
 }
+// Setup to the first invite, as one short checklist on Home (Blake
+// 2026-11-18: "Get to the first invite ... checklist inside Studio"). Each
+// step is read from data the page already has and carries the one press that
+// does it. It goes away once someone has been invited.
+function firstInviteSteps(d, p) {
+  const terms = Boolean(p.terms_markdown || p.terms_file_path);
+  return [
+    { done: Array.isArray(d.stores) && d.stores.length > 0, text: 'Connect your Shopify store', go: '<a class="bcn-btn" href="../integrations.html">Integrations</a>' },
+    { done: !needsStore(p), text: 'Add your website so affiliate links open your store', go: btn('Share', 'go-tab', { t: 'share' }) },
+    { done: terms, text: 'Add your program terms', go: btn('Setup', 'go-tab', { t: 'program' }) },
+    { done: p.status === 'active', text: 'Set the program to active', go: btn('Setup', 'go-tab', { t: 'program' }) },
+    { done: d.prospects.length > 0 || d.affiliates.length > 0, text: 'Add your first creator', go: btn('People', 'go-tab', { t: 'prospects' }) },
+    { done: d.affiliates.length > 0, text: 'Send their invite', go: btn('People', 'go-tab', { t: 'prospects' }) },
+  ];
+}
+function firstInviteCard(d, p) {
+  if (!MANAGE || d.affiliates.length) return '';
+  const steps = firstInviteSteps(d, p);
+  const next = steps.findIndex((x) => !x.done);
+  const row = (x, i) => `<div class="af-row af-step" data-setup-step="${i}">${x.done ? pill('Done', 'pos') : pill(`${i + 1}`, i === next ? 'accent' : '')}<span${x.done ? ' class="af-muted"' : ''}>${esc(x.text)}</span>${!x.done && i === next ? x.go : ''}</div>`;
+  return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
+}
 function renderOverview() {
   const el = $('overviewBody'); const d = S.d; const p = prog();
   if (!el || !d || !p) return;
@@ -2218,7 +2365,7 @@ function renderOverview() {
     ovMetricCard('Sales from codes', moneyRound(cur.sales),
       `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
-    ovMetricCard('Commission earned', moneyRound(comm),
+    ovMetricCard('Commission earned', SEES_MONEY ? moneyRound(comm) : '—',
       `${ovDelta(comm, commPrev)}<span>${esc(rateShort(p))}</span>`,
       ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
     ovMetricCard('Orders', num(cur.orders),
@@ -2234,14 +2381,15 @@ function renderOverview() {
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission unpaid', esc(money(owedCents)))
+    + bandItem('Commission unpaid', SEES_MONEY ? esc(money(owedCents)) : '—')
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
     + bandItem('Commissions updated', esc(lastLedger ? fmtTime(lastLedger) : 'not yet'))
     + '</div>';
   const windowSeg = [30, 90].map((n) => btn(`${n} days`, 'ov-window', { n }, n === w.days ? 'dark' : 'surface')).join('');
-  el.innerHTML = `<div class="af-row"><span class="af-muted" style="flex:1;">Last ${num(w.days)} days, through today</span>${windowSeg}</div>`
+  el.innerHTML = firstInviteCard(d, p)
+    + `<div class="af-row"><span class="af-muted" style="flex:1;">Last ${num(w.days)} days, through today</span>${windowSeg}</div>`
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
@@ -2448,7 +2596,7 @@ const A = {
   },
   // From the all-programs view into one program, on the tab asked for.
   'pick-program': async ({ id, t }) => {
-    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; if (t) S.tab = PANEL_OF[t] || t;
+    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
@@ -2512,8 +2660,15 @@ const A = {
         .eq('company_entity_id', CO).eq('prospect_id', id).in('state', ['draft', 'approved']).select('id'));
       moved = r?.length || 0;
     }
+    // Someone invited who has not signed up yet gets their next invite at
+    // the corrected address, and their record shows it (Fix email).
+    let fixed = false;
+    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {
+      const aff = S.d.affiliates.find((a) => a.from_prospect_id === id && !a.terms_accepted_at && a.status === 'invited');
+      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;
+    }
     S.editProspect = null;
-    return `Saved.${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
+    return `Saved.${fixed ? ' Resend the invite to reach the new address.' : ''}${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
   },
   'prospect-add': async () => {
     // Addresses are tidied the way people type them (instagram.com/name gets
@@ -2664,6 +2819,15 @@ const A = {
   },
   'affiliate-status': async ({ id, s }) => {
     await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
+    if (s === 'terminated') {
+      // Ending someone ends their codes, here and at checkout. Pausing does
+      // not: a paused affiliate comes back with the same code.
+      const { data: live } = await db.from('affiliate_codes').select('id, status').eq('company_entity_id', CO).eq('affiliate_id', id).in('status', ['active', 'pending']);
+      if (!live?.length) return 'Affiliate ended.';
+      await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id: live.map((c) => c.id) });
+      const ended = await endInShopify(live.filter((c) => c.status === 'active').map((c) => c.id));
+      return `Affiliate ended and ${num(live.length)} code(s) retired. ${ended}`.trim();
+    }
     if (s !== 'active') return `Affiliate ${s}.`;
     // Turning an affiliate on queues their first code in the database
     // (affiliate_queue_first_code); make it in Shopify now, not overnight.
@@ -2742,7 +2906,12 @@ const A = {
     return 'Copied. Paste it into your AI, or set it as a daily task there.';
   },
   'code-make': async ({ id }) => makeInShopify(id ? [id] : S.d.codes.filter((c) => c.status === 'pending').map((c) => c.id)),
-  'code-retire': async ({ id }) => { const was = S.d.codes.find((c) => c.id === id)?.status; await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id }); return was === 'pending' ? 'Code cancelled.' : 'Code retired.'; },
+  'code-retire': async ({ id }) => {
+    const was = S.d.codes.find((c) => c.id === id)?.status;
+    await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id });
+    return was === 'pending' ? 'Code cancelled.' : `Code retired. ${await endInShopify([id])}`.trim();
+  },
+  'code-end': async ({ id }) => (await endInShopify([id])) || 'Nothing to turn off.',
   'link-add': async () => {
     const dest = val('lDest');
     if (!/^https:\/\//i.test(dest)) throw new Error('The page must start with https://');
@@ -2824,6 +2993,9 @@ const A = {
   },
   // The card's manual check runs the same targeted loop as the automatic one,
   // so it cannot be starved by the endpoint's oldest-50 window either.
+  'order-lookup': async () => orderLookup(val('olq')),
+  'order-lookup-clear': () => { S.lookup = null; renderPayoutsTab({ quiet: true }); return null; },
+  'order-explain': async ({ q }) => { S.tab = 'payouts'; render(); const r = await orderLookup(q); $('olq')?.scrollIntoView({ block: 'center' }); return r; },
   'pp-retry': async ({ id }) => {
     const r = await invoke('affiliate-payouts', { action: 'refresh', payout_id: id, retry: true });
     const x = (r.results || [])[0] || {};
@@ -2943,7 +3115,7 @@ document.addEventListener('click', async (ev) => {
     }
   } finally { b.disabled = false; }
 });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {

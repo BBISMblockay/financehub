@@ -35,7 +35,7 @@
 //                                                   owes; no session needed with a code_id, service key without
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor } from './affiliate-mail.mjs';
 import { ensureShopifyAccessToken } from './shopify-auth-lib.mjs';
-import { pickConnection, canMakeCodes, makeCode, storeMatches, productIdForPath } from './shopify-codes.mjs';
+import { pickConnection, canMakeCodes, makeCode, endCode, storeMatches, productIdForPath } from './shopify-codes.mjs';
 
 // Mail that was not sent ON PURPOSE (see affiliate-mail.mjs): never retried.
 const DELIBERATE_SKIPS = new Set(['no address on file', 'address is on the suppression list']);
@@ -539,6 +539,44 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         if (seedIds?.length && !ids?.length) return reply({ results: await createSeedCodes({ company, claimIds: seedIds, actor }) });
         const results = await createShopifyCodes({ company, codeIds: ids?.length ? ids : null, actor });
         if (!ids?.length) results.push(...await createSeedCodes({ company, actor }));
+        return reply({ results });
+      }
+
+      // Turn ended codes off in Shopify (audit 2026-11-18). Only codes this
+      // company already retired in SILO, and only ones SILO knows by
+      // Shopify id. Each outcome is stored on the code, so "off", "could not"
+      // and "never tried" are three different records.
+      if (action === 'end_shopify_codes') {
+        // Every id asked for gets an outcome: more than 25 is refused, never
+        // cut short (review on #1331), and an id that is not a retired code
+        // of this company says so.
+        const ids = Array.isArray(body.code_ids) ? [...new Set(body.code_ids.filter((x) => UUID_RE.test(String(x))))] : [];
+        if (!ids.length) return reply({ error: 'code_ids are required' }, 400);
+        if (ids.length > 25) return reply({ error: 'At most 25 codes at a time.' }, 400);
+        const { data: codes, error: cErr } = await service.from('affiliate_codes')
+          .select('id, company_entity_id, program_id, code, status, shopify_discount_id, shopify_ended_at')
+          .eq('company_entity_id', company).eq('status', 'retired').in('id', ids);
+        if (cErr) throw new Error(cErr.message);
+        const caches = newStoreCaches();
+        const results = [];
+        for (const c of codes || []) {
+          const out = { code_id: c.id, code: c.code };
+          if (c.shopify_ended_at) { results.push({ ...out, status: 'ended' }); continue; }
+          if (!c.shopify_discount_id) { results.push({ ...out, status: 'manual', reason: 'SILO did not make this code. Turn it off in Shopify yourself.' }); continue; }
+          let status; let reason = null;
+          try {
+            const st = await storeFor(company, c.program_id, caches);
+            if (st.status) { status = st.status; reason = st.reason; }
+            else status = await endCode(st.conn, c.shopify_discount_id, fetchImpl);
+          } catch (e) { status = 'failed'; reason = String(e?.message || 'failed').slice(0, 240); }
+          const done = status === 'ended' || status === 'gone';
+          await service.from('affiliate_codes')
+            .update(done ? { shopify_ended_at: now().toISOString(), shopify_end_error: null } : { shopify_end_error: reason || status })
+            .eq('id', c.id).eq('company_entity_id', company).eq('status', 'retired');
+          results.push({ ...out, status: done ? 'ended' : status, reason });
+        }
+        const seen = new Set((codes || []).map((c) => c.id));
+        for (const id of ids) if (!seen.has(id)) results.push({ code_id: id, status: 'not_retired', reason: 'not a retired code of this company, so it was left as it is' });
         return reply({ results });
       }
 

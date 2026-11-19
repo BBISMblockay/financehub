@@ -10219,6 +10219,56 @@ select 'Affiliate payout refund recheck' as check_name,
     else 'ok'
   end as status;
 
+-- Refunds on credited orders of any age, and on retired codes (20261119040000).
+select 'Affiliate refunds any age' as check_name,
+  case
+    when to_regprocedure('public.affiliate_refresh_credited_orders(uuid)') is null
+      then 'MISSING — run 20261119040000_affiliate_refunds_any_age.sql'
+    when has_function_privilege('anon', 'public.affiliate_refresh_credited_orders(uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_refresh_credited_orders(uuid)', 'execute')
+      then 'BROKEN — browsers can call the credited-order refresh'
+    else 'ok'
+  end as status;
+
+-- Ending a code turns it off in Shopify (20261119050000): where the outcome is stored.
+select 'Affiliate codes end in Shopify' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_ended_at')
+      or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_codes' and column_name = 'shopify_end_error')
+      then 'MISSING — run 20261119050000_affiliate_codes_shopify_end.sql'
+    else 'ok'
+  end as status;
+
+-- Why an affiliate's order earnings are pending, approved or paid
+-- (20261119060000): the portal's order list carries the refund-hold end day
+-- and the amount in an approved payout, and stays service role only.
+select 'Affiliate portal order state' as check_name,
+  case
+    when position('payable_from' in pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure)) = 0
+      or position('approved_cents' in pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure)) = 0
+      then 'MISSING — run 20261119060000_affiliate_portal_order_state.sql'
+    when position('refund_hold_days' in pg_get_functiondef('public.affiliate_portal_orders(text, integer, integer)'::regprocedure)) = 0
+      then 'BROKEN — payable_from no longer follows the program refund hold'
+    when has_function_privilege('anon', 'public.affiliate_portal_orders(text, integer, integer)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_portal_orders(text, integer, integer)', 'execute')
+      then 'BROKEN — a client role can read portal orders'
+    else 'ok'
+  end as status;
+
+-- Earnings, payouts and PayPal addresses are finance-only reads
+-- (20261119070000): every select policy on these tables carries a gate.
+select 'Affiliate finance reads' as check_name,
+  case
+    when exists (
+      select 1 from pg_policy p join pg_class c on c.oid = p.polrelid
+       where c.relnamespace = 'public'::regnamespace
+         and c.relname in ('affiliate_commission_ledger', 'affiliate_payouts', 'affiliate_payout_items', 'affiliate_payout_sends', 'affiliate_payout_accounts')
+         and p.polcmd in ('r', '*')
+         and position('can_manage_affiliate_programs' in coalesce(pg_get_expr(p.polqual, p.polrelid), '')) = 0)
+      then 'MISSING — run 20261119070000_affiliate_finance_reads.sql (a member can read affiliate money)'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the

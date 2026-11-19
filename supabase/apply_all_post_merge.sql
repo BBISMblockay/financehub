@@ -19859,4 +19859,12 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261119020000_affiliate_portal_links_stay_live.sql
 -- 20261119030000: a refund after approval stops a PayPal send or export.
 \i migrations/20261119030000_affiliate_payout_recheck_reductions.sql
+-- 20261119040000: refunds on credited orders of any age and on retired codes.
+\i migrations/20261119040000_affiliate_refunds_any_age.sql
+-- 20261119050000: where turning an ended code off in Shopify is recorded.
+\i migrations/20261119050000_affiliate_codes_shopify_end.sql
+-- 20261119060000: the portal says why an order's earnings are pending, approved or paid.
+\i migrations/20261119060000_affiliate_portal_order_state.sql
+-- 20261119070000: earnings, payouts and PayPal addresses are finance-only reads.
+\i migrations/20261119070000_affiliate_finance_reads.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
