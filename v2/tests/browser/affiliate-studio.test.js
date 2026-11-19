@@ -146,6 +146,7 @@ const MUTATIONS = {
   endcut: ['/affiliates/studio.js', "    for (const part of chunk(ids, 25)) results", "    for (const part of [ids.slice(0, 25)]) results"],
   endmissingok: ['/affiliates/studio.js', "  for (const id of ids) if (!answered.has(id)) results.push(", "  for (const id of []) if (!answered.has(id)) results.push("],
   exportall: ['/affiliates/studio.js', "!isDm(x) && (!only || only.includes(x.id))).slice(0, 200);", "!isDm(x)).slice(0, 200);"],
+  exportstale: ['/affiliates/studio.js', "    const m = await A['outreach-export']({ only: done });", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
   applystale: ['/affiliates/studio.js', "    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });", ''],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
@@ -1968,7 +1969,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // A rep marks a creator contacted by hand (reached outside SILO).
     // Approve and export from the queue in one press (Blake 2026-11-19).
     {
-      const exTables = { ...ctTables, affiliate_outreach_drafts: [...ctTables.affiliate_outreach_drafts.map((x) => (x.id === 'd1' ? { ...x, channel: 'email', recipient_email: 'sam@creator.invalid' } : x)),
+      const exTables = { ...ctTables, affiliate_outreach_drafts: [...ctTables.affiliate_outreach_drafts.map((x) => (x.id === 'd1' ? { ...x, channel: 'email', recipient_email: 'sam@creator.invalid' } : x.id === 'd2' ? { ...x, channel: 'email', recipient_email: 'gone@creator.invalid' } : x)),
         { id: 'd5', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'approved', channel: 'email', recipient_email: 'other@creator.invalid', subject: 'Hi', body: 'b', created_at: now }] };
       const ex = await suite.open('/v2/affiliates/index.html', exTables, { ready, rpc: ctRpc,
         edge: { 'affiliate-invite': { status: 200, body: { signup_url: 'https://get-silo.invalid/join?t=abc', expires_at: now } } } });
@@ -1979,6 +1980,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await ex.click('#tabs [data-tab="comms"]');
       await ex.waitForSelector('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]', { timeout: 5000 });
       await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]');
+      await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d2"]');
+      // d2 was deleted by someone else meanwhile: the approval changes d1 only.
+      await ex.evaluate(() => { window.__FIXTURE_UPDATE_RETURNS__ = (table, patch, filters) => (table === 'affiliate_outreach_drafts' && patch.state === 'approved' ? [{ id: 'd1' }] : undefined); });
       await ex.click('#outreachBody [data-act="q-msg-export"]');
       await ex.click('#outreachBody [data-act="q-msg-export"]');
       await ex.waitForFunction(() => (window.__names || []).some((n) => /^outreach-.*\.csv$/.test(n)), null, { timeout: 5000 }).catch(async () => { throw new Error('no CSV: ' + (await ex.evaluate(() => document.getElementById('status')?.textContent))); });
@@ -1986,8 +1990,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(file, 'sam@creator.invalid', 'the CSV carries the ticked message\'s email');
       R.has(file, 'https://get-silo.invalid/join?t=abc', 'and its personal sign-up link');
       R.not(file, 'other@creator.invalid', 'and not a message nobody ticked');
+      R.not(file, 'gone@creator.invalid', 'nor a ticked one that was no longer a draft');
+      R.has(await text(ex, '#status'), 'no longer drafts', 'and it says one was left out');
       const ups = await ex.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').map((q) => [q.patch.state, (q.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals]));
-      R.eq(ups, [['approved', ['d1']], ['exported', ['d1']]], 'only the ticked message is approved, then marked exported');
+      R.eq(ups, [['approved', ['d1', 'd2']], ['exported', ['d1']]], 'the ticked messages are approved, and only the one really approved is exported');
       R.ok('the Send by email card offers the CSV by name', /Export \d+ as CSV|Nothing approved/.test(await text(ex, '#outreachBody')));
       await ex.close();
     }

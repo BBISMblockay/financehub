@@ -2800,11 +2800,14 @@ const A = {
     const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
     const email = ids.filter((id) => { const x = S.d.drafts.find((r) => r.id === id); return x && !isDm(x); });
     if (!email.length) return 'None of those has an email address: send them by DM.';
-    await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: email, state: 'draft' });
-    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';
+    // Only the rows this update really approved are exported: one another
+    // person deleted or sent meanwhile is left out (review on #1334).
+    const done = (await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: email, state: 'draft' })).map((r) => r.id);
+    for (const x of S.d.drafts) if (done.includes(x.id)) x.state = 'approved';
     qsel('msgs').clear();
-    const m = await A['outreach-export']({ only: email });
-    return email.length < ids.length ? `${m} ${num(ids.length - email.length)} with no email stay for DM.` : m;
+    const m = await A['outreach-export']({ only: done });
+    const gone = email.length - done.length;
+    return `${m}${gone ? ` ${num(gone)} were no longer drafts and were left out.` : ''}${email.length < ids.length ? ` ${num(ids.length - email.length)} with no email stay for DM.` : ''}`;
   },
   'outreach-export': async ({ only } = {}) => {
     const drafts = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x) && (!only || only.includes(x.id))).slice(0, 200);

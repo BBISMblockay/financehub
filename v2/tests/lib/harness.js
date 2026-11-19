@@ -299,7 +299,14 @@ window.__QUERIES__ = [];
             select: function () { returning = true; return upd; },
             single: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
             maybeSingle: function () { return Promise.resolve(uErr ? { data: null, error: uErr } : { data: one, error: null }); },
-            then: function (res, rej) { return Promise.resolve({ data: uErr ? null : (returning ? [one] : []), error: uErr }).then(res, rej); }
+            then: function (res, rej) {
+              // Opt-in: a test sets window.__FIXTURE_UPDATE_RETURNS__(table, patch,
+              // filters) to say which rows an update really changed (a partial
+              // success), e.g. a row another person deleted meanwhile.
+              var hook = window.__FIXTURE_UPDATE_RETURNS__;
+              var rows = returning && typeof hook === 'function' ? hook(table, patch, q.filters) : undefined;
+              return Promise.resolve({ data: uErr ? null : (returning ? (rows || [one]) : []), error: uErr }).then(res, rej);
+            }
           };
           return upd;
         };
