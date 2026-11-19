@@ -66,8 +66,10 @@
 .inv-ov-tile {border:1px solid var(--bcn-border);border-radius:9px;overflow:hidden;
   display:flex;flex-direction:column;color:inherit;text-decoration:none;}
 .inv-ov-tile:hover {border-color:var(--bcn-accent-border);}
-.inv-ov-tile-img {height:108px;background:var(--bcn-band-ink);overflow:hidden;}
-.inv-ov-tile-img img {width:100%;height:100%;object-fit:cover;display:block;}
+.inv-ov-tile-img {aspect-ratio:1/1;background:var(--bcn-band-ink);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;padding:6px;}
+.inv-ov-tile-img img {max-width:100%;max-height:100%;width:auto;height:auto;
+  object-fit:contain;display:block;}
 .inv-ov-tile-meta {padding:7px 8px;display:flex;flex-direction:column;gap:2px;}
 .inv-ov-tile-title {font-size:11.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;}
