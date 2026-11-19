@@ -55,6 +55,9 @@
 //   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
+//   AFFILIATE_DB_MUTATION=sendrecheck   a refund after approval does not stop a PayPal send
+//   AFFILIATE_DB_MUTATION=retryrecheck  Retry posts an unconfirmed attempt after a refund landed
+//   AFFILIATE_DB_MUTATION=exportrecheck a refund after approval does not keep a payout out of an export
 //   AFFILIATE_DB_MUTATION=portalrevoke  a new portal link kills the one just handed out
 //   AFFILIATE_DB_MUTATION=termsfilebump a new agreement file is not a new terms version
 //   AFFILIATE_DB_MUTATION=termsfilegate anyone in the company may upload an agreement
@@ -273,6 +276,8 @@ const files = {
   termsfile: '20261119010000_affiliate_terms_file.sql',
   // Portal links stay live; only sign-up links are one-at-a-time (20261119020000).
   portallinks: '20261119020000_affiliate_portal_links_stay_live.sql',
+  // A refund after approval stops the send and the export (20261119030000).
+  recheck: '20261119030000_affiliate_payout_recheck_reductions.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -285,6 +290,9 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  case 'sendrecheck': mutate('recheck', '  if v_newer < 0 then\n    raise exception \'affiliate_payout_send_claim:', '  if false then\n    raise exception \'affiliate_payout_send_claim:'); break;
+  case 'retryrecheck': mutate('recheck', "  v_newer := public.affiliate_payout_has_new_reductions(v_payout.id);\n  if v_newer < 0 then", "  v_newer := 0;\n  if v_newer < 0 then"); break;
+  case 'exportrecheck': mutate('recheck', '\n       and public.affiliate_payout_has_new_reductions(id) = 0;', ';'); break;
   case 'portalrevoke': mutate('portallinks', "  if p_purpose = 'signup' then\n", "  if true then\n"); mutate('portallinks', "       and purpose = 'signup'\n", "       and purpose = p_purpose\n"); break;
   case 'termsfilebump': mutate('termsfile', "\n     or new.terms_file_sha256 is distinct from old.terms_file_sha256 then", ' then'); break;
   case 'termsfilegate': mutate('termsfile', `    and public.can_manage_affiliate_programs()
@@ -553,7 +561,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2356,13 +2364,77 @@ await check('PL1 a new portal link leaves earlier ones working; a new sign-up li
   await db.query(`delete from affiliate_access_tokens where token_hash like 'pl1-%'`);
 });
 
+// ── A refund after approval (20261119030000) ──────────────────────────────
+await check('RR1 a refund that lands after approval stops the PayPal send and the export', async () => {
+  await asSuper();
+  const mk = async (prog, name) => {
+    const aff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+      values ($1, $2, $3, $4, 'active', 1, now()) returning id`, [A, prog, name, `${name.toLowerCase()}@rr.test`])).id;
+    const po = (await one(`insert into affiliate_payouts(company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+      values ($1, $2, $3, 'USD', 4000, $4, 'approved', $5, now()) returning id`, [A, prog, aff, prog === payProg ? 'paypal_payouts' : 'manual', U.finA])).id;
+    return { aff, po };
+  };
+  const refund = async (prog, aff) => {
+    await as(U.finA, A);
+    await db.query(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)
+      values ($1,$2,$3,'manual_adjustment',-1500,'USD','manual','refund after approval')`, [A, prog, aff]);
+    await asSuper();
+  };
+  // PayPal send.
+  const s = await mk(payProg, 'Rria');
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','rria@pay.test')`, [A, s.aff]);
+  await refund(payProg, s.aff);
+  await db.exec('set role service_role');
+  await assert.rejects(db.query('select affiliate_payout_send_claim($1, $4, $2, $3)', [s.po, 'sandbox', U.finA, A]),
+    /refunds or reductions arrived after this payout was built/);
+  await asSuper();
+  assert.equal((await one('select count(*)::int as n from affiliate_payout_sends where payout_id = $1', [s.po])).n, 0, 'nothing was reserved, so nothing reached PayPal');
+  // Export: the clean payout goes, the refunded one is skipped.
+  const clean = await mk(progA, 'Rrb');
+  const hit = await mk(progA, 'Rrc');
+  await refund(progA, hit.aff);
+  await as(U.mgrA, A);
+  const r = (await one(`select public.affiliate_claim_payout_export($1, $2::uuid[]) as r`, [progA, `{${clean.po},${hit.po}}`])).r;
+  assert.deepEqual(r.payouts.map((x) => x.id), [clean.po], 'only the payout with no new refund is exported');
+  assert.deepEqual(r.skipped, [hit.po], 'the refunded one is reported as skipped');
+  await asSuper();
+  assert.equal((await one('select status from affiliate_payouts where id = $1', [hit.po])).status, 'approved');
+  for (const fn of ['affiliate_payout_has_new_reductions']) {
+    for (const role of ['anon', 'authenticated']) {
+      assert.equal((await one(`select has_function_privilege($1, 'public.${fn}(uuid)', 'execute') as x`, [role])).x, false, `${role} cannot call ${fn}`);
+    }
+  }
+});
+
+await check('RR2 Retry of an unconfirmed attempt is refused once a refund lands, and the attempt stays as it was', async () => {
+  await asSuper();
+  const aff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+    values ($1, $2, 'Rrd', 'rrd@rr.test', 'active', 1, now()) returning id`, [A, payProg])).id;
+  const po = (await one(`insert into affiliate_payouts(company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 4000, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, aff, U.finA])).id;
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','rrd@pay.test')`, [A, aff]);
+  await db.exec('set role service_role');
+  const claim = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [po, 'sandbox', U.finA, A])).r;
+  await db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, A]);
+  await assert.rejects(db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, B]), /no such attempt in this company/);
+  await as(U.finA, A);
+  await db.query(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)
+    values ($1,$2,$3,'manual_adjustment',-1500,'USD','manual','refund after the attempt')`, [A, payProg, aff]);
+  await db.exec('reset role; set role service_role');
+  await assert.rejects(db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, A]), /refunds or reductions arrived/);
+  await asSuper();
+  const sn = await one('select state, provider_batch_id from affiliate_payout_sends where id = $1', [claim.send_id]);
+  assert.deepEqual([sn.state, sn.provider_batch_id], ['unknown', null], 'the attempt and its key are kept for investigation');
+  assert.equal((await one(`select has_function_privilege('authenticated', 'public.affiliate_payout_retry_check(uuid,uuid)', 'execute') as x`)).x, false);
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

@@ -164,7 +164,7 @@ const CONN = {
 };
 
 // ── Fakes ─────────────────────────────────────────────────────────────────
-function fakeService({ connection = CONN, claim, sends = [], profile } = {}) {
+function fakeService({ connection = CONN, claim, sends = [], profile, retryCheck = null } = {}) {
   const log = [];
   const state = { connection: connection ? { ...connection } : null };
   const svc = {
@@ -185,6 +185,7 @@ function fakeService({ connection = CONN, claim, sends = [], profile } = {}) {
         };
       }
       if (name === 'affiliate_payout_send_record') return { data: null, error: null };
+      if (name === 'affiliate_payout_retry_check' && retryCheck) return { data: null, error: { message: retryCheck } };
       return { data: null, error: null };
     },
     from: (table) => {
@@ -493,10 +494,45 @@ await test('an attempt with no batch id is retried with the SAME key, not a new 
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCH9', batch_status: 'PENDING' } }) },
   });
-  await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   const create = fetchImpl.calls.find((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts'));
   assert.equal(create.headers['PayPal-Request-Id'], 'silo-abc-1',
     'PayPal returns the original batch for a repeated key instead of paying again');
+});
+
+// Audit 2026-11-18: Money checks open attempts on page load. A check must
+// never be what submits a payment, so only a named Retry re-posts.
+await test('a status check never posts an unconfirmed attempt; only Retry does', async () => {
+  const mk = async () => fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_fingerprint: await fingerprint('sandbox', 'CID'), state: 'unknown' }],
+  });
+  for (const req of [{ action: 'refresh' }, { action: 'refresh', payout_id: PAYOUT }, { action: 'refresh', retry: true }]) {
+    const fetchImpl = fakePaypal({ paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'B1', batch_status: 'PENDING' } }) } });
+    const service = await mk();
+    const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post(req));
+    const body = await r.json();
+    assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')), `${JSON.stringify(req)} must not post`);
+    assert.equal(body.results[0].code, 'NOT_CONFIRMED');
+    assert.equal(body.results[0].state, 'unknown', 'the attempt stays open, so Send stays blocked');
+  }
+});
+
+// Review cycle 1 of #1330: Retry can be the FIRST request PayPal sees, so a
+// refund since the payout was built must stop it, as it stops a fresh Send.
+await test('Retry asks the database first; a refund since approval means nothing is posted and the attempt stays open', async () => {
+  const service = fakeService({
+    retryCheck: 'affiliate_payout_retry_check: 1500 minor units of refunds or reductions arrived after this payout was built. Nothing was sent.',
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 4000, currency: 'USD', payout_email: 'rep@pay.test', connection_fingerprint: await fingerprint('sandbox', 'CID'), state: 'unknown' }],
+  });
+  const fetchImpl = fakePaypal({ paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'B1', batch_status: 'PENDING' } }) } });
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
+  const body = await r.json();
+  const chk = service.log.find((e) => e.name === 'affiliate_payout_retry_check');
+  assert.deepEqual(chk?.args, { p_send: SEND, p_company: CO }, 'the check names the attempt and the caller\'s own company');
+  assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')), 'nothing reached PayPal');
+  assert.equal(body.results[0].code, 'RETRY_REFUSED');
+  assert.equal(body.results[0].state, 'unknown');
+  assert.ok(!service.log.some((e) => e.name === 'affiliate_payout_send_record'), 'the attempt is not marked refused or released');
 });
 
 // PayPal rejects a sender_batch_id reused within 30 days. That is a 4xx, and
@@ -516,7 +552,7 @@ await test('a duplicate-batch rejection picks the original batch up instead of r
       '/v1/payments/payouts/BATCH7': res(200, { batch_header: { payout_batch_id: 'BATCH7', batch_status: 'SUCCESS' }, items: [{ payout_item_id: 'ITEM7', transaction_status: 'SUCCESS' }] }),
     },
   });
-  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   const body = await r.json();
   assert.equal(body.results[0].state, 'paid', 'the batch that already existed is read, not refused');
   const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
@@ -533,7 +569,7 @@ await test('a duplicate rejection with no recoverable batch id stays unknown', a
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(400, { name: 'VALIDATION_ERROR', details: [{ issue: 'SENDER_BATCH_ID_ALREADY_EXISTS', description: 'already used' }] }) },
   });
-  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   assert.equal((await r.json()).results[0].state, 'unknown');
   const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
   assert.deepEqual(states, [], 'nothing is asserted about a batch whose id we could not recover');

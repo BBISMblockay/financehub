@@ -10202,6 +10202,23 @@ select 'Affiliate portal links' as check_name,
     else 'ok'
   end as status;
 
+-- A refund after approval stops a payout (20261119030000): both claims run the
+-- approval's "new reductions" check inside the money lock.
+select 'Affiliate payout refund recheck' as check_name,
+  case
+    when to_regprocedure('public.affiliate_payout_has_new_reductions(uuid)') is null
+      or to_regprocedure('public.affiliate_payout_retry_check(uuid,uuid)') is null
+      or position('affiliate_payout_has_new_reductions' in pg_get_functiondef('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)'::regprocedure)) = 0
+      or position('affiliate_payout_has_new_reductions' in pg_get_functiondef('public.affiliate_claim_payout_export(uuid,uuid[],uuid)'::regprocedure)) = 0
+      then 'MISSING — run 20261119030000_affiliate_payout_recheck_reductions.sql'
+    when has_function_privilege('anon', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_payout_has_new_reductions(uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_payout_retry_check(uuid,uuid)', 'execute')
+      then 'BROKEN — browsers can call the payout send claim'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the

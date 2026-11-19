@@ -1390,6 +1390,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ppFlight.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.body?.action === 'refresh'), { timeout: 5000 }).catch(() => {});
     const auto = await ppFlight.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.action === 'refresh'));
     R.ok('and the open attempt is checked without being asked', auto.length === 1);
+    R.ok('that automatic check never asks PayPal to send', auto[0]?.body?.retry !== true);
+    R.ok('a finance person gets Retry send for an attempt PayPal never confirmed', !!(await ppFlight.$('#payoutsBody [data-act="pp-retry"]')));
+    await ppFlight.click('#payoutsBody [data-act="pp-retry"]');
+    await ppFlight.click('#payoutsBody [data-act="pp-retry"]');
+    await ppFlight.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.body?.retry === true), null, { timeout: 5000 }).catch(() => {});
+    const retry = await ppFlight.evaluate(() => (window.__EDGE_CALLS__ || []).filter((c) => c.body?.retry === true).map((c) => c.body));
+    R.ok('Retry names that one payout', retry.length === 1 && retry[0].action === 'refresh' && retry[0].payout_id === '' + PP + '');
     await ppFlight.close();
 
     // ...once, however many times the tab re-renders: each check is a call to

@@ -19857,4 +19857,6 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261119020000: affiliate portal links stay live; only sign-up links are
 -- one-at-a-time (the sign-up button and welcome email were dead on arrival).
 \i migrations/20261119020000_affiliate_portal_links_stay_live.sql
+-- 20261119030000: a refund after approval stops a PayPal send or export.
+\i migrations/20261119030000_affiliate_payout_recheck_reductions.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
