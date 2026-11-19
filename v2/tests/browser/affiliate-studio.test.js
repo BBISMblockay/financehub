@@ -1607,8 +1607,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await payNoMoney.close();
 
     // ── Product seeding, the brand's side ─────────────────────────────────
-    // Requests are approved from Home in one press; People lists every
-    // product with where it stands; Setup holds the offer.
+    // Requests are approved from Home in one press; Records → Products lists
+    // every product with where it stands; Setup holds the offer.
     const seedTables = { ...qTables,
       affiliate_programs: [{ ...qTables.affiliate_programs[0], seeding_enabled: true, seed_discount_percent: 50, seed_multiple: 3, seed_refund_days: 14, seed_goal_days: 90 }],
       affiliate_seed_claims: [
@@ -1623,9 +1623,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await seed.waitForFunction(() => (window.__seedCalls || []).length > 0, null, { timeout: 5000 });
     const dec = await seed.evaluate(() => window.__seedCalls[0]);
     R.eq([dec.p_claims.sort(), dec.p_approve], [['sc1', 'sc2'], true], 'one press approves every waiting request, and nothing already decided');
-    await seed.click('#tabs [data-tab="people"]');
-    await seed.waitForFunction(() => /Snow cap/.test(document.getElementById('affiliatesBody')?.textContent || ''), null, { timeout: 5000 });
-    const pb = await text(seed, '#affiliatesBody');
+    R.not(await text(seed, '#affiliatesBody'), 'Snow cap', 'product requests are not on People');
+    await seed.click('#overviewBody [data-act="go-tab"][data-t="records"][data-k="products"]');
+    await seed.waitForFunction(() => /Snow cap/.test(document.getElementById('recordsBody')?.textContent || ''), null, { timeout: 5000 });
+    const pb = await text(seed, '#recordsBody');
+    R.has(pb, 'To decide · 2', 'Records → Products opens from Home, requests first');
+    R.has(pb, 'In progress · 1', 'bought products are grouped apart from requests');
     R.has(pb, '$45.00 / $60.00', 'a bought product shows its progress toward 3x what they paid');
     R.has(pb, '50% off · sell 3×', 'the offer is named once');
     await seed.click('#tabs [data-tab="program"]');

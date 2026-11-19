@@ -471,6 +471,14 @@
     .af-money button.bcn-btn--ghost:hover { background: var(--bcn-sunken); color: var(--bcn-ink); }
     .af-money input.bcn-field { height: 40px; border-radius: 10px; padding: 0 12px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); font-size: 14px; box-shadow: none; transition: border-color .15s, box-shadow .15s; min-width: 0; }
     .af-money input.bcn-field:focus { outline: none; border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 16%, transparent); }
+    /* Same modern fields and buttons across all of Studio (Blake 2026-11-18:
+       "more form boxes to modernize"). */
+    .af-studio input.bcn-field:not([type="file"]), .af-studio select.bcn-field { height: 40px; border-radius: 10px; padding: 0 12px; border: 1px solid var(--bcn-border); background-color: var(--bcn-surface); font-size: 14px; box-shadow: none; transition: border-color .15s, box-shadow .15s; min-width: 0; }
+    .af-studio textarea.bcn-field { border-radius: 12px; padding: 10px 12px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); font-size: 14px; box-shadow: none; }
+    .af-studio input.bcn-field[type="file"] { border-radius: 10px; padding: 8px 10px; border: 1px dashed var(--bcn-border-strong); background: var(--bcn-surface); }
+    .af-studio input.bcn-field:focus, .af-studio select.bcn-field:focus, .af-studio textarea.bcn-field:focus { outline: none; border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 16%, transparent); }
+    .af-studio .bcn-label { font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2); text-transform: none; letter-spacing: 0; }
+    .af-studio button.bcn-btn, .af-studio a.bcn-btn { border-radius: 999px; }
     .af-money .af-item { border-radius: 16px; }
     .af-money .af-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
     .af-money .af-actions input.bcn-field { width: 180px; }
