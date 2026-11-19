@@ -10190,6 +10190,18 @@ select 'Affiliate agreement file' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate portal links stay live (20261119020000): issuing a portal link
+-- must not revoke the ones just handed out; only sign-up links are one-live.
+select 'Affiliate portal links' as check_name,
+  case
+    when position('if p_purpose = ''signup'' then' in pg_get_functiondef('public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)'::regprocedure)) = 0
+      then 'MISSING — run 20261119020000_affiliate_portal_links_stay_live.sql'
+    when has_function_privilege('anon', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_issue_access_token(uuid,uuid,text,text,timestamptz,uuid,uuid,uuid)', 'execute')
+      then 'BROKEN — browsers can mint affiliate access links'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the
