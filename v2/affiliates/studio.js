@@ -64,6 +64,9 @@ const [{ data: canManage }, { data: canApprove }] = await Promise.all([
 ]);
 const MANAGE = canManage === true;
 const MONEY = canApprove === true;
+// Earnings, payouts and PayPal addresses are read only by Studio managers and
+// finance (20261119070000). Anyone else sees the program, not the money.
+const SEES_MONEY = MANAGE || MONEY;
 if (!MANAGE) setStatus('You can view Affiliate Studio. Changing it needs Affiliate Studio access (an owner or executive can grant it on the Program tab).', 'info');
 
 // ── Errors and writes ────────────────────────────────────────────────────
@@ -1473,9 +1476,11 @@ function renderAffiliates() {
     // can be invited again from their own card (Blake 2026-11-18: "there is
     // no resend button"). The server re-opens an ended, never-signed-up
     // affiliate when it mints the new link.
+    // Resend and Send invite now sit on the affiliate's status line (stepsOf).
+    // Invite again, for one ended before signing up, stays here.
     const from = d.prospectById[a.from_prospect_id];
-    if (!a.terms_accepted_at && ['invited', 'terminated'].includes(a.status) && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
-      b.push(btn(a.status === 'invited' ? 'Resend invite' : 'Invite again', 'invite-send', { id: from.id }, 'primary'));
+    if (!a.terms_accepted_at && a.status === 'terminated' && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source)) {
+      b.push(btn('Invite again', 'invite-send', { id: from.id }, 'primary'));
     }
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
     // One affiliate per company, in any program (Blake 2026-11-17).
@@ -1484,6 +1489,28 @@ function renderAffiliates() {
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
+  };
+  const stepsOf = (a) => {
+    // Where this person is stuck, and the one thing that unsticks them
+    // (Blake 2026-11-18: "one place to see invite sent, accepted, code
+    // active, or code failed", with the next action right there).
+    const from = d.prospectById[a.from_prospect_id];
+    const invite = (d.notifications || []).find((n) => n.affiliate_id === a.id && n.kind === 'signup_invite');
+    const canInvite = MANAGE && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source);
+    const fixEmail = MANAGE && from ? btn('Fix email', 'prospect-edit', { id: from.id }, 'ghost') : '';
+    const step1 = a.terms_accepted_at ? `${pill('Signed up', 'pos')} <span class="af-muted">${fmtDate(a.terms_accepted_at)}</span>`
+      : a.status === 'terminated' ? pill('Ended before signing up')
+      : invite && invite.status !== 'sent' ? `${pill('Invite not delivered', 'neg')} <span class="af-muted">${esc(invite.reason || invite.to_email || '')}</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
+      : invite ? `${pill('Invite sent', 'accent')} <span class="af-muted">${fmtDate(invite.created_at)} to ${esc(invite.to_email || a.contact_email)} · not signed up yet</span>${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`
+      : `${pill(a.status === 'invited' ? 'Invited' : 'Not signed up', 'accent')} <span class="af-muted">no invite email on record</span>${fixEmail}${canInvite ? btn(a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }) : ''}`;
+    const code = liveCodeOf(a.id);
+    const all = codesOf(a);
+    const waiting = all.filter((c) => c.status === 'pending');
+    const step2 = a.status === 'terminated' ? ''
+      : code ? `${pill(`Code ${code} live`, 'pos')} <span class="af-muted">${all.find((c) => c.code === code)?.verified_at ? 'used on an order' : 'not used on an order yet'}</span>`
+      : waiting.length ? `${pill(`Code ${waiting[0].code} not in Shopify yet`, 'neg')}${MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }) : ''}`
+      : a.terms_accepted_at ? `${pill('No code', 'accent')}${MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }) : ''}` : '';
+    return `<div class="af-steps">${[step1, step2].filter(Boolean).map((x) => `<div class="af-row af-step">${x}</div>`).join('')}</div>`;
   };
   const canCode = (d.aiApps || []).some((a) => a.canCode);
   // A code or a link is given from the affiliate's own card (Blake,
@@ -1511,6 +1538,7 @@ function renderAffiliates() {
     const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
     const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
     const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
+    const steps = stepsOf(a);
     const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
@@ -1522,6 +1550,7 @@ function renderAffiliates() {
         </div>
         ${statusPill(a.status)}
       </header>
+      ${steps}
       <div class="af-codes">${codesHtml}</div>
       ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
       <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
@@ -1538,7 +1567,7 @@ function renderAffiliates() {
     surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${affChips}${viewToggle()}</div>` : ''}${S.view === 'list'
       ? table([
         { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
-        { left: true, h: 'Status', f: (a) => statusPill(a.status) },
+        { left: true, h: 'Status', f: (a) => `${statusPill(a.status)}${stepsOf(a)}` },
         { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
         { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
         { h: '', f: (a) => actions(a) },
@@ -1812,6 +1841,7 @@ function commissionsBodyHtml() {
 
 // ── Payouts ──────────────────────────────────────────────────────────────
 function renderPayoutsTab({ quiet = false } = {}) {
+  if (!SEES_MONEY) { $('payoutsBody').innerHTML = card('Money', '<p class="af-muted" id="moneyHidden">Earnings and payouts are shown to Affiliate Studio managers and finance.</p>'); return; }
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
   if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
@@ -2290,6 +2320,28 @@ function weekBarsCard(title, weekly, aria, emptyText) {
     + `${grid}${bars}${labels}<line class="af-ov-axis" x1="${L}" y1="${y(0).toFixed(1)}" x2="${W - R}" y2="${y(0).toFixed(1)}"></line></svg></div>`,
   '<span class="af-ov-legend">Weekly, last 12 weeks</span>');
 }
+// Setup to the first invite, as one short checklist on Home (Blake
+// 2026-11-18: "Get to the first invite ... checklist inside Studio"). Each
+// step is read from data the page already has and carries the one press that
+// does it. It goes away once someone has been invited.
+function firstInviteSteps(d, p) {
+  const terms = Boolean(p.terms_markdown || p.terms_file_path);
+  return [
+    { done: Array.isArray(d.stores) && d.stores.length > 0, text: 'Connect your Shopify store', go: '<a class="bcn-btn" href="../integrations.html">Integrations</a>' },
+    { done: !needsStore(p), text: 'Add your website so affiliate links open your store', go: btn('Share', 'go-tab', { t: 'share' }) },
+    { done: terms, text: 'Add your program terms', go: btn('Setup', 'go-tab', { t: 'program' }) },
+    { done: p.status === 'active', text: 'Set the program to active', go: btn('Setup', 'go-tab', { t: 'program' }) },
+    { done: d.prospects.length > 0 || d.affiliates.length > 0, text: 'Add your first creator', go: btn('People', 'go-tab', { t: 'prospects' }) },
+    { done: d.affiliates.length > 0, text: 'Send their invite', go: btn('People', 'go-tab', { t: 'prospects' }) },
+  ];
+}
+function firstInviteCard(d, p) {
+  if (!MANAGE || d.affiliates.length) return '';
+  const steps = firstInviteSteps(d, p);
+  const next = steps.findIndex((x) => !x.done);
+  const row = (x, i) => `<div class="af-row af-step" data-setup-step="${i}">${x.done ? pill('Done', 'pos') : pill(`${i + 1}`, i === next ? 'accent' : '')}<span${x.done ? ' class="af-muted"' : ''}>${esc(x.text)}</span>${!x.done && i === next ? x.go : ''}</div>`;
+  return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
+}
 function renderOverview() {
   const el = $('overviewBody'); const d = S.d; const p = prog();
   if (!el || !d || !p) return;
@@ -2308,7 +2360,7 @@ function renderOverview() {
     ovMetricCard('Sales from codes', moneyRound(cur.sales),
       `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
-    ovMetricCard('Commission earned', moneyRound(comm),
+    ovMetricCard('Commission earned', SEES_MONEY ? moneyRound(comm) : '—',
       `${ovDelta(comm, commPrev)}<span>${esc(rateShort(p))}</span>`,
       ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
     ovMetricCard('Orders', num(cur.orders),
@@ -2324,14 +2376,15 @@ function renderOverview() {
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission unpaid', esc(money(owedCents)))
+    + bandItem('Commission unpaid', SEES_MONEY ? esc(money(owedCents)) : '—')
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
     + bandItem('Commissions updated', esc(lastLedger ? fmtTime(lastLedger) : 'not yet'))
     + '</div>';
   const windowSeg = [30, 90].map((n) => btn(`${n} days`, 'ov-window', { n }, n === w.days ? 'dark' : 'surface')).join('');
-  el.innerHTML = `<div class="af-row"><span class="af-muted" style="flex:1;">Last ${num(w.days)} days, through today</span>${windowSeg}</div>`
+  el.innerHTML = firstInviteCard(d, p)
+    + `<div class="af-row"><span class="af-muted" style="flex:1;">Last ${num(w.days)} days, through today</span>${windowSeg}</div>`
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
@@ -2602,8 +2655,15 @@ const A = {
         .eq('company_entity_id', CO).eq('prospect_id', id).in('state', ['draft', 'approved']).select('id'));
       moved = r?.length || 0;
     }
+    // Someone invited who has not signed up yet gets their next invite at
+    // the corrected address, and their record shows it (Fix email).
+    let fixed = false;
+    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {
+      const aff = S.d.affiliates.find((a) => a.from_prospect_id === id && !a.terms_accepted_at && a.status === 'invited');
+      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;
+    }
     S.editProspect = null;
-    return `Saved.${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
+    return `Saved.${fixed ? ' Resend the invite to reach the new address.' : ''}${moved ? ` ${num(moved)} waiting message(s) will now go by email.` : ''}`;
   },
   'prospect-add': async () => {
     // Addresses are tidied the way people type them (instagram.com/name gets

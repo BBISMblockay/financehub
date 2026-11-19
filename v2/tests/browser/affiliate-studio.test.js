@@ -124,6 +124,7 @@ const MUTATIONS = {
   ordersshut: ['/affiliates/portal.html', "${ORD.open.has(o.order_id) ? ' open' : ''}", ''],
   // The raw Shopify id, shown to the rep as it is stored.
   ordersgid: ['/affiliates/portal.html', '${esc(orderLabel(o))}', '${esc(o.order_number || o.order_id)}'],
+  orderpending: ['/affiliates/portal.html', "      : o.payable_from && String(o.payable_from).slice(0, 10) > today ? `pending · refund window ends ${day(o.payable_from)}`\n", ''],
   ordersrestart: ['/affiliates/portal.html', "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: ORD.rows.length });", "    const r = await call('orders', { token, limit: ORDERS_PAGE, offset: 0 });"],
   nostalereload: ['/affiliates/studio.js', "    if (RELOAD_AFTER_FAILURE.has(b.dataset.act)) {", '    if (false) {'],
   sendwhileopen: ['/affiliates/studio.js', "  const blocked = open && (attemptEnv === 'live' || attemptEnv === connEnv);", '  const blocked = false;'],
@@ -141,6 +142,10 @@ const MUTATIONS = {
   // Each check names its payout: the untargeted refresh reads only the oldest
   // 50 open attempts, so a newer one can starve behind them (review cycle 1).
   // Ending an affiliate leaves their code working in Shopify (audit 2026-11-18).
+  moneyshown: ['/affiliates/studio.js', 'const SEES_MONEY = MANAGE || MONEY;', 'const SEES_MONEY = true;'],
+  setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
+  stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
+  fixemailaff: ['/affiliates/studio.js', "      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;", ''],
   endnoshopify: ['/affiliates/studio.js', "    if (s === 'terminated') {", '    if (false) {'],
   untargeted: ['/affiliates/studio.js', "await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });", "await invoke('affiliate-payouts', { action: 'refresh' });"],
   checkfirst: ['/affiliates/studio.js', '    .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])\n', ''],
@@ -936,6 +941,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
     await member.click('#tabs [data-tab="payouts"]');
     R.ok('a member is not offered payouts', !(await member.$('#payoutsBody [data-act="payout-build"]')))
+    R.ok('a member sees that money is finance-only, not an empty Money tab', !!(await member.$('#payoutsBody #moneyHidden')));
+    await member.click('#tabs [data-tab="overview"]');
+    R.not(await text(member, '#overviewBody .af-ov-band'), '$', 'and Home shows no unpaid commission figure');
     R.has(await text(member, '#status'), 'You can view Affiliate Studio', 'the page says why the buttons are missing');
     await member.close();
 
@@ -991,9 +999,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // reaches the page.
       if (body.action === 'orders') {
         const all = [
-          { order_id: 'gid://1002', order_number: '#1002', order_day: '2026-11-08', order_value_cents: 9000, earned_cents: 900, paid_cents: 0, code: 'PAT10',
+          { order_id: 'gid://1002', order_number: '#1002', order_day: '2026-11-08', order_value_cents: 9000, earned_cents: 900, paid_cents: 0, approved_cents: 0, payable_from: '2099-01-01', code: 'PAT10',
             entries: [{ kind: 'accrual', amount_cents: 900, memo: null, rate_kind: 'percent_of_net', rate_value: 10, basis_cents: 9000, created_at: now }] },
-          { order_id: 'gid://1001', order_number: null, order_day: '2026-11-02', order_value_cents: 4000, earned_cents: 350, paid_cents: 350, code: 'PAT10',
+          { order_id: 'gid://1001', order_number: null, order_day: '2026-11-02', order_value_cents: 4000, earned_cents: 350, paid_cents: 350, approved_cents: 0, payable_from: '2026-12-02', code: 'PAT10',
             entries: [{ kind: 'accrual', amount_cents: 400, memo: null, rate_kind: 'percent_of_net', rate_value: 10, basis_cents: 4000, created_at: now },
                       { kind: 'refund_adjustment', amount_cents: -50, memo: 'partial refund', rate_kind: null, rate_value: null, basis_cents: null, created_at: now }] },
         ];
@@ -1115,7 +1123,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await portal.waitForFunction(() => (document.getElementById('ordersCard')?.textContent || '').includes('#1002'), null, { timeout: 5000 });
     const ords = await text(portal, '#ordersCard');
     R.has(ords, '$9.00', 'an order shows what the rep earned on it');
-    R.has(ords, 'coming to you', 'and whether it is paid');
+    R.has(ords, 'pending · refund window ends 2099-01-01', 'and why it is not paid yet: the refund window');
+    R.has(ords, 'Pending: the refund window is still open', 'the three states are explained once');
     R.ok('an order opens onto the lines behind it', !!(await portal.$('#ordersCard details.af-ord-row')));
     await tab(portal, 'earnings');
     await portal.click('#ordersCard details.af-ord-row > summary');
@@ -1125,6 +1134,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await portal.waitForFunction(() => document.querySelectorAll('#ordersCard .af-ord-row').length === 2, null, { timeout: 5000 });
     const ords2 = await text(portal, '#ordersCard');
     R.has(ords2, 'partial refund', 'a refund on an order is shown as its own line');
+    R.has(await text(portal, '#ordersCard [data-order="gid://1001"] summary'), 'paid', 'a paid order says paid');
     R.ok('an order the rep opened stays open when more arrive', !!(await portal.$('#ordersCard .af-ord-row[open]')));
     R.has(ords2, '#1001', 'an order with no shop number is numbered from its id');
     R.ok('and the raw store id is not shown', !(await text(portal, '#ordersCard')).includes('gid://'));
@@ -1338,6 +1348,57 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await endPage.click('#prospectsBody [data-f="approved"]').catch(() => {});
       R.has(await text(endPage, '#prospectsBody'), 'found via met at a tournament', 'a saved "where found" note is shown on the creator card');
       await endPage.close();
+    }
+
+    // A new program sees the steps to its first invite on Home, and only the
+    // next one carries a button (Blake 2026-11-18).
+    {
+      const fresh = await suite.open('/v2/affiliates/index.html', { ...tables, affiliates: [], affiliate_prospects: [], affiliate_codes: [] }, { ready, rpc: { can_manage_affiliate_programs: true } });
+      fresh.on('pageerror', (e) => errors.push(e.message));
+      await fresh.waitForSelector('#firstInvite', { timeout: 5000 });
+      const fi = await text(fresh, '#firstInvite');
+      R.has(fi, 'Get to your first invite', 'Home shows the setup checklist before anyone is invited');
+      R.has(fi, 'Connect your Shopify store', 'starting with the store');
+      const nextStep = await fresh.evaluate(() => [...document.querySelectorAll('#firstInvite [data-setup-step]')].filter((r) => r.querySelector('.bcn-btn')).map((r) => r.textContent));
+      R.eq(nextStep.length, 1, 'only the next step has a button');
+      R.ok('and it is the first step not done', /Add your first creator/.test(nextStep[0] || '') || /website/.test(nextStep[0] || ''));
+      await fresh.close();
+    }
+    {
+      const has = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      await has.waitForSelector('#overviewBody .af-ov-metrics', { timeout: 5000 });
+      R.ok('the checklist is gone once someone was invited', !(await has.$('#firstInvite')));
+      await has.close();
+    }
+
+    // One status line per affiliate with the next step on it (Blake
+    // 2026-11-18: "invite sent, accepted, code active, or code failed").
+    {
+      const QS = 'aaaaaaaa-0000-4000-8000-00000000e0d1';
+      const stTables = { ...tables,
+        affiliate_prospects: [...tables.affiliate_prospects, { id: 'p-stuck', company_entity_id: CO, program_id: PROG, display_name: 'Sam Stuck', platform: 'instagram', handle: '@samstuck', contact_email: 'sam@typo.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited', affiliate_id: QS }],
+        affiliates: [...tables.affiliates, { id: QS, company_entity_id: CO, program_id: PROG, display_name: 'Sam Stuck', contact_email: 'sam@typo.invalid', status: 'invited', terms_accepted_at: null, created_at: now, from_prospect_id: 'p-stuck' }],
+        affiliate_notifications: [{ id: 'n-stuck', company_entity_id: CO, program_id: PROG, affiliate_id: QS, kind: 'signup_invite', to_email: 'sam@typo.invalid', status: 'failed', reason: 'address bounced', created_at: now }],
+        affiliate_codes: [...tables.affiliate_codes.filter((c) => c.affiliate_id !== AFF), { id: 'c-wait', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, code: 'PATWAIT', starts_on: '2026-11-10', ends_on: null, status: 'pending', discount_percent: 10 }] };
+      const st = await suite.open('/v2/affiliates/index.html', stTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      st.on('pageerror', (e) => errors.push(e.message));
+      await st.click('#tabs [data-tab="people"]');
+      await st.waitForFunction(() => (document.getElementById('affiliatesBody')?.textContent || '').includes('Sam Stuck'), null, { timeout: 5000 });
+      const body = await text(st, '#affiliatesBody');
+      R.has(body, 'Invite not delivered', 'a bounced invite shows on the affiliate');
+      R.has(body, 'address bounced', 'with the reason');
+      R.ok('with Resend right there', !!(await st.$('#affiliatesBody .af-step [data-act="invite-send"][data-id="p-stuck"]')));
+      R.has(body, 'Code PATWAIT not in Shopify yet', 'a code that was not made shows as failed');
+      R.ok('with Retry code for that code', !!(await st.$('#affiliatesBody .af-step [data-act="code-make"][data-id="c-wait"]')));
+      R.has(body, 'Signed up', 'a signed-up affiliate says so');
+      await st.click('#affiliatesBody .af-step [data-act="prospect-edit"][data-id="p-stuck"]');
+      await st.waitForSelector('#epEmail', { timeout: 5000 });
+      await st.fill('#epEmail', 'sam@fixed.invalid');
+      await st.click('[data-act="prospect-save"]');
+      await st.waitForFunction(() => /Resend the invite/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      const upd = await st.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliates' && q._op === 'update').pop());
+      R.eq(upd?.patch?.contact_email, 'sam@fixed.invalid', 'Fix email updates the invited affiliate too, so the resend reaches the new address');
+      await st.close();
     }
 
     const connected = [{ company_entity_id: CO, provider: 'paypal', environment: 'sandbox', is_active: true, account_email: 'brand@pay.invalid', payouts_enabled: true, credentials_set: true, last_tested_at: now, last_test_success: true, last_test_error: null, last_send_at: null }];
