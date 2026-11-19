@@ -350,6 +350,15 @@ await test('portal: the agreement PDF is linked on the sign-up page and its hash
   body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
   assert.equal(body.program.terms_file, null);
   assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 200);
+  // A stored path that is not this program's own file is never signed, and
+  // no signature is taken against it (review on #1326).
+  for (const bad of [{ ...file, terms_file_path: `other-program/${SHA}.pdf` }, { ...file, terms_file_sha256: null }]) {
+    [svc, h] = mk(bad);
+    body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+    assert.deepEqual(body.program.terms_file, { name: null, url: null });
+    assert.equal(svc.signed.length, 0, 'nothing was signed');
+    assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 503);
+  }
   // Any other read error: no signature is recorded without knowing the file.
   [svc, h] = mk({ __error: { code: '57014', message: 'timeout' } });
   assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 503);

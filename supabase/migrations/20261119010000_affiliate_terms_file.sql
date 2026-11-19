@@ -21,18 +21,17 @@ alter table public.affiliate_programs
   add column if not exists terms_file_name text,
   add column if not exists terms_file_sha256 text;
 
-do $$
-begin
-  if not exists (select 1 from pg_constraint where conname = 'affiliate_programs_terms_file_check'
-                   and conrelid = 'public.affiliate_programs'::regclass) then
-    alter table public.affiliate_programs add constraint affiliate_programs_terms_file_check check (
-      (terms_file_path is null and terms_file_sha256 is null and terms_file_name is null)
-      or (terms_file_path = id::text || '/' || terms_file_sha256 || '.pdf'
-          and terms_file_sha256 ~ '^[0-9a-f]{64}$'
-          and char_length(coalesce(terms_file_name, '')) between 1 and 200)
-    );
-  end if;
-end $$;
+-- Recreated on every run so a rerun always leaves this exact definition. The
+-- filled branch names all three columns as NOT NULL: a CHECK passes on NULL,
+-- so without them a NULL hash would let any path through (review on #1326).
+alter table public.affiliate_programs drop constraint if exists affiliate_programs_terms_file_check;
+alter table public.affiliate_programs add constraint affiliate_programs_terms_file_check check (
+  (terms_file_path is null and terms_file_sha256 is null and terms_file_name is null)
+  or (terms_file_path is not null and terms_file_sha256 is not null and terms_file_name is not null
+      and terms_file_sha256 ~ '^[0-9a-f]{64}$'
+      and terms_file_path = id::text || '/' || terms_file_sha256 || '.pdf'
+      and char_length(terms_file_name) between 1 and 200)
+);
 
 -- The version moves with the text OR the file; nothing else moves it.
 create or replace function public.affiliate_programs_terms_guard()

@@ -2309,6 +2309,13 @@ await check('TF2 the file path must be the program\'s own id and the file\'s has
   for (const [path, why] of [[`${progB}/${sha}.pdf`, 'another program'], [`${progA}/${'d'.repeat(64)}.pdf`, 'a different hash'], [`${progA}/${sha}.exe`, 'not a pdf']]) {
     await assert.rejects(db.query('update affiliate_programs set terms_file_path = $2, terms_file_name = $3, terms_file_sha256 = $4 where id = $1', [progA, path, 'x.pdf', sha]), /terms_file_check/, why);
   }
+  // A CHECK passes on NULL: every partly-filled row must still be refused,
+  // above all another program's path with no hash (review on #1326).
+  const own = `${progA}/${sha}.pdf`;
+  for (const [path, name, hash, why] of [[`${progB}/${sha}.pdf`, 'x.pdf', null, 'another program, no hash'], [own, 'x.pdf', null, 'no hash'],
+    [own, null, sha, 'no name'], [null, 'x.pdf', sha, 'no path'], [own, null, null, 'path only'], [null, 'x.pdf', null, 'name only'], [null, null, sha, 'hash only']]) {
+    await assert.rejects(db.query('update affiliate_programs set terms_file_path = $2, terms_file_name = $3, terms_file_sha256 = $4 where id = $1', [progA, path, name, hash]), /terms_file_check/, why);
+  }
 });
 
 await check('TF3 only the company\'s program managers upload, only into their own program, and nobody removes', async () => {

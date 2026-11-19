@@ -10177,6 +10177,9 @@ select 'Affiliate agreement file' as check_name,
       then 'MISSING — run 20261119010000_affiliate_terms_file.sql'
     when position('terms_file_sha256' in pg_get_functiondef('public.affiliate_programs_terms_guard()'::regprocedure)) = 0
       then 'BROKEN — a new agreement file does not make a new terms version'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_programs_terms_file_check' and conrelid = 'public.affiliate_programs'::regclass
+                       and position('terms_file_sha256 IS NOT NULL' in pg_get_constraintdef(oid)) > 0)
+      then 'BROKEN — the agreement file path is not tied to its own program and hash'
     when (select public from storage.buckets where id = 'affiliate-terms')
       or not exists (select 1 from pg_policy where polrelid = 'storage.objects'::regclass and polname = 'affiliate terms written by program managers'
                        and position('can_manage_affiliate_programs()' in pg_get_expr(polwithcheck, polrelid)) > 0

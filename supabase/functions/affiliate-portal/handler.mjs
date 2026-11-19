@@ -178,7 +178,13 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     const { data, error } = await service.from('affiliate_programs')
       .select('terms_file_path, terms_file_name, terms_file_sha256').eq('id', programId).maybeSingle();
     if (error) return error.code === '42703' ? { file: null } : { error };
-    return { file: data?.terms_file_path ? { path: data.terms_file_path, name: data.terms_file_name, sha256: data.terms_file_sha256 } : null };
+    if (!data?.terms_file_path && !data?.terms_file_sha256) return { file: null };
+    // Sign only this program's own file. The service role passes every storage
+    // policy, so the path is checked here as well as by the table's CHECK; a
+    // malformed row is an error, which blocks signing rather than linking it.
+    const sha = String(data.terms_file_sha256 || '');
+    if (!/^[0-9a-f]{64}$/.test(sha) || data.terms_file_path !== `${programId}/${sha}.pdf`) return { error: { message: 'agreement file does not belong to this program' } };
+    return { file: { path: data.terms_file_path, name: data.terms_file_name, sha256: sha } };
   }
 
   // The portal feed: what the program shared, each with this affiliate's own
