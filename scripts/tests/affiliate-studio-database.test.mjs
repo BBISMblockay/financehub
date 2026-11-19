@@ -55,6 +55,8 @@
 //   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
+//   AFFILIATE_DB_MUTATION=termsfilebump a new agreement file is not a new terms version
+//   AFFILIATE_DB_MUTATION=termsfilegate anyone in the company may upload an agreement
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
 //   AFFILIATE_DB_MUTATION=uniqueorder   attributions are not unique per order
 //   AFFILIATE_DB_MUTATION=crossprogram  a second program's run takes over an order
@@ -136,6 +138,15 @@ create role anon; create role authenticated; create role service_role bypassrls;
 -- can call a portal function, so it must exist here or the check errors.
 create role silo_integration;
 create schema auth;
+-- Storage as Supabase has it, for the agreement bucket's policies (20261119010000).
+create schema storage;
+grant usage on schema storage to anon, authenticated, service_role;
+create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects(id uuid primary key default gen_random_uuid(), bucket_id text, name text);
+alter table storage.objects enable row level security;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
+create function storage.foldername(name text) returns text[] language sql immutable as
+  $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
 grant usage on schema auth to anon, authenticated, service_role;
 create table auth.users(id uuid primary key);
 create function auth.uid() returns uuid language sql stable as
@@ -257,6 +268,8 @@ const files = {
   follow: '20261117200000_affiliate_creator_codes.sql',
   // One affiliate per company, added to more programs (20261118010000).
   addprog: '20261118010000_affiliate_add_to_program.sql',
+  // The agreement as a PDF (20261119010000).
+  termsfile: '20261119010000_affiliate_terms_file.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -269,6 +282,9 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  case 'termsfilebump': mutate('termsfile', "\n     or new.terms_file_sha256 is distinct from old.terms_file_sha256 then", ' then'); break;
+  case 'termsfilegate': mutate('termsfile', `    and public.can_manage_affiliate_programs()
+    and exists`, `    and exists`); break;
   case 'addproggate': mutate('addprog', "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
   case 'addprogco': mutate('addprog', "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
   case 'rls': mutate('ledger', 'alter table public.affiliate_attributions enable row level security;', ''); break;
@@ -533,7 +549,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2274,13 +2290,60 @@ await check('S5 a claim past its goal date and refund window expires, paying not
   assert.equal((await one('select state from affiliate_seed_claims where id = $1', [id])).state, 'expired');
 });
 
+// ── The agreement as a PDF (20261119010000) ───────────────────────────────
+await check('TF1 changing the agreement file is a new terms version; the same file again is not', async () => {
+  await as(U.ownerA, A);
+  const v0 = (await one('select terms_version from affiliate_programs where id = $1', [progA])).terms_version;
+  const sha = 'b'.repeat(64);
+  await db.query('update affiliate_programs set terms_file_path = $2, terms_file_name = $3, terms_file_sha256 = $4 where id = $1', [progA, `${progA}/${sha}.pdf`, 'Agreement.pdf', sha]);
+  assert.equal((await one('select terms_version from affiliate_programs where id = $1', [progA])).terms_version, v0 + 1);
+  await db.query('update affiliate_programs set terms_file_name = $2 where id = $1', [progA, 'Renamed.pdf']);
+  assert.equal((await one('select terms_version from affiliate_programs where id = $1', [progA])).terms_version, v0 + 1, 'a new display name alone is not a new version');
+  await db.query('update affiliate_programs set terms_file_path = null, terms_file_name = null, terms_file_sha256 = null where id = $1', [progA]);
+  assert.equal((await one('select terms_version from affiliate_programs where id = $1', [progA])).terms_version, v0 + 2, 'removing it is a new version too');
+});
+
+await check('TF2 the file path must be the program\'s own id and the file\'s hash', async () => {
+  await as(U.ownerA, A);
+  const sha = 'c'.repeat(64);
+  for (const [path, why] of [[`${progB}/${sha}.pdf`, 'another program'], [`${progA}/${'d'.repeat(64)}.pdf`, 'a different hash'], [`${progA}/${sha}.exe`, 'not a pdf']]) {
+    await assert.rejects(db.query('update affiliate_programs set terms_file_path = $2, terms_file_name = $3, terms_file_sha256 = $4 where id = $1', [progA, path, 'x.pdf', sha]), /terms_file_check/, why);
+  }
+  // A CHECK passes on NULL: every partly-filled row must still be refused,
+  // above all another program's path with no hash (review on #1326).
+  const own = `${progA}/${sha}.pdf`;
+  for (const [path, name, hash, why] of [[`${progB}/${sha}.pdf`, 'x.pdf', null, 'another program, no hash'], [own, 'x.pdf', null, 'no hash'],
+    [own, null, sha, 'no name'], [null, 'x.pdf', sha, 'no path'], [own, null, null, 'path only'], [null, 'x.pdf', null, 'name only'], [null, null, sha, 'hash only']]) {
+    await assert.rejects(db.query('update affiliate_programs set terms_file_path = $2, terms_file_name = $3, terms_file_sha256 = $4 where id = $1', [progA, path, name, hash]), /terms_file_check/, why);
+  }
+});
+
+await check('TF3 only the company\'s program managers upload, only into their own program, and nobody removes', async () => {
+  await asSuper();
+  assert.deepEqual(await one(`select public, allowed_mime_types from storage.buckets where id = 'affiliate-terms'`), { public: false, allowed_mime_types: ['application/pdf'] });
+  const name = `${progA}/${'e'.repeat(64)}.pdf`;
+  await as(U.ownerB, B);
+  await assert.rejects(db.query(`insert into storage.objects(bucket_id, name) values ('affiliate-terms', $1)`, [name]), /row-level security/, 'another company cannot write into this program');
+  await as(U.memberA, A);
+  await assert.rejects(db.query(`insert into storage.objects(bucket_id, name) values ('affiliate-terms', $1)`, [name]), /row-level security/, 'a member who cannot manage programs cannot upload');
+  await as(U.ownerA, A);
+  await db.query(`insert into storage.objects(bucket_id, name) values ('affiliate-terms', $1)`, [name]);
+  assert.equal((await all(`select name from storage.objects where bucket_id = 'affiliate-terms'`)).length, 1);
+  await as(U.ownerB, B);
+  assert.equal((await all(`select name from storage.objects where bucket_id = 'affiliate-terms'`)).length, 0, 'another company cannot read it');
+  await as(U.ownerA, A);
+  await db.query(`delete from storage.objects where bucket_id = 'affiliate-terms'`);
+  await asSuper();
+  assert.equal((await all(`select name from storage.objects where bucket_id = 'affiliate-terms'`)).length, 1, 'a signed version stays: no delete policy');
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

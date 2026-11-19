@@ -10167,6 +10167,29 @@ select 'Affiliate add to program' as check_name,
     else 'ok'
   end as status;
 
+-- Affiliate agreement file (20261119010000): changing the PDF is a new terms
+-- version, the bucket is private, only program managers of the active company
+-- upload into their own program, and nothing removes a signed version.
+select 'Affiliate agreement file' as check_name,
+  case
+    when not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'terms_file_sha256')
+      or not exists (select 1 from storage.buckets where id = 'affiliate-terms')
+      then 'MISSING — run 20261119010000_affiliate_terms_file.sql'
+    when position('terms_file_sha256' in pg_get_functiondef('public.affiliate_programs_terms_guard()'::regprocedure)) = 0
+      then 'BROKEN — a new agreement file does not make a new terms version'
+    when not exists (select 1 from pg_constraint where conname = 'affiliate_programs_terms_file_check' and conrelid = 'public.affiliate_programs'::regclass
+                       and position('terms_file_sha256 IS NOT NULL' in pg_get_constraintdef(oid)) > 0)
+      then 'BROKEN — the agreement file path is not tied to its own program and hash'
+    when (select public from storage.buckets where id = 'affiliate-terms')
+      or not exists (select 1 from pg_policy where polrelid = 'storage.objects'::regclass and polname = 'affiliate terms written by program managers'
+                       and position('can_manage_affiliate_programs()' in pg_get_expr(polwithcheck, polrelid)) > 0
+                       and position('active_company_id()' in pg_get_expr(polwithcheck, polrelid)) > 0)
+      or exists (select 1 from pg_policy where polrelid = 'storage.objects'::regclass and polcmd in ('d', 'w', '*')
+                   and coalesce(pg_get_expr(polqual, polrelid), '') like '%affiliate-terms%')
+      then 'BROKEN — agreement files are public, writable by others, or removable'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the

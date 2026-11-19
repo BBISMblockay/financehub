@@ -3943,6 +3943,14 @@ program of the active company is added to another of its programs, active at onc
 their own. Terms are recorded as carried from their first acceptance; their PayPal email follows them. Managers
 only (`can_manage_affiliate_programs()`), never anon.
 
+`20261119010000_affiliate_terms_file.sql` lets a program carry its partnership agreement as a PDF
+(`terms_file_path`, `terms_file_name`, `terms_file_sha256`) next to or instead of the written terms. Changing the
+file is a new terms version (the terms guard trigger), so a signature always names the version it was made against,
+and the portal records the file's hash with it. Private bucket `affiliate-terms`, path `<program id>/<sha256>.pdf`:
+program managers of the active company upload into their own program; there is no update or delete policy, so a
+signed version is never replaced or removed. The join page reads it through affiliate-portal (signed URL).
+Apply before deploying affiliate-portal.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

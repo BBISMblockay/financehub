@@ -479,6 +479,12 @@
     .af-studio input.bcn-field:focus, .af-studio select.bcn-field:focus, .af-studio textarea.bcn-field:focus { outline: none; border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 16%, transparent); }
     .af-studio .bcn-label { font-size: 12.5px; font-weight: 600; color: var(--bcn-ink-2); text-transform: none; letter-spacing: 0; }
     .af-studio button.bcn-btn, .af-studio a.bcn-btn { border-radius: 999px; }
+    /* Setup → Terms: the agreement PDF row (20261119010000). */
+    .af-terms-file { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--bcn-border); border-radius: 12px; background: var(--bcn-surface); }
+    .af-terms-file--empty { border-style: dashed; }
+    .af-terms-file--empty input.bcn-field { flex: 1; min-width: 180px; border: 0; padding: 0; height: auto; }
+    .af-terms-file-icon { flex: none; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in oklch, var(--bcn-neg) 12%, transparent); color: var(--bcn-neg); font-family: var(--bcn-mono); font-size: 10px; font-weight: 600; }
+    .af-terms-file-name { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .af-money .af-item { border-radius: 16px; }
     .af-money .af-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
     .af-money .af-actions input.bcn-field { width: 180px; }

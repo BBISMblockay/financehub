@@ -19851,4 +19851,7 @@ $c$select (select count(*) from v_po_header_summary
 -- not twice, and materializes its People Also Ask aggregate. Apply to stop
 -- /v2/seo-studio.html timing out at the 8 s authenticated limit.
 \i migrations/20261118210000_seo_recommendations_single_landscape_read.sql
+-- 20261119010000: a program's partnership agreement as a PDF; changing it is a
+-- new terms version. Apply BEFORE deploying affiliate-portal.
+\i migrations/20261119010000_affiliate_terms_file.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

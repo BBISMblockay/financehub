@@ -316,6 +316,55 @@ await test('portal: acceptance mails the address on file and mints a portal link
   assert.equal(recorded.payload.kind, 'signup_confirmation');
 });
 
+await test('portal: the agreement PDF is linked on the sign-up page and its hash is recorded with the signature (20261119010000)', async () => {
+  const SHA = 'a'.repeat(64);
+  const file = { terms_file_path: `${PROG}/${SHA}.pdf`, terms_file_name: 'Agreement.pdf', terms_file_sha256: SHA };
+  const mk = (programs, signed = { data: { signedUrl: 'https://ref.supabase.co/storage/v1/object/sign/affiliate-terms/x?token=t' }, error: null }) => {
+    const svc = fakeService({ rpc: { ...noSuppression,
+      affiliate_portal_resolve: { data: [resolvedRow()], error: null },
+      affiliate_portal_accept_terms: { data: { status: 'active', terms_version: 2 }, error: null },
+      affiliate_issue_access_token: { data: 'new-token-id', error: null } },
+      tables: { affiliate_programs: programs } });
+    const base = svc.storage.from;
+    svc.storage.from = (bucket) => ({ ...base(bucket), createSignedUrl: async (path, ttl) => { svc.signed.push({ bucket, path, ttl }); return signed; } });
+    return [svc, createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '', makeToken: () => 'P'.repeat(43) })];
+  };
+  let [svc, h] = mk(file);
+  let body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+  assert.deepEqual(body.program.terms_file, { name: 'Agreement.pdf', url: 'https://ref.supabase.co/storage/v1/object/sign/affiliate-terms/x?token=t' });
+  assert.deepEqual(svc.signed[0], { bucket: 'affiliate-terms', path: `${PROG}/${SHA}.pdf`, ttl: 3600 }, 'a short-lived link to that program\'s own file');
+  await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }));
+  assert.equal(svc.log.find((c) => c.name === 'affiliate_portal_accept_terms').args.p_acceptance.terms_file_sha256, SHA, 'the signature names the file it was made against');
+  // No file: nothing linked, and the record says so (null).
+  [svc, h] = mk({ terms_file_path: null, terms_file_name: null, terms_file_sha256: null });
+  body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+  assert.equal(body.program.terms_file, null);
+  await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }));
+  assert.equal(svc.log.find((c) => c.name === 'affiliate_portal_accept_terms').args.p_acceptance.terms_file_sha256, null);
+  // A link that could not be made: the page gets no url (and will not take a signature).
+  [svc, h] = mk(file, { data: null, error: { message: 'boom' } });
+  body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+  assert.deepEqual(body.program.terms_file, { name: 'Agreement.pdf', url: null });
+  // Before the migration (no columns): no file, signing still works.
+  [svc, h] = mk({ __error: { code: '42703', message: 'column does not exist' } });
+  body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+  assert.equal(body.program.terms_file, null);
+  assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 200);
+  // A stored path that is not this program's own file is never signed, and
+  // no signature is taken against it (review on #1326).
+  for (const bad of [{ ...file, terms_file_path: `other-program/${SHA}.pdf` }, { ...file, terms_file_sha256: null }]) {
+    [svc, h] = mk(bad);
+    body = await (await h(post({ action: 'resolve', token: TOKEN }))).json();
+    assert.deepEqual(body.program.terms_file, { name: null, url: null });
+    assert.equal(svc.signed.length, 0, 'nothing was signed');
+    assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 503);
+  }
+  // Any other read error: no signature is recorded without knowing the file.
+  [svc, h] = mk({ __error: { code: '57014', message: 'timeout' } });
+  assert.equal((await h(post({ action: 'accept', token: TOKEN, signed_name: 'Pat', terms_version: 2 }))).status, 503);
+  assert.ok(!svc.log.some((c) => c.name === 'affiliate_portal_accept_terms'), 'and nothing was accepted');
+});
+
 await test('portal: the PayPal email given at signup is saved for that affiliate; a bad one refuses before anything is saved', async () => {
   const mk = () => fakeService({ rpc: { ...noSuppression,
     affiliate_portal_resolve: { data: [resolvedRow()], error: null },
