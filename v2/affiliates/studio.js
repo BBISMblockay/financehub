@@ -640,15 +640,18 @@ function renderWorkflowTabCounts() {
 // SECTION inside a panel, and PANEL_OF says which panel holds each one.
 const PANEL_OF = {
   overview: 'overview', people: 'people', payouts: 'payouts', program: 'program', records: 'records',
-  prospects: 'people', outreach: 'comms', comms: 'comms', affiliates: 'people', share: 'comms',
+  prospects: 'people', outreach: 'comms', comms: 'comms', affiliates: 'people', share: 'share',
 };
 // Where a panel's "no program yet" message goes, since People and Setup each
 // hold more than one body.
-const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', comms: 'outreachBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
+const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', comms: 'outreachBody', share: 'shareBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
 const PANEL_RENDERERS = {
   overview: [renderOverview],
   people: [renderAffiliates, renderProspects],
-  comms: [renderOutreach, renderShare],
+  comms: [renderOutreach],
+  // What reps see in their portal has its own tab (Blake 2026-11-18: "bring
+  // back the share tab").
+  share: [renderShare],
   payouts: [renderPayoutsTab],
   program: [renderProgram],
   records: [renderRecords],
@@ -1387,7 +1390,7 @@ function renderAffiliates() {
         { h: '', f: (a) => actions(a) },
       ], affShown, affEmpty)
       : itemList(affShown, affiliateRow, affEmpty, 'grid')}<div id="affOut"></div>`, `${num(d.affiliates.length - ended.length)} in this program`),
-    MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Outreach to turn on affiliate links.</div>` : '',
+    MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Share to turn on affiliate links.</div>` : '',
     // Product requests live in Records → Products, not People (Blake
     // 2026-11-18: "shouldn't go in people and shouldn't just become giant list").
     more('Products', [seedsCard()]),
