@@ -493,10 +493,27 @@ await test('an attempt with no batch id is retried with the SAME key, not a new 
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'BATCH9', batch_status: 'PENDING' } }) },
   });
-  await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   const create = fetchImpl.calls.find((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts'));
   assert.equal(create.headers['PayPal-Request-Id'], 'silo-abc-1',
     'PayPal returns the original batch for a repeated key instead of paying again');
+});
+
+// Audit 2026-11-18: Money checks open attempts on page load. A check must
+// never be what submits a payment, so only a named Retry re-posts.
+await test('a status check never posts an unconfirmed attempt; only Retry does', async () => {
+  const mk = async () => fakeService({
+    sends: [{ id: SEND, payout_id: PAYOUT, request_id: 'silo-abc-1', sender_batch_id: 'silo-abc-1', provider_batch_id: null, amount_cents: 1999, currency: 'USD', payout_email: 'rep@pay.test', connection_fingerprint: await fingerprint('sandbox', 'CID'), state: 'unknown' }],
+  });
+  for (const req of [{ action: 'refresh' }, { action: 'refresh', payout_id: PAYOUT }, { action: 'refresh', retry: true }]) {
+    const fetchImpl = fakePaypal({ paths: { '/v1/payments/payouts': res(201, { batch_header: { payout_batch_id: 'B1', batch_status: 'PENDING' } }) } });
+    const service = await mk();
+    const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post(req));
+    const body = await r.json();
+    assert.ok(!fetchImpl.calls.some((c) => c.method === 'POST' && c.url.endsWith('/v1/payments/payouts')), `${JSON.stringify(req)} must not post`);
+    assert.equal(body.results[0].code, 'NOT_CONFIRMED');
+    assert.equal(body.results[0].state, 'unknown', 'the attempt stays open, so Send stays blocked');
+  }
 });
 
 // PayPal rejects a sender_batch_id reused within 30 days. That is a 4xx, and
@@ -516,7 +533,7 @@ await test('a duplicate-batch rejection picks the original batch up instead of r
       '/v1/payments/payouts/BATCH7': res(200, { batch_header: { payout_batch_id: 'BATCH7', batch_status: 'SUCCESS' }, items: [{ payout_item_id: 'ITEM7', transaction_status: 'SUCCESS' }] }),
     },
   });
-  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   const body = await r.json();
   assert.equal(body.results[0].state, 'paid', 'the batch that already existed is read, not refused');
   const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
@@ -533,7 +550,7 @@ await test('a duplicate rejection with no recoverable batch id stays unknown', a
   const fetchImpl = fakePaypal({
     paths: { '/v1/payments/payouts': res(400, { name: 'VALIDATION_ERROR', details: [{ issue: 'SENDER_BATCH_ID_ALREADY_EXISTS', description: 'already used' }] }) },
   });
-  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT }));
+  const r = await build({ service, caller: fakeCaller().client, fetchImpl })(post({ action: 'refresh', payout_id: PAYOUT, retry: true }));
   assert.equal((await r.json()).results[0].state, 'unknown');
   const states = service.log.filter((e) => e.name === 'affiliate_payout_send_record').map((e) => e.args.p_state);
   assert.deepEqual(states, [], 'nothing is asserted about a batch whose id we could not recover');

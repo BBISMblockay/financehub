@@ -344,7 +344,7 @@ async function loadProgramData() {
     payAccounts: db.from('affiliate_payout_accounts').select('affiliate_id, payout_email, provider')
       .eq('company_entity_id', CO).eq('provider', 'paypal'),
     sends: db.from('affiliate_payout_sends')
-      .select('id, payout_id, attempt, state, provider_status, provider_item_id, error_code, error_message, environment, created_at')
+      .select('id, payout_id, attempt, state, provider_status, provider_batch_id, provider_item_id, error_code, error_message, environment, created_at')
       .eq('company_entity_id', CO)
       // Newest first, and `attempt` breaks a tie: two attempts stamped in the
       // same instant must not leave the row describing the older one.
@@ -1851,6 +1851,9 @@ function payoutPayHtml() {
       // A live attempt while the sandbox app is connected blocks the send and
       // cannot be checked either, so say which account to reconnect.
       if (st.blocked && st.crossAccount) b.push(`<span class="af-muted">Reconnect the ${st.attemptEnv} PayPal account to check that payment</span>`);
+      // PayPal never confirmed the attempt. Checking it is read-only, so the
+      // one way to ask PayPal again is this button, with the same key.
+      else if (st.blocked && MONEY && st.attempt?.state === 'unknown' && !st.attempt.provider_batch_id) b.push(btn('Retry send', 'pp-retry', { id: x.id }, 'surface', { confirm: true }));
       else if (st.blocked) { /* nothing to do here: the attempt is the answer */ }
       else if (!payConnLive(S.d.payConn)) b.push('<span class="af-muted">Connect PayPal first</span>');
       else if (!st.email) b.push('<span class="af-muted">No PayPal address from them yet</span>');
@@ -2821,6 +2824,12 @@ const A = {
   },
   // The card's manual check runs the same targeted loop as the automatic one,
   // so it cannot be starved by the endpoint's oldest-50 window either.
+  'pp-retry': async ({ id }) => {
+    const r = await invoke('affiliate-payouts', { action: 'refresh', payout_id: id, retry: true });
+    const x = (r.results || [])[0] || {};
+    if (x.error) return x.error;
+    return x.state === 'paid' ? 'PayPal paid it.' : x.state === 'sent' ? 'PayPal accepted it. Checking again shortly.' : (x.message || 'PayPal has not answered yet.');
+  },
   'pp-refresh': async () => {
     const results = await checkOpenAttempts();
     if (!results.length) return 'Nothing is waiting on PayPal.';

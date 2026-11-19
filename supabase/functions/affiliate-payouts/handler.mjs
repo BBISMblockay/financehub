@@ -248,7 +248,12 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
 
   // One open attempt, re-read from PayPal and recorded. Used by `refresh` and
   // straight after a send, so the page never has to guess.
-  async function reconcile(creds, send, actor) {
+  // `opts.post` is the only way an attempt with no batch id reaches PayPal:
+  // the Send action, or a finance person pressing Retry on that payout. A
+  // status check -- including the one Money runs on page load -- never
+  // posts, so opening a page can never be the first submission of a
+  // payment (audit 2026-11-18).
+  async function reconcile(creds, send, actor, opts = {}) {
     // The attempt and the connection must be the same PayPal account. A
     // company that tests in sandbox and then connects live still has its
     // sandbox attempts open, and an attempt with no batch id is RE-POSTED
@@ -291,6 +296,13 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           message: `This attempt is ${Math.floor(ageDays)} days old. PayPal stops recognising a repeated batch id after 30 days, so asking again could pay a second time. Look up ${send.sender_batch_id} in your PayPal activity, then void this payout and build it again if nothing was sent.`,
         };
       }
+      if (!opts.post) {
+        return {
+          state: send.state,
+          code: 'NOT_CONFIRMED',
+          message: 'PayPal has not confirmed this payment. Press Retry on the payout to ask again with the same key; it cannot pay twice.',
+        };
+      }
       // The attempt never got as far as a batch id. We cannot tell from here
       // whether PayPal accepted it, and the key is what makes asking safe:
       // re-POSTing the same PayPal-Request-Id returns the original batch
@@ -310,7 +322,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const existing = batchIdFrom(r.body);
         if (!existing) return { state: 'unknown', ...e };
         await record(send.id, 'sent', { batchId: existing, providerStatus: e.code, actor });
-        return reconcile(creds, { ...send, provider_batch_id: existing, state: 'sent' }, actor);
+        return reconcile(creds, { ...send, provider_batch_id: existing, state: 'sent' }, actor, opts);
       }
       if (r.status >= 400 && r.status < 500) {
         // A live account can pass the connect probe (reading a batch) and still
@@ -544,7 +556,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
 
         let outcome;
         try {
-          outcome = await reconcile(c, send, user.id);
+          outcome = await reconcile(c, send, user.id, { post: true });
         } catch (e) {
           // The call itself fell over. The attempt stays `unknown`, which is
           // the truth: it may have been accepted. The next `refresh` replays
@@ -584,10 +596,13 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const { data: open, error } = await q;
         if (error) throw new Error(`affiliate_payout_sends: ${error.message}`);
 
+        // Retry re-asks PayPal for ONE payout a person named; a check of
+        // everything open stays read-only.
+        const post = body.retry === true && Boolean(body.payout_id);
         const results = [];
         for (const send of open || []) {
           try {
-            results.push({ payout_id: send.payout_id, ...(await reconcile(c, send, user.id)) });
+            results.push({ payout_id: send.payout_id, ...(await reconcile(c, send, user.id, { post })) });
           } catch (e) {
             results.push({ payout_id: send.payout_id, state: send.state, error: e.message });
           }

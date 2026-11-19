@@ -3955,6 +3955,10 @@ Apply before deploying affiliate-portal.
 sign-up links. Portal links each stay live for their 90 days: signing up hands out several within seconds (the page,
 the welcome email, the code email), and each new one used to revoke the last. No deploy needed.
 
+`20261119030000_affiliate_payout_recheck_reductions.sql` re-runs approval's "refund since this was built" check
+inside the money lock when a payout is sent with PayPal (`affiliate_payout_send_claim`, refused, nothing reserved) or
+exported (`affiliate_claim_payout_export`, left out and returned in `skipped`). Void and build again. No deploy needed.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column
