@@ -435,15 +435,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── Share tab: the brand picks what affiliates see ──────────────────
     R.not(await text(page, '#outreachBody'), 'Pick what to share', 'sharing is not on Outreach');
     await page.click('#tabs [data-tab="share"]');
-    await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
+    await page.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
+    R.has(await text(page, '#shareBody'), 'What your affiliates see', 'Share opens on what is already shared');
+    R.not(await text(page, '#shareBody'), 'Spring Drop', 'one list at a time: launches wait behind their own chip');
+    await page.click('#shareBody [data-act="share-tab"][data-k="ads"]');
+    await page.waitForFunction(() => /Mud season/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     const sb = await text(page, '#shareBody');
-    R.has(sb, 'Trail Hat', 'what is already shared is listed first');
     R.has(sb, 'Mud season', 'recent ads can be shared');
     R.not(sb, 'All releases', 'a catalog template image is not offered as an ad');
     R.not(sb, 'Text only', 'an ad with no picture is not offered');
     R.ok('each recent ad shows its picture', await page.evaluate((p) => [...document.querySelectorAll('#shareBody img')].some((i) => i.getAttribute('src') === 'https://fixture.local/signed/' + p), AD_IMG));
     R.ok('with several Shopify stores and no store address, Studio asks for the address', !!(await page.$('#shareBody #storeNeeded')));
     R.ok('before 20261117030000 there is no store picker', !(await page.$('#programBody .pStore')));
+    await page.click('#shareBody [data-act="share-tab"][data-k="launches"]');
+    await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     await page.click('#shareBody [data-act="feed-add"][data-kind="launch"]');
     await page.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_items' && q._op === 'insert'), null, { timeout: 5000 });
     const shared = await page.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').pop().rows);
@@ -452,6 +457,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(row?.product_path, '/collections/spring', 'a launch shares its store page as a path, never another site');
     R.eq(row?.event_on, '2099-03-01');
     R.ok('only the snapshot fields are shared', row && Object.keys(row).sort().join() === 'company_entity_id,event_on,image_url,kind,note,product_path,program_id,source_id,title');
+    await page.waitForFunction(() => document.querySelector('#shareBody [data-act="share-tab"][data-k="launches"].is-on'), null, { timeout: 5000 });
+    await page.click('#shareBody [data-act="share-tab"][data-k="ads"]');
     await page.waitForFunction(() => document.querySelector('#shareBody [data-act="feed-add"][data-kind="ad"]'), null, { timeout: 5000 });
     await page.click('#shareBody [data-act="feed-add"][data-kind="ad"]');
     await page.waitForFunction(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_items' && q._op === 'insert').length >= 2, null, { timeout: 5000 });
@@ -1792,14 +1799,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     shp.on('pageerror', (e) => errors.push(e.message));
     await shp.click('#tabs [data-tab="share"]');
     await shp.waitForFunction(() => /Shared 0/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
-    R.eq(await shp.evaluate(() => document.querySelectorAll('#shareBody .af-seen-item').length), 10, 'Share shows the ten most recent by default');
+    R.eq(await shp.evaluate(() => document.querySelectorAll('#shareBody .af-srow').length), 10, 'Share shows the ten most recent by default');
     R.ok('the newest first, the oldest held back', (await text(shp, '#shareBody')).includes('Shared 0') && !(await text(shp, '#shareBody')).includes('Shared 11'));
     await shp.click('#shareBody [data-act="share-all"]');
-    await shp.waitForFunction(() => document.querySelectorAll('#shareBody .af-seen-item').length === 12, null, { timeout: 5000 });
+    await shp.waitForFunction(() => document.querySelectorAll('#shareBody .af-srow').length === 12, null, { timeout: 5000 });
     R.ok('Show all shows the rest, and the button goes', !(await shp.$('#shareBody [data-act="share-all"]')));
-    await shp.click('#shareBody [data-act="view-set"][data-v="list"]');
-    await shp.waitForFunction(() => document.getElementById('shareBody').classList.contains('af-share--list'), null, { timeout: 5000 });
-    R.ok('Share has the same list view as People', await shp.evaluate(() => document.querySelector('#shareBody [data-act="view-set"][data-v="list"]').getAttribute('aria-pressed') === 'true'));
+    R.ok('no big picture cards: every item is a row with a small square', await shp.evaluate(() => [...document.querySelectorAll('#shareBody .af-srow-img')].every((i) => i.getBoundingClientRect().width <= 48)));
     await shp.close();
     // A person fills in what search did not find; a waiting DM becomes an email.
     const edit = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
