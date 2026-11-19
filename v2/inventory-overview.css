@@ -6,7 +6,7 @@
   clip-path:inset(50%);white-space:nowrap;}
 .inv-ov-page {padding:14px 18px 28px;display:flex;flex-direction:column;gap:12px;}
 .inv-ov-asof {color:var(--bcn-ink-3);font-size:12px;margin:0;}
-.inv-ov-grid {display:grid;grid-template-columns:repeat(12,1fr);gap:12px;}
+.inv-ov-grid {display:grid;grid-template-columns:repeat(12,1fr);gap:12px;align-items:start;}
 .inv-ov-card {border:1px solid var(--bcn-border);border-radius:10px;background:var(--bcn-surface);
   display:flex;flex-direction:column;overflow:hidden;}
 /* `display:flex` above beats the user-agent [hidden] rule, so a card the page
@@ -62,18 +62,19 @@
 .inv-ov-legend-v {font-family:var(--bcn-mono);font-size:11px;}
 
 /* Product tiles */
-.inv-ov-tiles {display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.inv-ov-tiles {display:grid;grid-template-columns:repeat(6,1fr);gap:10px;}
 .inv-ov-tile {border:1px solid var(--bcn-border);border-radius:9px;overflow:hidden;
   display:flex;flex-direction:column;color:inherit;text-decoration:none;}
 .inv-ov-tile:hover {border-color:var(--bcn-accent-border);}
-.inv-ov-tile-img {aspect-ratio:1/1;background:var(--bcn-band-ink);overflow:hidden;
-  display:flex;align-items:center;justify-content:center;padding:6px;}
+.inv-ov-tile-img {aspect-ratio:1/1;max-height:170px;background:var(--bcn-band-ink);
+  overflow:hidden;display:flex;align-items:center;justify-content:center;padding:6px;}
 .inv-ov-tile-img img {max-width:100%;max-height:100%;width:auto;height:auto;
   object-fit:contain;display:block;}
 .inv-ov-tile-meta {padding:7px 8px;display:flex;flex-direction:column;gap:2px;}
 .inv-ov-tile-title {font-size:11.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;}
-.inv-ov-tile-row {display:flex;justify-content:space-between;font-family:var(--bcn-mono);font-size:11px;}
+.inv-ov-tile-row {display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;
+  font-family:var(--bcn-mono);font-size:11px;}
 .inv-ov-tile-units {color:var(--bcn-ink-3);}
 
 /* Arrivals columns */
@@ -105,15 +106,19 @@
   text-transform:uppercase;}
 .inv-ov-strip-v {font-family:var(--bcn-mono);font-size:17px;margin-top:3px;display:block;}
 
+@media (max-width:1240px) {
+  .inv-ov-tiles {grid-template-columns:repeat(4,1fr);}
+}
 @media (max-width:980px) {
   .inv-ov-span-4, .inv-ov-span-6, .inv-ov-span-8 {grid-column:span 12;}
+  .inv-ov-tiles {grid-template-columns:repeat(4,1fr);}
 }
 @media (max-width:760px) {
   .inv-ov-page {padding:12px 12px 24px;}
   .inv-ov-grid {grid-template-columns:1fr;}
   .inv-ov-span-4, .inv-ov-span-6, .inv-ov-span-8, .inv-ov-span-12 {grid-column:span 1;}
   .inv-ov-strip {grid-template-columns:repeat(2,1fr);}
-  .inv-ov-tiles {grid-template-columns:repeat(2,1fr);}
+  .inv-ov-tiles {grid-template-columns:repeat(3,1fr);}
   .inv-ov-donut-wrap {flex-direction:column;align-items:stretch;}
   .inv-ov-donut {align-self:center;}
   .inv-ov-bar {grid-template-columns:86px 1fr 62px;}
