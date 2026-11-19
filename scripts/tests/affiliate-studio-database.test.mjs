@@ -55,6 +55,9 @@
 //   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
+//   AFFILIATE_DB_MUTATION=anyagerate    an old order's refund is re-priced at today's rate
+//   AFFILIATE_DB_MUTATION=anyageup      re-reading a credited order can add commission
+//   AFFILIATE_DB_MUTATION=anyageactive  a refund on a retired code's order is never taken back
 //   AFFILIATE_DB_MUTATION=sendrecheck   a refund after approval does not stop a PayPal send
 //   AFFILIATE_DB_MUTATION=retryrecheck  Retry posts an unconfirmed attempt after a refund landed
 //   AFFILIATE_DB_MUTATION=exportrecheck a refund after approval does not keep a payout out of an export
@@ -278,6 +281,8 @@ const files = {
   portallinks: '20261119020000_affiliate_portal_links_stay_live.sql',
   // A refund after approval stops the send and the export (20261119030000).
   recheck: '20261119030000_affiliate_payout_recheck_reductions.sql',
+  // Refunds on credited orders of any age, and on retired codes (20261119040000).
+  anyage: '20261119040000_affiliate_refunds_any_age.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -290,6 +295,9 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  case 'anyagerate': mutate('anyage', "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_rate.rate_value, 0) / 100.0)::bigint", "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_prog.commission_percent, 0) / 100.0)::bigint"); break;
+  case 'anyageup': mutate('anyage', '    if v_delta >= 0 then continue; end if;', '    if v_delta = 0 then continue; end if;'); break;
+  case 'anyageactive': mutate('anyage', "       and a.basis in ('single_affiliate_code', 'first_affiliate_code')\n", "       and a.basis in ('single_affiliate_code', 'first_affiliate_code')\n         and exists (select 1 from public.affiliate_codes c where c.id = a.affiliate_code_id and c.status = 'active')\n"); break;
   case 'sendrecheck': mutate('recheck', '  if v_newer < 0 then\n    raise exception \'affiliate_payout_send_claim:', '  if false then\n    raise exception \'affiliate_payout_send_claim:'); break;
   case 'retryrecheck': mutate('recheck', "  v_newer := public.affiliate_payout_has_new_reductions(v_payout.id);\n  if v_newer < 0 then", "  v_newer := 0;\n  if v_newer < 0 then"); break;
   case 'exportrecheck': mutate('recheck', '\n       and public.affiliate_payout_has_new_reductions(id) = 0;', ';'); break;
@@ -561,7 +569,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2364,6 +2372,42 @@ await check('PL1 a new portal link leaves earlier ones working; a new sign-up li
   await db.query(`delete from affiliate_access_tokens where token_hash like 'pl1-%'`);
 });
 
+// ── Refunds on any credited order (20261119040000) ────────────────────────
+await check('RF1 a refund on a credited order whose code was retired is taken back, at the rate it earned', async () => {
+  const rex = await newActive('Rex', 'REX');
+  await orderA('1090', '2026-11-03', 'REX', 100);
+  await settle();
+  assert.equal(await ledgerSum('1090'), 1000, '10% of $100');
+  await asSuper();
+  await db.query(`update affiliate_codes set status = 'retired' where affiliate_id = $1`, [rex]);
+  await db.query(`update shopify_orders set refunded_subtotal = 40 where order_id = '1090'`);
+  await settle();
+  assert.equal(await ledgerSum('1090'), 1000, 'the window pass matches active codes only, so it never sees this refund');
+  await asSuper();
+  const rate = (await one(`select commission_percent from affiliate_programs where id = $1`, [progA])).commission_percent;
+  await db.query(`update affiliate_programs set commission_percent = 50 where id = $1`, [progA]);
+  await db.exec('set role service_role');
+  const r = (await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA])).r;
+  assert.ok(r.orders_changed >= 1);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'reduced to 10% of $60, the rate it was accrued at, not today\'s 50%');
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'running it again changes nothing');
+  // A refund that is later reversed in Shopify does not create credit here.
+  await db.query(`update shopify_orders set refunded_subtotal = 0 where order_id = '1090'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1090'), 600, 'this pass only ever reduces');
+  await db.query(`update affiliate_programs set commission_percent = $2 where id = $1`, [progA, rate]);
+  await db.query(`update shopify_orders set refunded_subtotal = 40 where order_id = '1090'`);
+  for (const role of ['anon', 'authenticated']) {
+    assert.equal((await one(`select has_function_privilege($1, 'public.affiliate_refresh_credited_orders(uuid)', 'execute') as x`, [role])).x, false, `${role} cannot call it`);
+  }
+});
+
 // ── A refund after approval (20261119030000) ──────────────────────────────
 await check('RR1 a refund that lands after approval stops the PayPal send and the export', async () => {
   await asSuper();
@@ -2434,7 +2478,7 @@ await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Stud
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

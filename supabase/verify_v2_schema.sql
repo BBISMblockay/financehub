@@ -10219,6 +10219,17 @@ select 'Affiliate payout refund recheck' as check_name,
     else 'ok'
   end as status;
 
+-- Refunds on credited orders of any age, and on retired codes (20261119040000).
+select 'Affiliate refunds any age' as check_name,
+  case
+    when to_regprocedure('public.affiliate_refresh_credited_orders(uuid)') is null
+      then 'MISSING — run 20261119040000_affiliate_refunds_any_age.sql'
+    when has_function_privilege('anon', 'public.affiliate_refresh_credited_orders(uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_refresh_credited_orders(uuid)', 'execute')
+      then 'BROKEN — browsers can call the credited-order refresh'
+    else 'ok'
+  end as status;
+
 -- Receiving drafted by a connected AI (20261117220000): the draft is inert,
 -- the scope is grantable, only the integration role may draft, confirming is
 -- the CONFIRMING PERSON's write (security invoker, so their RLS and the

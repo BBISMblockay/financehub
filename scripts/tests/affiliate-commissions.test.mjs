@@ -10,6 +10,8 @@
 //   AFFILIATE_COMMISSIONS_MUTATION=nocompanyfilter  the company filter is dropped
 //   AFFILIATE_COMMISSIONS_MUTATION=longchain   the sync's chained run uses the nightly window
 //   AFFILIATE_COMMISSIONS_MUTATION=syncfatal   a lagging commissions run fails the sales sync
+//   AFFILIATE_COMMISSIONS_MUTATION=norefresh   old or retired-code credited orders are never re-read for refunds
+//   AFFILIATE_COMMISSIONS_MUTATION=refreshsilent a failed re-read leaves the run green
 //   AFFILIATE_COMMISSIONS_MUTATION=noseed      product seeding is never swept
 //   AFFILIATE_COMMISSIONS_MUTATION=seedsilent  a failed seeding sweep leaves the run green
 // Run: node scripts/tests/affiliate-commissions.test.mjs
@@ -29,6 +31,8 @@ const muts = {
   allcompanies: ['  if (Array.isArray(onlyCompanyIds) && onlyCompanyIds.length === 0) return summary;', ''],
   nocompanyfilter: ['  if (Array.isArray(onlyCompanyIds)) q = q.in(\'company_entity_id\', onlyCompanyIds);', ''],
   longchain: ['export const CHAINED_LOOKBACK_DAYS = 3;', 'export const CHAINED_LOOKBACK_DAYS = 45;'],
+  norefresh: ["      if (source === 'nightly') {\n        const rr", "      if (false) {\n        const rr"],
+  refreshsilent: ["          if (!missing) throw new Error(`refresh credited: ${rr.error.message}`);", "          if (!missing) result.refresh_error = rr.error.message;"],
   noseed: ["      const r3 = await supabase.rpc('affiliate_seed_sweep', { p_program: p.id });", '      const r3 = { data: null };'],
   seedsilent: ["        if (!missing) { status = 'error'; summary.failed += 1; result.seeding_error = r3.error.message; }", '        if (!missing) { result.seeding_error = r3.error.message; }'],
 };
@@ -61,7 +65,7 @@ async function test(name, fn) {
   catch (e) { console.error(`FAILED: ${name}\n`, e); process.exit(1); }
 }
 
-function fake({ fail = null, seedFail = null } = {}) {
+function fake({ fail = null, seedFail = null, refreshFail = null } = {}) {
   const log = [];
   return {
     log,
@@ -83,6 +87,9 @@ function fake({ fail = null, seedFail = null } = {}) {
       if (seedFail === 'missing' && name === 'affiliate_seed_sweep') return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.affiliate_seed_sweep(p_program) in the schema cache' } };
       if (seedFail === 'boom' && name === 'affiliate_seed_sweep') return { data: null, error: { code: 'P0001', message: 'seed boom' } };
       if (name === 'affiliate_seed_sweep') return { data: { purchased: 0, earned: 1, expired: 0 }, error: null };
+      if (refreshFail === 'missing' && name === 'affiliate_refresh_credited_orders') return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.affiliate_refresh_credited_orders(p_program) in the schema cache' } };
+      if (refreshFail === 'boom' && name === 'affiliate_refresh_credited_orders') return { data: null, error: { code: 'P0001', message: 'refresh boom' } };
+      if (name === 'affiliate_refresh_credited_orders') return { data: { orders_changed: 1, entries_reduced: 1, net_amount_cents: -300 }, error: null };
       return { data: name === 'affiliate_accrue_commissions' ? { entries_accrued: 2, entries_reduced: 1, net_amount_cents: 500 } : { rows_written: 3 }, error: null };
     },
   };
@@ -94,7 +101,7 @@ await test('each active program: match orders, then accrue, over the last 45 day
   const s = await runCommissions({ supabase: sb, now: () => NOW, deliverNotices: async () => { swept += 1; return { sent: 1 }; } });
   assert.equal(LOOKBACK_DAYS, 45);
   const rpcs = sb.log.filter((x) => x.rpc);
-  assert.deepEqual(rpcs.map((x) => `${x.rpc}:${x.args.p_program}`), ['affiliate_resolve_attributions:p1', 'affiliate_accrue_commissions:p1', 'affiliate_seed_sweep:p1', 'affiliate_resolve_attributions:p2', 'affiliate_accrue_commissions:p2', 'affiliate_seed_sweep:p2'], 'seeding is swept after each program accrues');
+  assert.deepEqual(rpcs.map((x) => `${x.rpc}:${x.args.p_program}`), ['affiliate_resolve_attributions:p1', 'affiliate_accrue_commissions:p1', 'affiliate_refresh_credited_orders:p1', 'affiliate_seed_sweep:p1', 'affiliate_resolve_attributions:p2', 'affiliate_accrue_commissions:p2', 'affiliate_refresh_credited_orders:p2', 'affiliate_seed_sweep:p2'], 'credited orders of any age are re-read, then seeding is swept, after each program accrues');
   assert.equal(rpcs[0].args.p_from, '2026-09-26');
   assert.equal(rpcs[0].args.p_to, '2026-11-11', 'through tomorrow UTC, so every zone\'s today is in');
   assert.equal(rpcs[1].args.p_period, undefined, 'new lines go to the open period that contains each order');
@@ -138,6 +145,24 @@ await test('product seeding: recorded on the run; missing before the migration i
   assert.deepEqual(jobs.map((x) => x.row.status), ['error', 'error']);
   assert.match(jobs[0].row.result.seeding_error, /seed boom/);
   assert.equal(jobs[0].row.result.entries_accrued, 2, 'the commissions it accrued are still recorded');
+});
+
+await test('credited orders of any age: re-read nightly only, recorded on the run; missing is not a failure; a real error is', async () => {
+  let sb = fake();
+  let s = await runCommissions({ supabase: sb, now: () => NOW });
+  const job = sb.log.filter((x) => x.insert === 'sync_jobs')[0].row;
+  assert.deepEqual(job.result.credited_refresh, { orders_changed: 1, entries_reduced: 1, net_amount_cents: -300 });
+  assert.equal(s.entries_reduced, 4, 'its reductions count with the window\'s');
+  sb = fake();
+  await runCommissions({ supabase: sb, now: () => NOW, onlyCompanyIds: ['c2'], lookbackDays: CHAINED_LOOKBACK_DAYS, source: 'shopify_sync' });
+  assert.ok(!sb.log.some((x) => x.rpc === 'affiliate_refresh_credited_orders'), 'a chained sync run stays short');
+  sb = fake({ refreshFail: 'missing' });
+  s = await runCommissions({ supabase: sb, now: () => NOW });
+  assert.equal(s.failed, 0, 'not applied yet is not a failure');
+  sb = fake({ refreshFail: 'boom' });
+  s = await runCommissions({ supabase: sb, now: () => NOW });
+  assert.equal(s.failed, 2);
+  assert.match(sb.log.filter((x) => x.insert === 'sync_jobs')[0].row.result.error, /refresh boom/);
 });
 
 await test('the workflow runs nightly, uses the service key, and has no concurrency group', async () => {

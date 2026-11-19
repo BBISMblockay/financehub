@@ -3959,6 +3959,11 @@ the welcome email, the code email), and each new one used to revoke the last. No
 inside the money lock when a payout is sent with PayPal (`affiliate_payout_send_claim`, refused, nothing reserved) or
 exported (`affiliate_claim_payout_export`, left out and returned in `skipped`). Void and build again. No deploy needed.
 
+`20261119040000_affiliate_refunds_any_age.sql` adds `affiliate_refresh_credited_orders(program)`, which the nightly
+commissions run calls after its 45-day window. It re-reads every earning attribution of the program against
+`shopify_orders`, at any age and whatever its code's status, and appends a `refund_adjustment` at the rate the order was
+accrued at. It only ever reduces. Service role only. No deploy needed (the nightly script calls it once applied).
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column
