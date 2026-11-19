@@ -281,7 +281,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     page.on('pageerror', (e) => errors.push(e.message));
     // Pinched page (Blake, 2026-11-13): Home, People, Money, Setup, and
     // Records for everything that used to fold open.
-    R.ok('the page has six tabs', (await page.$$('#tabs [data-tab]')).length === 6);
+    R.ok('the page has seven tabs', (await page.$$('#tabs [data-tab]')).length === 7);
     R.ok('nothing on the page folds open', !(await page.$('details')));
     R.ok('the page opens on Overview', await page.evaluate(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'overview'));
     const over = await text(page, '#overviewBody');
@@ -318,7 +318,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(ov, 'SILO never', 'the overview says how it works, not what SILO does not do')
     R.not(ov, 'Incremental sales', 'the card lists what SILO does, not what it does not')
     R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
-    for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['comms', 'shareBody'], ['payouts', 'payoutsBody']]) {
+    for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['share', 'shareBody'], ['payouts', 'payoutsBody']]) {
       await page.click(`#tabs [data-tab="${tab}"]`);
       await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card, #${b} .af-surface`), body, { timeout: 5000 });
     }
@@ -433,7 +433,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('each affiliate owed shows a paid-of-earned meter', !!(await page.$('#payoutsBody .af-item--pay .af-pay-meter')));
     R.ok('ready-to-pay rows carry the affiliate photo or initials', !!(await page.$('#payoutsBody .af-item--pay .af-list-thumb')));
     // ── Share tab: the brand picks what affiliates see ──────────────────
-    await page.click('#tabs [data-tab="comms"]');
+    R.not(await text(page, '#outreachBody'), 'Pick what to share', 'sharing is not on Outreach');
+    await page.click('#tabs [data-tab="share"]');
     await page.waitForFunction(() => /Spring Drop/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     const sb = await text(page, '#shareBody');
     R.has(sb, 'Trail Hat', 'what is already shared is listed first');
