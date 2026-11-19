@@ -972,6 +972,9 @@ const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnP
 // in plain sight, in a card per subject, one row each: the name on the left,
 // the control on the right. Choices are chips and switches, not dropdowns.
 // An existing program saves as you go; a new one has one Create button.
+const applyLinkCtl = (p) => (p.intake_mode === 'open'
+  ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: applyUrl(location.origin, CO, p.slug) }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(applyUrl(location.origin, CO, p.slug)) || '#')}" target="_blank" rel="noopener">Open</a></div>`
+  : '<div class="af-row" id="applyClosed"><span class="af-muted">Choose Open applications above to get a link people can apply with.</span></div>');
 const setRow = (label, control, id = '') => `<div class="af-set-row"${id ? ` id="${id}"` : ''}><div class="af-set-label">${esc(label)}</div><div class="af-set-ctl">${control}</div></div>`;
 // A row of chips standing in for a select: the hidden input keeps the id the
 // form reads, and a press sets it and announces the change.
@@ -997,7 +1000,9 @@ function renderProgram(isNew = S.creating) {
     setRow('Name', setInput('pName', `${dis} value="${esc(p.name || '')}" placeholder="Creator program"`)),
     setRow('Status', seg('pStatus', [['draft', 'Draft'], ['active', 'Active'], ['paused', 'Paused'], ['closed', 'Closed']], p.status ?? 'draft', dis)),
     setRow('Joining', seg('pIntake', [['invite_only', 'Invite only'], ['open', 'Open applications']], p.intake_mode ?? 'invite_only', dis)),
-    !isNew && p.id && p.intake_mode === 'open' ? setRow('Application link', `<div class="af-row">${btn('Copy link', 'copy-text', { t: applyUrl(location.origin, CO, p.slug) }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(applyUrl(location.origin, CO, p.slug)) || '#')}" target="_blank" rel="noopener">Open</a></div>`) : '',
+    // Always shown (Blake 2026-11-19: "apply link ... is not in setup"): with
+    // Invite only it says how to open it instead of disappearing.
+    !isNew && p.id ? setRow('Application link', applyLinkCtl(p), 'rowApply') : '',
     setRow('Link name', setInput('pSlug', `${dis} value="${esc(p.slug || '')}" placeholder="creator-program"`)),
     setRow('Owner', `<select class="bcn-field af-set-input" id="pOwner" ${dis}><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}"${u.id === p.owner_user_id ? ' selected' : ''}>${esc(u.name || u.email)}</option>`).join('')}</select>`),
   ].join(''));
@@ -1096,6 +1101,9 @@ async function autosaveProgram({ id, row }) {
     // without redrawing the page under the person's cursor.
     const fresh = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).eq('id', id).maybeSingle());
     if (fresh) S.programs = S.programs.map((x) => (x.id === fresh.id ? fresh : x));
+    // The application link follows Joining and the link name at once.
+    const ctl = fresh && S.programId === id ? document.querySelector('#rowApply .af-set-ctl') : null;
+    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });
     if (el()) el().textContent = 'Saved';
   } catch (e) {
     if (el()) el().textContent = '';
@@ -1315,12 +1323,12 @@ function renderOutreach() {
   $('outreachBody').innerHTML = [
     surface('Inbound', itemList(applied, appCard, 'No applications waiting.'), `${num(applied.length)} applied`),
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+    surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
       'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`),
     readyDm.length ? surface('Send by DM', itemList(readyDm, dmCard), `${num(readyDm.length)} with no email`) : '',
     surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
       ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Or export ${ready.length} to send yourself`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`),
+      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`),
     out.length ? surface('Mark sent', itemList(out, exportedCard), `${num(out.length)} exported`) : '',
     hasOutreachMessage() ? card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
       ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
@@ -2786,8 +2794,20 @@ const A = {
     await updateRows('affiliate_outreach_drafts', { state: 'declined', outcome_note: 'asked not to be contacted' }, { id });
     return 'Recorded, and added to the do-not-contact list.';
   },
-  'outreach-export': async () => {
-    const drafts = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x)).slice(0, 200);
+  // Approve the ticked messages and download them as a CSV in one press
+  // (Blake 2026-11-19: "need csv email export from queue").
+  'q-msg-export': async () => {
+    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
+    const email = ids.filter((id) => { const x = S.d.drafts.find((r) => r.id === id); return x && !isDm(x); });
+    if (!email.length) return 'None of those has an email address: send them by DM.';
+    await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: email, state: 'draft' });
+    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';
+    qsel('msgs').clear();
+    const m = await A['outreach-export']({ only: email });
+    return email.length < ids.length ? `${m} ${num(ids.length - email.length)} with no email stay for DM.` : m;
+  },
+  'outreach-export': async ({ only } = {}) => {
+    const drafts = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x) && (!only || only.includes(x.id))).slice(0, 200);
     if (!drafts.length) return 'Nothing to export: messages with no email are sent by DM.';
     const links = {};
     for (const x of drafts) {
