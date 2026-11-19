@@ -3951,6 +3951,10 @@ program managers of the active company upload into their own program; there is n
 signed version is never replaced or removed. The join page reads it through affiliate-portal (signed URL).
 Apply before deploying affiliate-portal.
 
+`20261119020000_affiliate_portal_links_stay_live.sql` limits `affiliate_issue_access_token()`'s "one live link" rule to
+sign-up links. Portal links each stay live for their 90 days: signing up hands out several within seconds (the page,
+the welcome email, the code email), and each new one used to revoke the last. No deploy needed.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

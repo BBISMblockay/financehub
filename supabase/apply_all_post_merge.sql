@@ -19854,4 +19854,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261119010000: a program's partnership agreement as a PDF; changing it is a
 -- new terms version. Apply BEFORE deploying affiliate-portal.
 \i migrations/20261119010000_affiliate_terms_file.sql
+-- 20261119020000: affiliate portal links stay live; only sign-up links are
+-- one-at-a-time (the sign-up button and welcome email were dead on arrival).
+\i migrations/20261119020000_affiliate_portal_links_stay_live.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -55,6 +55,7 @@
 //   AFFILIATE_DB_MUTATION=seedmixedguess a refund on a mixed cart is read as this product's refund
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
+//   AFFILIATE_DB_MUTATION=portalrevoke  a new portal link kills the one just handed out
 //   AFFILIATE_DB_MUTATION=termsfilebump a new agreement file is not a new terms version
 //   AFFILIATE_DB_MUTATION=termsfilegate anyone in the company may upload an agreement
 //   AFFILIATE_DB_MUTATION=moneygate     period approval accepts the manager gate
@@ -270,6 +271,8 @@ const files = {
   addprog: '20261118010000_affiliate_add_to_program.sql',
   // The agreement as a PDF (20261119010000).
   termsfile: '20261119010000_affiliate_terms_file.sql',
+  // Portal links stay live; only sign-up links are one-at-a-time (20261119020000).
+  portallinks: '20261119020000_affiliate_portal_links_stay_live.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -282,6 +285,7 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  case 'portalrevoke': mutate('portallinks', "  if p_purpose = 'signup' then\n", "  if true then\n"); mutate('portallinks', "       and purpose = 'signup'\n", "       and purpose = p_purpose\n"); break;
   case 'termsfilebump': mutate('termsfile', "\n     or new.terms_file_sha256 is distinct from old.terms_file_sha256 then", ' then'); break;
   case 'termsfilegate': mutate('termsfile', `    and public.can_manage_affiliate_programs()
     and exists`, `    and exists`); break;
@@ -549,7 +553,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2337,13 +2341,28 @@ await check('TF3 only the company\'s program managers upload, only into their ow
   assert.equal((await all(`select name from storage.objects where bucket_id = 'affiliate-terms'`)).length, 1, 'a signed version stays: no delete policy');
 });
 
+// ── Portal links stay live (20261119020000) ───────────────────────────────
+await check('PL1 a new portal link leaves earlier ones working; a new sign-up link still replaces the old one', async () => {
+  await asSuper();
+  const a = await one(`select id, company_entity_id, program_id from affiliates where company_entity_id = $1 order by created_at limit 1`, [A]);
+  const mint = (purpose, hash) => db.query(`select public.affiliate_issue_access_token($1,$2,$3,$4, now() + interval '1 day', $5)`, [a.company_entity_id, a.program_id, purpose, hash, a.id]);
+  // Signing up: the link on the page and in the welcome email, then one in each later email.
+  await mint('portal', 'pl1-accept'); await mint('portal', 'pl1-code-email'); await mint('portal', 'pl1-signin');
+  const live = await all(`select token_hash from affiliate_access_tokens where token_hash like 'pl1-%' and revoked_at is null order by token_hash`);
+  assert.deepEqual(live.map((r) => r.token_hash), ['pl1-accept', 'pl1-code-email', 'pl1-signin'], 'every portal link handed out still works');
+  await mint('signup', 'pl1-invite-1'); await mint('signup', 'pl1-invite-2');
+  const inv = await all(`select token_hash, revoked_at is null as live from affiliate_access_tokens where token_hash like 'pl1-invite-%' order by token_hash`);
+  assert.deepEqual(inv.map((r) => [r.token_hash, r.live]), [['pl1-invite-1', false], ['pl1-invite-2', true]], 'only the newest invite works');
+  await db.query(`delete from affiliate_access_tokens where token_hash like 'pl1-%'`);
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));
