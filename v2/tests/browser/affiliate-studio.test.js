@@ -905,7 +905,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         return reply(200, { brand: 'Brand A', feed: { code: 'PAT10', store_link: null, items: [] },
           statement: { currency: 'USD', totals: { earned_cents: 0, paid_cents: 0, unclaimed_cents: 0, orders: 0, today: '2026-11-09' }, monthly: [], codes: [{ code: 'PAT10', starts_on: '2026-10-01', ends_on: null, status: 'active' }], links: [], payouts: [], affiliate: { status: 'active', display_name: 'Pat', terms_version_accepted: 3, terms_accepted_at: now } } });
       }
-      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO, program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
+      if (body.action === 'resolve') return reply(200, { purpose: body.token.startsWith('P') || body.token.startsWith('N') ? 'portal' : 'signup', brand: 'Brand A', brand_logo: body.token.startsWith('P') ? 'https://evil.test/pixel.png' : LOGO,
+        program: body.token.startsWith('F') ? { ...program, terms_file: { name: 'Brand A partnership.pdf', url: 'https://files.invalid/signed/agreement.pdf' } }
+          : body.token.startsWith('B') ? { ...program, terms_file: { name: null, url: null } } : program, affiliate: { display_name: 'Pat', status: 'invited' }, expires_at: now });
       if (body.action === 'accept') return reply(200, { status: 'active', portal_url: 'https://app.test/v2/affiliates/portal.html?t=' + 'P'.repeat(43), confirmation_email: 'sent', codes_live: ['PAT10'] });
       if (body.action === 'statement') return reply(200, { brand: 'Brand A', photo_url: 'https://photos.invalid/samruns.png', photo_own: false, feed: { code: 'PAT10', store_link: 'https://shop.invalid/discount/PAT10?redirect=%2F', items: [
         { id: 'f1', kind: 'launch', title: 'Spring <b>Drop</b>', event_on: '2099-03-01', note: null, image_url: null, link: 'https://shop.invalid/discount/PAT10?redirect=%2Fcollections%2Fspring', claimed: false, push: [] },
@@ -958,13 +960,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const join = await suite.open('/v2/affiliates/join.html?t=' + 'S'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
     join.on('pageerror', (e) => errors.push(e.message));
     R.ok('the token is removed from the address bar', !(await join.evaluate(() => location.search.includes('t='))))
-    R.ok('terms are rendered as text: no element from the brand text', !(await join.evaluate(() => document.querySelector('.af-terms img'))))
+    R.ok('terms are rendered as text: no element from the brand text', !(await join.evaluate(() => document.querySelector('#terms img'))))
     R.ok('nothing in the terms runs', !(await join.evaluate(() => window.__pwned)))
     R.ok('the affiliate page carries no SILO navigation', !(await join.$('.silo-sidebar, nav.silo-nav, #silo-app')))
     const hero = await text(join, '#hero');
-    R.ok('the invitation names the brand and leads with the offer', /Join the .+ affiliate program/.test(hero) && /\S/.test(await text(join, '.af-offer-num')));
-    R.has(hero, 'Accept the terms', 'the three steps say what happens next');
-    R.eq(await join.evaluate(() => document.querySelector('#hero .af-brand img.af-logo')?.getAttribute('src')), LOGO, 'the company logo heads the invitation');
+    R.ok('the invitation names the brand and leads with the offer', /Join the .+ partner program/.test(hero) && /\S/.test(await text(join, '#offer')));
+    R.has(hero, 'Sign the agreement', 'the three steps say what happens next');
+    R.ok('the sign-up page uses the same layout as the apply page', !!(await join.$('.ap-shell .ap-brand #hero')) && !!(await join.$('.ap-card #form')));
+    R.ok('a program with no agreement file shows no file row', !(await join.$('#termsDoc')));
+    R.eq(await join.evaluate(() => document.querySelector('#hero .ap-mark img.af-logo')?.getAttribute('src')), LOGO, 'the company logo heads the invitation');
     R.eq(await join.evaluate(() => document.querySelector('#hero img.af-logo')?.alt), 'Brand A', 'with the brand name as its text');
     R.ok('the platform terms are linked next to the program terms', !!(await join.$('a[href="/legal/affiliate-terms.html"]')));
     await join.fill('#paypal', 'pat@pay.invalid');
@@ -981,6 +985,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(acc?.payout_email, 'pat@pay.invalid', 'the PayPal email is asked at signup');
     R.has(doneText.replace(/\s+/g, ' '), 'Your code PAT10 is live', 'a code SILO already made is named, not promised');
     await join.close();
+    // The brand's agreement as a PDF (20261119010000): linked to open, and a
+    // file that could not be linked blocks the signature.
+    const joinF = await suite.open('/v2/affiliates/join.html?t=' + 'F'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
+    joinF.on('pageerror', (e) => errors.push(e.message));
+    R.eq(await joinF.evaluate(() => document.querySelector('#termsDoc')?.getAttribute('href')), 'https://files.invalid/signed/agreement.pdf', 'the agreement PDF opens from the sign-up page');
+    R.has(await text(joinF, '#termsDoc'), 'Brand A partnership.pdf', 'named as the brand uploaded it');
+    R.ok('a linked agreement can be signed', await joinF.evaluate(() => !document.getElementById('go').disabled));
+    await joinF.close();
+    const joinB = await suite.open('/v2/affiliates/join.html?t=' + 'B'.repeat(43), {}, { ready: () => !!document.getElementById('form') });
+    joinB.on('pageerror', (e) => errors.push(e.message));
+    R.ok('an agreement that did not load cannot be signed', await joinB.evaluate(() => document.getElementById('go').disabled));
+    R.has(await text(joinB, '#termsDoc'), 'did not load', 'and says so');
+    await joinB.close();
 
     // ── portal page ───────────────────────────────────────────────────────
     const portal = await suite.open('/v2/affiliates/portal.html?t=' + 'P'.repeat(43), {}, { ready: () => !document.getElementById('kpis').hidden });
@@ -1639,6 +1656,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await seed.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
     const sp = await seed.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch);
     R.eq([sp.seeding_enabled, sp.seed_discount_percent, sp.seed_multiple], [true, 40, 3], 'Setup saves the seeding offer');
+    // A link name typed with capitals or spaces is tidied, not refused.
+    await seed.fill('#pSlug', 'Testing 2');
+    await seed.press('#pSlug', 'Tab');
+    await seed.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update' && q.patch?.slug === 'testing-2'), null, { timeout: 5000 }).catch(() => {});
+    R.ok('a link name with capitals saves lowercased', await seed.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update' && q.patch?.slug === 'testing-2')));
+    R.eq(await seed.inputValue('#pSlug'), 'testing-2', 'and the field shows what was saved');
     await seed.close();
     // Before the migration there is no claims table: no seeding, and no error.
     const noSeed = await suite.open('/v2/affiliates/index.html', qTables, { ready, broken: ['affiliate_seed_claims'], rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });

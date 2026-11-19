@@ -206,7 +206,7 @@ export function validateProgram(f) {
     row.shop_domains = on.length === f.shop_domains.length ? null : on;
   }
   if (!row.name) errors.push('Give the program a name.');
-  if (!SLUG_RE.test(row.slug)) errors.push('The short name (slug) must be 3–40 lowercase letters, digits or dashes.');
+  if (!SLUG_RE.test(row.slug)) errors.push('The link name must be 3–40 letters, digits or dashes.');
   if (!/^[A-Z]{3}$/.test(currency)) errors.push('Currency must be a three-letter code such as USD.');
   if (row.commission_kind === 'percent_of_net') {
     const p = Number(f.commission_percent);
@@ -227,7 +227,8 @@ export function validateProgram(f) {
   if (row.default_code_starts_on && row.default_code_ends_on && row.default_code_ends_on < row.default_code_starts_on) errors.push('Default code end date is before its start date.');
   const bad = row.platforms.filter((p) => !PLATFORMS.includes(p));
   if (bad.length) errors.push(`Unknown platform: ${bad.join(', ')}.`);
-  if (row.status === 'active' && !row.terms_markdown) errors.push('Write the program terms before making it active; affiliates accept them to join.');
+  // Written terms or an uploaded agreement PDF (20261119010000) either count.
+  if (row.status === 'active' && !row.terms_markdown && !f.has_terms_file) errors.push('Write the program terms or upload an agreement before making it active; affiliates sign it to join.');
   return { row, errors };
 }
 

@@ -170,6 +170,17 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     } catch { return null; }
   }
 
+  // The program's agreement file, if it has one (20261119010000). Before the
+  // migration the columns do not exist: that is "no file". Any other read
+  // error is returned, so accept never records a signature without knowing
+  // which file was on screen.
+  async function termsFile(programId) {
+    const { data, error } = await service.from('affiliate_programs')
+      .select('terms_file_path, terms_file_name, terms_file_sha256').eq('id', programId).maybeSingle();
+    if (error) return error.code === '42703' ? { file: null } : { error };
+    return { file: data?.terms_file_path ? { path: data.terms_file_path, name: data.terms_file_name, sha256: data.terms_file_sha256 } : null };
+  }
+
   // The portal feed: what the program shared, each with this affiliate's own
   // link. Fail-soft: an unapplied migration or a read error is "no feed".
   async function portalFeed(hash) {
@@ -318,12 +329,21 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
     await service.rpc('affiliate_portal_touch_token', { p_token_hash: hash });
 
     if (action === 'resolve') {
+      // A signed link to the agreement PDF, good for an hour. If it cannot be
+      // made, url is null and the join page will not take a signature.
+      const tf = await termsFile(t.program_id);
+      let termsFileOut = null;
+      if (tf.error) termsFileOut = { name: null, url: null };
+      else if (tf.file) {
+        const { data: su, error: suErr } = await service.storage.from('affiliate-terms').createSignedUrl(tf.file.path, 3600);
+        termsFileOut = { name: tf.file.name, url: suErr ? null : (su?.signedUrl || null) };
+      }
       return reply({
         purpose: t.purpose,
         brand: t.company_title,
         brand_logo: await brandLogo(t.company_entity_id),
         program: { name: t.program_name, status: t.program_status, terms_markdown: t.terms_markdown,
-          terms_version: t.terms_version, currency: t.currency,
+          terms_version: t.terms_version, currency: t.currency, terms_file: termsFileOut,
           commission: { kind: t.commission_kind, percent: t.commission_percent, fixed_cents: t.commission_fixed_cents } },
         affiliate: t.affiliate_id ? { display_name: t.affiliate_display_name, status: t.affiliate_status,
           // The address this signup link was sent to: the join page shows it
@@ -403,6 +423,13 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         // is answerable even after the program's terms are edited again.
         terms_sha256: await sha256hex(String(t.terms_markdown ?? '')),
       };
+      // The agreement file they signed against, by its hash (null: no file).
+      const tfa = await termsFile(t.program_id);
+      if (tfa.error) {
+        console.error('[affiliate-portal] terms file read failed', tfa.error.message);
+        return reply({ error: 'Signing is not available right now. Please try again in a minute.' }, 503);
+      }
+      acceptance.terms_file_sha256 = tfa.file?.sha256 || null;
       const { data: res, error } = await service.rpc('affiliate_portal_accept_terms', {
         p_token_hash: hash, p_signed_name: signed, p_terms_version: Number(body.terms_version),
         p_acceptance: acceptance, p_contact_name: clip(body.contact_name, 120), p_payout_note: null,

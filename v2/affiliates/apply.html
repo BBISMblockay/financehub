@@ -12,76 +12,7 @@
   <link rel="stylesheet" href="../beacon.css" />
   <link rel="stylesheet" href="../silo-brand.css" />
   <script src="/pages/config.js"></script>
-  <style>
-    /* Affiliate-facing page: no SILO chrome. Beacon tokens only, no new variables.
-       One public link per program (Blake 2026-11-17): apply, or sign in.
-       Redesigned 2026-11-18 (Blake: "not modern enough"): a brand panel beside a
-       roomy form card; stacked on a phone. */
-    html, body { min-height: 100%; }
-    body { margin: 0; background: var(--bcn-bg); color: var(--bcn-ink); }
-    .ap-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
-    /* The same panel as SILO's own sign-in (pages/login.html .silo-brand-panel), laces and all (Blake 2026-11-18). */
-    .ap-brand { position: relative; overflow: hidden; color: #fff; padding: 48px clamp(28px, 5vw, 64px); display: flex; flex-direction: column; justify-content: space-between; gap: 40px;
-      background:
-        radial-gradient(circle at 85% 8%, oklch(0.30 0.09 245 / .55) 0%, transparent 45%),
-        radial-gradient(circle at 10% 95%, oklch(0.34 0.10 200 / .35) 0%, transparent 50%),
-        linear-gradient(160deg, oklch(0.19 0.012 240) 0%, oklch(0.13 0.01 240) 65%); }
-    .ap-laces { position: absolute; right: -112px; bottom: -112px; width: 420px; height: 420px; opacity: .08; pointer-events: none; z-index: 0; }
-    .ap-brand-in { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 48px; max-width: 460px; }
-    .ap-mark { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 15px; }
-    .ap-mark .af-logo { height: 36px; width: auto; max-width: 160px; object-fit: contain; border-radius: 10px; display: block; }
-    .ap-mark .af-badge { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,.12); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 16px; }
-    .ap-kicker { font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; opacity: .6; margin: 0 0 16px; }
-    .ap-brand h1 { margin: 0; font-size: clamp(28px, 2.6vw, 38px); line-height: 1.18; letter-spacing: -.02em; font-weight: 700; max-width: 18ch; }
-    .ap-perks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; max-width: 460px; }
-    .ap-perks li { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px; background: color-mix(in oklch, var(--bcn-surface) 9%, transparent); border: 1px solid color-mix(in oklch, var(--bcn-surface) 14%, transparent); font-size: 13px; font-weight: 500; backdrop-filter: blur(6px); }
-    .ap-perks svg { flex: none; width: 15px; height: 15px; opacity: .8; }
-    .ap-lead { margin: 16px 0 0; font-size: 15px; line-height: 1.6; opacity: .75; max-width: 42ch; }
-    .ap-steps { list-style: none; margin: 36px 0 0; padding: 0; display: grid; gap: 20px; counter-reset: st; }
-    .ap-steps li { display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: start; counter-increment: st; }
-    .ap-steps li::before { content: counter(st); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-family: var(--bcn-mono); font-size: 12px; font-weight: 500; background: color-mix(in oklch, var(--bcn-surface) 14%, transparent); }
-    .ap-steps b { display: block; font-size: 14px; font-weight: 600; line-height: 1.4; }
-    .ap-steps span { display: block; margin-top: 2px; font-size: 13px; line-height: 1.5; opacity: .6; }
-    .ap-now { margin: 36px 0 12px; font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .6; }
-    .ap-foot { font-size: 12px; opacity: .6; }
-    .ap-main { display: flex; align-items: center; justify-content: center; padding: 56px 32px; }
-    .ap-card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 28px; }
-    .ap-card h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.015em; }
-    .ap-sub { margin: 6px 0 0; color: var(--bcn-ink-3); font-size: 14px; line-height: 1.5; }
-    .ap-seg { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px; background: color-mix(in oklch, var(--bcn-ink) 6%, transparent); }
-    .ap-seg button { border: 0; background: transparent; padding: 9px; border-radius: 999px; font: inherit; font-weight: 600; font-size: 14px; color: var(--bcn-ink-3); cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
-    .ap-seg button.is-on { background: var(--bcn-surface); color: var(--bcn-ink); box-shadow: 0 1px 2px color-mix(in oklch, var(--bcn-ink) 12%, transparent), 0 4px 14px color-mix(in oklch, var(--bcn-ink) 8%, transparent); }
-    .ap-form { display: flex; flex-direction: column; gap: 18px; }
-    .ap-field { display: flex; flex-direction: column; gap: 6px; }
-    .ap-field label { font-size: 13px; font-weight: 500; color: var(--bcn-ink-2); }
-    .ap-field input, .ap-field textarea { font: inherit; font-size: 16px; color: var(--bcn-ink); background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 10px; padding: 10px 12px; outline: none; transition: border-color .15s, box-shadow .15s; width: 100%; box-sizing: border-box; }
-    .ap-field textarea { resize: vertical; min-height: 80px; }
-    .ap-field input:focus, .ap-field textarea:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 4px color-mix(in oklch, var(--bcn-accent) 18%, transparent); }
-    .ap-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .ap-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .ap-chips button { font: inherit; font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); cursor: pointer; transition: all .15s; }
-    .ap-chips button.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
-    .ap-go { margin-top: 4px; font: inherit; font-size: 15px; font-weight: 600; padding: 13px 18px; border: 0; border-radius: 999px; background: var(--bcn-ink); color: var(--bcn-surface); cursor: pointer; transition: transform .1s, opacity .15s; }
-    .ap-go:hover { opacity: .92; } .ap-go:active { transform: scale(.99); } .ap-go:disabled { opacity: .5; cursor: default; }
-    .ap-done { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 0; }
-    .ap-done-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in oklch, var(--bcn-pos) 14%, transparent); color: var(--bcn-pos); }
-    .ap-done h2 { font-size: 22px; }
-    .ap-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-    .ap-muted { color: var(--bcn-ink-3); font-size: 13px; text-align: center; margin: 0; }
-    #status:empty { display: none; }
-    @media (max-width: 860px) {
-      .ap-shell { grid-template-columns: 1fr; }
-      .ap-brand { padding: 28px 22px 32px; }
-      .ap-brand-in { gap: 28px; }
-      .ap-brand h1 { font-size: 26px; }
-      .ap-lead { font-size: 14px; }
-      .ap-steps { display: none; }
-      .ap-now { margin-top: 24px; }
-      .ap-foot { display: none; }
-      .ap-main { padding: 32px 20px 56px; align-items: flex-start; }
-      .ap-row { grid-template-columns: 1fr; }
-    }
-  </style>
+  <link rel="stylesheet" href="partner.css" />
 </head>
 <body class="silo-brand">
 <div class="ap-shell">

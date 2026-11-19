@@ -142,7 +142,7 @@ jobs:
   affiliate-guards:
     name: Affiliate Studio guards (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

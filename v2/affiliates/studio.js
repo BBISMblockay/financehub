@@ -813,6 +813,8 @@ const hasAutoCode = () => S.programs.some((x) => Object.prototype.hasOwnProperty
 // Product seeding exists once 20261113093000 is applied.
 const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'seeding_enabled'));
 // Content bonus exists once 20261117050000 is applied.
+// The agreement PDF exists once 20261119010000 is applied.
+const hasTermsFile = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'terms_file_path'));
 const hasContentBonus = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'content_bonus_cents'));
 const storesCard = (p, dis) => {
   const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
@@ -879,8 +881,13 @@ function renderProgram(isNew = S.creating) {
   ].join(''));
   // The message to creators is prepped on Comms now (Blake, 2026-11-17).
   const message = '';
+  // The agreement: written terms, a PDF the brand uploads (20261119010000),
+  // or both. Affiliates sign whichever is here; changing either is a new version.
+  const fileRow = !hasTermsFile() || isNew ? '' : p.terms_file_path
+    ? `<div class="af-terms-file"><span class="af-terms-file-icon">PDF</span><span class="af-terms-file-name">${esc(p.terms_file_name || 'Agreement')}</span>${btn('Open', 'terms-file-open')}${dis ? '' : btn('Remove', 'terms-file-remove', {}, 'surface', { confirm: true })}</div>`
+    : (dis ? '' : `<div class="af-terms-file af-terms-file--empty"><input class="bcn-field" type="file" id="pTermsFile" accept="application/pdf,.pdf" aria-label="Agreement PDF" />${btn('Upload agreement', 'terms-file-upload', {}, 'primary')}</div><p class="af-muted">Optional. A PDF of your partnership agreement, up to 10 MB. Affiliates open it and sign before they join.</p>`);
   const terms = card(`Terms${p.terms_version ? ` · v${p.terms_version}` : ''}`,
-    `<textarea class="bcn-field af-set-input" id="pTerms" rows="8" ${dis} placeholder="Commission, crediting, refunds, payouts, rules">${esc(p.terms_markdown || '')}</textarea>`);
+    `${fileRow}<textarea class="bcn-field af-set-input" id="pTerms" rows="8" ${dis} placeholder="${p.terms_file_path ? 'Anything to add to the agreement (optional)' : 'Commission, crediting, refunds, payouts, rules'}">${esc(p.terms_markdown || '')}</textarea>`);
   const codes = card('Codes', [
     setRow('Codes start', setInput('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`)),
     setRow('Codes end', setInput('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`)),
@@ -962,9 +969,17 @@ async function renderManagers() {
     <div class="af-row" style="margin-top:8px;">${field('Grant access to', `<select class="bcn-field" id="mgrUser"><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}</select>`)}${btn('Grant', 'add-manager', {}, 'primary')}</div>`);
 }
 
+// The link name is made URL-safe as typed ("Testing-2" -> "testing-2"), so
+// a capital letter or a space never blocks the save (Blake 2026-11-18).
+function tidySlug() {
+  const el = $('pSlug'); const typed = el?.value.trim() || '';
+  const slug = slugify(typed || val('pName'));
+  if (el && typed && slug && typed !== slug) el.value = slug;
+  return slug;
+}
 function readProgramForm() {
   return validateProgram({
-    name: val('pName'), slug: val('pSlug') || slugify(val('pName')), status: val('pStatus'), owner_user_id: val('pOwner'),
+    name: val('pName'), slug: tidySlug(), status: val('pStatus'), owner_user_id: val('pOwner'),
     niche: val('pNiche'), audience_notes: val('pAudience'), geographies: val('pGeo'),
     platforms: [...document.querySelectorAll('.pPlat.is-on')].map((x) => x.dataset.plat),
     intake_mode: val('pIntake'), commission_kind: val('pKind'), commission_percent: val('pPct'), commission_fixed: val('pFixed'),
@@ -975,6 +990,7 @@ function readProgramForm() {
     ...($('programBody')?.querySelector('.pStore') ? { shop_domains: [...document.querySelectorAll('.pStore')].map((x) => ({ d: x.dataset.store, on: x.classList.contains('is-on') })) } : {}),
     ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),
     payout_minimum: val('pMin'), discovery_max_cost_usd: S.creating ? '' : (prog()?.discovery_max_cost_usd ?? ''), terms_markdown: $('pTerms').value,
+    has_terms_file: !S.creating && !!prog()?.terms_file_path,
   });
 }
 
@@ -2115,6 +2131,40 @@ const A = {
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
+  'terms-file-upload': async () => {
+    const p = prog(); const file = $('pTermsFile')?.files?.[0];
+    if (!file) return 'Pick a PDF first.';
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) return 'The agreement must be a PDF.';
+    if (file.size > 10 * 1024 * 1024) return 'The agreement must be 10 MB or smaller.';
+    const buf = await file.arrayBuffer();
+    const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const path = `${p.id}/${sha}.pdf`;
+    // The same file again lands on the same path: already there is fine.
+    const { error: upErr } = await db.storage.from('affiliate-terms').upload(path, buf, { contentType: 'application/pdf', upsert: false });
+    if (upErr && !/exists|duplicate/i.test(upErr.message || '')) throw new Error(`Upload failed: ${upErr.message}`);
+    const name = String(file.name || 'Agreement.pdf').slice(0, 200);
+    const { data, error } = await db.from('affiliate_programs').update({ terms_file_path: path, terms_file_name: name, terms_file_sha256: sha })
+      .eq('id', p.id).eq('company_entity_id', CO).select('id, terms_version');
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error('The agreement was not saved: you may not have permission to change this program.');
+    return `Agreement uploaded. It is now version ${data[0].terms_version}; new affiliates sign it.`;
+  },
+  'terms-file-remove': async () => {
+    const p = prog();
+    if (p.status === 'active' && !String(p.terms_markdown || '').trim()) return 'Write the terms below first: an active program needs something for affiliates to sign.';
+    const { data, error } = await db.from('affiliate_programs').update({ terms_file_path: null, terms_file_name: null, terms_file_sha256: null })
+      .eq('id', p.id).eq('company_entity_id', CO).select('id');
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error('Not removed: you may not have permission to change this program.');
+    return 'Agreement removed. The written terms are what new affiliates sign.';
+  },
+  'terms-file-open': async () => {
+    const p = prog();
+    const { data, error } = await db.storage.from('affiliate-terms').createSignedUrl(p.terms_file_path, 600);
+    if (error || !data?.signedUrl) throw new Error(`Could not open the agreement: ${error?.message || 'no link'}`);
+    window.open(data.signedUrl, '_blank', 'noopener');
+    return null;
+  },
   'aff-filter': ({ f }) => { S.affFilter = f === 'ended' ? 'ended' : 'current'; keepFields('affiliatesBody', render); return null; },
   'prospect-filter': ({ f }) => { S.prospectFilter = f; S.prospectShowAll = false; S.sel.clear(); render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-pick': ({ id }) => { if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id); render(); return null; },
