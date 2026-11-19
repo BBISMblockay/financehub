@@ -303,6 +303,14 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
           message: 'PayPal has not confirmed this payment. Press Retry on the payout to ask again with the same key; it cannot pay twice.',
         };
       }
+      // A Retry is the FIRST request PayPal may ever see for this attempt, so
+      // it gets the same refund check a fresh Send gets, under the money lock
+      // (review cycle 1 of #1330). Refused, nothing is posted and the attempt
+      // stays unknown with its key, for someone to look up.
+      if (opts.retry) {
+        const { error: chkErr } = await service.rpc('affiliate_payout_retry_check', { p_send: send.id, p_company: opts.company });
+        if (chkErr) return { state: send.state, code: 'RETRY_REFUSED', message: chkErr.message };
+      }
       // The attempt never got as far as a batch id. We cannot tell from here
       // whether PayPal accepted it, and the key is what makes asking safe:
       // re-POSTing the same PayPal-Request-Id returns the original batch
@@ -602,7 +610,7 @@ export function createPayoutsHandler({ service, userClientFor, fetchImpl = fetch
         const results = [];
         for (const send of open || []) {
           try {
-            results.push({ payout_id: send.payout_id, ...(await reconcile(c, send, user.id, { post })) });
+            results.push({ payout_id: send.payout_id, ...(await reconcile(c, send, user.id, { post, retry: post, company })) });
           } catch (e) {
             results.push({ payout_id: send.payout_id, state: send.state, error: e.message });
           }

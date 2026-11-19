@@ -9,6 +9,9 @@
 --     nothing reaches PayPal; the payout is voided and built again.
 --   - affiliate_claim_payout_export leaves such a payout out of the batch, so
 --     it comes back in `skipped` (the page already reports skipped payouts).
+--   - affiliate_payout_retry_check runs before Retry posts an attempt PayPal
+--     never confirmed: that post may be the first PayPal sees, so it gets the
+--     same check (review cycle 1 of #1330). Refused, the attempt stays unknown.
 -- An "unclaimed negative" is the same definition approval uses: a ledger line
 -- below zero for that affiliate and currency that no payout has claimed yet.
 -- Building a payout claims every unclaimed line, so one only exists when it
@@ -225,3 +228,43 @@ end;
 $function$;
 revoke all on function public.affiliate_claim_payout_export(uuid, uuid[], uuid) from public, anon;
 grant execute on function public.affiliate_claim_payout_export(uuid, uuid[], uuid) to authenticated, service_role;
+
+-- Before Retry posts an attempt that has no batch id. Same tenant rule and lock
+-- as the claim; the payout must still be payable for the amount the attempt
+-- carries, with no refund since it was built.
+create or replace function public.affiliate_payout_retry_check(p_send uuid, p_company uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public', 'pg_temp'
+as $function$
+declare
+  v_send   public.affiliate_payout_sends;
+  v_payout public.affiliate_payouts;
+  v_newer  bigint;
+begin
+  select * into v_send from public.affiliate_payout_sends where id = p_send;
+  if not found or p_company is null or v_send.company_entity_id is distinct from p_company then
+    raise exception 'affiliate_payout_retry_check: no such attempt in this company' using errcode = '42501';
+  end if;
+  if v_send.state <> 'unknown' or v_send.provider_batch_id is not null then
+    raise exception 'affiliate_payout_retry_check: this attempt is %, so there is nothing to retry', v_send.state using errcode = '55006';
+  end if;
+  select * into v_payout from public.affiliate_payouts where id = v_send.payout_id;
+  perform public.affiliate_lock_program_money(v_payout.program_id);
+  select * into v_payout from public.affiliate_payouts where id = v_send.payout_id;
+  if v_payout.status not in ('approved','exported') then
+    raise exception 'affiliate_payout_retry_check: the payout is now %. Nothing was sent.', v_payout.status using errcode = '42501';
+  end if;
+  if v_payout.amount_cents is distinct from v_send.amount_cents then
+    raise exception 'affiliate_payout_retry_check: the payout no longer matches this attempt. Nothing was sent.' using errcode = '55000';
+  end if;
+  v_newer := public.affiliate_payout_has_new_reductions(v_payout.id);
+  if v_newer < 0 then
+    raise exception 'affiliate_payout_retry_check: % minor units of refunds or reductions arrived after this payout was built. Nothing was sent. Look up % in PayPal, then void the payout and build it again.', -v_newer, v_send.sender_batch_id
+      using errcode = '55000';
+  end if;
+end;
+$function$;
+revoke all on function public.affiliate_payout_retry_check(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.affiliate_payout_retry_check(uuid, uuid) to service_role;

@@ -10207,12 +10207,14 @@ select 'Affiliate portal links' as check_name,
 select 'Affiliate payout refund recheck' as check_name,
   case
     when to_regprocedure('public.affiliate_payout_has_new_reductions(uuid)') is null
+      or to_regprocedure('public.affiliate_payout_retry_check(uuid,uuid)') is null
       or position('affiliate_payout_has_new_reductions' in pg_get_functiondef('public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)'::regprocedure)) = 0
       or position('affiliate_payout_has_new_reductions' in pg_get_functiondef('public.affiliate_claim_payout_export(uuid,uuid[],uuid)'::regprocedure)) = 0
       then 'MISSING — run 20261119030000_affiliate_payout_recheck_reductions.sql'
     when has_function_privilege('anon', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
       or has_function_privilege('authenticated', 'public.affiliate_payout_send_claim(uuid,uuid,text,uuid,text)', 'execute')
       or has_function_privilege('authenticated', 'public.affiliate_payout_has_new_reductions(uuid)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_payout_retry_check(uuid,uuid)', 'execute')
       then 'BROKEN — browsers can call the payout send claim'
     else 'ok'
   end as status;

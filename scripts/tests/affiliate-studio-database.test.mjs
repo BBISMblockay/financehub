@@ -56,6 +56,7 @@
 //   AFFILIATE_DB_MUTATION=company       programs select policy without the company filter
 //   AFFILIATE_DB_MUTATION=gate          can_manage_affiliate_programs() is true for anyone
 //   AFFILIATE_DB_MUTATION=sendrecheck   a refund after approval does not stop a PayPal send
+//   AFFILIATE_DB_MUTATION=retryrecheck  Retry posts an unconfirmed attempt after a refund landed
 //   AFFILIATE_DB_MUTATION=exportrecheck a refund after approval does not keep a payout out of an export
 //   AFFILIATE_DB_MUTATION=portalrevoke  a new portal link kills the one just handed out
 //   AFFILIATE_DB_MUTATION=termsfilebump a new agreement file is not a new terms version
@@ -290,6 +291,7 @@ function mutate(key, from, to) {
 switch (MUT) {
   case '': break;
   case 'sendrecheck': mutate('recheck', '  if v_newer < 0 then\n    raise exception \'affiliate_payout_send_claim:', '  if false then\n    raise exception \'affiliate_payout_send_claim:'); break;
+  case 'retryrecheck': mutate('recheck', "  v_newer := public.affiliate_payout_has_new_reductions(v_payout.id);\n  if v_newer < 0 then", "  v_newer := 0;\n  if v_newer < 0 then"); break;
   case 'exportrecheck': mutate('recheck', '\n       and public.affiliate_payout_has_new_reductions(id) = 0;', ';'); break;
   case 'portalrevoke': mutate('portallinks', "  if p_purpose = 'signup' then\n", "  if true then\n"); mutate('portallinks', "       and purpose = 'signup'\n", "       and purpose = p_purpose\n"); break;
   case 'termsfilebump': mutate('termsfile', "\n     or new.terms_file_sha256 is distinct from old.terms_file_sha256 then", ' then'); break;
@@ -2402,6 +2404,28 @@ await check('RR1 a refund that lands after approval stops the PayPal send and th
       assert.equal((await one(`select has_function_privilege($1, 'public.${fn}(uuid)', 'execute') as x`, [role])).x, false, `${role} cannot call ${fn}`);
     }
   }
+});
+
+await check('RR2 Retry of an unconfirmed attempt is refused once a refund lands, and the attempt stays as it was', async () => {
+  await asSuper();
+  const aff = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+    values ($1, $2, 'Rrd', 'rrd@rr.test', 'active', 1, now()) returning id`, [A, payProg])).id;
+  const po = (await one(`insert into affiliate_payouts(company_entity_id, program_id, affiliate_id, currency, amount_cents, method, status, approved_by, approved_at)
+    values ($1, $2, $3, 'USD', 4000, 'paypal_payouts', 'approved', $4, now()) returning id`, [A, payProg, aff, U.finA])).id;
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','rrd@pay.test')`, [A, aff]);
+  await db.exec('set role service_role');
+  const claim = (await one('select affiliate_payout_send_claim($1, $4, $2, $3) as r', [po, 'sandbox', U.finA, A])).r;
+  await db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, A]);
+  await assert.rejects(db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, B]), /no such attempt in this company/);
+  await as(U.finA, A);
+  await db.query(`insert into affiliate_commission_ledger(company_entity_id, program_id, affiliate_id, kind, amount_cents, currency, source, memo)
+    values ($1,$2,$3,'manual_adjustment',-1500,'USD','manual','refund after the attempt')`, [A, payProg, aff]);
+  await db.exec('reset role; set role service_role');
+  await assert.rejects(db.query('select affiliate_payout_retry_check($1, $2)', [claim.send_id, A]), /refunds or reductions arrived/);
+  await asSuper();
+  const sn = await one('select state, provider_batch_id from affiliate_payout_sends where id = $1', [claim.send_id]);
+  assert.deepEqual([sn.state, sn.provider_batch_id], ['unknown', null], 'the attempt and its key are kept for investigation');
+  assert.equal((await one(`select has_function_privilege('authenticated', 'public.affiliate_payout_retry_check(uuid,uuid)', 'execute') as x`)).x, false);
 });
 
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
