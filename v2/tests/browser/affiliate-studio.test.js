@@ -1688,17 +1688,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const ct = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
     ct.on('pageerror', (e) => errors.push(e.message));
     R.has(await text(ct, '#overviewBody'), '2 piece(s) of content', 'Home lists content waiting for review');
-    await ct.click('#tabs [data-tab="people"]');
-    await ct.waitForFunction(() => /Cage reel/.test(document.getElementById('affiliatesBody')?.textContent || ''), null, { timeout: 5000 });
-    const cb = await text(ct, '#affiliatesBody');
+    await ct.click('#tabs [data-tab="share"]');
+    await ct.waitForFunction(() => /Cage reel/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+    const cb = await text(ct, '#shareBody');
     R.has(cb, 'Used content earns $25.00', 'the bonus is named once');
     R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
     const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
-    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#affiliatesBody video.af-content-media')));
-    R.ok('nothing moves until something is ticked', !(await ct.$('#affiliatesBody [data-act="q-content-use"]')));
-    await ct.click('#affiliatesBody [data-act="q-all"][data-q="content"]');
-    await ct.click('#affiliatesBody [data-act="q-content-use"]');
-    await ct.click('#affiliatesBody [data-act="q-content-use"]');
+    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#shareBody video.af-content-media')));
+    R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
+    await ct.click('#shareBody [data-act="q-all"][data-q="content"]');
+    await ct.click('#shareBody [data-act="q-content-use"]');
+    await ct.click('#shareBody [data-act="q-content-use"]');
     await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_content_decide'), null, { timeout: 5000 });
     const cd = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_content_decide').pop().args);
     R.eq([cd.p_ids.slice().sort(), cd.p_decision], [['ct1', 'ct2'], 'use'], 'Use selected uses exactly the ticked pieces');
@@ -1741,11 +1741,66 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // A manager who cannot approve payouts may approve content, never pay its bonus.
     const ctNoMoney = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: { ...ctRpc, can_approve_affiliate_commissions: false } });
     ctNoMoney.on('pageerror', (e) => errors.push(e.message));
-    await ctNoMoney.click('#tabs [data-tab="people"]');
-    await ctNoMoney.waitForFunction(() => !!document.querySelector('#affiliatesBody [data-act="q-all"][data-q="content"]'), null, { timeout: 5000 });
-    await ctNoMoney.click('#affiliatesBody [data-act="q-all"][data-q="content"]');
-    R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#affiliatesBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#affiliatesBody [data-act="q-content-ok"]')));
+    await ctNoMoney.click('#tabs [data-tab="share"]');
+    await ctNoMoney.waitForFunction(() => !!document.querySelector('#shareBody [data-act="q-all"][data-q="content"]'), null, { timeout: 5000 });
+    await ctNoMoney.click('#shareBody [data-act="q-all"][data-q="content"]');
+    R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#shareBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#shareBody [data-act="q-content-ok"]')));
     await ctNoMoney.close();
+
+    // ── All programs: one lens over everyone the company manages ──────────
+    // The same person (same email) in two programs is one card with a row per
+    // program; Home sums both programs; other tabs ask which program.
+    const PROGB = '66666666-6666-4666-8666-666666666666';
+    const AFFB = '77777777-7777-4777-8777-777777777777';
+    const allTables = { ...tables,
+      affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROGB, name: 'Wholesale', slug: 'wholesale', commission_percent: 15 }],
+      affiliates: [...tables.affiliates, { ...tables.affiliates[0], id: AFFB, program_id: PROGB, contact_email: 'PAT@creator.invalid', from_prospect_id: null }],
+      affiliate_codes: [...tables.affiliate_codes, { id: 'cB', company_entity_id: CO, program_id: PROGB, affiliate_id: AFFB, code: 'PAT15', starts_on: '2026-10-01', ends_on: null, status: 'active' }],
+      affiliate_performance_v: [...tables.affiliate_performance_v, { ...tables.affiliate_performance_v[0], program_id: PROGB, affiliate_id: AFFB, attributed_orders: 2, gross_subtotal_cents: 10000 }],
+      affiliate_balances_v: [...tables.affiliate_balances_v, { ...tables.affiliate_balances_v[0], program_id: PROGB, affiliate_id: AFFB, earned_cents: 1500, unclaimed_cents: 1500 }] };
+    const all = await suite.open('/v2/affiliates/index.html', allTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+    all.on('pageerror', (e) => errors.push(e.message));
+    R.ok('with two programs the picker offers All programs', await all.evaluate(() => [...document.querySelectorAll('#programSel option')].some((o) => o.value === '*' && /All programs/.test(o.textContent))));
+    await all.selectOption('#programSel', '*');
+    await all.waitForFunction(() => /By program/.test(document.getElementById('overviewBody')?.textContent || ''), null, { timeout: 5000 });
+    const allHome = await text(all, '#overviewBody');
+    R.has(allHome, 'Wholesale', 'Home lists every program');
+    R.has(allHome, '$150.00', 'and sums sales across programs');
+    R.has(allHome, '$20.00', 'and sums what is owed across programs');
+    await all.click('#tabs [data-tab="people"]');
+    await all.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-allprog'), null, { timeout: 5000 });
+    R.eq(await all.evaluate(() => document.querySelectorAll('#affiliatesBody .af-item--catalog').length), 1, 'one person in two programs is one card');
+    const allPpl = await text(all, '#affiliatesBody');
+    R.ok('with a row for each program and its code', allPpl.includes('PAT10') && allPpl.includes('PAT15') && allPpl.includes('Creators') && allPpl.includes('Wholesale'));
+    await all.click('#tabs [data-tab="payouts"]');
+    await all.waitForFunction(() => !!document.querySelector('#payoutsBody [data-act="pick-program"]'), null, { timeout: 5000 });
+    R.ok('a tab that works one program at a time asks which', /Pick a program/.test(await text(all, '#payoutsBody')));
+    R.ok('and writes nothing while it asks', !(await all.$('#payoutsBody [data-act^="q-"], #payoutsBody [data-act="payout-export"]')));
+    await all.click(`#payoutsBody [data-act="pick-program"][data-id="${PROGB}"]`);
+    await all.waitForFunction((id) => document.getElementById('programSel').value === id, PROGB, { timeout: 5000 });
+    await all.waitForFunction(() => !/Pick a program/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('Open switches to that program on the same tab', await all.evaluate(() => !document.querySelector('section[data-panel="payouts"]').hidden));
+    await all.close();
+    // One program only: no All programs option.
+    const one = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true } });
+    R.ok('with one program there is no All programs option', !(await one.evaluate(() => [...document.querySelectorAll('#programSel option')].some((o) => o.value === '*'))));
+    await one.close();
+
+    // ── Share: compact, list view, ten most recent ─────────────────────────
+    const feed12 = Array.from({ length: 12 }, (_, i) => ({ id: 'fx' + i, company_entity_id: CO, program_id: PROG, kind: 'product', source_id: 'p' + i, title: 'Shared ' + i, image_url: null, product_path: '/products/p' + i, shared_at: new Date(Date.now() - i * 60000).toISOString() }));
+    const shp = await suite.open('/v2/affiliates/index.html', { ...tables, affiliate_feed_items: feed12 }, { ready, rpc: { can_manage_affiliate_programs: true } });
+    shp.on('pageerror', (e) => errors.push(e.message));
+    await shp.click('#tabs [data-tab="share"]');
+    await shp.waitForFunction(() => /Shared 0/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+    R.eq(await shp.evaluate(() => document.querySelectorAll('#shareBody .af-seen-item').length), 10, 'Share shows the ten most recent by default');
+    R.ok('the newest first, the oldest held back', (await text(shp, '#shareBody')).includes('Shared 0') && !(await text(shp, '#shareBody')).includes('Shared 11'));
+    await shp.click('#shareBody [data-act="share-all"]');
+    await shp.waitForFunction(() => document.querySelectorAll('#shareBody .af-seen-item').length === 12, null, { timeout: 5000 });
+    R.ok('Show all shows the rest, and the button goes', !(await shp.$('#shareBody [data-act="share-all"]')));
+    await shp.click('#shareBody [data-act="view-set"][data-v="list"]');
+    await shp.waitForFunction(() => document.getElementById('shareBody').classList.contains('af-share--list'), null, { timeout: 5000 });
+    R.ok('Share has the same list view as People', await shp.evaluate(() => document.querySelector('#shareBody [data-act="view-set"][data-v="list"]').getAttribute('aria-pressed') === 'true'));
+    await shp.close();
     // A person fills in what search did not find; a waiting DM becomes an email.
     const edit = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
     edit.on('pageerror', (e) => errors.push(e.message));

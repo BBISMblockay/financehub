@@ -290,19 +290,26 @@ function download(name, text, type = 'text/csv') {
 const PROSPECT_LIST_CAP = 20;
 const S = { programs: [], programId: null, tab: 'overview', profiles: [], brand: '', ovDays: 30, ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
+// "All programs" (Blake 2026-11-18: a company manages a group of people, not
+// program by program). People and Home read across every program; the other
+// tabs are per program and ask which one.
+const ALL = '*';
+const isAll = () => S.programId === ALL && S.programs.length > 1;
 const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
 
 async function loadPrograms() {
   S.programs = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).order('created_at'));
   const qp = new URLSearchParams(location.search).get('program');
-  if (!S.programs.some((p) => p.id === S.programId)) S.programId = (S.programs.find((p) => p.id === qp) || S.programs[0])?.id || null;
+  if (!isAll() && !S.programs.some((p) => p.id === S.programId)) S.programId = (S.programs.find((p) => p.id === qp) || S.programs[0])?.id || null;
   $('programSel').innerHTML = S.programs.length
-    ? S.programs.map((p) => `<option value="${p.id}"${p.id === S.programId ? ' selected' : ''}>${esc(p.name)} · ${esc(p.status)}</option>`).join('')
+    ? (S.programs.length > 1 ? `<option value="${ALL}"${isAll() ? ' selected' : ''}>All programs</option>` : '')
+      + S.programs.map((p) => `<option value="${p.id}"${p.id === S.programId ? ' selected' : ''}>${esc(p.name)} · ${esc(p.status)}</option>`).join('')
     : '<option value="">No programs yet</option>';
   $('btnNewProgram').hidden = !MANAGE;
 }
 
 async function loadProgramData() {
+  if (isAll()) return loadAllData();
   const p = prog();
   if (!p) { S.d = null; return; }
   const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO).eq('program_id', p.id);
@@ -390,6 +397,24 @@ async function loadProgramData() {
   autoRefreshCreators(p.id);
   announcePaidPayouts();
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
+}
+
+// Every program at once: who is in what, and the company's totals. Read only
+// what the two all-program views draw; null means "could not read".
+async function loadAllData() {
+  const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO);
+  const keys = ['affiliates', 'codes', 'performance', 'balances'];
+  const res = await Promise.all([
+    by('affiliates').order('created_at'),
+    by('affiliate_codes', 'id, affiliate_id, program_id, code, status, starts_on, ends_on, discount_percent').order('starts_on', { ascending: false }),
+    by('affiliate_performance_v'),
+    by('affiliate_balances_v'),
+  ]);
+  const d = { all: true };
+  const failed = [];
+  res.forEach((r, i) => { d[keys[i]] = r.error ? null : (r.data || []); if (r.error) failed.push(`${keys[i]}: ${r.error.message}`); });
+  S.d = d;
+  if (failed.length) setStatus(`Some data did not load: ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
 
 // Your own AI connections to THIS company, for the Messages tab. A connection
@@ -625,7 +650,7 @@ function renderWorkflowTabCounts() {
   const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
   const contentN = (d.content || []).filter((x) => x.state === 'submitted').length;
   const appliedN = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status)).length;
-  const counts = { people: Math.max(0, Number(h.prospects_new || 0) - appliedN) + onboardN + contentN, comms: msgN + appliedN, payouts: payN };
+  const counts = { people: Math.max(0, Number(h.prospects_new || 0) - appliedN) + onboardN, comms: msgN + appliedN, share: contentN, payouts: payN };
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
     const n = counts[b.dataset.tab];
     let badge = b.querySelector('.af-tab-count');
@@ -660,7 +685,7 @@ const PANEL_RENDERERS = {
 function render() {
   const p = prog();
   const main = document.querySelector('.silo-main.af-studio');
-  main?.classList.toggle('af-studio--ready', !!p);
+  main?.classList.toggle('af-studio--ready', !!p || isAll());
   main?.classList.toggle('af-studio--workflow', !!p && !['overview', 'program', 'records'].includes(S.tab));
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   for (const b of document.querySelectorAll('#tabs [data-tab]')) {
@@ -669,6 +694,7 @@ function render() {
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   renderKpis();
+  if (isAll()) { renderAll(); return; }
   if (!p && S.tab !== 'program') {
     const body = $(FIRST_BODY[S.tab] || 'overviewBody');
     if (body) body.innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
@@ -679,6 +705,99 @@ function render() {
   const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
   if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = empty('Nothing waiting here.');
   renderWorkflowTabCounts();
+}
+
+// ── All programs ─────────────────────────────────────────────────────────
+// One card per PERSON: a program membership is an affiliates row, and the
+// same person in two programs is two rows with the same address
+// (20261118010000). Grouped by that address.
+const progName = (id) => S.programs.find((x) => x.id === id)?.name || 'Program';
+const effRate = (a) => {
+  const pr = S.programs.find((x) => x.id === a.program_id) || {};
+  return rateShort(a.commission_kind ? { ...pr, commission_kind: a.commission_kind, commission_percent: a.commission_percent, commission_fixed_cents: a.commission_fixed_cents } : pr);
+};
+function allPeople(d) {
+  const by = new Map();
+  for (const a of d.affiliates || []) {
+    const k = String(a.contact_email || a.id).trim().toLowerCase();
+    if (!by.has(k)) by.set(k, { key: k, name: a.display_name, email: a.contact_email, a, rows: [] });
+    by.get(k).rows.push(a);
+  }
+  return [...by.values()];
+}
+function renderAll() {
+  for (const id of ['prospectsBody']) { const el = $(id); if (el) el.innerHTML = ''; }
+  const tab = PANEL_OF[S.tab] || 'overview';
+  if (tab === 'overview') return renderAllHome();
+  if (tab === 'people') return renderAllPeople();
+  const body = $(FIRST_BODY[tab]);
+  if (body) body.innerHTML = card('Pick a program', `<p>This tab works one program at a time.</p><div class="af-row">${
+    S.programs.map((x) => btn(x.name, 'pick-program', { id: x.id }, 'surface')).join('')}</div>`);
+}
+function renderAllPeople() {
+  const d = S.d;
+  if (!d?.affiliates) { $('affiliatesBody').innerHTML = card('People', '<p>People did not load. Reload the page.</p>'); return; }
+  const people = allPeople(d);
+  const ended = people.filter((x) => x.rows.every((a) => a.status === 'terminated'));
+  const current = people.filter((x) => !ended.includes(x));
+  const shown = S.affFilter === 'ended' && ended.length ? ended : current;
+  const t = today();
+  const codeOf = (a) => (d.codes || []).find((c) => c.affiliate_id === a.id && c.status !== 'retired' && (!c.ends_on || c.ends_on >= t));
+  const chips = ended.length ? [['current', 'Current', current.length], ['ended', 'Ended', ended.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
+  const personCard = (x) => {
+    const rows = x.rows.map((a) => {
+      const c = codeOf(a);
+      return `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))}</div></div>${
+        c ? `<span class="af-code-pill">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : ''}</span>` : '<span class="af-muted">No code</span>'}${statusPill(a.status)}${btn('Open', 'pick-program', { id: a.program_id, t: 'people' }, 'surface')}</div>`;
+    }).join('');
+    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
+      <header class="af-catalog-head">
+        <div class="af-catalog-thumb">${photoAvatar({ name: x.name, email: x.email }, affiliatePhotoUrl(x.a))}</div>
+        <div class="af-catalog-title"><div class="af-catalog-name">${esc(x.name)}</div><div class="af-catalog-sub">${esc(x.email || '')}</div>
+          <div class="af-catalog-meta">${num(x.rows.length)} program${x.rows.length === 1 ? '' : 's'}</div></div>
+      </header>
+      <div class="af-allprog">${rows}</div>
+    </article>`;
+  };
+  $('affiliatesBody').innerHTML = surface('People', `${chips ? `<div class="af-filter-bar">${chips}</div>` : ''}${
+    itemList(shown, personCard, S.affFilter === 'ended' ? 'No one has ended.' : 'No affiliates yet.', 'grid')}`, `${num(current.length)} people across ${num(S.programs.length)} programs`);
+}
+function renderAllHome() {
+  const d = S.d; const el = $('overviewBody');
+  if (!el) return;
+  const people = d?.affiliates ? allPeople(d) : [];
+  const activePeople = people.filter((x) => x.rows.some((a) => a.status === 'active')).length;
+  // Money is summed per currency, never across currencies.
+  const sumBy = (rows, cur, f) => (rows || []).filter((r) => cur(r)).reduce((n, r) => n + Number(f(r) || 0), 0);
+  const curs = [...new Set(S.programs.map((x) => x.currency).filter(Boolean))];
+  const perProg = S.programs.map((x) => {
+    const perf = (d?.performance || []).filter((r) => r.program_id === x.id);
+    const bal = (d?.balances || []).filter((r) => r.program_id === x.id && r.currency === x.currency);
+    return {
+      p: x,
+      people: (d?.affiliates || []).filter((a) => a.program_id === x.id && a.status === 'active').length,
+      orders: perf.reduce((n, r) => n + Number(r.attributed_orders || 0), 0),
+      sales: sumBy(perf, (r) => !r.order_currency || r.order_currency === x.currency, (r) => Number(r.gross_subtotal_cents || 0) - Number(r.refunded_subtotal_cents || 0)),
+      earned: sumBy(bal, () => true, (r) => r.earned_cents),
+      owed: sumBy(bal, (r) => Number(r.unclaimed_cents) > 0, (r) => r.unclaimed_cents),
+    };
+  });
+  const tot = (k, cur) => perProg.filter((r) => r.p.currency === cur).reduce((n, r) => n + r[k], 0);
+  const moneyLine = (k) => curs.map((c) => formatMoney(tot(k, c), c)).join(' · ') || formatMoney(0, 'USD');
+  const k = (label, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(label)}</div><div class="bcn-kpi-value">${v}</div></div>`;
+  el.innerHTML = [
+    `<div class="bcn-kpi-band af-allprog-kpis">${k('Active people', num(activePeople))}${k('Programs', num(S.programs.filter((x) => x.status === 'active').length))}${k('Orders from codes', num(perProg.reduce((n, r) => n + r.orders, 0)))}${k('Sales from codes', esc(moneyLine('sales')))}${k('Commission earned', esc(moneyLine('earned')))}${k('Owed now', esc(moneyLine('owed')))}</div>`,
+    card('By program', table([
+      { left: true, h: 'Program', f: (r) => `${esc(r.p.name)}<div class="af-muted">${esc(rateShort(r.p))}</div>` },
+      { left: true, h: 'Status', f: (r) => statusPill(r.p.status) },
+      { h: 'People', num: true, f: (r) => num(r.people) },
+      { h: 'Orders', num: true, f: (r) => num(r.orders) },
+      { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
+      { h: 'Earned', num: true, f: (r) => esc(formatMoney(r.earned, r.p.currency)) },
+      { h: 'Owed', num: true, f: (r) => esc(formatMoney(r.owed, r.p.currency)) },
+      { h: '', f: (r) => btn('Open', 'pick-program', { id: r.p.id, t: 'overview' }, 'surface') },
+    ], perProg, 'No programs yet.'), 'All time'),
+  ].join('');
 }
 
 function renderKpis() {
@@ -734,7 +853,7 @@ function todoItems() {
   const seedCodes = (d.seeds || []).filter((x) => x.state === 'approved').length;
   add(seedCodes, `${num(seedCodes)} product code(s) waiting to be made in Shopify.`, 'records', MANAGE ? btn('Make in Shopify', 'seed-make', {}, 'primary') : '', 'products');
   const contentAsks = (d.content || []).filter((x) => x.state === 'submitted').length;
-  add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'affiliates');
+  add(contentAsks, `${num(contentAsks)} piece(s) of content from affiliates to review.`, 'share');
   const owed = (d.balances || []).filter((x) => x.currency === p.currency && Number(x.unclaimed_cents) > 0).length;
   add(MANAGE && owed, `${num(owed)} affiliate(s) with earnings to put in a payout.`, 'payouts', btn(`Build ${num(owed)} payout(s)`, 'q-payouts', {}, 'primary'));
   const toApprove = d.payouts.filter((x) => x.status === 'draft').length;
@@ -1315,9 +1434,9 @@ function contentCard() {
   const actsOk = MANAGE ? [...(canUse ? [[useLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []), ['Decline selected', 'q-content-no']] : [];
   const meta = bonus ? `Used content earns ${money(bonus)}` : 'No content bonus set';
   return surface('Content', [
-    waiting.length ? `<h3 class="af-settings-title">To review</h3>${queue('content', waiting, row, actsNew, '')}` : '',
-    approved.length ? `<h3 class="af-settings-title">Approved</h3>${queue('contentOk', approved, row, actsOk, '')}` : '',
-    done.length ? `<h3 class="af-settings-title">Decided</h3>${itemList(done, row)}` : '',
+    waiting.length ? `<h3 class="af-settings-title">To review</h3>${queue('content', shareCap(waiting), row, actsNew, '')}${shareMore(waiting.length)}` : '',
+    approved.length ? `<h3 class="af-settings-title">Approved</h3>${queue('contentOk', shareCap(approved), row, actsOk, '')}${shareMore(approved.length)}` : '',
+    done.length ? `<h3 class="af-settings-title">Decided</h3>${itemList(shareCap(done), row)}${shareMore(done.length)}` : '',
     d.content.length ? '' : empty('No content yet. Affiliates share it from their portal.'),
   ].join(''), meta);
 }
@@ -1410,7 +1529,6 @@ function renderAffiliates() {
     // Product requests live in Records → Products, not People (Blake
     // 2026-11-18: "shouldn't go in people and shouldn't just become giant list").
     more('Products', [seedsCard()]),
-    contentCard(),
     more('Codes and links', [
       MANAGE ? card('All codes', itemList(d.codes, (c) => {
         const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
@@ -1480,6 +1598,11 @@ function shareItem(kind, srcId, title, sub, img, payload) {
   return `<article class="af-share-card">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-share-noimg"></span>'}<div class="af-share-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}</div><div class="af-item-foot" style="padding:0;border:0;background:transparent;margin-top:auto;">${action}</div></article>`;
 }
 function shareGrid(rows) { return rows.length ? `<div class="af-share-grid">${rows.join('')}</div>` : ''; }
+// Share shows the 10 most recent of each list (Blake 2026-11-18: "max
+// pagination at 10 most recent as default"); Show all opens the rest in place.
+const SHARE_CAP = 10;
+const shareCap = (rows) => (S.shareAll ? rows : rows.slice(0, SHARE_CAP));
+const shareMore = (total) => (!S.shareAll && total > SHARE_CAP ? `<div class="af-list-foot">${btn(`Show all ${num(total)}`, 'share-all')}</div>` : '');
 
 // The products attached to a launch, snapshotted under it. Each is its own
 // feed row carrying parent_source_id, so unsharing the launch takes them with
@@ -1519,7 +1642,8 @@ async function renderShare() {
   // A product shared under a launch belongs to that launch's card, not to a
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
-  const sharedRows = d.feed.filter((f) => !f.parent_source_id).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
+  const sharedAll = d.feed.filter((f) => !f.parent_source_id);
+  const sharedRows = shareCap(sharedAll).map((f) => `<div class="af-seen-item">${f.image_url ? `<img src="${esc(f.image_url)}" alt="" loading="lazy">` : `<div class="af-seen-none">${esc(f.title)}</div>`}<div class="af-seen-body"><strong>${esc(f.title)}</strong><div class="af-muted">${esc(({ launch: 'Launch', product: 'Product', ad: 'Ad' })[f.kind])}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}</div>${MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''}</div></div>`);
   // The store links open is picked from the program's connected Shopify
   // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
   const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
@@ -1530,13 +1654,18 @@ async function renderShare() {
     : needsStore(p)
       ? card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', 'placeholder="https://www.yourstore.com"'))}${btn('Save', 'store-save', {}, 'primary')}</div><p class="bcn-status bcn-status--warn" id="storeNeeded">Add it once to turn on affiliate links.</p>`)
       : card('Your website', `<div class="af-row">${field('Affiliate links open', input('storeUrl', `value="${esc(p.store_url || storeOf(p) || '')}"`))}${btn('Save', 'store-save', {}, 'primary')}</div>`);
+  $('shareBody').classList.toggle('af-share--list', S.view === 'list');
   $('shareBody').innerHTML = [
-    card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>` : empty('Nothing shared yet. Pick launches or ads below.')}`,
+    `<div class="af-filter-bar">${viewToggle()}</div>`,
+    // What affiliates send in comes back through Share too (Blake 2026-11-18:
+    // "content share from affiliate should go in share tab too").
+    contentCard(),
+    card('What your affiliates see', `${sharedRows.length ? `<div class="af-seen">${sharedRows.join('')}</div>${shareMore(sharedAll.length)}` : empty('Nothing shared yet. Pick launches or ads below.')}`,
       `${d.feed.filter((f) => !f.parent_source_id).length} shared`),
     storeCard,
-    card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(launches)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(ads)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
+    card('Pick what to share', `${launches.length ? `<h3 class="af-settings-title" style="margin:12px 0 8px;">Upcoming launches</h3>${shareGrid(shareCap(launches))}${shareMore(launches.length)}` : ''}${ads.length ? `<h3 class="af-settings-title" style="margin:${launches.length ? 16 : 0}px 0 8px;">Recent ads</h3>${shareGrid(shareCap(ads))}${shareMore(ads.length)}` : ''}${!launches.length && !ads.length ? empty('No upcoming launches or recent ads yet.') : ''}`),
     section('Add products', [
-      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${products.length ? shareGrid(products) : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
+      card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${products.length ? `${shareGrid(shareCap(products))}${shareMore(products.length)}` : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
       sh.failed.length ? `<p class="af-muted">Could not load: ${esc(sh.failed.join(', '))}.</p>` : '',
     ]),
   ].join('');
@@ -2129,6 +2258,7 @@ const A = {
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
+  'share-all': () => { S.shareAll = true; renderShare(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
   'terms-file-upload': async () => {
@@ -2291,6 +2421,11 @@ const A = {
   'auto-pay': async ({ on }) => {
     await updateRows('affiliate_programs', { payout_mode: on === '1' ? 'auto_friday' : 'approve_each', changed_by: me.id }, { id: S.programId });
     return on === '1' ? 'Payouts go out every Friday.' : 'Each payout waits for approval again.';
+  },
+  // From the all-programs view into one program, on the tab asked for.
+  'pick-program': async ({ id, t }) => {
+    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; if (t) S.tab = PANEL_OF[t] || t;
+    $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
@@ -2778,7 +2913,7 @@ document.addEventListener('click', async (ev) => {
     }
   } finally { b.disabled = false; }
 });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {
