@@ -1711,6 +1711,76 @@ async function renderShare() {
 }
 
 // ── Commissions ──────────────────────────────────────────────────────────
+// "Why didn't this order count?" / "why did my balance drop?" answered on the
+// page (Blake 2026-11-18): one order, the code, the eligible amount, every
+// commission line and where each one went.
+function orderLookupHtml() {
+  const L = S.lookup;
+  const form = `<div class="af-row">${field('Order number', input('olq', `placeholder="1001" value="${esc(L?.q || '')}" inputmode="numeric"`))}${btn('Look up', 'order-lookup', {}, 'surface')}${L ? btn('Clear', 'order-lookup-clear', {}, 'ghost') : ''}</div>`;
+  if (!L) return card('Look up an order', form);
+  if (L.loading) return card('Look up an order', `${form}<p class="af-muted">Looking…</p>`);
+  if (L.error) return card('Look up an order', `${form}<p class="af-muted">${esc(L.error)}</p>`);
+  const p = prog();
+  if (!L.attr) {
+    const o = L.order;
+    const why = !o ? `SILO has no order ${esc(L.q)} yet. Orders arrive a few times a day; a very new one may not be here yet.`
+      : !(o.discount_codes || []).length ? `Order ${esc(o.order_number || L.q)} used no discount code, so no affiliate is credited.`
+      : `Order ${esc(o.order_number || L.q)} used ${(o.discount_codes || []).map((c) => `<span class="af-mono">${esc(c)}</span>`).join(', ')}, which is not a code in ${esc(p?.name || 'this program')}.`;
+    return card('Look up an order', `${form}<p>${why}</p>`);
+  }
+  const a = L.attr;
+  const cur = a.order_currency || p?.currency;
+  const KIND = { accrual: 'Earned', refund_adjustment: 'Taken back (refund or cancellation)', manual_adjustment: 'Adjusted by hand', seed_payback: 'Product payback' };
+  const PAY = { draft: 'in a draft payout', approved: 'in an approved payout', exported: 'in an exported payout', marked_paid: 'paid', paid: 'paid' };
+  const kv = (k, v) => `<div class="af-kv-line"><span class="af-muted">${esc(k)}</span> ${v}</div>`;
+  const lines = L.lines.length ? `<div class="af-slist" role="list">${L.lines.map((l) => `<div class="af-srow" role="listitem"><div class="af-srow-txt"><strong>${esc(KIND[l.kind] || l.kind)}</strong><div class="af-muted">${fmtDate(l.created_at)}${l.memo ? ` · ${esc(l.memo)}` : ''}</div></div><div class="af-srow-act"><span class="af-mono">${esc(formatMoney(l.amount_cents, l.currency))}</span><div class="af-muted">${esc(L.payoutOf[l.id] ? PAY[L.payoutOf[l.id]] || L.payoutOf[l.id] : 'not in a payout yet')}</div></div></div>`).join('')}</div>`
+    : `<p class="af-muted">${BASIS_LABELS[a.basis]?.earns ? 'No commission yet. Commissions update every night.' : 'No commission: this order is not credited.'}</p>`;
+  const total = L.lines.reduce((n, l) => n + Number(l.amount_cents || 0), 0);
+  return card('Look up an order', `${form}
+    <div class="af-item-head">Order <span class="af-mono">${esc(a.order_number || a.order_id)}</span> · ${fmtDate(a.order_day)} ${BASIS_LABELS[a.basis]?.earns ? pill('counted', 'pos') : pill('not counted')}</div>
+    ${kv('Why', esc(basisLabel(a.basis)))}
+    ${kv('Affiliate', esc(S.d.affById[a.affiliate_id]?.display_name || '—'))}
+    ${kv('Code', a.matched_code ? `<span class="af-mono">${esc(a.matched_code)}</span>` : '—')}${a.codes_on_order > 1 ? kv('Codes on the order', num(a.codes_on_order)) : ''}
+    ${kv('Order subtotal', esc(formatMoney(a.gross_subtotal_cents, cur)))}
+    ${kv('Refunded', esc(formatMoney(a.refunded_subtotal_cents, cur)))}
+    ${kv('Eligible for commission', esc(formatMoney(a.commissionable_cents, cur)))}
+    <h3 class="af-settings-title" style="margin:12px 0 4px;">Commission</h3>${lines}
+    ${L.lines.length ? kv('Net', `<span class="af-mono">${esc(formatMoney(total, p?.currency))}</span>`) : ''}`);
+}
+async function orderLookup(q) {
+  const p = prog();
+  q = String(q || '').trim().replace(/^#/, '');
+  if (!q) return 'Type an order number.';
+  S.lookup = { q, loading: true }; renderPayoutsTab({ quiet: true });
+  const variants = [q, `#${q}`];
+  try {
+    const { data: at, error } = await db.from('affiliate_attributions').select('*').eq('company_entity_id', CO).eq('program_id', p.id)
+      .in('order_number', variants).limit(1);
+    if (error) throw error;
+    const attr = (at || [])[0] || null;
+    if (!attr) {
+      const { data: o } = await db.from('shopify_orders').select('order_number, discount_codes').eq('company_entity_id', CO).in('order_number', variants).limit(1);
+      S.lookup = { q, attr: null, order: (o || [])[0] || null };
+    } else {
+      const { data: lines, error: lErr } = await db.from('affiliate_commission_ledger').select('id, kind, amount_cents, currency, memo, created_at')
+        .eq('company_entity_id', CO).eq('attribution_id', attr.id).order('created_at');
+      if (lErr) throw lErr;
+      const payoutOf = {};
+      const ids = (lines || []).map((l) => l.id);
+      if (ids.length) {
+        const { data: items } = await db.from('affiliate_payout_items').select('ledger_entry_id, payout_id').eq('company_entity_id', CO).in('ledger_entry_id', ids);
+        const pids = [...new Set((items || []).map((i) => i.payout_id))];
+        const { data: pays } = pids.length ? await db.from('affiliate_payouts').select('id, status').eq('company_entity_id', CO).in('id', pids).neq('status', 'void') : { data: [] };
+        const st = Object.fromEntries((pays || []).map((x) => [x.id, x.status]));
+        for (const i of items || []) if (st[i.payout_id]) payoutOf[i.ledger_entry_id] = st[i.payout_id];
+      }
+      S.lookup = { q, attr, lines: lines || [], payoutOf };
+    }
+  } catch (e) { S.lookup = { q, error: `Could not look that up: ${e.message}` }; }
+  renderPayoutsTab({ quiet: true });
+  return null;
+}
+
 function commissionsBodyHtml() {
   const d = S.d; const p = prog();
   const perf = d.performance.map((r) => ({ ...r, a: d.affById[r.affiliate_id] }));
@@ -1718,7 +1788,7 @@ function commissionsBodyHtml() {
   const attrRow = (r) => {
     const earns = BASIS_LABELS[r.basis]?.earns;
     const base = formatMoney(r.commissionable_cents, r.order_currency);
-    return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[r.affiliate_id]?.display_name || '—')} ${earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))}</div><div class="af-muted">${fmtDate(r.order_day)} · <span class="af-mono">${esc(r.order_number || r.order_id)}</span> · <span class="af-mono">${esc(r.matched_code || '—')}</span></div><div class="af-kv-line">Base ${base}${r.codes_on_order > 1 ? ` · ${r.codes_on_order} codes on order` : ''}</div></div></article>`;
+    return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[r.affiliate_id]?.display_name || '—')} ${earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))}</div><div class="af-muted">${fmtDate(r.order_day)} · <span class="af-mono">${esc(r.order_number || r.order_id)}</span> · <span class="af-mono">${esc(r.matched_code || '—')}</span></div><div class="af-kv-line">Base ${base}${r.codes_on_order > 1 ? ` · ${r.codes_on_order} codes on order` : ''}</div></div>${r.order_number ? `<div class="af-item-foot"><div class="af-actions">${btn('Explain', 'order-explain', { q: r.order_number })}</div></div>` : ''}</article>`;
   };
   const periodRow = (x) => {
     const t = d.periodTotals.filter((r) => r.period_id === x.id);
@@ -1727,6 +1797,7 @@ function commissionsBodyHtml() {
   };
   const ledgerRow = (l) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(d.affById[l.affiliate_id]?.display_name || '—')} · ${formatMoney(l.amount_cents, l.currency)}</div><div class="af-muted">${fmtTime(l.created_at)} · ${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? ` · <span class="af-mono">${esc(l.order_id)}</span>` : ''}</div>${l.memo ? `<div class="af-kv-line">${esc(l.memo)}</div>` : ''}</div></article>`;
   return [
+    orderLookupHtml(),
     // The same photo leaderboard as Home when the history loaded.
     Array.isArray(d.ovAttributions) && Array.isArray(d.ovLedger) ? ovLeaderboard(ovList()) : card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
     more('Every order', [card('Orders', itemList(d.attributions, attrRow, 'No orders matched yet.'), 'latest 300')]),
@@ -2467,7 +2538,7 @@ const A = {
   },
   // From the all-programs view into one program, on the tab asked for.
   'pick-program': async ({ id, t }) => {
-    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; if (t) S.tab = PANEL_OF[t] || t;
+    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
@@ -2857,6 +2928,9 @@ const A = {
   },
   // The card's manual check runs the same targeted loop as the automatic one,
   // so it cannot be starved by the endpoint's oldest-50 window either.
+  'order-lookup': async () => orderLookup(val('olq')),
+  'order-lookup-clear': () => { S.lookup = null; renderPayoutsTab({ quiet: true }); return null; },
+  'order-explain': async ({ q }) => { S.tab = 'payouts'; render(); const r = await orderLookup(q); $('olq')?.scrollIntoView({ block: 'center' }); return r; },
   'pp-retry': async ({ id }) => {
     const r = await invoke('affiliate-payouts', { action: 'refresh', payout_id: id, retry: true });
     const x = (r.results || [])[0] || {};
@@ -2976,7 +3050,7 @@ document.addEventListener('click', async (ev) => {
     }
   } finally { b.disabled = false; }
 });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {

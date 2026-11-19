@@ -53,6 +53,7 @@ export const BASIS_LABELS = {
   code_outside_window: { label: 'Not credited: outside the code’s dates', earns: false },
   currency_mismatch: { label: 'Not credited: order in another currency', earns: false },
   refunds_not_measured: { label: 'Held: refunds not measured yet', earns: false },
+  order_cancelled: { label: 'Not credited: order cancelled', earns: false },
 };
 export const basisLabel = (b) => BASIS_LABELS[b]?.label || b;
 

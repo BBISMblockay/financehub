@@ -841,6 +841,37 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(pay, '#recordsBody'), '$1,234.56', 'a period total comes from the database, not the lines on the page');
     await pay.close();
 
+    // ── "why didn't this order count?" answered on the page (Blake 2026-11-18) ──
+    {
+      const lkTables = { ...tables,
+        affiliate_commission_ledger: [
+          { id: 'l1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, attribution_id: 'a1', kind: 'accrual', amount_cents: 500, currency: 'USD', order_id: '1001', created_at: '2026-11-02T00:00:00Z' },
+          { id: 'l2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, attribution_id: 'a1', kind: 'refund_adjustment', amount_cents: -200, currency: 'USD', order_id: '1001', memo: 'commissionable base fell to 3000 minor units', created_at: '2026-11-09T00:00:00Z' }],
+        affiliate_payout_items: [{ company_entity_id: CO, payout_id: 'pz', ledger_entry_id: 'l1', amount_cents: 500 }],
+        affiliate_payouts: [{ id: 'pz', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', amount_cents: 500, currency: 'USD', created_at: now }],
+        shopify_orders: [{ company_entity_id: CO, order_number: '#2002', discount_codes: ['SPRING'] }] };
+      const lk = await suite.open('/v2/affiliates/index.html', lkTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      lk.on('pageerror', (e) => errors.push(e.message));
+      await lk.click('#tabs [data-tab="payouts"]');
+      await lk.waitForSelector('#olq', { timeout: 5000 });
+      await lk.fill('#olq', '#1001');
+      await lk.click('[data-act="order-lookup"]');
+      await lk.waitForFunction(() => /Eligible for commission/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+      const card1 = await text(lk, '#payoutsBody');
+      R.ok('an order shows its code, why it counted and the eligible amount', card1.includes('PAT10') && card1.includes('Earns: only code on order') && card1.includes('$50.00'));
+      R.ok('and every commission line, with where it went', card1.includes('Earned') && card1.includes('in an approved payout') && card1.includes('Taken back (refund or cancellation)') && card1.includes('not in a payout yet'));
+      R.has(card1, '$3.00', 'with the net after the refund');
+      await lk.fill('#olq', '2002');
+      await lk.click('[data-act="order-lookup"]');
+      await lk.waitForFunction(() => /not a code in/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+      R.has(await text(lk, '#payoutsBody'), 'SPRING', 'an order that did not count says which code it used');
+      await lk.fill('#olq', '9999');
+      await lk.click('[data-act="order-lookup"]');
+      await lk.waitForFunction(() => /SILO has no order 9999 yet/.test(document.getElementById('payoutsBody')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('an order SILO has not read yet says so', true);
+      await lk.close();
+    }
+
     // ── autosave belongs to the program it was made on ────────────────────
     // Edit program A's name, then switch to B before the save fires. The edit
     // must land on A, with A's values -- never on B, and never be dropped.
