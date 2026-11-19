@@ -143,6 +143,8 @@ const MUTATIONS = {
   // 50 open attempts, so a newer one can starve behind them (review cycle 1).
   // Ending an affiliate leaves their code working in Shopify (audit 2026-11-18).
   moneyshown: ['/affiliates/studio.js', 'const SEES_MONEY = MANAGE || MONEY;', 'const SEES_MONEY = true;'],
+  endcut: ['/affiliates/studio.js', "    for (const part of chunk(ids, 25)) results", "    for (const part of [ids.slice(0, 25)]) results"],
+  endmissingok: ['/affiliates/studio.js', "  for (const id of ids) if (!answered.has(id)) results.push(", "  for (const id of []) if (!answered.has(id)) results.push("],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
   fixemailaff: ['/affiliates/studio.js', "      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;", ''],
@@ -625,6 +627,23 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await en.waitForFunction(() => /turned off in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
       R.ok('and says so', true);
       await en.close();
+    }
+    // 26 live codes: ended in batches of 25, and a code with no answer is said to be still on (review on #1331).
+    {
+      const base = loopTables.affiliate_codes.find((c) => c.id === 'c1');
+      const many = Array.from({ length: 26 }, (_, i) => ({ ...base, id: `cm${i}`, code: `PAT${i}`, status: 'active', shopify_discount_id: `gid://shopify/DiscountCodeNode/${i}` }));
+      const mt = await suite.open('/v2/affiliates/index.html', { ...loopTables, affiliate_codes: many },
+        { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'cm0', code: 'PAT0', status: 'ended' }] } } } });
+      mt.on('pageerror', (e) => errors.push(e.message));
+      await mt.click('#tabs [data-tab="people"]');
+      await mt.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
+      await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await mt.waitForFunction(() => /Still on in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      const sizes = await mt.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.name === 'affiliate-invite' && c.body.action === 'end_shopify_codes').map((c) => c.body.code_ids.length));
+      R.eq(sizes, [25, 1], 'all 26 are sent, 25 at a time');
+      R.ok('codes with no answer are reported as still on, not as off', true);
+      await mt.close();
     }
     // One affiliate per company, added to another program with their own rate (Blake 2026-11-17).
     {

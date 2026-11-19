@@ -302,6 +302,7 @@ function mutate(key, from, to) {
 switch (MUT) {
   case '': break;
   case 'financeopen': mutate('financereads', "             and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions()))", "             )"); break;
+  case 'anyageunknown': mutate('anyage', "              or (a.basis = 'refunds_not_measured'", "              or (false"); break;
   case 'orderhold': mutate('orderstate', "(max(l.order_day) + max(p.refund_hold_days)) as payable_from", "max(l.order_day) as payable_from"); break;
   case 'orderapproved': mutate('orderstate', "po.status in ('approved', 'exported')", "po.status in ('exported')"); break;
   case 'anyagerate': mutate('anyage', "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_rate.rate_value, 0) / 100.0)::bigint", "      when 'percent_of_net' then round(r.commissionable_cents * coalesce(v_prog.commission_percent, 0) / 100.0)::bigint"); break;
@@ -2443,6 +2444,27 @@ await check('RF1 a refund on a credited order whose code was retired is taken ba
   for (const role of ['anon', 'authenticated']) {
     assert.equal((await one(`select has_function_privilege($1, 'public.affiliate_refresh_credited_orders(uuid)', 'execute') as x`, [role])).x, false, `${role} cannot call it`);
   }
+});
+
+await check('RF2 a credited order whose refunds read unknown once is still reduced when a refund is reported later', async () => {
+  const kay = await newActive('Kay', 'KAY');
+  await orderA('1091', '2026-11-03', 'KAY', 100);
+  await settle();
+  assert.equal(await ledgerSum('1091'), 1000, '10% of $100');
+  await asSuper();
+  await db.query(`update affiliate_codes set status = 'retired' where affiliate_id = $1`, [kay]);
+  await db.query(`update shopify_orders set refunded_subtotal = null where order_id = '1091'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal((await one(`select basis from affiliate_attributions where order_id = '1091'`)).basis, 'refunds_not_measured', 'unknown is recorded as unknown');
+  assert.equal(await ledgerSum('1091'), 1000, 'and is not taken as a full refund');
+  await db.query(`update shopify_orders set refunded_subtotal = 100 where order_id = '1091'`);
+  await db.exec('set role service_role');
+  await one(`select public.affiliate_refresh_credited_orders($1) as r`, [progA]);
+  await asSuper();
+  assert.equal(await ledgerSum('1091'), 0, 'the later full refund is taken back');
+  assert.equal((await one(`select basis from affiliate_attributions where order_id = '1091'`)).basis, 'single_affiliate_code', 'and the order is measured again');
 });
 
 // ── A refund after approval (20261119030000) ──────────────────────────────

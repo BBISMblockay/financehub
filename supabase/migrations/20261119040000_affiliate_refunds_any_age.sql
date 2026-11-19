@@ -66,11 +66,22 @@ begin
        where a.company_entity_id = v_prog.company_entity_id
          and a.program_id = p_program
          and a.affiliate_id is not null
-         and a.basis in ('single_affiliate_code', 'first_affiliate_code')
+         and (a.basis in ('single_affiliate_code', 'first_affiliate_code')
+              -- A credited order whose refunds read as unknown once stays in
+              -- the sweep, so a refund reported later is still taken back
+              -- (review on #1331: unknown is not zero, and not the end).
+              or (a.basis = 'refunds_not_measured'
+                  and exists (select 1 from public.affiliate_commission_ledger l0
+                               where l0.company_entity_id = a.company_entity_id
+                                 and l0.attribution_id = a.id
+                                 and l0.kind = 'accrual')))
     )
     update public.affiliate_attributions a
        set basis                   = case when f.cancelled then 'order_cancelled'
                                           when f.gross is null or f.refunded is null then 'refunds_not_measured'
+                                          -- Measured again: back to the basis the resolver gives it.
+                                          when a.basis = 'refunds_not_measured'
+                                            then case when a.codes_on_order = 1 then 'single_affiliate_code' else 'first_affiliate_code' end
                                           else a.basis end,
            gross_subtotal_cents    = f.gross,
            refunded_subtotal_cents = f.refunded,

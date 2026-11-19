@@ -207,9 +207,14 @@ async function tellCodes(aff) {
 async function endInShopify(ids) {
   ids = (ids || []).filter(Boolean);
   if (!ids.length) return '';
+  // In batches of 25 (the function's limit), and every id must come back
+  // with an outcome: one missing is reported as still on, never as done.
   let results = [];
-  try { results = (await invoke('affiliate-invite', { action: 'end_shopify_codes', code_ids: ids }))?.results || []; }
-  catch (e) { return `Could not turn it off in Shopify yet (${e.message}). Press Turn off in Shopify on the code.`; }
+  try {
+    for (const part of chunk(ids, 25)) results = results.concat((await invoke('affiliate-invite', { action: 'end_shopify_codes', code_ids: part }))?.results || []);
+  } catch (e) { return `Could not turn ${results.length ? 'all of them' : 'it'} off in Shopify yet (${e.message}). Press Turn off in Shopify on the code.`; }
+  const answered = new Set(results.map((r) => r.code_id));
+  for (const id of ids) if (!answered.has(id)) results.push({ code_id: id, status: 'unanswered', reason: 'no answer from Shopify for one code; press Turn off in Shopify on it' });
   const n = (k) => results.filter((r) => r.status === k).length;
   const parts = [];
   if (n('ended')) parts.push(`${num(n('ended'))} turned off in Shopify.`);

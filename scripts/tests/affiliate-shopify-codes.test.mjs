@@ -46,6 +46,8 @@ const muts = {
   scearnanon: ['handler.mjs', 'if (isService && !codeId) {', 'if (!codeId || codeId) {'],
   // Ending a code: any company's code; a failure recorded as off; a code with no Shopify id sent anyway.
   scendanyco: ['handler.mjs', ".eq('company_entity_id', company).eq('status', 'retired').in('id', ids);", ".eq('status', 'retired').in('id', ids);"],
+  scendcut: ['handler.mjs', "        if (ids.length > 25) return reply({ error: 'At most 25 codes at a time.' }, 400);", ''],
+  scendmissing: ['handler.mjs', "        for (const id of ids) if (!seen.has(id)) results.push(", "        for (const id of []) if (!seen.has(id)) results.push("],
   scendfailok: ['handler.mjs', "const done = status === 'ended' || status === 'gone';", "const done = true;"],
   // A code SILO picked itself is left waiting instead of taking the next free text.
   scnorename: ['handler.mjs', "if (e?.kind !== 'taken' || c.created_by) throw e;", 'throw e;'],
@@ -289,6 +291,18 @@ await test('ending: a retired code SILO made is turned off in Shopify, and the o
   out = await (await mk(svc, shop)(post({ action: 'end_shopify_codes', code_ids: [CODE] }))).json();
   assert.equal(out.results[0].status, 'needs_scope');
   assert.ok(!shop.calls.some((c) => c.op === 'end'));
+});
+
+await test('ending: more than 25 codes is refused, never cut short, and every id gets an outcome', async () => {
+  const many = Array.from({ length: 26 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+  let svc = fakeService({ codes: [] });
+  let res = await mk(svc, fakeShopify())(post({ action: 'end_shopify_codes', code_ids: many }));
+  assert.equal(res.status, 400, '26 ids are refused');
+  assert.ok(!svc.log.some((x) => x.table === 'affiliate_codes'), 'and nothing is read or written');
+  const other = '00000000-0000-4000-8000-0000000000ff';
+  svc = fakeService({ codes: [{ ...pending(), status: 'retired', shopify_discount_id: 'gid://shopify/DiscountCodeNode/55', shopify_ended_at: null }] });
+  const out = await (await mk(svc, fakeShopify())(post({ action: 'end_shopify_codes', code_ids: [CODE, other] }))).json();
+  assert.deepEqual(out.results.map((r) => [r.code_id, r.status]), [[CODE, 'ended'], [other, 'not_retired']], 'an id it did not act on is named, not dropped');
 });
 
 await test('staff: a code cancelled meanwhile is left alone', async () => {

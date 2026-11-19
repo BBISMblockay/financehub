@@ -547,8 +547,12 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       // Shopify id. Each outcome is stored on the code, so "off", "could not"
       // and "never tried" are three different records.
       if (action === 'end_shopify_codes') {
-        const ids = Array.isArray(body.code_ids) ? body.code_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : [];
+        // Every id asked for gets an outcome: more than 25 is refused, never
+        // cut short (review on #1331), and an id that is not a retired code
+        // of this company says so.
+        const ids = Array.isArray(body.code_ids) ? [...new Set(body.code_ids.filter((x) => UUID_RE.test(String(x))))] : [];
         if (!ids.length) return reply({ error: 'code_ids are required' }, 400);
+        if (ids.length > 25) return reply({ error: 'At most 25 codes at a time.' }, 400);
         const { data: codes, error: cErr } = await service.from('affiliate_codes')
           .select('id, company_entity_id, program_id, code, status, shopify_discount_id, shopify_ended_at')
           .eq('company_entity_id', company).eq('status', 'retired').in('id', ids);
@@ -571,6 +575,8 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
             .eq('id', c.id).eq('company_entity_id', company).eq('status', 'retired');
           results.push({ ...out, status: done ? 'ended' : status, reason });
         }
+        const seen = new Set((codes || []).map((c) => c.id));
+        for (const id of ids) if (!seen.has(id)) results.push({ code_id: id, status: 'not_retired', reason: 'not a retired code of this company, so it was left as it is' });
         return reply({ results });
       }
 
