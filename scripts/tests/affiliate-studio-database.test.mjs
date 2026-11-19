@@ -295,6 +295,11 @@ for (const [k, f] of Object.entries(files)) {
   sql[k] = await readFile(new URL(`../../supabase/migrations/${f}`, import.meta.url), 'utf8');
 }
 sql.follow = sql.follow.slice(sql.follow.indexOf('create or replace function public.affiliate_autoshare_launch_trg()'));
+// A later migration that redefines the same function carries the live body,
+// so a mutation must reach it too or it tests a body production never runs.
+function mutateLive(keys, from, to) {
+  for (const k of keys) mutate(k, from, to);
+}
 function mutate(key, from, to) {
   assert.ok(sql[key].includes(from), `mutation ${MUT}: pattern not found in ${files[key]}`);
   sql[key] = sql[key].split(from).join(to);
@@ -334,7 +339,7 @@ switch (MUT) {
      and f.kind = 'launch';`, `     and f.kind = 'launch';`); break;
   // The order list is one affiliate's own, not the program's.
   case 'anyorders':
-    mutate('claims', `               where l.company_entity_id = v_tok.company_entity_id
+    mutateLive(['claims', 'orderstate'], `               where l.company_entity_id = v_tok.company_entity_id
                  and l.affiliate_id = v_tok.affiliate_id
                  and l.order_id is not null`, `               where l.company_entity_id = v_tok.company_entity_id
                  and l.order_id is not null`); break;
@@ -504,6 +509,10 @@ switch (MUT) {
     mutate('ledger', `       and program_id = p_program
        and status = 'approved';`, `       and program_id = p_program
        and status in ('approved', 'void');`);
+    // 20261119030000 redefines the export claim, so the live body is there too.
+    mutate('recheck', `       and status = 'approved'
+       and public.affiliate_payout_has_new_reductions(id) = 0;`, `       and status in ('approved', 'void')
+       and public.affiliate_payout_has_new_reductions(id) = 0;`);
     mutate('ledger', `     and p.export_batch_id = v_batch
      and p.status = 'exported';`, `     and p.export_batch_id = v_batch;`); break;
   case 'managedco':
@@ -537,10 +546,10 @@ switch (MUT) {
       `    c.client_secret,
     (btrim(coalesce(c.client_id, '')) <> '' and btrim(coalesce(c.client_secret, '')) <> '') as credentials_set`); break;
   case 'sendinflight':
-    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+    mutateLive(['paypal', 'recheck'], `     and state in ('unknown','sent','unclaimed','paid')`,
       `     and state in ('definitely-not-a-state')`); break;
   case 'sendunknown':
-    mutate('paypal', `     and state in ('unknown','sent','unclaimed','paid')`,
+    mutateLive(['paypal', 'recheck'], `     and state in ('unknown','sent','unclaimed','paid')`,
       `     and state in ('sent','unclaimed','paid')`); break;
   case 'unclaimedpaid':
     mutate('paypal', `  if p_state <> 'paid' then`, `  if p_state not in ('paid','unclaimed') then`); break;
@@ -548,7 +557,7 @@ switch (MUT) {
     mutate('paypal', `  if v_send.state in ('paid','returned','refused') and p_state <> v_send.state then`,
       '  if false then'); break;
   case 'sendtenant':
-    mutate('paypal', `  if p_company is null or v_payout.company_entity_id is distinct from p_company then
+    mutateLive(['paypal', 'recheck'], `  if p_company is null or v_payout.company_entity_id is distinct from p_company then
     raise exception 'affiliate_payout_send_claim: that payout belongs to another company'
       using errcode = '42501';
   end if;`, '  -- tenant check removed'); break;
@@ -560,7 +569,7 @@ switch (MUT) {
     return;
   end if;`, '  -- sandbox settles too'); break;
   case 'sandboxblock':
-    mutate('paypal', "     and (environment = 'live' or environment = p_environment)", '     and true'); break;
+    mutateLive(['paypal', 'recheck'], "     and (environment = 'live' or environment = p_environment)", '     and true'); break;
   case 'recordlock':
     mutate('paypal', 'where id = p_send for update;', 'where id = p_send;'); break;
   case 'voidinflight':
