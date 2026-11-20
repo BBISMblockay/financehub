@@ -7,24 +7,29 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <style>
-    /* Every number on this page is qualified by two facts -- how fresh the
-       data is and how much of it Google returned -- and the strip that
-       carries them sits ABOVE the KPI band so it is read first, not found. */
-    .seo-strip { margin:12px 18px 0; padding:10px 14px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-2); }
+    /* Freshness and coverage still render above KPIs; secondary facts collapse
+       behind one control so the first screen is not a wall of mono (2026-11-20). */
+    .seo-strip { margin:14px 18px 0; padding:10px 14px; font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-2); border:1px solid var(--bcn-border); border-radius:8px; background:var(--bcn-surface); }
+    .seo-strip--alert { border-color:color-mix(in srgb, var(--bcn-warn) 35%, var(--bcn-border)); }
+    .seo-strip-primary { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline; }
     .seo-strip b { color:var(--bcn-ink); font-weight:600; }
     .seo-strip .warn { color:var(--bcn-warn); }
     .seo-strip .neg  { color:var(--bcn-neg); }
+    .seo-strip-more { margin-top:8px; }
+    .seo-strip-more summary { cursor:pointer; color:var(--bcn-accent); font-weight:600; list-style:none; font-size:11px; }
+    .seo-strip-more summary::-webkit-details-marker { display:none; }
+    .seo-strip-more[open] summary { margin-bottom:8px; }
+    .seo-strip-detail { display:flex; flex-direction:column; gap:6px; line-height:1.55; color:var(--bcn-ink-3); }
     .bcn-kpi-band { flex-wrap:wrap; }
-    .seo-content { padding:12px 18px 32px; display:grid; gap:12px; }
-    .seo-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    @media (max-width: 980px) { .seo-grid2 { grid-template-columns:1fr; } }
+    .bcn-kpi-delta { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+    .seo-content { padding:16px 18px 36px; display:grid; gap:16px; max-width:1180px; }
+    .seo-tops-pane { display:none; }
+    .seo-tops-pane.is-active { display:block; }
+    .seo-foot-details { margin:0; padding:8px 14px 10px; border-top:1px solid var(--bcn-border); font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); line-height:1.5; }
+    .seo-foot-details summary { cursor:pointer; color:var(--bcn-ink-2); font-weight:600; }
+    .seo-table-adv th.num, .seo-table-adv td.num.adv { display:none; }
+    .seo-table-adv.seo-table-adv--on th.num, .seo-table-adv.seo-table-adv--on td.num.adv { display:table-cell; }
     .seo-chart-wrap { position:relative; width:100%; }
-    .seo-chart-wrap svg { display:block; width:100%; overflow:visible; }
-    .seo-gridline { stroke:var(--bcn-line, #e5e7eb); stroke-width:1; }
-    .seo-axis { font-family:var(--bcn-mono); font-size:10px; fill:var(--bcn-ink-3); }
-    .seo-line-a { fill:none; stroke:var(--bcn-accent); stroke-width:2; }
-    .seo-line-b { fill:none; stroke:var(--bcn-ink-3); stroke-width:1.5; stroke-dasharray:4 3; }
-    .seo-cap { fill:var(--bcn-warn); opacity:.85; }
     .seo-legend { display:flex; gap:16px; font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); margin-bottom:6px; flex-wrap:wrap; }
     .seo-legend i { display:inline-block; width:14px; height:3px; vertical-align:middle; margin-right:6px; border-radius:2px; }
     .seo-legend i.dash { height:0; border-top:2px dashed var(--bcn-ink-3); }
@@ -40,6 +45,7 @@
     .delta-na  { color:var(--bcn-ink-3); }
     #status { margin:12px 18px 0; }
   </style>
+  <link rel="stylesheet" href="marketing-charts.css" />
   <link rel="stylesheet" href="seo-suite.css" />
   <link rel="stylesheet" href="silo-date-range.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -52,8 +58,8 @@
   <main class="silo-main">
     <header class="bcn-header">
       <div>
-        <div class="bcn-header-title">Search performance</div>
-        <div id="subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3)">Google Search Console · final data · —</div>
+        <h1 class="bcn-header-title">Search performance</h1>
+        <div id="subtitle" class="bcn-header-sub bcn-mono">Google Search Console · final data · —</div>
       </div>
       <div class="bcn-header-actions" style="flex-wrap:wrap;justify-content:flex-end">
         <!-- Start and end down to the day, plus the rolling quick picks, from
@@ -72,11 +78,10 @@
     </section>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Clicks</div><div id="kClicks" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kClicksD">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Impressions</div><div id="kImpr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kImprD">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">CTR</div><div id="kCtr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kCtrD">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg position</div><div id="kPos" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kPosD">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Query coverage</div><div id="kCov" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kCovD">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Clicks</div><div id="kClicks" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kClicksD" title="">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Impressions</div><div id="kImpr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kImprD" title="">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">CTR</div><div id="kCtr" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kCtrD" title="">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg position</div><div id="kPos" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta" id="kPosD" title="">—</div></div>
     </div>
 
     <div class="seo-content">
@@ -92,41 +97,45 @@
           <div class="seo-legend" id="legend"></div>
           <div class="seo-chart-wrap" id="chartWrap"><div class="seo-empty">Loading…</div></div>
         </div>
-        <div class="bcn-card-foot seo-foot" id="chartFoot"></div>
+        <details class="seo-foot-details" id="chartFootWrap"><summary>How to read this chart</summary><div class="seo-foot" id="chartFoot"></div></details>
       </div>
 
-      <div class="seo-grid2">
-        <div class="bcn-card">
-          <div class="bcn-card-header"><h2>Top returned pages</h2></div>
-          <div class="bcn-card-body" style="padding:0">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Top search results</h2>
+          <div class="bcn-header-actions" style="margin:0">
+            <div class="bcn-tabs" style="padding:0">
+              <button type="button" class="bcn-tab bcn-tab--active" data-tops="pages">Pages</button>
+              <button type="button" class="bcn-tab" data-tops="queries">Queries</button>
+            </div>
+            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnTableAdv" aria-pressed="false">More columns</button>
+          </div>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="seo-tops-pane is-active" data-tops-pane="pages">
             <div class="bcn-matrix-scroll">
-              <table class="bcn-table">
+              <table class="bcn-table seo-table-adv" id="pagesTable">
                 <thead><tr>
-                  <th>Page</th><th class="num">Clicks</th><th class="num">Prior</th><th class="num">Change</th>
-                  <th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th><th class="num">Days</th>
+                  <th>Page</th><th class="num">Clicks</th><th class="num adv">Prior</th><th class="num">Change</th>
+                  <th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th><th class="num adv">Days</th>
                 </tr></thead>
                 <tbody id="pagesBody"><tr><td colspan="8" class="seo-empty">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
-          <div class="bcn-card-foot seo-foot" id="pagesFoot"></div>
-        </div>
-
-        <div class="bcn-card">
-          <div class="bcn-card-header"><h2>Top returned queries</h2></div>
-          <div class="bcn-card-body" style="padding:0">
+          <div class="seo-tops-pane" data-tops-pane="queries">
             <div class="bcn-matrix-scroll">
-              <table class="bcn-table">
+              <table class="bcn-table seo-table-adv" id="queriesTable">
                 <thead><tr>
-                  <th>Query</th><th class="num">Clicks</th><th class="num">Prior</th><th class="num">Change</th>
-                  <th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th><th class="num">Days</th>
+                  <th>Query</th><th class="num">Clicks</th><th class="num adv">Prior</th><th class="num">Change</th>
+                  <th class="num">Impr.</th><th class="num">CTR</th><th class="num">Pos.</th><th class="num adv">Days</th>
                 </tr></thead>
                 <tbody id="queriesBody"><tr><td colspan="8" class="seo-empty">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
-          <div class="bcn-card-foot seo-foot" id="queriesFoot"></div>
         </div>
+        <details class="seo-foot-details" id="topsFootWrap"><summary>About these rows</summary><div class="seo-foot" id="topsFoot"></div></details>
       </div>
     </div>
   </main>
@@ -135,6 +144,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="marketing-charts.js"></script>
 <script src="performance-suite.js"></script>
 <script src="seo-suite.js"></script>
 <script src="silo-date-range.js"></script>
@@ -203,6 +213,14 @@
     }
     return { text: '—', cls: 'delta-na' };
   }
+  function deltaKpiLabel(d, kind) {
+    const full = d.text;
+    if (d.cls === 'delta-na') return { short: full, full };
+    if (kind === 'count' && /% vs prior/.test(full)) return { short: full.replace(/ vs prior.*/, ''), full };
+    if (kind === 'pct' && full.includes(' pts ')) return { short: full.replace(/ vs .*/, ''), full };
+    if (kind === 'position' && full.includes(' positions ')) return { short: full.replace(/ positions vs.*/, ' pos'), full };
+    return { short: full, full };
+  }
 
   // WINDOW_DAYS is how many days to ask for; WINDOW_END is set ONLY for a
   // typed calendar range. A quick pick leaves it null, which is what keeps the
@@ -217,16 +235,20 @@
 
   // ── Freshness + coverage strip ─────────────────────────────────────────
   function renderStrip(o) {
+    const stripEl = el('strip');
     const f = o?.freshness || {};
     const w = o?.window || {};
     const c = o?.current || {};
+    stripEl.classList.remove('seo-strip--alert');
     if (Number(f.property_count) > 1) {
-      el('strip').innerHTML = '<span class="warn"><b>Multiple Search Console properties are ingested.</b> Totals are unavailable until a single property is selected; overlapping properties must not be added.</span>';
+      stripEl.classList.add('seo-strip--alert');
+      stripEl.innerHTML = '<span class="warn"><b>Multiple Search Console properties are ingested.</b> Totals are unavailable until a single property is selected; overlapping properties must not be added.</span>';
       el('subtitle').textContent = 'Google Search Console · property selection required';
       return;
     }
     if (!f.max_day) {
-      el('strip').innerHTML = `<span class="neg"><b>No Search Console data ingested yet.</b></span>
+      stripEl.classList.add('seo-strip--alert');
+      stripEl.innerHTML = `<span class="neg"><b>No Search Console data ingested yet.</b></span>
         <span>Connect and enable the property, then run the nightly sync. <a href="/v2/integrations.html">Open Integrations</a></span>`;
       el('subtitle').textContent = 'Google Search Console · final data · no property ingested';
       return;
@@ -244,32 +266,40 @@
       : `no day in this window returned exactly 5,000 query rows; completeness is not guaranteed`;
     const gap = Number(w.days_requested || 0) - Number(w.days_present || 0);
     const gapText = gap > 0 ? `<b class="warn">${gap} of ${w.days_requested} requested days have no ingested row</b> (not ingested, not zero)` : '';
-    el('strip').innerHTML = `
-      <span>Data through <b>${dayFmt(f.max_day)}</b> · ${lagText}</span>
-      <span>History <b>${dayFmt(f.min_day)} → ${dayFmt(f.max_day)}</b> (${numFmt(f.days_ingested)} days)</span>
+    const lagWarn = lag != null && lag > 2;
+    if (lagWarn || cap > 0 || gap > 0 || c.unmeasured_days || c.truncated_days) stripEl.classList.add('seo-strip--alert');
+    const primary = `
+      <span>Data through <b>${dayFmt(f.max_day)}</b></span>
+      <span>Window <b>${dayFmt(w.start)} → ${dayFmt(w.end)}</b>${o.prior ? ` · vs <b>${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}</b>` : ' · <b>no prior-period data</b>'}</span>
+      ${lagText ? `<span>${lagText}</span>` : ''}`;
+    const detail = `
+      <span>History <b>${dayFmt(f.min_day)} → ${dayFmt(f.max_day)}</b> (${numFmt(f.days_ingested)} days ingested)</span>
       <span>Last sync <b>${tsFmt(f.last_synced_at)}</b></span>
-      <span>Window <b>${dayFmt(w.start)} → ${dayFmt(w.end)}</b>${o.prior ? ` vs prior <b>${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}</b>` : ' · <b>no prior-period data</b>'}</span>
       <span>${covText}</span>
       <span>${capText}</span>
       ${gapText ? `<span>${gapText}</span>` : ''}
       ${c.unmeasured_days ? `<span class="warn">${numFmt(c.unmeasured_days)} days have unmeasured query coverage.</span>` : ''}
       ${c.truncated_days ? `<span class="warn">${numFmt(c.truncated_days)} days were locally truncated; coverage is unavailable.</span>` : ''}`;
+    stripEl.innerHTML = `<div class="seo-strip-primary">${primary}</div>
+      <details class="seo-strip-more"><summary>Data quality and sync</summary><div class="seo-strip-detail">${detail}</div></details>`;
     el('subtitle').textContent = `Google Search Console · final data · ${f.site_url || ''}`;
   }
 
   // ── KPI band ───────────────────────────────────────────────────────────
   function renderKpis(o) {
     const c = o?.current || {}; const p = o?.prior || null;
-    const put = (id, val, d) => { el(id).textContent = val; const dd = el(id + 'D'); dd.textContent = d.text; dd.className = `bcn-kpi-delta ${d.cls}`; };
-    put('kClicks', numFmt(c.clicks), deltaText(c.clicks, p?.clicks));
-    put('kImpr', numFmt(c.impressions), deltaText(c.impressions, p?.impressions));
-    put('kCtr', pctFmt(c.ctr), deltaText(c.ctr, p?.ctr, { kind: 'pct' }));
-    put('kPos', posFmt(c.position), deltaText(c.position, p?.position, { kind: 'position' }));
-    const covCur = c.unattributed_query_click_share == null ? null : 1 - Number(c.unattributed_query_click_share);
-    const covPri = p?.unattributed_query_click_share == null ? null : 1 - Number(p.unattributed_query_click_share);
-    put('kCov', covCur == null ? '—' : pctFmt(covCur, 1), covCur == null
-      ? { text: 'share of clicks with a returned query row — not measured', cls: 'delta-na' }
-      : Object.assign(deltaText(covCur, covPri, { kind: 'pct' }), { text: `${deltaText(covCur, covPri, { kind: 'pct' }).text} · share of clicks with a returned query row` }));
+    const put = (id, val, d, kind) => {
+      el(id).textContent = val;
+      const dd = el(id + 'D');
+      const lab = deltaKpiLabel(d, kind);
+      dd.textContent = lab.short;
+      dd.title = lab.full;
+      dd.className = `bcn-kpi-delta ${d.cls}`;
+    };
+    put('kClicks', numFmt(c.clicks), deltaText(c.clicks, p?.clicks), 'count');
+    put('kImpr', numFmt(c.impressions), deltaText(c.impressions, p?.impressions), 'count');
+    put('kCtr', pctFmt(c.ctr), deltaText(c.ctr, p?.ctr, { kind: 'pct' }), 'pct');
+    put('kPos', posFmt(c.position), deltaText(c.position, p?.position, { kind: 'position' }), 'position');
   }
 
   // ── Chart: inline SVG, two series on two scales; capped days marked ─────
@@ -311,9 +341,22 @@
     const step = Math.ceil(rows.length / 6);
     const xl = rows.map((r, i) => (i % step === 0 || i === rows.length - 1)
       ? `<text class="seo-axis" x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="middle">${dayFmt(r.day)}</text>` : '').join('');
-    const caps = rows.map((r, i) => r.query_5000_rows ? `<circle class="seo-cap" cx="${x(i).toFixed(1)}" cy="${(H - PB + 6).toFixed(1)}" r="3"><title>${esc(r.day)}: exactly 5,000 query rows returned (not proof of a cap)</title></circle>` : '').join('');
-    el('chartWrap').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px" role="img" aria-label="${esc(el('chartTitle').textContent)}">
-      ${grid}<path class="seo-line-b" d="${path(bVals, yB)}"/><path class="seo-line-a" d="${path(aVals, yA)}"/>${xl}${caps}</svg>`;
+    const caps = rows.map((r, i) => r.query_5000_rows ? `<circle class="mkt-cap" cx="${x(i).toFixed(1)}" cy="${(H - PB + 6).toFixed(1)}" r="3.5"><title>${esc(r.day)}: exactly 5,000 query rows returned (not proof of a cap)</title></circle>` : '').join('');
+    const MC = window.SiloMarketingCharts || {};
+    const gradId = MC.nextId ? MC.nextId('seoA') : 'seoA';
+    const pathA = path(aVals, yA);
+    const pathB = path(bVals, yB);
+    const yBase = PT + ih;
+    const areaA = volume && pathA && MC.areaClosed
+      ? MC.areaClosed(pathA, x(rows.length - 1), x(0), yBase) : '';
+    const defs = MC.gradientDefs ? `<defs>${MC.gradientDefs(gradId, 'var(--bcn-accent)')}</defs>` : '';
+    const plot = `<rect class="mkt-plot-bg" x="${PL - 6}" y="${PT - 2}" width="${iw + 12}" height="${ih + 4}" rx="8"/>`;
+    const open = MC.svgOpen
+      ? MC.svgOpen({ w: W, h: H, aria: el('chartTitle').textContent })
+      : `<svg class="mkt-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(el('chartTitle').textContent)}">`;
+    el('chartWrap').innerHTML = `${open}${defs}${plot}${grid}`
+      + (areaA ? `<path class="mkt-area-primary" d="${areaA}" fill="url(#${gradId})"/>` : '')
+      + `<path class="seo-line-b" d="${pathB}"/><path class="seo-line-a" d="${pathA}"/>${xl}${caps}</svg>`;
     const capped = rows.filter(r => r.query_5000_rows).length;
     el('chartFoot').innerHTML = `${rows.length} ingested days shown of ${w.days_requested} requested. `
       + `${volume ? 'Impressions are site-level (one per query shown).' : 'Position is an impression-weighted average; never sum it.'} `
@@ -331,24 +374,32 @@
   }
   function renderPages(rows, o) {
     const w = o?.window || {}; const c = o?.current || {};
-    if (!rows.length) { el('pagesBody').innerHTML = `<tr><td colspan="8" class="seo-empty">No page rows returned for this window.</td></tr>`; }
+    if (!rows.length) {
+      el('pagesBody').innerHTML = `<tr><td colspan="8" class="seo-empty">No page rows returned for this window.</td></tr>`;
+      window.__seoPagesFoot = 'No returned pages in this window.';
+      if (TOPS_TAB === 'pages') syncTopsFoot();
+    }
     else el('pagesBody').innerHTML = rows.map(r => `<tr>
       <td class="path" title="${esc(r.page)}">${esc(r.page_path || r.page)}</td>
       <td class="num">${numFmt(r.clicks)}</td>
-      <td class="num">${r.prior_clicks == null ? '<span class="delta-na">—</span>' : numFmt(r.prior_clicks)}</td>
+      <td class="num adv">${r.prior_clicks == null ? '<span class="delta-na">—</span>' : numFmt(r.prior_clicks)}</td>
       ${changeCell(r)}
       <td class="num">${numFmt(r.impressions)}</td>
       <td class="num">${pctFmt(r.ctr)}</td>
       <td class="num">${posFmt(r.position)}</td>
-      <td class="num" title="Days in the window on which Google returned a row for this page">${r.days_present}/${c.days_present ?? '—'}</td>
+      <td class="num adv" title="Days in the window on which Google returned a row for this page">${r.days_present}/${c.days_present ?? '—'}</td>
     </tr>`).join('');
-    el('pagesFoot').innerHTML = `Top ${rows.length} returned pages by clicks, ${dayFmt(w.start)} → ${dayFmt(w.end)}; prior column is the same page over ${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}. `
+    window.__seoPagesFoot = `Top ${rows.length} returned pages by clicks, ${dayFmt(w.start)} → ${dayFmt(w.end)}; prior column is the same page over ${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}. `
       + `Page-to-site aggregate click ratio: <b>${c.page_attributed_share == null ? 'an unmeasured share' : pctFmt(c.page_attributed_share, 1)}</b> in this window; this does not prove per-page coverage. `
       + `<b>"not returned" means no ingested row for that item, which is not zero; source-day gaps may also contribute</b> — the API does not guarantee every row. Impressions here are page-level (one per URL shown) and are not comparable to the site total.`;
+    if (TOPS_TAB === 'pages') syncTopsFoot();
   }
   function renderQueries(rows, o) {
     const w = o?.window || {}; const c = o?.current || {};
-    if (!rows.length) { el('queriesBody').innerHTML = `<tr><td colspan="8" class="seo-empty">No query rows returned for this window.</td></tr>`; }
+    if (!rows.length) {
+      el('queriesBody').innerHTML = `<tr><td colspan="8" class="seo-empty">No query rows returned for this window.</td></tr>`;
+      window.__seoQueriesFoot = 'No returned queries in this window.';
+    }
     else el('queriesBody').innerHTML = rows.map(r => `<tr>
       <td class="q" title="${esc(r.query)}">${esc(r.query)}</td>
       <td class="num">${numFmt(r.clicks)}</td>
@@ -361,9 +412,17 @@
     </tr>`).join('');
     const cov = c.unattributed_query_click_share;
     const cap = Number(c.query_5000_row_days || 0);
-    el('queriesFoot').innerHTML = `Top ${rows.length} returned queries by clicks, ${dayFmt(w.start)} → ${dayFmt(w.end)}; prior column is the same query over ${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}. `
+    window.__seoQueriesFoot = `Top ${rows.length} returned queries by clicks, ${dayFmt(w.start)} → ${dayFmt(w.end)}; prior column is the same query over ${dayFmt(w.prior_start)} → ${dayFmt(w.prior_end)}. `
       + `<b>${cov == null ? 'An unmeasured share' : pctFmt(cov, 1)} of this window's clicks belong to no returned query row</b> (Google may anonymise or otherwise omit queries; the cause is unknown)${cap ? `; <b>${cap} of ${c.days_present} days returned exactly 5,000 rows</b>; this does not confirm an API cap` : ''}. `
       + `A query that is "not returned" in the prior window was not necessarily unsearched. These rows are never joined to pages: no query here can be said to have brought traffic to any page.`;
+    if (TOPS_TAB === 'queries') syncTopsFoot();
+  }
+
+  let TOPS_TAB = 'pages';
+  function syncTopsFoot() {
+    const foot = el('topsFoot');
+    if (!foot) return;
+    foot.innerHTML = TOPS_TAB === 'pages' ? (window.__seoPagesFoot || '') : (window.__seoQueriesFoot || '');
   }
 
   // ── Load ───────────────────────────────────────────────────────────────
@@ -412,6 +471,21 @@
     }
   }
 
+  document.querySelectorAll('.bcn-tab[data-tops]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      TOPS_TAB = tab.dataset.tops;
+      document.querySelectorAll('.bcn-tab[data-tops]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
+      document.querySelectorAll('[data-tops-pane]').forEach(p => p.classList.toggle('is-active', p.dataset.topsPane === TOPS_TAB));
+      syncTopsFoot();
+    });
+  });
+  el('btnTableAdv').addEventListener('click', () => {
+    const on = !document.getElementById('pagesTable').classList.contains('seo-table-adv--on');
+    document.getElementById('pagesTable').classList.toggle('seo-table-adv--on', on);
+    document.getElementById('queriesTable').classList.toggle('seo-table-adv--on', on);
+    el('btnTableAdv').setAttribute('aria-pressed', on ? 'true' : 'false');
+    el('btnTableAdv').textContent = on ? 'Fewer columns' : 'More columns';
+  });
   // The window lives in the address bar, so a refresh or a shared link lands
   // on the same days: days=N for a quick pick, start+end for a typed range.
   function setUrlParams(changes) {

@@ -395,6 +395,9 @@ on:
       - 'v2/marketing-suite.*'
       - 'scripts/tests/performance-suite.test.mjs'
       - 'v2/performance-suite.*'
+      - 'v2/marketing-charts.*'
+      - 'scripts/tests/marketing-charts.test.mjs'
+      - 'scripts/tests/seo-overview.test.mjs'
       # Inventory suite: Overview plus its three tabs.
       - 'scripts/tests/inventory-overview.test.mjs'
       - 'v2/inventory-overview.*'
@@ -790,6 +793,9 @@ jobs:
       # companyGate, because each tab's visibility is its own nav row's.
       - name: Performance suite navigation
         run: node --test scripts/tests/performance-suite.test.mjs
+
+      - name: Marketing chart chrome
+        run: node --test scripts/tests/marketing-charts.test.mjs
 
       # The Inventory Overview (2026-11-16): the suite's first tab, and the
       # only page that aggregates inventory in SQL rather than reading the

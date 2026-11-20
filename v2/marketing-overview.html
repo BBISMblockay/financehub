@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="performance-suite.css" />
+  <link rel="stylesheet" href="marketing-charts.css" />
   <link rel="stylesheet" href="marketing-launch-links.css" />
   <link rel="stylesheet" href="silo-date-range.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -18,12 +19,6 @@
     .mo-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
 
     .mo-chart-wrap { position:relative; width:100%; }
-    .mo-chart-wrap svg { display:block; width:100%; overflow:visible; }
-    .mo-gridline { stroke:var(--bcn-border); stroke-width:1; }
-    .mo-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
-    .mo-line-spend { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
-    .mo-area-spend { fill:var(--bcn-accent); opacity:.10; }
-    .mo-line-value { fill:none; stroke:oklch(0.60 0.18 145); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
     .mo-legend { display:flex; gap:16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-bottom:6px; }
     .mo-legend span { display:inline-flex; align-items:center; gap:6px; }
     .mo-legend i { width:10px; height:10px; border-radius:2px; display:inline-block; }
@@ -360,6 +355,7 @@
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
+<script src="marketing-charts.js"></script>
 <script src="performance-suite.js"></script>
 <script src="silo-date-range.js"></script>
 <script src="marketing-launch-links.js"></script>
@@ -828,13 +824,19 @@
     const xLabels = days.map((d,i)=> i%labelStep===0 || i===days.length-1
       ? `<text class="mo-axis-label" x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${fmtDayLabel(d.day)}</text>` : '').join('');
 
-    el('chartWrap').innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
-      ${gridLines}
-      <path class="mo-area-spend" d="${areaFor('spend')}" />
-      <path class="mo-line-value" d="${pathFor('value')}" />
-      <path class="mo-line-spend" d="${pathFor('spend')}" />
-      ${xLabels}
-    </svg>`;
+    const MC = window.SiloMarketingCharts || {};
+    const gradId = MC.nextId ? MC.nextId('moSpend') : 'moSpend';
+    const defs = MC.gradientDefs ? `<defs>${MC.gradientDefs(gradId, 'var(--bcn-accent)')}</defs>` : '';
+    const plot = `<rect class="mkt-plot-bg" x="${PAD_L - 6}" y="${PAD_T - 2}" width="${innerW + 12}" height="${innerH + 4}" rx="8"/>`;
+    const open = MC.svgOpen
+      ? MC.svgOpen({ w: W, h: H, aria: el('chartTitle').textContent })
+      : `<svg class="mkt-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    const areaPath = areaFor('spend');
+    el('chartWrap').innerHTML = `${open}${defs}${plot}${gridLines}`
+      + `<path class="mo-area-spend" d="${areaPath}" fill="url(#${gradId})" />`
+      + `<path class="mo-line-value" d="${pathFor('value')}" />`
+      + `<path class="mo-line-spend" d="${pathFor('spend')}" />`
+      + `${xLabels}</svg>`;
   }
 
   // ── Campaigns tab ──────────────────────────────────────────────
