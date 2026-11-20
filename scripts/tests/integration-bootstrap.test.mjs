@@ -27,6 +27,12 @@ import {
   bootstrapProgress,
 } from '../lib/integration-bootstrap-core.mjs';
 import { META_HISTORY_DAYS } from '../lib/meta-history-backfill.mjs';
+// Klaviyo's own window maths, so the depth the planner emits is checked
+// against the code that has to accept it rather than against a copy of its
+// rules.
+import {
+  MAX_RANGE_DAYS, addDays, chunkWindow, daysBetweenInclusive, resolveWindow,
+} from '../lib/klaviyo-sync-core.mjs';
 
 let count = 0;
 let failures = 0;
@@ -158,6 +164,47 @@ await test('the first sync asks for two years of every window the source will se
   assert.equal(history.env.SHOPIFY_HISTORY_DAYS, '730');
   assert.equal(storefront.env.SHOPIFY_SESSIONS_DAYS, '730');
   assert.equal(storefront.env.SHOPIFY_DISCOUNT_CODES_DAYS, '365');
+});
+
+await test("Klaviyo's first sync asks for two years, and that window resolves to two covering chunks", () => {
+  // The number alone is not the claim worth pinning: KLAVIYO_DAYS_BACK is
+  // handed to a sync whose reporting API refuses any window over
+  // MAX_RANGE_DAYS, so 730 is only correct if the core still cuts it into
+  // chunks that each pass that check and together cover every day. A depth
+  // the planner can emit and the sync would throw on is the failure this
+  // guards, and it would not show up until a real connect.
+  assert.equal(BOOTSTRAP_DEFAULTS.klaviyoHistoryDays, 730);
+  const [performance] = planBootstrap(
+    { integration: 'klaviyo', company_entity_id: 'co-1', stages: {} },
+    { connection: { api_key: 'pk_test' } },
+  );
+  assert.equal(performance.env.KLAVIYO_DAYS_BACK, '730');
+  assert.equal(performance.env.KLAVIYO_START, '');
+  assert.ok(!performance.skip, `stage skipped: ${performance.skip}`);
+
+  // The depth the planner asked for, resolved and chunked the way the sync
+  // itself does it.
+  const window = resolveWindow({
+    now: new Date('2026-11-20T12:00:00Z'),
+    timeZone: 'UTC',
+    daysBack: BOOTSTRAP_DEFAULTS.klaviyoHistoryDays,
+  });
+  assert.equal(daysBetweenInclusive(window.startDate, window.endDate), 730);
+  const chunks = chunkWindow(window);
+  assert.equal(chunks.length, 2);
+  for (const chunk of chunks) {
+    assert.ok(daysBetweenInclusive(chunk.startDate, chunk.endDate) <= MAX_RANGE_DAYS,
+      `chunk ${chunk.startDate}..${chunk.endDate} exceeds Klaviyo's reporting limit`);
+  }
+  // Newest first, adjacent, and covering: no day of the two years is skipped
+  // and none is fetched twice.
+  assert.equal(chunks[0].endDate, window.endDate);
+  assert.equal(chunks[1].endDate, addDays(chunks[0].startDate, -1));
+  assert.equal(chunks[1].startDate, window.startDate);
+  assert.equal(
+    chunks.reduce((sum, c) => sum + daysBetweenInclusive(c.startDate, c.endDate), 0),
+    730,
+  );
 });
 
 await test('landing pages stay at 30 days, because that window is bounded by its own cost', () => {

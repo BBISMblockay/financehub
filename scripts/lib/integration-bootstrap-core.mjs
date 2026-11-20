@@ -320,10 +320,26 @@ export const BOOTSTRAP_DEFAULTS = {
   // the deepest single-request window rather than a cap on the backfill.
   redoMarketingDays: 400,
   // Blank klaviyoStart means "use the trailing window below" rather than a
-  // dated backfill: nobody has measured yet how far back Klaviyo's reporting
-  // stays trustworthy, so the first sync asks for a year and no more.
+  // dated backfill: the trailing window is the whole plan, and the core cuts
+  // it into Klaviyo's 365-day reporting chunks itself.
   klaviyoStart: '',
-  klaviyoHistoryDays: 365,
+  // Two years, so year-over-year works on the day an account connects -- the
+  // same first-connect depth as Shopify orders, Shopify sessions, the ad
+  // platforms and Meta (META_HISTORY_DAYS). It was 365, which left Klaviyo
+  // the one source a workspace could not read a second year of.
+  //
+  // Measured, not assumed: a 730-day backfill of a live account (2024-11-21..
+  // 2026-11-19) returned campaign measurements for sends back to 2024-11 and
+  // a complete daily flow series, so Klaviyo's reporting reaches past two
+  // years. The cost is bounded and small -- two campaign-report requests
+  // (one per 365-day chunk, against a limit of 2 a minute and 225 a day) and
+  // ~13 flow-series slices, because the daily series is capped at
+  // MAX_SERIES_RANGE_DAYS and fetches itself in 60-day pieces.
+  //
+  // This is FIRST-CONNECT depth only. The nightly stays at its trailing 60
+  // days (klaviyo_connections.days_back, or the sync's own fallback): that
+  // window is how far Klaviyo restates conversions, not how far it serves.
+  klaviyoHistoryDays: 730,
 };
 
 /** The stages this job consists of, with the env each one needs.
