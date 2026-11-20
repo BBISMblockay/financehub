@@ -10334,17 +10334,17 @@ select 'ad metric adjustments' as check_name,
                         and tgname = 'zz_apply_ad_metric_adjustments' and not tgisinternal)
       then 'BROKEN — the next sync would put a corrected metric back to the platform''s value'
     when not exists (select 1 from pg_trigger
-                      where tgrelid = 'public.marketing_kpis_daily'::regclass
-                        and tgname = 'stamp_company_entity_id')
-      then 'MISSING — the company stamp trigger that zz_apply_ad_metric_adjustments sorts after is gone'
+                      where tgrelid = 'public.ad_metric_adjustments'::regclass
+                        and tgname = 'ad_metric_adjustments_no_overlap' and not tgisinternal)
+      then 'BROKEN — two active corrections could fight over the same metric'
     when position('jsonb_build_object(''silo_adjusted''' in
-                  pg_get_functiondef('public.apply_ad_metric_adjustments(uuid)'::regprocedure)) = 0
+                  pg_get_functiondef('public.apply_ad_metric_adjustments(uuid,uuid)'::regprocedure)) = 0
       then 'BROKEN — the platform''s raw value is not kept, so deleting an adjustment cannot restore it'
     when position('raise warning' in
                   pg_get_functiondef('public.tg_marketing_kpis_apply_adjustments()'::regprocedure)) = 0
       then 'CRITICAL: a bad adjustment would break every ad sync instead of storing the raw row'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
-                  where has_function_privilege(r.role, 'public.apply_ad_metric_adjustments(uuid)'::regprocedure, 'execute')
+                  where has_function_privilege(r.role, 'public.apply_ad_metric_adjustments(uuid,uuid)'::regprocedure, 'execute')
                      or has_function_privilege(r.role, 'public.restore_ad_metric_adjustment(uuid,text)'::regprocedure, 'execute'))
       then 'CRITICAL: a browser role or an AI connection can rewrite stored ad metrics'
     else 'ok'

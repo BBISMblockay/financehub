@@ -15,9 +15,11 @@
 //   AD_ADJ_MUTATION=funcgrant  apply_ad_metric_adjustments left callable by the browser
 //   AD_ADJ_MUTATION=rawkeep    the raw value is written to a path jsonb_set cannot create
 //   AD_ADJ_MUTATION=resync     no trigger on marketing_kpis_daily, so a sync undoes the fix
-//   AD_ADJ_MUTATION=rounding   an override is not rounded for an integer column
 //   AD_ADJ_MUTATION=failsoft   a broken adjustment breaks the ad sync instead of warning
 //   AD_ADJ_MUTATION=scope      the campaign filter is ignored, so clean days are zeroed
+//   AD_ADJ_MUTATION=overlap    two active corrections for the same metric are allowed
+//   AD_ADJ_MUTATION=nullkeep   restoring a saved JSON null leaves the correction in place
+//   AD_ADJ_MUTATION=nullexclude  excluding an unmeasured metric invents a measured zero
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -76,7 +78,7 @@ if (MUT === 'company') mutate(`  for select to authenticated
 if (MUT === 'admin') mutate('with check (company_entity_id = public.active_company_id() and public.is_admin_user());',
   'with check (company_entity_id = public.active_company_id());');
 if (MUT === 'funcgrant') mutate(
-  'revoke all on function public.apply_ad_metric_adjustments(uuid) from public, anon, authenticated, silo_integration;', '');
+  'revoke all on function public.apply_ad_metric_adjustments(uuid, uuid) from public, anon, authenticated, silo_integration;', '');
 if (MUT === 'rawkeep') mutate(`             extra = coalesce(k.extra, '{}'::jsonb) || jsonb_build_object('silo_adjusted',
                        coalesce(k.extra -> 'silo_adjusted', '{}'::jsonb)
                        || jsonb_build_object(%3$L, jsonb_build_object(
@@ -86,11 +88,17 @@ if (MUT === 'rawkeep') mutate(`             extra = coalesce(k.extra, '{}'::json
                        jsonb_build_object('raw', to_jsonb(k.%1$I), 'adjustment_id', %4$L::text,
                                           'mode', %5$L::text, 'at', now()), true)`);
 if (MUT === 'resync') mutate(`create trigger zz_apply_ad_metric_adjustments
-  before insert or update on public.marketing_kpis_daily
-  for each row execute function public.tg_marketing_kpis_apply_adjustments();`, '');
-if (MUT === 'rounding') mutate(`  if v_type in ('bigint', 'integer', 'smallint') then
-    v_target := round(v_target);
-  end if;`, '');
+  after insert or update on public.marketing_kpis_daily
+  for each row when (pg_trigger_depth() < 1)
+  execute function public.tg_marketing_kpis_apply_adjustments();`, '');
+if (MUT === 'overlap') mutate(`create trigger ad_metric_adjustments_no_overlap
+  before insert or update on public.ad_metric_adjustments
+  for each row execute function public.tg_ad_metric_adjustments_no_overlap();`, '');
+if (MUT === 'nullkeep') mutate(`       set %1$I = case when k.extra -> 'silo_adjusted' -> %2$L ? 'raw'
+                       then (k.extra -> 'silo_adjusted' -> %2$L ->> 'raw')::numeric
+                       else k.%1$I end,`,
+  `       set %1$I = coalesce((k.extra -> 'silo_adjusted' -> %2$L ->> 'raw')::numeric, k.%1$I),`);
+if (MUT === 'nullexclude') mutate(`         and (%14$L::boolean or k.%1$I is not null)`, '');
 if (MUT === 'failsoft') mutate(`  exception when others then
     raise warning 'ad metric adjustments skipped for marketing_kpis_daily row: %', sqlerrm;
     return new;
@@ -244,10 +252,81 @@ assert.equal(await valueOf('a3', 'clicks'), 8, 'a re-synced row lost the integer
 // rewrite stored metrics directly.
 const seenByB = await asUser(B, true, () => db.query('select count(*)::int n from ad_metric_adjustments'));
 assert.equal(seenByB.rows[0].n, 0, "another company's adjustments are visible");
-await refused(B, true, 'select public.apply_ad_metric_adjustments(null)', [],
+await refused(B, true, 'select public.apply_ad_metric_adjustments(null, null)', [],
   'a browser role can rewrite stored ad metrics');
 await refused(B, true, "select public.restore_ad_metric_adjustment(gen_random_uuid(), 'spend')", [],
   'a browser role can rewrite stored ad metrics');
+
+// A restatement after the correction: the platform now says 200 for an adjusted
+// day, and the sync's upsert never sends `extra`. The raw value kept must be the
+// new one, so removing the correction restores what the platform says today.
+await db.exec('set role service_role');
+await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
+  campaign_name, spend, conversions, conversion_value, clicks, row_hash)
+  values($1,'google_ads','2026-07-22',$2,'Pmax_Country_Testing',45.10,2,27000.00,10,'a1')
+  on conflict (row_hash) do update set conversion_value = excluded.conversion_value, spend = excluded.spend`,
+  [A, CAMP]);
+await db.exec('reset role');
+assert.equal(await valueOf('a1'), 0, 'a restated row put the bad number back');
+assert.equal(await rawOf('a1'), 27000.00, 'the kept raw value is stale, not what the platform says now');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where day_from = '2026-07-22' and metric = 'conversion_value'");
+});
+assert.equal(await valueOf('a1'), 27000.00, 'removing the correction restored a stale value');
+
+// Two active corrections for the same row and metric are refused: which one won
+// could otherwise change on the next sync, and neither raw value would be the
+// platform's own.
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, override_value, reason)
+    values($1,'google_ads',$2,'2026-07-20','2026-07-26','conversion_value','override',10,'first')`, [A, CAMP]);
+});
+await refused(A, true,
+  `insert into ad_metric_adjustments(company_entity_id, platform, campaign_name,
+     day_from, day_to, metric, mode, override_value, reason)
+   values($1,'google_ads','Pmax_Country_Testing','2026-07-24','2026-07-30','conversion_value','override',20,'second')`,
+  [A], 'an overlapping active correction for the same metric was accepted');
+// A different metric, the same days, is fine; so is the same metric once the
+// first correction is switched off.
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, override_value, reason)
+    values($1,'google_ads',$2,'2026-07-20','2026-07-26','spend','override',1,'other metric')`, [A, CAMP]);
+  await db.query("update ad_metric_adjustments set is_active = false where reason = 'first'");
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, override_value, reason)
+    values($1,'google_ads',$2,'2026-07-24','2026-07-30','conversion_value','override',20,'after deactivate')`,
+    [A, CAMP]);
+  await db.query("delete from ad_metric_adjustments where reason in ('first', 'other metric', 'after deactivate')");
+});
+
+// NULL means the platform did not measure the metric, never zero. Excluding it
+// must not invent a measured zero, and an override on it must restore to NULL.
+await db.exec('set role service_role');
+await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
+  campaign_name, spend, conversions, conversion_value, sessions, row_hash)
+  values($1,'google_ads','2026-07-27',$2,'Pmax_Country_Testing',20,1,60,null,'a7')`, [A, CAMP]);
+await db.exec('reset role');
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, reason)
+    values($1,'google_ads',$2,'2026-07-27','2026-07-27','sessions','exclude','nothing to exclude')`, [A, CAMP]);
+});
+assert.equal((await one("select sessions from marketing_kpis_daily where row_hash = 'a7'")).sessions, null,
+  'excluding an unmeasured metric turned "not measured" into a measured zero');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where metric = 'sessions'");
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, override_value, reason)
+    values($1,'google_ads',$2,'2026-07-27','2026-07-27','sessions','override',12,'counted by hand')`, [A, CAMP]);
+});
+assert.equal(await valueOf('a7', 'sessions'), 12, 'an override on an unmeasured metric did not apply');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where metric = 'sessions'");
+});
+assert.equal((await one("select sessions from marketing_kpis_daily where row_hash = 'a7'")).sessions, null,
+  'removing the override left a measured zero where the platform measured nothing');
 
 // Constraints: only a metric the table has, an override needs a value, and a
 // range cannot run backwards.

@@ -111,36 +111,41 @@ begin
   if v_type is null then
     return null;             -- not a column we can adjust
   end if;
-  -- An integer column cannot take 7.6 through jsonb_populate_record (the
-  -- trigger's path), so the value is rounded to what the column stores.
-  if v_type in ('bigint', 'integer', 'smallint') then
-    v_target := round(v_target);
-  end if;
+  -- Assigning a numeric to an integer column rounds it, so an override of 7.6
+  -- clicks stores 8. The type lookup above is what makes a metric adjustable at
+  -- all: a name that is not a column of the table returns null and is skipped.
   return v_target;
 end $$;
 
 revoke all on function public.ad_metric_adjustment_target(text, text, numeric) from public, anon, authenticated, silo_integration;
 
 -- Every writer of marketing_kpis_daily goes through this, so a corrected metric
--- survives the next sync. Fail-soft on purpose: a raw row beats a broken sync.
+-- survives the next sync.
+--
+-- It runs AFTER the write, not before, and re-reads the stored row through
+-- apply_ad_metric_adjustments(). A BEFORE trigger cannot do this correctly: the
+-- syncs upsert with `on conflict do update` over the metric columns only and
+-- never send `extra`, so a value corrected on the proposed insert arrives at the
+-- update already equal to the target, and the platform's restated raw number is
+-- nowhere to be read. Letting the raw row land first and correcting it in place
+-- means the raw value kept in extra.silo_adjusted is always the latest one the
+-- platform sent.
+--
+-- The guard is pg_trigger_depth(), which a WHEN clause reads as the depth
+-- BEFORE this trigger: 0 for an ordinary write, 1 for the correcting UPDATE this
+-- trigger itself issues, which is therefore not re-entered. Fail-soft on purpose -- an
+-- adjustment this cannot read leaves the raw row stored and warns, because a
+-- wrong number beats a broken sync.
 create or replace function public.tg_marketing_kpis_apply_adjustments()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  a public.ad_metric_adjustments;
-  v_row jsonb;
-  v_patch jsonb := '{}'::jsonb;
-  v_marks jsonb := '{}'::jsonb;
-  v_raw numeric;
-  v_target numeric;
 begin
   begin
-    v_row := to_jsonb(new);
-    for a in
-      select * from public.ad_metric_adjustments adj
+    if exists (
+      select 1 from public.ad_metric_adjustments adj
        where adj.is_active
          and adj.company_entity_id = new.company_entity_id
          and adj.platform = new.platform
@@ -149,29 +154,13 @@ begin
          and (adj.account_id is null or adj.account_id = new.account_id)
          and (adj.campaign_id is null or adj.campaign_id = new.campaign_id)
          and (adj.campaign_name is null or adj.campaign_name = new.campaign_name)
-       order by adj.created_at
-    loop
-      v_target := public.ad_metric_adjustment_target(a.metric, a.mode, a.override_value);
-      continue when v_target is null;
-      v_raw := nullif(v_row ->> a.metric, '')::numeric;
-      continue when v_raw is not distinct from v_target;
-      v_patch := v_patch || jsonb_build_object(a.metric, v_target);
-      v_marks := v_marks || jsonb_build_object(a.metric, jsonb_build_object(
-        'raw', v_raw, 'adjustment_id', a.id, 'mode', a.mode, 'at', now()));
-    end loop;
-
-    if v_patch = '{}'::jsonb then
-      return new;
+    ) then
+      perform public.apply_ad_metric_adjustments(null, new.id);
     end if;
-    v_patch := v_patch || jsonb_build_object('extra',
-      coalesce(new.extra, '{}'::jsonb) || jsonb_build_object('silo_adjusted',
-        coalesce(new.extra -> 'silo_adjusted', '{}'::jsonb) || v_marks));
-    new := jsonb_populate_record(new, v_patch);
-    return new;
   exception when others then
     raise warning 'ad metric adjustments skipped for marketing_kpis_daily row: %', sqlerrm;
-    return new;
   end;
+  return null;
 end $$;
 
 -- Postgres grants EXECUTE on a new function to PUBLIC, and Supabase re-grants it
@@ -179,16 +168,16 @@ end $$;
 -- not need EXECUTE on its own function.
 revoke all on function public.tg_marketing_kpis_apply_adjustments() from public, anon, authenticated, silo_integration;
 
--- Named to sort AFTER stamp_company_entity_id: BEFORE row triggers fire in name
--- order, and this one needs the stamped company to find a matching adjustment.
 drop trigger if exists marketing_kpis_apply_adjustments on public.marketing_kpis_daily;
 drop trigger if exists zz_apply_ad_metric_adjustments on public.marketing_kpis_daily;
 create trigger zz_apply_ad_metric_adjustments
-  before insert or update on public.marketing_kpis_daily
-  for each row execute function public.tg_marketing_kpis_apply_adjustments();
+  after insert or update on public.marketing_kpis_daily
+  for each row when (pg_trigger_depth() < 1)
+  execute function public.tg_marketing_kpis_apply_adjustments();
 
 -- Correct rows that are already stored. Returns the number of rows changed.
-create or replace function public.apply_ad_metric_adjustments(p_adjustment uuid default null)
+create or replace function public.apply_ad_metric_adjustments(p_adjustment uuid default null,
+                                                              p_row uuid default null)
 returns integer
 language plpgsql
 security definer
@@ -223,16 +212,21 @@ begin
          and (%10$L::text is null or k.account_id = %10$L)
          and (%11$L::text is null or k.campaign_id = %11$L)
          and (%12$L::text is null or k.campaign_name = %12$L)
+         and (%13$L::uuid is null or k.id = %13$L::uuid)
+         -- NULL means the platform did not measure the metric, never zero, so
+         -- excluding it would invent a measurement. An override still applies.
+         and (%14$L::boolean or k.%1$I is not null)
          and k.%1$I is distinct from %2$L::numeric
     $f$, a.metric, v_target, a.metric, a.id, a.mode, a.company_entity_id, a.platform,
-        a.day_from, a.day_to, a.account_id, a.campaign_id, a.campaign_name);
+        a.day_from, a.day_to, a.account_id, a.campaign_id, a.campaign_name,
+        p_row, a.mode = 'override');
     get diagnostics v_n = row_count;
     v_total := v_total + v_n;
   end loop;
   return v_total;
 end $$;
 
-revoke all on function public.apply_ad_metric_adjustments(uuid) from public, anon, authenticated, silo_integration;
+revoke all on function public.apply_ad_metric_adjustments(uuid, uuid) from public, anon, authenticated, silo_integration;
 
 -- Put the platform's own value back for one adjustment, from extra.silo_adjusted.
 create or replace function public.restore_ad_metric_adjustment(p_adjustment uuid, p_metric text)
@@ -248,7 +242,11 @@ begin
   end if;
   execute format($f$
     update public.marketing_kpis_daily k
-       set %1$I = coalesce((k.extra -> 'silo_adjusted' -> %2$L ->> 'raw')::numeric, k.%1$I),
+       -- A saved raw of JSON null is a metric the platform did not measure:
+       -- restore SQL NULL. Only a missing key leaves the column alone.
+       set %1$I = case when k.extra -> 'silo_adjusted' -> %2$L ? 'raw'
+                       then (k.extra -> 'silo_adjusted' -> %2$L ->> 'raw')::numeric
+                       else k.%1$I end,
            extra = case when (coalesce(k.extra -> 'silo_adjusted', '{}'::jsonb) - %2$L) = '{}'::jsonb
                         then k.extra - 'silo_adjusted'
                         else jsonb_set(k.extra, array['silo_adjusted'],
@@ -260,6 +258,49 @@ begin
 end $$;
 
 revoke all on function public.restore_ad_metric_adjustment(uuid, text) from public, anon, authenticated, silo_integration;
+
+-- Two active corrections for the same row and metric would fight: each would
+-- record the other's value as the platform's own, and which one won could
+-- change on the next sync. Stacking is not supported, so an intersecting active
+-- scope is refused outright. A NULL account or campaign means "any", so it
+-- intersects a named one.
+create or replace function public.tg_ad_metric_adjustments_no_overlap()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare v_other public.ad_metric_adjustments;
+begin
+  if not new.is_active then
+    return new;
+  end if;
+  select * into v_other
+    from public.ad_metric_adjustments adj
+   where adj.id <> new.id
+     and adj.is_active
+     and adj.company_entity_id = new.company_entity_id
+     and adj.platform = new.platform
+     and adj.metric = new.metric
+     and (adj.account_id is null or new.account_id is null or adj.account_id = new.account_id)
+     and (adj.campaign_id is null or new.campaign_id is null or adj.campaign_id = new.campaign_id)
+     and (adj.campaign_name is null or new.campaign_name is null or adj.campaign_name = new.campaign_name)
+     and (adj.day_to is null or adj.day_to >= new.day_from)
+     and (new.day_to is null or new.day_to >= adj.day_from)
+   limit 1;
+  if found then
+    raise exception 'an active adjustment (%) already covers % for those days; edit or remove it instead',
+      v_other.id, new.metric
+      using errcode = 'unique_violation';
+  end if;
+  return new;
+end $$;
+
+revoke all on function public.tg_ad_metric_adjustments_no_overlap() from public, anon, authenticated, silo_integration;
+
+drop trigger if exists ad_metric_adjustments_no_overlap on public.ad_metric_adjustments;
+create trigger ad_metric_adjustments_no_overlap
+  before insert or update on public.ad_metric_adjustments
+  for each row execute function public.tg_ad_metric_adjustments_no_overlap();
 
 -- Filing, editing or removing an adjustment corrects history in the same
 -- statement, so the admin who filed it sees the new numbers immediately.
@@ -274,7 +315,7 @@ begin
     perform public.restore_ad_metric_adjustment(old.id, old.metric);
   end if;
   if tg_op in ('INSERT', 'UPDATE') and new.is_active then
-    perform public.apply_ad_metric_adjustments(new.id);
+    perform public.apply_ad_metric_adjustments(new.id, null);
   end if;
   return case when tg_op = 'DELETE' then old else new end;
 end $$;
