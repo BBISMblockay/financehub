@@ -519,6 +519,30 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── Share tab: the brand picks what affiliates see ──────────────────
     R.not(await text(page, '#outreachBody'), 'Pick what to share', 'sharing is not on Outreach');
     await closeDialog(page);
+    // Only what THIS program's store sells can be shared (Blake 2026-11-20):
+    // a product code is made in that store, and a product it does not carry
+    // made a code nothing could use.
+    {
+      const twoShops = { ...tables,
+        affiliate_programs: [{ ...tables.affiliate_programs[0], shop_domains: ['brand-a.myshopify.com'] }],
+        products_master: [
+          { company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: null, shopify_handle: 'trail-hat' },
+          { company_entity_id: CO, product_title: 'Trail Jacket', product_type: 'Coat', image_url: null, shopify_handle: 'trail-jacket' }],
+        shopify_product_skus: [{ company_entity_id: CO, shop_domain: 'brand-a.myshopify.com', product_handle: 'trail-hat' }] };
+      const st = await suite.open('/v2/affiliates/index.html', twoShops, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      st.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(st);
+      await st.click('#tabs [data-tab="share"]');
+      await st.waitForSelector('#shareBody [data-act="share-tab"][data-k="products"]', { timeout: 5000 });
+      await st.click('#shareBody [data-act="share-tab"][data-k="products"]');
+      await st.fill('#prodQ', 'Trail');
+      await st.click('[data-act="prod-search"]');
+      await st.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const sb = await text(st, '#shareBody');
+      R.not(sb, 'Trail Jacket', 'a product this store does not carry is not offered');
+      R.has(sb, 'more match in your other stores', 'and the page says where the rest are');
+      await st.close();
+    }
     await page.click('#tabs [data-tab="share"]');
     await page.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     R.has(await text(page, '#shareBody'), 'What your affiliates see', 'Share opens on what is already shared');
