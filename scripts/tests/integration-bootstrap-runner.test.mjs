@@ -257,6 +257,42 @@ await test('an ad job whose connection is a different platform is cancelled', as
   assert.match(db.writes.at(-1).patch.last_error, /is ga4, not meta_ads/);
 });
 
+// ── Every planned integration must be registered HERE, not only in the plan ──
+// A plan, a queue CHECK and a browser stage table can all name an integration
+// while the runner does not, and the failure is invisible from any of them:
+// loadConnection answers "not found" without reading the row and runJob
+// cancels the job, so a valid, active, sync-enabled connection is told it no
+// longer exists. That is how Amazon shipped its first commit, and it is why
+// this asserts the KPI stage actually runs.
+await test('an Amazon job reaches its KPI stage rather than being cancelled as missing', async () => {
+  const db = fakeDb({ connection: { id: 'ad-am', is_active: true, sync_enabled: true, company_entity_id: 'co-1', platform: 'amazon_ads' } });
+  const ran = [];
+  const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
+  const res = await runJob(job({ integration: 'amazon_ads', connection_id: 'ad-am' }));
+  assert.equal(res.status, 'done', db.writes.at(-1)?.patch?.last_error || 'the job must run');
+  assert.deepEqual(ran, ['kpis']);
+});
+
+await test('an Amazon job naming another platform\'s connection is still cancelled', async () => {
+  const db = fakeDb({ connection: { id: 'ad-9', is_active: true, sync_enabled: true, company_entity_id: 'co-1', platform: 'tiktok_ads' } });
+  const ran = [];
+  const { runJob } = createRunner({ db, runStage: async (s) => { ran.push(s.stage); return { ok: true }; }, log: silent });
+  const res = await runJob(job({ integration: 'amazon_ads', connection_id: 'ad-9' }));
+  assert.equal(res.status, 'cancelled');
+  assert.deepEqual(ran, []);
+  assert.match(db.writes.at(-1).patch.last_error, /is tiktok_ads, not amazon_ads/);
+});
+
+await test('an Amazon connection in another company reads as missing', async () => {
+  const db = fakeDb({ connection: null });
+  const { runJob } = createRunner({ db, runStage: async () => ({ ok: true }), log: silent });
+  const res = await runJob(job({ integration: 'amazon_ads', connection_id: 'ad-am' }));
+  assert.equal(res.status, 'cancelled');
+  const read = db.reads.find((r) => r.table === 'ad_platform_connections');
+  assert.ok(read, 'the row must actually be read');
+  assert.deepEqual(read.filters.company_entity_id, ['co-1'], "the read is scoped to the job's company");
+});
+
 await test('sync switched off between queueing and draining cancels the job', async () => {
   // The cron is late often enough for this gap to be real, and running anyway
   // would override a decision somebody made in the UI.

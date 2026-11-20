@@ -139,7 +139,7 @@ export const INTEGRATION_FEEDS = [
     stamp: { on: 'connection', metaKey: 'last_sync_at' },
     maxLagDays: 1,
     // The bootstrap plan is the connection's own platform (google_ads,
-    // meta_ads, tiktok_ads, ga4), not one value.
+    // meta_ads, tiktok_ads, amazon_ads, ga4), not one value.
     integrationFromPlatform: true,
     workflow: 'ad-platforms-sync.yml',
   },
