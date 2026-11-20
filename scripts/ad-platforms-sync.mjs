@@ -29,6 +29,16 @@ const GOOGLE_ENV = {
   GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '',
 };
 
+// Amazon's Login-with-Amazon client, which mints the hour-long access token
+// every Amazon Ads request needs. Separate from Google's because the two are
+// unrelated credentials; both are handed to runConnectionSync together, which
+// reads only the ones its platform uses.
+const AMAZON_ENV = {
+  AMAZON_ADS_CLIENT_ID: process.env.AMAZON_ADS_CLIENT_ID || '',
+  AMAZON_ADS_CLIENT_SECRET: process.env.AMAZON_ADS_CLIENT_SECRET || '',
+};
+const SYNC_ENV = { ...GOOGLE_ENV, ...AMAZON_ENV };
+
 const ONLY_COMPANY_ID = process.env.ADS_ONLY_COMPANY_ID || '';
 const ONLY_PLATFORM = (process.env.ADS_ONLY_PLATFORM || '').toLowerCase();
 const ONLY_CONNECTION_ID = process.env.ADS_ONLY_CONNECTION_ID || '';
@@ -65,6 +75,7 @@ const JOB_TYPES = {
   google_ads: 'google_ads_kpis',
   meta_ads: 'meta_ads_kpis',
   tiktok_ads: 'tiktok_ads_kpis',
+  amazon_ads: 'amazon_ads_kpis',
   ga4: 'ga4_kpis',
   search_console: SEARCH_CONSOLE_JOB_TYPE,
 };
@@ -79,6 +90,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 function googleEnvReady() {
   return GOOGLE_ENV.GOOGLE_CLIENT_ID && GOOGLE_ENV.GOOGLE_CLIENT_SECRET;
+}
+
+function amazonEnvReady() {
+  return AMAZON_ENV.AMAZON_ADS_CLIENT_ID && AMAZON_ENV.AMAZON_ADS_CLIENT_SECRET;
 }
 
 async function startJob(connection) {
@@ -126,6 +141,14 @@ async function syncConnection(connection) {
   if (needsGoogle && !googleEnvReady()) {
     console.log(`[skip] ${label}: GOOGLE_CLIENT_ID/SECRET not set — add the repo secrets to activate`);
     return { connection: label, skipped: 'google_env_missing' };
+  }
+
+  // Same shape as the Google guard above: without the LwA client there is
+  // nothing to refresh the token with, and a skip says so where a failure
+  // would read as Amazon refusing the account.
+  if (connection.platform === 'amazon_ads' && !amazonEnvReady()) {
+    console.log(`[skip] ${label}: AMAZON_ADS_CLIENT_ID/SECRET not set — add the repo secrets to activate`);
+    return { connection: label, skipped: 'amazon_env_missing' };
   }
 
   const jobId = await startJob(connection);
@@ -200,7 +223,7 @@ async function syncConnection(connection) {
   if (history.backfill) console.log(`[ok] ${label}: importing ${runDaysBack} days of history (new connection)`);
 
   try {
-    const result = await runConnectionSync(supabase, GOOGLE_ENV, connection, {
+    const result = await runConnectionSync(supabase, SYNC_ENV, connection, {
       batchId: BATCH_ID,
       daysBackOverride: runDaysBack,
       onTokenRefresh: async (accessToken, expiresAt) => {

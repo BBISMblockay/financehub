@@ -4001,3 +4001,34 @@ path: `use` writes the program's content bonus once as a `manual_adjustment`
 ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
+
+### Amazon Ads connection — 2026-11-20
+
+`20261120050000_amazon_ads_connection.sql` makes Amazon Ads the fourth ad
+platform. It adds **no table**: `marketing_kpis_daily.platform` has been a
+name-shape CHECK since `20261103080000`, so `amazon_ads` rows need nothing
+there, and Amazon's figures are the same campaign-per-day grain as Google,
+Meta and TikTok. What it does add is `amazon_ads` to the platform CHECK on
+both `ad_platform_connections` and `ad_platform_oauth_states`, the pair
+`amazon_profile_id` / `amazon_region` on the connection, a CHECK restricting
+the region to `NA` / `EU` / `FE`, and `amazon_ads_kpis` to `sync_jobs.job_type`
+(extended by reading the live constraint, never by re-typing the list).
+
+**Why the region is a column.** Amazon Ads has three independent API hosts
+(`advertising-api{,-eu,-fe}.amazon.com`) and a profile exists behind exactly
+one of them, so a profile id alone cannot be turned into a request — the wrong
+host 401s. `amazon-oauth-callback` asks all three which profiles the grant can
+reach and stores each with the region that answered; the Integrations picker
+writes the two together or neither.
+
+Both columns are nullable because the OAuth callback inserts the row before the
+profile is chosen, the same two-step every ad platform here follows: choosing
+the profile is what switches `sync_enabled` on and queues the first import.
+
+Apply before deploying `amazon-oauth-start` / `amazon-oauth-callback` and the
+updated `test-ad-platform-connection`. Verified by the "amazon ads connection"
+check in `verify_v2_schema.sql`. Run `refresh_chat_schema_catalog()` after
+applying (the migration does). Rollback: drop `amazon_ads` from the two
+platform CHECKs, `alter table public.ad_platform_connections drop column
+amazon_profile_id, drop column amazon_region;`, and remove `amazon_ads_kpis`
+from the `sync_jobs` job_type list.

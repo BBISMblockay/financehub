@@ -86,6 +86,37 @@ await test('Meta and TikTok lists', () => {
   assert.deepEqual(P.options('ga4', {}), []);
   assert.deepEqual(P.options('unknown', { properties: [{ property: 'x' }] }), []);
 });
+await test('Amazon profiles carry their region, and both are stored together', () => {
+  // Amazon has three independent API hosts and a profile lives behind exactly
+  // one, so a profile id without its region cannot be synced at all.
+  const o = P.options('amazon_ads', {
+    amazon_profiles: [
+      { profile_id: '111', region: 'NA', country_code: 'US', currency_code: 'USD', account_name: 'Acme US', account_type: 'seller' },
+      // Amazon's own spec: a seller profile's name is "not currently
+      // populated", so the row has to read as something other than blank.
+      { profile_id: '222', region: 'EU', country_code: 'DE', account_type: 'seller' },
+      // A profile with no region is shown and refused, never offered as a
+      // choice that would silently never sync.
+      { profile_id: '333', country_code: 'JP' },
+    ],
+  });
+  assert.equal(o.length, 3);
+  assert.equal(o[0].label, 'Acme US');
+  assert.equal(o[0].sub, 'US · NA · seller · 111');
+  assert.equal(o[1].label, 'DE seller', 'a nameless profile falls back to country and type, not a bare id');
+  assert.equal(o[2].disabled, true, 'a profile with no region must not be selectable');
+  const patch = P.patchFor('amazon_ads', o[0]);
+  assert.equal(patch.amazon_profile_id, '111');
+  assert.equal(patch.amazon_region, 'NA', 'the region must be written with the profile');
+  assert.equal(patch.sync_enabled, true);
+  assert.equal(P.patchFor('amazon_ads', o[2]), null, 'a regionless choice writes nothing');
+  // autoPick ignores the disabled one, so a grant with one usable profile
+  // still takes a single click.
+  assert.equal(P.autoPick(P.options('amazon_ads', {
+    amazon_profiles: [{ profile_id: '111', region: 'NA' }, { profile_id: '333' }],
+  })).value, '111');
+  assert.deepEqual(P.options('amazon_ads', {}), []);
+});
 await test('autoPick: exactly one selectable, otherwise ask', () => {
   const two = P.options('ga4', { properties: [{ property: 'properties/1' }, { property: 'properties/2' }] });
   assert.equal(P.autoPick(two), null);

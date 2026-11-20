@@ -11,6 +11,7 @@
  *                   property cover different traffic; never normalised)
  *   meta_ads        act_123               -> act_123
  *   tiktok_ads      advertiser id as-is
+ *   amazon_ads      profile id AND its region, which travel together
  * A Search Console property the account has not verified is listed but not
  * selectable: Google refuses its performance data.
  *
@@ -19,10 +20,12 @@
   const FIELD = {
     google_ads: 'google_customer_id', ga4: 'ga4_property_id', search_console: 'search_console_site_url',
     meta_ads: 'meta_ad_account_id', tiktok_ads: 'tiktok_advertiser_id',
+    amazon_ads: 'amazon_profile_id',
   };
   const NOUN = {
     google_ads: 'Google Ads account', ga4: 'GA4 property', search_console: 'Search Console property',
     meta_ads: 'Meta ad account', tiktok_ads: 'TikTok advertiser',
+    amazon_ads: 'Amazon advertising account',
     meta_pages: 'Facebook Page',
   };
   const str = (v) => (v == null ? '' : String(v));
@@ -76,6 +79,30 @@
         disabled: false,
       })).filter((o) => o.value);
     }
+    // Amazon profiles carry their REGION, and the two are stored together:
+    // Amazon has three independent API hosts and a profile exists behind
+    // exactly one of them, so a profile id without its region is not enough
+    // to make a single request. The label leads with the account name where
+    // Amazon gives one -- its own spec says the name is "not currently
+    // populated for sellers", so the country and marketplace carry the row
+    // when it is blank, rather than leaving a bare profile number.
+    if (platform === 'amazon_ads') {
+      return (d.amazon_profiles || []).map((p) => {
+        const id = str(p && p.profile_id);
+        const region = str(p && p.region).toUpperCase();
+        const country = str(p && p.country_code);
+        const type = str(p && p.account_type);
+        return {
+          value: id,
+          region,
+          label: str(p && p.account_name) || [country, type].filter(Boolean).join(' ') || id,
+          sub: [country, region, type, id].filter(Boolean).join(' · '),
+          // A profile with no region cannot be synced, so it is shown and
+          // refused rather than offered as a choice that silently never runs.
+          disabled: !region,
+        };
+      }).filter((o) => o.value);
+    }
     if (platform === 'tiktok_ads') {
       // `advertisers` carries names (/oauth2/advertiser/get/); advertiser_ids
       // is the nameless fallback from the grant itself. Nineteen digits tell
@@ -114,6 +141,12 @@
     // syncing ads.
     if (platform === 'meta_pages') {
       return { facebook_page_id: option.value, instagram_business_account_id: option.igValue || null };
+    }
+    // Amazon writes the region with the profile, for the reason given in
+    // options(): either both or neither is usable, so they are one choice.
+    if (platform === 'amazon_ads') {
+      if (!option.region) return null;
+      return { amazon_profile_id: option.value, amazon_region: option.region, sync_enabled: true };
     }
     const field = FIELD[platform];
     if (!field) return null;

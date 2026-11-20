@@ -27,6 +27,18 @@
 // Search Console is deliberately not offered: its sync fills three tables
 // page by page and refreshes a materialized view, which does not fit an
 // interactive request. It stays nightly.
+//
+// Amazon Ads is not offered either, and for a harder reason than preference:
+// Amazon has no synchronous campaign report. Every figure comes from an
+// ASYNCHRONOUS report that is requested, built by Amazon over roughly two to
+// ten minutes, then downloaded -- so a Sync now button could only ever time
+// out against this function's 150s gateway limit while the report was still
+// building. A new Amazon connection is not left waiting for the nightly
+// because of it: choosing the profile queues the first-connect bootstrap,
+// which runs in Actions with no such limit (chooseAccount in
+// v2/integrations.html passes no `kick` for a platform outside
+// SYNC_NOW_PLATFORMS). Offering the button and having it fail would be worse
+// than not offering it.
 
 export const SYNC_RUN_PLATFORMS = ['google_ads', 'ga4', 'meta_ads', 'tiktok_ads'];
 export const JOB_TYPES = {
