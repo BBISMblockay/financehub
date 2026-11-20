@@ -890,16 +890,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await typing2.evaluate(() => { try { Object.keys(localStorage).filter((k) => k.startsWith('silo.affiliates.autorefresh.')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} });
     await typing2.reload();
     await typing2.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
-    await openAddCreators(typing2);
+    // An inline field, not the dialog: a dialog keeps what is in it across a
+    // redraw, so only a field in the page itself can show the recheck working.
+    await toDiscovery(typing2);
     // Hold the redraw's reads, let the photos land on a clean form, then type.
     await typing2.evaluate(() => { let open; window.__FIXTURE_TABLE_GATES__ = { affiliate_programs: new Promise((r) => { open = r; }) }; window.__openGate = open; });
     release2();
     await typing2.waitForTimeout(600);
-    await typing2.fill('#mpName', 'Typed during the reads');
+    await typing2.fill('#rsFocus', 'Typed during the reads');
     await typing2.click('body');
     await typing2.evaluate(() => { window.__openGate(); window.__FIXTURE_TABLE_GATES__ = {}; });
     await typing2.waitForTimeout(800);
-    R.eq(await typing2.inputValue('#mpName'), 'Typed during the reads', 'typing that starts during the redraw\'s reads survives too');
+    R.eq(await typing2.inputValue('#rsFocus'), 'Typed during the reads', 'typing that starts during the redraw\'s reads survives too');
     await typing2.close();
 
     // ── payout export: the file is what the database claimed ─────────────
