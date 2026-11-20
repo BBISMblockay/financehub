@@ -18,7 +18,7 @@ import { clientSideReason, makeFinishJob, runConnections } from './lib/ad-sync-c
 import { runConnectionSync, runMetaAdLevelSync, runMetaOrganicSync, fetchMetaJsonOrThrow, syncOutcome, META_API_VERSION } from './lib/ad-platforms-sync-core.mjs';
 import { archiveCreativeImages, scrubError } from './lib/creative-image-archive.mjs';
 import { runSearchConsoleSync, SEARCH_CONSOLE_JOB_TYPE } from './lib/search-console-sync-core.mjs';
-import { planMetaHistory, metaHistoryComplete, metaAfterHistory } from './lib/meta-history-backfill.mjs';
+import { planMetaHistory, metaHistoryComplete, metaAfterHistory, metaAdLevelDaysBack } from './lib/meta-history-backfill.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -191,7 +191,7 @@ async function syncConnection(connection) {
     }
   }
 
-  // A new Meta connection's first full run imports a year (meta-history-backfill.mjs).
+  // A new Meta connection's first full run imports two years (meta-history-backfill.mjs).
   const history = planMetaHistory(connection, { skipOrganic: SKIP_ORGANIC, daysBack: DAYS_BACK });
   // The durable bootstrap owns its retry budget. Its explicit history stage
   // remains a history attempt even after the legacy nightly flag gave up.
@@ -216,9 +216,13 @@ async function syncConnection(connection) {
     // campaign-level KPI sync above.
     if (connection.platform === 'meta_ads') {
       try {
+        // The ad grain costs one Meta request PER DAY, so a first-connect
+        // import takes its own (shallower) window; see
+        // META_AD_LEVEL_HISTORY_DAYS. Any other run, including an explicit
+        // days_back dispatch on an established connection, is untouched.
         const adResult = await runMetaAdLevelSync(supabase, connection, {
           batchId: BATCH_ID,
-          daysBackOverride: runDaysBack,
+          daysBackOverride: metaAdLevelDaysBack({ backfill: history.backfill, daysBack: runDaysBack }),
         });
         result.ad_level = adResult;
         console.log(`[ok] ${label}: ad-level ${adResult.ad_rows_upserted} rows, ${adResult.creatives_upserted} creatives`);

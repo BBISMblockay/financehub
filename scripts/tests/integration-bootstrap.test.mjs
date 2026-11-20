@@ -26,6 +26,7 @@ import {
   withStageResult,
   bootstrapProgress,
 } from '../lib/integration-bootstrap-core.mjs';
+import { META_HISTORY_DAYS } from '../lib/meta-history-backfill.mjs';
 
 let count = 0;
 let failures = 0;
@@ -167,18 +168,19 @@ await test('landing pages stay at 30 days, because that window is bounded by its
   assert.equal(planBootstrap(shopJob)[1].env.SHOPIFY_LANDING_PAGES_DAYS, '30');
 });
 
-await test('Meta keeps its own 365-day import and is never widened by adsDaysBack', () => {
-  // planMetaHistory takes max(daysBack, META_HISTORY_DAYS), so passing the
-  // wider default here would widen Meta's import to match while
-  // metaAfterHistory went on recording history_backfill_days: 365 -- and
-  // Meta's ad-level pass chunks at ONE day, so each extra day is a request.
+await test("Meta's history stage asks for META_HISTORY_DAYS and nothing else", () => {
+  // planMetaHistory takes max(daysBack, META_HISTORY_DAYS), so a different
+  // number here would either widen Meta's import past what
+  // metaAfterHistory records as history_backfill_days, or be ignored.
+  // Meta's depth, campaign and ad grain both, belongs to its own module.
   const meta = planBootstrap({
     integration: 'meta_ads', company_entity_id: 'co-1', connection_id: 'ad-m', stages: {},
   });
   assert.deepEqual(meta.map((s) => s.stage), ['recent_data', 'history']);
   assert.equal(meta[0].env.ADS_DAYS_BACK, '3');
   assert.equal(meta[0].env.ADS_SKIP_ORGANIC, 'true');
-  assert.equal(meta[1].env.ADS_DAYS_BACK, '365');
+  assert.equal(meta[1].env.ADS_DAYS_BACK, String(META_HISTORY_DAYS));
+  assert.equal(BOOTSTRAP_DEFAULTS.metaAdsDaysBack, META_HISTORY_DAYS);
   assert.equal(meta[1].env.ADS_SKIP_ORGANIC, 'false');
   for (const stage of meta) {
     assert.equal(stage.env.ADS_BOOTSTRAP_STRICT, 'true');
