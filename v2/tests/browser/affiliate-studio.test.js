@@ -447,6 +447,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('and the select boxes and actions', !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-pick"]')) && !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-status"]')));
     R.ok('affiliates follow the same choice, photo included', !!(await page.$('#affiliatesBody table.bcn-table .af-list-thumb')) && await photoLoaded('#affiliatesBody table.bcn-table img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
     R.eq(await page.evaluate(() => localStorage.getItem('silo.affiliates.view')), 'list', 'the choice is remembered');
+    await page.evaluate(() => localStorage.setItem('silo.affiliates.view', 'tiles'));
+    await page.reload();
+    await page.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
+    await toDiscovery(page);
+    R.ok('a saved Tiles choice is still Tiles after a reload', !!(await page.$('#prospectsBody .af-item--catalog')));
+    await page.evaluate(() => localStorage.setItem('silo.affiliates.view', 'list'));
+    await page.reload();
+    await page.waitForFunction(() => !!document.querySelector('#tabs [data-tab="records"]'), null, { timeout: 5000 });
     if (process.env.LIST_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#prospectsBody')).screenshot({ path: process.env.LIST_SHOT }); await (await page.$('#affiliatesBody')).screenshot({ path: process.env.LIST_SHOT.replace('.png', '-aff.png') }); }
     await toAffiliates(page);
     await page.click('#affiliatesBody [data-act="view-set"][data-v="tiles"]');
@@ -2206,6 +2214,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await mcp.waitForFunction(() => !!document.querySelector('[data-act="prospect-contacted"][data-id="p1"]'), null, { timeout: 5000 });
     await mcp.click('[data-act="prospect-contacted"][data-id="p1"]');
     await mcp.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 });
+    // The pop-up redraws on what it NOW offers, not on the creator's status:
+    // Mark contacted and Draft message change a draft, not the creator, and a
+    // pop-up that did not move left the pressed button there to press again.
+    // The fake database does not keep inserts, so the row is put in the
+    // fixture by hand and the page re-read, which is the same redraw.
+    await mcp.evaluate(() => {
+      window.__FIXTURE_TABLES__.affiliate_outreach_drafts.push({ id: 'd-hand', company_entity_id: window.__FIXTURE_TABLES__.affiliate_prospects[0].company_entity_id, program_id: window.__FIXTURE_TABLES__.affiliate_prospects[0].program_id, prospect_id: 'p1', channel: 'email', state: 'sent', created_at: new Date().toISOString() });
+    });
+    await mcp.click('[data-act="prospect-more"][data-id="p1"]').catch(() => {});
+    await mcp.click('#afDialogBody [data-act="prospect-contacted"][data-id="p1"]').catch(() => {});
+    const gone = await mcp.waitForFunction(() => !document.querySelector('#afDialogBody [data-act="prospect-contacted"][data-id="p1"]'), null, { timeout: 5000 }).then(() => true, () => false);
+    R.ok('a creator already marked contacted loses that button in the pop-up, without closing it', gone);
     const mrow = await mcp.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.ok('Mark contacted records a sent message with who marked it', mrow?.state === 'sent' && !!mrow.sent_marked_by && mrow.sent_evidence === 'Contacted by hand' && mrow.prospect_id === 'p1');
     await mcp.close();

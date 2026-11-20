@@ -316,6 +316,9 @@ function download(name, text, type = 'text/csv') {
 
 // ── State ────────────────────────────────────────────────────────────────
 const PROSPECT_LIST_CAP = 20;
+// Declared before S, because S.view calls readView() as it is built: a const
+// read before its own initializer throws, and the choice silently reverted.
+const VIEW_KEY = 'silo.affiliates.view';
 const S = { programs: [], programId: null, tab: 'overview', peopleSub: 'discovery', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
@@ -602,7 +605,6 @@ function photoAvatar(person, photo) {
 }
 document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
 // Tiles or a list (table with the same photos). Remembered per viewer.
-const VIEW_KEY = 'silo.affiliates.view';
 // Lists by default: tiles take three times the height for the same rows
 // (Blake 2026-11-20, "tiles are way large"). The choice is still remembered.
 function readView() { try { return localStorage.getItem(VIEW_KEY) === 'tiles' ? 'tiles' : 'list'; } catch { return 'list'; } }
@@ -872,8 +874,13 @@ function dialogSpec() {
   if (ed) return { key: `prospect:${ed.id}`, title: `Edit ${ed.display_name || ed.handle || 'creator'}`, body: prospectEditBody(ed) };
   if (S.addCreators) return { key: 'add-creators', title: 'Add creators', body: addCreatorsBody() };
   const mp = S.moreProspect ? d.prospectById[S.moreProspect] : null;
-  // Keyed by status as well, so a decision taken in here redraws the buttons.
-  if (mp) return { key: `more:${mp.id}:${mp.status}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${prospectActions(mp).join('')}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
+  // Keyed by the buttons themselves. Status is not enough: Mark contacted and
+  // Draft message change a draft, not the creator, and a key that did not move
+  // left the pressed button sitting there to be pressed again.
+  if (mp) {
+    const acts = prospectActions(mp).join('');
+    return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
+  }
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
     const k = S.affTool.k;
