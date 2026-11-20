@@ -1,6 +1,12 @@
-/* The Reports library (/v3/dashboards.html): ownership tabs -- SILO, My, Company, Archived and
- * Dashboards -- over what RLS already lets the viewer read. A
- * missing dashboard id still says so rather than rendering an empty canvas. */
+/* The Reports library (/v3/dashboards.html): one compact table per view --
+ * SILO templates, Company, Mine, Archived, Dashboards and (for a workspace
+ * admin) Schedules -- over what RLS already lets the viewer read. A missing
+ * dashboard id still says so rather than rendering an empty canvas.
+ *
+ * `.lib-card` is a table ROW since the front-door rework; it was a card with a
+ * Details fold-out, and the one line that says what a report answers was
+ * inside the fold-out. The class name is kept because every style hook, deep
+ * link and suite already names it. */
 'use strict';
 const { startSuite } = require('../lib/harness');
 
@@ -26,8 +32,12 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('the report builder row stays',
     (await p.locator('.silo-sb-link[data-nav-id="reports/builder"]').count()) === 1);
   const tabs = await p.locator('#libTabs [role="tab"]:visible').evaluateAll((els) => els.map((e) => e.dataset.tab));
-  ok('five tabs, in order', tabs.join() === 'silo,mine,company,archived,dashboards');
-  ok('defaults to SILO Reports', (await p.getAttribute('#tab-silo', 'aria-selected')) === 'true');
+  // The viewer is a workspace admin in the fixture, so Schedules is offered:
+  // report_email_schedules is scoped to is_entity_admin(), and the tab now
+  // follows that gate instead of the grandfathered nav profile.
+  ok('six views, in order, ending with Schedules for an admin',
+    tabs.join() === 'silo,company,mine,archived,dashboards,scheduled');
+  ok('defaults to SILO templates', (await p.getAttribute('#tab-silo', 'aria-selected')) === 'true');
   ok('...and only its pane is shown', !(await p.isHidden('#pane-silo'))
     && await p.isHidden('#pane-mine') && await p.isHidden('#pane-dashboards'));
 
@@ -56,12 +66,17 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
   ok('Ask SILO stays available as the secondary action', await p.isVisible('#btnAskSilo'));
   ok('the tab is in the URL', new URL(p.url()).searchParams.get('tab') === 'mine');
 
-  // ── Details affordance ────────────────────────────────────────────────
-  const det = p.locator('#mineBody .lib-card[data-id="R1"] .lib-details-btn');
-  ok('Details starts collapsed', (await det.getAttribute('aria-expanded')) === 'false');
-  await det.click();
-  ok('Details expands in place', (await det.getAttribute('aria-expanded')) === 'true'
-    && await p.isVisible('#mineBody .lib-card[data-id="R1"] .lib-details'));
+  // ── What a report answers is on the row, not behind a fold-out ────────
+  ok('nothing folds out any more',
+    (await p.locator('#mineBody .lib-details-btn').count()) === 0);
+  ok('what the report answers is visible without opening anything',
+    (await p.textContent('#mineBody .lib-card[data-id="R2"] .lib-summary')).trim().length > 0);
+  ok('a saved report opens to RESULTS, never into the SQL builder',
+    /\/v3\/dashboard\.html\?report=R2/.test(
+      await p.getAttribute('#mineBody .lib-card[data-id="R2"] .lib-link', 'href')));
+  ok('Advanced Builder is the named, separate door to the SQL',
+    await p.isVisible('#btnAdvanced')
+    && /report-builder\.html/.test(await p.getAttribute('#btnAdvanced', 'href')));
 
   // ── Search is scoped to the active tab ────────────────────────────────
   await p.fill('#librarySearch', 'Daily sales');
@@ -95,9 +110,12 @@ const ok = (n, c) => { checks++; if (c) console.log('  ok   ' + n); else { conso
     (await p.getAttribute('#tab-mine', 'aria-selected')) === 'true');
 
   // ── Keyboard ──────────────────────────────────────────────────────────
+  // Company sits before Mine now, so ArrowRight from Mine lands on Archived.
   await p.focus('#tab-mine');
   await p.keyboard.press('ArrowRight');
-  ok('arrow keys move between tabs', (await p.getAttribute('#tab-company', 'aria-selected')) === 'true');
+  ok('arrow keys move between tabs', (await p.getAttribute('#tab-archived', 'aria-selected')) === 'true');
+  await p.keyboard.press('ArrowLeft');
+  ok('...and back', (await p.getAttribute('#tab-mine', 'aria-selected')) === 'true');
   await p.click('#tab-dashboards');
   ok('a card title is a real, focusable link', (await p.locator('#listBody .lib-card a.lib-link').count()) === 1);
   ok('titles are not underlined at rest',

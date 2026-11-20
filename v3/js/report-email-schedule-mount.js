@@ -4,6 +4,7 @@
 
   const S = () => global.SiloReportEmailSchedule;
   const UI = () => global.SiloReportEmailScheduleUI;
+  const PL = () => global.SiloReportSchedulePlan;
 
   // Everything up to the rendered panel reports its own failure. The first
   // version returned silently on both guards and let listMembers' rejection
@@ -16,6 +17,7 @@
     let members;
     let mount;
     let existing = null;
+    let zone = null;
     try {
       if (!await S().isWorkspaceAdmin(sb, userId, companyId)) {
         onStatus?.('Scheduled email is available to workspace admins.', 'info', 5000);
@@ -37,6 +39,11 @@
         const found = await S().findScheduleForTarget(sb, context);
         if (found) existing = found;
       }
+      // The company's business timezone, and the zones SILO honours end to
+      // end, read from the database. dashboard.html used to pass a literal
+      // 'America/Los_Angeles' in from the page, which is a company fact in
+      // code; it also meant the panel could not say WHY there was no choice.
+      zone = await S().companyTimezone(sb);
       mount = hostEl || document.getElementById('reportEmailHost');
       if (!mount) {
         onStatus?.('Could not open the schedule panel on this page.', 'neg', 6000);
@@ -77,6 +84,14 @@
     ctx.dateKeys = S().dateRangeKeys(ctx.parameters);
     ctx.period_id = S().periodIdFor(ctx.parameter_state, ctx.dateKeys,
       { editing: !!ctx.scheduleId });
+    // A schedule that already exists keeps the zone it was saved with; a new
+    // one takes the company's. The label and the supported list always come
+    // from the database, so a one-zone workspace is told why rather than shown
+    // a select with one option in it.
+    ctx.timezone = ctx.timezone || zone?.name || 'America/Los_Angeles';
+    ctx.timezoneLabel = (zone?.zones || []).find((z) => z.tz_name === ctx.timezone)?.label || '';
+    ctx.timezoneZones = zone?.zones || [];
+    ctx.cadence_preset = ctx.cadence_preset || PL().presetFor(PL().DEFAULT_FREQUENCY, PL().DEFAULT_TIME);
     mount.hidden = false;
     mount.innerHTML = UI().renderPanel({ ...ctx, members });
     const root = mount.querySelector('.res-panel');
@@ -87,6 +102,25 @@
       return;
     }
     root.querySelector('#resClose')?.addEventListener('click', close);
+
+    // The summary sentence and the "who gets it" line are re-derived from the
+    // controls on every change. A preview that describes the settings someone
+    // had a moment ago is worse than no preview, and this is the only thing in
+    // the panel that tells a person whether they got it right.
+    const refresh = () => UI().refreshPanel(root, ctx);
+    refresh();
+    root.addEventListener('change', refresh);
+    root.querySelector('#resExternal')?.addEventListener('input', refresh);
+    // Filtering the people list is a display concern and never a selection:
+    // a hidden checkbox stays checked, so a filter cannot silently drop a
+    // recipient someone already picked.
+    const filter = root.querySelector('#resPeopleFilter');
+    filter?.addEventListener('input', () => {
+      const q = filter.value.trim().toLowerCase();
+      root.querySelectorAll('[data-person]').forEach((el) => {
+        el.hidden = !!q && !el.getAttribute('data-person').includes(q);
+      });
+    });
     // One payload builder, because the two buttons differ in exactly one way
     // and keeping two copies is how they drifted apart.
     //
@@ -117,8 +151,10 @@
         // rewrites nothing -- both Save and Send test.
         parameter_state: S().applyPeriod(ctx.parameter_state, ctx.dateKeys,
           UI().readPeriodId(root), ctx.pageParameterState),
-        cadence_preset: root.querySelector('.res-cadence')?.value || 'weekdays_0700',
-        timezone: ctx.timezone || 'America/Los_Angeles',
+        // Two controls, one stored value. presetFor() refuses a half it does
+        // not know rather than composing a preset the CHECK would reject.
+        cadence_preset: UI().readCadencePreset(root),
+        timezone: UI().readTimezone(root, ctx.timezone),
         subject_template: root.querySelector('.res-subject')?.value || S().defaultSubject(ctx.title),
         recipients: UI().readRecipients(root),
         allow_member_subscribe: !!root.querySelector('#resSubscribe')?.checked,
@@ -212,7 +248,48 @@
           await S().deliverNow(sb, id, 'manual');
           onStatus?.('Sent.', 'pos', 4000);
           again();
+        } catch (e) {
+          onStatus?.(e.message, 'neg', 6000);
+          // Re-read the table on a FAILED send too. A failure writes a
+          // report_email_runs row and may have paused the schedule, and a
+          // toast that disappears after six seconds was the only trace of
+          // it: the row still read "On" with no last error until the next
+          // reload. The refresh replaces this button, so re-enabling it
+          // would be writing to a node that is already gone.
+          again();
+        }
+      });
+      // Pause and resume, per schedule. Only "Pause all" existed, which is a
+      // panic button, not management: a merchant who wants Monday's email to
+      // stop for a month had to delete it and rebuild it from memory.
+      const setPaused = async (id, paused, btn) => {
+        btn.disabled = true;
+        try {
+          await S().setSchedulePaused(sb, id, paused);
+          onStatus?.(paused
+            ? 'Paused. Nothing sends until you resume it.'
+            : 'Resumed. The next send is back on.', 'pos', 4000);
+          again();
         } catch (e) { onStatus?.(e.message, 'neg', 6000); btn.disabled = false; }
+      };
+      on('pause', (id, btn) => setPaused(id, true, btn));
+      on('resume', (id, btn) => setPaused(id, false, btn));
+      // Run history, in the row rather than a separate page: the question is
+      // always "did THIS one send", and report_email_runs had no UI at all.
+      on('history', async (id, btn) => {
+        const host = bodyEl.querySelector(`[data-history-for="${id}"]`);
+        if (!host) return;
+        const cell = host.querySelector('td');
+        if (!host.hidden) { host.hidden = true; btn.textContent = 'History'; return; }
+        host.hidden = false;
+        btn.textContent = 'Hide history';
+        cell.innerHTML = '<p class="res-dim">Loading sends…</p>';
+        try {
+          cell.innerHTML = UI().renderRunHistory(await S().listRuns(sb, id));
+        } catch (e) {
+          cell.innerHTML = `<p class="res-dim">Could not load the delivery history: ${
+            (global.SiloChart?.esc || String)(e.message || e)}</p>`;
+        }
       });
       on('dup', async (id) => {
         try {

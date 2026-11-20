@@ -33,7 +33,11 @@ const { startSuite } = require('../lib/harness');
     assert.equal(await page.isHidden('#btnCopy'), true);
     assert.equal(await page.isHidden('#btnSaveView'), true, 'no saved views without a dashboard');
     assert.match(await page.getAttribute('#previewBuilder', 'href'), /report-builder\.html\?id=S1/);
-    assert.equal((await page.textContent('#previewBuilder')).trim(), 'Customize a copy');
+    // The door to SQL is now named for what is behind it on every report;
+    // "(copy)" carries what "Customize a copy" used to say, and the title
+    // still explains why a SILO report cannot be edited in place.
+    assert.equal((await page.textContent('#previewBuilder')).trim(), 'Advanced Builder (copy)');
+    assert.match(await page.getAttribute('#previewBuilder', 'title'), /cannot be edited in place/);
 
     // "Add to a dashboard" lists the boards this person can edit and hands
     // off to the existing ?add_report flow.

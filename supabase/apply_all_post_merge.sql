@@ -19875,4 +19875,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261120030000: a product the company itself shared is seeded without a
 -- second approval -- the claim is created approved, with its one-use code.
 \i migrations/20261120030000_affiliate_seed_shared_auto.sql
+-- 20261120040000: scheduled report email -- the 4x2 cadence matrix, so "how
+-- often" and "what time" are two controls. Needs the generic computeNextRunAt
+-- (three copies) deployed with it.
+\i migrations/20261120040000_report_email_cadence_matrix.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

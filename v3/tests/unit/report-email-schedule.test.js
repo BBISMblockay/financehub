@@ -17,8 +17,8 @@ const { loadV3, REPO_ROOT } = require('../lib/load');
 // report's date declarations through them, and loading the schedule modules
 // without them exercises the "no picker" path instead of the real one.
 const g = loadV3(['report-params.js', 'field-semantics.js', 'metrics.js', 'chart-adapter.js',
-  'filter-bar.js', 'report-email-schedule.js', 'report-email-schedule-ui.js',
-  'report-email-schedule-mount.js']);
+  'filter-bar.js', 'report-schedule-plan.js', 'report-email-schedule.js',
+  'report-email-schedule-ui.js', 'report-email-schedule-mount.js']);
 const S = g.SiloReportEmailSchedule;
 const U = g.SiloReportEmailScheduleUI;
 const M = g.SiloReportEmailScheduleMount;
@@ -211,8 +211,8 @@ function fakeDb(tables, singles = {}) {
     const html = U.renderPanel({ title: 'R', scheduleId: 'S1', members: [],
       recipients: [{ kind: 'workspace_admins' }, { kind: 'email', value: 'cpa@firm.com' }] });
     assert.ok(html.includes('cpa@firm.com'), 'stored addresses are prefilled');
-    assert.ok(/Edit scheduled email/.test(html), 'an existing schedule says it is being edited');
-    assert.ok(!/Edit scheduled email/.test(U.renderPanel({ title: 'R', members: [] })));
+    assert.ok(/Edit this schedule/.test(html), 'an existing schedule says it is being edited');
+    assert.ok(!/Edit this schedule/.test(U.renderPanel({ title: 'R', members: [] })));
   }
 
   assert.equal(S.recipientSummary([{ kind: 'workspace_admins' }, { kind: 'department', value: 'finance' },
@@ -234,7 +234,7 @@ function fakeDb(tables, singles = {}) {
     assert.ok(html.includes('Blake'), 'recipients are named');
     assert.ok(!html.includes('{"kind"'), 'no raw JSON in a cell');
     assert.ok(html.includes('bcn-th-left'), 'headers are left-aligned -- Beacon th defaults to right');
-    for (const attr of ['data-edit', 'data-run', 'data-dup', 'data-del']) {
+    for (const attr of ['data-edit', 'data-run', 'data-dup', 'data-del', 'data-pause', 'data-history']) {
       assert.ok(html.includes(attr), `${attr} action is present`);
     }
     const never = U.renderManageTable([{ id: 'S2', target_title: 'X', cadence_preset: 'daily_0600', recipients: [] }], []);
@@ -268,7 +268,12 @@ function fakeDb(tables, singles = {}) {
         return q;
       },
     };
-    const rootStub = { querySelector: () => null, querySelectorAll: () => [] };
+    // The panel listens on the root for every control change, because the
+    // summary sentence is re-derived rather than written twice; a stub with no
+    // addEventListener is not a panel.
+    const rootStub = {
+      querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {},
+    };
     let html = '';
     const host = {
       hidden: true,
@@ -282,7 +287,7 @@ function fakeDb(tables, singles = {}) {
       'the panel looks for a schedule this report already has');
     assert.ok(html.includes('cpa@firm.com'), 'and opens on it, outside addresses and all');
     assert.ok(html.includes('Weekly'), 'with its stored subject');
-    assert.ok(/Edit scheduled email/.test(html), 'and says it is editing, not creating');
+    assert.ok(/Edit this schedule/.test(html), 'and says it is editing, not creating');
     assert.equal(host.hidden, false);
   }
   // A report with no schedule yet opens a blank panel, not an error.
@@ -298,7 +303,12 @@ function fakeDb(tables, singles = {}) {
         return q;
       },
     };
-    const rootStub = { querySelector: () => null, querySelectorAll: () => [] };
+    // The panel listens on the root for every control change, because the
+    // summary sentence is re-derived rather than written twice; a stub with no
+    // addEventListener is not a panel.
+    const rootStub = {
+      querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {},
+    };
     let html = '';
     const host = {
       hidden: true,
@@ -308,7 +318,7 @@ function fakeDb(tables, singles = {}) {
     };
     await M.openReportPanel({ sb, userId: 'u1', companyId: 'C1', hostEl: host, onStatus: () => {},
       context: { reportId: 'R9', title: 'New one' } });
-    assert.ok(/Email CSV on schedule/.test(html) && !/Edit scheduled email/.test(html));
+    assert.ok(/Email this report on a schedule/.test(html) && !/Edit this schedule/.test(html));
   }
 
   // ── what Edit and Send test are allowed to write ────────────────────────
@@ -331,21 +341,31 @@ function fakeDb(tables, singles = {}) {
     const openPanel = async (existing, click, formCadence) => {
       const writes = [];
       const handlers = {};
+      // How often and what time are two controls over one stored value, so the
+      // stub answers both and the panel recombines them. A stub that still
+      // served one `.res-cadence` select would have kept passing while the
+      // real panel read nothing at all.
+      const parts = S.cadenceParts(formCadence || existing.cadence_preset);
       const rootStub = {
         querySelector: (sel) => {
           if (sel === '#resSave' || sel === '#resTest') {
             return { addEventListener: (_e, fn) => { handlers[sel] = fn; } };
           }
           if (sel === '#resClose') return { addEventListener: () => {} };
-          if (sel === '.res-cadence') return { value: formCadence || existing.cadence_preset };
+          if (sel === '.res-frequency') return { value: parts.frequency };
+          if (sel === '.res-time') return { value: parts.time };
+          if (sel === '.res-timezone') return { value: existing.timezone };
           if (sel === '.res-subject') return { value: 'Subject' };
           if (sel === '#resSubscribe') return { checked: false };
           if (sel === '#resActive') return { checked: existing.is_active !== false };
-          if (sel === '#resExternal') return { value: '' };
+          // The outside-addresses box is listened to as well as read: the
+          // "who gets it" line updates as it is typed in.
+          if (sel === '#resExternal') return { value: '', addEventListener: () => {} };
           if (sel === '#resAdmins') return { checked: true };
           return null;
         },
         querySelectorAll: () => [],
+        addEventListener: () => {},
       };
       let html = '';
       const host = {
@@ -509,7 +529,11 @@ function fakeDb(tables, singles = {}) {
 
     // The control renders only when there is a window to set.
     const withDates = U.renderPanel({ title: 'R', dateKeys: keys, parameter_state: {} });
-    assert.ok(/res-period/.test(withDates) && /Period to send/.test(withDates));
+    // The label says DATES, and the sentence above it says WHEN: they are two
+    // decisions, and one dropdown called "Period to send" could not say both.
+    assert.ok(/res-period/.test(withDates) && /Dates the report covers/.test(withDates));
+    assert.ok(/Separate from the delivery time/.test(withDates),
+      'the panel states that the period is not the delivery time');
     assert.ok(/Last month/.test(withDates), 'the prior-month option is in the markup');
     assert.ok(!/res-period/.test(U.renderPanel({ title: 'R', dateKeys: null })),
       'a report with no dates gets no period control');
@@ -524,7 +548,8 @@ function fakeDb(tables, singles = {}) {
       id: 'S1', target_title: 'Daily Sales', cadence_preset: 'monday_0700',
       parameter_state: untouched, recipients: [], is_active: true,
     }], []);
-    assert.ok(/<th[^>]*>Period<\/th>/.test(table), 'the table has a Period column');
+    assert.ok(/<th[^>]*>Dates covered<\/th>/.test(table), 'the table says what a send covers');
+    assert.ok(/<th[^>]*>Owner<\/th>/.test(table), 'and who owns it');
     assert.ok(/res-tag--neg">Fixed dates/.test(table), 'a frozen schedule is flagged in the table');
     const cols = (table.match(/<th[\s>]/g) || []).length;
     // table-layout is fixed, so a column with no stated width collapses.
@@ -532,8 +557,8 @@ function fakeDb(tables, singles = {}) {
     // written here: the two drift the moment a column is added.
     const css = fs.readFileSync(path.join(REPO_ROOT, 'v3', 'dashboard.css'), 'utf8');
     const widths = [...css.matchAll(/\.res-table th:nth-child\((\d+)\)[^{]*\{\s*width:\s*(\d+)%/g)];
-    assert.equal(cols, 8, 'Report, How often, Period, Goes to, Last sent, Next, Status, Actions');
-    assert.deepEqual(widths.map((m) => Number(m[1])), [1, 2, 3, 4, 5, 6, 7],
+    assert.equal(cols, 9, 'Report, Sends, Dates covered, Who gets it, Owner, Next, Last, Status, Actions');
+    assert.deepEqual(widths.map((m) => Number(m[1])), [1, 2, 3, 4, 5, 6, 7, 8],
       'every column but the last states a width');
     const total = widths.reduce((n, m) => n + Number(m[2]), 0);
     assert.ok(total > 0 && total <= 95, `stated widths total ${total}%, leaving nothing for actions`);
@@ -604,17 +629,20 @@ function fakeDb(tables, singles = {}) {
             return { addEventListener: (_e, fn) => { handlers[sel] = fn; } };
           }
           if (sel === '#resClose') return { addEventListener: () => {} };
-          if (sel === '.res-cadence') return { value: stored.cadence_preset };
+          if (sel === '.res-frequency') return { value: S.cadenceParts(stored.cadence_preset).frequency };
+          if (sel === '.res-time') return { value: S.cadenceParts(stored.cadence_preset).time };
+          if (sel === '.res-timezone') return { value: stored.timezone };
           // The one field the person actually came to change.
           if (sel === '.res-subject') return { value: 'Monthly (renamed)' };
           if (sel === '.res-period') return { value: periodValue };
           if (sel === '#resSubscribe') return { checked: false };
           if (sel === '#resActive') return { checked: true };
-          if (sel === '#resExternal') return { value: '' };
+          if (sel === '#resExternal') return { value: '', addEventListener: () => {} };
           if (sel === '#resAdmins') return { checked: true };
           return null;
         },
         querySelectorAll: () => [],
+        addEventListener: () => {},
       };
       let html = '';
       const host = {

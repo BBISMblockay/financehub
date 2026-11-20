@@ -16,13 +16,19 @@
 (function (global) {
   'use strict';
 
+  // Views, in the order they are offered. "SILO templates" first because it is
+  // the only one that is never empty, and a front door that opens on an empty
+  // list reads as a product with no reports in it.
+  //
+  // The ids are URL values and are NOT renamed: `?tab=scheduled` is in links,
+  // bookmarks and the back button. Only the labels changed.
   const TABS = Object.freeze([
-    { id: 'silo', label: 'SILO Reports', noun: 'SILO reports' },
-    { id: 'mine', label: 'My Reports', noun: 'reports' },
-    { id: 'company', label: 'Company Reports', noun: 'company reports' },
+    { id: 'silo', label: 'SILO templates', noun: 'SILO templates' },
+    { id: 'company', label: 'Company reports', noun: 'company reports' },
+    { id: 'mine', label: 'My reports', noun: 'reports' },
     { id: 'archived', label: 'Archived', noun: 'archived reports' },
     { id: 'dashboards', label: 'Dashboards', noun: 'dashboards' },
-    { id: 'scheduled', label: 'Scheduled email', noun: 'schedules' },
+    { id: 'scheduled', label: 'Schedules', noun: 'schedules' },
   ]);
   const DEFAULT_TAB = 'silo';
   // ?tab=reports deep-linked the old combined "Saved reports" list. Its
@@ -128,6 +134,105 @@
     return isSiloDashboard(d) ? 'SILO' : visibilityLabel(d);
   }
 
+  /* ── What a row shows ─────────────────────────────────────────────────── */
+
+  /**
+   * What this report answers, in one line.
+   *
+   * The stored description first, the Ask SILO question behind it, and nothing
+   * invented from the title when there is neither: a made-up summary is worse
+   * than a blank, because a reader cannot tell it apart from a real one.
+   */
+  function answersOf(report) {
+    const r = report || {};
+    return summaryOf(String(r.description || '').trim() || String(r.question || '').trim());
+  }
+
+  /**
+   * Where a report's title goes.
+   *
+   * To RESULTS, always -- `/v3/dashboard.html?report=<id>` draws the report
+   * with the viewer's own data and its own filters. Opening a report used to
+   * land in the report builder's SQL view for a grandfathered workspace, which
+   * is an authoring tool and the single biggest reason Reports read as a SQL
+   * workbench. SQL is still one click away (builderHref) for whoever already
+   * has it; it is just no longer what "open" means.
+   *
+   * A page link (one of SiloNav.SALES_REPORT_PAGES) keeps its own href.
+   */
+  function readerHref(report) {
+    const r = report || {};
+    if (r.href) return r.href;
+    if (!r.id) return null;
+    return `/v3/dashboard.html?report=${encodeURIComponent(r.id)}`;
+  }
+
+  /** The Advanced Builder link for a report, or null where authoring is not
+   *  offered. Unchanged URL, so every existing deep link still resolves. */
+  function builderHref(report, navProfile) {
+    const r = report || {};
+    if (!r.id || r.href || navProfile !== 'grandfathered') return null;
+    return `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`;
+  }
+
+  /**
+   * Which report each schedule points at, so the library can say whether a
+   * report is scheduled without a read per row. Keyed by report id; a report
+   * with two schedules keeps the one that sends next, because that is the
+   * answer to "when does this arrive".
+   */
+  function scheduleIndex(rows) {
+    const byReport = new Map();
+    for (const row of rows || []) {
+      const id = row && row.report_id;
+      if (!id) continue;
+      const held = byReport.get(id);
+      if (!held) { byReport.set(id, row); continue; }
+      const a = held.next_run_at ? Date.parse(held.next_run_at) : Infinity;
+      const b = row.next_run_at ? Date.parse(row.next_run_at) : Infinity;
+      if (b < a) byReport.set(id, row);
+    }
+    return byReport;
+  }
+
+  /** "Scheduled" in a few words, or '' when it is not. Paused and off are
+   *  stated rather than shown as scheduled: a report whose email was switched
+   *  off three weeks ago is not a report anyone is receiving. */
+  function scheduledLabel(row, cadenceLabel) {
+    if (!row) return '';
+    if (row.is_paused) return 'Paused';
+    if (!row.is_active) return 'Off';
+    const label = typeof cadenceLabel === 'function' ? cadenceLabel(row.cadence_preset) : '';
+    return label || 'Scheduled';
+  }
+
+  /**
+   * The views this viewer is offered.
+   *
+   * Pure, because the rules are the kind that quietly rot: before this, a
+   * standard (merchant) workspace saw only SILO templates and Dashboards, and
+   * its own saved and shared reports were reachable only through an
+   * undocumented `?manage=reports` URL -- while Schedules was gated on the
+   * grandfathered profile, so a merchant could not see or manage the email
+   * their own workspace was sending. Both were a hangover from the days when
+   * opening a report meant opening the SQL builder.
+   *
+   * `?manage=reports` still resolves and still means "organise reports", so
+   * every existing link keeps working; it is simply no longer the only way in.
+   */
+  function allowedTabsFor(opts) {
+    const o = opts || {};
+    const base = o.navProfile === 'standard'
+      ? (o.explicitManagement
+        ? ['company', 'mine', 'archived', 'dashboards']
+        : ['silo', 'company', 'mine', 'dashboards'])
+      : ['silo', 'company', 'mine', 'archived', 'dashboards'];
+    // Schedules is admin-only because RLS is: report_email_schedules is scoped
+    // to is_entity_admin(), so a member offered the tab would get an empty
+    // table and no reason for it.
+    return o.isScheduleAdmin ? base.concat(['scheduled']) : base;
+  }
+
   const byTitle = (a, b) => clean(a.title).localeCompare(clean(b.title), undefined, { sensitivity: 'base' });
 
   global.SiloReportLibrary = {
@@ -147,5 +252,11 @@
     orderDashboards,
     dashboardScopeLabel,
     byTitle,
+    answersOf,
+    readerHref,
+    builderHref,
+    scheduleIndex,
+    scheduledLabel,
+    allowedTabsFor,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
