@@ -145,6 +145,9 @@ const MUTATIONS = {
   moneyshown: ['/affiliates/studio.js', 'const SEES_MONEY = MANAGE || MONEY;', 'const SEES_MONEY = true;'],
   endcut: ['/affiliates/studio.js', "    for (const part of chunk(ids, 25)) results", "    for (const part of [ids.slice(0, 25)]) results"],
   endmissingok: ['/affiliates/studio.js', "  for (const id of ids) if (!answered.has(id)) results.push(", "  for (const id of []) if (!answered.has(id)) results.push("],
+  exportall: ['/affiliates/studio.js', "!isDm(x) && (!only || only.includes(x.id))).slice(0, 200);", "!isDm(x)).slice(0, 200);"],
+  exportstale: ['/affiliates/studio.js', "    const m = await A['outreach-export']({ only: done });", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
+  applystale: ['/affiliates/studio.js', "    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });", ''],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
   fixemailaff: ['/affiliates/studio.js', "      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;", ''],
@@ -1964,6 +1967,47 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('only messages not yet sent', mv.filters.some((f) => f.op === 'in' && f.col === 'state' && JSON.stringify(f.vals) === JSON.stringify(['draft', 'approved'])));
     await edit.close();
     // A rep marks a creator contacted by hand (reached outside SILO).
+    // Approve and export from the queue in one press (Blake 2026-11-19).
+    {
+      const exTables = { ...ctTables, affiliate_outreach_drafts: [...ctTables.affiliate_outreach_drafts.map((x) => (x.id === 'd1' ? { ...x, channel: 'email', recipient_email: 'sam@creator.invalid' } : x.id === 'd2' ? { ...x, channel: 'email', recipient_email: 'gone@creator.invalid' } : x)),
+        { id: 'd5', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'approved', channel: 'email', recipient_email: 'other@creator.invalid', subject: 'Hi', body: 'b', created_at: now }] };
+      const ex = await suite.open('/v2/affiliates/index.html', exTables, { ready, rpc: ctRpc,
+        edge: { 'affiliate-invite': { status: 200, body: { signup_url: 'https://get-silo.invalid/join?t=abc', expires_at: now } } } });
+      ex.on('pageerror', (e) => errors.push(e.message));
+      // The test page is plain http, where the browser offers no SubtleCrypto.
+      await ex.evaluate(() => { if (!crypto.subtle) Object.defineProperty(crypto, 'subtle', { configurable: true, value: { digest: async () => new Uint8Array(32).buffer } }); });
+      await ex.evaluate(() => { window.__files = []; window.__names = []; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__names.push(this.download); return click.call(this); }; const orig = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => window.__files.push(t)); return orig.call(URL, b); }; });
+      await ex.click('#tabs [data-tab="comms"]');
+      await ex.waitForSelector('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]', { timeout: 5000 });
+      await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]');
+      await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d2"]');
+      // d2 was deleted by someone else meanwhile: the approval changes d1 only.
+      await ex.evaluate(() => { window.__FIXTURE_UPDATE_RETURNS__ = (table, patch, filters) => (table === 'affiliate_outreach_drafts' && patch.state === 'approved' ? [{ id: 'd1' }] : undefined); });
+      await ex.click('#outreachBody [data-act="q-msg-export"]');
+      await ex.click('#outreachBody [data-act="q-msg-export"]');
+      await ex.waitForFunction(() => (window.__names || []).some((n) => /^outreach-.*\.csv$/.test(n)), null, { timeout: 5000 }).catch(async () => { throw new Error('no CSV: ' + (await ex.evaluate(() => document.getElementById('status')?.textContent))); });
+      const file = await ex.evaluate(() => window.__files.join('\n'));
+      R.has(file, 'sam@creator.invalid', 'the CSV carries the ticked message\'s email');
+      R.has(file, 'https://get-silo.invalid/join?t=abc', 'and its personal sign-up link');
+      R.not(file, 'other@creator.invalid', 'and not a message nobody ticked');
+      R.not(file, 'gone@creator.invalid', 'nor a ticked one that was no longer a draft');
+      R.has(await text(ex, '#status'), 'no longer drafts', 'and it says one was left out');
+      const ups = await ex.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').map((q) => [q.patch.state, (q.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals]));
+      R.eq(ups, [['approved', ['d1', 'd2']], ['exported', ['d1']]], 'the ticked messages are approved, and only the one really approved is exported');
+      R.ok('the Send by email card offers the CSV by name', /Export \d+ as CSV|Nothing approved/.test(await text(ex, '#outreachBody')));
+      await ex.close();
+    }
+    // Setup always shows the application link row (Blake 2026-11-19).
+    {
+      const inv = await suite.open('/v2/affiliates/index.html', { ...tables, affiliate_programs: [{ ...tables.affiliate_programs[0], intake_mode: 'invite_only' }] }, { ready, rpc: { can_manage_affiliate_programs: true } });
+      await inv.click('#tabs [data-tab="program"]');
+      await inv.waitForSelector('#rowApply', { timeout: 5000 });
+      R.has(await text(inv, '#rowApply'), 'Choose Open applications', 'an invite-only program says how to get the link instead of hiding it');
+      await inv.click('[data-seg="pIntake"][data-v="open"]');
+      await inv.waitForSelector('#rowApply [data-act="copy-text"]', { timeout: 5000 });
+      R.ok('choosing Open applications shows the link at once', true);
+      await inv.close();
+    }
     const mcp = await suite.open('/v2/affiliates/index.html', { ...ctTables, affiliate_outreach_drafts: [] }, { ready, rpc: ctRpc });
     mcp.on('pageerror', (e) => errors.push(e.message));
     await mcp.click('#tabs [data-tab="people"]');
