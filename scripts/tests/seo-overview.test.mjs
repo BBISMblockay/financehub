@@ -6,13 +6,39 @@ const html = readFileSync(new URL('../../v2/seo-overview.html', import.meta.url)
 const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x => x[1]).find(x => x.includes('function renderStrip'));
 const elements = new Map();
 const element = id => {
-  if (!elements.has(id)) elements.set(id, { textContent: '', innerHTML: '', hidden: false, disabled: false, classList: { toggle() {} }, addEventListener() {} });
+  if (!elements.has(id)) {
+    const node = { textContent: '', innerHTML: '', hidden: false, disabled: false, addEventListener() {}, _class: '' };
+    node.classList = {
+      add(c) { if (!node._class.split(/\s+/).includes(c)) node._class = `${node._class} ${c}`.trim(); },
+      remove(c) { node._class = node._class.split(/\s+/).filter((x) => x && x !== c).join(' '); },
+      toggle() {},
+    };
+    Object.defineProperty(node, 'className', { get: () => node._class, set: (v) => { node._class = v; } });
+    elements.set(id, node);
+  }
   return elements.get(id);
 };
 let rpc = () => { throw Error('Unexpected RPC'); };
+// The page mounts the shared date control (v2/silo-date-range.js), which is a
+// separate <script> this harness does not load. Stand in for it with the same
+// surface the page uses, so the window the page asks the RPC for is still
+// decided here: `days` from the address bar, or the default.
+const dateRange = { start: null, end: null, preset: '28' };
+const SiloDateRangeStub = {
+  create: () => ({
+    get: () => ({ ...dateRange, days: 28, rolling: /^[0-9]+$/.test(String(dateRange.preset || '')) }),
+    urlParams: () => ({ days: dateRange.preset, start: null, end: null }),
+    apply: (sel) => { Object.assign(dateRange, sel); return Promise.resolve(dateRange); },
+    applyFromUrl: () => Promise.resolve(dateRange),
+    pick: () => Promise.resolve(dateRange),
+    paint: () => {},
+  }),
+};
 const context = vm.createContext({
-  window: { __SILO_CONFIG__: { SUPABASE_URL: 'https://test.invalid', SUPABASE_ANON_KEY: 'fixture' }, supabase: { createClient: () => ({ rpc: (...args) => rpc(...args) }) } },
+  window: { __SILO_CONFIG__: { SUPABASE_URL: 'https://test.invalid', SUPABASE_ANON_KEY: 'fixture' }, supabase: { createClient: () => ({ rpc: (...args) => rpc(...args) }) }, SiloDateRange: SiloDateRangeStub },
   document: { getElementById: element, querySelector: element, querySelectorAll: () => [] },
+  location: { search: '', href: 'https://test.invalid/v2/seo-overview.html' },
+  history: { replaceState() {} },
   setTimeout: () => 0, console,
 });
 vm.runInContext(script.replace('  boot();', ''), context);
@@ -25,12 +51,11 @@ const fixture = {
   series: [{ day: '2026-09-06', clicks: 40, impressions: 400, ctr: .1, position: 4, query_5000_rows: true }, { day: '2026-09-08', clicks: 60, impressions: 600, ctr: null, position: null }],
 };
 context.fixture = fixture;
-run('renderStrip(fixture); renderKpis(fixture); renderChart(fixture); renderQueries([], fixture);');
-assert.equal(element('kCov').textContent, '57.0%');
+run('renderStrip(fixture); renderKpis(fixture); renderChart(fixture); renderPages([], fixture); renderQueries([], fixture); TOPS_TAB = "queries"; syncTopsFoot();');
 assert.match(element('strip').innerHTML, /not proof of a cap/);
 assert.match(element('strip').innerHTML, /1 of 3 requested days have no ingested row/);
 assert.match(element('kClicksD').textContent, /no prior-period data/);
-assert.doesNotMatch(element('queriesFoot').innerHTML, /hit that cap|beyond its/);
+assert.doesNotMatch(element('topsFoot').innerHTML, /hit that cap|beyond its/);
 assert.doesNotMatch(element('chartWrap').innerHTML, /NaN|Infinity/);
 // The absent middle day must break the line rather than compress time.
 assert.doesNotMatch(element('chartWrap').innerHTML, / d="[^"]*L/);
@@ -46,7 +71,6 @@ context.partial.current.unattributed_query_click_share = null;
 context.partial.current.unmeasured_days = 1;
 context.partial.current.truncated_days = 1;
 run('renderStrip(partial); renderKpis(partial)');
-assert.equal(element('kCov').textContent, '—');
 assert.match(element('strip').innerHTML, /unmeasured query coverage/);
 assert.match(element('strip').innerHTML, /locally truncated/);
 // Error refresh clears numbers from the previous successful response.

@@ -1,0 +1,138 @@
+/* Shared time-series chart chrome for the Marketing performance suite.
+   Inline SVG only — no new chart library. */
+
+.mo-chart-wrap,
+.seo-chart-wrap,
+.mx-spark-wrap {
+  padding: 14px 16px 10px;
+  background: var(--bcn-sunken);
+  border: 1px solid var(--bcn-border);
+  border-radius: 10px;
+}
+
+.mo-chart-wrap svg,
+.seo-chart-wrap svg,
+.mx-spark svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 900 / 240;
+  max-height: 280px;
+  overflow: visible;
+}
+
+.mkt-chart-svg .mkt-plot-bg {
+  fill: var(--bcn-surface);
+}
+
+.mkt-chart-svg .mkt-grid {
+  stroke: var(--bcn-border);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.mkt-chart-svg .mkt-axis {
+  fill: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mkt-chart-svg .mkt-line-primary {
+  fill: none;
+  stroke: var(--bcn-accent);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mkt-chart-svg .mkt-line-secondary {
+  fill: none;
+  stroke: var(--bcn-ink-3);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.88;
+}
+
+.mkt-chart-svg .mkt-line-secondary--dashed {
+  stroke-dasharray: 5 6;
+}
+
+.mkt-chart-svg .mkt-line-revenue {
+  fill: none;
+  stroke: oklch(0.60 0.18 145);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mkt-chart-svg .mkt-area-primary {
+  pointer-events: none;
+}
+
+.mkt-chart-svg .mkt-cap,
+.mkt-chart-svg .seo-cap {
+  fill: var(--bcn-warn);
+  opacity: 0.9;
+}
+
+/* Legacy per-page class names inside one modern chart surface */
+.mkt-chart-svg .seo-gridline,
+.mkt-chart-svg .mo-gridline,
+.mkt-chart-svg .mx-grid {
+  stroke: var(--bcn-border);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.mkt-chart-svg .seo-axis,
+.mkt-chart-svg .mo-axis-label,
+.mkt-chart-svg .mx-axis {
+  fill: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mkt-chart-svg .seo-line-a,
+.mkt-chart-svg .mo-line-spend,
+.mkt-chart-svg .mx-l-spend {
+  fill: none;
+  stroke: var(--bcn-accent);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mkt-chart-svg .mo-area-spend,
+.mkt-chart-svg .mx-a-spend,
+.mkt-chart-svg .mkt-area-primary {
+  pointer-events: none;
+}
+
+.mkt-chart-svg .seo-line-b,
+.mkt-chart-svg .mo-line-value,
+.mkt-chart-svg .mx-l-rev {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mkt-chart-svg .seo-line-b {
+  stroke: var(--bcn-ink-3);
+  stroke-width: 1.75;
+  stroke-dasharray: 5 6;
+  opacity: 0.88;
+}
+
+.mkt-chart-svg .mo-line-value,
+.mkt-chart-svg .mx-l-rev {
+  stroke: oklch(0.60 0.18 145);
+}
+
+.mx-spark svg {
+  aspect-ratio: 1000 / 140;
+  min-height: 120px;
+}
