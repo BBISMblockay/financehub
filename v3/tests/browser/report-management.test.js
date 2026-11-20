@@ -336,15 +336,29 @@ let BASE;
     }));
     await standard.goto(`${BASE}/v3/dashboards.html?tab=silo`);
     await standard.waitForSelector('#siloBody .lib-card');
-    assert.equal(await standard.isHidden('#tab-mine'), true);
-    assert.equal(await standard.isHidden('#tab-company'), true);
+    // A standard (merchant) workspace now gets its own reports as VIEWS rather
+    // than only through the undocumented ?manage=reports URL. It could not see
+    // its own saved or shared reports at all, which was a hangover from the
+    // days when opening a report meant opening the SQL builder. Archived stays
+    // behind the management route: it is tidying, not reading.
+    assert.equal(await standard.isVisible('#tab-mine'), true);
+    assert.equal(await standard.isVisible('#tab-company'), true);
     assert.equal(await standard.isHidden('#tab-archived'), true);
+    // What must NOT follow from that: any route into authoring.
+    assert.equal(await standard.isHidden('#btnAdvanced'), true, 'a standard workspace is offered no builder');
+    assert.equal(await standard.isHidden('#btnNewReport'), true);
     await standard.goto(`${BASE}/v3/dashboards.html?manage=reports&tab=mine`);
     await standard.waitForSelector(action('R1'));
     // Populated management: organising only, no route into authoring.
     assert.ok(await standard.locator('#mineBody .lib-card').count() > 0);
-    assert.equal(await standard.locator('#mineBody a[href*="report-builder"]').count(), 0, 'standard management cards must not link to the builder');
-    assert.equal(await standard.locator('#mineBody .lib-card .lib-title-text').count(), await standard.locator('#mineBody .lib-card').count());
+    assert.equal(await standard.locator('#mineBody a[href*="report-builder"]').count(), 0, 'standard management rows must not link to the builder');
+    // Titles ARE links now -- to the reader, which writes nothing. Before this
+    // they were unlinked text, because the only thing a title could open was
+    // the builder, where RLS would have let an owner overwrite a report.
+    const standardTitles = await standard.locator('#mineBody .lib-card .lib-link').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+    assert.equal(standardTitles.length, await standard.locator('#mineBody .lib-card').count());
+    assert.ok(standardTitles.every((h) => /^\/v3\/dashboard\.html\?report=/.test(h)),
+      'a standard workspace opens a report to results, never to SQL');
     await standard.click('#tab-company');
     await standard.waitForSelector('#companyBody .lib-card');
     assert.equal(await standard.locator('#companyBody a[href*="report-builder"]').count(), 0, 'standard company-report cards must not link to the builder');
@@ -378,7 +392,7 @@ let BASE;
     assert.equal(await standard.isVisible('#btnManageReports'), true);
     assert.equal(await standard.getAttribute('#btnManageReports', 'href'), '/v3/dashboards.html?manage=reports&tab=mine');
     await standard.click('#btnManageReports');
-    await standard.waitForFunction(() => /No saved reports/.test(document.getElementById('mineBody').textContent));
+    await standard.waitForFunction(() => /not made a report yet/.test(document.getElementById('mineBody').textContent));
     assert.equal(await standard.locator('#mineBody a[href*="report-builder"]').count(), 0, 'empty management page does not expose authoring');
     await standard.click('#tab-archived');
     await standard.waitForSelector(action('R1', 'restore', 'archivedBody'));

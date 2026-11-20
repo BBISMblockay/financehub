@@ -2,12 +2,34 @@
 (function (global) {
   'use strict';
 
-  const CADENCE = Object.freeze([
-    { id: 'weekdays_0700', label: 'Every weekday · 7:00 AM' },
-    { id: 'daily_0600', label: 'Every day · 6:00 AM' },
-    { id: 'monday_0700', label: 'Every Monday · 7:00 AM' },
-    { id: 'month_first_0700', label: '1st of month · 7:00 AM' },
-  ]);
+  // Every frequency x delivery time the storage shape allows
+  // (20261013180000, matrix completed by 20261120040000). Self-contained for
+  // the same reason parseCadence below is: the runner-agreement test loads this
+  // file alone, and a label that silently became a raw preset id would show
+  // "weekdays_0700" in the schedules table.
+  //
+  // These are STORAGE labels, one per stored value. The two-control phrasing
+  // the panel shows ("Every weekday" + "7:00 AM", and the sentence that
+  // combines them with a timezone) belongs to report-schedule-plan.js, which is
+  // where display wording lives.
+  const CADENCE_FREQUENCY_LABEL = Object.freeze({
+    weekdays: 'Every weekday',
+    daily: 'Every day',
+    monday: 'Every Monday',
+    month_first: 'First of the month',
+  });
+  const CADENCE_TIMES = Object.freeze(['0600', '0700']);
+
+  function cadenceMatrix() {
+    const out = [];
+    for (const frequency of CADENCE_FREQUENCIES) {
+      for (const time of CADENCE_TIMES) {
+        const id = `${frequency}_${time}`;
+        out.push({ id, label: cadenceLabel(id) });
+      }
+    }
+    return Object.freeze(out);
+  }
 
   const DEPARTMENTS = Object.freeze(['finance', 'logistics', 'marketing', 'ops', 'retail', 'sales']);
 
@@ -177,7 +199,20 @@
   }
 
   function cadenceLabel(id) {
-    return CADENCE.find((c) => c.id === id)?.label || id || '';
+    const parsed = parseCadence(id);
+    if (!parsed) return String(id || '');
+    const mm = String(parsed.minute).padStart(2, '0');
+    const suffix = parsed.hour < 12 ? 'AM' : 'PM';
+    const h12 = parsed.hour % 12 === 0 ? 12 : parsed.hour % 12;
+    return `${CADENCE_FREQUENCY_LABEL[parsed.frequency]} · ${h12}:${mm} ${suffix}`;
+  }
+
+  /** The same cadence as two separate readings, for the two controls. A
+   *  stored preset is the only source: the panel never keeps its own copy of
+   *  "which frequency" beside "which preset", which is how the two drift. */
+  function cadenceParts(preset) {
+    const parsed = parseCadence(preset);
+    return { frequency: parsed?.frequency || 'weekdays', time: parsed?.time || '0700' };
   }
 
   // Addresses outside the workspace. Deliberately permissive about what an
@@ -249,6 +284,80 @@
     return (data || [])[0] || null;
   }
 
+  /** Pause or resume one schedule.
+   *
+   *  A paused schedule keeps its next_run_at, its recipients and its window;
+   *  the runner simply does not select it (the due index is partial on
+   *  `is_active and not is_paused`). Resuming also CLEARS last_error, because
+   *  the delivery side pauses on a fault the schedule owns and writes that
+   *  error at the same time -- leaving it behind would make a resumed schedule
+   *  keep explaining a failure it is no longer in.
+   *
+   *  An RLS-refused UPDATE succeeds with zero rows rather than erroring
+   *  (supabase/CLAUDE.md), so zero rows is reported by name. Without that, a
+   *  non-admin's Pause looked like it worked and the mail kept arriving.
+   */
+  async function setSchedulePaused(sb, id, paused) {
+    const patch = { is_paused: !!paused, updated_at: new Date().toISOString() };
+    if (!paused) patch.last_error = null;
+    const { data, error } = await sb.from('report_email_schedules')
+      .update(patch).eq('id', id).select('id, is_paused, last_error');
+    if (error) throw error;
+    const row = (data || [])[0];
+    if (!row) throw new Error(`Schedule was not ${paused ? 'paused' : 'resumed'} — you may not have permission.`);
+    if (!!row.is_paused !== !!paused) throw new Error('The change was not confirmed. Reload the schedules and try again.');
+    return row;
+  }
+
+  /** The delivery log for one schedule, newest first.
+   *
+   *  report_email_runs has existed since 20261013180000 with an admin SELECT
+   *  policy and no UI at all, which is why a schedule that had never once run
+   *  unattended looked healthy for five days (docs/ops/two-step-login.md).
+   *  `trigger_kind` is read as well as the status: a row that says `test` is
+   *  somebody clicking the button, and reading it as evidence the schedule
+   *  works is exactly the mistake that hid that outage.
+   */
+  async function listRuns(sb, scheduleId, limit) {
+    const { data, error } = await sb.from('report_email_runs')
+      .select('id, schedule_id, started_at, finished_at, status, trigger_kind, total_rows, attachment_count, delivery_mode, error_message, recipient_count')
+      .eq('schedule_id', scheduleId)
+      .order('started_at', { ascending: false })
+      .limit(limit || 20);
+    if (error) throw error;
+    return data || [];
+  }
+
+  /** The company's business timezone and the label to show it by.
+   *
+   *  The zone is a company FACT, never a literal in a page: dashboard.html
+   *  used to pass 'America/Los_Angeles' into the panel from code. It comes
+   *  from company_settings.business_timezone through silo_business_timezone(),
+   *  and the label from supported_business_timezones, which is also the list
+   *  of zones SILO honours end to end -- so the panel can tell the difference
+   *  between "pick a zone" and "there is one zone, and here is why".
+   *
+   *  Fails soft: a company with no settings row, or a database without the
+   *  RPC, yields the zone SILO falls back to anyway and an empty list, and
+   *  the panel then states the zone without offering a choice.
+   */
+  async function companyTimezone(sb) {
+    let tz = null;
+    try {
+      const { data } = await sb.rpc('silo_business_timezone');
+      if (typeof data === 'string' && data) tz = data;
+    } catch (_) { tz = null; }
+    let zones = [];
+    try {
+      const { data } = await sb.from('supported_business_timezones')
+        .select('tz_name, label, is_supported, note').order('label');
+      zones = (data || []).filter((z) => z.is_supported);
+    } catch (_) { zones = []; }
+    const name = tz || zones[0]?.tz_name || 'America/Los_Angeles';
+    const hit = zones.find((z) => z.tz_name === name);
+    return { name, label: hit?.label || '', note: hit?.note || '', zones };
+  }
+
   async function deleteSchedule(sb, id) {
     const { data, error } = await sb.from('report_email_schedules').delete().eq('id', id).select('id');
     if (error) throw error;
@@ -306,29 +415,78 @@
     return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate() };
   }
 
+  // `<frequency>_<HHMM>`, PARSED rather than matched against a list of names.
+  // The first version compared the whole preset string, so the four values
+  // 20261120040000 adds would each have fallen through to the generic tail and
+  // fired on the next calendar day -- a 6:00 weekday schedule delivering on a
+  // Saturday, with nothing erroring. Kept identical to the runner's copy in
+  // scripts/lib/report-email-deliver-core.mjs; scripts/tests/report-email-deliver.test.mjs
+  // runs both over the same fixture matrix and fails if they ever disagree.
+  // Self-contained on purpose. scripts/tests/report-email-deliver.test.mjs
+  // loads THIS FILE ALONE in a bare global to prove the browser's cadence math
+  // still agrees with the runner's, so reading the frequency list off a sibling
+  // script (report-schedule-plan.js) made every preset unparseable there and
+  // every weekday schedule compute a Saturday -- in the test, and in any page
+  // that loaded the two scripts in the other order. The same five lines live in
+  // report-schedule-plan.js for the UI, and the unit suite asserts the two
+  // parsers agree on the whole matrix and on malformed input.
+  const CADENCE_FREQUENCIES = Object.freeze(['weekdays', 'daily', 'monday', 'month_first']);
+
+  function parseCadence(preset) {
+    const m = /^([a-z_]+)_(\d{2})(\d{2})$/.exec(String(preset || ''));
+    if (!m) return null;
+    const [, frequency, hh, mm] = m;
+    if (!CADENCE_FREQUENCIES.includes(frequency)) return null;
+    const hour = Number(hh);
+    const minute = Number(mm);
+    if (hour > 23 || minute > 59) return null;
+    return { frequency, time: `${hh}${mm}`, hour, minute };
+  }
+
   function computeNextRunAt(preset, timezone, fromDate) {
     const tz = timezone || 'America/Los_Angeles';
-    const hour = String(preset || '').includes('0600') ? 6 : 7;
+    const parsed = parseCadence(preset);
+    const hour = parsed ? parsed.hour : 7;
+    const minute = parsed ? parsed.minute : 0;
     const from = fromDate instanceof Date ? fromDate : (fromDate ? new Date(fromDate) : new Date());
     const today = zoneParts(from, tz);
 
-    if (preset === 'month_first_0700') {
+    if (parsed && parsed.frequency === 'month_first') {
       const mo = today.mo === 12 ? 1 : today.mo + 1;
       const y = today.mo === 12 ? today.y + 1 : today.y;
-      return zonedTimeToInstant(y, mo, 1, hour, 0, tz).toISOString();
+      return zonedTimeToInstant(y, mo, 1, hour, minute, tz).toISOString();
     }
 
-    for (let n = 1; n <= 370; n += 1) {
+    for (let n = 1; parsed && n <= 370; n += 1) {
       const cal = addCalendarDays(today.y, today.mo, today.d, n);
-      const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz);
+      const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, minute, tz);
       const wd = zoneParts(instant, tz).wd;
-      if (preset === 'weekdays_0700' && (wd === 'Sat' || wd === 'Sun')) continue;
-      if (preset === 'monday_0700' && wd !== 'Mon') continue;
+      if (parsed.frequency === 'weekdays' && (wd === 'Sat' || wd === 'Sun')) continue;
+      if (parsed.frequency === 'monday' && wd !== 'Mon') continue;
       return instant.toISOString();
     }
     const cal = addCalendarDays(today.y, today.mo, today.d, 1);
-    return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz).toISOString();
+    return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, minute, tz).toISOString();
   }
+
+  /** A cadence the database has not learned yet, said plainly.
+   *
+   *  20261120040000 widens the cadence CHECK to the frequency x time matrix.
+   *  Until it is applied, half the delivery times the panel offers are refused
+   *  at save time with Postgres's own words ("violates check constraint
+   *  report_email_schedules_cadence_preset_check"), which tells a merchant
+   *  nothing. Fail soft: name the time that is not available yet, and name the
+   *  one that is, so they can finish what they were doing.
+   */
+  function cadenceRefusalMessage(preset, dbMessage) {
+    const fallback = global.SiloReportSchedulePlan?.legacyFallbackFor(preset);
+    const asked = cadenceLabel(preset);
+    if (!fallback) return dbMessage;
+    return `${asked} is not available on this workspace yet — a SILO database update is pending. `
+      + `${cadenceLabel(fallback)} works today. Everything else you set has been kept.`;
+  }
+
+  const isCadenceRefusal = (message) => /cadence_preset/i.test(String(message || ''));
 
   async function saveSchedule(sb, row) {
     const payload = {
@@ -339,12 +497,18 @@
     if (payload.id) {
       const { data, error } = await sb.from('report_email_schedules').update(payload).eq('id', payload.id)
         .select('id').maybeSingle();
-      if (error) throw error;
+      if (error) {
+        throw isCadenceRefusal(error.message)
+          ? new Error(cadenceRefusalMessage(payload.cadence_preset, error.message)) : error;
+      }
       if (!data) throw new Error('Schedule was not saved — you may not have permission.');
       return payload.id;
     }
     const { data, error } = await sb.from('report_email_schedules').insert(payload).select('id').single();
-    if (error) throw error;
+    if (error) {
+      throw isCadenceRefusal(error.message)
+        ? new Error(cadenceRefusalMessage(payload.cadence_preset, error.message)) : error;
+    }
     return data.id;
   }
 
@@ -410,12 +574,14 @@
   }
 
   global.SiloReportEmailSchedule = {
-    CADENCE, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
+    CADENCE: cadenceMatrix(), cadenceMatrix, DEPARTMENTS, isWorkspaceAdmin, defaultSubject, defaultRecipients,
     listSchedules, saveSchedule, deliverNow, duplicateSchedule, pauseAll, listMembers,
-    computeNextRunAt, cadenceLabel, parseEmailList, recipientSummary,
+    computeNextRunAt, cadenceLabel, cadenceParts, parseCadence, CADENCE_FREQUENCIES,
+    parseEmailList, recipientSummary,
     USE_PAGE_FILTERS, KEEP_WINDOW, isSentinel,
     dateRangeKeys, periodOptions, periodIdFor, applyPeriod, periodSummary,
     periodSummaryFromState,
-    findScheduleForTarget, deleteSchedule,
+    findScheduleForTarget, deleteSchedule, setSchedulePaused, listRuns, companyTimezone,
+    cadenceRefusalMessage, isCadenceRefusal,
   };
 }(typeof window !== 'undefined' ? window : globalThis));

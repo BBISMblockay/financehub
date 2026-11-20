@@ -43,12 +43,11 @@
     .delta-pos { color:var(--bcn-pos); }
     .delta-neg { color:var(--bcn-neg); }
     .delta-na  { color:var(--bcn-ink-3); }
-    .seo-window-btns { display:flex; gap:6px; }
-    .seo-window-btns .is-active { background:var(--bcn-band); color:#fff; }
     #status { margin:12px 18px 0; }
   </style>
   <link rel="stylesheet" href="marketing-charts.css" />
   <link rel="stylesheet" href="seo-suite.css" />
+  <link rel="stylesheet" href="silo-date-range.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <link rel="stylesheet" href="performance-suite.css" />
@@ -62,12 +61,11 @@
         <h1 class="bcn-header-title">Search performance</h1>
         <div id="subtitle" class="bcn-header-sub bcn-mono">Google Search Console · final data · —</div>
       </div>
-      <div class="bcn-header-actions">
-        <div class="seo-window-btns" id="windowBtns">
-          <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
-          <button class="bcn-btn bcn-btn--ghost is-active" data-days="28">28d</button>
-          <button class="bcn-btn bcn-btn--ghost" data-days="90">90d</button>
-        </div>
+      <div class="bcn-header-actions" style="flex-wrap:wrap;justify-content:flex-end">
+        <!-- Start and end down to the day, plus the rolling quick picks, from
+             the shared control (silo-date-range.js) -- the same one Marketing
+             Overview and Explorer mount (2026-11-20). -->
+        <div id="rangeCtl"></div>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
     </header>
@@ -149,6 +147,7 @@
 <script src="marketing-charts.js"></script>
 <script src="performance-suite.js"></script>
 <script src="seo-suite.js"></script>
+<script src="silo-date-range.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
   const cfg = window.__SILO_CONFIG__ || {};
@@ -223,7 +222,13 @@
     return { short: full, full };
   }
 
+  // WINDOW_DAYS is how many days to ask for; WINDOW_END is set ONLY for a
+  // typed calendar range. A quick pick leaves it null, which is what keeps the
+  // window anchored on the newest FINALISED day (p_end default) rather than on
+  // today -- Google finalises two to three days back, so anchoring on today
+  // would quietly report a window whose last days have no rows yet.
   let WINDOW_DAYS = 28;
+  let WINDOW_END = null;
   let CHART_MODE = 'volume';
   let OVERVIEW = null;
   let _co = null;
@@ -428,10 +433,14 @@
     setStatus('Loading…', 'info');
     el('btnRefresh').disabled = true;
     try {
-      const ov = await sb.rpc('search_console_overview', { p_days: days, p_end: null });
+      const ov = await sb.rpc('search_console_overview', { p_days: days, p_end: WINDOW_END });
       if (id !== loadId) return;
       if (ov.error) throw ov.error;
       const end = ov.data?.window?.end;
+      // Show the window that was actually read. On a quick pick that is the
+      // finalised window, which ends before today; the quick pick stays lit.
+      const w = ov.data?.window || {};
+      if (w.start && w.end) dateRange.apply({ start: w.start, end: w.end, preset: dateRange.get().preset });
       const [pages, queries] = end && Number(ov.data?.freshness?.property_count || 1) === 1
         ? await Promise.all([
           sb.rpc('search_console_top_pages', { p_days: days, p_end: end, p_limit: 25 }),
@@ -477,12 +486,32 @@
     el('btnTableAdv').setAttribute('aria-pressed', on ? 'true' : 'false');
     el('btnTableAdv').textContent = on ? 'Fewer columns' : 'More columns';
   });
-  el('windowBtns').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-days]');
-    if (!btn) return;
-    WINDOW_DAYS = Number(btn.dataset.days);
-    document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
-    runLoad();
+  // The window lives in the address bar, so a refresh or a shared link lands
+  // on the same days: days=N for a quick pick, start+end for a typed range.
+  function setUrlParams(changes) {
+    const url = new URL(location.href);
+    for (const [k, v] of Object.entries(changes)) {
+      if (v == null || v === '') url.searchParams.delete(k); else url.searchParams.set(k, String(v));
+    }
+    if (url.href !== location.href) history.replaceState(null, '', url);
+  }
+  const dateRange = window.SiloDateRange.create({
+    mount: '#rangeCtl',
+    presets: [{ days: 7 }, { days: 28 }, { days: 90 }, { days: 365 }],
+    defaultDays: 28,
+    onChange: () => {
+      const r = dateRange.get();
+      WINDOW_DAYS = r.days || 28;
+      WINDOW_END = r.rolling ? null : r.end;
+      setUrlParams(dateRange.urlParams());
+      runLoad();
+    },
+  });
+  // Boot awaits this: the address bar is the selection.
+  const rangeReady = dateRange.applyFromUrl(location.search, { fallbackDays: 28 }).then(() => {
+    const r = dateRange.get();
+    WINDOW_DAYS = r.days || 28;
+    WINDOW_END = r.rolling ? null : r.end;
   });
   el('btnRefresh').addEventListener('click', runLoad);
   document.querySelectorAll('.bcn-tab[data-chart]').forEach(tab => {
@@ -494,6 +523,7 @@
   });
 
   async function boot() {
+    await rangeReady;
     const sess = await sb.auth.getSession();
     if (!sess?.data?.session) { window.location.href = '/pages/login.html'; return; }
     const user = sess.data.session.user;

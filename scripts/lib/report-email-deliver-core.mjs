@@ -144,31 +144,65 @@ function addCalendarDays(y, mo, d, n) {
   return { y: t.getUTCFullYear(), mo: t.getUTCMonth() + 1, d: t.getUTCDate() };
 }
 
+// A cadence_preset is `<frequency>_<HHMM>` in the company's business timezone --
+// `weekdays_0700`, `daily_0600`. It is PARSED, not matched literally: the first
+// version compared the whole string against four names, so the four values
+// 20261120040000 adds (the other half of the frequency x time matrix, which is
+// what lets the panel offer "how often" and "what time" as two controls) would
+// each have fallen through to the generic tail and fired on the next calendar
+// day, ignoring the weekday. A 6:00 weekday schedule would have delivered on a
+// Saturday and nothing would have errored.
+//
+// An unrecognised frequency or a malformed time still yields null here, and
+// computeNextRunAt then keeps its original fallback -- tomorrow at 7:00 -- so a
+// preset from a future migration is late, never undefined.
+export const CADENCE_FREQUENCIES = Object.freeze(['weekdays', 'daily', 'monday', 'month_first']);
+
+const FREQUENCY_LABEL = Object.freeze({
+  weekdays: 'Weekdays',
+  daily: 'Daily',
+  monday: 'Monday',
+  month_first: '1st of month',
+});
+
+export function parseCadence(preset) {
+  const m = /^([a-z_]+)_(\d{2})(\d{2})$/.exec(String(preset || ''));
+  if (!m) return null;
+  const [, frequency, hh, mm] = m;
+  if (!CADENCE_FREQUENCIES.includes(frequency)) return null;
+  const hour = Number(hh);
+  const minute = Number(mm);
+  if (hour > 23 || minute > 59) return null;
+  return { frequency, hour, minute };
+}
+
 export function computeNextRunAt(preset, timezone, fromDate = new Date()) {
   const tz = timezone || 'America/Los_Angeles';
-  const hour = String(preset || '').includes('0600') ? 6 : 7;
+  const parsed = parseCadence(preset);
+  const hour = parsed ? parsed.hour : 7;
+  const minute = parsed ? parsed.minute : 0;
   const today = zoneParts(fromDate instanceof Date ? fromDate : new Date(fromDate), tz);
 
-  if (preset === 'month_first_0700') {
+  if (parsed && parsed.frequency === 'month_first') {
     const mo = today.mo === 12 ? 1 : today.mo + 1;
     const y = today.mo === 12 ? today.y + 1 : today.y;
-    return zonedTimeToInstant(y, mo, 1, hour, 0, tz).toISOString();
+    return zonedTimeToInstant(y, mo, 1, hour, minute, tz).toISOString();
   }
 
   // Strictly tomorrow or later: a schedule saved at 09:00 must not fire for a
   // 07:00 slot that has already passed today.
-  for (let n = 1; n <= 370; n += 1) {
+  for (let n = 1; parsed && n <= 370; n += 1) {
     const cal = addCalendarDays(today.y, today.mo, today.d, n);
-    const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz);
+    const instant = zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, minute, tz);
     const wd = zoneParts(instant, tz).wd;
-    if (preset === 'weekdays_0700' && (wd === 'Sat' || wd === 'Sun')) continue;
-    if (preset === 'monday_0700' && wd !== 'Mon') continue;
+    if (parsed.frequency === 'weekdays' && (wd === 'Sat' || wd === 'Sun')) continue;
+    if (parsed.frequency === 'monday' && wd !== 'Mon') continue;
     return instant.toISOString();
   }
-  // Unreachable for every preset above; a new preset lands here rather than
-  // returning undefined and writing a null next_run_at.
+  // An unparseable preset lands here rather than returning undefined and
+  // writing a null next_run_at.
   const cal = addCalendarDays(today.y, today.mo, today.d, 1);
-  return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, 0, tz).toISOString();
+  return zonedTimeToInstant(cal.y, cal.mo, cal.d, hour, minute, tz).toISOString();
 }
 
 // Whether a delivery failure is the SCHEDULE's fault or the world's. Only the
@@ -204,13 +238,10 @@ export function renderSubject(template, ctx) {
 }
 
 export function cadenceLabel(preset) {
-  const map = {
-    weekdays_0700: 'Weekdays 7:00',
-    daily_0600: 'Daily 6:00',
-    monday_0700: 'Monday 7:00',
-    month_first_0700: '1st of month 7:00',
-  };
-  return map[preset] || preset;
+  const parsed = parseCadence(preset);
+  if (!parsed) return String(preset || '');
+  const mm = String(parsed.minute).padStart(2, '0');
+  return `${FREQUENCY_LABEL[parsed.frequency]} ${parsed.hour}:${mm}`;
 }
 
 // ── Claiming a due row ───────────────────────────────────────────────────

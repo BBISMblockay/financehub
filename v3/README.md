@@ -229,8 +229,17 @@ temporary, unsaved board (`js/report-preview.js`) -- the viewer's own data,
 the report's own filters, a chart when `recommend()` finds a shape and the
 full table under it. It has no dashboard id, so Edit, Save and saved views
 stay off and nothing is written. "Add to a dashboard" hands off to the
-existing `?add_report=` flow; "Customize a copy" opens the report builder.
-My Reports still open in the builder, since editing is their main use.
+existing `?add_report=` flow; **Advanced Builder** opens the report builder,
+labelled "Advanced Builder (copy)" on a SILO report, which cannot be edited
+in place. My Reports still open in the builder, since editing is their main
+use.
+
+The header is the same for every report, including one whose answer is
+declared in parts: **Run**, **Export**, **Schedule**, Advanced Builder. The
+multi-part branch used to skip that wiring entirely, which is why no
+multi-part report could be scheduled and `?openSchedule=1` did nothing on
+one; both branches now end in `finishPreview()`, which is the only place
+those buttons are set up.
 
 **A report whose queries are parts of one answer says so** in
 `columns_metadata._queries` -- `[{index, title, chart}]` -- and then opens as
@@ -252,6 +261,42 @@ image cell with no usable URL renders a same-size "No image" placeholder, and
 an image that fails to LOAD (Meta's signed thumbnail links expire days after
 a sync) is swapped for the same placeholder by a capture-phase `error`
 listener on the grid. A product-type total never carries a photo.
+
+## Two ways in, one engine
+
+`dashboards.html` is the front door for someone who has never written SQL:
+a compact table per view (SILO templates, Company reports, My reports,
+Archived, Dashboards, Schedules) listing the report's plain name, what it
+answers, and whether it is scheduled. Opening one lands on its results.
+Everything that is SQL, schema or query diagnostics lives behind the single
+**Advanced Builder** entry, and Ask SILO stays beside it as a shortcut.
+
+Nothing about this is a second kind of report. There is one
+`silo_chat_saved_reports` row, one `chat_run_readonly_query`, one parameter
+parser. `v3/tests/browser/reports-three-paths.test.js` is the guard: on one
+report, a power user's SQL edit, a teammate scheduling it without seeing
+SQL, and the query an authorized agent runs must resolve to the same text,
+the same rows and the same total. If a change to the simple surface forks
+the engine, that suite is what notices.
+
+`js/report-schedule-plan.js` holds the WORDING of a schedule and nothing
+else: the frequencies, the delivery times the runner can serve, the
+sentence ("Every Monday at 7:00 AM Pacific Time (US & Canada), send last
+week of Sales by day."), the first-send line, what the email contains, the
+honest status labels and the plain-language failures. It is pure -- no
+database, no DOM -- so what a person is told can be tested without a
+browser. It never says "Delivered": SILO knows only that the mail provider
+accepted the message. See `docs/ops/bugs.md` for the gaps that wording is
+honest about (no per-recipient delivery status, two delivery times, one
+supported timezone).
+
+Delivery times are not a free choice. `report-email-sync.yml` runs the
+claim loop at `5 13,14,15,18,23 * * *`, and 6:00 and 7:00 company time are
+the only hours whose slot lands correctly under both PDT and PST, so those
+are the only two the panel offers. Adding one means adding a cron slot
+first, then a value to the `cadence_preset` CHECK
+(`20261120040000_report_email_cadence_matrix.sql` is the pattern:
+`<frequency>_<HHMM>`, parsed, never matched by name).
 
 ## Bump the asset version when you change these files
 

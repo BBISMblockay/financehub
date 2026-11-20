@@ -470,6 +470,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     // appear in Shopify sooner), or every company with a service key.
     if (peek?.action === 'create_shopify_codes') {
       const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
+      // One PRODUCT code by id, on the same terms as code_id above: the
+      // portal asks right after a shared product was claimed, which the
+      // database already approved (20261120030000). The claim decides what is
+      // made; the id only brings it forward from tonight's sweep.
+      const seedId = UUID_RE.test(String(peek.seed_id || '')) ? String(peek.seed_id) : null;
+      if (seedId && !codeId) {
+        try { return reply({ results: await createSeedCodes({ claimIds: [seedId] }) }); }
+        catch (err) { console.error('[affiliate-invite] seed code by id', err?.message); return reply({ error: 'Could not make codes' }, 500); }
+      }
       let sweep = false;
       if (!codeId) {
         sweep = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);

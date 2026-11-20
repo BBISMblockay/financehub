@@ -7621,6 +7621,16 @@ select 'Scheduled report CSV email' as check_name,
           where n.nspname = 'public' and p.proname = 'resolve_report_email_recipients'
           limit 1) not like '%v_kind = ''email''%'
       then 'MISSING — resolve_report_email_recipients() has no ''email'' branch; run 20261014060000_report_email_external_recipients.sql, or outside recipients are silently dropped'
+    -- 20261120040000 completes the 4x2 cadence matrix, which is what lets the
+    -- schedule panel offer "how often" and "what time" as two controls. Without
+    -- it the panel's 6:00 weekday option is refused by the CHECK at save time
+    -- and the person is told a database update is pending -- fail-soft, but the
+    -- feature is half there, so say so here rather than leaving it to a report
+    -- nobody can schedule.
+    when (select pg_get_constraintdef(oid) from pg_constraint
+          where conname = 'report_email_schedules_cadence_preset_check'
+          limit 1) not like '%weekdays_0600%'
+      then 'MISSING — the cadence CHECK still allows only the original four presets; run 20261120040000_report_email_cadence_matrix.sql, or half the delivery times the schedule panel offers are refused on save'
     else 'ok'
   end as status;
 
@@ -9536,6 +9546,10 @@ select 'Affiliate product seeding' as check_name,
       then 'CRITICAL — a product seeding payback can be written twice'
     when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_seed_decide(uuid[], boolean)'::regprocedure)) = 0
       then 'BROKEN — anyone in the company can approve a product request'
+    -- 20261120030000: a product the company shared is approved as it is asked
+    -- for. Without this apply, every request still waits for a person.
+    when position('affiliate_payout_accounts' in pg_get_functiondef('public.affiliate_portal_seed_request(text, uuid, text, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261120030000_affiliate_seed_shared_auto.sql'
     when position('affiliate_seed_claims' in pg_get_functiondef((select p.oid from pg_proc p where p.proname = 'affiliate_resolve_attributions'
                                                                  and p.pronamespace = 'public'::regnamespace limit 1))) > 0
       then 'CRITICAL — a seed code can earn commission'

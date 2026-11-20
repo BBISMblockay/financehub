@@ -19,9 +19,26 @@ const element = id => {
   return elements.get(id);
 };
 let rpc = () => { throw Error('Unexpected RPC'); };
+// The page mounts the shared date control (v2/silo-date-range.js), which is a
+// separate <script> this harness does not load. Stand in for it with the same
+// surface the page uses, so the window the page asks the RPC for is still
+// decided here: `days` from the address bar, or the default.
+const dateRange = { start: null, end: null, preset: '28' };
+const SiloDateRangeStub = {
+  create: () => ({
+    get: () => ({ ...dateRange, days: 28, rolling: /^[0-9]+$/.test(String(dateRange.preset || '')) }),
+    urlParams: () => ({ days: dateRange.preset, start: null, end: null }),
+    apply: (sel) => { Object.assign(dateRange, sel); return Promise.resolve(dateRange); },
+    applyFromUrl: () => Promise.resolve(dateRange),
+    pick: () => Promise.resolve(dateRange),
+    paint: () => {},
+  }),
+};
 const context = vm.createContext({
-  window: { __SILO_CONFIG__: { SUPABASE_URL: 'https://test.invalid', SUPABASE_ANON_KEY: 'fixture' }, supabase: { createClient: () => ({ rpc: (...args) => rpc(...args) }) } },
+  window: { __SILO_CONFIG__: { SUPABASE_URL: 'https://test.invalid', SUPABASE_ANON_KEY: 'fixture' }, supabase: { createClient: () => ({ rpc: (...args) => rpc(...args) }) }, SiloDateRange: SiloDateRangeStub },
   document: { getElementById: element, querySelector: element, querySelectorAll: () => [] },
+  location: { search: '', href: 'https://test.invalid/v2/seo-overview.html' },
+  history: { replaceState() {} },
   setTimeout: () => 0, console,
 });
 vm.runInContext(script.replace('  boot();', ''), context);

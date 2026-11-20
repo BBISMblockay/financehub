@@ -568,6 +568,43 @@ await test('portal: email sign-in answers the same either way, mails each record
   assert.equal(empty.log.length, 0);
 });
 
+// 20261120030000: a product the COMPANY shared comes back from the database
+// already approved, and its code is made straight away instead of waiting for
+// the nightly sweep. A product the affiliate named themselves still waits.
+await test('portal: a shared product that came back approved has its code made at once', async () => {
+  const svc = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal', affiliate_status: 'active' })], error: null },
+    affiliate_portal_seed_request: { data: { id: 'c9', state: 'approved', replayed: false }, error: null },
+  } });
+  const made = [];
+  const run = (body) => createPortalHandler({ service: svc, siteUrl: 'https://app.test', resendKey: '',
+    makeSeedCode: async (id) => { made.push(id); } })(post({ token: TOKEN, ...body }));
+  const out = await (await run({ action: 'seed_request', item_id: AFF2 })).json();
+  assert.deepEqual(out, { requested: true, approved: true, state: 'approved', replayed: false, id: 'c9' });
+  assert.deepEqual(made, ['c9'], 'the code is asked for by claim id');
+
+  // A request that still waits asks for no code.
+  const waiting = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal', affiliate_status: 'active' })], error: null },
+    affiliate_portal_seed_request: { data: { id: 'c10', state: 'requested', replayed: false }, error: null },
+  } });
+  const made2 = [];
+  const out2 = await (await createPortalHandler({ service: waiting, siteUrl: 'https://app.test', resendKey: '',
+    makeSeedCode: async (id) => { made2.push(id); } })(post({ token: TOKEN, action: 'seed_request', title: 'Gray hoodie' }))).json();
+  assert.equal(out2.approved, false);
+  assert.deepEqual(made2, [], 'nothing is made for a request still waiting on a person');
+
+  // A code call that fails leaves the claim approved: the sweep makes it.
+  const boom = fakeService({ rpc: {
+    affiliate_portal_resolve: { data: [resolvedRow({ purpose: 'portal', affiliate_status: 'active' })], error: null },
+    affiliate_portal_seed_request: { data: { id: 'c11', state: 'approved', replayed: false }, error: null },
+  } });
+  const r = await createPortalHandler({ service: boom, siteUrl: 'https://app.test', resendKey: '',
+    makeSeedCode: async () => { throw new Error('shopify is down'); } })(post({ token: TOKEN, action: 'seed_request', item_id: AFF2 }));
+  assert.equal(r.status, 200, 'the affiliate is still told they have it');
+  assert.equal((await r.json()).approved, true);
+});
+
 await test('portal: product seeding goes through the token only; a signup link and a bad item are refused before the database', async () => {
   const mk = (purpose) => fakeService({ rpc: {
     affiliate_portal_resolve: { data: [resolvedRow({ purpose, affiliate_status: 'active' })], error: null },
@@ -584,7 +621,7 @@ await test('portal: product seeding goes through the token only; a signup link a
   assert.equal((await run(svc, { action: 'seed_request' })).status, 400, 'a request must name something');
   assert.equal(svc.log.filter((e) => e.name === 'affiliate_portal_seed_request').length, 0);
   const shared = await (await run(svc, { action: 'seed_request', item_id: AFF2, title: 'ignored' })).json();
-  assert.deepEqual(shared, { requested: true, replayed: false, id: 'c1' });
+  assert.deepEqual(shared, { requested: true, approved: false, state: 'requested', replayed: false, id: 'c1' });
   const privateAsk = await run(svc, { action: 'seed_request', title: '  Gray hoodie  ', note: 'size L' });
   assert.equal(privateAsk.status, 200);
   const calls = svc.log.filter((e) => e.name === 'affiliate_portal_seed_request');

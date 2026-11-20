@@ -26,7 +26,14 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     await page.waitForSelector('#siloBody .lib-card');
     assert.equal((await page.textContent('#hubTitle')).trim(), 'Reports');
     assert.equal((await page.textContent('.silo-sb-link[data-nav-id="reports/dashboards"]')).trim(), 'Reports');
-    assert.deepEqual(await page.locator('#libTabs [role="tab"]:visible').evaluateAll(ts => ts.map(t => t.dataset.tab)), ['silo', 'dashboards']);
+    // A standard (merchant) workspace gets its own reports as views, and -- for
+    // a workspace admin, which is what the DB gate decides -- Schedules too. It
+    // used to get SILO templates and Dashboards only, so a merchant could
+    // neither find its shared reports nor stop the email it was receiving.
+    assert.deepEqual(await page.locator('#libTabs [role="tab"]:visible').evaluateAll(ts => ts.map(t => t.dataset.tab)),
+      ['silo', 'company', 'mine', 'dashboards', 'scheduled']);
+    // What stays out: every door to SQL.
+    assert.equal(await page.isHidden('#btnAdvanced'), true);
     // Four specialised sales pages are listed for standard workspaces; Daily
     // Sales Trend and Top Sellers stay grandfathered (SILO system reports cover them).
     const STANDARD_PAGES = ['reports/product-search', 'reports/product-types', 'reports/sales-overview', 'reports/sales-report'];

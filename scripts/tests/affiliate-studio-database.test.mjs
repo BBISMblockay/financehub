@@ -289,6 +289,8 @@ const files = {
   orderstate: '20261119060000_affiliate_portal_order_state.sql',
   // Earnings, payouts and PayPal addresses are finance-only reads (20261119070000).
   financereads: '20261119070000_affiliate_finance_reads.sql',
+  // A product the company shared is seeded without a second approval (20261120030000).
+  sharedseed: '20261120030000_affiliate_seed_shared_auto.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -588,7 +590,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2161,17 +2163,40 @@ await check('M4 a failed share never fails the launch save, and no client role c
 // seed order excluded -> the half back, once, as a ledger line.
 const SEED_CODE_TODAY = async () => (await one(`select (now() at time zone 'America/Los_Angeles')::date::text as d`)).d;
 let seedShared; let seedPrivate;
-await check('S1 an affiliate asks for a shared product or a private one; clients cannot write a claim', async () => {
+await check('S1 a shared product is approved as it is asked for; a product they name waits; clients cannot write a claim', async () => {
+  await asSuper();
+  if (!(await one('select 1 as x from affiliate_payout_accounts where affiliate_id = $1', [affPat]))) {
+    await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','Pat.Pay@PayPal.test')`, [A, affPat]);
+  }
   await as(U.ownerA, A);
   const item = (await one(`insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, product_path)
                            values ($1,$2,'product','snow-cap','Snow cap','/products/snow-cap') returning id`, [A, progA])).id;
   await as(null, null);
+  // 20261120030000: the company already chose this product by sharing it, so
+  // asking for it is the decision -- the claim arrives approved, with the
+  // one-use code and the address it is locked to.
   const r1 = (await one(`select public.affiliate_portal_seed_request('hash-pat',$1,null,null) as r`, [item])).r;
-  assert.equal(r1.state, 'requested');
+  assert.equal(r1.state, 'approved', 'a product the company shared needs no second yes');
   seedShared = r1.id;
+  await asSuper();
+  const auto = await one('select state, code, customer_email, decided_by, decided_at is not null as stamped from affiliate_seed_claims where id = $1', [seedShared]);
+  assert.match(auto.code, /^PATSEED[0-9A-F]{5}$/, 'with its own one-use code');
+  assert.equal(auto.customer_email, 'pat.pay@paypal.test', 'locked to the payout email, where the payback goes');
+  assert.equal(auto.decided_by, null, 'and nobody is recorded as having decided it');
+  assert.equal(auto.stamped, true);
+  await as(null, null);
   const again = (await one(`select public.affiliate_portal_seed_request('hash-pat',$1,null,null) as r`, [item])).r;
   assert.equal(again.id, seedShared, 'asking twice for the same product is one request');
-  seedPrivate = (await one(`select public.affiliate_portal_seed_request('hash-pat',null,'  Trail jacket ','size M') as r`)).r.id;
+  // Two tabs at once: the replay check and the insert are one critical
+  // section, because an automatic approval carries a usable code with it.
+  // PGlite is one connection, so this is pinned structurally.
+  await asSuper();
+  const locks = (await one(`select position('for update' in lower(pg_get_functiondef('public.affiliate_portal_seed_request(text,uuid,text,text)'::regprocedure)))>0 as l`)).l;
+  assert.equal(locks, true, 'the affiliate row is locked while the claim is read and written');
+  await as(null, null);
+  const priv = (await one(`select public.affiliate_portal_seed_request('hash-pat',null,'  Trail jacket ','size M') as r`)).r;
+  assert.equal(priv.state, 'requested', 'a product nobody shared still waits for a person');
+  seedPrivate = priv.id;
   await assert.rejects(db.query(`select public.affiliate_portal_seed_request('hash-pat',null,'   ',null)`), /name the product/);
   await assert.rejects(db.query(`select public.affiliate_portal_seed_request('nope',null,'x',null)`), /not valid/);
   await asSuper();
@@ -2194,19 +2219,25 @@ await check('S2 only a manager answers; approving makes a one-use code locked to
     await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email) values ($1,$2,'paypal','Pat.Pay@PayPal.test')`, [A, affPat]);
   }
   await as(U.memberA, A);
-  await assert.rejects(db.query('select public.affiliate_seed_decide($1, true)', [[seedShared]]), /only an Affiliate Studio manager/);
+  await assert.rejects(db.query('select public.affiliate_seed_decide($1, true)', [[seedPrivate]]), /only an Affiliate Studio manager/);
   await as(U.ownerB, B);
-  assert.equal((await one('select public.affiliate_seed_decide($1, true) as r', [[seedShared]])).r.decided, 0, 'another company decides nothing');
+  assert.equal((await one('select public.affiliate_seed_decide($1, true) as r', [[seedPrivate]])).r.decided, 0, 'another company decides nothing');
   await as(U.ownerA, A);
-  const r = (await one('select public.affiliate_seed_decide($1, true) as r', [[seedShared]])).r;
+  const r = (await one('select public.affiliate_seed_decide($1, true) as r', [[seedPrivate]])).r;
   assert.deepEqual(r, { decided: 1, skipped: 0 });
-  const c = await one('select state, code, customer_email from affiliate_seed_claims where id = $1', [seedShared]);
+  const c = await one('select state, code, customer_email, decided_by from affiliate_seed_claims where id = $1', [seedPrivate]);
   assert.equal(c.state, 'approved');
   assert.match(c.code, /^PATSEED[0-9A-F]{5}$/);
   assert.equal(c.customer_email, 'pat.pay@paypal.test', 'locked to the payout email, where the payback goes');
-  assert.equal((await one('select public.affiliate_seed_decide($1, false) as r', [[seedPrivate]])).r.decided, 1);
-  assert.equal((await one('select state from affiliate_seed_claims where id = $1', [seedPrivate])).state, 'declined');
-  assert.equal((await one('select public.affiliate_seed_decide($1, true) as r', [[seedPrivate]])).r.decided, 0, 'an answer is final');
+  assert.equal(c.decided_by, U.ownerA, 'and the person who approved it is on the record');
+  // An answer is final, and one that answered itself cannot be answered again.
+  assert.equal((await one('select public.affiliate_seed_decide($1, true) as r', [[seedShared]])).r.skipped, 1, 'an automatic approval is not re-decided');
+  await as(null, null);
+  const another = (await one(`select public.affiliate_portal_seed_request('hash-pat',null,'Rain shell',null) as r`)).r.id;
+  await as(U.ownerA, A);
+  assert.equal((await one('select public.affiliate_seed_decide($1, false) as r', [[another]])).r.decided, 1);
+  assert.equal((await one('select state from affiliate_seed_claims where id = $1', [another])).state, 'declined');
+  assert.equal((await one('select public.affiliate_seed_decide($1, true) as r', [[another]])).r.decided, 0, 'an answer is final');
   await as(null, null);
   const portal = (await one(`select public.affiliate_portal_seeds('hash-pat') as r`)).r;
   const mine = portal.claims.find((x) => x.id === seedShared);

@@ -60,6 +60,9 @@
     .af-row > .bcn-field-group { min-width: 140px; flex: 1; }
     .bcn-field-group[hidden] { display: none; }
     .af-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    /* A flex box needs this or `hidden` does nothing, which is how the
+       People sub-tabs showed both lists at once (Blake 2026-11-20). */
+    .af-stack[hidden] { display: none; }
     .af-panel > .af-stack { gap: 16px; }
     .af-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
     .af-filter-bar .bcn-btn { font-size: 12px; padding: 5px 10px; }
@@ -645,6 +648,116 @@
       .af-ov-lb-row { grid-template-columns: 18px 34px minmax(0, 1fr) 80px; row-gap: 4px; }
       .af-ov-lb-row .af-ov-when, .af-ov-lb-row .af-ov-money--comm { display: none; }
     }
+
+    /* Posts from affiliates: a tile big enough to judge the post by. */
+    .af-ctile { display: flex; gap: 12px; align-items: flex-start; width: 100%; }
+    .af-ctile-media {
+      width: 108px; height: 108px; flex: none; border-radius: 10px; overflow: hidden;
+      display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
+    }
+    .af-ctile-media .af-content-media { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: 0; }
+    .af-ctile-media--none { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .af-ctile-txt { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .af-ctile-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .af-ctile-who .af-item-avatar { width: 26px; height: 26px; font-size: 10px; }
+    @media (max-width: 620px) {
+      .af-ctile-media { width: 84px; height: 84px; }
+    }
+
+    /* People: Affiliates / Discovery. */
+    .af-subtabs { margin: 0 0 14px; }
+
+    /* Adding or editing in the middle of the screen. */
+    dialog.af-dialog {
+      border: 1px solid var(--bcn-border); border-radius: 12px; padding: 0;
+      width: min(640px, 94vw); max-height: 88vh; background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    dialog.af-dialog::backdrop { background: rgba(0, 0, 0, .38); }
+    dialog.af-dialog .bcn-card-body { max-height: 72vh; overflow: auto; }
+    .af-dialog-foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* One short line, with the detail on hover instead of in the copy. */
+    .af-info {
+      display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px;
+      border: 1px solid var(--bcn-border); border-radius: 50%; vertical-align: -2px;
+      font-size: 10px; font-weight: 700; color: var(--bcn-ink-3); cursor: help; background: var(--bcn-bg);
+    }
+
+    /* Any dates, not just the last 30 or 90 days. */
+    .af-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .af-range input[type="date"] {
+      height: 28px; padding: 0 8px; font-size: 11.5px; font-family: var(--bcn-mono);
+      border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+      background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    .af-range-sep { color: var(--bcn-ink-3); font-size: 11.5px; }
+    /* ── Density (Blake 2026-11-20: "everything looks a bit large", "tiles are
+       way large", "each tab should almost fit on one page", "still looks not
+       pro enough"). One pass over the whole suite: smaller type, tighter
+       padding, flatter surfaces. Colours and fonts stay Beacon's. ── */
+    .af-studio { background: var(--bcn-bg); }
+    .silo-main > .af-panel { padding: 10px 18px 24px; }
+    .af-studio .bcn-header { padding: 14px 0 4px; }
+    .af-studio.af-studio--ready .bcn-header { padding: 10px 0 2px; }
+    .af-studio .bcn-header-title h1 { font-size: 1.15rem; }
+    .af-studio .af-panel .bcn-card {
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    .af-studio .bcn-card-header { padding: 9px 13px 8px; }
+    .af-studio .bcn-card-header h2 { font-size: 13.5px; }
+    .af-studio .bcn-card-body { padding: 10px 13px 12px; }
+    .af-studio .af-card-hero .bcn-card-body { padding: 12px 13px 14px; background: var(--bcn-surface); }
+    .af-studio .af-card-hero .bcn-field { min-height: 36px; border-radius: 8px; }
+    .af-studio .af-next, .af-studio .af-pipeline, .af-studio .af-ai-hub { border-radius: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+    .af-surface-head { padding-bottom: 7px; margin-bottom: 9px; }
+    .af-surface-head h2 { font-size: 13.5px; }
+    .af-workflow-h { font-size: .95rem; margin-bottom: 8px; }
+    .af-stack { gap: 10px; }
+    .af-panel > .af-stack { gap: 12px; }
+    .af-panel > .af-stack + .af-stack:not(:empty) { margin-top: 16px; }
+    .af-subtabs { margin-bottom: 4px; }
+    /* Rows: the list view is the one that has to fit on a page. */
+    .af-items { gap: 6px; }
+    .af-item { padding: 9px 12px; gap: 10px; border-radius: 8px; }
+    .af-item--compact { padding: 7px 10px; }
+    .af-item-head { font-size: 13px; }
+    .af-item-stats { font-size: 11.5px; margin-top: 2px; }
+    .af-item-detail { font-size: 11.5px; margin-top: 5px; }
+    .af-kv-line { font-size: 11.5px; margin-top: 2px; }
+    .af-muted, .af-mono { font-size: 11.5px; }
+    .af-studio table.bcn-table th, .af-studio table.bcn-table td { padding: 6px 10px; font-size: 12.5px; }
+    .af-list-who { min-width: 150px; gap: 8px; }
+    .af-list-thumb, .af-list-thumb .bcn-avatar, .af-list-thumb .af-avatar, .af-list-thumb .af-avatar-photo { width: 28px; height: 28px; font-size: 11px; border-radius: 6px; }
+    /* Tiles: same card, two thirds the size. */
+    .af-items--grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .af-item--tile { border-radius: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+    .af-item--catalog { padding: 11px 12px 10px; gap: 8px; }
+    .af-catalog-head { gap: 9px; }
+    .af-catalog-thumb, .af-catalog-thumb .bcn-avatar, .af-catalog-thumb .af-avatar, .af-catalog-thumb .af-avatar-photo { width: 44px; height: 44px; border-radius: 9px; font-size: 15px; }
+    .af-catalog-name { font-size: 13.5px; }
+    .af-catalog-sub, .af-catalog-meta { font-size: 11.5px; }
+    .af-catalog-summary-h { font-size: 12px; margin-bottom: 3px; }
+    .af-catalog-summary-p { font-size: 11.5px; -webkit-line-clamp: 2; }
+    .af-catalog-why .af-evidence { -webkit-line-clamp: 2; font-size: 11.5px; }
+    .af-catalog-stats { gap: 6px; }
+    .af-catalog-stat { font-size: 11.5px; }
+    .af-catalog-foot { padding-top: 8px; }
+    .af-item--tile .af-catalog-why { margin: 6px 12px 0; }
+    /* Content: a gallery row is a row, not a poster. */
+    .af-ctile-media { width: 72px; height: 54px; }
+    .af-content-media { max-height: 110px; }
+    @media (max-width: 640px) { .af-ctile-media { width: 60px; height: 45px; } }
+    /* Dashboard: the four figures and the chart fit above the fold. */
+    .af-ov { gap: 10px; }
+    .af-ov-metrics { gap: 10px; }
+    .af-studio .af-ov-metric { border-radius: 10px; padding: 10px 12px 0; }
+    .af-ov-metric .af-ov-val { font-size: 21px; margin-top: 4px; }
+    .af-ov-metric .af-ov-foot { margin-top: 4px; }
+    .af-ov-spark { height: 34px; width: calc(100% + 24px); margin: 6px -12px 0; }
+    .af-studio .af-ov-band { border-radius: 10px; padding: 9px 13px; }
+    .af-ov-chart svg { max-height: 220px; }
+    .af-ov-cols { gap: 10px; }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -669,7 +782,7 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Home</button>
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Dashboard</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="comms" id="tab-comms">Outreach</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
@@ -683,6 +796,12 @@
          creators not in yet, and the messages waiting on them. They were three
          tabs; moving between them was most of the clicking. -->
     <section class="af-panel" data-panel="people" hidden>
+      <!-- Two jobs, two sub-tabs (Blake 2026-11-20): the affiliates already in
+           the programme, and discovery -- the creators who are not. -->
+      <nav class="bcn-tabs af-subtabs" id="peopleSubtabs" role="tablist" aria-label="People">
+        <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-act="people-sub" data-k="discovery">Discovery</button>
+        <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="affiliates">Affiliates</button>
+      </nav>
       <div class="af-stack" id="affiliatesBody"></div>
       <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
     </section>
@@ -698,6 +817,16 @@
     <section class="af-panel" data-panel="records" hidden><div class="af-stack" id="recordsBody"></div></section>
   </main>
 </div>
+
+<!-- Adding or editing a person happens in the middle of the screen, not in a
+     form that opens at the top of a long list (Blake 2026-11-20). studio.js
+     fills the body and opens it with showModal(). -->
+<dialog class="af-dialog" id="afDialog" aria-labelledby="afDialogTitle">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2 id="afDialogTitle">&nbsp;</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-act="dialog-close">Close</button></div>
+    <div class="bcn-card-body" id="afDialogBody"></div>
+  </div>
+</dialog>
 
 <script src="../nav-config.js"></script>
 <script src="../avatar.js"></script>
