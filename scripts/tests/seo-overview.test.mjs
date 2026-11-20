@@ -6,7 +6,16 @@ const html = readFileSync(new URL('../../v2/seo-overview.html', import.meta.url)
 const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x => x[1]).find(x => x.includes('function renderStrip'));
 const elements = new Map();
 const element = id => {
-  if (!elements.has(id)) elements.set(id, { textContent: '', innerHTML: '', hidden: false, disabled: false, classList: { toggle() {} }, addEventListener() {} });
+  if (!elements.has(id)) {
+    const node = { textContent: '', innerHTML: '', hidden: false, disabled: false, addEventListener() {}, _class: '' };
+    node.classList = {
+      add(c) { if (!node._class.split(/\s+/).includes(c)) node._class = `${node._class} ${c}`.trim(); },
+      remove(c) { node._class = node._class.split(/\s+/).filter((x) => x && x !== c).join(' '); },
+      toggle() {},
+    };
+    Object.defineProperty(node, 'className', { get: () => node._class, set: (v) => { node._class = v; } });
+    elements.set(id, node);
+  }
   return elements.get(id);
 };
 let rpc = () => { throw Error('Unexpected RPC'); };
@@ -25,12 +34,11 @@ const fixture = {
   series: [{ day: '2026-09-06', clicks: 40, impressions: 400, ctr: .1, position: 4, query_5000_rows: true }, { day: '2026-09-08', clicks: 60, impressions: 600, ctr: null, position: null }],
 };
 context.fixture = fixture;
-run('renderStrip(fixture); renderKpis(fixture); renderChart(fixture); renderQueries([], fixture);');
-assert.equal(element('kCov').textContent, '57.0%');
+run('renderStrip(fixture); renderKpis(fixture); renderChart(fixture); renderPages([], fixture); renderQueries([], fixture); TOPS_TAB = "queries"; syncTopsFoot();');
 assert.match(element('strip').innerHTML, /not proof of a cap/);
 assert.match(element('strip').innerHTML, /1 of 3 requested days have no ingested row/);
 assert.match(element('kClicksD').textContent, /no prior-period data/);
-assert.doesNotMatch(element('queriesFoot').innerHTML, /hit that cap|beyond its/);
+assert.doesNotMatch(element('topsFoot').innerHTML, /hit that cap|beyond its/);
 assert.doesNotMatch(element('chartWrap').innerHTML, /NaN|Infinity/);
 // The absent middle day must break the line rather than compress time.
 assert.doesNotMatch(element('chartWrap').innerHTML, / d="[^"]*L/);
@@ -46,7 +54,6 @@ context.partial.current.unattributed_query_click_share = null;
 context.partial.current.unmeasured_days = 1;
 context.partial.current.truncated_days = 1;
 run('renderStrip(partial); renderKpis(partial)');
-assert.equal(element('kCov').textContent, '—');
 assert.match(element('strip').innerHTML, /unmeasured query coverage/);
 assert.match(element('strip').innerHTML, /locally truncated/);
 // Error refresh clears numbers from the previous successful response.

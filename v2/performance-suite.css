@@ -21,3 +21,7 @@
   .perf-suite-label {display:none;}
   .perf-suite-links {gap:18px;width:100%;}
 }
+/* SEO and Ad Studio draw a second row directly under Marketing -- avoid a double
+   hairline between the two strips (2026-11-20). */
+.perf-suite-nav:has(+ .seo-suite-nav),
+.perf-suite-nav:has(+ .ads-suite-nav) {border-bottom:none;}

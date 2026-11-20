@@ -19,3 +19,16 @@
   .seo-suite-label {display:none;}
   .seo-suite-links {gap:18px;width:100%;}
 }
+/* When Marketing's row is already visible, the SEO row is a sub-navigation --
+   calmer padding and no second section label (2026-11-20). */
+.perf-suite-nav + .seo-suite-nav,
+.ads-suite-nav + .seo-suite-nav {
+  background:var(--bcn-sunken);
+  border-bottom:1px solid var(--bcn-border);
+  padding:0 18px 0 28px;
+  gap:14px;
+}
+.perf-suite-nav + .seo-suite-nav .seo-suite-label,
+.ads-suite-nav + .seo-suite-nav .seo-suite-label {display:none;}
+.perf-suite-nav + .seo-suite-nav a,
+.ads-suite-nav + .seo-suite-nav a {font-size:11.5px;padding:8px 0 7px;}
