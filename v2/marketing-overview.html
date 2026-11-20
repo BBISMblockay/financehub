@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="performance-suite.css" />
   <link rel="stylesheet" href="marketing-launch-links.css" />
+  <link rel="stylesheet" href="silo-date-range.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -54,10 +55,6 @@
       border-radius:50%; animation:mo-spin .7s linear infinite;
     }
     @keyframes mo-spin { to { transform:rotate(360deg); } }
-
-    .mo-window { display:flex; gap:4px; }
-    .mo-window .bcn-btn { padding:4px 12px; font-size:11px; }
-    .mo-window .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
 
     .mo-thumb { width:52px; height:52px; object-fit:cover; border-radius:6px; border:1px solid var(--bcn-border); background:var(--bcn-sunken); display:block; }
     .mo-ad-cell { display:flex; align-items:center; gap:10px; min-width:260px; }
@@ -114,13 +111,11 @@
           <p><a href="/v2/integrations.html">Open Integrations</a> to manage connections.</p>
         </details>
       </div>
-      <div class="bcn-header-actions">
-        <div class="mo-window" id="windowBtns">
-          <button class="bcn-btn bcn-btn--ghost" data-days="7">7d</button>
-          <button class="bcn-btn bcn-btn--ghost" data-days="14">14d</button>
-          <button class="bcn-btn bcn-btn--ghost is-active" data-days="30">30d</button>
-          <button class="bcn-btn bcn-btn--ghost" data-days="90">90d</button>
-        </div>
+      <div class="bcn-header-actions" style="flex-wrap:wrap;justify-content:flex-end">
+        <!-- Start and end down to the day, plus the rolling quick picks, from
+             the shared control (silo-date-range.js) -- the same one Explorer
+             and Search performance mount (2026-11-20). -->
+        <div id="rangeCtl"></div>
         <span id="dataModePill" class="bcn-pill bcn-pill--accent" style="font-family:var(--bcn-mono);font-size:10.5px">—</span>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
@@ -366,6 +361,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="nav-config.js"></script>
 <script src="performance-suite.js"></script>
+<script src="silo-date-range.js"></script>
 <script src="marketing-launch-links.js"></script>
 <script src="silo-chrome.js"></script>
 <script>
@@ -413,7 +409,6 @@
   // (performance-suite.js carries them between the two); a key this page does
   // not own -- Explorer's start/end, platform, adset -- is left untouched, so
   // it is still there on the way back.
-  const WINDOWS = [7, 14, 30, 90];
   const TABS = ['overview','campaigns','creatives','redo','funnel','channels','organic'];
   const urlParam = k => new URLSearchParams(location.search).get(k);
   function setUrlParams(changes){
@@ -427,26 +422,45 @@
   }
   // The window is whatever the address bar says, never a quiet substitute:
   // any "last N days" (Explorer offers 1y), or a typed start/end range, which
-  // this page now reads as that exact range. A range that ends today is the
-  // same thing as a day count and is treated as one (so it keeps rolling).
+  // this page reads as that exact range.
   const todayIso = () => new Date().toISOString().slice(0,10);
-  // A real calendar day, not just the shape of one (2026-02-31 is refused).
-  const isIsoDay = v => { try { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && new Date(v + 'T00:00:00Z').toISOString().slice(0,10) === v; } catch { return false; } };
-  const spanDays = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000) + 1;
-  function rangeFromUrl(){
-    const d = urlParam('days');
-    if (/^[1-9]\d{0,3}$/.test(String(d || ''))) return { days: Number(d), start: null, end: null };
-    const s = urlParam('start'), e = urlParam('end');
-    if (isIsoDay(s) && isIsoDay(e) && s <= e){
-      const n = spanDays(s, e);
-      return e === todayIso() ? { days: n, start: null, end: null } : { days: n, start: s, end: e };
-    }
-    return { days: 30, start: null, end: null };
-  }
   // RANGE.start/end are set only for a FIXED range (one that does not end
   // today). WINDOW_DAYS is always the number of days the page is showing.
-  let RANGE = rangeFromUrl();
-  let WINDOW_DAYS = RANGE.days;
+  // Both are set from the control below before the first load; the values here
+  // are only what the page holds for the microtask before that.
+  let RANGE = { days: 30, start: null, end: null };
+  let WINDOW_DAYS = 30;
+
+  // The date control (silo-date-range.js), shared with Explorer and Search
+  // performance: typed start/end down to the day, with 7d-1y and YTD as quick
+  // picks. It owns the fields; this page keeps the address bar, the queries
+  // and the reload, so a rolling window behaves exactly as it did before.
+  const dateRange = window.SiloDateRange.create({
+    mount: '#rangeCtl',
+    presets: [{ days: 7 }, { days: 14 }, { days: 30 }, { days: 90 }, { days: 365 }, { preset: 'ytd' }],
+    defaultDays: 30,
+    onChange: () => {
+      syncRangeFromControl();
+      // Writing both keys at once replaces whichever one was there, so a
+      // custom range carried in from Explorer cannot linger behind a quick
+      // pick (and the other way round).
+      setUrlParams(dateRange.urlParams());
+      runLoad();
+    },
+  });
+  // One direction only: the control parses the address bar and RANGE mirrors
+  // it, so there is ONE parser rather than two that can disagree. A range that
+  // ends today is the same thing as a day count and is kept as one, so it goes
+  // on rolling.
+  function syncRangeFromControl(){
+    const r = dateRange.get();
+    if (!r.start || !r.end) return;
+    RANGE = r.end === todayIso() ? { days: r.days, start: null, end: null } : { days: r.days, start: r.start, end: r.end };
+    WINDOW_DAYS = RANGE.days;
+  }
+  // Boot awaits this: the address bar is the selection, and the control has to
+  // be showing it before the first load labels anything with it.
+  const rangeReady = dateRange.applyFromUrl(location.search, { fallbackDays: 30 }).then(syncRangeFromControl);
   const isFixedRange = () => !!RANGE.start;
   const fmtDay = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
   // How the window reads in a label: "30d" rolling, or the dates themselves.
@@ -1409,20 +1423,6 @@
   el('btnRefresh').addEventListener('click', runLoad);
   el('activeOnly').addEventListener('change', renderCreatives);
 
-  document.getElementById('windowBtns').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-days]');
-    if (!btn) return;
-    // The button that names a fixed range is a label for it, not a window to pick.
-    if (btn.dataset.fixed) return;
-    WINDOW_DAYS = Number(btn.dataset.days);
-    RANGE = { days: WINDOW_DAYS, start: null, end: null };
-    document.querySelector('#windowBtns button[data-fixed]')?.remove();
-    document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active', b === btn));
-    // Choosing a window here replaces any custom range Explorer left behind.
-    setUrlParams({ days: WINDOW_DAYS, start: null, end: null });
-    runLoad();
-  });
-
   document.querySelectorAll('.bcn-tab[data-tab]').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.bcn-tab[data-tab]').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
@@ -1434,20 +1434,9 @@
       setUrlParams({ tab: tab.dataset.tab === 'overview' ? (hasFocus ? 'overview' : null) : tab.dataset.tab });
     });
   });
-  // A window with no button of its own -- 1y, or a fixed range typed in
-  // Explorer -- gets one, so the header always names the window the numbers
-  // below are for and nobody reads a custom range as the default 30d.
-  if (isFixedRange() || !WINDOWS.includes(WINDOW_DAYS)){
-    const extra = document.createElement('button');
-    extra.className = 'bcn-btn bcn-btn--ghost';
-    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = windowLabel(); extra.title = 'A fixed date range, carried from Explorer. Pick 7d–90d to go back to a rolling window.'; }
-    else { extra.dataset.days = String(WINDOW_DAYS); extra.textContent = WINDOW_DAYS === 365 ? '1y' : `${WINDOW_DAYS}d`; }
-    el('windowBtns').append(extra);
-  }
-  document.querySelectorAll('#windowBtns button').forEach(b => b.classList.toggle('is-active',
-    isFixedRange() ? !!b.dataset.fixed : Number(b.dataset.days) === WINDOW_DAYS));
 
   async function boot(){
+    await rangeReady;
     const sess = await sb.auth.getSession();
     if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
     const user = sess.data.session.user;

@@ -1,0 +1,15 @@
+/* Shared date-range control (silo-date-range.js). Lifted from Marketing
+   Explorer's own header controls so every Marketing surface picks a range the
+   same way: typed start/end on the left, rolling quick picks on the right.
+   Beacon classes and tokens only -- no new CSS variables. */
+.sdr { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sdr-range { display:flex; align-items:center; gap:5px; }
+.sdr-range input[type="date"] {
+  font-family:var(--bcn-mono); font-size:11px; padding:4px 7px;
+  border:1px solid var(--bcn-border-strong); border-radius:6px;
+  background:var(--bcn-surface); color:var(--bcn-ink);
+}
+.sdr-range span { font-size:10.5px; color:var(--bcn-ink-3); }
+.sdr-presets { display:flex; gap:3px; flex-wrap:wrap; }
+.sdr-presets .bcn-btn { padding:4px 9px; font-size:10.5px; }
+.sdr-presets .bcn-btn.is-active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
