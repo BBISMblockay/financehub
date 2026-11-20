@@ -105,6 +105,8 @@ on:
       # Windsor tenant broker (windsor-broker.test.mjs, windsor-connections-database.test.mjs).
       - 'supabase/functions/windsor-broker/**'
       - 'supabase/migrations/*windsor_connections.sql'
+      # Ad metric adjustments (ad-metric-adjustments-database.test.mjs).
+      - 'supabase/migrations/*ad_metric_adjustments.sql'
       # Windsor sync (windsor-sync.test.mjs, windsor-sync-database.test.mjs).
       - 'scripts/windsor-sync.mjs'
       - 'scripts/lib/windsor-sync-core.mjs'
@@ -2779,6 +2781,19 @@ jobs:
               echo "::error::mutation $m survived"; exit 1
             fi
             echo "$m rejected"
+          done
+
+      - name: Ad metric adjustments (real PostgreSQL)
+        run: node scripts/tests/ad-metric-adjustments-database.test.mjs
+      - name: The ad metric adjustment guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company admin funcgrant rawkeep resync failsoft scope overlap nullkeep nullexclude providerraw dropmark stamporder lock; do
+            if AD_ADJ_MUTATION="$m" node scripts/tests/ad-metric-adjustments-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
           done
 
       - name: Windsor sync tables (real PostgreSQL)
