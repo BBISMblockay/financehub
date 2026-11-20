@@ -78,6 +78,9 @@ const MUTATIONS = {
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
   storepickall: ['/affiliates/studio-core.js', 'row.shop_domains = on.length === f.shop_domains.length ? null : on;', 'row.shop_domains = null;'],
+  // A store with a read catalog and no match must not fall back to showing
+  // everything -- the narrowed read cannot tell that from an unread store.
+  storeunread: ['/affiliates/studio.js', "    if (seen.error || !seen.data || !seen.data.length) return rows;\n    S.share.otherStore = rows.length;\n    return [];", '    return rows;'],
   autonothrottle: ['/affiliates/studio.js', "if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;", "if (!MANAGE || !id || autoRefreshing === id) return;"],
   paidsilent: ['/affiliates/studio.js', 'return `Recorded as paid.${await tellPayout(id)}`;', "return 'Recorded as paid.';"],
   refreshwipes: ['/affiliates/studio.js', "S.tab !== 'program' && !formDirty();", "S.tab !== 'program';"],
@@ -541,7 +544,30 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const sb = await text(st, '#shareBody');
       R.not(sb, 'Trail Jacket', 'a product this store does not carry is not offered');
       R.has(sb, 'more match in your other stores', 'and the page says where the rest are');
+      // Every match sitting in another store is the same answer, not a reason
+      // to fall back: this store's catalog HAS been read, it just has no jacket.
+      await st.fill('#prodQ', 'Jacket');
+      await st.click('[data-act="prod-search"]');
+      await st.waitForFunction(() => /other stores/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const only = await text(st, '#shareBody');
+      R.not(only, 'Trail Jacket', 'a search matching only other stores offers nothing here');
+      R.has(only, 'No products match in this program’s store', 'and says so plainly');
       await st.close();
+      // A store the catalog sync has not read yet filters nothing, because
+      // absence of rows there is not evidence the shop carries nothing.
+      const unread = { ...twoShops,
+        affiliate_programs: [{ ...tables.affiliate_programs[0], shop_domains: ['brand-c.myshopify.com'] }] };
+      const un = await suite.open('/v2/affiliates/index.html', unread, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      un.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(un);
+      await un.click('#tabs [data-tab="share"]');
+      await un.waitForSelector('#shareBody [data-act="share-tab"][data-k="products"]', { timeout: 5000 });
+      await un.click('#shareBody [data-act="share-tab"][data-k="products"]');
+      await un.fill('#prodQ', 'Trail');
+      await un.click('[data-act="prod-search"]');
+      await un.waitForFunction(() => /Trail Jacket/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      R.not(await text(un, '#shareBody'), 'other stores', 'an unread store filters nothing and claims nothing');
+      await un.close();
     }
     await page.click('#tabs [data-tab="share"]');
     await page.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });

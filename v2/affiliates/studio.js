@@ -1702,10 +1702,17 @@ async function inProgramStore(rows) {
     .eq('company_entity_id', CO).eq('shop_domain', shop).in('product_handle', handles);
   // A failed read must not empty the list: show everything, as before.
   if (error) return rows;
-  // Nor may a store SILO has not read yet: no rows at all for this shop means
-  // the catalog sync has not run for it, which is not the same as the shop
-  // carrying none of these products.
-  if (!data || !data.length) return rows;
+  // Nothing matched. That is either a store carrying none of these products or
+  // a store SILO has not read yet, and only the second earns the fallback --
+  // this read was narrowed to the matched handles, so it cannot tell them
+  // apart. Ask whether the shop has any catalog row at all.
+  if (!data || !data.length) {
+    const seen = await db.from('shopify_product_skus').select('product_handle')
+      .eq('company_entity_id', CO).eq('shop_domain', shop).limit(1);
+    if (seen.error || !seen.data || !seen.data.length) return rows;
+    S.share.otherStore = rows.length;
+    return [];
+  }
   const here = new Set(data.map((x) => x.product_handle));
   const kept = rows.filter((x) => here.has(x.shopify_handle));
   S.share.otherStore = rows.length - kept.length;
