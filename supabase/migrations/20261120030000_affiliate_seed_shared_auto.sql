@@ -76,6 +76,15 @@ begin
     end if;
   end if;
 
+  -- Two tabs pressing the same button used to be harmless: both rows said
+  -- 'requested' and a person answered one. Now that a shared product is
+  -- approved as it is asked for, two rows would be two usable one-use codes,
+  -- so the affiliate's own row is locked for the rest of this function and
+  -- the second caller reads the first one's claim and replays it.
+  perform 1 from public.affiliates
+   where id = v_tok.affiliate_id and company_entity_id = v_tok.company_entity_id
+     for update;
+
   -- As many as they like (Blake), but not a flood: a person answers each one
   -- that is not for a product the company shared.
   select count(*) into v_open from public.affiliate_seed_claims c

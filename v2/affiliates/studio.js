@@ -503,7 +503,11 @@ function loadPaged(table, cols, since, programId) {
 // would quietly read as zero rather than as "we did not load that far back".
 function ovFloor() {
   const base = dayShift(today(), OV_DAYS_BACK);
-  const from = String(S.ovFrom || '');
+  // The window BEFORE the chosen one, because every figure on Home and Money
+  // is shown against it: loading only the chosen days would compare a real
+  // January against a December that was never read, which reads as zero.
+  const w = ovWindows();
+  const from = w.custom ? String(w.prevFrom || '') : '';
   return ISO_DAY.test(from) && from < base ? from : base;
 }
 const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
@@ -1994,13 +1998,15 @@ function commissionsBodyHtml() {
     // The same photo leaderboard as Home when the history loaded.
     Array.isArray(d.ovAttributions) && Array.isArray(d.ovLedger) ? ovLeaderboard(ovList()) : card('By affiliate', itemList(perf, perfRow, 'No credited orders yet.'), 'Commissions update every night'),
     // The same window as Home and Money, by two calendar dates (Blake
-    // 2026-11-20). The rows the page holds are the latest 300 either way, so
-    // the card says which it is showing.
-    more('Every order', [card('Orders', `<div class="af-row">${rangePicker('ovo')}</div>${itemList(recWindow(d.attributions, (x) => x.order_day), attrRow, recWin().custom ? 'No orders on those dates.' : 'No orders matched yet.')}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)}` : 'latest 300')]),
+    // 2026-11-20). These two lists are the latest 300 rows the page holds,
+    // not the whole history, so the dates narrow what is here and both the
+    // subtitle and the empty line keep saying so -- an older date is "not in
+    // the latest 300", which is not the same as "nothing happened".
+    more('Every order', [card('Orders', `<div class="af-row">${rangePicker('ovo')}</div>${itemList(recWindow(d.attributions, (x) => x.order_day), attrRow, recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.')}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Start', input('perStart', 'type="date"'))}${field('End', input('perEnd', 'type="date"'))}${btn('Open period', 'period-add', {}, 'primary')}</div>` : ''}`),
-      card('Commission ledger', `${itemList(recWindow(d.ledger, (x) => x.order_day || x.created_at), ledgerRow, recWin().custom ? 'No commission lines on those dates.' : 'No commission lines yet.')}
+      card('Commission ledger', `${itemList(recWindow(d.ledger, (x) => x.order_day || x.created_at), ledgerRow, recWin().custom ? 'No commission lines on those dates, within the latest 300.' : 'No commission lines yet.')}
       ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)}`, input('adjAmt', 'inputmode="decimal"'))}${field('Why', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need journal-entry approval.</p>'}`),
     ]),
   ].join('');

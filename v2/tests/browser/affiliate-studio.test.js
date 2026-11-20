@@ -951,6 +951,36 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await lk.close();
     }
 
+    // ── two calendar dates, and the period they are compared against ──────
+    // Blake 2026-11-20: "need date filtering where possible by selecting
+    // calendar dates". A range older than the 180 days the page loads must
+    // bring BOTH the chosen window and the one before it, or every comparison
+    // reads as "new" against a December nobody read.
+    {
+      const old = (id, day, cents) => ({ id, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, order_id: id, order_number: `#${id}`, order_day: day, order_currency: 'USD', codes_on_order: 1, matched_code: 'PAT10', basis: 'single_affiliate_code', gross_subtotal_cents: cents, refunded_subtotal_cents: 0, commissionable_cents: cents });
+      const calTables = { ...tables, affiliate_attributions: [
+        ...tables.affiliate_attributions,
+        old('j1', '2026-01-10', 20000), old('d1', '2025-12-10', 10000)] };
+      const cal = await suite.open('/v2/affiliates/index.html', calTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      cal.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(cal);
+      await cal.waitForSelector('#ovhFrom', { timeout: 5000 });
+      await cal.fill('#ovhFrom', '2026-01-31');
+      await cal.fill('#ovhTo', '2026-01-01');
+      await cal.click('[data-act="ov-range"][data-ns="ovh"]');
+      await cal.waitForFunction(() => /first date comes first/i.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('dates in the wrong order are refused, not read as an empty month', true);
+      await cal.fill('#ovhFrom', '2026-01-01');
+      await cal.fill('#ovhTo', '2026-01-31');
+      await cal.click('[data-act="ov-range"][data-ns="ovh"]');
+      await cal.waitForFunction(() => /\$2,000|\$200/.test(document.querySelectorAll('.af-ov-metric')[0]?.textContent || ''), null, { timeout: 8000 });
+      const salesTile = await cal.evaluate(() => (document.querySelectorAll('.af-ov-metric')[0] || {}).textContent || '');
+      R.has(salesTile, '$200', 'the chosen month is read even though it is older than the loaded window');
+      R.not(salesTile, 'new', 'and it is compared against the month before it, which is loaded too');
+      R.has(salesTile, '%', 'so the comparison is a real change');
+      await cal.close();
+    }
+
     // ── autosave belongs to the program it was made on ────────────────────
     // Edit program A's name, then switch to B before the save fires. The edit
     // must land on A, with A's values -- never on B, and never be dropped.

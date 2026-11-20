@@ -2187,6 +2187,13 @@ await check('S1 a shared product is approved as it is asked for; a product they 
   await as(null, null);
   const again = (await one(`select public.affiliate_portal_seed_request('hash-pat',$1,null,null) as r`, [item])).r;
   assert.equal(again.id, seedShared, 'asking twice for the same product is one request');
+  // Two tabs at once: the replay check and the insert are one critical
+  // section, because an automatic approval carries a usable code with it.
+  // PGlite is one connection, so this is pinned structurally.
+  await asSuper();
+  const locks = (await one(`select position('for update' in lower(pg_get_functiondef('public.affiliate_portal_seed_request(text,uuid,text,text)'::regprocedure)))>0 as l`)).l;
+  assert.equal(locks, true, 'the affiliate row is locked while the claim is read and written');
+  await as(null, null);
   const priv = (await one(`select public.affiliate_portal_seed_request('hash-pat',null,'  Trail jacket ','size M') as r`)).r;
   assert.equal(priv.state, 'requested', 'a product nobody shared still waits for a person');
   seedPrivate = priv.id;
