@@ -1,107 +1,331 @@
-/* Presentation only. The existing register and overlay drawer retain every
-   accounting action; no permanent detail column takes table width. */
-.transactions-ui .cc-content{padding:16px 22px 20px}
-.transactions-ui .cc-card{border-radius:6px;box-shadow:none}
-.transactions-ui .cc-title{font-weight:600}
-.transactions-ui .cc-sub{font-family:inherit;line-height:1.5}
-.transactions-ui .cc-pane .bcn-field,.transactions-ui .cc-pane .bcn-btn{border-radius:4px}
-.transactions-ui .cc-tabbar{background:var(--bcn-surface);padding-inline:22px}
-.transactions-ui .txn-context{border:0;border-bottom:1px solid var(--bcn-border);border-radius:0;background:transparent;padding:0 0 12px}
-.transactions-ui .wsec-lbl{color:var(--bcn-ink-2);font-size:10px;letter-spacing:.06em}
-.transactions-ui .wsec-lbl::after{display:none}
-.transactions-ui .wtile{border-radius:4px;box-shadow:none}
-.transactions-ui .wtile.is-on{background:var(--bcn-accent-soft);border-color:var(--bcn-accent);box-shadow:inset 3px 0 var(--bcn-accent)}
-.transactions-ui .txn-dates{gap:8px}
-.transactions-ui .txn-dates label{color:var(--bcn-ink-2)}
-.transactions-ui .transaction-list{width:100%}
-.transactions-ui .transaction-list .txn-card-head{padding:0;gap:0}
-.txn-review-heading{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 18px 12px}
-.txn-review-heading h2{margin:5px 0 0;font-size:20px;line-height:1.3;letter-spacing:-.025em;font-weight:600;color:var(--bcn-ink)}
-.txn-review-heading p{margin:0;max-width:52ch;color:var(--bcn-ink-3);font-size:12px;line-height:1.5}
-.txn-eyebrow{display:block;font:10px var(--bcn-mono);text-transform:uppercase;letter-spacing:.07em;color:var(--bcn-ink-3)}
-.transactions-ui .txn-card-head__queues{padding:0 18px;border-radius:0;border-bottom:1px solid var(--bcn-border);flex-wrap:nowrap;gap:14px}
-.transactions-ui .txn-card-head__queues button{flex-shrink:0;border-radius:0;background:transparent;padding:10px 2px;font-size:12px;border-bottom:2px solid transparent}
-.transactions-ui .txn-card-head__queues button[aria-pressed="true"]{border-bottom-color:var(--bcn-accent);color:var(--bcn-accent)}
-.transactions-ui .txn-card-head__queues button span{padding:3px 5px;border-radius:3px;background:var(--bcn-sunken);font-size:10px}
-.transactions-ui .txn-card-head__queues button[aria-pressed="true"] span{color:var(--bcn-accent);background:var(--bcn-accent-soft)}
-.transactions-ui .txn-card-head__row{padding:12px 18px;align-items:center;box-sizing:border-box}
-.transactions-ui .txn-card-head__title{flex:1 1 180px}
-.transactions-ui .txn-card-head__actions{flex:2 1 420px;gap:8px}
-.transactions-ui #codeTitle{font-size:13px}.transactions-ui #codeSub{font-size:11px}
-.transactions-ui #codeSearch{min-height:36px;border-radius:4px}
-.transactions-ui .txn-tools{order:initial}
-.transactions-ui .txn-tools summary{border:1px solid var(--bcn-border);border-radius:4px;padding:9px 10px;white-space:nowrap}
-.transactions-ui .txn-tools[open]>div{top:100%;bottom:auto;margin-top:4px;border-radius:4px;z-index:10}
-.transactions-ui .txn-filterpanel{background:var(--bcn-sunken);padding:14px 18px;border-bottom:1px solid var(--bcn-border)}
-.transactions-ui #tblCoding>thead>tr>th{padding:10px;background:var(--bcn-sunken);font-size:10px;letter-spacing:.05em}
-.transactions-ui #tblCoding>tbody>.txn-row>td{padding-top:10px;padding-bottom:10px}
-.transactions-ui #tblCoding .txn-row--open>td{background:var(--bcn-accent-soft)}
-.transactions-ui #tblCoding .txn-row--open>td:first-child{box-shadow:inset 3px 0 var(--bcn-accent)}
-.transactions-ui .txn-review-button{border-radius:4px;background:transparent;box-shadow:none}
-.transactions-ui .cc-chip{border-radius:3px;letter-spacing:.02em}
-.transactions-ui #codeActionBar{padding:12px 18px;border-top:1px solid var(--bcn-border-strong)}
-.transactions-ui .cc-foot .bcn-btn{border-radius:4px}
-.transactions-ui #txnDetailDrawer{width:min(560px,94vw);border-left:1px solid var(--bcn-border-strong);box-shadow:-12px 0 36px rgba(0,0,0,.12)}
-.transactions-ui #txnDetailDrawer .cc-drawer-head{padding:22px;align-items:flex-start;background:var(--bcn-surface)}
-.transactions-ui #txnDetailTitle{font-size:20px;line-height:1.35;font-weight:600;margin:10px 0 7px;overflow-wrap:anywhere}
-.transactions-ui #txnDetailSub{font-family:var(--bcn-mono);font-size:12px;line-height:1.6}
-.transactions-ui #txnDetailDrawer .cc-drawer-body{padding:20px 22px;background:var(--bcn-surface)}
-.transactions-ui #txnDetailBody .txn-detail-panel{margin:0;padding:0;border:0;border-radius:0;background:transparent;gap:24px}
-.transactions-ui #txnDetailBody .txn-detail-panel>section+section{border-top:1px solid var(--bcn-border);padding-top:22px}
-.transactions-ui #txnDetailBody .txn-detail-panel h3{font:11px var(--bcn-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--bcn-ink-3)}
-.transactions-ui #txnDetailBody .txn-detail-description{font-size:14px}
-.transactions-ui #txnDetailBody .bcn-btn{border-radius:4px;min-height:36px}
-.transactions-ui #txnDetailBody .txn-qbo-state{border-radius:4px;padding:12px}
-@media(min-width:1001px){
- .transactions-ui #tblCoding{min-width:1120px}
- .transactions-ui #tblCoding .txn-description{width:21%}
- .transactions-ui .transaction-list .cc-body{scrollbar-gutter:stable}
+/* Presentation only. The register keeps every accounting action; the table
+   gets as much vertical space as the shell allows. */
+.transactions-ui .cc-content { padding: 8px 14px 12px; }
+.transactions-ui .cc-pane[data-pane="coding"] { gap: 6px; }
+.transactions-ui .cc-card { border-radius: 6px; box-shadow: none; }
+.transactions-ui .cc-title { font-weight: 600; }
+.transactions-ui .cc-sub { font-family: inherit; line-height: 1.45; }
+.transactions-ui .cc-pane .bcn-field,
+.transactions-ui .cc-pane .bcn-btn { border-radius: 4px; }
+.transactions-ui .cc-tabbar {
+  flex: none;
+  background: var(--bcn-surface);
+  padding: 0 14px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--bcn-border);
 }
-@media(max-width:1000px){
- .transactions-ui .cc-content{padding:12px}
- .transactions-ui .txn-review-heading{align-items:flex-start;flex-direction:column;gap:8px;padding:14px}
- .transactions-ui .txn-card-head__row{padding:12px 14px}
- .transactions-ui .txn-card-head__queues{padding-inline:14px}
- .transactions-ui .txn-card-head__actions{justify-content:flex-start;flex-basis:100%}
- .transactions-ui #tblCoding>tbody>.txn-row>td{padding:0}
+.transactions-ui .cc-tabbar .bcn-tab { padding: 6px 10px; font-size: 12px; }
+
+/* Account rail: one band, no extra box. */
+.transactions-ui .txn-context {
+  flex: none;
+  position: static;
+  border: 0;
+  border-bottom: 1px solid var(--bcn-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0 8px;
+  gap: 6px;
 }
-@media(max-width:600px){
- .transactions-ui .cc-tabbar{padding-inline:12px}
- .transactions-ui .txn-review-heading h2{font-size:18px}
- .transactions-ui #txnDetailDrawer .cc-drawer-head,.transactions-ui #txnDetailDrawer .cc-drawer-body{padding:16px}
- .transactions-ui #txnDetailTitle{font-size:18px}
- .transactions-ui .txn-card-head__queues{gap:10px}
+.transactions-ui .wsec-lbl { color: var(--bcn-ink-2); font-size: 9.5px; letter-spacing: .06em; margin-bottom: 4px; }
+.transactions-ui .wsec-lbl::after { display: none; }
+.transactions-ui .wtile { border-radius: 4px; box-shadow: none; }
+.transactions-ui .wtile.is-on {
+  background: var(--bcn-accent-soft);
+  border-color: var(--bcn-accent);
+  box-shadow: inset 3px 0 var(--bcn-accent);
+}
+.transactions-ui .txn-dates { gap: 6px; padding: 0; }
+.transactions-ui .txn-dates label { color: var(--bcn-ink-2); font-size: 11px; }
+.transactions-ui .txn-presets .bcn-btn { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+
+.transactions-ui .transaction-list {
+  width: 100%;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.transactions-ui .transaction-list .txn-card-head { padding: 0; gap: 0; border-bottom: 1px solid var(--bcn-border); }
+
+/* Queue tabs: underline style, one row. */
+.transactions-ui .txn-card-head__queues {
+  padding: 0 12px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--bcn-border);
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+}
+.transactions-ui .txn-card-head__queues button {
+  flex-shrink: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 2px;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+.transactions-ui .txn-card-head__queues button[aria-pressed="true"] {
+  border-bottom-color: var(--bcn-accent);
+  color: var(--bcn-accent);
+}
+.transactions-ui .txn-card-head__queues button span {
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--bcn-sunken);
+  font-size: 10px;
+}
+.transactions-ui .txn-card-head__queues button[aria-pressed="true"] span {
+  color: var(--bcn-accent);
+  background: var(--bcn-accent-soft);
 }
 
-.workspace-preparation {border:1px solid var(--bcn-border);border-radius:6px;padding:14px 16px;margin-top:14px;background:var(--bcn-surface);}
-.workspace-preparation h4 {font-size:13px;margin:0 0 8px;color:var(--bcn-ink);}
-.workspace-preparation p {font-size:12px;line-height:1.55;color:var(--bcn-ink-2);margin:8px 0;max-width:75ch;}
-.workspace-preparation .bcn-btn {margin-top:4px;min-height:36px;}
+/* Toolbar: status + search + actions on one row when space allows. */
+.transactions-ui .txn-card-head__row {
+  padding: 8px 12px;
+  align-items: center;
+  gap: 8px 10px;
+  box-sizing: border-box;
+}
+.transactions-ui .txn-card-head__title { flex: 0 1 auto; min-width: 0; }
+.transactions-ui .txn-card-head__title #codeTitle {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bcn-ink-2);
+  line-height: 1.3;
+}
+.transactions-ui .txn-card-head__title #codeSub {
+  font-size: 11px;
+  color: var(--bcn-ink-3);
+  margin: 0;
+}
+.transactions-ui .txn-card-head__title #codeSub:empty { display: none; }
+.transactions-ui .txn-card-head__meta { margin-top: 0; gap: 6px 10px; }
+.transactions-ui .txn-card-head__actions { flex: 1 1 280px; gap: 6px; justify-content: flex-end; }
+.transactions-ui #codeSearch { min-height: 32px; max-width: min(280px, 42vw); border-radius: 4px; font-size: 12px; }
+.transactions-ui .txn-tools { order: initial; }
+.transactions-ui .txn-tools summary {
+  border: 1px solid var(--bcn-border);
+  border-radius: 4px;
+  padding: 7px 9px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.transactions-ui .txn-tools[open] > div {
+  top: 100%;
+  bottom: auto;
+  margin-top: 4px;
+  border-radius: 4px;
+  z-index: 12;
+}
+.transactions-ui #btnAiCode { min-height: 32px; padding: 0 10px; }
 
-/* Keep posting evidence legible without presenting it as console output.
-   The text still distinguishes SILO coding, approval and QuickBooks posting. */
+/* Advanced filters: one compact band when open, not a full secondary form page. */
+.transactions-ui .txn-filterpanel {
+  flex: none;
+  margin: 0;
+  padding: 8px 12px;
+  max-height: min(34vh, 220px);
+  overflow: auto;
+  border: 0;
+  border-bottom: 1px solid var(--bcn-border);
+  border-radius: 0;
+  background: var(--bcn-sunken);
+}
+.transactions-ui .txn-filterpanel[hidden] { display: none; }
+.transactions-ui .txn-filterpanel-fields { gap: 6px 10px; }
+.transactions-ui .txn-filterfield { min-width: 118px; }
+.transactions-ui .txn-filterfield .bcn-field { height: 28px; font-size: 11px; }
+
+.transactions-ui .txn-activefilters {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--bcn-border);
+  gap: 6px;
+}
+.transactions-ui .txn-activefilters[hidden] { display: none; }
+.transactions-ui .cc-variants { padding: 4px 12px 0; }
+.transactions-ui .txn-blockers { margin: 0 12px 6px; }
+
+.transactions-ui #tblCoding > thead > tr > th {
+  padding: 8px 10px;
+  background: var(--bcn-sunken);
+  font-size: 10px;
+  letter-spacing: .05em;
+}
+.transactions-ui #tblCoding > tbody > .txn-row > td { padding-top: 8px; padding-bottom: 8px; }
+.transactions-ui #tblCoding .txn-row--open > td { background: var(--bcn-accent-soft); }
+.transactions-ui #tblCoding .txn-row--open > td:first-child { box-shadow: inset 3px 0 var(--bcn-accent); }
+.transactions-ui .txn-review-button { border-radius: 4px; background: transparent; box-shadow: none; }
+.transactions-ui .cc-chip { border-radius: 3px; letter-spacing: .02em; }
+
+/* Workflow strip sits above the floating save bar, inside the card. */
+.transactions-ui .txn-flow--compact {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border: 0;
+  border-top: 1px solid var(--bcn-border);
+  border-radius: 0;
+  background: var(--bcn-sunken);
+  padding: 5px 0;
+  margin: 0;
+}
+.transactions-ui .txn-flow--compact:empty { display: none; }
+.transactions-ui .txn-flow--compact .txn-flow-step {
+  flex: 1 1 120px;
+  border: 0;
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.transactions-ui .txn-flow--compact .txn-flow-step small { font-size: 9px; margin-top: 1px; }
+.transactions-ui .txn-flow--compact .txn-flow-dot { width: 16px; height: 16px; font-size: 9px; }
+
+.transactions-ui #codeActionBar { padding: 12px 18px; border-top: 1px solid var(--bcn-border-strong); }
+.transactions-ui .cc-foot .bcn-btn { border-radius: 4px; }
+
+/* Hide duplicate page title when accounting suite already marks Bank activity. */
+.transactions-ui.accounting-workspace > .bcn-header .bcn-header-title { display: none; }
+.transactions-ui.accounting-workspace > .bcn-header {
+  padding: 6px 12px;
+  min-height: 0;
+  justify-content: flex-end;
+  border-bottom: 0;
+}
+.transactions-ui.accounting-workspace > .bcn-header .bcn-header-actions { margin-left: auto; }
+
+.transactions-ui #txnDetailDrawer {
+  width: min(560px, 94vw);
+  border-left: 1px solid var(--bcn-border-strong);
+  box-shadow: -12px 0 36px rgba(0, 0, 0, .12);
+}
+.transactions-ui #txnDetailDrawer .cc-drawer-head {
+  padding: 22px;
+  align-items: flex-start;
+  background: var(--bcn-surface);
+}
+.transactions-ui #txnDetailTitle {
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 600;
+  margin: 10px 0 7px;
+  overflow-wrap: anywhere;
+}
+.transactions-ui #txnDetailSub { font-family: var(--bcn-mono); font-size: 12px; line-height: 1.6; }
+.transactions-ui #txnDetailDrawer .cc-drawer-body { padding: 20px 22px; background: var(--bcn-surface); }
+.transactions-ui #txnDetailBody .txn-detail-panel {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 24px;
+}
+.transactions-ui #txnDetailBody .txn-detail-panel > section + section {
+  border-top: 1px solid var(--bcn-border);
+  padding-top: 22px;
+}
+.transactions-ui #txnDetailBody .txn-detail-panel h3 {
+  font: 11px var(--bcn-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--bcn-ink-3);
+}
+.transactions-ui #txnDetailBody .txn-detail-description { font-size: 14px; }
+.transactions-ui #txnDetailBody .bcn-btn { border-radius: 4px; min-height: 36px; }
+.transactions-ui #txnDetailBody .txn-qbo-state { border-radius: 4px; padding: 12px; }
+
+.txn-eyebrow {
+  display: block;
+  font: 10px var(--bcn-mono);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--bcn-ink-3);
+}
+
+@media (min-width: 1001px) {
+  .transactions-ui #tblCoding { min-width: 1120px; }
+  .transactions-ui #tblCoding .txn-description { width: 21%; }
+  .transactions-ui .transaction-list .cc-body { scrollbar-gutter: stable; }
+  .transactions-ui .txn-card-head__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 320px) auto;
+    align-items: center;
+  }
+  .transactions-ui .txn-card-head__title { grid-column: 1; }
+  .transactions-ui #codeSearch { grid-column: 2; width: 100%; max-width: none; }
+  .transactions-ui .txn-card-head__actions {
+    grid-column: 3;
+    flex: none;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 1000px) {
+  .transactions-ui .cc-content { padding: 6px 10px 10px; }
+  .transactions-ui .txn-card-head__row { padding: 8px 10px; }
+  .transactions-ui .txn-card-head__queues { padding-inline: 10px; }
+  .transactions-ui .txn-card-head__actions { justify-content: flex-start; flex-basis: 100%; }
+  .transactions-ui #codeSearch { max-width: 100%; flex: 1 1 100%; }
+  .transactions-ui #tblCoding > tbody > .txn-row > td { padding: 0; }
+}
+
+@media (max-width: 600px) {
+  .transactions-ui .cc-tabbar { padding-inline: 10px; }
+  .transactions-ui #txnDetailDrawer .cc-drawer-head,
+  .transactions-ui #txnDetailDrawer .cc-drawer-body { padding: 16px; }
+  .transactions-ui #txnDetailTitle { font-size: 18px; }
+  .transactions-ui .txn-card-head__queues { gap: 8px; }
+}
+
+.workspace-preparation {
+  border: 1px solid var(--bcn-border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  background: var(--bcn-surface);
+}
+.workspace-preparation h4 { font-size: 13px; margin: 0 0 8px; color: var(--bcn-ink); }
+.workspace-preparation p {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--bcn-ink-2);
+  margin: 8px 0;
+  max-width: 75ch;
+}
+.workspace-preparation .bcn-btn { margin-top: 4px; min-height: 36px; }
+
 .transactions-ui #txnDetailBody .txn-detail-panel .txn-qbo-state {
-  padding:14px 16px;
-  border:1px solid var(--bcn-accent-border);
-  border-left:3px solid var(--bcn-accent);
-  border-radius:5px;
-  background:var(--bcn-accent-soft);
-  color:var(--bcn-ink-2);
-  font:12px/1.65 var(--bcn-font);
-  overflow-wrap:anywhere;
+  padding: 14px 16px;
+  border: 1px solid var(--bcn-accent-border);
+  border-left: 3px solid var(--bcn-accent);
+  border-radius: 5px;
+  background: var(--bcn-accent-soft);
+  color: var(--bcn-ink-2);
+  font: 12px/1.65 var(--bcn-font);
+  overflow-wrap: anywhere;
 }
 .transactions-ui #txnDetailBody .txn-detail-panel .txn-qbo-state b {
-  display:block;
-  margin:0 0 5px;
-  color:var(--bcn-ink);
-  font:600 12px/1.5 var(--bcn-font);
-  text-transform:none;
-  letter-spacing:0;
+  display: block;
+  margin: 0 0 5px;
+  color: var(--bcn-ink);
+  font: 600 12px/1.5 var(--bcn-font);
+  text-transform: none;
+  letter-spacing: 0;
 }
-.transactions-ui #txnDetailSub {font:12px/1.65 var(--bcn-font);color:var(--bcn-ink-2);}
-.transactions-ui #rawDrawer .cc-drawer-head {padding:20px 22px;background:var(--bcn-surface);}
-.transactions-ui #rawDrawer .cc-drawer-body {padding:20px 22px;}
-.transactions-ui #rawDrawer .cc-kv {gap:12px 18px;font:13px/1.6 var(--bcn-font);}
-.transactions-ui #rawDrawer .cc-kv dt {font:12px/1.6 var(--bcn-font);text-transform:none;letter-spacing:0;color:var(--bcn-ink-3);}
-.transactions-ui #rawDrawer .cc-kv dd {color:var(--bcn-ink);overflow-wrap:anywhere;}
-.transactions-ui #rawDrawer .cc-kv-head {color:var(--bcn-ink-2);font-size:11px;letter-spacing:.04em;padding-top:20px;}
+.transactions-ui #txnDetailSub { font: 12px/1.65 var(--bcn-font); color: var(--bcn-ink-2); }
+.transactions-ui #rawDrawer .cc-drawer-head { padding: 20px 22px; background: var(--bcn-surface); }
+.transactions-ui #rawDrawer .cc-drawer-body { padding: 20px 22px; }
+.transactions-ui #rawDrawer .cc-kv { gap: 12px 18px; font: 13px/1.6 var(--bcn-font); }
+.transactions-ui #rawDrawer .cc-kv dt {
+  font: 12px/1.6 var(--bcn-font);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--bcn-ink-3);
+}
+.transactions-ui #rawDrawer .cc-kv dd { color: var(--bcn-ink); overflow-wrap: anywhere; }
+.transactions-ui #rawDrawer .cc-kv-head { color: var(--bcn-ink-2); font-size: 11px; letter-spacing: .04em; padding-top: 20px; }

@@ -118,7 +118,7 @@ const TABLES = {
    await page.setViewportSize({width:1600,height:1100});
    await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
    await page.click('#codeFilterSegments [data-code-filter="all"]');
-   assert.equal(await page.locator('.txn-review-heading h2').innerText(),'Review transactions');
+   assert.equal(await page.locator('.txn-card-head .txn-sr-only').innerText(),'Review transactions');
    assert.equal(await page.locator('#codeSearch').getAttribute('aria-label'),'Search transactions');
    const geometry=()=>page.locator('.transaction-list').evaluate(n=>({width:n.getBoundingClientRect().width,scroll:n.querySelector('.cc-body').scrollTop}));
    const before=await geometry();
@@ -154,7 +154,7 @@ const TABLES = {
    assert.ok(drawer.x>=0&&drawer.x+drawer.width<=391,'drawer stays inside phone');
    await page.screenshot({path:`/tmp/accounting-suite-ui/transactions-detail-phone-${theme}.png`,fullPage:true});
    await page.click('#btnTxnDetailClose');
-   await page.locator('.txn-review-heading').scrollIntoViewIfNeeded();
+   await page.locator('.transaction-list .txn-card-head').scrollIntoViewIfNeeded();
    await page.screenshot({path:`/tmp/accounting-suite-ui/transactions-phone-${theme}.png`,fullPage:true});
   }
   // Populated review -> save -> approval -> explicit posting confirmation.
