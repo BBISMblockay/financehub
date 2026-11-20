@@ -468,6 +468,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('and Discovery shows creators and not the affiliates list', onDisc.pros && !onDisc.aff);
       await page.click('#peopleSubtabs [data-k="affiliates"]');
     }
+    // A card whose whole body is an empty state is not a card: it is a
+    // heading over nothing. `card()` drops it, so a program that has never
+    // run discovery sees the creators list and no "Recent runs" shell.
+    {
+      const noruns = { ...tables, affiliate_discovery_runs: [] };
+      const nr = await suite.open('/v2/affiliates/index.html', noruns, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      await openRecords(nr);
+      await recTab(nr, 'recruiting');
+      const rb = await text(nr, '#recordsBody');
+      R.not(rb, 'Recent runs', 'a card with nothing in it is left out, not shown empty');
+      R.has(rb, 'Do-not-contact list', 'while a card that has a body of its own stays');
+      await nr.close();
+    }
     // Tiles or List: the list is a table that keeps the photos, and the choice sticks.
     await toDiscovery(page);
     await page.click('#prospectsBody [data-act="view-set"][data-v="list"]');
