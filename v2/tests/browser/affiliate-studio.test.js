@@ -979,6 +979,24 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.not(salesTile, 'new', 'and it is compared against the month before it, which is loaded too');
       R.has(salesTile, '%', 'so the comparison is a real change');
       await cal.close();
+
+      // The start can sit inside the loaded history while the period it is
+      // compared against does not: June to November needs the December
+      // before it, which a 180-day read does not hold.
+      const wideTables = { ...tables, affiliate_attributions: [
+        ...tables.affiliate_attributions,
+        old('w1', '2026-07-01', 30000), old('w2', '2026-01-05', 15000)] };
+      const wide = await suite.open('/v2/affiliates/index.html', wideTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      wide.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(wide);
+      await wide.waitForSelector('#ovhFrom', { timeout: 5000 });
+      await wide.fill('#ovhFrom', '2026-06-01');
+      await wide.fill('#ovhTo', '2026-11-10');
+      await wide.click('[data-act="ov-range"][data-ns="ovh"]');
+      await wide.waitForFunction(() => /\$3\d\d/.test(document.querySelectorAll('.af-ov-metric')[0]?.textContent || ''), null, { timeout: 8000 });
+      const wideTile = await wide.evaluate(() => (document.querySelectorAll('.af-ov-metric')[0] || {}).textContent || '');
+      R.not(wideTile, 'new', 'a range starting inside the loaded history still loads the period it is compared against');
+      await wide.close();
     }
 
     // ── autosave belongs to the program it was made on ────────────────────

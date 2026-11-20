@@ -416,6 +416,9 @@ async function loadProgramData() {
   // Null means "could not read": the tab then leaves those cards out rather
   // than showing a zero it cannot stand behind.
   [d.ovAttributions, d.ovLedger] = await Promise.all([loadOvAttributions(p), loadOvLedger(p)]);
+  // What those two actually cover, so a later range can tell "already loaded"
+  // from "needs reading further back" without guessing.
+  S.ovLoadedFrom = ovFloor();
   d.aiApps = await loadAiApps();
   d.stores = await loadStores();
   S.d = d;
@@ -2743,9 +2746,17 @@ const A = {
     const from = val(`${ns}From`); const to = val(`${ns}To`);
     if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) throw new Error('Pick both dates.');
     if (from > to) throw new Error('The first date comes first.');
-    const deeper = from < ovFloor();
+    // Decide on the NEW range, and against what is loaded rather than what
+    // the old range would have needed: a range whose own start is inside the
+    // loaded history can still be compared against a period that is not
+    // (June-November needs the previous December), and widening only the end
+    // date does the same.
+    const was = { from: S.ovFrom, to: S.ovTo };
     S.ovFrom = from; S.ovTo = to;
-    if (deeper) await reloadOvWindow();
+    const need = ovFloor();
+    if (!S.ovLoadedFrom || need < S.ovLoadedFrom) {
+      try { await reloadOvWindow(); } catch (e) { S.ovFrom = was.from; S.ovTo = was.to; throw e; }
+    }
     render();
     return null;
   },
