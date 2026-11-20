@@ -261,9 +261,21 @@ const toDiscovery = async (page) => {
   await page.click('#peopleSubtabs [data-k="discovery"]');
   await page.waitForSelector('#prospectsBody', { state: 'visible', timeout: 5000 });
 };
-const openCodeTool = async (page, k = 'code') => {
+// One sub-tab shows one list. `hidden` on a flex box does nothing without a
+// CSS rule, which is how both lists showed at once (Blake 2026-11-20).
+const peopleSubVisible = (page) => page.evaluate(() => ({
+  aff: !!document.getElementById('affiliatesBody')?.offsetParent,
+  pros: !!document.getElementById('prospectsBody')?.offsetParent,
+}));
+// Back to the Affiliates sub-tab: its list is hidden while Discovery is up.
+const toAffiliates = async (page) => {
   await closeDialog(page);
   await page.click('#tabs [data-tab="people"]');
+  await page.click('#peopleSubtabs [data-k="affiliates"]');
+  await page.waitForSelector('#affiliatesBody', { state: 'visible', timeout: 5000 });
+};
+const openCodeTool = async (page, k = 'code') => {
+  await toAffiliates(page);
   await page.click(`#affiliatesBody [data-act="aff-tool"][data-k="${k}"]`);
   await page.waitForSelector(k === 'code' ? '#afDialogBody #cCode' : '#afDialogBody #lDest', { timeout: 5000 });
 };
@@ -402,6 +414,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await closeDialog(page);
     await page.click('#tabs [data-tab="people"]');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
+    // One list at a time: the sub-tab that is not picked is really gone.
+    {
+      const onAff = await peopleSubVisible(page);
+      R.ok('the Affiliates sub-tab shows affiliates and not the creators list', onAff.aff && !onAff.pros);
+      await page.click('#peopleSubtabs [data-k="discovery"]');
+      const onDisc = await peopleSubVisible(page);
+      R.ok('and Discovery shows creators and not the affiliates list', onDisc.pros && !onDisc.aff);
+      await page.click('#peopleSubtabs [data-k="affiliates"]');
+    }
     // Tiles or List: the list is a table that keeps the photos, and the choice sticks.
     await toDiscovery(page);
     await page.click('#prospectsBody [data-act="view-set"][data-v="list"]');
@@ -411,6 +432,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('affiliates follow the same choice, photo included', !!(await page.$('#affiliatesBody table.bcn-table .af-list-thumb')) && await photoLoaded('#affiliatesBody table.bcn-table img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
     R.eq(await page.evaluate(() => localStorage.getItem('silo.affiliates.view')), 'list', 'the choice is remembered');
     if (process.env.LIST_SHOT) { await page.setViewportSize({ width: 1280, height: 1000 }); await (await page.$('#prospectsBody')).screenshot({ path: process.env.LIST_SHOT }); await (await page.$('#affiliatesBody')).screenshot({ path: process.env.LIST_SHOT.replace('.png', '-aff.png') }); }
+    await toAffiliates(page);
     await page.click('#affiliatesBody [data-act="view-set"][data-v="tiles"]');
     R.ok('Tiles brings the cards back', !!(await page.$('#prospectsBody .af-item--catalog')) && !(await page.$('#prospectsBody table.bcn-table')));
     await closeDialog(page);
@@ -543,9 +565,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(await text(inv, '#status'), 'Invite emailed to ana@creator.invalid');
       R.ok('approving an applicant drafts no outreach message', !(await inv.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'))));
       await closeDialog(inv);
-      await inv.click('#tabs [data-tab="people"]');
-      await inv.waitForSelector('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]', { timeout: 5000 });
       await toDiscovery(inv);
+      await inv.waitForSelector('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]', { timeout: 5000 });
       await inv.click('#prospectsBody [data-act="prospect-status"][data-s="approved"][data-id="p1"]');
       await inv.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
       R.ok('a creator a search found is not emailed on approval', !inviteCalls.some((c) => c.prospect_id === 'p1'));
@@ -642,6 +663,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await closeDialog(rs);
       await rs.click('#tabs [data-tab="people"]');
       await rs.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="active"]', { timeout: 5000 });
+      await toAffiliates(rs);
       await rs.click('#affiliatesBody [data-act="affiliate-status"][data-s="active"]');
       await rs.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
       const call = await rs.evaluate(() => window.__EDGE_CALLS__.find((c) => c.name === 'affiliate-invite').body);
@@ -659,6 +681,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await closeDialog(en);
       await en.click('#tabs [data-tab="people"]');
       await en.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
+      await toAffiliates(en);
       await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await en.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
@@ -681,6 +704,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await closeDialog(mt);
       await mt.click('#tabs [data-tab="people"]');
       await mt.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
+      await toAffiliates(mt);
       await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await mt.waitForFunction(() => /Still on in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
@@ -699,6 +723,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await closeDialog(ap);
       await ap.click('#tabs [data-tab="people"]');
       await ap.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await toAffiliates(ap);
       await ap.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
       await ap.waitForSelector('#apProg', { timeout: 5000 });
       R.eq(await ap.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'], 'only the other programs are offered');
@@ -1468,15 +1493,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // The code form is a modal now (Blake 2026-11-20): while it is open it
       // covers the page, and closing it drops what was half typed rather than
       // leaving a stale form behind a list the person has since changed.
+      await toAffiliates(endPage);
       await endPage.click('#affiliatesBody [data-act="aff-tool"][data-k="code"]');
       await endPage.fill('#cCode', 'DRAFT25'); await endPage.fill('#cPct', '25');
       R.ok('the code form opens over the page, not at the top of the list', await endPage.evaluate(() => document.getElementById('afDialog')?.open === true));
       await endPage.click('#afDialogBody [data-act="dialog-close"]');
       await endPage.waitForFunction(() => document.getElementById('afDialog')?.open !== true, null, { timeout: 5000 });
+      await toAffiliates(endPage);
       await endPage.click('#affiliatesBody [data-act="aff-filter"][data-f="ended"]');
       R.has(await text(endPage, '#affiliatesBody'), 'Quin Ended', 'Ended shows the archived affiliate');
       R.ok('closing the form drops what was half typed', !(await endPage.$('#cCode')));
       R.ok('an ended, never-signed-up affiliate can be invited again from their card', !!(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p-end"]')));
+      await toAffiliates(endPage);
       await endPage.click('#affiliatesBody [data-act="aff-filter"][data-f="current"]');
       R.ok('a signed-up affiliate gets no invite button', !(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p1"]')));
       await toDiscovery(endPage);
@@ -1527,6 +1555,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(body, 'Code PATWAIT not in Shopify yet', 'a code that was not made shows as failed');
       R.ok('with Retry code for that code', !!(await st.$('#affiliatesBody .af-step [data-act="code-make"][data-id="c-wait"]')));
       R.has(body, 'Signed up', 'a signed-up affiliate says so');
+      await toAffiliates(st);
       await st.click('#affiliatesBody .af-step [data-act="prospect-edit"][data-id="p-stuck"]');
       await st.waitForSelector('#epEmail', { timeout: 5000 });
       await st.fill('#epEmail', 'sam@fixed.invalid');
