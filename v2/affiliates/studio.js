@@ -1680,6 +1680,37 @@ function contentCard() {
   ].join(''), meta);
 }
 
+// The one store this program sells through: its own pick, else the company's
+// only store. Null means the company has several and the program has not said
+// which, and then nothing is filtered -- a guess would hide real products.
+function programShop() {
+  const p = prog();
+  const picked = Array.isArray(p?.shop_domains) ? p.shop_domains.filter(Boolean) : [];
+  if (picked.length === 1) return picked[0];
+  const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
+  return picked.length ? null : (st.length === 1 ? st[0] : null);
+}
+// Keep the products that store actually carries. `shopify_product_skus` is
+// per shop and written by the catalog sync, so absence means "not seen since
+// the last sync", never "deleted" -- the ones left out are counted and said,
+// not silently dropped.
+async function inProgramStore(rows) {
+  const shop = programShop();
+  if (!shop || !rows.length) return rows;
+  const handles = rows.map((x) => x.shopify_handle);
+  const { data, error } = await db.from('shopify_product_skus').select('product_handle')
+    .eq('company_entity_id', CO).eq('shop_domain', shop).in('product_handle', handles);
+  // A failed read must not empty the list: show everything, as before.
+  if (error) return rows;
+  // Nor may a store SILO has not read yet: no rows at all for this shop means
+  // the catalog sync has not run for it, which is not the same as the shop
+  // carrying none of these products.
+  if (!data || !data.length) return rows;
+  const here = new Set(data.map((x) => x.product_handle));
+  const kept = rows.filter((x) => here.has(x.shopify_handle));
+  S.share.otherStore = rows.length - kept.length;
+  return kept;
+}
 // ── Affiliates ───────────────────────────────────────────────────────────
 function renderAffiliates() {
   const d = S.d; const p = prog();
@@ -1928,7 +1959,8 @@ async function renderShare() {
     launches: () => card('Upcoming launches', capped(launches, 'No upcoming launches.')),
     ads: () => card('Recent ads', capped(ads, 'No recent ads with a picture.')),
     products: () => card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${
-      products.length ? capped(products, '') : (sh.q ? empty('No products match.') : '<p class="af-muted">Search to pick products.</p>')}`),
+      products.length ? capped(products, '') : (sh.q ? empty(sh.otherStore ? 'No products match in this program\u2019s store.' : 'No products match.') : '<p class="af-muted">Search to pick products.</p>')}${
+      sh.otherStore ? `<p class="af-muted">${num(sh.otherStore)} more match in your other stores. A code is made in this program\u2019s store, so only what it sells is here.</p>` : ''}`),
   };
   $('shareBody').innerHTML = [
     storeLine,
@@ -3172,13 +3204,20 @@ const A = {
   'prod-search': async () => {
     const q = val('prodQ');
     S.share.q = q;
+    S.share.otherStore = 0;
     if (!q) { S.share.products = []; renderShare(); return; }
     const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const { data, error } = await db.from('products_master').select('product_title, product_type, image_url, shopify_handle')
       .eq('company_entity_id', CO).ilike('product_title', like).not('shopify_handle', 'is', null).limit(120);
     if (error) throw error;
     const seen = new Set();
-    S.share.products = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle)).slice(0, 30);
+    let found = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle));
+    // Only what THIS program's store sells (Blake 2026-11-20: a product code
+    // was made against a store that did not carry the product).
+    // products_master is one row per company across every store, so the shop's
+    // own product list is the one that decides.
+    found = await inProgramStore(found);
+    S.share.products = found.slice(0, 30);
     renderShare();
   },
   'copy-send-prompt': async () => {
