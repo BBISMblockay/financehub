@@ -1500,7 +1500,10 @@ function renderOutreach() {
       <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
   };
   const canSend = (d.aiApps || []).some((a) => a.canSend);
-  const tpl = outreachTemplate(p);
+  // What the program has saved, unless something is typed and unsaved: the
+  // template form only exists on its own chip, so switching away would
+  // otherwise rebuild it from the saved row and lose the edit.
+  const tpl = { ...outreachTemplate(p), ...(S.tplDraft || {}) };
   const TAGS = ['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'];
   // The emails SILO sent affiliates on its own (invites, codes, payouts).
   const NOTE_KIND = { signup_invite: 'Invite', signup_confirmation: 'Welcome', portal_link: 'Portal link', link_renewal: 'New portal link', codes_and_links: 'Codes and links', payout_status: 'Payout' };
@@ -2749,7 +2752,17 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  'comms-tab': ({ k }) => { S.commsTab = k; renderOutreach(); return null; },
+  // A chip swap must not throw away what someone has typed: the editor and
+  // the template live in this body and are rebuilt from the saved row.
+  // A chip swap must not throw away what someone has typed: the editor and
+  // the template live in this body and are rebuilt from the saved row.
+  'comms-tab': ({ k }) => {
+    if (k === S.commsTab) return null;
+    if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };
+    S.commsTab = k;
+    keepFields('outreachBody', renderOutreach);
+    return null;
+  },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'share-all': () => { S.shareAll = true; renderShare(); return null; },
   'share-tab': ({ k }) => { S.shareTab = k; S.shareAll = false; renderShare(); return null; },
@@ -2829,6 +2842,9 @@ const A = {
     const { row, errors } = templateRow(val('tplSubject'), $('tplBody').value);
     if (errors.length) throw new Error(errors.join(' '));
     await updateRows('affiliate_programs', { ...row, changed_by: me.id }, { id: S.programId });
+    // Saved is saved: the unsaved buffer would otherwise outlive it and win
+    // over what the program now holds.
+    S.tplDraft = null;
     return 'Template saved. New drafts start from it.';
   },
   // Waiting drafts re-filled from the saved template; approved ones are left alone.
@@ -2938,7 +2954,7 @@ const A = {
   },
   // From the all-programs view into one program, on the tab asked for.
   'pick-program': async ({ id, t }) => {
-    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; if (t) S.tab = PANEL_OF[t] || t;
+    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
@@ -3505,7 +3521,7 @@ document.addEventListener('click', async (ev) => {
 // nothing is open any more, so the state that opened it is cleared too.
 $('afDialog')?.addEventListener('close', () => { if (S.dlgKey) { closeDialogState(); S.dlgKey = null; render(); } });
 $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog')) $('afDialog').close(); });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {

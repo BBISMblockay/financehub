@@ -81,6 +81,11 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // A chip swap rebuilds the body, so it must carry what is typed with it.
+  chipwipe: ['/affiliates/studio.js', "    if (k === S.commsTab) return null;\n"
+    + "    if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };\n"
+    + "    S.commsTab = k;\n    keepFields('outreachBody', renderOutreach);",
+    '    S.commsTab = k;\n    renderOutreach();'],
   // Drafts and archived products have no public page, so a share of one is a
   // dead link.
   storedrafts: ['/affiliates/studio.js', "    .or('shopify_status.eq.active,shopify_status.is.null')\n", ''],
@@ -2155,6 +2160,18 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ct.click('#outreachBody [data-act="tpl-save"]');
     await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 });
     R.eq((await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update').pop().patch)).outreach_body, 'Hey {name}: {signup_link}', 'the template is saved from Comms');
+    // Typing survives a chip swap: both forms live in this body, and the
+    // editor and the template are rebuilt from the saved row (review 2026-11-20).
+    await ct.fill('#tplBody', 'Typed, not saved: {signup_link}');
+    await ct.fill('#tplSubject', 'Typed subject');
+    await commsChip(ct, 'approve');
+    await commsChip(ct, 'template');
+    R.eq(await ct.inputValue('#tplBody'), 'Typed, not saved: {signup_link}', 'an unsaved template survives leaving its chip and coming back');
+    R.eq(await ct.inputValue('#tplSubject'), 'Typed subject', 'and so does its subject');
+    await ct.click('#outreachBody [data-act="comms-tab"][data-k="template"]');
+    R.eq(await ct.inputValue('#tplBody'), 'Typed, not saved: {signup_link}', 'and clicking the chip it is already on changes nothing');
+    await ct.click('#outreachBody [data-act="tpl-save"]');
+    await ct.waitForFunction(() => /Template saved/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
     // A creator with no email: the person sends a DM by hand, SILO sends nothing.
     await commsChip(ct, 'dm');
     const dmBody = await text(ct, '#outreachBody');
