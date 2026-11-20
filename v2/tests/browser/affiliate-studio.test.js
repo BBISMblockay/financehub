@@ -389,7 +389,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a code seen on an order makes code tracking verified', /Code tracking\s*verified/.test(ov))
     for (const [tab, body] of [['people', 'prospectsBody'], ['comms', 'outreachBody'], ['people', 'affiliatesBody'], ['share', 'shareBody'], ['payouts', 'payoutsBody']]) {
       await page.click(`#tabs [data-tab="${tab}"]`);
-      await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card, #${b} .af-surface`), body, { timeout: 5000 }).catch(async (e) => { console.log('DBG', body, (await page.evaluate((x) => document.getElementById(x)?.innerHTML.slice(0,400), body))); throw e; });
+      await page.waitForFunction((b) => !!document.querySelector(`#${b} .bcn-card, #${b} .af-surface`), body, { timeout: 5000 });
     }
     // ── Affiliates: a code the person's own AI creates in Shopify ─────────
     await closeDialog(page);
