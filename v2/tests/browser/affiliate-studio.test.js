@@ -78,6 +78,9 @@ const MUTATIONS = {
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
   // Autosave reads the form and the program when it fires, not when edited.
   storepickall: ['/affiliates/studio-core.js', 'row.shop_domains = on.length === f.shop_domains.length ? null : on;', 'row.shop_domains = null;'],
+  // A store with a read catalog and no match must not fall back to showing
+  // everything -- the narrowed read cannot tell that from an unread store.
+  storeunread: ['/affiliates/studio.js', "    if (seen.error || !seen.data || !seen.data.length) return rows;\n    S.share.otherStore = rows.length;\n    return [];", '    return rows;'],
   autonothrottle: ['/affiliates/studio.js', "if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;", "if (!MANAGE || !id || autoRefreshing === id) return;"],
   paidsilent: ['/affiliates/studio.js', 'return `Recorded as paid.${await tellPayout(id)}`;', "return 'Recorded as paid.';"],
   refreshwipes: ['/affiliates/studio.js', "S.tab !== 'program' && !formDirty();", "S.tab !== 'program';"],
@@ -519,6 +522,53 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── Share tab: the brand picks what affiliates see ──────────────────
     R.not(await text(page, '#outreachBody'), 'Pick what to share', 'sharing is not on Outreach');
     await closeDialog(page);
+    // Only what THIS program's store sells can be shared (Blake 2026-11-20):
+    // a product code is made in that store, and a product it does not carry
+    // made a code nothing could use.
+    {
+      const twoShops = { ...tables,
+        affiliate_programs: [{ ...tables.affiliate_programs[0], shop_domains: ['brand-a.myshopify.com'] }],
+        products_master: [
+          { company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: null, shopify_handle: 'trail-hat' },
+          { company_entity_id: CO, product_title: 'Trail Jacket', product_type: 'Coat', image_url: null, shopify_handle: 'trail-jacket' }],
+        shopify_product_skus: [{ company_entity_id: CO, shop_domain: 'brand-a.myshopify.com', product_handle: 'trail-hat' }] };
+      const st = await suite.open('/v2/affiliates/index.html', twoShops, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      st.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(st);
+      await st.click('#tabs [data-tab="share"]');
+      await st.waitForSelector('#shareBody [data-act="share-tab"][data-k="products"]', { timeout: 5000 });
+      await st.click('#shareBody [data-act="share-tab"][data-k="products"]');
+      await st.fill('#prodQ', 'Trail');
+      await st.click('[data-act="prod-search"]');
+      await st.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const sb = await text(st, '#shareBody');
+      R.not(sb, 'Trail Jacket', 'a product this store does not carry is not offered');
+      R.has(sb, 'more match in your other stores', 'and the page says where the rest are');
+      // Every match sitting in another store is the same answer, not a reason
+      // to fall back: this store's catalog HAS been read, it just has no jacket.
+      await st.fill('#prodQ', 'Jacket');
+      await st.click('[data-act="prod-search"]');
+      await st.waitForFunction(() => /other stores/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const only = await text(st, '#shareBody');
+      R.not(only, 'Trail Jacket', 'a search matching only other stores offers nothing here');
+      R.has(only, 'No products match in this program’s store', 'and says so plainly');
+      await st.close();
+      // A store the catalog sync has not read yet filters nothing, because
+      // absence of rows there is not evidence the shop carries nothing.
+      const unread = { ...twoShops,
+        affiliate_programs: [{ ...tables.affiliate_programs[0], shop_domains: ['brand-c.myshopify.com'] }] };
+      const un = await suite.open('/v2/affiliates/index.html', unread, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      un.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(un);
+      await un.click('#tabs [data-tab="share"]');
+      await un.waitForSelector('#shareBody [data-act="share-tab"][data-k="products"]', { timeout: 5000 });
+      await un.click('#shareBody [data-act="share-tab"][data-k="products"]');
+      await un.fill('#prodQ', 'Trail');
+      await un.click('[data-act="prod-search"]');
+      await un.waitForFunction(() => /Trail Jacket/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      R.not(await text(un, '#shareBody'), 'other stores', 'an unread store filters nothing and claims nothing');
+      await un.close();
+    }
     await page.click('#tabs [data-tab="share"]');
     await page.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody').textContent), null, { timeout: 5000 });
     R.has(await text(page, '#shareBody'), 'What your affiliates see', 'Share opens on what is already shared');
