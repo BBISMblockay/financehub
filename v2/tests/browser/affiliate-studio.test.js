@@ -171,7 +171,7 @@ const MUTATIONS = {
   qpickall: ['/affiliates/studio.js', "    const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';\n    const rows", "    const ids = S.d.drafts.filter((x) => x.state === 'draft').map((x) => x.id);\n    const rows"],
   contentmoney: ['/affiliates/studio.js', '  const canUse = MANAGE && (!bonus || MONEY);', '  const canUse = MANAGE;'],
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
-  nocontacted: ['/affiliates/studio.js', "    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "    if (false) b.push(btn('Mark contacted'"],
+  nocontacted: ['/affiliates/studio.js', "  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "  if (false) b.push(btn('Mark contacted'"],
   noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
   showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '') => (false ? ''"],
   moneyplain: ['/affiliates/studio.js', "  moneyTop(),\n  payConnCard(),", "  payConnCard(),"],
@@ -267,6 +267,20 @@ const peopleSubVisible = (page) => page.evaluate(() => ({
   aff: !!document.getElementById('affiliatesBody')?.offsetParent,
   pros: !!document.getElementById('prospectsBody')?.offsetParent,
 }));
+// A creator row shows two buttons; the rest are behind More, in the pop-up.
+const openProspectMore = async (page, id) => {
+  await toDiscovery(page);
+  if (await page.$(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`)) {
+    await page.click(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`);
+    await page.waitForSelector('#afDialogBody .af-actions', { timeout: 5000 });
+  }
+};
+// Lists are the default now (Blake 2026-11-20), so a card test picks Tiles.
+const toTiles = async (page, body = '#prospectsBody') => {
+  if (await page.$(`${body} .af-item--catalog`)) return;
+  await page.click(`${body} [data-act="view-set"][data-v="tiles"]`);
+  await page.waitForSelector(`${body} .af-item--catalog`, { timeout: 5000 });
+};
 // Back to the Affiliates sub-tab: its list is hidden while Discovery is up.
 const toAffiliates = async (page) => {
   await closeDialog(page);
@@ -396,7 +410,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('Connect your AI is the primary action on Messages', !!(await page.$('#outreachBody a.bcn-btn--primary[href="../settings-connect-ai.html"]')));
     R.has(ob, 'while this company is selected', 'with no connection, Messages says to connect for this company');
     await closeDialog(page);
-    await page.click('#tabs [data-tab="people"]');
+    await toDiscovery(page);
+    await toTiles(page);
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
     // Creator photo: shown over the initials when research found one; a photo
@@ -412,7 +427,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     }));
     R.ok('an expired photo is removed so the initials show', broken.gone && broken.initials.length > 0);
     await closeDialog(page);
-    await page.click('#tabs [data-tab="people"]');
+    await toAffiliates(page);
+    await toTiles(page, '#affiliatesBody');
     R.ok('an affiliate card shows the photo of the prospect they came from', await photoLoaded('#affiliatesBody .af-catalog-thumb img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
     // One list at a time: the sub-tab that is not picked is really gone.
     {
@@ -572,9 +588,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('a creator a search found is not emailed on approval', !inviteCalls.some((c) => c.prospect_id === 'p1'));
       await toDiscovery(inv);
       await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
-      await inv.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
-      R.has(await text(inv, '#prospectsBody [data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
-      R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('#prospectsBody [data-act="invite-send"][data-id="p1"]')));
+      await openProspectMore(inv, 'p-man');
+      await inv.waitForFunction(() => !!document.querySelector('[data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
+      R.has(await text(inv, '[data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
+      await closeDialog(inv);
+      await openProspectMore(inv, 'p1');
+      R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('[data-act="invite-send"][data-id="p1"]')));
+      await closeDialog(inv);
       // Bulk: pick several, act once.
       await toDiscovery(inv);
       await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
@@ -661,9 +681,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c2', code: 'PAT10-2', status: 'created' }] } } } });
       rs.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(rs);
-      await rs.click('#tabs [data-tab="people"]');
-      await rs.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="active"]', { timeout: 5000 });
       await toAffiliates(rs);
+      await rs.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="active"]', { timeout: 5000 });
       await rs.click('#affiliatesBody [data-act="affiliate-status"][data-s="active"]');
       await rs.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
       const call = await rs.evaluate(() => window.__EDGE_CALLS__.find((c) => c.name === 'affiliate-invite').body);
@@ -679,9 +698,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c1', code: 'PAT10', status: 'ended' }] } } } });
       en.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(en);
-      await en.click('#tabs [data-tab="people"]');
-      await en.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
       await toAffiliates(en);
+      await en.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
       await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await en.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await en.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
@@ -702,9 +720,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'cm0', code: 'PAT0', status: 'ended' }] } } } });
       mt.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(mt);
-      await mt.click('#tabs [data-tab="people"]');
-      await mt.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
       await toAffiliates(mt);
+      await mt.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
       await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await mt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
       await mt.waitForFunction(() => /Still on in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
@@ -721,9 +738,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           affiliate_add_to_program: (args) => { window.__addArgs = args; return { affiliate_id: '77777777-7777-4777-8777-777777777777', added: true }; } } });
       ap.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(ap);
-      await ap.click('#tabs [data-tab="people"]');
-      await ap.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
       await toAffiliates(ap);
+      await ap.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
       await ap.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
       await ap.waitForSelector('#apProg', { timeout: 5000 });
       R.eq(await ap.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'], 'only the other programs are offered');
@@ -755,7 +771,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // The rep's own photo wins over the one found for them.
     await loop.context().route('https://photos.invalid/pat-own.png', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PHOTO_PNG }));
     await closeDialog(loop);
-    await loop.click('#tabs [data-tab="people"]');
+    await toAffiliates(loop);
+    await toTiles(loop, '#affiliatesBody');
     await loop.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-catalog-thumb'), null, { timeout: 5000 });
     R.ok('an affiliate card shows the photo the rep set in the portal', !!(await loop.$('#affiliatesBody img.af-avatar-photo[src="https://photos.invalid/pat-own.png"]')));
     // Approving a creator drafts the program's own message, filled in.
@@ -1511,6 +1528,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('a signed-up affiliate gets no invite button', !(await endPage.$('#affiliatesBody [data-act="invite-send"][data-id="p1"]')));
       await toDiscovery(endPage);
       await endPage.click('#prospectsBody [data-f="approved"]').catch(() => {});
+      await toTiles(endPage);
       R.has(await text(endPage, '#prospectsBody'), 'found via met at a tournament', 'a saved "where found" note is shown on the creator card');
       await endPage.close();
     }
@@ -2087,6 +2105,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await closeDialog(all);
     await all.click('#tabs [data-tab="people"]');
     await all.waitForFunction(() => !!document.querySelector('#affiliatesBody .af-allprog'), null, { timeout: 5000 });
+    await toTiles(all, '#affiliatesBody');
     R.eq(await all.evaluate(() => document.querySelectorAll('#affiliatesBody .af-item--catalog').length), 1, 'one person in two programs is one card');
     const allPpl = await text(all, '#affiliatesBody');
     R.ok('with a row for each program and its code', allPpl.includes('PAT10') && allPpl.includes('PAT15') && allPpl.includes('Creators') && allPpl.includes('Wholesale'));
@@ -2123,10 +2142,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const edit = await suite.open('/v2/affiliates/index.html', ctTables, { ready, rpc: ctRpc });
     edit.on('pageerror', (e) => errors.push(e.message));
     await closeDialog(edit);
-    await edit.click('#tabs [data-tab="people"]');
-    await edit.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-edit"][data-id="p1"]'), null, { timeout: 5000 });
-    await toDiscovery(edit);
-    await edit.click('#prospectsBody [data-act="prospect-edit"][data-id="p1"]');
+    await openProspectMore(edit, 'p1');
+    await edit.click('[data-act="prospect-edit"][data-id="p1"]');
     await edit.waitForSelector('#epEmail', { timeout: 5000 });
     await edit.fill('#epEmail', 'Sam@Runs.Example');
     await edit.click('#afDialogBody [data-act="prospect-save"]');
@@ -2185,9 +2202,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     mcp.on('pageerror', (e) => errors.push(e.message));
     await closeDialog(mcp);
     await mcp.click('#tabs [data-tab="people"]');
-    await mcp.waitForFunction(() => !!document.querySelector('#prospectsBody [data-act="prospect-contacted"][data-id="p1"]'), null, { timeout: 5000 });
-    await toDiscovery(mcp);
-    await mcp.click('#prospectsBody [data-act="prospect-contacted"][data-id="p1"]');
+    await openProspectMore(mcp, 'p1');
+    await mcp.waitForFunction(() => !!document.querySelector('[data-act="prospect-contacted"][data-id="p1"]'), null, { timeout: 5000 });
+    await mcp.click('[data-act="prospect-contacted"][data-id="p1"]');
     await mcp.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 });
     const mrow = await mcp.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
     R.ok('Mark contacted records a sent message with who marked it', mrow?.state === 'sent' && !!mrow.sent_marked_by && mrow.sent_evidence === 'Contacted by hand' && mrow.prospect_id === 'p1');

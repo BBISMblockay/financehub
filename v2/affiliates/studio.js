@@ -316,7 +316,7 @@ function download(name, text, type = 'text/csv') {
 
 // ── State ────────────────────────────────────────────────────────────────
 const PROSPECT_LIST_CAP = 20;
-const S = { programs: [], programId: null, tab: 'overview', peopleSub: 'affiliates', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'overview', peopleSub: 'discovery', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -603,7 +603,9 @@ function photoAvatar(person, photo) {
 document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
 // Tiles or a list (table with the same photos). Remembered per viewer.
 const VIEW_KEY = 'silo.affiliates.view';
-function readView() { try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'tiles'; } catch { return 'tiles'; } }
+// Lists by default: tiles take three times the height for the same rows
+// (Blake 2026-11-20, "tiles are way large"). The choice is still remembered.
+function readView() { try { return localStorage.getItem(VIEW_KEY) === 'tiles' ? 'tiles' : 'list'; } catch { return 'list'; } }
 function viewToggle() {
   return `<div class="af-view-toggle" role="group" aria-label="View">${[['tiles', 'Tiles'], ['list', 'List']].map(([v, label]) => `<button type="button" class="bcn-btn${S.view === v ? ' bcn-btn--primary' : ' bcn-btn--ghost'}" data-act="view-set" data-v="${v}" aria-pressed="${S.view === v}">${label}</button>`).join('')}</div>`;
 }
@@ -869,6 +871,9 @@ function dialogSpec() {
   const ed = S.editProspect ? d.prospectById[S.editProspect] : null;
   if (ed) return { key: `prospect:${ed.id}`, title: `Edit ${ed.display_name || ed.handle || 'creator'}`, body: prospectEditBody(ed) };
   if (S.addCreators) return { key: 'add-creators', title: 'Add creators', body: addCreatorsBody() };
+  const mp = S.moreProspect ? d.prospectById[S.moreProspect] : null;
+  // Keyed by status as well, so a decision taken in here redraws the buttons.
+  if (mp) return { key: `more:${mp.id}:${mp.status}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${prospectActions(mp).join('')}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
     const k = S.affTool.k;
@@ -878,7 +883,7 @@ function dialogSpec() {
   }
   return null;
 }
-function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; }
+function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1317,6 +1322,24 @@ function readProgramForm() {
 }
 
 // ── Prospects ────────────────────────────────────────────────────────────
+// Every action a creator row offers, in the order they are used. The row
+// shows the first two; More shows them all.
+function prospectActions(x) {
+  const d = S.d;
+  if (!MANAGE || !d) return [];
+  const live = new Set(d.drafts.filter((y) => ['draft', 'approved', 'exported'].includes(y.state)).map((y) => y.prospect_id));
+  const contacted = new Set(d.drafts.filter((y) => y.state === 'sent').map((y) => y.prospect_id));
+  const b = [];
+  if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Shortlist', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
+  if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' }));
+  if (x.status === 'rejected') b.push(prospectPill('rejected'));
+  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
+  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
+  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
+  if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
+  if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
+  return b;
+}
 function renderProspects() {
   const d = S.d; const p = prog();
   const filter = S.prospectFilter || 'new';
@@ -1334,18 +1357,16 @@ function renderProspects() {
   S.viewIds = list.map((x) => x.id);
   const live = new Set(d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
   const contacted = new Set(d.drafts.filter((x) => x.state === 'sent').map((x) => x.prospect_id));
+  // Two buttons on the row, the rest behind More (Blake 2026-11-20: "there is
+  // a lot there"). More opens the same buttons in the centre pop-up, so
+  // nothing is lost and nothing folds out over the list.
   const actions = (x) => {
     if (!MANAGE) return '';
-    const b = [];
-    if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Shortlist', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
-    if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' }));
-    if (x.status === 'rejected') b.push(prospectPill('rejected'));
-    if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
-    if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
-    if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
-    if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
-    if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
-    return `<div class="af-actions">${b.join('')}</div>`;
+    const b = prospectActions(x);
+    if (!b.length) return '';
+    const shown = b.slice(0, 2);
+    if (b.length > 2) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
+    return `<div class="af-actions">${shown.join('')}</div>`;
   };
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
@@ -2838,6 +2859,7 @@ const A = {
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
+  'prospect-more': ({ id }) => { S.moreProspect = id; render(); return null; },
   'people-sub': ({ k }) => { S.peopleSub = k === 'discovery' ? 'discovery' : 'affiliates'; S.tab = 'people'; render(); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
