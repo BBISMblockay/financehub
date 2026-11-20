@@ -3351,6 +3351,68 @@ select
     else 'ok'
   end as search_console_connection;
 
+-- ── Amazon Ads connection (20261120050000) ──────────────────────────────────
+-- Amazon adds no table: marketing_kpis_daily.platform has been a name-shape
+-- CHECK since 20261103080000, so 'amazon_ads' needs nothing there. What it
+-- does need is the two platform CHECKs, the profile/region pair, and the
+-- nightly's job_type -- and each one fails in a way that is hard to read from
+-- the outside. Without the connections CHECK the OAuth callback dies on its
+-- insert with a constraint error and no OAuth error to point at; without the
+-- states CHECK amazon-oauth-start cannot even mint a nonce; without
+-- amazon_region the sync has a profile id and no host to send it to; without
+-- the job_type the nightly's own sync_jobs insert is refused AFTER the data
+-- has been fetched and written.
+select
+  case
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_connections_platform_check'
+                       and pg_get_constraintdef(oid) like '%amazon_ads%')
+      then 'MISSING — ad_platform_connections rejects platform=amazon_ads'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_oauth_states_platform_check'
+                       and pg_get_constraintdef(oid) like '%amazon_ads%')
+      then 'MISSING — ad_platform_oauth_states rejects platform=amazon_ads, '
+        || 'so amazon-oauth-start cannot mint a CSRF nonce for it'
+    -- Same re-typing risk as the Search Console block above, now including
+    -- search_console itself: the list is replaced, never appended to.
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_connections_platform_check'
+                       and pg_get_constraintdef(oid) like '%google_ads%'
+                       and pg_get_constraintdef(oid) like '%meta_ads%'
+                       and pg_get_constraintdef(oid) like '%tiktok_ads%'
+                       and pg_get_constraintdef(oid) like '%ga4%'
+                       and pg_get_constraintdef(oid) like '%search_console%')
+      then 'MISSING — extending the platform CHECK for Amazon dropped an existing platform'
+    when (select count(*) from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'ad_platform_connections'
+            and column_name in ('amazon_profile_id', 'amazon_region')) < 2
+      then 'MISSING — ad_platform_connections.amazon_profile_id / amazon_region'
+    -- A region outside Amazon's three hosts is a connection that 401s on
+    -- every call, so the column refuses one rather than storing it.
+    when not exists (select 1 from pg_constraint
+                     where conname = 'ad_platform_connections_amazon_region_check'
+                       and pg_get_constraintdef(oid) like '%NA%'
+                       and pg_get_constraintdef(oid) like '%EU%'
+                       and pg_get_constraintdef(oid) like '%FE%')
+      then 'MISSING — ad_platform_connections.amazon_region accepts any region'
+    when not exists (select 1 from pg_constraint
+                     where conname = 'sync_jobs_job_type_check'
+                       and conrelid = 'public.sync_jobs'::regclass
+                       and pg_get_constraintdef(oid) like '%amazon_ads_kpis%')
+      then 'MISSING — sync_jobs rejects job_type=amazon_ads_kpis, so the nightly Amazon sync cannot record a run'
+    -- Without this the account picker saves the profile and then cannot queue
+    -- the first import, leaving a connection that tests fine and imports
+    -- nothing until the nightly.
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.integration_bootstrap_jobs'::regclass
+                       and contype = 'c'
+                       and pg_get_constraintdef(oid) like '%integration%'
+                       and pg_get_constraintdef(oid) like '%amazon_ads%')
+      then 'MISSING — integration_bootstrap_jobs rejects integration=amazon_ads, so a new Amazon connection cannot queue its first import'
+    else 'ok'
+  end as amazon_ads_connection;
+
 -- ── Search Console daily tables (20260910180000) ────────────────────────────
 -- Three grains, three tables, and the site table carrying the per-day
 -- attribution the probe measured (query cut recovers 56.9% of clicks). The

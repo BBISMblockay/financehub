@@ -19872,4 +19872,8 @@ $c$select (select count(*) from v_po_header_summary
 -- Corrections land on marketing_kpis_daily itself, so pages, reports, Ask SILO
 -- and the MCP agree, and the platform's raw value stays in extra.silo_adjusted.
 \i migrations/20261120020000_ad_metric_adjustments.sql
+-- 20261120050000: Amazon Ads as the fourth ad platform -- the two platform
+-- CHECKs, the profile/region pair on the connection, and the nightly's
+-- job_type. Apply BEFORE deploying amazon-oauth-start / amazon-oauth-callback.
+\i migrations/20261120050000_amazon_ads_connection.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

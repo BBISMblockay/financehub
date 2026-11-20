@@ -238,6 +238,130 @@ async function tiktokAdvertisers(token: string) {
   }
 }
 
+// ── Amazon Ads ──────────────────────────────────────────────────────────────
+// Amazon is tested WITHOUT asking for a report. Every Amazon figure comes
+// from an asynchronous report that takes minutes to build, so a report-based
+// test could only ever time out; /v2/profiles is the cheap, synchronous probe
+// that proves the same three things a test needs to prove -- the token works,
+// the client id is accepted, and the chosen profile is still reachable.
+
+const AMAZON_ADS_HOSTS: Record<string, string> = {
+  NA: 'https://advertising-api.amazon.com',
+  EU: 'https://advertising-api-eu.amazon.com',
+  FE: 'https://advertising-api-fe.amazon.com',
+};
+
+async function refreshAmazonToken(refreshToken: string) {
+  const clientId = Deno.env.get('AMAZON_ADS_CLIENT_ID') ?? '';
+  const clientSecret = Deno.env.get('AMAZON_ADS_CLIENT_SECRET') ?? '';
+  if (!clientId || !clientSecret) throw new Error('AMAZON_ADS_CLIENT_ID / AMAZON_ADS_CLIENT_SECRET not configured');
+  const res = await fetch('https://api.amazon.com/auth/o2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+    }).toString(),
+  });
+  if (!res.ok) throw new Error(`Amazon token refresh failed: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  if (!data.access_token) throw new Error('Amazon token refresh: no access_token in response');
+  return {
+    access_token: data.access_token as string,
+    expires_at: new Date(Date.now() + (Number(data.expires_in) || 3600) * 1000).toISOString(),
+    client_id: clientId,
+  };
+}
+
+type AmazonProfile = {
+  profile_id: string;
+  region: string;
+  country_code: string | null;
+  currency_code: string | null;
+  timezone: string | null;
+  account_name: string | null;
+  account_type: string | null;
+};
+
+function amazonProfileRows(list: unknown, region: string): AmazonProfile[] {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((p: Record<string, unknown>) => p?.profileId != null)
+    .map((p: Record<string, unknown>) => {
+      const info = (p.accountInfo ?? {}) as Record<string, unknown>;
+      return {
+        profile_id: String(p.profileId),
+        region,
+        country_code: p.countryCode == null ? null : String(p.countryCode),
+        currency_code: p.currencyCode == null ? null : String(p.currencyCode),
+        timezone: p.timezone == null ? null : String(p.timezone),
+        account_name: info.name == null ? null : String(info.name),
+        account_type: info.type == null ? null : String(info.type),
+      };
+    });
+}
+
+/** Profiles across every region, for the picker. A region that refuses is
+ * skipped, not fatal: an advertiser with no European accounts is answered
+ * with a 401 by the EU host, and that is an answer. */
+async function amazonProfiles(accessToken: string, clientId: string, onlyRegion?: string) {
+  const hosts = onlyRegion && AMAZON_ADS_HOSTS[onlyRegion]
+    ? { [onlyRegion]: AMAZON_ADS_HOSTS[onlyRegion] }
+    : AMAZON_ADS_HOSTS;
+  const profiles: AmazonProfile[] = [];
+  const errors: string[] = [];
+  for (const [region, host] of Object.entries(hosts)) {
+    try {
+      const res = await fetch(`${host}/v2/profiles`, {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Amazon-Advertising-API-ClientId': clientId },
+      });
+      if (!res.ok) { errors.push(`${region} ${res.status}`); continue; }
+      profiles.push(...amazonProfileRows(await res.json(), region));
+    } catch (err) {
+      errors.push(`${region} ${String((err as Error)?.message ?? err).slice(0, 80)}`);
+    }
+  }
+  return { profiles, errors };
+}
+
+async function testAmazonAds(conn: Record<string, unknown>, accessToken: string, clientId: string) {
+  const profileId = conn.amazon_profile_id ? String(conn.amazon_profile_id) : '';
+  const region = conn.amazon_region ? String(conn.amazon_region).toUpperCase() : '';
+
+  if (!profileId) {
+    const { profiles, errors } = await amazonProfiles(accessToken, clientId);
+    if (!profiles.length) {
+      throw new Error(
+        `This Amazon authorization reaches no advertising profile${errors.length ? ` (${errors.join(', ')})` : ''}`,
+      );
+    }
+    return { amazon_profiles: profiles, note: 'choose the Amazon advertising account this company advertises from' };
+  }
+
+  // A profile WITH a region is checked against that region only, because a
+  // profile that answers in one region and not another is the exact failure
+  // this stores the region to prevent -- asking all three would hide it.
+  if (!region) throw new Error('amazon_region is not set on this connection — choose the profile again');
+  const { profiles, errors } = await amazonProfiles(accessToken, clientId, region);
+  const found = profiles.find((p) => p.profile_id === profileId);
+  // `found` is typed, so account_name/country_code below are strings or null,
+  // never unknown out of a JSON body.
+  if (!found) {
+    throw new Error(
+      `Amazon profile ${profileId} was not returned by the ${region} endpoint${errors.length ? ` (${errors.join(', ')})` : ''}`,
+    );
+  }
+  return {
+    amazon_profile_id: profileId,
+    amazon_region: region,
+    account_name: found.account_name,
+    country_code: found.country_code,
+    currency_code: found.currency_code,
+  };
+}
+
 async function testTiktokAds(conn: Record<string, unknown>) {
   const token = String(conn.access_token || '');
   if (!token) throw new Error('No access token stored — reconnect via OAuth');
@@ -317,6 +441,7 @@ Deno.serve(async (req) => {
   const ACCOUNT_FIELD: Record<string, string> = {
     google_ads: 'google_customer_id', ga4: 'ga4_property_id', search_console: 'search_console_site_url',
     meta_ads: 'meta_ad_account_id', tiktok_ads: 'tiktok_advertiser_id',
+    amazon_ads: 'amazon_profile_id',
   };
   const probe = listMode && ACCOUNT_FIELD[conn.platform] ? { ...conn, [ACCOUNT_FIELD[conn.platform]]: null } : conn;
 
@@ -340,6 +465,18 @@ Deno.serve(async (req) => {
       result = await testMetaAds(probe);
     } else if (conn.platform === 'tiktok_ads') {
       result = await testTiktokAds(probe);
+    } else if (conn.platform === 'amazon_ads') {
+      if (!conn.refresh_token) throw new Error('No refresh token stored — reconnect via OAuth');
+      const fresh = await refreshAmazonToken(String(conn.refresh_token));
+      // Store the fresh token, exactly as the Google branch does: the nightly
+      // sync mints its own, but leaving a known-stale one on the row makes
+      // every later read of it a lie.
+      await service.from('ad_platform_connections').update({
+        access_token: fresh.access_token,
+        token_expires_at: fresh.expires_at,
+        updated_at: new Date().toISOString(),
+      }).eq('id', conn.id);
+      result = await testAmazonAds(probe, fresh.access_token, fresh.client_id);
     } else {
       throw new Error(`Unknown platform: ${conn.platform}`);
     }

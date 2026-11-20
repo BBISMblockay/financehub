@@ -2240,6 +2240,413 @@ export async function fetchTiktokAdsRows(connection, window, { chunkDays = 30 } 
   return rows;
 }
 
+// ── Amazon Ads ──────────────────────────────────────────────────────────────
+//
+// Amazon is the first ad platform here whose reporting is ASYNCHRONOUS: you
+// POST a report request, poll until it is COMPLETED, then download a
+// pre-signed, gzipped JSON file. Nothing about that is optional -- there is no
+// synchronous campaign report in the Ads API v3 -- so a run is create, poll,
+// download, parse, per ad product, per window chunk.
+//
+// Three facts below are Amazon's and none of them is visible from the call
+// site. All three come from Amazon's own OpenAPI spec for the Offline Report
+// 3.0 resource (read 2026-11-20 from
+// d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/OfflineReport_prod_3p.json,
+// the spec Amazon's own ads-advanced-tools-docs repo downloads):
+//
+//   1. HISTORY STOPS AT 95 DAYS. The spec says the lookback window depends on
+//      the report type and that "most report types support 95 days". A
+//      startDate older than that is an error, not an empty answer -- so
+//      Amazon is the ONE source where the project's "ask for more than the
+//      source holds" rule does not hold, and the window is clamped instead.
+//      That is why a first connect gets ~3 months of Amazon and two years of
+//      Shopify, and it is a property of Amazon, not a setting to raise.
+//   2. ONE CAMPAIGN BELONGS TO ONE AD PRODUCT. Sponsored Products, Brands and
+//      Display are three separate reportTypeIds with three different column
+//      sets, fetched separately and concatenated. A campaign id appearing
+//      under two of them would mean two rows sharing this table's identity
+//      (company/platform/account/campaign/day) and one upsert silently
+//      keeping the last -- so the collision is detected and thrown rather
+//      than dropped. Amazon's model forbids it; this says so out loud.
+//   3. THE CONVERSION COLUMNS ARE NOT THE SAME SHAPE ACROSS PRODUCTS.
+//      Sponsored Products reports attribution-windowed columns only
+//      (purchases1d/7d/14d/30d, sales1d/7d/14d/30d) and has NO bare
+//      `purchases`; Brands and Display report bare `purchases` and `sales`.
+//      SILO stores the 7-day window for Sponsored Products, which is what
+//      Amazon's own console shows by default, and says so in the row's
+//      source. Mixing windows between products would make the platform's
+//      total an average of two different questions.
+//
+// Spend: `cost` is the column every product has (Sponsored Products also
+// offers `spend` as a newer alias), so `cost` is the one asked for.
+
+export const AMAZON_ADS_HOSTS = Object.freeze({
+  NA: 'https://advertising-api.amazon.com',
+  EU: 'https://advertising-api-eu.amazon.com',
+  FE: 'https://advertising-api-fe.amazon.com',
+});
+
+/** Login with Amazon. Amazon's LwA docs state applications are NOT
+ * region-specific -- "you can create, verify, and refresh tokens using any
+ * regional LWA endpoint" -- so one token host serves all three API regions.
+ * The API host is regional; the token host is not. */
+export const AMAZON_LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
+
+export const AMAZON_ADS_LOOKBACK_DAYS = 95;
+// Under Amazon's documented per-request span, with room to spare: the nightly
+// 30-day window is one request and a 95-day first import is four.
+export const AMAZON_ADS_CHUNK_DAYS = 30;
+
+/** The three Sponsored Ads products, as report requests.
+ *
+ * `columns` is deliberately the minimum this table stores plus the identity
+ * Amazon needs to give it: asking for a column a report type does not support
+ * is a 422 that refuses the WHOLE report, so a wide speculative column list
+ * is how one unsupported field costs a company its entire Amazon spend. Every
+ * name below is taken from the example request Amazon ships for that exact
+ * reportTypeId in the spec named above. */
+export const AMAZON_ADS_REPORTS = Object.freeze([
+  {
+    key: 'sponsored_products',
+    adProduct: 'SPONSORED_PRODUCTS',
+    reportTypeId: 'spCampaigns',
+    columns: ['date', 'campaignId', 'campaignName', 'impressions', 'clicks', 'cost', 'purchases7d', 'sales7d'],
+    conversionsColumn: 'purchases7d',
+    conversionValueColumn: 'sales7d',
+  },
+  {
+    key: 'sponsored_brands',
+    adProduct: 'SPONSORED_BRANDS',
+    reportTypeId: 'sbCampaigns',
+    columns: ['date', 'campaignId', 'campaignName', 'impressions', 'clicks', 'cost', 'purchases', 'sales'],
+    conversionsColumn: 'purchases',
+    conversionValueColumn: 'sales',
+  },
+  {
+    key: 'sponsored_display',
+    adProduct: 'SPONSORED_DISPLAY',
+    reportTypeId: 'sdCampaigns',
+    columns: ['date', 'campaignId', 'campaignName', 'impressions', 'clicks', 'cost', 'purchases', 'sales'],
+    conversionsColumn: 'purchases',
+    conversionValueColumn: 'sales',
+  },
+]);
+
+export function amazonAdsHost(region) {
+  const host = AMAZON_ADS_HOSTS[String(region || '').toUpperCase()];
+  if (!host) throw new Error(`amazon_region must be NA, EU or FE (got ${JSON.stringify(region)})`);
+  return host;
+}
+
+/** Exchange a stored LwA refresh token for an access token. Amazon's access
+ * tokens last sixty minutes, so this runs on every sync rather than being
+ * cached on the row. */
+export async function refreshAmazonAccessToken(env, refreshToken) {
+  if (!env?.AMAZON_ADS_CLIENT_ID || !env?.AMAZON_ADS_CLIENT_SECRET) {
+    throw new Error('AMAZON_ADS_CLIENT_ID / AMAZON_ADS_CLIENT_SECRET not set');
+  }
+  const data = await fetchJsonOrThrow(AMAZON_LWA_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: env.AMAZON_ADS_CLIENT_ID,
+      client_secret: env.AMAZON_ADS_CLIENT_SECRET,
+    }).toString(),
+  }, 'Amazon token refresh');
+  if (!data.access_token) throw new Error('Amazon token refresh: no access_token in response');
+  return {
+    accessToken: data.access_token,
+    expiresAt: new Date(Date.now() + (Number(data.expires_in) || 3600) * 1000).toISOString(),
+  };
+}
+
+function amazonHeaders({ accessToken, clientId, profileId }) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    'Amazon-Advertising-API-ClientId': clientId,
+    'Amazon-Advertising-API-Scope': String(profileId),
+  };
+}
+
+/** The report id of the in-flight request a 425 is a duplicate of.
+ *
+ * Amazon answers a repeated identical report request with 425 Too Early and
+ * names the original in `detail`. A retry -- which is exactly what a resumed
+ * or re-run sync is -- would otherwise fail on a report that is ALREADY
+ * BUILDING, so the id is pulled out and polled instead of starting again. */
+export function amazonDuplicateReportId(detail) {
+  const m = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(String(detail || ''));
+  return m ? m[1] : null;
+}
+
+async function createAmazonReport(host, headers, spec, startDate, endDate) {
+  const res = await fetchWithRetry(`${host}/reporting/reports`, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'Content-Type': 'application/vnd.createasyncreportrequest.v3+json',
+      Accept: 'application/vnd.createasyncreportresponse.v3+json',
+    },
+    body: JSON.stringify({
+      name: `SILO ${spec.reportTypeId} ${startDate}..${endDate}`,
+      startDate,
+      endDate,
+      configuration: {
+        adProduct: spec.adProduct,
+        groupBy: ['campaign'],
+        columns: spec.columns,
+        reportTypeId: spec.reportTypeId,
+        timeUnit: 'DAILY',
+        format: 'GZIP_JSON',
+      },
+    }),
+  });
+  const text = await res.text();
+  if (res.status === 425) {
+    const existing = amazonDuplicateReportId((() => {
+      try { return JSON.parse(text)?.detail; } catch { return text; }
+    })());
+    if (existing) return existing;
+    throw new Error(`Amazon ${spec.reportTypeId} create → 425 duplicate with no report id: ${text.slice(0, 300)}`);
+  }
+  if (!res.ok) throw new Error(`Amazon ${spec.reportTypeId} create → ${res.status}: ${text.slice(0, 500)}`);
+  let body;
+  try { body = JSON.parse(text); } catch {
+    throw new Error(`Amazon ${spec.reportTypeId} create: non-JSON response: ${text.slice(0, 200)}`);
+  }
+  if (!body.reportId) throw new Error(`Amazon ${spec.reportTypeId} create: no reportId in response`);
+  return String(body.reportId);
+}
+
+/** Ask Amazon for the status of one report. */
+async function amazonReportStatus(host, headers, reportId, label) {
+  return fetchJsonOrThrow(
+    `${host}/reporting/reports/${encodeURIComponent(reportId)}`,
+    { headers: { ...headers, Accept: 'application/vnd.getasyncreportresponse.v3+json' } },
+    `Amazon ${label} status`,
+  );
+}
+
+/** Poll a WHOLE BATCH of reports to completion, together.
+ *
+ * Together, not one after another, and that is the difference between a sync
+ * that finishes and one that does not. Amazon builds a report in roughly two
+ * to ten minutes and builds requested reports concurrently at its end, so
+ * polling report 1 to completion before creating report 2 would make a first
+ * import -- three ad products across four 30-day chunks, twelve reports --
+ * take twelve build times in series, hours rather than minutes, and well past
+ * any job timeout. Every report is therefore created first (by the caller)
+ * and this loop asks after all of the outstanding ones each pass, so the
+ * batch costs about ONE build time.
+ *
+ * Reports still PENDING or PROCESSING when the attempts run out are returned
+ * as `pending`, NOT as failures: Amazon keeps building them, and the next run
+ * collapses onto the same report through the 425 duplicate path. Saying
+ * "pending" is what keeps a partial import distinguishable from a complete
+ * one; calling it a failure would make a slow Amazon look like a broken one.
+ */
+export async function pollAmazonReports(host, headers, jobs, {
+  attempts = 40, intervalMs = 15_000, sleepFn = sleep,
+} = {}) {
+  const done = [];
+  const failed = [];
+  let outstanding = [...jobs];
+
+  for (let i = 0; i < attempts && outstanding.length; i += 1) {
+    // Every pass but the first waits BEFORE asking: a report created
+    // milliseconds ago is never ready, but asking once immediately costs one
+    // request and saves a whole interval when Amazon has a cached report.
+    if (i > 0) await sleepFn(intervalMs);
+    const stillWaiting = [];
+    for (const job of outstanding) {
+      let data;
+      try {
+        data = await amazonReportStatus(host, headers, job.reportId, job.label);
+      } catch (err) {
+        // A status call that fails is not a failed report. Keep waiting: a
+        // 429 or a blip here would otherwise discard a report that Amazon is
+        // still building and has already been paid for.
+        stillWaiting.push(job);
+        job.lastStatusError = err.message;
+        continue;
+      }
+      if (data.status === 'COMPLETED') {
+        if (!data.url) {
+          failed.push({ ...job, error: `report ${job.reportId} completed with no download url` });
+          continue;
+        }
+        done.push({ ...job, url: data.url });
+      } else if (data.status === 'FAILED') {
+        failed.push({ ...job, error: `report ${job.reportId} failed: ${data.failureReason || 'no reason given'}` });
+      } else {
+        stillWaiting.push(job);
+      }
+    }
+    outstanding = stillWaiting;
+  }
+
+  return { done, failed, pending: outstanding };
+}
+
+/** Download and parse one finished report.
+ *
+ * The body is gzip whatever the headers say -- `format: GZIP_JSON` is the only
+ * format the API offers -- and the pre-signed URL carries no credentials of
+ * ours, so it is fetched WITHOUT the Amazon auth headers. Sending them would
+ * be sending our bearer token to a storage URL that never asked for it.
+ * DecompressionStream is used rather than node:zlib because this module is
+ * also bundled into a Deno edge function; both runtimes have it. */
+export async function downloadAmazonReport(url, label = 'report') {
+  const res = await fetchWithRetry(url, {});
+  if (!res.ok) throw new Error(`Amazon ${label} download → ${res.status}`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  // A gzip member always starts 1f 8b. Anything else is decoded as text, so a
+  // plain-JSON answer, or an error page, is reported by the parse below
+  // rather than failing as a corrupt stream.
+  const text = bytes[0] === 0x1f && bytes[1] === 0x8b
+    ? await new Response(
+      new Response(bytes).body.pipeThrough(new DecompressionStream('gzip')),
+    ).text()
+    : new TextDecoder().decode(bytes);
+  let rows;
+  try { rows = JSON.parse(text); } catch {
+    throw new Error(`Amazon ${label}: report body was not JSON: ${text.slice(0, 200)}`);
+  }
+  if (!Array.isArray(rows)) throw new Error(`Amazon ${label}: report body was not an array of rows`);
+  return rows;
+}
+
+/** [startDate, endDate] chunks of at most chunkDays, clamped to Amazon's
+ * lookback. Returns an empty list when the whole window is older than the
+ * lookback, which is a window with nothing left to ask for rather than an
+ * error. */
+export function amazonAdsWindows(window, { now = new Date(), chunkDays = AMAZON_ADS_CHUNK_DAYS,
+  lookbackDays = AMAZON_ADS_LOOKBACK_DAYS } = {}) {
+  const earliest = isoDateOnly(addDays(new Date(`${pacificDateOnly(now)}T00:00:00Z`), -(lookbackDays - 1)));
+  const startDate = window.startDate < earliest ? earliest : window.startDate;
+  if (startDate > window.endDate) return [];
+  const out = [];
+  const endAll = new Date(`${window.endDate}T00:00:00Z`);
+  for (let s = new Date(`${startDate}T00:00:00Z`); s <= endAll;) {
+    const e = new Date(Math.min(s.getTime() + (chunkDays - 1) * 86400000, endAll.getTime()));
+    out.push({ startDate: isoDateOnly(s), endDate: isoDateOnly(e) });
+    s = new Date(e.getTime() + 86400000);
+  }
+  return out;
+}
+
+/** Daily campaign rows for every Sponsored Ads product on one profile.
+ *
+ * A product the advertiser does not run is not a failure: a seller with no
+ * Sponsored Brands campaigns is an ordinary account, and one refusal from a
+ * product it never used must not cost it the Sponsored Products spend it does
+ * have. So per-product failures are collected and returned, and this throws
+ * only when EVERY product failed -- which is what a bad token, the wrong
+ * region or a revoked profile looks like.
+ *
+ * Returns { rows, errors?, pending?, windows } rather than a bare array,
+ * because "no rows" has two very different meanings here -- an advertiser who
+ * spent nothing, and a report Amazon has not finished building -- and the
+ * caller has to be able to tell them apart. */
+export async function fetchAmazonAdsRows(connection, env, window, {
+  reports = AMAZON_ADS_REPORTS, now = new Date(), sleepFn = sleep,
+  pollAttempts, pollIntervalMs,
+} = {}) {
+  const accessToken = connection.access_token;
+  if (!accessToken) throw new Error('No access token stored on connection');
+  if (!connection.amazon_profile_id) throw new Error('amazon_profile_id not configured on connection');
+  const clientId = env?.AMAZON_ADS_CLIENT_ID;
+  if (!clientId) throw new Error('AMAZON_ADS_CLIENT_ID not set');
+
+  const host = amazonAdsHost(connection.amazon_region);
+  const headers = amazonHeaders({ accessToken, clientId, profileId: connection.amazon_profile_id });
+  const chunks = amazonAdsWindows(window, { now });
+
+  // Phase 1 — create every report. A product whose FIRST chunk is refused is
+  // not asked for the rest: an unsupported reportTypeId or a product the
+  // account cannot use refuses every chunk identically, and asking three more
+  // times only spends rate limit to learn the same thing.
+  const jobs = [];
+  const errors = new Map();
+  for (const spec of reports) {
+    for (const chunk of chunks) {
+      try {
+        const reportId = await createAmazonReport(host, headers, spec, chunk.startDate, chunk.endDate);
+        jobs.push({ spec, chunk, reportId, label: spec.reportTypeId });
+      } catch (err) {
+        if (!errors.has(spec.key)) errors.set(spec.key, `${spec.reportTypeId}: ${err.message}`);
+        break;
+      }
+    }
+  }
+
+  // Phase 2 — wait for all of them at once.
+  const { done, failed, pending } = await pollAmazonReports(host, headers, jobs, {
+    sleepFn,
+    ...(pollAttempts ? { attempts: pollAttempts } : {}),
+    ...(pollIntervalMs ? { intervalMs: pollIntervalMs } : {}),
+  });
+  for (const f of failed) {
+    if (!errors.has(f.spec.key)) errors.set(f.spec.key, `${f.spec.reportTypeId}: ${f.error}`);
+  }
+
+  // Phase 3 — download, parse, map.
+  const rows = [];
+  const claimedBy = new Map(); // campaignId|day -> the ad product that reported it
+  for (const job of done) {
+    const { spec } = job;
+    let reportRows;
+    try {
+      reportRows = await downloadAmazonReport(job.url, spec.reportTypeId);
+    } catch (err) {
+      if (!errors.has(spec.key)) errors.set(spec.key, `${spec.reportTypeId}: ${err.message}`);
+      continue;
+    }
+    for (const r of reportRows) {
+      const day = String(r.date ?? '').slice(0, 10);
+      const campaignId = r.campaignId == null ? null : String(r.campaignId);
+      const identity = `${campaignId}|${day}`;
+      const claimed = claimedBy.get(identity);
+      if (claimed && claimed !== spec.adProduct) {
+        // See note 2 at the top of this section: two ad products reporting one
+        // campaign on one day would collapse into a single stored row and
+        // lose one product's spend. Amazon's model forbids it, so if it ever
+        // happens it is a contract change worth failing on, not deduplicating.
+        throw new Error(
+          `Amazon campaign ${campaignId} on ${day} was reported by both ${claimed} and ${spec.adProduct}`,
+        );
+      }
+      claimedBy.set(identity, spec.adProduct);
+      rows.push({
+        accountId: String(connection.amazon_profile_id),
+        accountName: connection.display_name ?? null,
+        day,
+        campaignId,
+        campaignName: r.campaignName,
+        impressions: r.impressions,
+        clicks: r.clicks,
+        spend: r.cost,
+        conversions: r[spec.conversionsColumn],
+        conversionValue: r[spec.conversionValueColumn],
+      });
+    }
+  }
+
+  if (errors.size === reports.length) {
+    throw new Error(`Amazon Ads: every ad product failed — ${[...errors.values()].join('; ')}`);
+  }
+  return {
+    rows,
+    ...(errors.size ? { errors: [...errors.values()] } : {}),
+    ...(pending.length
+      ? { pending: pending.map((p) => `${p.label} ${p.chunk.startDate}..${p.chunk.endDate}`) }
+      : {}),
+    windows: chunks.length,
+  };
+}
+
 // ── GA4 ─────────────────────────────────────────────────────────────────────
 
 export async function fetchGa4Rows(connection, accessToken, window) {
@@ -2463,10 +2870,12 @@ export const PLATFORM_SOURCES = {
   meta_ads: 'meta_ads_api',
   tiktok_ads: 'tiktok_ads_api',
   ga4: 'ga4_api',
+  amazon_ads: 'amazon_ads_api',
 };
 
-/** Sync one connection. `env` carries GOOGLE_* secrets; `onTokenRefresh` lets
- * the orchestrator persist a rotated Google access token back to the row. */
+/** Sync one connection. `env` carries the GOOGLE_* and AMAZON_ADS_* secrets;
+ * `onTokenRefresh` lets the orchestrator persist a rotated access token back
+ * to the row (Google and Amazon both mint a short-lived one per run). */
 export async function runConnectionSync(supabase, env, connection, {
   batchId,
   now = new Date(),
@@ -2479,6 +2888,7 @@ export async function runConnectionSync(supabase, env, connection, {
   const platform = connection.platform;
 
   let raw;
+  let amazonWarning = null;
   if (platform === 'google_ads' || platform === 'ga4') {
     if (!connection.refresh_token) throw new Error('No refresh token — reconnect via OAuth');
     const { accessToken, expiresAt } = await refreshGoogleAccessToken(env, connection.refresh_token);
@@ -2490,6 +2900,23 @@ export async function runConnectionSync(supabase, env, connection, {
     raw = await fetchMetaAdsRows(connection, window, { signal });
   } else if (platform === 'tiktok_ads') {
     raw = await fetchTiktokAdsRows(connection, window);
+  } else if (platform === 'amazon_ads') {
+    if (!connection.refresh_token) throw new Error('No refresh token — reconnect via OAuth');
+    const { accessToken, expiresAt } = await refreshAmazonAccessToken(env, connection.refresh_token);
+    if (onTokenRefresh) await onTokenRefresh(accessToken, expiresAt);
+    // Amazon reports per ad product, so it answers with the rows AND what it
+    // could not read: a product that failed and a window still building. Both
+    // ride out on the sync's report instead of being thrown away, because a
+    // partial Amazon import must be distinguishable from a complete one.
+    const amazon = await fetchAmazonAdsRows(
+      { ...connection, access_token: accessToken }, env, window, { now },
+    );
+    raw = amazon.rows;
+    if (amazon.errors) amazonWarning = `ad products not read: ${amazon.errors.join('; ')}`;
+    if (amazon.pending) {
+      const stillBuilding = `still building at Amazon, will land on the next run: ${amazon.pending.join('; ')}`;
+      amazonWarning = amazonWarning ? `${amazonWarning}; ${stillBuilding}` : stillBuilding;
+    }
   } else {
     throw new Error(`Unknown platform: ${platform}`);
   }
@@ -2520,6 +2947,7 @@ export async function runConnectionSync(supabase, env, connection, {
     platform,
     window,
     custom_conversions: customConversions,
+    ...(amazonWarning ? { warning: amazonWarning } : {}),
     rows_fetched: raw.length,
     kpi_rows_upserted: upserted,
     synced_at: syncedAt,
