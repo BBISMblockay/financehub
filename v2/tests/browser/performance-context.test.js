@@ -27,6 +27,8 @@
  *   PERF_CTX_MUTATION=range-ignored   Overview swaps a typed range for 30d
  *   PERF_CTX_MUTATION=range-unbounded Overview reads past the end of a typed range
  *   PERF_CTX_MUTATION=range-unnamed   Overview shows a typed range's numbers under a 30d label
+ *   PERF_CTX_MUTATION=range-unshown   the shared control ignores a typed range in the address bar
+ *   PERF_CTX_MUTATION=range-untyped   typing a date in the control changes nothing
  *   PERF_CTX_MUTATION=summary-forgotten  choosing Summary with a focus present is not written down
  *   PERF_CTX_MUTATION=summary-overridden an explicit Summary loses to the focus default on refresh
  *   PERF_CTX_MUTATION=href-bare       the strip link is the bare page URL (new-tab loses the selection)
@@ -42,16 +44,18 @@ const R = createReporter('performance-context');
 const MUTATIONS = {
   'no-carry': ['/performance-suite.js', "if (!SHARES_CONTEXT.includes(active) || !SHARES_CONTEXT.includes(id)) return base;", 'return base;'],
   'no-url': ['/marketing-explorer.html', "    history[push ? 'pushState' : 'replaceState'](null, '', url);", ''],
-  'no-back': ['/marketing-explorer.html', "      if (readUrl()) runLoad(); else { settleDrill(); render(); }", ''],
-  'no-window': ['/marketing-overview.html', '  let WINDOW_DAYS = windowFromUrl();', '  let WINDOW_DAYS = 30;'],
+  'no-back': ['/marketing-explorer.html', "      if (await readUrl()) runLoad(); else { settleDrill(); render(); }", ''],
+  'no-window': ['/marketing-overview.html', "    RANGE = r.end === todayIso() ? { days: r.days, start: null, end: null } : { days: r.days, start: r.start, end: r.end };", '    RANGE = { days: 30, start: null, end: null };'],
   'no-tab': ['/marketing-overview.html', "      setUrlParams({ tab: tab.dataset.tab === 'overview' ? null : tab.dataset.tab });", ''],
   'no-drill-link': ['/marketing-overview.html', '    return `/v2/marketing-explorer.html?${q}`;', "    return '/v2/marketing-explorer.html';"],
   'no-studio-link': ['/marketing-explorer.html', '    const studioLink = (r) => r.adId', '    const studioLink = (r) => false'],
   'no-return': ['/ad-studio.html', 'href="/v2/marketing-explorer.html?ad=${encodeURIComponent(a.ad_id)}"', 'href="/v2/marketing-explorer.html"'],
   'no-focus': ['/marketing-explorer.html', '    if (state.focusAd && !d.adsetId){', '    if (false){'],
-  'range-ignored': ['/marketing-overview.html', "      return e === todayIso() ? { days: n, start: null, end: null } : { days: n, start: s, end: e };", "      return { days: 30, start: null, end: null };"],
+  'range-ignored': ['/marketing-overview.html', "    RANGE = r.end === todayIso() ? { days: r.days, start: null, end: null } : { days: r.days, start: r.start, end: r.end };", '    RANGE = { days: 30, start: null, end: null };'],
   'range-unbounded': ['/marketing-overview.html', "  const upTo = (q, col = 'day_date') => isFixedRange() ? q.lte(col, RANGE.end) : q;", "  const upTo = (q) => q;"],
-  'range-unnamed': ['/marketing-overview.html', "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = windowLabel();", "    if (isFixedRange()){ extra.dataset.fixed = '1'; extra.textContent = '30d';"],
+  'range-unnamed': ['/marketing-overview.html', "  const windowLabel = () => isFixedRange() ? `${fmtDay(RANGE.start)} \u2013 ${fmtDay(RANGE.end)}` : `${WINDOW_DAYS}d`;", '  const windowLabel = () => `${WINDOW_DAYS}d`;'],
+  'range-unshown': ['/silo-date-range.js', "      if (isDays(days)) return apply({ days });\n      if (isIsoDay(s) && isIsoDay(e) && s <= e) return apply({ start: s, end: e });", '      if (isDays(days)) return apply({ days });'],
+  'range-untyped': ['/silo-date-range.js', "      startEl.addEventListener('change', onTyped);\n      endEl.addEventListener('change', onTyped);", ''],
   'summary-forgotten': ['/marketing-overview.html', "(hasFocus ? 'overview' : null)", "null"],
   'summary-overridden': ['/marketing-overview.html', "    if (TABS.includes(wantTab)){ if (wantTab !== 'overview')", "    if (TABS.includes(wantTab) && wantTab !== 'overview'){ if (true)"],
   'href-bare': ['/performance-suite.js', "      link.href = hrefWithContext(active, id, path, window.location?.search);", "      link.href = '/v2/' + path;"],
@@ -109,6 +113,18 @@ const explorerReady = () => !!document.querySelector('#mainBody tr.mx-total, #ma
 const q = (page) => page.evaluate(() => Object.fromEntries(new URLSearchParams(location.search)));
 const trail = (page) => page.locator('#trail').innerText();
 const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) => n.map((x) => x.textContent.trim()));
+// The date control is shared (v2/silo-date-range.js): two fields, then the
+// rolling quick picks. A typed range lights no quick pick -- the fields are
+// where it is read -- so the tests below check the fields, not a button.
+const picks = (page) => page.$$eval('.sdr-presets .bcn-btn', (b) => b.map((x) => x.textContent));
+const lit = (page) => page.$$eval('.sdr-presets .bcn-btn.is-active', (b) => b.map((x) => x.textContent));
+const fields = (page) => page.$$eval('.sdr-range input', (i) => i.map((x) => x.value));
+// Type a calendar range the way a person does: both fields, then change.
+const typeRange = (page, start, end) => page.evaluate(([s, e]) => {
+  const i = document.querySelectorAll('.sdr-range input');
+  i[0].value = s; i[1].value = e;
+  i[1].dispatchEvent(new Event('change'));
+}, [start, end]);
 
 (async () => {
   const suite = await startSuite({ transform });
@@ -119,20 +135,22 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
       ['overview', 'campaigns', 'creatives', 'redo', 'funnel', 'channels', 'organic'], 'Overview tabs');
     R.eq(await page.$$eval('[data-panel]', (p) => [...new Set(p.map((x) => x.dataset.panel))].sort()),
       ['campaigns', 'channels', 'creatives', 'funnel', 'organic', 'overview', 'redo'], 'every tab still has its panel');
-    R.eq(await page.$$eval('#windowBtns button', (b) => b.map((x) => x.textContent)), ['7d', '14d', '30d', '90d'], 'Overview windows');
+    R.eq(await picks(page), ['7d', '14d', '30d', '90d', '1y', 'YTD'], 'Overview quick picks');
+    R.eq((await fields(page)).length, 2, 'and a start and end field, as Explorer has');
     const stripTabs = await page.$$eval('.perf-suite-text', (n) => n.map((x) => x.textContent));
     const pageTabs = await page.$$eval('.bcn-tab[data-tab]', (n) => n.map((x) => x.textContent.trim()));
     R.ok('no page tab repeats a strip tab’s name', !pageTabs.some((t) => stripTabs.includes(t)), `${stripTabs} / ${pageTabs}`);
 
     // ── 2. Overview: window and tab survive a refresh ────────────────────
-    R.eq(await page.locator('#windowBtns .is-active').innerText(), '14d', 'the window in the address bar is the window shown');
+    R.eq(await lit(page), ['14d'], 'the window in the address bar is the window shown');
+    R.eq(await fields(page), [day(13), day(0)], 'and the fields name its days');
     const sinceSeen = await page.evaluate(() => window.__QUERIES__.find((x) => x.table === 'marketing_kpis_daily').filters.find((f) => f.op === 'gte').val);
     R.eq(sinceSeen, day(13), 'and the window queried');
     await page.click('.bcn-tab[data-tab="campaigns"]');
     R.eq((await q(page)).tab, 'campaigns', 'the open tab is in the address bar');
     await page.reload(); await page.waitForFunction(overviewReady);
     R.eq(await page.locator('.bcn-tab--active').getAttribute('data-tab'), 'campaigns', 'refresh keeps the tab');
-    R.eq(await page.locator('#windowBtns .is-active').innerText(), '14d', 'refresh keeps the window');
+    R.eq(await lit(page), ['14d'], 'refresh keeps the window');
 
     // ── 3. Overview -> Explorer, already drilled in ──────────────────────
     const campLink = page.locator('#campaignBody tr', { hasText: 'Holiday Prospecting' }).locator('a.mo-next');
@@ -145,12 +163,13 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
     await page.waitForFunction(explorerReady);
     R.has(await trail(page), 'Holiday Prospecting', 'Explorer opens on the campaign');
     R.eq(await page.locator('#tableTitle').innerText(), 'Ad sets');
-    R.eq(await page.locator('#dtStart').inputValue(), day(13), 'with Overview’s 14-day window, though Explorer has no 14d button');
+    R.eq((await fields(page))[0], day(13), 'with Overview’s 14-day window, though Explorer has no 14d button');
     R.eq((await q(page)).days, '14', 'still a rolling window, not two frozen dates');
 
     // ── 1b. Explorer kept its controls ───────────────────────────────────
-    R.eq(await page.$$eval('#presetBtns .bcn-btn', (b) => b.map((x) => x.textContent)), ['7d', '30d', '90d', '1y', 'YTD', 'All'], 'Explorer presets');
-    for (const id of ['dtStart', 'dtEnd', 'rowSearch', 'btnCols', 'cmpToggle', 'btnExport', 'dayDetails'])
+    R.eq(await picks(page), ['7d', '30d', '90d', '1y', 'YTD', 'All'], 'Explorer presets');
+    R.eq((await fields(page)).length, 2, 'Explorer keeps its typed start and end');
+    for (const id of ['rowSearch', 'btnCols', 'cmpToggle', 'btnExport', 'dayDetails'])
       R.ok(`Explorer keeps #${id}`, await page.locator('#' + id).count() === 1);
 
     // ── 4. Explorer: drill, Back, refresh ────────────────────────────────
@@ -245,8 +264,8 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
 
     // A window Overview has no button for is shown and named, not swapped for 30d.
     page = await suite.open('/v2/marketing-overview.html?days=365', TABLES, { ready: overviewReady });
-    R.eq(await page.locator('#windowBtns .is-active').innerText(), '1y', 'Explorer’s 1y is honoured on Overview');
-    await page.click('#windowBtns button[data-days="7"]');
+    R.eq(await lit(page), ['1y'], 'Explorer’s 1y is honoured on Overview');
+    await page.click('.sdr-presets .bcn-btn[data-days="7"]');
     await page.waitForFunction(() => new URLSearchParams(location.search).get('days') === '7');
     R.ok('choosing a window updates the address bar', true);
     await page.close();
@@ -263,18 +282,18 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
     R.ok('every day-keyed read has the ceiling', fixedBounds.length >= 4 && fixedBounds.every(([, ok]) => ok), JSON.stringify(fixedBounds));
     // Only the day-10 rows fall in the range: 300 + 100 + 80.
     R.eq(await page.locator('#kpiSpend').innerText(), '$480', 'the numbers are the range’s, not 30 days’');
-    const fixedBtn = page.locator('#windowBtns .is-active');
-    R.eq(await page.locator('#windowBtns .is-active').count(), 1, 'exactly one window is marked');
-    R.ok('and it names the dates', /\d{4}\s–\s.*\d{4}/.test(await fixedBtn.innerText()), await fixedBtn.innerText());
-    R.has(await page.locator('#kpiSpendDelta').innerText(), await fixedBtn.innerText(), 'the KPI caption names the same range');
+    R.eq(await fields(page), [day(12), day(8)], 'the fields show the range that was asked for');
+    R.eq(await lit(page), [], 'and no rolling quick pick claims to be the window');
+    const label = await page.locator('#kpiSpendDelta').innerText();
+    R.ok('the KPI caption names the dates, not a bucket', /\d{4}\s–\s.*\d{4}/.test(label), label);
     R.not(await page.locator('#chartTitle').innerText(), 'last', 'the chart title does not say "last N days"');
     R.eq(await page.locator('#platformBody tr', { hasText: 'Meta Ads' }).locator('a.mo-next').getAttribute('href'),
       `/v2/marketing-explorer.html?start=${day(12)}&end=${day(8)}&platform=meta_ads`, 'links into Explorer keep the range');
-    await page.click('#windowBtns button[data-days="30"]');
+    await page.click('.sdr-presets .bcn-btn[data-days="30"]');
     await page.waitForFunction(() => document.getElementById('kpiSpend').textContent === '$1,920');
     params = await q(page);
     R.eq([params.days, params.start, params.end], ['30', undefined, undefined], 'choosing a window returns to rolling');
-    R.eq(await page.locator('#windowBtns button[data-fixed]').count(), 0, 'and the range label goes away');
+    R.eq(await lit(page), ['30d'], 'and the quick pick is what is marked');
     const rolling = await page.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'marketing_kpis_daily').pop()
       .filters.filter((f) => f.col === 'day_date').map((f) => f.op));
     R.eq(rolling, ['gte'], 'a rolling window keeps the query it always had');
@@ -282,12 +301,39 @@ const rowNames = (page) => page.$$eval('#mainBody tr[data-idx] .mx-name', (n) =>
 
     // A range that is not real dates is not sent to the database: default window.
     page = await suite.open('/v2/marketing-overview.html?start=2026-02-31&end=2026-03-02', TABLES, { ready: overviewReady });
-    R.eq(await page.locator('#windowBtns .is-active').innerText(), '30d', 'an impossible date falls back to the default, and says 30d');
-    R.eq(await page.locator('#windowBtns button[data-fixed]').count(), 0);
+    R.eq(await lit(page), ['30d'], 'an impossible date falls back to the default, and says 30d');
     await page.close();
     page = await suite.open('/v2/marketing-explorer.html?start=2026-02-31&end=2026-03-02&platform=<img src=x onerror=window.__PWNED__=1>', TABLES, { ready: explorerReady });
-    R.eq(await page.locator('#presetBtns .is-active').innerText(), '30d', 'Explorer likewise');
+    R.eq(await lit(page), ['30d'], 'Explorer likewise');
     R.ok('a hostile platform value is text, not HTML', (await page.evaluate(() => window.__PWNED__)) === undefined);
+    await page.close();
+
+    // Typing a calendar range is the point of the shared control: Marketing
+    // used to be readable only in 7/14/30/90-day buckets, and only Explorer
+    // could be asked for a start and an end (2026-11-20).
+    page = await suite.open('/v2/marketing-overview.html?days=30', TABLES, { ready: overviewReady });
+    R.eq(await page.locator('#kpiSpend').innerText(), '$1,920', '30 days to start with');
+    await typeRange(page, day(12), day(8));
+    await page.waitForFunction(() => document.getElementById('kpiSpend').textContent === '$480');
+    params = await q(page);
+    R.eq([params.start, params.end, params.days], [day(12), day(8), undefined], 'a typed range goes in the address bar as dates');
+    R.eq(await lit(page), [], 'and no quick pick is marked');
+    const typedKq = await page.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'marketing_kpis_daily').pop()
+      .filters.filter((f) => f.col === 'day_date').map((f) => `${f.op}:${f.val}`).sort().join(','));
+    R.eq(typedKq, `gte:${day(12)},lte:${day(8)}`, 'and it is what was read from the database');
+    // A backwards pair is not a range: nothing loads and the fields go back.
+    await typeRange(page, day(2), day(20));
+    await page.waitForTimeout(120);
+    R.eq(await fields(page), [day(12), day(8)], 'a backwards range is put back, not loaded');
+    R.eq(await page.locator('#kpiSpend').innerText(), '$480', 'and the numbers do not move');
+    await page.close();
+
+    // Explorer types the same way, and its own range reaches the address bar.
+    page = await suite.open('/v2/marketing-explorer.html?days=30', TABLES, { ready: explorerReady });
+    await typeRange(page, day(12), day(8));
+    await page.waitForFunction((d) => new URLSearchParams(location.search).get('start') === d, day(12));
+    R.eq((await q(page)).end, day(8), 'Explorer writes the typed end too');
+    R.eq(await lit(page), [], 'and clears the quick pick');
     await page.close();
 
     // ── 7. Ad Studio -> back to the result ───────────────────────────────
