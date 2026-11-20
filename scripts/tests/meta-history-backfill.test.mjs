@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  planMetaHistory, metaHistoryComplete, metaAfterHistory, META_HISTORY_DAYS, META_HISTORY_MAX_ATTEMPTS,
+  planMetaHistory, metaHistoryComplete, metaAfterHistory, metaAdLevelDaysBack,
+  META_HISTORY_DAYS, META_AD_LEVEL_HISTORY_DAYS, META_HISTORY_MAX_ATTEMPTS,
 } from '../lib/meta-history-backfill.mjs';
 
 let passed = 0;
@@ -20,10 +21,32 @@ async function test(name, fn) {
 
 const meta = (m) => ({ platform: 'meta_ads', meta: m });
 
-await test('a new Meta connection imports a year on a full run', () => {
+await test('a new Meta connection imports two years on a full run', () => {
   assert.deepEqual(planMetaHistory(meta({ history_backfill_pending: true }), { daysBack: null }),
     { backfill: true, daysBack: META_HISTORY_DAYS });
-  assert.equal(META_HISTORY_DAYS, 365);
+  // Two years, the same depth every other first connect asks for, so
+  // year-over-year by channel works on the day a company connects.
+  assert.equal(META_HISTORY_DAYS, 730);
+});
+
+await test('the per-ad grain of a FIRST-CONNECT import keeps its shallower window', () => {
+  // One Meta request per day at that grain, so the depth that is free at
+  // campaign grain is not free here.
+  assert.equal(META_AD_LEVEL_HISTORY_DAYS, 365);
+  assert.ok(META_AD_LEVEL_HISTORY_DAYS < META_HISTORY_DAYS, 'the clamp must actually bind');
+  assert.equal(metaAdLevelDaysBack({ backfill: true, daysBack: META_HISTORY_DAYS }), META_AD_LEVEL_HISTORY_DAYS);
+  assert.equal(metaAdLevelDaysBack({ backfill: true, daysBack: 1095 }), META_AD_LEVEL_HISTORY_DAYS);
+  // A window already inside the clamp is passed through untouched.
+  assert.equal(metaAdLevelDaysBack({ backfill: true, daysBack: 30 }), 30);
+});
+
+await test('any run that is NOT a first-connect import keeps its window, however deep', () => {
+  // The dispatch input exists so a deep ad-level backfill can be run by hand
+  // on an established connection; clamping that would make the recovery
+  // recipe for a connection that lost history impossible to use.
+  for (const daysBack of [3, 30, 365, 730, 1095, null]) {
+    assert.equal(metaAdLevelDaysBack({ backfill: false, daysBack }), daysBack);
+  }
 });
 
 await test('an established connection (no flag) is never widened', () => {
@@ -39,8 +62,8 @@ await test('the 2-hourly refresh leaves the flag for the nightly', () => {
 
 await test('only Meta; a manual run asking for MORE than a year keeps its wider window', () => {
   assert.equal(planMetaHistory({ platform: 'google_ads', meta: { history_backfill_pending: true } }).backfill, false);
-  assert.equal(planMetaHistory(meta({ history_backfill_pending: true }), { daysBack: 730 }).daysBack, 730);
-  assert.equal(planMetaHistory(meta({ history_backfill_pending: true }), { daysBack: 30 }).daysBack, 365);
+  assert.equal(planMetaHistory(meta({ history_backfill_pending: true }), { daysBack: 1095 }).daysBack, 1095);
+  assert.equal(planMetaHistory(meta({ history_backfill_pending: true }), { daysBack: 30 }).daysBack, META_HISTORY_DAYS);
 });
 
 await test('complete only when ad-level AND organic landed', () => {
@@ -61,7 +84,7 @@ await test('a Page Insights failure keeps the flag and counts the attempt', () =
 await test('success clears the flag, records when, and keeps the rest of meta', () => {
   const after = metaAfterHistory({ history_backfill_pending: true, history_backfill_attempts: 1, keep: 1 },
     { backfill: true, succeeded: true, at: 'T' });
-  assert.deepEqual(after, { keep: 1, history_backfill_pending: false, history_backfilled_at: 'T', history_backfill_days: 365 });
+  assert.deepEqual(after, { keep: 1, history_backfill_pending: false, history_backfilled_at: 'T', history_backfill_days: META_HISTORY_DAYS });
 });
 
 await test('a failure keeps the flag and counts the attempt; the last allowed attempt gives up', () => {
@@ -92,12 +115,20 @@ await test('the orchestrator plans with the organic-skip flag and the dispatch w
   assert.match(sync, /planMetaHistory\(connection, \{ skipOrganic: SKIP_ORGANIC, daysBack: DAYS_BACK \}\)/);
 });
 
-await test('all three Meta pulls use the planned window, not the raw env', () => {
-  for (const fn of ['runConnectionSync\\(supabase, GOOGLE_ENV, connection', 'runMetaAdLevelSync\\(supabase, connection', 'runMetaOrganicSync\\(supabase, connection']) {
+await test('the campaign and organic pulls use the planned window, not the raw env', () => {
+  for (const fn of ['runConnectionSync\\(supabase, GOOGLE_ENV, connection', 'runMetaOrganicSync\\(supabase, connection']) {
     const m = sync.match(new RegExp(`${fn}, \\{[\\s\\S]{0,120}?daysBackOverride: (\\w+)`));
     assert.ok(m, fn);
     assert.equal(m[1], 'runDaysBack', `${fn} must use runDaysBack`);
   }
+});
+
+await test('the ad-level pull takes the planned window through the ad-grain clamp', () => {
+  // Not runDaysBack directly: a first-connect import plans two years at
+  // campaign grain and this pull costs a request per day.
+  const m = sync.match(/runMetaAdLevelSync\(supabase, connection, \{[\s\S]{0,240}?daysBackOverride: ([^\n]+)/);
+  assert.ok(m, 'runMetaAdLevelSync must take a daysBackOverride');
+  assert.equal(m[1].trim(), 'metaAdLevelDaysBack({ backfill: history.backfill, daysBack: runDaysBack }),');
 });
 
 await test('success and failure both write the history state back', () => {
@@ -116,7 +147,7 @@ await test('a NEW Meta connection is flagged where it is created: the OAuth call
   // Integrations page. That form is gone -- Connect Meta is the only way to
   // make a Meta connection -- so newConnectionMeta() is now the single place
   // a new row is born, and it must still carry the flag or a company that
-  // connects Meta gets 30 days of history instead of a year.
+  // connects Meta gets 30 days of history instead of two years.
   assert.match(oauthLib, /export function newConnectionMeta\(\{[\s\S]{0,200}?history_backfill_pending: true,/);
   assert.equal(page.includes('history_backfill_pending'), false,
     'the page no longer creates Meta connections, so it must not stamp the flag either');

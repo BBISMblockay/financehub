@@ -25,6 +25,8 @@
 // REDO_COMPANY_ENTITY_ID). Nothing here is a second implementation of a sync,
 // because a second implementation is a second set of numbers.
 
+import { META_HISTORY_DAYS } from './meta-history-backfill.mjs';
+
 /** Shopify's first sync is two stages, not one `full` run.
  *
  * `full` mode would do the two-year order history AND the nine other stages in
@@ -89,13 +91,14 @@ const SHOPIFY_STAGES = [
  * someone connected it to see.
  *
  * META IS THE ONE PLATFORM THAT DOES NOT TAKE `adsDaysBack`. A new Meta
- * connection already has its own first-run import (meta-history-backfill.mjs,
- * META_HISTORY_DAYS = 365), and `planMetaHistory` takes the LARGER of the two
- * windows -- so passing the wider default here would silently widen that
- * import to match while `metaAfterHistory` went on recording
- * `history_backfill_days: 365`, and the ad-level pass chunks at ONE day, so
- * the widening is a request per extra day. Meta's depth belongs to Meta's
- * module; this option is for the platforms that have no module of their own.
+ * connection already has its own first-run import (meta-history-backfill.mjs),
+ * and `planMetaHistory` takes the LARGER of the two windows -- so a wider
+ * default here would widen that import while `metaAfterHistory` went on
+ * recording `history_backfill_days: META_HISTORY_DAYS`. `metaAdsDaysBack` is
+ * therefore that constant itself, not a number of its own: Meta's depth
+ * belongs to Meta's module, including the separate, shallower window its
+ * ad-level pass takes, and this option is for the platforms that have no
+ * module of their own.
  */
 const adStages = (platform) => [
   {
@@ -302,8 +305,8 @@ export const BOOTSTRAP_DEFAULTS = {
   adsDaysBack: 730,
   // Meta's own first-run import owns Meta's depth. Here only so that
   // `planMetaHistory`'s max() cannot be raised from the outside by a change
-  // to `adsDaysBack`.
-  metaAdsDaysBack: 365,
+  // to `adsDaysBack`, which is why it is the constant and not a copy of it.
+  metaAdsDaysBack: META_HISTORY_DAYS,
   searchConsoleDays: 480,
   redoReturnsStart: '',
   redoMarketingStart: '',
