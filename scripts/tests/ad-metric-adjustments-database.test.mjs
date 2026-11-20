@@ -20,6 +20,10 @@
 //   AD_ADJ_MUTATION=overlap    two active corrections for the same metric are allowed
 //   AD_ADJ_MUTATION=nullkeep   restoring a saved JSON null leaves the correction in place
 //   AD_ADJ_MUTATION=nullexclude  excluding an unmeasured metric invents a measured zero
+//   AD_ADJ_MUTATION=providerraw  a provider write does not refresh the saved raw value
+//   AD_ADJ_MUTATION=dropmark     a mark is left behind when the metric becomes unmeasured
+//   AD_ADJ_MUTATION=stamporder   the overlap guard runs before the company is stamped
+//   AD_ADJ_MUTATION=lock         the overlap check is not serialized
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -43,14 +47,21 @@ create function set_updated_at() returns trigger language plpgsql as
 create function stamp_company_entity_id() returns trigger language plpgsql as
   $$ begin if new.company_entity_id is null then new.company_entity_id := public.active_company_id(); end if;
      return new; end $$;
+-- The real function attaches the stamp to EVERY public table with a
+-- company_entity_id, ad_metric_adjustments included, which is what makes
+-- trigger name order matter there.
 create function attach_stamp_company_entity_id_triggers() returns void language plpgsql as $$
+declare t text; v_oid oid;
 begin
-  if not exists (select 1 from pg_trigger
-                  where tgrelid = 'public.marketing_kpis_daily'::regclass
-                    and tgname = 'stamp_company_entity_id') then
-    create trigger stamp_company_entity_id before insert on public.marketing_kpis_daily
-      for each row execute function public.stamp_company_entity_id();
-  end if;
+  foreach t in array array['marketing_kpis_daily', 'ad_metric_adjustments'] loop
+    v_oid := to_regclass('public.' || t);
+    if v_oid is not null
+       and not exists (select 1 from pg_trigger
+                        where tgrelid = v_oid and tgname = 'stamp_company_entity_id') then
+      execute format('create trigger stamp_company_entity_id before insert on public.%I
+                        for each row execute function public.stamp_company_entity_id()', t);
+    end if;
+  end loop;
 end $$;
 create function refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 create table marketing_kpis_daily(
@@ -58,7 +69,8 @@ create table marketing_kpis_daily(
   platform text not null, account_id text, day_date date not null,
   campaign_id text, campaign_name text, impressions bigint, clicks bigint,
   spend numeric, conversions numeric, conversion_value numeric, sessions bigint,
-  extra jsonb, row_hash text not null unique);
+  extra jsonb, row_hash text not null unique,
+  source text, synced_at timestamptz default now(), sync_batch_id text);
 select public.attach_stamp_company_entity_id_triggers();
 grant all on marketing_kpis_daily to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated;
@@ -91,9 +103,19 @@ if (MUT === 'resync') mutate(`create trigger zz_apply_ad_metric_adjustments
   after insert or update on public.marketing_kpis_daily
   for each row when (pg_trigger_depth() < 1)
   execute function public.tg_marketing_kpis_apply_adjustments();`, '');
-if (MUT === 'overlap') mutate(`create trigger ad_metric_adjustments_no_overlap
+if (MUT === 'overlap') mutate(`create trigger zz_ad_metric_adjustments_no_overlap
   before insert or update on public.ad_metric_adjustments
   for each row execute function public.tg_ad_metric_adjustments_no_overlap();`, '');
+if (MUT === 'stamporder') mutate('create trigger zz_ad_metric_adjustments_no_overlap',
+  'create trigger ad_metric_adjustments_no_overlap');
+if (MUT === 'lock') mutate(`  perform pg_advisory_xact_lock(hashtextextended(
+    coalesce(new.company_entity_id::text, '') || ':' || new.platform || ':' || new.metric, 0));`, '');
+if (MUT === 'providerraw') mutate('      v_provider := new.synced_at is distinct from old.synced_at;',
+  '      v_provider := false;');
+if (MUT === 'dropmark') mutate(`        if v_mark is not null then
+          v_drop := v_drop || a.metric;
+          v_changed := true;
+        end if;`, '');
 if (MUT === 'nullkeep') mutate(`       set %1$I = case when k.extra -> 'silo_adjusted' -> %2$L ? 'raw'
                        then (k.extra -> 'silo_adjusted' -> %2$L ->> 'raw')::numeric
                        else k.%1$I end,`,
@@ -219,7 +241,7 @@ await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, da
   campaign_name, spend, conversions, conversion_value, clicks, row_hash)
   values($1,'google_ads','2026-07-22',$2,'Pmax_Country_Testing',45.10,2,13486.00,10,'a1')
   on conflict (row_hash) do update set conversion_value = excluded.conversion_value,
-    spend = excluded.spend, extra = marketing_kpis_daily.extra`, [A, CAMP]);
+    spend = excluded.spend, synced_at = excluded.synced_at`, [A, CAMP]);
 await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
   campaign_name, spend, conversions, conversion_value, clicks, row_hash)
   values($1,'google_ads','2026-07-22',$2,'Pmax_Country_Testing',5,1,9999.00,3,'a5')`, [A, CAMP]);
@@ -243,7 +265,7 @@ await db.exec('set role service_role');
 await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
   campaign_name, spend, conversions, conversion_value, clicks, row_hash)
   values($1,'google_ads','2026-07-23',$2,'Pmax_Country_Testing',43.92,2.52,157.70,10,'a3')
-  on conflict (row_hash) do update set clicks = excluded.clicks, extra = marketing_kpis_daily.extra`,
+  on conflict (row_hash) do update set clicks = excluded.clicks, synced_at = excluded.synced_at`,
   [A, CAMP]);
 await db.exec('reset role');
 assert.equal(await valueOf('a3', 'clicks'), 8, 'a re-synced row lost the integer override');
@@ -264,7 +286,8 @@ await db.exec('set role service_role');
 await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
   campaign_name, spend, conversions, conversion_value, clicks, row_hash)
   values($1,'google_ads','2026-07-22',$2,'Pmax_Country_Testing',45.10,2,27000.00,10,'a1')
-  on conflict (row_hash) do update set conversion_value = excluded.conversion_value, spend = excluded.spend`,
+  on conflict (row_hash) do update set conversion_value = excluded.conversion_value,
+    spend = excluded.spend, synced_at = excluded.synced_at`,
   [A, CAMP]);
 await db.exec('reset role');
 assert.equal(await valueOf('a1'), 0, 'a restated row put the bad number back');
@@ -327,6 +350,81 @@ await asUser(A, true, async () => {
 });
 assert.equal((await one("select sessions from marketing_kpis_daily where row_hash = 'a7'")).sessions, null,
   'removing the override left a measured zero where the platform measured nothing');
+
+// A restatement that happens to equal the correction's own target: the platform
+// now says 0 for an excluded day. The saved raw must follow, or removing the
+// correction would resurrect a number the platform has retracted.
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, reason)
+    values($1,'google_ads',$2,'2026-07-22','2026-07-22','conversion_value','exclude','retracted')`, [A, CAMP]);
+});
+assert.equal(await rawOf('a1'), 27000.00, 'the correction did not capture the platform value');
+await db.exec('set role service_role');
+await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
+  campaign_name, spend, conversions, conversion_value, clicks, row_hash)
+  values($1,'google_ads','2026-07-22',$2,'Pmax_Country_Testing',45.10,2,0,10,'a1')
+  on conflict (row_hash) do update set conversion_value = excluded.conversion_value,
+    synced_at = excluded.synced_at`, [A, CAMP]);
+await db.exec('reset role');
+assert.equal(await rawOf('a1'), 0, 'a restatement to the target left a stale raw value behind');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where reason = 'retracted'");
+});
+assert.equal(await valueOf('a1'), 0, 'removing the correction resurrected a retracted number');
+
+// And a metric that was measured and then is not: the mark goes, so removing the
+// correction cannot put the old measurement back.
+await db.exec('set role service_role');
+await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
+  campaign_name, spend, conversions, conversion_value, sessions, row_hash)
+  values($1,'google_ads','2026-07-28',$2,'Pmax_Country_Testing',20,1,60,500,'a8')`, [A, CAMP]);
+await db.exec('reset role');
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(company_entity_id, platform, campaign_id,
+      day_from, day_to, metric, mode, reason)
+    values($1,'google_ads',$2,'2026-07-28','2026-07-28','sessions','exclude','bad sessions')`, [A, CAMP]);
+});
+assert.equal(await valueOf('a8', 'sessions'), 0, 'a measured metric was not excluded');
+assert.equal(await rawOf('a8', 'sessions'), 500, 'the measured sessions value was not kept');
+await db.exec('set role service_role');
+await db.query(`insert into marketing_kpis_daily(company_entity_id, platform, day_date, campaign_id,
+  campaign_name, spend, conversions, conversion_value, sessions, row_hash)
+  values($1,'google_ads','2026-07-28',$2,'Pmax_Country_Testing',20,1,60,null,'a8')
+  on conflict (row_hash) do update set sessions = excluded.sessions, synced_at = excluded.synced_at`,
+  [A, CAMP]);
+await db.exec('reset role');
+assert.equal((await one("select sessions from marketing_kpis_daily where row_hash = 'a8'")).sessions, null,
+  'an unmeasured metric was held at the excluded zero');
+assert.equal(await rawOf('a8', 'sessions'), null, 'the stale mark was left on an unmeasured metric');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where reason = 'bad sessions'");
+});
+assert.equal((await one("select sessions from marketing_kpis_daily where row_hash = 'a8'")).sessions, null,
+  'removing the correction put back a measurement the platform no longer reports');
+
+// The overlap guard must see the company the stamp fills in, so an insert that
+// leaves company_entity_id out is still refused.
+await asUser(A, true, async () => {
+  await db.query(`insert into ad_metric_adjustments(platform, campaign_id, day_from, day_to,
+      metric, mode, override_value, reason)
+    values('google_ads',$1,'2026-09-01','2026-09-30','conversion_value','override',5,'stamped')`, [CAMP]);
+});
+await refused(A, true,
+  `insert into ad_metric_adjustments(platform, campaign_id, day_from, day_to,
+     metric, mode, override_value, reason)
+   values('google_ads',$1,'2026-09-15','2026-10-15','conversion_value','override',6,'stamped overlap')`,
+  [CAMP], 'an overlapping correction slipped past the guard when the company was left to the stamp');
+await asUser(A, true, async () => {
+  await db.query("delete from ad_metric_adjustments where reason = 'stamped'");
+});
+
+// Two transactions could otherwise each see no competitor and both commit.
+// PGlite is single-connection, so this is asserted on the definition.
+const guardDef = (await one(
+  "select pg_get_functiondef('public.tg_ad_metric_adjustments_no_overlap()'::regprocedure) d")).d;
+assert.match(guardDef, /pg_advisory_xact_lock/,
+  'the overlap check is not serialized, so two concurrent inserts can both pass');
 
 // Constraints: only a metric the table has, an override needs a value, and a
 // range cannot run backwards.

@@ -120,32 +120,57 @@ end $$;
 revoke all on function public.ad_metric_adjustment_target(text, text, numeric) from public, anon, authenticated, silo_integration;
 
 -- Every writer of marketing_kpis_daily goes through this, so a corrected metric
--- survives the next sync.
+-- survives the next sync and the raw value kept beside it is always the last one
+-- the platform sent.
 --
--- It runs AFTER the write, not before, and re-reads the stored row through
--- apply_ad_metric_adjustments(). A BEFORE trigger cannot do this correctly: the
--- syncs upsert with `on conflict do update` over the metric columns only and
--- never send `extra`, so a value corrected on the proposed insert arrives at the
--- update already equal to the target, and the platform's restated raw number is
--- nowhere to be read. Letting the raw row land first and correcting it in place
--- means the raw value kept in extra.silo_adjusted is always the latest one the
--- platform sent.
+-- It runs AFTER the write, not before, because the syncs upsert the metric
+-- columns only and never send `extra`: before the write there is no way to read
+-- the platform's restated number at the conflict update, and no way to tell it
+-- from a correction already stored.
 --
--- The guard is pg_trigger_depth(), which a WHEN clause reads as the depth
--- BEFORE this trigger: 0 for an ordinary write, 1 for the correcting UPDATE this
--- trigger itself issues, which is therefore not re-entered. Fail-soft on purpose -- an
--- adjustment this cannot read leaves the raw row stored and warns, because a
--- wrong number beats a broken sync.
+-- Two things make that distinction here. pg_trigger_depth() in the WHEN clause
+-- is the depth BEFORE this trigger -- 0 for an ordinary write, 1 for the
+-- correcting UPDATE this trigger itself issues, which is therefore not
+-- re-entered. And `synced_at`, which every sync stamps on every row it writes
+-- while apply/restore never touch it, says whether the metric columns hold what
+-- the platform just sent. After such a write they do, WHATEVER they equal -- so
+-- the raw value is re-captured even when the platform's new number happens to
+-- equal the correction's own target.
+--
+-- Fail-soft on purpose: an adjustment this cannot read leaves the raw row
+-- stored and warns, because a wrong number beats a broken sync.
 create or replace function public.tg_marketing_kpis_apply_adjustments()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  a public.ad_metric_adjustments;
+  v_row jsonb;
+  v_provider boolean;
+  v_patch jsonb := '{}'::jsonb;
+  v_marks jsonb := '{}'::jsonb;
+  v_drop text[] := '{}'::text[];
+  v_changed boolean := false;
+  v_cur numeric;
+  v_target numeric;
+  v_mark jsonb;
+  v_extra jsonb;
+  v_obj jsonb;
+  v_sets text := '';
+  m text;
 begin
   begin
-    if exists (
-      select 1 from public.ad_metric_adjustments adj
+    v_row := to_jsonb(new);
+    if tg_op = 'INSERT' then
+      v_provider := true;
+    else
+      v_provider := new.synced_at is distinct from old.synced_at;
+    end if;
+
+    for a in
+      select * from public.ad_metric_adjustments adj
        where adj.is_active
          and adj.company_entity_id = new.company_entity_id
          and adj.platform = new.platform
@@ -154,13 +179,64 @@ begin
          and (adj.account_id is null or adj.account_id = new.account_id)
          and (adj.campaign_id is null or adj.campaign_id = new.campaign_id)
          and (adj.campaign_name is null or adj.campaign_name = new.campaign_name)
-    ) then
-      perform public.apply_ad_metric_adjustments(null, new.id);
+       order by adj.created_at
+    loop
+      v_target := public.ad_metric_adjustment_target(a.metric, a.mode, a.override_value);
+      continue when v_target is null;
+      v_cur := nullif(v_row ->> a.metric, '')::numeric;
+      v_mark := new.extra -> 'silo_adjusted' -> a.metric;
+
+      -- NULL means the platform did not measure the metric, never zero, so
+      -- there is nothing to exclude. A mark left from a day it DID measure is
+      -- now wrong and goes.
+      if a.mode = 'exclude' and v_cur is null then
+        if v_mark is not null then
+          v_drop := v_drop || a.metric;
+          v_changed := true;
+        end if;
+        continue;
+      end if;
+
+      if v_provider or v_mark is null or (v_mark ->> 'adjustment_id') is distinct from a.id::text then
+        -- The column holds a number we did not write, so it is the platform's.
+        if v_cur is distinct from v_target
+           or (v_mark -> 'raw') is distinct from to_jsonb(v_cur)
+           or (v_mark ->> 'adjustment_id') is distinct from a.id::text then
+          v_changed := true;
+        end if;
+        v_marks := v_marks || jsonb_build_object(a.metric, jsonb_build_object(
+          'raw', v_cur, 'adjustment_id', a.id, 'mode', a.mode, 'at', now()));
+        v_patch := v_patch || jsonb_build_object(a.metric, v_target);
+      elsif v_cur is distinct from v_target then
+        -- Already marked by this adjustment and off target: repair the value and
+        -- leave the platform's raw as it was.
+        v_patch := v_patch || jsonb_build_object(a.metric, v_target);
+        v_changed := true;
+      end if;
+    end loop;
+
+    if not v_changed then
+      return null;
     end if;
+
+    v_extra := coalesce(new.extra, '{}'::jsonb);
+    v_obj := coalesce(v_extra -> 'silo_adjusted', '{}'::jsonb) || v_marks;
+    foreach m in array v_drop loop
+      v_obj := v_obj - m;
+    end loop;
+    v_extra := case when v_obj = '{}'::jsonb then v_extra - 'silo_adjusted'
+                    else v_extra || jsonb_build_object('silo_adjusted', v_obj) end;
+
+    for m in select jsonb_object_keys(v_patch) loop
+      v_sets := v_sets || format('%I = %L::numeric, ', m, v_patch ->> m);
+    end loop;
+    execute format('update public.marketing_kpis_daily set %s extra = %L::jsonb where id = %L',
+                   v_sets, v_extra, new.id);
+    return null;
   exception when others then
     raise warning 'ad metric adjustments skipped for marketing_kpis_daily row: %', sqlerrm;
+    return null;
   end;
-  return null;
 end $$;
 
 -- Postgres grants EXECUTE on a new function to PUBLIC, and Supabase re-grants it
@@ -264,6 +340,12 @@ revoke all on function public.restore_ad_metric_adjustment(uuid, text) from publ
 -- change on the next sync. Stacking is not supported, so an intersecting active
 -- scope is refused outright. A NULL account or campaign means "any", so it
 -- intersects a named one.
+--
+-- The lock is what makes the check true under concurrency: a plain
+-- select-then-accept lets two transactions each see no committed competitor and
+-- both commit. Scopes can overlap without being equal, so no unique or
+-- exclusion constraint expresses this; the lock is taken per company, platform
+-- and metric, which is as narrow as the check itself.
 create or replace function public.tg_ad_metric_adjustments_no_overlap()
 returns trigger
 language plpgsql
@@ -274,6 +356,8 @@ begin
   if not new.is_active then
     return new;
   end if;
+  perform pg_advisory_xact_lock(hashtextextended(
+    coalesce(new.company_entity_id::text, '') || ':' || new.platform || ':' || new.metric, 0));
   select * into v_other
     from public.ad_metric_adjustments adj
    where adj.id <> new.id
@@ -297,8 +381,13 @@ end $$;
 
 revoke all on function public.tg_ad_metric_adjustments_no_overlap() from public, anon, authenticated, silo_integration;
 
+-- Named to sort AFTER stamp_company_entity_id, which
+-- attach_stamp_company_entity_id_triggers() puts on this table too: BEFORE row
+-- triggers fire in name order, and a guard that ran first would compare against
+-- a NULL company and find no competitor at all.
 drop trigger if exists ad_metric_adjustments_no_overlap on public.ad_metric_adjustments;
-create trigger ad_metric_adjustments_no_overlap
+drop trigger if exists zz_ad_metric_adjustments_no_overlap on public.ad_metric_adjustments;
+create trigger zz_ad_metric_adjustments_no_overlap
   before insert or update on public.ad_metric_adjustments
   for each row execute function public.tg_ad_metric_adjustments_no_overlap();
 

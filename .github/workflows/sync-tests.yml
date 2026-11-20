@@ -2788,7 +2788,7 @@ jobs:
       - name: The ad metric adjustment guards, removed, must break it
         run: |
           set -u
-          for m in rls company admin funcgrant rawkeep resync failsoft scope overlap nullkeep nullexclude; do
+          for m in rls company admin funcgrant rawkeep resync failsoft scope overlap nullkeep nullexclude providerraw dropmark stamporder lock; do
             if AD_ADJ_MUTATION="$m" node scripts/tests/ad-metric-adjustments-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

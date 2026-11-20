@@ -10335,8 +10335,14 @@ select 'ad metric adjustments' as check_name,
       then 'BROKEN — the next sync would put a corrected metric back to the platform''s value'
     when not exists (select 1 from pg_trigger
                       where tgrelid = 'public.ad_metric_adjustments'::regclass
-                        and tgname = 'ad_metric_adjustments_no_overlap' and not tgisinternal)
+                        and tgname = 'zz_ad_metric_adjustments_no_overlap' and not tgisinternal)
       then 'BROKEN — two active corrections could fight over the same metric'
+    when position('pg_advisory_xact_lock' in
+                  pg_get_functiondef('public.tg_ad_metric_adjustments_no_overlap()'::regprocedure)) = 0
+      then 'BROKEN — two concurrent inserts can both pass the overlap check'
+    when position('synced_at is distinct from old.synced_at' in
+                  pg_get_functiondef('public.tg_marketing_kpis_apply_adjustments()'::regprocedure)) = 0
+      then 'BROKEN — a restated metric would leave a stale value as the platform''s own'
     when position('jsonb_build_object(''silo_adjusted''' in
                   pg_get_functiondef('public.apply_ad_metric_adjustments(uuid,uuid)'::regprocedure)) = 0
       then 'BROKEN — the platform''s raw value is not kept, so deleting an adjustment cannot restore it'
