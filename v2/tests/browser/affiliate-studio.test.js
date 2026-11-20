@@ -81,6 +81,8 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // The picture has to survive the two lists disagreeing about the handle.
+  picnotitle: ['/affiliates/studio.js', '  const bare = out.filter((x) => !x.image_url && x.product_title);\n  if (!bare.length) return out;', '  return out;'],
   // A chip swap rebuilds the body, so it must carry what is typed with it.
   chipwipe: ['/affiliates/studio.js', "    if (k === S.commsTab) return null;\n"
     + "    if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };\n"
@@ -269,7 +271,7 @@ const closeDialog = (page) => page.evaluate(() => document.getElementById('afDia
 // The program's numbers sit on the Program tab, one along from People, and
 // only the open tab renders.
 // Outreach is one list at a time now, picked from chips (Blake 2026-11-20).
-const commsChip = async (p, k) => { await p.click(`#outreachBody [data-act="comms-tab"][data-k="${k}"]`); await p.waitForFunction((x) => document.querySelector(`#outreachBody [data-act="comms-tab"][data-k="${x}"]`)?.classList.contains('is-on'), k, { timeout: 5000 }); };
+const commsChip = async (p, k) => { await p.click(`#outreachBody [data-act="comms-tab"][data-k="${k}"]`); await p.waitForFunction((x) => document.querySelector(`#outreachBody [data-act="comms-tab"][data-k="${x}"]`)?.getAttribute('aria-selected') === 'true', k, { timeout: 5000 }); };
 const toProgram = async (p) => { await p.click('#tabs [data-tab="overview"]'); await p.waitForFunction(() => !!document.getElementById('overviewBody')?.innerHTML.trim(), null, { timeout: 5000 }); };
 // People is two sub-tabs now (Blake 2026-11-20): Affiliates and Discovery.
 // Clicking anything in the creators list means picking Discovery first.
@@ -323,7 +325,7 @@ const openRecords = async (page) => {
   await page.waitForFunction(() => !!document.querySelector('#recordsBody .bcn-card'), null, { timeout: 5000 });
 };
 // Records shows one list at a time, picked by chip (Blake 2026-11-17).
-const recTab = async (page, k) => { await page.click(`#recordsBody [data-act="rec-tab"][data-k="${k}"]`); await page.waitForSelector(`#recordsBody [data-k="${k}"].is-on`, { timeout: 5000 }); };
+const recTab = async (page, k) => { await page.click(`#recordsBody [data-act="rec-tab"][data-k="${k}"]`); await page.waitForSelector(`#recordsBody [data-k="${k}"][aria-selected="true"]`, { timeout: 5000 }); };
 // The portal shows one tab at a time (Blake 2026-11-17).
 const tab = (page, k) => page.click(`#tabs [data-tab="${k}"]`);
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
@@ -555,7 +557,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         products_master: [
           // The company-wide list calls the hat `trail-hat-classic`, which is
           // brand-a's own handle; the jacket belongs to another store.
-          { company_entity_id: CO, product_title: 'Trail Hat', product_type: 'Hat', image_url: 'https://photos.invalid/hat.png', shopify_handle: 'trail-hat-classic' },
+          { company_entity_id: CO, product_title: 'Trail Hat Classic', product_type: 'Hat', image_url: 'https://photos.invalid/hat.png', shopify_handle: 'trail-hat' },
           { company_entity_id: CO, product_title: 'Trail Jacket', product_type: 'Coat', image_url: null, shopify_handle: 'trail-jacket' }],
         shopify_product_skus: [
           { company_entity_id: CO, shop_domain: 'brand-a.myshopify.com', product_handle: 'trail-hat-classic', product_title: 'Trail Hat Classic', shopify_status: 'active' },
@@ -575,7 +577,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(sb, 'Trail Hat Classic', 'the store’s own name for the product is what is offered');
       R.not(sb, 'Trail Jacket', 'a product this store does not sell is not offered');
       R.not(sb, 'Trail Cap', 'a draft product is not offered: its page is not public');
-      R.ok('a result carries its picture from the company list where the handles agree',
+      // The handle is the thing that differs between stores, so the picture
+      // has to come off the title when the handles do not line up.
+      R.ok('a result carries its picture even when the company list files it under another handle',
         await st.evaluate(() => [...document.querySelectorAll('#shareBody img')].some((i) => /hat\.png/.test(i.getAttribute('src') || ''))));
       // Nothing by that name here is an answer, not a failed search: it says
       // where the company's other matches are, and why they are not offered.
@@ -626,7 +630,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq(row?.product_path, '/collections/spring', 'a launch shares its store page as a path, never another site');
     R.eq(row?.event_on, '2099-03-01');
     R.ok('only the snapshot fields are shared', row && Object.keys(row).sort().join() === 'company_entity_id,event_on,image_url,kind,note,product_path,program_id,source_id,title');
-    await page.waitForFunction(() => document.querySelector('#shareBody [data-act="share-tab"][data-k="launches"].is-on'), null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('#shareBody [data-act="share-tab"][data-k="launches"][aria-selected="true"]'), null, { timeout: 5000 });
     await page.click('#shareBody [data-act="share-tab"][data-k="ads"]');
     await page.waitForFunction(() => document.querySelector('#shareBody [data-act="feed-add"][data-kind="ad"]'), null, { timeout: 5000 });
     await page.click('#shareBody [data-act="feed-add"][data-kind="ad"]');

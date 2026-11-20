@@ -576,6 +576,7 @@ function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'st
 // keeps its own ticks, and a tick on a row that left the queue is dropped.
 const QSEL = {}; const QROWS = {};
 const qsel = (k) => (QSEL[k] ||= new Set());
+const subtabs = (label, items, act, current) => `<nav class="bcn-tabs af-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([k, title, n]) => `<button type="button" class="bcn-tab${k === current ? ' bcn-tab--active' : ''}" role="tab" aria-selected="${k === current}" data-act="${act}" data-k="${esc(k)}">${esc(title)}${n ? ` <span class="af-tab-count">${num(n)}</span>` : ''}</button>`).join('')}</nav>`;
 function queue(k, rows, renderRow, actions, emptyText) {
   const sel = qsel(k);
   const ids = rows.map((r) => r.id); QROWS[k] = ids;
@@ -674,7 +675,7 @@ function renderRecords() {
   const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
   if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
   const g = groups.find((x) => x.key === S.recTab);
-  const chips = `<div class="af-rec-chips" role="tablist" aria-label="Records">${groups.map((x) => `<button type="button" class="af-rec-chip${x.key === S.recTab ? ' is-on' : ''}" role="tab" aria-selected="${x.key === S.recTab}" data-act="rec-tab" data-k="${x.key}">${esc(x.title)}</button>`).join('')}</div>`;
+  const chips = subtabs('Records', groups.map((x) => [x.key, x.title, 0]), 'rec-tab', S.recTab);
   $('recordsBody').innerHTML = g ? `${chips}<div class="af-rec-list${S.recAll ? '' : ' af-rec-capped'}" id="recList">${g.parts.join('')}</div>` : empty('Nothing recorded yet.');
   // "Show all" only where a list is longer than the first rows.
   const list = $('recList');
@@ -1532,7 +1533,7 @@ function renderOutreach() {
   // Open on what is waiting, so the first thing seen is the first thing to do.
   if (!views.some(([k]) => k === S.commsTab)) S.commsTab = (views.find(([, , n]) => n) || views[0] || [])[0] || 'approve';
   const chosenComms = views.find(([k]) => k === S.commsTab);
-  const commsChips = `<div class="af-rec-chips" role="tablist" aria-label="Outreach">${views.map(([k, label, n]) => `<button type="button" class="af-rec-chip${k === S.commsTab ? ' is-on' : ''}" role="tab" aria-selected="${k === S.commsTab}" data-act="comms-tab" data-k="${k}">${esc(label)}${n ? ` <span class="af-mono">${num(n)}</span>` : ''}</button>`).join('')}</div>`;
+  const commsChips = subtabs('Outreach', views.map(([k, label, n]) => [k, label, n]), 'comms-tab', S.commsTab);
   // Sent, outcomes and export batches live on Records, not here: this
   // registers that Records group and renders nothing on Outreach.
   more('Message history', [
@@ -1755,7 +1756,23 @@ async function withProductImages(rows) {
   if (error || !data) return rows;
   const by = new Map();
   for (const x of data) if (!by.has(x.shopify_handle) || (!by.get(x.shopify_handle).image_url && x.image_url)) by.set(x.shopify_handle, x);
-  return rows.map((x) => ({ ...x, image_url: by.get(x.shopify_handle)?.image_url || null, product_type: by.get(x.shopify_handle)?.product_type || '' }));
+  const out = rows.map((x) => ({ ...x, image_url: by.get(x.shopify_handle)?.image_url || null, product_type: by.get(x.shopify_handle)?.product_type || '' }));
+  // The handle is the very thing that differs between stores, so matching on
+  // it alone leaves the store's own version of a product with no picture.
+  // Fall back to its title, which the two lists do agree on, for the ones
+  // still bare -- a thumbnail, never anything a code is made from.
+  const bare = out.filter((x) => !x.image_url && x.product_title);
+  if (!bare.length) return out;
+  const t = await db.from('products_master').select('product_title, image_url, product_type')
+    .eq('company_entity_id', CO).in('product_title', [...new Set(bare.map((x) => x.product_title))]).not('image_url', 'is', null);
+  if (t.error || !t.data?.length) return out;
+  const byTitle = new Map();
+  for (const x of t.data) if (!byTitle.has(x.product_title)) byTitle.set(x.product_title, x);
+  for (const x of out) {
+    const hit = x.image_url ? null : byTitle.get(x.product_title);
+    if (hit) { x.image_url = hit.image_url; x.product_type = x.product_type || hit.product_type || ''; }
+  }
+  return out;
 }
 // ── Affiliates ───────────────────────────────────────────────────────────
 function renderAffiliates() {
@@ -1996,7 +2013,7 @@ async function renderShare() {
     ['products', 'Products', null],
   ];
   if (!tabs.some(([k]) => k === S.shareTab)) S.shareTab = waiting ? 'content' : 'shared';
-  const chips = `<div class="af-rec-chips" role="tablist" aria-label="Share">${tabs.map(([k, label, n]) => `<button type="button" class="af-rec-chip${k === S.shareTab ? ' is-on' : ''}" role="tab" aria-selected="${k === S.shareTab}" data-act="share-tab" data-k="${k}">${esc(label)}${n ? ` <span class="af-mono">${num(n)}</span>` : ''}</button>`).join('')}</div>`;
+  const chips = subtabs('Share', tabs.map(([k, label, n]) => [k, label, n]), 'share-tab', S.shareTab);
   const capped = (rows, emptyText) => `${shareList(shareCap(rows), emptyText)}${shareMore(rows.length)}`;
   const views = {
     shared: () => card('What your affiliates see', capped(sharedRows, 'Nothing shared yet. Pick from Launches, Ads or Products.'), `${num(sharedAll.length)} shared`),
