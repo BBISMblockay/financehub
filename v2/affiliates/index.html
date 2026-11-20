@@ -782,8 +782,10 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Dashboard</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
+      <!-- People first: it is where the work starts, so it is what opens
+           (Blake 2026-11-20). The program's numbers sit one along. -->
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="people" id="tab-people">People</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="overview" id="tab-overview">Program</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="comms" id="tab-comms">Outreach</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Money</button>

@@ -319,7 +319,7 @@ const PROSPECT_LIST_CAP = 20;
 // Declared before S, because S.view calls readView() as it is built: a const
 // read before its own initializer throws, and the choice silently reverted.
 const VIEW_KEY = 'silo.affiliates.view';
-const S = { programs: [], programId: null, tab: 'overview', peopleSub: 'discovery', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -1477,8 +1477,12 @@ function renderProspects() {
 function renderOutreach() {
   const d = S.d; const p = prog();
   const byState = (st) => d.drafts.filter((x) => (Array.isArray(st) ? st.includes(x.state) : x.state === st));
-  const who = (x) => `${esc(x.recipient_email || x.recipient_handle)}<div class="af-muted">${esc(d.prospectById[x.prospect_id]?.display_name || '')} · ${esc(x.channel)}</div>`;
-  const msg = (x) => `<div class="af-evidence"><strong>${esc(x.subject)}</strong><br>${esc(String(x.body || '').slice(0, 220))}${String(x.body || '').length > 220 ? '…' : ''}</div>`;
+  // The person first, their address under it: a raw channel id as the headline
+  // reads as noise, and every draft starts from one template, so the whole
+  // body on every row is the same text over and over (Blake 2026-11-20).
+  const named = (x) => d.prospectById[x.prospect_id]?.display_name || x.recipient_email || x.recipient_handle || '—';
+  const who = (x) => `${esc(named(x))}<div class="af-muted">${esc(x.recipient_email || x.recipient_handle || '')} · ${esc(x.channel)}</div>`;
+  const msg = (x) => `<div class="af-kv-line">${esc(x.subject || '')}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
   // "Via <app>": a batch an AI connection claimed (outreach:send) to send from
   // the approver's own mailbox, and a send it recorded. Null for a person.
@@ -1504,25 +1508,40 @@ function renderOutreach() {
   // Inbound: people who found the brand and applied (Blake, 2026-11-17).
   const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));
   const appCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Applicant') : esc(x.display_name || x.handle || 'Applicant')}<div class="af-muted">${esc(PLATFORM_NAMES[x.platform] || x.platform || '')}${x.handle ? ` · ${esc(x.handle)}` : ''}${x.contact_email ? ` · ${esc(x.contact_email)}` : ''}</div></div>${x.evidence?.note || x.evidence?.pitch ? `<div class="af-item-detail">${esc(String(x.evidence.note || x.evidence.pitch).slice(0, 300))}</div>` : ''}<div class="af-muted">Applied ${fmtTime(x.collected_at || x.created_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' })}</div></div>` : ''}</article>`;
-  $('outreachBody').innerHTML = [
-    surface('Inbound', itemList(applied, appCard, 'No applications waiting.'), `${num(applied.length)} applied`),
-    editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
-    surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
-      'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`),
-    readyDm.length ? surface('Send by DM', itemList(readyDm, dmCard), `${num(readyDm.length)} with no email`) : '',
-    surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
+  // One list at a time, picked from chips, as Records and Share already are
+  // (Blake 2026-11-20: the tab scrolled for pages). Nothing folds: a chip is
+  // a tab, and the list under it is open.
+  const views = [
+    ['approve', 'To approve', drafts.length, () => surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+      'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`)],
+    ['email', 'Send by email', ready.length, () => surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
       ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`),
-    out.length ? surface('Mark sent', itemList(out, exportedCard), `${num(out.length)} exported`) : '',
-    hasOutreachMessage() ? card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
+      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`)],
+    ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', itemList(readyDm, dmCard, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
+    ['sent', 'Mark sent', out.length, () => surface('Mark sent', itemList(out, exportedCard, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
+    ['inbound', 'Inbound', applied.length, () => surface('Inbound', itemList(applied, appCard, 'No applications waiting.'), `${num(applied.length)} applied`)],
+    ['template', 'Template', 0, () => card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
       ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
       <div class="af-set-tags">${TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save template', 'tpl-save', {}, 'primary')}${drafts.length ? btn(`Redraft ${num(drafts.length)} waiting`, 'tpl-redraft', {}, 'surface', { confirm: true }) : ''}</div>` : ''}`, 'New drafts start from this') : '',
-    card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'),
-    more('Message history', [
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save template', 'tpl-save', {}, 'primary')}${drafts.length ? btn(`Redraft ${num(drafts.length)} waiting`, 'tpl-redraft', {}, 'surface', { confirm: true }) : ''}</div>` : ''}`, 'New drafts start from this'), !hasOutreachMessage()],
+    ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
+  ].filter(([, , , , hide]) => !hide);
+  // Open on what is waiting, so the first thing seen is the first thing to do.
+  if (!views.some(([k]) => k === S.commsTab)) S.commsTab = (views.find(([, , n]) => n) || views[0] || [])[0] || 'approve';
+  const chosenComms = views.find(([k]) => k === S.commsTab);
+  const commsChips = `<div class="af-rec-chips" role="tablist" aria-label="Outreach">${views.map(([k, label, n]) => `<button type="button" class="af-rec-chip${k === S.commsTab ? ' is-on' : ''}" role="tab" aria-selected="${k === S.commsTab}" data-act="comms-tab" data-k="${k}">${esc(label)}${n ? ` <span class="af-mono">${num(n)}</span>` : ''}</button>`).join('')}</div>`;
+  // Sent, outcomes and export batches live on Records, not here: this
+  // registers that Records group and renders nothing on Outreach.
+  more('Message history', [
     card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
     card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.')),
-    ]),
+  ]);
+  $('outreachBody').innerHTML = [
+    editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
+    commsChips,
+    // The chip is the heading, so the list under it has to show its empty
+    // line rather than vanish the way a stacked card does.
+    chosenComms?.[3]() || `<section class="af-surface"><header class="af-surface-head"><h2>${esc(chosenComms?.[1] || 'Outreach')}</h2></header><div class="af-surface-body">${empty('Nothing waiting here.')}</div></section>`,
   ].join('');
 }
 
@@ -1690,33 +1709,50 @@ function programShop() {
   const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
   return picked.length ? null : (st.length === 1 ? st[0] : null);
 }
-// Keep the products that store actually carries. `shopify_product_skus` is
-// per shop and written by the catalog sync, so absence means "not seen since
-// the last sync", never "deleted" -- the ones left out are counted and said,
-// not silently dropped.
-async function inProgramStore(rows) {
-  const shop = programShop();
-  if (!shop || !rows.length) return rows;
-  const handles = rows.map((x) => x.shopify_handle);
-  const { data, error } = await db.from('shopify_product_skus').select('product_handle')
-    .eq('company_entity_id', CO).eq('shop_domain', shop).in('product_handle', handles);
-  // A failed read must not empty the list: show everything, as before.
-  if (error) return rows;
-  // Nothing matched. That is either a store carrying none of these products or
-  // a store SILO has not read yet, and only the second earns the fallback --
-  // this read was narrowed to the matched handles, so it cannot tell them
-  // apart. Ask whether the shop has any catalog row at all.
+// The program store's name for a message, or a plain word when there is none.
+const shopLabel = () => { const sh = programShop(); return sh ? storeName(sh) : 'this program\u2019s store'; };
+// Search the PROGRAM STORE'S OWN product list, not the company-wide one.
+// The same product carries a different handle in different stores -- the main
+// store calls 6432 Men's `6432-t-shirt` while the retail stores call it
+// `6432` -- and a product code can only be made against the handle its own
+// store uses. `products_master` is one row per company and keeps whichever
+// handle it saw, so searching it offers handles the program's store cannot
+// make a code for, and filtering it by this store hides products the store
+// really does sell (Blake 2026-11-20). Drafts and archived products are left
+// out: their pages are not public, so a share of one is a dead link.
+// Returns null when the store's list cannot be used, and the caller then
+// searches the company-wide one as before.
+async function storeProducts(shop, like) {
+  const { data, error } = await db.from('shopify_product_skus')
+    .select('product_title, product_handle')
+    .eq('company_entity_id', CO).eq('shop_domain', shop)
+    .or('shopify_status.eq.active,shopify_status.is.null')
+    .ilike('product_title', like).limit(400);
+  // A failed read is not an empty store.
+  if (error) return null;
   if (!data || !data.length) {
+    // Nothing matched here. Either this store sells none of them or SILO has
+    // not read its catalog yet, and only the second earns the fallback, so
+    // ask whether the shop has any product row at all.
     const seen = await db.from('shopify_product_skus').select('product_handle')
       .eq('company_entity_id', CO).eq('shop_domain', shop).limit(1);
-    if (seen.error || !seen.data || !seen.data.length) return rows;
-    S.share.otherStore = rows.length;
-    return [];
+    return (seen.error || !seen.data || !seen.data.length) ? null : [];
   }
-  const here = new Set(data.map((x) => x.product_handle));
-  const kept = rows.filter((x) => here.has(x.shopify_handle));
-  S.share.otherStore = rows.length - kept.length;
-  return kept;
+  const seen = new Set();
+  return data
+    .filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.product_handle || '') && !seen.has(x.product_handle) && seen.add(x.product_handle))
+    .map((x) => ({ product_title: x.product_title || x.product_handle, shopify_handle: x.product_handle }));
+}
+// The store's list carries no picture, so borrow one from the company-wide
+// list where the handles agree. No picture is not a reason to hide a product.
+async function withProductImages(rows) {
+  if (!rows.length) return rows;
+  const { data, error } = await db.from('products_master').select('shopify_handle, image_url, product_type')
+    .eq('company_entity_id', CO).in('shopify_handle', rows.map((x) => x.shopify_handle));
+  if (error || !data) return rows;
+  const by = new Map();
+  for (const x of data) if (!by.has(x.shopify_handle) || (!by.get(x.shopify_handle).image_url && x.image_url)) by.set(x.shopify_handle, x);
+  return rows.map((x) => ({ ...x, image_url: by.get(x.shopify_handle)?.image_url || null, product_type: by.get(x.shopify_handle)?.product_type || '' }));
 }
 // ── Affiliates ───────────────────────────────────────────────────────────
 function renderAffiliates() {
@@ -1966,8 +2002,8 @@ async function renderShare() {
     launches: () => card('Upcoming launches', capped(launches, 'No upcoming launches.')),
     ads: () => card('Recent ads', capped(ads, 'No recent ads with a picture.')),
     products: () => card('Products', `<div class="af-row">${field('Find a product', input('prodQ', `placeholder="Name" value="${esc(sh.q)}"`))}${btn('Search', 'prod-search', {}, 'surface')}</div>${
-      products.length ? capped(products, '') : (sh.q ? empty(sh.otherStore ? 'No products match in this program\u2019s store.' : 'No products match.') : '<p class="af-muted">Search to pick products.</p>')}${
-      sh.otherStore ? `<p class="af-muted">${num(sh.otherStore)} more match in your other stores. A code is made in this program\u2019s store, so only what it sells is here.</p>` : ''}`),
+      products.length ? capped(products, '') : (sh.q ? empty(sh.otherStore ? `Nothing by that name in ${esc(shopLabel())}.` : 'No products match.') : '<p class="af-muted">Search to pick products.</p>')}${
+      sh.otherStore ? `<p class="af-muted">${num(sh.otherStore)} match in your other stores. This program\u2019s codes are made in ${esc(shopLabel())}, so only what that store sells can be shared here \u2014 and one product can be named differently from store to store.</p>` : ''}`),
   };
   $('shareBody').innerHTML = [
     storeLine,
@@ -2713,6 +2749,7 @@ const A = {
     return 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
+  'comms-tab': ({ k }) => { S.commsTab = k; renderOutreach(); return null; },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'share-all': () => { S.shareAll = true; renderShare(); return null; },
   'share-tab': ({ k }) => { S.shareTab = k; S.shareAll = false; renderShare(); return null; },
@@ -3214,16 +3251,29 @@ const A = {
     S.share.otherStore = 0;
     if (!q) { S.share.products = []; renderShare(); return; }
     const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    // What this program's own store sells, so every result carries a handle a
+    // code can be made against (Blake 2026-11-20).
+    const shop = programShop();
+    const mine = shop ? await storeProducts(shop, like) : null;
+    if (mine) {
+      S.share.products = await withProductImages(mine.slice(0, 30));
+      // An empty list reads as a failed search unless it says where the
+      // company's other matches are.
+      if (!mine.length) {
+        const { data } = await db.from('products_master').select('shopify_handle')
+          .eq('company_entity_id', CO).ilike('product_title', like).not('shopify_handle', 'is', null).limit(120);
+        S.share.otherStore = new Set((data || []).map((x) => x.shopify_handle)).size;
+      }
+      renderShare();
+      return;
+    }
+    // No store picked, or its list is unreadable or not synced yet: fall back
+    // to the company-wide list, as before.
     const { data, error } = await db.from('products_master').select('product_title, product_type, image_url, shopify_handle')
       .eq('company_entity_id', CO).ilike('product_title', like).not('shopify_handle', 'is', null).limit(120);
     if (error) throw error;
     const seen = new Set();
-    let found = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle));
-    // Only what THIS program's store sells (Blake 2026-11-20: a product code
-    // was made against a store that did not carry the product).
-    // products_master is one row per company across every store, so the shop's
-    // own product list is the one that decides.
-    found = await inProgramStore(found);
+    const found = (data || []).filter((x) => /^[A-Za-z0-9_.-]+$/.test(x.shopify_handle || '') && !seen.has(x.shopify_handle) && seen.add(x.shopify_handle));
     S.share.products = found.slice(0, 30);
     renderShare();
   },
