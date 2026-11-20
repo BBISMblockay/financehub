@@ -1745,17 +1745,48 @@ body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { hei
 .res-tag--neg { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
 /* bcn-table is table-layout: fixed, so every column is equal width unless
    it is told otherwise -- which is why the schedules table sprawled. */
-/* Eight columns since Period was added; table-layout is fixed, so every
-   width is stated and they sum to 90%, leaving 10% for the actions cell. */
-.res-table th:nth-child(1), .res-table td:nth-child(1) { width: 19%; }
-.res-table th:nth-child(2), .res-table td:nth-child(2) { width: 12%; }
-.res-table th:nth-child(3), .res-table td:nth-child(3) { width: 11%; }
-.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 20%; }
-.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 14%; }
+/* Nine columns since Owner was added; table-layout is fixed, so every width
+   is stated and they sum to 85%, leaving 15% for the actions cell. */
+.res-table th:nth-child(1), .res-table td:nth-child(1) { width: 17%; }
+.res-table th:nth-child(2), .res-table td:nth-child(2) { width: 11%; }
+.res-table th:nth-child(3), .res-table td:nth-child(3) { width: 9%; }
+.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 17%; }
+.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 10%; }
 .res-table th:nth-child(6), .res-table td:nth-child(6) { width: 7%; }
-.res-table th:nth-child(7), .res-table td:nth-child(7) { width: 7%; }
+.res-table th:nth-child(7), .res-table td:nth-child(7) { width: 8%; }
+.res-table th:nth-child(8), .res-table td:nth-child(8) { width: 6%; }
 .res-table td { vertical-align: top; }
 .res-table td:nth-child(4) { white-space: normal; word-break: break-word; }
+/* A failure, and a run log, each sit in a full-width row UNDER their
+   schedule, so they read as that schedule's and the fixed column widths do
+   not apply to them. */
+.res-failrow td, .res-historyrow td { white-space: normal; background: var(--bcn-band); }
+.res-failrow td { font-size: 12px; line-height: 1.5; }
+.res-failrow strong { color: var(--bcn-neg); }
+.res-errtext { font-family: var(--bcn-mono); font-size: 10.5px; margin-top: 4px; word-break: break-word; }
+.res-history { padding: 4px 0 2px; }
+.res-runtable { margin: 6px 0; background: var(--bcn-surface); }
+.res-runtable td { white-space: normal; }
+
+/* ── The panel's summary: what this schedule will actually do ───────────
+   A box above the controls, not below them: it is the answer the controls
+   are being set to produce, and a person reads it before pressing Save. */
+.res-summary {
+  padding: 11px 13px; background: var(--bcn-accent-soft);
+  border: 1px solid var(--bcn-accent-border); border-radius: var(--bcn-radius-sm);
+}
+.res-sentence { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--bcn-ink); font-weight: 600; }
+.res-summary .res-note { color: var(--bcn-ink-2); }
+/* How often and At, side by side: they are one decision read left to right,
+   and stacking them is what made the hour look like part of the frequency. */
+.res-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; }
+.res-row .res-field { min-width: 0; }
+/* A setting with no choice to make. Stated, never a select with one option. */
+.res-fixed { margin: 0; font-size: 13px; color: var(--bcn-ink); }
+.res-label--inline { margin-top: 10px; }
+.res-goes { margin: 0 0 6px; font-size: 12px; color: var(--bcn-ink-2); line-height: 1.45; }
+.res-peoplefilter { margin: 6px 0 4px; }
+.res-people { max-height: 168px; overflow-y: auto; }
 .res-tablefoot { display: flex; justify-content: flex-end; margin-top: 10px; }
 /* The frozen-dates notice sits above the filter bar, in the page's own
    gutter rather than the slicer bar's, so it reads as a statement about

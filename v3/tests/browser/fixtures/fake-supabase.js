@@ -155,7 +155,32 @@
         visibility: 'company', created_by_name: null, created_at: '2026-08-20T00:00:00Z',
         queries_run: ['select day_date, net_sales from t1'] },
     ],
-    profiles: [{ id: 'U1', name: 'Blake', email: 'blake@baseballism.com', role: 'owner' }],
+    profiles: [
+      { id: 'U1', name: 'Blake', email: 'blake@baseballism.com', role: 'owner', department: 'finance', is_active: true },
+      // A second member, so the schedule panel's people list and the
+      // "who gets it" summary have somebody to name who is not the viewer.
+      { id: 'U9', name: 'Jon Loomis', email: 'jon@example.com', role: 'user', department: 'marketing', is_active: true },
+    ],
+    // Roles are PER COMPANY: the schedule gates read entity_memberships, and
+    // the legacy global profiles.role only when there is no membership. Both
+    // paths exist here because isWorkspaceAdmin() reads them in that order.
+    entity_memberships: [
+      { user_id: 'U1', entity_id: 'C1', role: 'admin' },
+      { user_id: 'U9', entity_id: 'C1', role: 'member' },
+    ],
+    // One supported business timezone, exactly as production ships it
+    // (20260918120000). The schedule panel reads this to decide whether a zone
+    // is a choice or a fact, so a suite that wants the select can add a row.
+    supported_business_timezones: [
+      { tz_name: 'America/Los_Angeles', label: 'Pacific Time (US & Canada)', is_supported: true,
+        note: 'The only timezone honoured by every day-boundary site.' },
+    ],
+    // Scheduled report email (20261013180000). Empty by default: a workspace
+    // with nothing scheduled is the common case and the page has to read right
+    // in it; suites seed their own.
+    report_email_schedules: [],
+    report_email_subscriptions: [],
+    report_email_runs: [],
     // Shaped exactly like refresh_chat_schema_catalog() produces:
     // format_type() output per column. This is what lets semantics say
     // "total_units is a bigint, therefore a count, whatever its name".
@@ -293,6 +318,12 @@
         dashboards: db.dashboards, dashboard_widgets: db.dashboard_widgets,
         silo_chat_saved_reports: db.silo_chat_saved_reports,
         dashboard_filter_views: db.dashboard_filter_views,
+        // The schedule tables, so a suite can schedule a report on one page
+        // and then find, edit, pause and run that schedule from another --
+        // which is the whole reports-front-door flow.
+        report_email_schedules: db.report_email_schedules,
+        report_email_subscriptions: db.report_email_subscriptions,
+        report_email_runs: db.report_email_runs,
         // profiles too: the edit path branches on the viewer's ROLE (an
         // owner may edit a colleague's report, an admin may not), so a suite
         // has to be able to change role and reload.
@@ -304,6 +335,24 @@
   const base = (t) => t.replace(/_v$/, '');
 
   function viewRows(table) {
+    if (table === 'report_email_schedules_v') {
+      return db.report_email_schedules.map((row) => {
+        const rep2 = db.silo_chat_saved_reports.find((r) => r.id === row.report_id);
+        const dash = db.dashboards.find((d) => d.id === row.dashboard_id);
+        const owner = db.profiles.find((pr) => pr.id === row.created_by) || {};
+        const runs = db.report_email_runs
+          .filter((r) => r.schedule_id === row.id)
+          .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+        return {
+          ...row,
+          target_title: rep2 ? rep2.title : (dash ? dash.name : null),
+          created_by_name: owner.name || null,
+          created_by_email: owner.email || null,
+          subscriber_count: db.report_email_subscriptions.filter((x) => x.schedule_id === row.id).length,
+          last_run_status: runs[0] ? runs[0].status : null,
+        };
+      });
+    }
     if (table === 'dashboards_v') {
       return db.dashboards.map((d) => ({ filter_state: {}, ...d,
         widget_count: db.dashboard_widgets.filter((w) => w.dashboard_id === d.id).length }));
@@ -366,12 +415,22 @@
           ? 'R' + (db.silo_chat_saved_reports.length + 100)
           : base(table) === 'dashboard_widgets'
             ? 'W' + (db.dashboard_widgets.length + 1)
-            : 'D' + (db.dashboards.length + 1));
+            : base(table) === 'report_email_schedules'
+              ? 'SCH' + (db.report_email_schedules.length + 1)
+              : base(table) === 'report_email_runs'
+                ? 'RUN' + (db.report_email_runs.length + 1)
+                : 'D' + (db.dashboards.length + 1));
         const made = (Array.isArray(payload) ? payload : [payload]).map((p) => {
-          const row = { id: nextId(), created_by: 'U1', created_by_name: 'Blake',
+          const row = { created_by: 'U1', created_by_name: 'Blake',
             company_entity_id: 'C1', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
             description: null, visibility: 'company',
             ...(base(table) === 'silo_chat_saved_reports' ? { archived_at: null } : {}), ...p };
+          // After the payload, not before: a client that carries an `id` key
+          // holding undefined (an insert path that reuses its update payload)
+          // used to overwrite the generated id with nothing, where Postgres
+          // would have filled in the default. The row then had no id at all,
+          // and every button rendered from it pointed at ''.
+          if (row.id == null) row.id = nextId();
           db[base(table)].push(row);
           return row;
         });
@@ -450,6 +509,68 @@
     return api;
   }
 
+  /* ── Fake mail transport ────────────────────────────────────────────────
+     The delivery edge function is the only thing in this product that sends
+     real email, and it is reached by a plain fetch() rather than through the
+     Supabase client -- so stubbing the client is not enough to make a test
+     safe. This intercepts that one URL, records what would have been sent in
+     __FAKE_MAIL__, and writes the report_email_runs row the real function
+     writes, so Send test and Send now can be driven end to end with nothing
+     leaving the browser.
+
+     A suite can make a send fail by setting __FAKE_MAIL_FAIL__ to the error
+     the real function would have returned; the run row is then recorded as
+     failed with that message, which is what the plain-language failure and
+     the pause-on-permanent-fault behaviour are read from. */
+  const mail = window.__FAKE_MAIL__ = { sent: [], calls: [] };
+  const realFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    const url = String(typeof input === 'string' ? input : (input && input.url) || '');
+    if (!/\/functions\/v1\/report-email-deliver/.test(url)) return realFetch(input, init);
+    let body = {};
+    try { body = JSON.parse((init && init.body) || '{}'); } catch { body = {}; }
+    mail.calls.push(body);
+    const schedule = db.report_email_schedules.find((r) => r.id === body.schedule_id);
+    const fail = window.__FAKE_MAIL_FAIL__ || null;
+    const run = {
+      id: 'RUN' + (db.report_email_runs.length + 1),
+      schedule_id: body.schedule_id,
+      company_entity_id: 'C1',
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: fail ? 'failed' : 'succeeded',
+      trigger_kind: body.trigger || 'manual',
+      triggered_by: 'U1',
+      total_rows: fail ? null : 14,
+      attachment_count: fail ? null : 1,
+      delivery_mode: fail ? null : 'attachment',
+      error_message: fail || null,
+      recipient_count: fail ? null : 1,
+    };
+    db.report_email_runs.push(run);
+    if (schedule) {
+      if (fail) {
+        schedule.last_error = fail;
+        // The real handler pauses only on a fault the schedule owns, and never
+        // on a test send. Mirrored, because "did a failure pause it" is the
+        // behaviour the Schedules view reports.
+        const transient = /timeout|resend|network|not set|not configured/i.test(fail);
+        if (body.trigger !== 'test' && !transient) schedule.is_paused = true;
+      } else {
+        schedule.last_run_at = run.finished_at;
+        schedule.last_error = null;
+      }
+    }
+    persist();
+    if (!fail) mail.sent.push({ schedule_id: body.schedule_id, trigger: run.trigger_kind });
+    const payload = fail
+      ? { error: fail, run_id: run.id }
+      : { ok: true, run_id: run.id, rows: run.total_rows, recipients: 1, delivery_mode: 'attachment' };
+    return Promise.resolve(new Response(JSON.stringify(payload), {
+      status: fail ? 500 : 200, headers: { 'content-type': 'application/json' },
+    }));
+  };
+
   window.supabase = {
     createClient() {
       return {
@@ -470,6 +591,26 @@
           if (handler) {
             const response = await handler(args, db);
             if (response !== undefined) return response;
+          }
+          // The company's business timezone, read by the schedule panel so no
+          // page has to carry a zone literal.
+          if (name === 'silo_business_timezone') {
+            return { data: 'America/Los_Angeles', error: null };
+          }
+          if (name === 'pause_all_report_email_schedules') {
+            const hit = db.report_email_schedules.filter((r) => r.is_active && !r.is_paused);
+            hit.forEach((r) => { r.is_paused = true; });
+            persist();
+            return { data: hit.length, error: null };
+          }
+          if (name === 'duplicate_report_email_schedule') {
+            const row = db.report_email_schedules.find((r) => r.id === args.p_schedule_id);
+            if (!row) return { data: null, error: { message: 'schedule not found' } };
+            const copy = { ...row, id: 'SCH' + (db.report_email_schedules.length + 1),
+              name: (row.name || 'Copy') + ' (copy)', is_active: true, is_paused: false };
+            db.report_email_schedules.push(copy);
+            persist();
+            return { data: copy.id, error: null };
           }
           if (name === 'saved_report_archive_usage' || name === 'set_saved_report_archived') {
             const report = db.silo_chat_saved_reports.find((r) => r.id === args.p_report_id

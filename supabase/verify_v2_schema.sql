@@ -7621,6 +7621,16 @@ select 'Scheduled report CSV email' as check_name,
           where n.nspname = 'public' and p.proname = 'resolve_report_email_recipients'
           limit 1) not like '%v_kind = ''email''%'
       then 'MISSING — resolve_report_email_recipients() has no ''email'' branch; run 20261014060000_report_email_external_recipients.sql, or outside recipients are silently dropped'
+    -- 20261120040000 completes the 4x2 cadence matrix, which is what lets the
+    -- schedule panel offer "how often" and "what time" as two controls. Without
+    -- it the panel's 6:00 weekday option is refused by the CHECK at save time
+    -- and the person is told a database update is pending -- fail-soft, but the
+    -- feature is half there, so say so here rather than leaving it to a report
+    -- nobody can schedule.
+    when (select pg_get_constraintdef(oid) from pg_constraint
+          where conname = 'report_email_schedules_cadence_preset_check'
+          limit 1) not like '%weekdays_0600%'
+      then 'MISSING — the cadence CHECK still allows only the original four presets; run 20261120040000_report_email_cadence_matrix.sql, or half the delivery times the schedule panel offers are refused on save'
     else 'ok'
   end as status;
 

@@ -19872,4 +19872,8 @@ $c$select (select count(*) from v_po_header_summary
 -- Corrections land on marketing_kpis_daily itself, so pages, reports, Ask SILO
 -- and the MCP agree, and the platform's raw value stays in extra.silo_adjusted.
 \i migrations/20261120020000_ad_metric_adjustments.sql
+-- 20261120040000: scheduled report email -- the 4x2 cadence matrix, so "how
+-- often" and "what time" are two controls. Needs the generic computeNextRunAt
+-- (three copies) deployed with it.
+\i migrations/20261120040000_report_email_cadence_matrix.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

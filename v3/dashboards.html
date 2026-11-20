@@ -16,11 +16,17 @@
   BUMP THE VERSION WHENEVER A FILE IN v3/js OR dashboard.css CHANGES.
   It is one find-and-replace across v3/*.html; v3/README.md says so too.
 -->
-  <link rel="stylesheet" href="dashboard.css?v=20261020b" />
+  <link rel="stylesheet" href="dashboard.css?v=20261120a" />
   <style>
     /* ── Reports library ───────────────────────────────────────────────
        Page-specific, so it lives here rather than in dashboard.css (which
-       every canvas loads). Beacon tokens only; no new variables. */
+       every canvas loads). Beacon tokens only; no new variables.
+
+       This was a grid of cards with a Details fold-out on each. Cards put
+       three reports on a screen and the fold-out hid the one line that says
+       what a report answers, so finding a report meant opening several. A
+       compact table shows a dozen reports, what each answers, and whether it
+       is scheduled, without opening anything. */
     .v3-list-content { padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 14px; }
     .lib-tabs { padding: 0 18px; flex-shrink: 0; overflow-x: auto; }
     .lib-tabs .bcn-tab { flex-shrink: 0; white-space: nowrap; }
@@ -45,64 +51,45 @@
 
     .lib-pane { display: flex; flex-direction: column; gap: 14px; }
     .lib-pane[hidden] { display: none !important; }
-    .lib-group + .lib-group { margin-top: 22px; }
-    .lib-group-head { margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--bcn-ink-3); }
-    /* align-items: start, so opening one card's Details grows that card
-       and not every card in its row. Resting cards stay even because the
-       summary reserves its two lines. */
-    .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; align-items: start; }
 
-    /* One card = one link (the title) stretched over the whole card, plus a
-       Details button that sits above the stretch. Nothing else in the card
-       is inside the anchor, which is what used to underline every line. */
-    .lib-card {
-      position: relative; display: flex; flex-direction: column; gap: 6px;
-      padding: 14px 14px 12px; background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
-      transition: border-color .12s ease, box-shadow .12s ease;
-    }
-    .lib-card:hover { border-color: var(--bcn-accent-border); box-shadow: var(--bcn-shadow); }
-    .lib-card:has(.lib-link:focus-visible) { border-color: var(--bcn-accent); }
-    .lib-card-head { display: flex; align-items: flex-start; gap: 10px; }
-    .lib-icon {
-      flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; border-radius: var(--bcn-radius-sm);
-      background: var(--bcn-accent-soft); color: var(--bcn-accent);
-    }
-    .lib-title { margin: 3px 0 0; font-size: 14.5px; font-weight: 600; line-height: 1.3; color: var(--bcn-ink); min-width: 0; overflow-wrap: anywhere; }
+    /* One report = one row. `lib-card` is kept as the row's class: it is what
+       every deep link, test and style hook already names, and renaming it
+       would be churn with no reader-visible benefit. */
+    .lib-table { background: var(--bcn-surface); }
+    .lib-table td { vertical-align: top; white-space: normal; }
+    .lib-table th:nth-child(1), .lib-table td:nth-child(1) { width: 40%; }
+    .lib-table th:nth-child(2), .lib-table td:nth-child(2) { width: 12%; }
+    .lib-table th:nth-child(3), .lib-table td:nth-child(3) { width: 16%; }
+    .lib-table th:nth-child(4), .lib-table td:nth-child(4) { width: 14%; }
+    .lib-table tbody tr:hover { background: var(--bcn-band); }
+    .lib-title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; color: var(--bcn-ink); }
     .lib-link, .lib-link:visited { color: inherit; text-decoration: none; }
-    .lib-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
-    .lib-link:focus-visible { outline: none; }
-    .lib-link:focus-visible::after { outline: 2px solid var(--bcn-accent); outline-offset: 2px; }
-    .lib-card:hover .lib-title { color: var(--bcn-accent); }
-    .lib-card:has(.lib-title-text):hover .lib-title { color: var(--bcn-ink); }
+    .lib-link:hover { color: var(--bcn-accent); text-decoration: underline; }
+    .lib-link:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 2px; border-radius: 2px; }
+    /* What the report answers. Two lines at most: it is a label on the row,
+       not the documentation, and a long one would push every other row down. */
     .lib-summary {
-      margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--bcn-ink-2); min-height: 2.9em;
+      margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--bcn-ink-3);
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .lib-card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: auto; padding-top: 4px; }
-    .lib-meta { font-size: 11px; color: var(--bcn-ink-3); }
-    .lib-details-btn {
-      position: relative; z-index: 1; margin-left: auto;
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 3px 6px; border: 0; background: transparent; border-radius: var(--bcn-radius-sm);
-      font: inherit; font-size: 11.5px; font-weight: 500; color: var(--bcn-ink-3); cursor: pointer;
+    .lib-meta { font-size: 11.5px; color: var(--bcn-ink-3); }
+    .lib-row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .lib-report-action { font-size: 11.5px; padding: 3px 8px; }
+    /* Scheduled, as a word: the cadence when it is on, and plainly Paused or
+       Off when it is not -- a report whose email was switched off weeks ago is
+       not a report anyone receives. */
+    .lib-sched {
+      display: inline-block; padding: 1px 7px; border-radius: 999px;
+      font-family: var(--bcn-mono); font-size: 10.5px;
+      background: var(--bcn-pos-soft); color: var(--bcn-pos); white-space: nowrap;
     }
-    .lib-details-btn:hover { color: var(--bcn-accent); background: var(--bcn-accent-soft); }
-    .lib-details-btn:focus-visible { outline: 2px solid var(--bcn-accent); outline-offset: 1px; color: var(--bcn-accent); }
-    .lib-details-btn svg { transition: transform .12s ease; }
-    .lib-details-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
-    .lib-details {
-      position: relative; z-index: 1; margin: 2px 0 0; padding-top: 8px;
-      border-top: 1px solid var(--bcn-border); font-size: 12px; line-height: 1.55; color: var(--bcn-ink-2);
+    .lib-sched--off { background: var(--bcn-band); color: var(--bcn-ink-2); }
+    .lib-dash { color: var(--bcn-ink-3); }
+    .lib-sr {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap;
     }
-    .lib-details[hidden] { display: none; }
-    .lib-details p { margin: 0 0 6px; }
-    .lib-details dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 6px 0 0; }
-    .lib-details dt { color: var(--bcn-ink-3); }
-    .lib-details dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
-    .lib-report-action { position: relative; z-index: 1; font-size: 11.5px; padding: 3px 7px; }
     .lib-dialog { padding: 0; border: 1px solid var(--bcn-border); width: min(520px, calc(100% - 24px)); max-height: calc(100vh - 32px); overflow: auto; color: var(--bcn-ink); }
     .lib-dialog:not([open]) { display: none; }
     .lib-dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -117,13 +104,19 @@
     .lib-empty a { color: var(--bcn-accent); }
     .lib-empty .bcn-btn { margin-top: 10px; }
 
-    @media (max-width: 720px) {
+    /* Phone: the two middle columns carry a label each and the table reflows
+       to one row per report rather than scrolling sideways. */
+    @media (max-width: 760px) {
       .v3-list-content { padding: 12px 12px 24px; }
       .lib-tabs { padding: 0 6px; overflow-x: auto; }
       .lib-toolbar { flex-wrap: wrap; }
       .lib-search { max-width: none; flex-basis: 100%; }
-      .lib-grid { grid-template-columns: 1fr; }
-      .lib-title { font-size: 15px; }
+      .lib-table, .lib-table tbody, .lib-table tr, .lib-table td { display: block; width: auto; }
+      .lib-table thead { display: none; }
+      .lib-table tr.lib-card { padding: 10px 12px; border-bottom: 1px solid var(--bcn-border); }
+      .lib-table td { width: auto !important; padding: 2px 0; border: 0; }
+      .lib-row-actions { justify-content: flex-start; margin-top: 6px; }
+      .lib-title { font-size: 14.5px; }
     }
   </style>
   <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
@@ -142,20 +135,26 @@
         <h1 id="hubTitle">Reports</h1>
         <span class="bcn-pill" id="hubTestingPill">In testing</span>
       </div>
+      <!-- Ask SILO stays, as a shortcut rather than the way in. Advanced
+           Builder is the one explicit door to SQL, the schema browser and
+           query diagnostics: it is shown only where authoring is already
+           allowed, and its URL is unchanged so every existing link holds. -->
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost" id="btnAskSilo" href="/v2/silo-chat.html">Ask SILO</a>
+        <a class="bcn-btn bcn-btn--ghost" id="btnAdvanced" href="/v3/report-builder.html" hidden
+           title="SQL, the schema browser and query diagnostics">Advanced Builder</a>
         <a class="bcn-btn bcn-btn--primary" id="btnNewReport" href="/v3/report-builder.html" hidden>+ New report</a>
         <button type="button" class="bcn-btn bcn-btn--primary" id="btnNew" hidden>+ New dashboard</button>
       </div>
     </header>
 
     <div class="bcn-tabs lib-tabs" role="tablist" aria-label="Reports library" id="libTabs">
-      <button type="button" class="bcn-tab" role="tab" id="tab-silo" data-tab="silo" aria-controls="pane-silo" aria-selected="false" tabindex="-1">SILO Reports <span class="lib-tab-count" data-count="silo"></span></button>
-      <button type="button" class="bcn-tab" role="tab" id="tab-mine" data-tab="mine" aria-controls="pane-mine" aria-selected="false" tabindex="-1">My Reports <span class="lib-tab-count" data-count="mine"></span></button>
-      <button type="button" class="bcn-tab" role="tab" id="tab-company" data-tab="company" aria-controls="pane-company" aria-selected="false" tabindex="-1">Company Reports <span class="lib-tab-count" data-count="company"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-silo" data-tab="silo" aria-controls="pane-silo" aria-selected="false" tabindex="-1">SILO templates <span class="lib-tab-count" data-count="silo"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-company" data-tab="company" aria-controls="pane-company" aria-selected="false" tabindex="-1">Company reports <span class="lib-tab-count" data-count="company"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-mine" data-tab="mine" aria-controls="pane-mine" aria-selected="false" tabindex="-1">My reports <span class="lib-tab-count" data-count="mine"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-archived" data-tab="archived" aria-controls="pane-archived" aria-selected="false" tabindex="-1">Archived <span class="lib-tab-count" data-count="archived"></span></button>
       <button type="button" class="bcn-tab" role="tab" id="tab-dashboards" data-tab="dashboards" aria-controls="pane-dashboards" aria-selected="false" tabindex="-1">Dashboards <span class="lib-tab-count" data-count="dashboards"></span></button>
-      <button type="button" class="bcn-tab" role="tab" id="tab-scheduled" data-tab="scheduled" aria-controls="pane-scheduled" aria-selected="false" tabindex="-1" hidden>Scheduled email <span class="lib-tab-count" data-count="scheduled"></span></button>
+      <button type="button" class="bcn-tab" role="tab" id="tab-scheduled" data-tab="scheduled" aria-controls="pane-scheduled" aria-selected="false" tabindex="-1" hidden>Schedules <span class="lib-tab-count" data-count="scheduled"></span></button>
     </div>
 
     <div class="bcn-status" id="status" hidden></div>
@@ -170,16 +169,16 @@
       </div>
 
       <section class="lib-pane" id="pane-silo" role="tabpanel" aria-labelledby="tab-silo" hidden>
-        <p class="lib-intro">Sales reports and reusable insights in one place. Open a report to explore your company’s data.</p>
+        <p class="lib-intro">Ready-made reports, built and checked by SILO. Open one to see your own numbers.</p>
         <div class="lib-body" id="siloBody"><div class="lib-empty">Loading…</div></div>
       </section>
-      <section class="lib-pane" id="pane-mine" role="tabpanel" aria-labelledby="tab-mine" hidden>
-        <p class="lib-intro">Only reports you created, whether private or shared with your company.</p>
-        <div class="lib-body" id="mineBody"><div class="lib-empty">Loading…</div></div>
-      </section>
       <section class="lib-pane" id="pane-company" role="tabpanel" aria-labelledby="tab-company" hidden>
-        <p class="lib-intro">All reports shared with your company, including yours. Only the creator can archive a report.</p>
+        <p class="lib-intro">Shared with everyone in your company. Only whoever made a report can archive it.</p>
         <div class="lib-body" id="companyBody"><div class="lib-empty">Loading…</div></div>
+      </section>
+      <section class="lib-pane" id="pane-mine" role="tabpanel" aria-labelledby="tab-mine" hidden>
+        <p class="lib-intro">Reports you made, private or shared.</p>
+        <div class="lib-body" id="mineBody"><div class="lib-empty">Loading…</div></div>
       </section>
       <section class="lib-pane" id="pane-archived" role="tabpanel" aria-labelledby="tab-archived" hidden>
         <p class="lib-intro">Reports you archived. Existing dashboards still work. Restore a report to return it to active lists with the same visibility.</p>
@@ -189,7 +188,8 @@
         <div class="lib-body" id="listBody"><div class="lib-empty">Loading…</div></div>
       </section>
       <section class="lib-pane" id="pane-scheduled" role="tabpanel" aria-labelledby="tab-scheduled" hidden>
-        <p class="lib-intro">Recurring CSV attachments from saved reports or whole dashboards. Admins create schedules from a report preview or the report builder.</p>
+        <p class="lib-intro">Every report your company has set to arrive by email. Edit, pause, resume or
+          read the delivery history without opening the report.</p>
         <div class="lib-body" id="scheduledBody"><div class="lib-empty">Loading…</div></div>
       </section>
     </div>
@@ -249,16 +249,17 @@
 <script src="../v2/nav-config.js"></script>
 <script src="../v2/avatar.js"></script>
 <script src="../v2/silo-chrome.js"></script>
-<script src="js/report-params.js?v=20261014d"></script>
-<script src="js/field-semantics.js?v=20260930a"></script>
-<script src="js/metrics.js?v=20260930a"></script>
-<script src="js/chart-adapter.js?v=20260930a"></script>
-<script src="js/report-catalog.js?v=20260930a"></script>
-<script src="js/report-library.js?v=20260930a"></script>
-<script src="js/filter-bar.js?v=20261014d"></script>
-<script src="js/report-email-schedule.js?v=20261014d"></script>
-<script src="js/report-email-schedule-ui.js?v=20261014d"></script>
-<script src="js/report-email-schedule-mount.js?v=20261014d"></script>
+<script src="js/report-params.js?v=20261120a"></script>
+<script src="js/field-semantics.js?v=20261120a"></script>
+<script src="js/metrics.js?v=20261120a"></script>
+<script src="js/chart-adapter.js?v=20261120a"></script>
+<script src="js/report-catalog.js?v=20261120a"></script>
+<script src="js/report-library.js?v=20261120a"></script>
+<script src="js/filter-bar.js?v=20261120a"></script>
+<script src="js/report-schedule-plan.js?v=20261120a"></script>
+<script src="js/report-email-schedule.js?v=20261120a"></script>
+<script src="js/report-email-schedule-ui.js?v=20261120a"></script>
+<script src="js/report-email-schedule-mount.js?v=20261120a"></script>
 <script>
 (function () {
   'use strict';
@@ -298,107 +299,123 @@
   // so "nothing here" and "could not ask" never render the same message.
   const data = { silo: null, mine: null, company: null, archived: null, dashboards: null, scheduled: null };
   let isScheduleAdmin = false;
+  // report id -> the schedule that sends next, so the Scheduled column costs
+  // one read for the whole library rather than one per row.
+  let schedules = new Map();
+  // Whether this workspace offers authoring at all -- the one condition that
+  // decides whether Advanced Builder is reachable, so "simpler" never means a
+  // power user lost their builder.
+  let advancedProfile = false;
 
-  // ── Icons: one simple glyph per kind, never meaning-bearing on its own ──
-  const ICON = {
-    silo: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
-    mine: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
-    dashboards: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>',
-  };
-  const CHEVRON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
   const SOURCE_TEXT = { ask_silo: 'Saved from Ask SILO', manual: 'Built in the report builder', system: 'SILO report' };
-  const GROUPS = [['sales', 'Sales'], ['marketing', 'Marketing'], ['inventory', 'Inventory'], ['purchasing', 'Purchasing'], ['saved', 'Other']];
+  const AREA_LABEL = { sales: 'Sales', marketing: 'Marketing', inventory: 'Inventory', purchasing: 'Purchasing', work: 'Work', saved: 'Other' };
   const fmtDate = (v) => (v ? new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const cadenceLabel = (preset) => window.SiloReportEmailSchedule?.cadenceLabel(preset) || '';
 
-  // ── Cards ───────────────────────────────────────────────────────────
-  function card({ kind, id, title, href, summary, foot, details, action }) {
-    const detId = `det-${kind}-${String(id).replace(/[^a-zA-Z0-9_-]/g, '')}`;
-    const detailsHtml = details
-      ? `<button type="button" class="lib-details-btn" aria-expanded="false" aria-controls="${detId}">Details ${CHEVRON}</button>`
-      : '';
-    return `<article class="lib-card" data-kind="${kind}" data-id="${esc(id)}">
-      <div class="lib-card-head">
-        <span class="lib-icon">${ICON[kind] || ICON.mine}</span>
-        <h3 class="lib-title">${href ? `<a class="lib-link" href="${esc(href)}">${esc(title)}</a>` : `<span class="lib-title-text">${esc(title)}</span>`}</h3>
-      </div>
-      ${summary ? `<p class="lib-summary">${esc(summary)}</p>` : ''}
-      ${(foot || detailsHtml) ? `<div class="lib-card-foot">${foot || ''}${detailsHtml}${action || ''}</div>` : ''}
-      ${details ? `<div class="lib-details" id="${detId}" hidden>${details}</div>` : ''}
-    </article>`;
+  // ── Rows ────────────────────────────────────────────────────────────
+  // One report, one row. `lib-card` stays as the row's class: deep links,
+  // styles and four test suites already name it, and renaming it would be
+  // churn a reader never sees.
+  //
+  // The columns are the four questions someone scanning a report list asks --
+  // what is it called, what does it answer, what area is it about, is it
+  // already arriving by email -- and nothing else. The card grid this replaced
+  // put three reports on a screen and hid the answer behind a Details
+  // fold-out, so finding a report meant opening several.
+
+  /** The Scheduled cell, or NO CELL at all for a viewer who may not read
+   *  schedules -- report_email_schedules is scoped to is_entity_admin(), so for
+   *  anyone else the honest answer is not "no" but "you cannot see". The header
+   *  is dropped by the same condition, so a row and its header never disagree
+   *  about how many columns there are. */
+  function schedTd(reportId) {
+    if (!isScheduleAdmin) return '';
+    const row = schedules.get(reportId);
+    if (!row) return '<td><span class="lib-dash">—</span></td>';
+    const label = L.scheduledLabel(row, cadenceLabel);
+    const off = row.is_paused || !row.is_active;
+    return `<td><span class="lib-sched${off ? ' lib-sched--off' : ''}" title="${
+      esc(off ? 'This report has a schedule that is not sending.' : 'This report arrives by email.')
+    }">${esc(label)}</span></td>`;
   }
 
-  // Grandfathered custom reports open in the builder. Whether that SAVES over the original
-  // or offers a copy is decided there, by RLS -- a SILO report can never be
-  // edited in place, so the builder offers the copy. Guessing here would
-  // either hide a legitimate edit or promise one that is refused.
-  // A standard workspace reaches the custom list through ?manage=reports, which
-  // exists to ORGANISE reports it can already read (archive/restore), not to
-  // author them. So there the title does not link anywhere: the builder would
-  // let an owner overwrite a report and save anyone's as an editable copy,
-  // so management keeps titles unlinked.
-  const reportHref = (r) => (navProfile === 'standard' ? null : `/v3/report-builder.html?id=${encodeURIComponent(r.id)}`);
-  // A SILO report opens to READ -- the viewer's data on a temporary board --
-  // not into the builder's SQL. Grandfathered navigation also offers a copy.
-  const siloReportHref = (r) => `/v3/dashboard.html?report=${encodeURIComponent(r.id)}`;
+  const titleCell = (title, href, answers) =>
+    `<h3 class="lib-title">${href
+      ? `<a class="lib-link" href="${esc(href)}">${esc(title)}</a>`
+      : `<span class="lib-title-text">${esc(title)}</span>`}</h3>
+     ${answers ? `<p class="lib-summary">${esc(answers)}</p>` : ''}`;
 
-  function siloCard(r) {
-    const full = String(r.description || '').trim();
-    return card({
-      kind: 'silo', id: r.id, title: C.displayTitle(r) || r.title, href: r.href || siloReportHref(r),
-      summary: L.summaryOf(full),
-      // Keep the same clean card for page links and reusable definitions.
-      // The description explains what each report offers.
-      details: L.hasMore(full) ? `<p>${esc(full)}</p>` : '',
-    });
+  /** The actions on a row: schedule it, and archive or restore it. Opening is
+   *  the title, not a button -- a row with an Open button beside a linked
+   *  title offers one thing twice. */
+  function rowActions(r) {
+    const out = [];
+    if (isScheduleAdmin && r.id && !r.href) {
+      const existing = schedules.get(r.id);
+      out.push(`<a class="bcn-btn bcn-btn--ghost lib-report-action" data-schedule-report="${esc(r.id)}"
+        href="/v3/dashboard.html?report=${encodeURIComponent(r.id)}&openSchedule=1">${existing ? 'Edit schedule' : 'Schedule'}</a>`);
+    }
+    if (L.ownsReport(r, userId, companyId)) {
+      out.push(`<button type="button" class="bcn-btn bcn-btn--ghost lib-report-action" data-report-action="${r.archived_at ? 'restore' : 'archive'}"
+        data-report-id="${esc(r.id)}" aria-label="${r.archived_at ? 'Restore' : 'Archive'} ${esc(r.title || 'Untitled report')}">${r.archived_at ? 'Restore' : 'Archive'}</button>`);
+    }
+    return `<div class="lib-row-actions">${out.join('')}</div>`;
   }
 
-  function mineCard(r) {
-    const full = String(r.description || '').trim();
-    const question = String(r.question || '').trim();
-    const lead = full || question;
+  function siloRow(r) {
+    const title = C.displayTitle(r) || r.title;
+    const area = r.href ? 'sales' : C.categoryFor(r);
+    return `<tr class="lib-card" data-kind="silo" data-id="${esc(r.id)}">
+      <td>${titleCell(title, L.readerHref(r), L.answersOf(r))}</td>
+      <td class="lib-meta">${esc(AREA_LABEL[area] || 'Other')}</td>
+      ${schedTd(r.id)}
+      <td>${rowActions(r)}</td></tr>`;
+  }
+
+  function reportRow(r) {
     const n = Array.isArray(r.queries_run) ? r.queries_run.length : 0;
     const estimate = Number(r.row_estimate);
     const big = Number.isFinite(estimate) && estimate > 1000;
-    const rows = [
-      ['Source', SOURCE_TEXT[r.source] || 'Report'],
-      full && question ? ['Question', question] : null,
-      ['Queries', String(n)],
-      big ? ['Rows', `${estimate.toLocaleString()} (a tile shows 1,000 at a time)`] : null,
-      r.created_by_name ? ['Created by', r.created_by_name] : null,
-      r.created_at ? ['Created', fmtDate(r.created_at)] : null,
-      r.archived_at ? ['Archived', fmtDate(r.archived_at)] : null,
-    ].filter(Boolean);
-    return card({
-      kind: activeTab, id: r.id, title: r.title || 'Untitled report', href: reportHref(r),
-      summary: L.summaryOf(lead),
-      foot: `<span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${L.visibilityLabel(r)}</span>
-        ${big ? `<span class="bcn-pill bcn-pill--neg" title="A tile shows 1,000 rows at a time.">${estimate.toLocaleString()} rows</span>` : ''}
-        <span class="lib-meta">Created by ${esc(r.created_by === userId ? 'you' : (r.created_by_name || 'Unknown creator'))}</span>`,
-      action: L.ownsReport(r, userId, companyId) ? `<button type="button" class="bcn-btn bcn-btn--ghost lib-report-action" data-report-action="${r.archived_at ? 'restore' : 'archive'}" data-report-id="${esc(r.id)}" aria-label="${r.archived_at ? 'Restore' : 'Archive'} ${esc(r.title || 'Untitled report')}">${r.archived_at ? 'Restore' : 'Archive'}</button>` : '',
-      details: `${lead && L.hasMore(lead) ? `<p>${esc(lead)}</p>` : ''}<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`,
-    });
+    return `<tr class="lib-card" data-kind="${activeTab}" data-id="${esc(r.id)}">
+      <td>${titleCell(r.title || 'Untitled report', L.readerHref(r), L.answersOf(r))}
+        <p class="lib-meta">${esc(SOURCE_TEXT[r.source] || 'Report')}${n > 1 ? ` · ${n} parts` : ''}${
+          big ? ` · ${estimate.toLocaleString()} rows` : ''}${
+          r.archived_at ? ` · archived ${esc(fmtDate(r.archived_at))}` : ''}</p></td>
+      <td><span class="bcn-pill${r.visibility === 'private' ? '' : ' bcn-pill--accent'}">${L.visibilityLabel(r)}</span></td>
+      ${schedTd(r.id)}
+      <td class="lib-meta">${esc(r.created_by === userId ? 'You' : (r.created_by_name || 'Unknown'))}
+        ${advancedProfile && !r.href ? `<div><a class="lib-link" href="${esc(L.builderHref(r, navProfile))}">Advanced Builder</a></div>` : ''}</td>
+      <td>${rowActions(r)}</td></tr>`;
   }
 
-  function dashboardCard(d) {
-    const full = String(d.description || '').trim();
+  function dashboardRow(d) {
     const n = Number(d.widget_count) || 0;
-    return card({
-      kind: 'dashboards', id: d.id, title: d.name || 'Untitled dashboard',
-      href: `/v3/dashboard.html?id=${encodeURIComponent(d.id)}`,
-      summary: L.summaryOf(full),
-      foot: `<span class="bcn-pill${d.visibility === 'private' && !L.isSiloDashboard(d) ? '' : ' bcn-pill--accent'}">${esc(L.dashboardScopeLabel(d))}</span>
-        <span class="lib-meta">${n} widget${n === 1 ? '' : 's'} · updated ${esc(fmtDate(d.updated_at))}</span>`,
-      details: L.hasMore(full) || d.created_by_name
-        ? `${L.hasMore(full) ? `<p>${esc(full)}</p>` : ''}<dl>${d.created_by_name ? `<dt>Created by</dt><dd>${esc(d.created_by_name)}</dd>` : ''}<dt>Widgets</dt><dd>${n}</dd></dl>`
-        : '',
-    });
+    return `<tr class="lib-card" data-kind="dashboards" data-id="${esc(d.id)}">
+      <td>${titleCell(d.name || 'Untitled dashboard', `/v3/dashboard.html?id=${encodeURIComponent(d.id)}`, L.summaryOf(d.description || ''))}</td>
+      <td><span class="bcn-pill${d.visibility === 'private' && !L.isSiloDashboard(d) ? '' : ' bcn-pill--accent'}">${esc(L.dashboardScopeLabel(d))}</span></td>
+      <td class="lib-meta">${n} widget${n === 1 ? '' : 's'}</td>
+      <td class="lib-meta">updated ${esc(fmtDate(d.updated_at))}</td></tr>`;
+  }
+
+  const HEADS = {
+    silo: ['Report', 'Area', 'Scheduled', ''],
+    report: ['Report', 'Who can see it', 'Scheduled', 'Made by', ''],
+    dashboards: ['Dashboard', 'Who can see it', 'Size', 'Updated'],
+  };
+
+  function table(kind, rowsHtml) {
+    const heads = HEADS[kind]
+      .filter((h) => !(h === 'Scheduled' && !isScheduleAdmin))
+      .map((h) => `<th class="bcn-th-left">${h ? esc(h) : '<span class="lib-sr">Actions</span>'}</th>`)
+      .join('');
+    return `<table class="bcn-table lib-table"><thead><tr>${heads}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
   }
 
   // ── Empty and no-result states ──────────────────────────────────────
   function emptyState(tab) {
     if (tab === 'silo') return `<div class="lib-empty"><strong>No SILO reports are available yet.</strong>Ask a question in <a href="/v2/silo-chat.html">Ask SILO</a> in the meantime.</div>`;
-    if (tab === 'mine' && navProfile === 'standard') return '<div class="lib-empty"><strong>No saved reports yet.</strong>Save an answer from <a href="/v2/silo-chat.html">Ask SILO</a> to see it here.</div>';
-    if (tab === 'mine') return `<div class="lib-empty"><strong>No saved reports yet.</strong>Build one with <a href="/v3/report-builder.html">New report</a>, open a SILO report and save your own copy, or save an answer from <a href="/v2/silo-chat.html">Ask SILO</a>.</div>`;
+    if (tab === 'mine' && navProfile === 'standard') return '<div class="lib-empty"><strong>You have not made a report yet.</strong>Open a SILO template and save your own copy, or save an answer from <a href="/v2/silo-chat.html">Ask SILO</a>.</div>';
+    if (tab === 'mine') return `<div class="lib-empty"><strong>You have not made a report yet.</strong>Build one in <a href="/v3/report-builder.html">Advanced Builder</a>, open a SILO template and save your own copy, or save an answer from <a href="/v2/silo-chat.html">Ask SILO</a>.</div>`;
     if (tab === 'company') return '<div class="lib-empty"><strong>No company reports yet.</strong>Reports shared with your company will appear here.</div>';
     if (tab === 'archived') return '<div class="lib-empty"><strong>No archived reports.</strong>Reports you archive will appear here, ready to restore.</div>';
     return `<div class="lib-empty"><strong>No dashboards yet.</strong>${navProfile === 'standard'
@@ -407,7 +424,7 @@
   }
   function noResults(tab) {
     const noun = L.TABS.find((t) => t.id === tab).noun;
-    return `<div class="lib-empty"><strong>No ${esc(noun)} match “${esc(query.trim())}”.</strong>Search looks at titles, descriptions and who made it, in this tab only.
+    return `<div class="lib-empty"><strong>No ${esc(noun)} match “${esc(query.trim())}”.</strong>Search looks at names, what a report answers and who made it, in this view only.
       <div><button type="button" class="bcn-btn bcn-btn--ghost" data-clear-search>Clear search</button></div></div>`;
   }
   const loadError = (what, err) => `<div class="lib-empty"><strong>Couldn't load ${esc(what)}.</strong>${esc(err.message || String(err))}</div>`;
@@ -445,24 +462,23 @@
     if (!visible.length) { body.innerHTML = notice || noResults(activeTab); return; }
 
     if (activeTab === 'silo') {
-      // Grouped by the same business areas the dashboard's Add-insight
-      // picker uses, so a report is filed in one place across the product.
-      const by = new Map(GROUPS.map(([k]) => [k, []]));
-      for (const r of visible) (by.get(r.href ? 'sales' : C.categoryFor(r)) || by.get('saved')).push(r);
-      body.innerHTML = notice + GROUPS.filter(([k]) => by.get(k).length).map(([k, label]) => `
-        <section class="lib-group" aria-label="${esc(label)}">
-          <h2 class="lib-group-head">${esc(label)}</h2>
-          <div class="lib-grid">${by.get(k).slice().sort(L.byTitle).map(siloCard).join('')}</div>
-        </section>`).join('');
+      // Sorted by area then name, so a report is always in the same place and
+      // the Area column reads as a grouping without a heading row per group.
+      const sorted = visible.slice().sort((a, b) => {
+        const aa = a.href ? 'sales' : C.categoryFor(a);
+        const bb = b.href ? 'sales' : C.categoryFor(b);
+        return aa === bb ? L.byTitle(a, b) : aa.localeCompare(bb);
+      });
+      body.innerHTML = notice + table('silo', sorted.map(siloRow).join(''));
     } else if (activeTab !== 'dashboards') {
-      body.innerHTML = `<div class="lib-grid">${visible.map(mineCard).join('')}</div>`;
+      body.innerHTML = notice + table('report', visible.map(reportRow).join(''));
     } else {
-      body.innerHTML = `<div class="lib-grid">${visible.map(dashboardCard).join('')}</div>`;
+      body.innerHTML = notice + table('dashboards', visible.map(dashboardRow).join(''));
     }
   }
 
   // ── Tabs ────────────────────────────────────────────────────────────
-  const SEARCH_LABEL = { silo: 'Search SILO reports', mine: 'Search my reports', company: 'Search company reports', archived: 'Search archived reports', dashboards: 'Search dashboards', scheduled: 'Search schedules' };
+  const SEARCH_LABEL = { silo: 'Search SILO templates', mine: 'Search my reports', company: 'Search company reports', archived: 'Search archived reports', dashboards: 'Search dashboards', scheduled: 'Search schedules' };
 
   function selectTab(tab, { updateUrl = true, focus = false } = {}) {
     if (!allowedTabs.includes(tab)) tab = allowedTabs[0];
@@ -476,8 +492,13 @@
       if (on && focus) t.focus();
     }
     for (const t of L.TABS) el(`pane-${t.id}`).hidden = t.id !== tab;
-    // Contextual primary action; Ask SILO stays as the secondary one.
-    el('btnNewReport').hidden = navProfile !== 'grandfathered' || tab !== 'mine';
+    // Contextual primary action; Ask SILO and Advanced Builder stay as the
+    // secondary ones. Advanced Builder is shown on every report view rather
+    // than only on My reports: it is the answer to "where did the SQL go",
+    // and a door you can only find on one tab is a door people stop looking
+    // for. Never on Dashboards or Schedules, which it has nothing to do with.
+    el('btnNewReport').hidden = !advancedProfile || tab !== 'mine';
+    el('btnAdvanced').hidden = !advancedProfile || ['dashboards', 'scheduled'].includes(tab);
     el('btnNew').hidden = tab !== 'dashboards';
     // Search is scoped to the tab, so a query typed on one tab never
     // silently filters the next.
@@ -523,13 +544,6 @@
   document.querySelector('.v3-list-content').addEventListener('click', (e) => {
     const action = e.target.closest('[data-report-action]');
     if (action) { openArchive(action.dataset.reportId, action); return; }
-    const btn = e.target.closest('.lib-details-btn');
-    if (btn) {
-      const open = btn.getAttribute('aria-expanded') !== 'true';
-      btn.setAttribute('aria-expanded', String(open));
-      el(btn.getAttribute('aria-controls')).hidden = !open;
-      return;
-    }
     if (e.target.closest('[data-clear-search]')) {
       query = '';
       el('librarySearch').value = '';
@@ -543,6 +557,19 @@
     const { data: rows, error } = await sb.from('dashboards_v').select('*').order('updated_at', { ascending: false });
     data.dashboards = error ? new Error(error.message) : L.orderDashboards(rows || []);
   }
+  /** Which reports already arrive by email. Admin-only by RLS, so it is only
+   *  read for an admin, and a failure is swallowed deliberately: a library that
+   *  refuses to list reports because the schedule table was unreachable is
+   *  worse than a library with one column missing. */
+  async function loadSchedules() {
+    if (!isScheduleAdmin || !window.SiloReportEmailSchedule) return;
+    try {
+      schedules = L.scheduleIndex(await window.SiloReportEmailSchedule.listSchedules(sb));
+    } catch (_) {
+      schedules = new Map();
+    }
+  }
+
   async function loadReports() {
     // Read every page: fetching one API-capped page and only then applying
     // ownership would make older own reports disappear behind shared ones.
@@ -723,24 +750,26 @@
     reportPages = (window.SiloNav?.SALES_REPORT_PAGES || [])
       .filter((p) => (p.profiles || ['grandfathered']).includes(navProfile));
 
-    if (navProfile === 'standard') {
-      // Shared reading is separate from custom report management. The explicit
-      // Ask SILO route keeps its existing organization tabs and authoring gate.
-      allowedTabs = explicitManagement ? ['mine', 'company', 'archived', 'dashboards'] : ['silo', 'dashboards'];
-      el('hubTitle').textContent = explicitManagement ? 'Manage reports' : 'Reports';
-      el('hubTestingPill').hidden = true;
-      el('btnNewReport').hidden = true;
-      for (const t of L.TABS) el(`tab-${t.id}`).hidden = !allowedTabs.includes(t.id);
-      el('libTabs').hidden = !reportsEnabled;
-      document.title = explicitManagement ? 'SILO · Manage reports' : 'SILO · Reports';
-    }
+    advancedProfile = navProfile === 'grandfathered';
 
+    // Who may manage schedules is decided by the DATABASE -- report_email_schedules
+    // is scoped to is_entity_admin() -- so it is asked before the views are
+    // chosen. It used to be asked after, and then the Schedules tab was
+    // additionally gated on the grandfathered profile, which left a merchant
+    // workspace unable to see or stop the email its own admins had set up.
     isScheduleAdmin = !!(companyId && window.SiloReportEmailSchedule
       && await window.SiloReportEmailSchedule.isWorkspaceAdmin(sb, userId, companyId));
-    if (isScheduleAdmin && navProfile === 'grandfathered' && !allowedTabs.includes('scheduled')) {
-      allowedTabs = allowedTabs.concat(['scheduled']);
-      el('tab-scheduled').hidden = false;
+
+    allowedTabs = L.allowedTabsFor({ navProfile, explicitManagement, isScheduleAdmin });
+    if (navProfile === 'standard') {
+      el('hubTitle').textContent = explicitManagement ? 'Manage reports' : 'Reports';
+      el('hubTestingPill').hidden = true;
+      document.title = explicitManagement ? 'SILO · Manage reports' : 'SILO · Reports';
     }
+    el('btnNewReport').hidden = true;
+    el('btnAdvanced').hidden = true;
+    for (const t of L.TABS) el(`tab-${t.id}`).hidden = !allowedTabs.includes(t.id);
+    el('libTabs').hidden = !reportsEnabled;
 
     const { data: profile } = await sb.from('profiles').select('name, email, role').eq('id', userId).single();
     if (window.SiloChrome) {
@@ -757,6 +786,7 @@
     await Promise.all([
       loadDashboards(),
       reportsEnabled ? loadReports() : Promise.resolve(),
+      loadSchedules(),
     ]);
     render();
   }
