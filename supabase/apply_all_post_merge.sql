@@ -19867,4 +19867,9 @@ $c$select (select count(*) from v_po_header_summary
 \i migrations/20261119060000_affiliate_portal_order_state.sql
 -- 20261119070000: earnings, payouts and PayPal addresses are finance-only reads.
 \i migrations/20261119070000_affiliate_finance_reads.sql
+-- 20261120020000: ad_metric_adjustments — a company corrects a metric an ad
+-- platform reported wrong (a conversion-value bug, a test campaign's revenue).
+-- Corrections land on marketing_kpis_daily itself, so pages, reports, Ask SILO
+-- and the MCP agree, and the platform's raw value stays in extra.silo_adjusted.
+\i migrations/20261120020000_ad_metric_adjustments.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
