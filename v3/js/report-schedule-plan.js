@@ -122,7 +122,11 @@
     if (clean) return clean;
     const name = String(tzName || '').trim();
     if (!name) return '';
-    return name.split('/').pop().replace(/_/g, ' ');
+    // No label from the database: the zone's own city, said as a clock --
+    // "7:00 AM Los Angeles" reads like a place, "Los Angeles time" like a
+    // time. Nothing here maps a zone to a region name, so a workspace in a
+    // zone SILO has not labelled still gets a sentence that makes sense.
+    return `${name.split('/').pop().replace(/_/g, ' ')} time`;
   }
 
   /* ── The sentence ──────────────────────────────────────────────────────

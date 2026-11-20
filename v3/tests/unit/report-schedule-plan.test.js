@@ -116,7 +116,7 @@ const ZONE_LABEL = 'Pacific Time (US & Canada)';
   // The zone is DATA: with no label the IANA name is made readable, and no
   // zone name is written in the module.
   assert.equal(PL.zoneWords(ZONE, ZONE_LABEL), ZONE_LABEL);
-  assert.equal(PL.zoneWords('America/New_York', ''), 'New York');
+  assert.equal(PL.zoneWords('America/New_York', ''), 'New York time');
   assert.equal(PL.zoneWords('', ''), '');
 }
 

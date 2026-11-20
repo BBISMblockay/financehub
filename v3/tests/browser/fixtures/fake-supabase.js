@@ -671,7 +671,12 @@
           let seeded = null;
           try {
             const list = JSON.parse(sessionStorage.getItem('__FAKE_QUERY_PREFIXES__') || '[]');
-            const hit = list.find((e) => String(args.query || '').startsWith(e.prefix));
+            // An entry may also require a fragment to appear anywhere in the
+            // query (`match`), so a suite can serve DIFFERENT rows for an
+            // edited version of the same report -- which is how "all three
+            // paths ran the edited report" is provable rather than assumed.
+            const hit = list.find((e) => String(args.query || '').startsWith(e.prefix)
+              && (!e.match || String(args.query || '').includes(e.match)));
             if (hit) seeded = hit.rows;
           } catch { /* ignore */ }
           const rows = seeded || QUERY_ROWS[args.query];

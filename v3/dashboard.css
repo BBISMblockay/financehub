@@ -1750,18 +1750,25 @@ body.is-report-view, .is-report-view .silo-app, .is-report-view .silo-main { hei
 .res-table th:nth-child(1), .res-table td:nth-child(1) { width: 17%; }
 .res-table th:nth-child(2), .res-table td:nth-child(2) { width: 11%; }
 .res-table th:nth-child(3), .res-table td:nth-child(3) { width: 9%; }
-.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 17%; }
-.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 10%; }
+.res-table th:nth-child(4), .res-table td:nth-child(4) { width: 15%; }
+.res-table th:nth-child(5), .res-table td:nth-child(5) { width: 8%; }
 .res-table th:nth-child(6), .res-table td:nth-child(6) { width: 7%; }
 .res-table th:nth-child(7), .res-table td:nth-child(7) { width: 8%; }
-.res-table th:nth-child(8), .res-table td:nth-child(8) { width: 6%; }
+.res-table th:nth-child(8), .res-table td:nth-child(8) { width: 11%; }
 .res-table td { vertical-align: top; }
-.res-table td:nth-child(4) { white-space: normal; word-break: break-word; }
+.res-table td:nth-child(4), .res-table td:nth-child(8) { white-space: normal; word-break: break-word; }
 /* A failure, and a run log, each sit in a full-width row UNDER their
    schedule, so they read as that schedule's and the fixed column widths do
    not apply to them. */
-.res-failrow td, .res-historyrow td { white-space: normal; background: var(--bcn-band); }
-.res-failrow td { font-size: 12px; line-height: 1.5; }
+/* A failure reads as a warning band, not as a black hole: --bcn-band is the
+   near-black chrome token, which made the explanation white-on-black and
+   looked like the page had broken. */
+.res-failrow td, .res-historyrow td { white-space: normal; background: var(--bcn-surface); }
+.res-failrow td {
+  font-size: 12px; line-height: 1.5;
+  background: var(--bcn-neg-soft);
+  border-left: 3px solid var(--bcn-neg-border);
+}
 .res-failrow strong { color: var(--bcn-neg); }
 .res-errtext { font-family: var(--bcn-mono); font-size: 10.5px; margin-top: 4px; word-break: break-word; }
 .res-history { padding: 4px 0 2px; }
