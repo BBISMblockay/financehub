@@ -93,5 +93,49 @@ begin
   );
 end $$;
 
+-- ── integration_bootstrap_jobs.integration: append 'amazon_ads' ─────────────
+-- The first-sync queue refuses an integration it does not know, deliberately:
+-- an unknown value must fail at enqueue rather than sit in the queue as a row
+-- no drainer claims. Amazon now has a plan (BOOTSTRAP_PLANS in
+-- scripts/lib/integration-bootstrap-core.mjs) and the account picker enqueues
+-- against it, so it belongs in the list. Without this the picker's "choose the
+-- profile" step saves the profile and then fails to queue the first import,
+-- which would leave a connection that tests fine and syncs nothing until the
+-- nightly. Read live and idempotent, the same way 20261109040000 appended
+-- 'klaviyo'.
+do $$
+declare
+  cname text;
+  cur text;
+  members text;
+begin
+  select conname, pg_get_constraintdef(oid) into cname, cur
+  from pg_constraint
+  where conrelid = 'public.integration_bootstrap_jobs'::regclass
+    and contype = 'c'
+    and pg_get_constraintdef(oid) like '%integration%'
+    and pg_get_constraintdef(oid) like '%shopify%'
+  limit 1;
+
+  if cname is null then
+    raise exception 'no integration CHECK found on integration_bootstrap_jobs; read the live constraint before adding amazon_ads';
+  end if;
+
+  if cur ~ '''amazon_ads''' then
+    return;
+  end if;
+
+  members := substring(cur from 'ARRAY\[(.*?)\]');
+  if members is null or members = '' then
+    raise exception 'the integration CHECK has an unexpected shape (%); extend it by hand after reading it', cur;
+  end if;
+
+  execute format('alter table public.integration_bootstrap_jobs drop constraint %I', cname);
+  execute format(
+    'alter table public.integration_bootstrap_jobs add constraint %I check (integration = any (array[%s, %L::text]))',
+    cname, members, 'amazon_ads'
+  );
+end $$;
+
 -- New columns on a public table: refresh Ask SILO's map.
 select public.refresh_chat_schema_catalog();

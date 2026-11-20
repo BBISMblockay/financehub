@@ -3401,6 +3401,15 @@ select
                        and conrelid = 'public.sync_jobs'::regclass
                        and pg_get_constraintdef(oid) like '%amazon_ads_kpis%')
       then 'MISSING — sync_jobs rejects job_type=amazon_ads_kpis, so the nightly Amazon sync cannot record a run'
+    -- Without this the account picker saves the profile and then cannot queue
+    -- the first import, leaving a connection that tests fine and imports
+    -- nothing until the nightly.
+    when not exists (select 1 from pg_constraint
+                     where conrelid = 'public.integration_bootstrap_jobs'::regclass
+                       and contype = 'c'
+                       and pg_get_constraintdef(oid) like '%integration%'
+                       and pg_get_constraintdef(oid) like '%amazon_ads%')
+      then 'MISSING — integration_bootstrap_jobs rejects integration=amazon_ads, so a new Amazon connection cannot queue its first import'
     else 'ok'
   end as amazon_ads_connection;
 

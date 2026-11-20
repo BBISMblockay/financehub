@@ -116,7 +116,11 @@ await test('the orchestrator plans with the organic-skip flag and the dispatch w
 });
 
 await test('the campaign and organic pulls use the planned window, not the raw env', () => {
-  for (const fn of ['runConnectionSync\\(supabase, GOOGLE_ENV, connection', 'runMetaOrganicSync\\(supabase, connection']) {
+  // The env argument is matched as \w+, not by name: what this pins is the
+  // WINDOW each pull takes. The secrets bundle has been renamed once already
+  // (GOOGLE_ENV -> SYNC_ENV, when Amazon's client joined Google's in it) and a
+  // rename there says nothing about the window, so it must not fail here.
+  for (const fn of ['runConnectionSync\\(supabase, \\w+, connection', 'runMetaOrganicSync\\(supabase, connection']) {
     const m = sync.match(new RegExp(`${fn}, \\{[\\s\\S]{0,120}?daysBackOverride: (\\w+)`));
     assert.ok(m, fn);
     assert.equal(m[1], 'runDaysBack', `${fn} must use runDaysBack`);
