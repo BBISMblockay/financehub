@@ -9536,6 +9536,10 @@ select 'Affiliate product seeding' as check_name,
       then 'CRITICAL — a product seeding payback can be written twice'
     when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_seed_decide(uuid[], boolean)'::regprocedure)) = 0
       then 'BROKEN — anyone in the company can approve a product request'
+    -- 20261120030000: a product the company shared is approved as it is asked
+    -- for. Without this apply, every request still waits for a person.
+    when position('affiliate_payout_accounts' in pg_get_functiondef('public.affiliate_portal_seed_request(text, uuid, text, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261120030000_affiliate_seed_shared_auto.sql'
     when position('affiliate_seed_claims' in pg_get_functiondef((select p.oid from pg_proc p where p.proname = 'affiliate_resolve_attributions'
                                                                  and p.pronamespace = 'public'::regnamespace limit 1))) > 0
       then 'CRITICAL — a seed code can earn commission'
