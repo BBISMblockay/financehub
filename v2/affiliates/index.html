@@ -645,6 +645,49 @@
       .af-ov-lb-row { grid-template-columns: 18px 34px minmax(0, 1fr) 80px; row-gap: 4px; }
       .af-ov-lb-row .af-ov-when, .af-ov-lb-row .af-ov-money--comm { display: none; }
     }
+
+    /* Posts from affiliates: a tile big enough to judge the post by. */
+    .af-ctile { display: flex; gap: 12px; align-items: flex-start; width: 100%; }
+    .af-ctile-media {
+      width: 108px; height: 108px; flex: none; border-radius: 10px; overflow: hidden;
+      display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
+    }
+    .af-ctile-media .af-content-media { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: 0; }
+    .af-ctile-media--none { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .af-ctile-txt { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .af-ctile-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .af-ctile-who .af-item-avatar { width: 26px; height: 26px; font-size: 10px; }
+    @media (max-width: 620px) {
+      .af-ctile-media { width: 84px; height: 84px; }
+    }
+
+    /* People: Affiliates / Discovery. */
+    .af-subtabs { margin: 0 0 14px; }
+
+    /* Adding or editing in the middle of the screen. */
+    dialog.af-dialog {
+      border: 1px solid var(--bcn-border); border-radius: 12px; padding: 0;
+      width: min(640px, 94vw); max-height: 88vh; background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    dialog.af-dialog::backdrop { background: rgba(0, 0, 0, .38); }
+    dialog.af-dialog .bcn-card-body { max-height: 72vh; overflow: auto; }
+    .af-dialog-foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* One short line, with the detail on hover instead of in the copy. */
+    .af-info {
+      display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px;
+      border: 1px solid var(--bcn-border); border-radius: 50%; vertical-align: -2px;
+      font-size: 10px; font-weight: 700; color: var(--bcn-ink-3); cursor: help; background: var(--bcn-bg);
+    }
+
+    /* Any dates, not just the last 30 or 90 days. */
+    .af-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .af-range input[type="date"] {
+      height: 28px; padding: 0 8px; font-size: 11.5px; font-family: var(--bcn-mono);
+      border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+      background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    .af-range-sep { color: var(--bcn-ink-3); font-size: 11.5px; }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -683,6 +726,12 @@
          creators not in yet, and the messages waiting on them. They were three
          tabs; moving between them was most of the clicking. -->
     <section class="af-panel" data-panel="people" hidden>
+      <!-- Two jobs, two sub-tabs (Blake 2026-11-20): the affiliates already in
+           the programme, and discovery -- the creators who are not. -->
+      <nav class="bcn-tabs af-subtabs" id="peopleSubtabs" role="tablist" aria-label="People">
+        <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-act="people-sub" data-k="affiliates">Affiliates</button>
+        <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="discovery">Discovery</button>
+      </nav>
       <div class="af-stack" id="affiliatesBody"></div>
       <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
     </section>
@@ -698,6 +747,16 @@
     <section class="af-panel" data-panel="records" hidden><div class="af-stack" id="recordsBody"></div></section>
   </main>
 </div>
+
+<!-- Adding or editing a person happens in the middle of the screen, not in a
+     form that opens at the top of a long list (Blake 2026-11-20). studio.js
+     fills the body and opens it with showModal(). -->
+<dialog class="af-dialog" id="afDialog" aria-labelledby="afDialogTitle">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2 id="afDialogTitle">&nbsp;</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-act="dialog-close">Close</button></div>
+    <div class="bcn-card-body" id="afDialogBody"></div>
+  </div>
+</dialog>
 
 <script src="../nav-config.js"></script>
 <script src="../avatar.js"></script>

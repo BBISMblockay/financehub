@@ -19872,4 +19872,7 @@ $c$select (select count(*) from v_po_header_summary
 -- Corrections land on marketing_kpis_daily itself, so pages, reports, Ask SILO
 -- and the MCP agree, and the platform's raw value stays in extra.silo_adjusted.
 \i migrations/20261120020000_ad_metric_adjustments.sql
+-- 20261120030000: a product the company itself shared is seeded without a
+-- second approval -- the claim is created approved, with its one-use code.
+\i migrations/20261120030000_affiliate_seed_shared_auto.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

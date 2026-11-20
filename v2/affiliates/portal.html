@@ -657,9 +657,10 @@ function feedCard(feed) {
   return card('Share and earn', filters + `<div class="af-feed" id="feed">${sorted.map(item).join('')}</div>`);
 }
 
-// Product seeding: ask for a product at the seeding price, the brand
-// approves, a one-use code comes back here, and selling the multiple pays the
-// purchase back as earnings.
+// Product seeding: ask for a product at the seeding price and a one-use code
+// comes back here; selling the multiple pays the purchase back as earnings.
+// A product the brand SHARED is approved as it is asked for (20261120030000);
+// one the affiliate names themselves waits for the brand.
 let SEEDS = { offer: { enabled: false }, claims: [] };
 const seedPill = (c) => { const v = seedView(c); return `<span class="bcn-pill${v.tone ? ` bcn-pill--${v.tone}` : ''}">${esc(v.label)}</span>`; };
 const seedFor = (id) => SEEDS.claims.find((c) => c.feed_item_id === id && seedView(c).open);
@@ -692,7 +693,11 @@ async function seedAsk(body, btn) {
     const el = $('seedCard'); if (el) el.outerHTML = seedCard();
     // The product's button becomes its state, in place.
     document.querySelectorAll('[data-seed]').forEach((x) => { if (seedFor(x.dataset.seed)) x.outerHTML = seedBtn({ kind: 'product', id: x.dataset.seed }); });
-    setStatus(r.replayed ? 'Already asked.' : `Asked. ${BRAND} will approve it.`, 'pos');
+    // A product the brand itself shared is yours as you ask for it
+    // (20261120030000); one you named waits for them.
+    setStatus(r.replayed ? 'Already asked.'
+      : r.approved ? 'Yours. Your code is on its way by email.'
+      : `Asked. ${BRAND} will answer.`, 'pos');
   } catch (e) { setStatus(e.message, 'neg'); if (btn) btn.disabled = false; }
 }
 
