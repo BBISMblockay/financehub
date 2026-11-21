@@ -42,7 +42,7 @@
         <span class="v3-dirty-pill" id="dirtyPill" hidden>Unsaved changes</span>
       </div>
       <div class="bcn-header-actions">
-        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh" title="Re-run every widget query against live data">Refresh</button>
+        <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRefresh" title="Run dashboard queries again using data already in SILO">Refresh</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnReportView" aria-pressed="false">Report view</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnPrintReport" hidden>Print / PDF</button>
         <button type="button" class="bcn-btn bcn-btn--ghost" id="btnDensity" title="Switch between comfortable and compact spacing">Compact</button>
@@ -223,7 +223,7 @@
 <script src="js/field-semantics.js?v=20261120b"></script>
 <script src="js/metrics.js?v=20261120b"></script>
 <script src="js/chart-adapter.js?v=20261120b"></script>
-<script src="js/filter-bar.js?v=20261120b"></script>
+<script src="js/filter-bar.js?v=20261121a"></script>
 <script src="js/report-catalog.js?v=20261120b"></script>
 <!-- The dashboard page does not compose SQL, but it does have to READ a
      saved answer: which of its queries is the answer and which is the
@@ -231,7 +231,7 @@
      in report-builder.js because that is where "what does this SQL mean"
      belongs; duplicating them here is how the two would drift. -->
 <script src="js/report-builder.js?v=20261120b"></script>
-<script src="js/dashboard-renderer.js?v=20261120b"></script>
+<script src="js/dashboard-renderer.js?v=20261121a"></script>
 <script src="js/dashboard-builder.js?v=20261120b"></script>
 <script src="js/report-library.js?v=20261120b"></script>
 <script src="js/dashboard-copy.js?v=20261120b"></script>
@@ -249,12 +249,14 @@
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
   const el = (id) => document.getElementById(id);
 
+  let statusTimer;
   function setStatus(msg, type = 'info', ms = 0) {
+    clearTimeout(statusTimer);
     const s = el('status');
     s.className = `bcn-status bcn-status--${type}`;
     s.textContent = msg;
     s.hidden = false;
-    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+    if (ms) statusTimer = setTimeout(() => { s.hidden = true; }, ms);
   }
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -793,7 +795,7 @@
     // Reading a report, the primary action is Run -- "Refresh" is the word for
     // a dashboard you are watching, not for a report you came to run.
     el('btnRefresh').textContent = 'Run';
-    el('btnRefresh').title = 'Run this report again against live data';
+    el('btnRefresh').title = 'Run this report again using data already in SILO';
     el('btnExportReport').hidden = false;
     const builderLink = el('previewBuilder');
     builderLink.href = `/v3/report-builder.html?id=${encodeURIComponent(report.id)}`;
@@ -999,13 +1001,27 @@
   });
 
   el('btnRefresh').addEventListener('click', async (e) => {
-    if (!runtime) return;
-    e.target.disabled = true;
-    setStatus('Re-running every widget query against live data…', 'info');
-    await runtime.refresh();
-    markUnsupported();
-    setStatus(`Refreshed ${new Date().toLocaleTimeString()}.`, 'pos', 3000);
-    e.target.disabled = false;
+    const button = e.currentTarget;
+    if (!runtime || button.disabled) return;
+    button.disabled = true;
+    setStatus('Running queries using the data already in SILO…', 'info');
+    try {
+      const { loaded, failed } = await runtime.refresh();
+      markUnsupported();
+      if (failed) {
+        setStatus(loaded
+          ? `Some results could not load (${failed} of ${loaded + failed} tiles). Check the affected tiles below and retry.`
+          : 'Results could not load. Check the affected tiles below and retry.', 'neg');
+      } else if (loaded) {
+        setStatus('Queries finished. Source integrations were not synced.', 'pos', 4000);
+      } else {
+        setStatus('There are no data queries to run.', 'info', 4000);
+      }
+    } catch (_) {
+      setStatus('Results could not load. Try running again.', 'neg');
+    } finally {
+      button.disabled = false;
+    }
   });
 
   el('btnEdit').addEventListener('click', async () => {

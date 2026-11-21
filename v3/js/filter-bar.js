@@ -482,6 +482,7 @@
        default; its SQL reads `{{location}} = 'all' or location_tag =
        {{location}}`, which the planner folds away when it is 'all'. */
     function buildChoice(decl) {
+      const isChannel = decl.options_source === 'channel';
       const id = `slicer_${decl.key}`;
       const wrap = fieldWrap(decl.key, decl.label, id);
       const sel = document.createElement('select');
@@ -514,18 +515,82 @@
         // everything. Carry it as its own option and say it is unknown.
         if (keep && keep !== ALL_CHOICES && !list.some((c) => c.value === keep)) {
           const o = document.createElement('option');
-          o.value = keep; o.textContent = `${keep} (not in this workspace)`;
+          o.value = keep; o.textContent = `${keep} (${isChannel ? 'not in recent choices' : 'not in this workspace'})`;
           sel.appendChild(o);
         }
         sel.value = keep == null || keep === '' ? ALL_CHOICES : keep;
         note.textContent = Array.isArray(got)
-          ? (got.length ? '' : 'Nothing to choose from yet')
+          ? (got.length ? (isChannel ? 'Recent channels only.' : '') : 'Nothing to choose from yet')
           : (got === false ? 'The choices could not be loaded' : 'Loading the choices…');
       };
       fill(getValues()[decl.key]);
       sel.addEventListener('change', () => commit({ [decl.key]: sel.value }));
       wrap.appendChild(sel);
       wrap.appendChild(note);
+      if (isChannel) {
+        // The source is intentionally limited to recent orders. Older names
+        // are still valid text values and need no extra database lookup.
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'bcn-btn bcn-btn--ghost';
+        open.textContent = 'Enter a channel name';
+        open.setAttribute('aria-expanded', 'false');
+        const panel = document.createElement('div');
+        panel.id = `${id}_manual`;
+        panel.hidden = true;
+        open.setAttribute('aria-controls', panel.id);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'bcn-field';
+        input.autocomplete = 'off';
+        input.setAttribute('aria-label', 'Exact channel name');
+        input.placeholder = 'Exact channel name';
+        const error = document.createElement('span');
+        error.className = 'v3-slicer-error';
+        error.setAttribute('role', 'status');
+        error.hidden = true;
+        const apply = document.createElement('button');
+        apply.type = 'button';
+        apply.className = 'bcn-btn bcn-btn--primary';
+        apply.textContent = 'Apply';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'bcn-btn bcn-btn--ghost';
+        cancel.textContent = 'Cancel';
+        const setOpen = (on, returnFocus = true) => {
+          panel.hidden = !on;
+          open.setAttribute('aria-expanded', String(on));
+          error.hidden = true;
+          if (on) { input.value = ''; input.focus(); }
+          else if (returnFocus) open.focus();
+        };
+        const applyName = () => {
+          const value = input.value.trim();
+          if (!value || value === ALL_CHOICES || global.SiloReportParams.toLiteral(decl, value).error) {
+            error.textContent = 'Enter an exact channel name, or use All channels above.';
+            error.hidden = false;
+            input.focus();
+            return;
+          }
+          setOpen(false);
+          commit({ [decl.key]: value });
+        };
+        open.addEventListener('click', () => setOpen(panel.hidden));
+        cancel.addEventListener('click', () => setOpen(false));
+        apply.addEventListener('click', applyName);
+        input.addEventListener('input', () => { error.hidden = true; });
+        panel.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+          if (e.key === 'Enter' && e.target === input && !e.isComposing) { e.preventDefault(); applyName(); }
+        });
+        sel.addEventListener('change', () => setOpen(false, false));
+        panel.appendChild(input);
+        panel.appendChild(apply);
+        panel.appendChild(cancel);
+        panel.appendChild(error);
+        wrap.appendChild(open);
+        wrap.appendChild(panel);
+      }
       return { wrap, update(v) { fill(v); } };
     }
 
