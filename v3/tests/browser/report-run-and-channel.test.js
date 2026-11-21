@@ -33,7 +33,8 @@ const { startSuite, FIXTURES } = require('../lib/harness');
             || (window.__runMode === 'partial' && query.includes('from breakdown'));
           if (failed) return { data: null, error: { message: 'fixture timeout; raw diagnostic' } };
           if (window.__runMode === 'partial') return { data: [], error: null };
-          return { data: [{ channel: 'Recent channel', orders: 4 }], error: null };
+          const isHistorical = query.includes("'Retired O''Hare Channel'");
+          return { data: [{ channel: isHistorical ? "Retired O'Hare Channel" : 'Recent channel', orders: 4 }], error: null };
         },
       };
     `;
@@ -79,16 +80,28 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     await open.click();
     await field.fill("Retired O'Hare Channel");
     await field.press('Enter');
-    await page.waitForFunction(() => window.__FAKE_DB__.rpcCalls
-      .some((call) => call.name === 'chat_run_readonly_query'
-        && call.args.query.includes("'Retired O''Hare Channel'")));
+    const waitForChannelInBothTiles = (name) => page.waitForFunction((channel) =>
+      Array.from(document.querySelectorAll('#grid table tbody')).filter((tbody) =>
+        Array.from(tbody.querySelectorAll('td')).some((cell) => cell.textContent.trim() === channel)).length === 2,
+    name);
+    await waitForChannelInBothTiles("Retired O'Hare Channel");
+    const matchingQueries = (literal, after = 0) => page.evaluate(({ quoted, offset }) =>
+      window.__FAKE_DB__.rpcCalls.filter((call) => call.name === 'chat_run_readonly_query')
+        .slice(offset).map((call) => call.args.query).filter((query) => query.includes(quoted)),
+    { quoted: literal, offset: after });
+    const historicalQueries = await matchingQueries("'Retired O''Hare Channel'", n);
+    assert.equal(historicalQueries.length, 2, 'each tile uses the exact quoted historical value');
     assert.equal(await page.inputValue('#slicer_channel'), "Retired O'Hare Channel");
     assert.match(await page.locator('#slicer_channel option:checked').textContent(), /not in recent choices/);
 
     await page.selectOption('#slicer_channel', 'all');
-    await page.waitForFunction(() => window.__FAKE_DB__.rpcCalls
-      .filter((call) => call.name === 'chat_run_readonly_query').at(-1)?.args.query.includes("'all'"));
+    // Both tables must repaint, even if the earlier All results are cached.
+    await waitForChannelInBothTiles('Recent channel');
     assert.equal(await page.inputValue('#slicer_channel'), 'all');
+    const beforeRun = await queryCount();
+    await run('ok', /Queries finished.*not synced/i);
+    assert.equal((await matchingQueries("'all'", beforeRun)).length, 2, 'explicit Run re-queries both All tiles');
+    await waitForChannelInBothTiles('Recent channel');
     assert.equal(await page.evaluate(() => window.__FAKE_DB__.queryCalls.some((call) => call.op !== 'select')), false);
     assert.deepEqual(errors.filter((e) => !/favicon/.test(e)), []);
     console.log('PASS report run feedback, partial success, failure recovery and historical channels');
