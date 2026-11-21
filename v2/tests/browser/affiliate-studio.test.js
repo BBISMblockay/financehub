@@ -73,6 +73,7 @@
  *   AFFILIATE_UI_MUTATION=audknown    the page offers to change an audience it never read
  *   AFFILIATE_UI_MUTATION=whoprecheck the audience dialog opens with everyone ticked, changing what the share means
  *   AFFILIATE_UI_MUTATION=whoscope    a save replaces the whole audience, not only the creators it offered
+ *   AFFILIATE_UI_MUTATION=personprog a program they are already in is offered again
  *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
  */
@@ -103,6 +104,7 @@ const MUTATIONS = {
   // The dialog must open on what the share means now, not pre-tick everyone.
   whoprecheck: ['/affiliates/studio.js', "${picked.has(x.id) ? ' checked' : ''}", " checked"],
   whoscope: ['/affiliates/studio.js', 'p_affiliates: want, p_scope: boxes.map((x) => x.value)', 'p_affiliates: want'],
+  personprog: ['/affiliates/studio.js', '    const canAdd = otherPrograms().filter((x) => !inIds.has(x.id));', '    const canAdd = otherPrograms();'],
   affpaged: ['/affiliates/studio.js', '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);',
     '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), Promise.resolve(null)]);'],
   // Somebody who left the program is not someone to share with.
@@ -908,6 +910,53 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const args = await ap.evaluate(() => window.__addArgs);
       R.eq([args.p_program, args.p_commission_kind, args.p_commission_percent, args.p_commission_fixed_cents], [P2, 'percent_of_net', 15, null], 'adds them with their own rate, no second signup');
       await ap.close();
+    }
+    // One person across programs: the dialog says where they already are, and
+    // does not offer to add them there again (20261121230000).
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const P3 = '88888888-8888-4888-8888-888888888888';
+      const two = await suite.open('/v2/affiliates/index.html',
+        { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs,
+          { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' },
+          { ...loopTables.affiliate_programs[0], id: P3, name: 'Outlet', slug: 'outlet' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          // The fixture crosses into the page as SOURCE, with no closure, so
+          // every id in it is written out rather than referenced.
+          affiliate_person_programs: () => ([
+            { affiliate_id: '22222222-2222-4222-8222-222222222222', program_id: '11111111-1111-4111-8111-111111111111', program_name: 'Creators', status: 'active' },
+            { affiliate_id: 'aff-w', program_id: '66666666-6666-4666-8666-666666666666', program_name: 'Wholesale', status: 'active' }]) } });
+      two.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(two);
+      await toAffiliates(two);
+      await two.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await two.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await two.waitForFunction(() => /Also in/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
+      const body = await text(two, '#afDialogBody');
+      R.has(body, 'Also in Wholesale', 'the dialog says which other programs they are already in');
+      R.has(body, 'one payout address', 'and that their PayPal is the same in every one');
+      R.eq(await two.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Outlet'],
+        'a program they are already in is not offered again');
+      await two.close();
+    }
+    // And where that read fails the dialog is what it was before it existed.
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const noRead = await suite.open('/v2/affiliates/index.html',
+        { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs,
+          { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          affiliate_person_programs: () => ({ __error: { message: 'fixture: function does not exist', code: '42883' } }) } });
+      noRead.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(noRead);
+      await toAffiliates(noRead);
+      await noRead.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await noRead.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await noRead.waitForSelector('#apProg', { timeout: 5000 });
+      R.eq(await noRead.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'],
+        'with their memberships unreadable every other program is offered, as before');
+      R.not(await text(noRead, '#afDialogBody'), 'Also in', 'and nothing is claimed about where they are');
+      await noRead.close();
     }
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });

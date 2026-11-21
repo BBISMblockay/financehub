@@ -4061,3 +4061,41 @@ when the function is absent (before this migration).
 
 Apply, AND deploy `affiliate-invite` (`affiliate_portal_feed` is replaced in the
 same migration, so nothing else needs one).
+
+### Affiliate access: one person, one PayPal, one email — 2026-11-21
+
+`20261121230000_affiliate_one_person_one_paypal.sql`, the third of the three
+gaps, answered by Blake's own rule: a creator has ONE payout address for the
+company, not one per program.
+
+A program membership stays an `affiliates` row per program (Blake 2026-11-17,
+`20261118010000`): the rate, the codes, the ledger, the payouts and the portal
+are all program-scoped through `affiliates.program_id`, and that does not
+change. What moved is what belongs to the PERSON rather than to the membership,
+and both are held by TRIGGERS rather than by rewriting readers, because several
+deployed functions write these tables and the money path reads the stored row
+directly:
+
+- `affiliate_payout_account_mirror()` on `affiliate_payout_accounts`: a PayPal
+  address written for one membership follows the same person's other
+  memberships in that company, including into a program that had no row at all,
+  so a person who gave an address once is payable everywhere. Recursion stops
+  on the `is distinct from` guard: the mirrored rows fire the trigger again,
+  find nothing to change and write nothing. The migration also converges what
+  is already stored onto the newest address each person gave.
+- `affiliate_person_email_follows()` on `affiliates`: a creator's address is
+  their identity, so changing it on one membership moves their other
+  memberships in the same company (or `affiliate_portal_brands()`, which finds
+  them by `affiliate_contact_key(contact_email)`, splits one person into two who
+  each see half their brands), and revokes the portal links mailed to the old
+  address. Those links already stopped working the moment the address changed —
+  the token check requires the mailed address to STILL be that affiliate's, and
+  that check is the authorization, so it is untouched. This records the
+  revocation instead of leaving a link that silently fails.
+- `affiliate_person_programs(affiliate)` lists the programs one person is in,
+  SECURITY INVOKER so RLS answers: a manager given one program sees only the
+  membership they were given, which is the isolation and not an omission.
+  Studio's **Add to program** dialog uses it to say "Also in …" and to stop
+  offering a program they are already in.
+
+Apply only; no deploy.

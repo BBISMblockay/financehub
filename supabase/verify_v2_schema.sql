@@ -9513,6 +9513,44 @@ select 'Affiliate program scope' as check_name,
     else 'ok'
   end as status;
 
+-- One person, one payout address, one email (20261121230000). A membership is
+-- still an affiliates row per program; what belongs to the PERSON is their
+-- PayPal address and their email, and both are held together by a trigger
+-- because several deployed functions write these tables.
+select 'Affiliate one person' as check_name,
+  case
+    when to_regprocedure('public.affiliate_payout_account_mirror()') is null
+      or to_regprocedure('public.affiliate_person_email_follows()') is null
+      or to_regprocedure('public.affiliate_person_programs(uuid)') is null
+      then 'MISSING — run 20261121230000_affiliate_one_person_one_paypal.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliate_payout_accounts'::regclass
+                        and tgname = 'affiliate_payout_accounts_mirror' and tgenabled <> 'D')
+      then 'BROKEN — a PayPal address written for one membership no longer follows the person'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliates_person_email_follows' and tgenabled <> 'D')
+      then 'BROKEN — changing a creator''s address no longer moves the person or ends their old link'
+    when has_function_privilege('anon', 'public.affiliate_person_programs(uuid)', 'execute')
+      then 'BROKEN — anon can list which programs a creator is in'
+    -- The portal token check is the authorization and must stay as it is: the
+    -- address a link was mailed to has to STILL be that affiliate's, or an edit
+    -- after the mail could walk a token into another company.
+    when position('t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      or position('affiliate_contact_key(a.contact_email) = t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — the brand switcher no longer checks that the mailed address is still theirs'
+    -- Nobody may be payable at two addresses at once.
+    when exists (
+      select 1 from public.affiliates a
+        join public.affiliate_payout_accounts pa
+          on pa.affiliate_id = a.id and pa.company_entity_id = a.company_entity_id and pa.provider = 'paypal'
+       where nullif(btrim(pa.payout_email), '') is not null
+       group by a.company_entity_id, public.affiliate_contact_key(a.contact_email)
+      having count(distinct lower(btrim(pa.payout_email))) > 1)
+      then 'BROKEN — one person is payable at two PayPal addresses'
+    else 'ok'
+  end as status;
+
 -- Affiliate launch claims and the affiliate's own orders (20261113070000):
 -- claiming is the affiliate's act through the portal, the order list is
 -- service role only, and the launch calendar reads claims under RLS.
