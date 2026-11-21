@@ -364,6 +364,10 @@ async function loadProgramData() {
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
     notifications: by('affiliate_notifications').order('created_at', { ascending: false }).limit(50),
     feed: by('affiliate_feed_items').order('shared_at', { ascending: false }).limit(200),
+    // Who each share is for (20261121210000). Read fail-soft like seeding:
+    // before the migration there is no table, and NO rows for a share has
+    // always meant everyone in the program, so an empty read is correct.
+    audience: db.from('affiliate_feed_audience').select('feed_item_id, affiliate_id').eq('company_entity_id', CO).limit(2000),
     // Product seeding (20261113093000). Read fail-soft below: before the
     // migration there is no table, and the page simply has no seeding.
     seeds: by('affiliate_seed_claims').order('requested_at', { ascending: false }).limit(300),
@@ -388,6 +392,9 @@ async function loadProgramData() {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
     if (r.error && keys[i] === 'seeds') { d.seeds = null; return; }
     if (r.error && keys[i] === 'content') { d.content = null; return; }
+    // No audience table yet means no share is narrowed, which is the same
+    // answer as an empty one: everyone in the program sees everything.
+    if (r.error && keys[i] === 'audience') { d.audience = []; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
@@ -894,6 +901,21 @@ function dialogSpec() {
     const acts = prospectActions(mp).join('');
     return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
+  // Who a share is for. Nobody ticked means the whole program, which is what
+  // every share has meant until now, so the dialog opens on that honestly
+  // rather than pre-ticking everyone and calling it the same thing.
+  if (S.feedWho) {
+    const f = (d.feed || []).find((x) => x.id === S.feedWho);
+    if (f) {
+      const picked = new Set((d.audience || []).filter((x) => x.feed_item_id === f.id).map((x) => x.affiliate_id));
+      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');
+      const line = (x) => `<label class="af-item af-item--compact" style="display:flex;gap:10px;align-items:center;"><input type="checkbox" class="af-who" value="${esc(x.id)}"${picked.has(x.id) ? ' checked' : ''} /><span>${esc(x.display_name || x.contact_email || 'Creator')}</span></label>`;
+      return { key: `who:${f.id}:${[...picked].sort().join(',')}`, title: `Who sees ${f.title}`,
+        body: `<p class="af-muted">Tick nobody and it stays with everyone in this program, which is how it is shared now.</p>
+          ${live.length ? live.map(line).join('') : empty('No creators in this program yet.')}
+          ${dlgFoot(`${btn('Save', 'feed-who-save', { id: f.id }, 'primary')}${btn('Cancel', 'dialog-close')}`)}` };
+    }
+  }
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
     const k = S.affTool.k;
@@ -903,7 +925,7 @@ function dialogSpec() {
   }
   return null;
 }
-function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; }
+function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1308,12 +1330,27 @@ async function autosaveProgram({ id, row }) {
 
 async function renderManagers() {
   const el = $('managersCard'); if (!el) return;
-  const { data } = await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO);
-  const rows = data || [];
+  // program_id arrives with 20261121210000; until it is applied the column is
+  // not there, so a failed read falls back to the grant list without it and
+  // every grant reads as "All programs", which is what it is.
+  let rows = [];
+  let scoped = true;
+  const full = await db.from('affiliate_program_managers').select('id, user_id, created_at, program_id').eq('company_entity_id', CO);
+  if (full.error) {
+    scoped = false;
+    rows = (await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO)).data || [];
+  } else { rows = full.data || []; }
   const name = (id) => { const u = S.profiles.find((x) => x.id === id); return esc(u?.name || u?.email || id); };
-  const mgrRow = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${name(r.user_id)}</div><div class="af-muted">Since ${fmtDate(r.created_at)}</div></div><div class="af-item-foot">${btn('Remove', 'remove-manager', { id: r.id }, 'surface', { confirm: true })}</div></article>`;
+  const progLabel = (id) => esc(S.programs.find((x) => x.id === id)?.name || 'one program');
+  // A grant that names no program is every program, which is what every grant
+  // made before 2026-11-21 is.
+  const covers = (r) => (r.program_id ? `${progLabel(r.program_id)} only` : 'All programs');
+  const mgrRow = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${name(r.user_id)} ${pill(covers(r), r.program_id ? '' : 'accent')}</div><div class="af-muted">Since ${fmtDate(r.created_at)}</div></div><div class="af-item-foot">${btn('Remove', 'remove-manager', { id: r.id }, 'surface', { confirm: true })}</div></article>`;
   el.innerHTML = card('Who can run Affiliate Studio', `${itemList(rows, mgrRow, 'Only owners and executives so far.')}
-    <div class="af-row" style="margin-top:8px;">${field('Grant access to', `<select class="bcn-field" id="mgrUser"><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}</select>`)}${btn('Grant', 'add-manager', {}, 'primary')}</div>`);
+    <div class="af-row" style="margin-top:8px;">${field('Grant access to', `<select class="bcn-field" id="mgrUser"><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}</select>`)}${
+      scoped ? field('For', `<select class="bcn-field" id="mgrProgram"><option value="">All programs</option>${S.programs.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`) : ''
+    }${btn('Grant', 'add-manager', {}, 'primary')}</div>
+    <p class="af-muted">Someone granted one program sees and changes only that program. Granted all, they work across every one, which is how every grant before today was made.</p>`);
 }
 
 // The link name is made URL-safe as typed ("Testing-2" -> "testing-2"), so
@@ -2002,11 +2039,16 @@ async function renderShare() {
   // A product shared under a launch belongs to that launch's card, not to a
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
+  const inProgram = (d.affiliates || []).filter((a) => a.status !== 'ended');
   const sharedAll = d.feed.filter((f) => !f.parent_source_id);
   const KIND = { launch: 'Launch', product: 'Product', ad: 'Ad' };
+  // A share with nobody named is for the whole program, which is every share
+  // made before 2026-11-21. Naming anyone narrows it to those people.
+  const audOf = (id) => (d.audience || []).filter((x) => x.feed_item_id === id);
+  const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };
   const sharedRows = sharedAll.map((f) => shareRow(f.image_url, f.title,
-    `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}`,
-    MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''));
+    `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''} · ${esc(who(f))}`,
+    MANAGE ? `${btn('Who sees it', 'feed-who', { id: f.id }, 'surface')}${btn('Stop sharing', 'feed-remove', { id: f.id })}` : ''));
   // The store links open is picked from the program's connected Shopify
   // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
   const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
@@ -2777,12 +2819,19 @@ const A = {
   },
   'add-manager': async () => {
     if (!val('mgrUser')) throw new Error('Pick a person.');
-    must(await db.from('affiliate_program_managers').insert({ company_entity_id: CO, user_id: val('mgrUser'), granted_by: me.id }));
-    return 'Access granted.';
+    // No program picked means every program, which is the only thing a grant
+    // could mean before 20261121210000. The field is absent until it is
+    // applied, and an absent field is the same answer.
+    const forProgram = $('mgrProgram') ? (val('mgrProgram') || null) : null;
+    const row = { company_entity_id: CO, user_id: val('mgrUser'), granted_by: me.id };
+    if (forProgram) row.program_id = forProgram;
+    const r = await db.from('affiliate_program_managers').insert(row);
+    // A grant they already hold is not a failure worth a Postgres message.
+    if (r.error && r.error.code === '23505') throw new Error('They already have that access.');
+    must(r);
+    return forProgram ? 'Access granted for that program.' : 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  // A chip swap must not throw away what someone has typed: the editor and
-  // the template live in this body and are rebuilt from the saved row.
   // A chip swap must not throw away what someone has typed: the editor and
   // the template live in this body and are rebuilt from the saved row.
   'comms-tab': ({ k }) => {
@@ -3265,6 +3314,20 @@ const A = {
     // by sharing it again.
     if (kind === 'launch') await shareLaunchProducts(String(src));
     return 'Shared. It shows in your affiliates\' portal now.';
+  },
+  'feed-who': ({ id }) => { S.feedWho = id; renderDialog(); return null; },
+  // Nobody ticked is not an empty audience, it is no audience: the share goes
+  // back to the whole program. So the rows are replaced, never merged.
+  'feed-who-save': async ({ id }) => {
+    const want = [...document.querySelectorAll('#afDialogBody .af-who:checked')].map((x) => x.value);
+    const del = await db.from('affiliate_feed_audience').delete().eq('company_entity_id', CO).eq('feed_item_id', id);
+    if (del.error) throw del.error;
+    if (want.length) {
+      must(await db.from('affiliate_feed_audience').insert(want.map((a) => ({ company_entity_id: CO, feed_item_id: id, affiliate_id: a }))));
+    }
+    S.feedWho = null;
+    await reload();
+    return want.length ? `Shared with ${num(want.length)} creator(s).` : 'Shared with everyone in this program.';
   },
   'feed-remove': async ({ id }) => {
     const { data, error } = await db.from('affiliate_feed_items').delete().eq('id', id).select();

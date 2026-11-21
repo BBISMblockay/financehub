@@ -173,6 +173,13 @@ create function is_exec_or_owner() returns boolean language sql stable security 
       and (case when em.role is not null then em.role = 'owner_admin' else p.role = 'owner' end))
 $$;
 create function attach_stamp_company_entity_id_triggers() returns void language sql as $$ select $$;
+-- Where a program's links open. The real one (20261117030000) prefers the
+-- program's own store and needs columns three store migrations add, and those
+-- pull in the whole API-grant subsystem; the portal feed only needs an answer,
+-- and which store it is belongs to that migration's own tests.
+create function affiliate_program_store_url(p_company uuid, p_program uuid) returns text
+  language sql stable security definer as $$
+  select 'https://fixture.example' where p_company is not null and p_program is not null $$;
 create function refresh_chat_schema_catalog() returns void language sql as $$ select $$;
 create table company_settings(company_entity_id uuid primary key, business_timezone text);
 create function silo_company_timezone(p uuid) returns text language sql stable security definer as
@@ -291,6 +298,11 @@ const files = {
   financereads: '20261119070000_affiliate_finance_reads.sql',
   // A product the company shared is seeded without a second approval (20261120030000).
   sharedseed: '20261120030000_affiliate_seed_shared_auto.sql',
+  // Creators submit the posts they made (20261117050000); the scope migration
+  // narrows its read, so its table has to exist here.
+  content: '20261117050000_affiliate_content.sql',
+  // Staff scoped to one program, and a share named for some creators (20261121210000).
+  scope: '20261121210000_affiliate_program_scoped_access.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -308,6 +320,19 @@ function mutate(key, from, to) {
 }
 switch (MUT) {
   case '': break;
+  // ── 20261121210000: staff scoped to one program, a share named for some ──
+  // Scope is the whole point: a visible-program answer of "yes, always" is
+  // the gap this migration closes.
+  case 'scopeopen': mutate('scope', "  select not public.affiliate_manager_scoped()\n      or exists (", "  select true\n      or exists ("); break;
+  case 'scopewrite': mutate('scope', "  select public.can_manage_affiliate_programs()\n     and public.affiliate_visible_program(p_program);", "  select public.can_manage_affiliate_programs();"); break;
+  case 'scopeexec': mutate('scope', "  select not public.is_exec_or_owner()\n     and exists (", "  select exists ("); break;
+  case 'scopenull': mutate('scope', "     and not exists (\n       select 1 from public.affiliate_program_managers g\n       where g.user_id = auth.uid()\n         and g.company_entity_id = public.active_company_id()\n         and g.program_id is null);", "     ;"); break;
+  case 'scopeprogco': mutate('scope', 'select public.attach_affiliate_same_company_twins();', ''); break;
+  case 'scopeonegrant': mutate('scope', 'drop index if exists public.affiliate_program_managers_identity;', ''); break;
+  case 'audall': mutate('scope', "  select not exists (select 1 from public.affiliate_feed_audience x where x.feed_item_id = p_item)", "  select true"); break;
+  case 'audfeed': mutate('scope', "       and public.affiliate_feed_item_for(f.id, v_tok.affiliate_id)", ''); break;
+  case 'audpush': mutate('scope', "                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)", '                     ) end)'); break;
+  case 'audprog': mutate('scope', "                        and a.program_id = f.program_id\n", ''); break;
   case 'financeopen': mutate('financereads', "             and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions()))", "             )"); break;
   case 'anyageunknown': mutate('anyage', "              or (a.basis = 'refunds_not_measured'", "              or (false"); break;
   case 'orderhold': mutate('orderstate', "(max(l.order_day) + max(p.refund_hold_days)) as payable_from", "max(l.order_day) as payable_from"); break;
@@ -590,7 +615,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2586,13 +2611,166 @@ await check('FR1 a regular member reads no earnings, payouts or PayPal addresses
   await asSuper();
 });
 
+// ── P: staff scoped to one program, and a share named for some creators ──
+// (20261121210000.) Both are additive: null means everything, which is what
+// every grant and every share made before it means. The first check is that
+// nothing moved for anyone who was there already.
+let progSide; let affSide; let shareMain; let sideToken;
+await check('P1 nobody is scoped until somebody is given a program-only grant', async () => {
+  progSide = await seedProgram(U.ownerA, A, 'scope-side');
+  await as(U.mgrA, A);   // holds the company-wide grant from B2
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, false);
+  for (const prog of [progA, progSide]) {
+    assert.equal((await one('select public.affiliate_visible_program($1) as v', [prog])).v, true,
+      'an unscoped grant still means every program');
+    assert.equal((await one('select public.can_manage_affiliate_program($1) as v', [prog])).v, true);
+  }
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [progA])).v, true,
+    'and someone with no grant at all is not scoped either -- they are stopped by the manage gate, as before');
+  assert.equal((await one('select public.can_manage_affiliate_program($1) as v', [progA])).v, false);
+});
+
+await check('P2 a program-only grant narrows what that person reads', async () => {
+  await as(U.ownerA, A);
+  affSide = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Side','side@creator.test','active',1,now()) returning id`, [A, progSide])).id;
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progA]);
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, true);
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [progA])).v, true);
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [progSide])).v, false);
+  const progs = (await all('select slug from affiliate_programs order by slug')).map((r) => r.slug);
+  assert.deepEqual(progs, ['creators'], 'the other program is not theirs to see');
+  const seen = await all('select program_id from affiliates');
+  assert.ok(seen.length > 0, 'they still read their own program');
+  assert.equal(seen.filter((r) => r.program_id === progSide).length, 0, 'and none of the other program');
+});
+
+await check('P3 a scoped manager writes in their program and nowhere else', async () => {
+  await as(U.memberA, A);
+  const mine = await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Theirs','theirs@creator.test','active',1,now()) returning id`, [A, progA]);
+  assert.equal(mine.rows.length, 1, 'their own program is theirs to run');
+  await assert.rejects(db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Not theirs','no@creator.test','active',1,now())`, [A, progSide]),
+    'a program they were not given is refused');
+  // An RLS-refused UPDATE succeeds with zero rows rather than erroring.
+  const up = await db.query('update affiliates set display_name = $1 where id = $2 returning id', ['Taken over', affSide]);
+  assert.equal(up.rows.length, 0, 'and so is editing a creator in it');
+  await asSuper();
+  assert.equal((await one('select display_name from affiliates where id = $1', [affSide])).display_name, 'Side');
+});
+
+await check('P4 one company-wide grant alongside a program grant still means everything', async () => {
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id) values ($1,$2)', [A, U.memberA]);
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, false,
+    'the wider grant wins; a narrow one never takes access away');
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [progSide])).v, true);
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where user_id = $1 and program_id is null', [U.memberA]);
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, true, 'and taking it away scopes them again');
+});
+
+await check('P5 an exec or owner is never scoped by a grant', async () => {
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.ownerA, progA]);
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, false);
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [progSide])).v, true);
+  await db.query('delete from affiliate_program_managers where user_id = $1', [U.ownerA]);
+});
+
+await check('P6 a grant cannot name another company\'s program', async () => {
+  await asSuper();
+  await assert.rejects(db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.mgrAB, progB]), 'the composite key refuses a program from company B');
+});
+
+await check('P7 one person may be scoped to several programs', async () => {
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progSide]);
+  await as(U.memberA, A);
+  for (const prog of [progA, progSide]) {
+    assert.equal((await one('select public.affiliate_visible_program($1) as v', [prog])).v, true);
+  }
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, true, 'two named programs is still scoped');
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where user_id = $1 and program_id = $2', [U.memberA, progSide]);
+  await assert.rejects(db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progA]), 'but the same program twice is still one grant');
+});
+
+await check('P8 a share with no audience reaches everyone; named, only those named', async () => {
+  await as(U.ownerA, A);
+  shareMain = (await one(`insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, event_on)
+     values ($1,$2,'launch','P8','Named drop', current_date + 10) returning id`, [A, progA])).id;
+  const push = (await one(`insert into affiliate_feed_items(company_entity_id, program_id, kind, source_id, title, parent_source_id)
+     values ($1,$2,'product','launch:P8:Cap','Named cap','P8') returning id`, [A, progA])).id;
+  sideToken = 'hash-scope-sam';
+  await asSuper();   // minting a token is a server-side call, as in A-series
+  await db.query(`select public.affiliate_issue_access_token($1,$2,'portal',$3,now() + interval '30 days',$4)`,
+    [A, progA, sideToken, affSam]);
+  const feed = async (tok) => (await one('select public.affiliate_portal_feed($1) as f', [tok])).f;
+  const titleOf = (f) => f.items.filter((i) => i.title === 'Named drop');
+  await as(null, null);
+  for (const tok of ['hash-pat', sideToken]) {
+    assert.equal(titleOf(await feed(tok)).length, 1, `with no audience the share is for everyone (${tok})`);
+  }
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_feed_audience(company_entity_id, feed_item_id, affiliate_id) values ($1,$2,$3)',
+    [A, shareMain, affPat]);
+  await as(null, null);
+  assert.equal(titleOf(await feed('hash-pat')).length, 1, 'the creator it names still sees it');
+  assert.equal(titleOf(await feed(sideToken)).length, 0, 'and nobody else does');
+  // A product under a launch carries its own audience the same way.
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_feed_audience(company_entity_id, feed_item_id, affiliate_id) values ($1,$2,$3)',
+    [A, push, affPat]);
+  await db.query('insert into affiliate_feed_audience(company_entity_id, feed_item_id, affiliate_id) values ($1,$2,$3)',
+    [A, shareMain, affSam]);
+  await as(null, null);
+  const samLaunch = titleOf(await feed(sideToken));
+  assert.equal(samLaunch.length, 1, 'adding them to the launch lets them in');
+  assert.deepEqual(samLaunch[0].push.map((x) => x.title), [], 'but the product under it was not for them');
+  assert.deepEqual(titleOf(await feed('hash-pat'))[0].push.map((x) => x.title), ['Named cap']);
+});
+
+await check('P9 an audience may only name a creator in that share\'s own program', async () => {
+  await as(U.ownerA, A);
+  await assert.rejects(db.query('insert into affiliate_feed_audience(company_entity_id, feed_item_id, affiliate_id) values ($1,$2,$3)',
+    [A, shareMain, affSide]), 'a creator from the other program cannot be named');
+  await as(U.ownerB, B);
+  await assert.rejects(db.query('insert into affiliate_feed_audience(company_entity_id, feed_item_id, affiliate_id) values ($1,$2,$3)',
+    [B, shareMain, affPat]), 'and another company cannot write into this share at all');
+  await asSuper();
+  assert.equal(Number((await one('select count(*)::int as n from affiliate_feed_audience where feed_item_id = $1', [shareMain])).n), 2);
+});
+
+await check('P10 the audience table is scoped and is not client-readable by anon', async () => {
+  await as(U.memberA, A);   // scoped to progA
+  assert.ok(Number((await one('select count(*)::int as n from affiliate_feed_audience')).n) > 0, 'their own program\'s rows');
+  await as(U.ownerB, B);
+  assert.equal(Number((await one('select count(*)::int as n from affiliate_feed_audience')).n), 0, 'another company reads none');
+  await asSuper();
+  assert.equal((await one(`select has_function_privilege('authenticated', 'public.affiliate_feed_item_for(uuid,uuid)', 'execute') as x`)).x, false);
+  assert.equal((await one(`select has_function_privilege('anon', 'public.affiliate_manager_scoped()', 'execute') as x`)).x, false);
+  assert.equal((await one(`select has_function_privilege('anon', 'public.affiliate_visible_program(uuid)', 'execute') as x`)).x, false);
+  assert.equal((await one(`select relrowsecurity from pg_class where oid = 'public.affiliate_feed_audience'::regclass`)).relrowsecurity, true);
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

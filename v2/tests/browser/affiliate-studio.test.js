@@ -65,6 +65,14 @@
  *   AFFILIATE_UI_MUTATION=listnophoto the list view drops the photos
  *   AFFILIATE_UI_MUTATION=bulkunsent  a refused invite in a bulk approval is dropped silently
  *   AFFILIATE_UI_MUTATION=addlinkhidden a refused invite for someone added by hand puts the link on a hidden tab
+ *   AFFILIATE_UI_MUTATION=grantall    a grant made for one program is made for every program
+ *   AFFILIATE_UI_MUTATION=grantlabel  a grant that covers one program is listed as covering all
+ *   AFFILIATE_UI_MUTATION=mgrhard     the grant list is blank where program_id is not applied yet
+ *   AFFILIATE_UI_MUTATION=whoeveryone a share named for some creators still says everyone sees it
+ *   AFFILIATE_UI_MUTATION=whonoclear  saving an audience adds to it, so nobody can be taken off
+ *   AFFILIATE_UI_MUTATION=whoprecheck the audience dialog opens with everyone ticked, changing what the share means
+ *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
+ *   AFFILIATE_UI_MUTATION=audhard     an audience table that is not there yet is reported as a failure
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -73,6 +81,27 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  // ── Access: a grant may name one program, a share may name creators ──
+  // A grant that ignores the program picked puts the person over every one.
+  grantall: ['/affiliates/studio.js', "    const forProgram = $('mgrProgram') ? (val('mgrProgram') || null) : null;", '    const forProgram = null;'],
+  // A grant list that calls every grant company-wide hides who is scoped.
+  grantlabel: ['/affiliates/studio.js', "  const covers = (r) => (r.program_id ? `${progLabel(r.program_id)} only` : 'All programs');", "  const covers = () => 'All programs';"],
+  // Reading the grant list must survive the column not being there yet.
+  mgrhard: ['/affiliates/studio.js', "  if (full.error) {\n"
+    + "    scoped = false;\n"
+    + "    rows = (await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO)).data || [];\n"
+    + "  } else { rows = full.data || []; }",
+    '  rows = full.data || [];'],
+  // A share that says "Everyone" when creators are named misstates who sees it.
+  whoeveryone: ['/affiliates/studio.js', "  const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };", "  const who = () => 'Everyone';"],
+  // Saving an audience must replace it, or nobody can ever be removed.
+  whonoclear: ['/affiliates/studio.js', "    const del = await db.from('affiliate_feed_audience').delete().eq('company_entity_id', CO).eq('feed_item_id', id);\n    if (del.error) throw del.error;", ''],
+  // The dialog must open on what the share means now, not pre-tick everyone.
+  whoprecheck: ['/affiliates/studio.js', "${picked.has(x.id) ? ' checked' : ''}", " checked"],
+  // Somebody who left the program is not someone to share with.
+  whoended: ['/affiliates/studio.js', "      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');", '      const live = (d.affiliates || []);'],
+  // No audience table yet must read as every share being for everyone.
+  audhard: ['/affiliates/studio.js', "    if (r.error && keys[i] === 'audience') { d.audience = []; return; }", ''],
   listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
   bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
@@ -2392,6 +2421,141 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await commsChip(ex, 'email');
       R.ok('the Send by email list offers the CSV by name', /Export \d+ as CSV|Nothing approved/.test(await text(ex, '#outreachBody')));
       await ex.close();
+    }
+    // ── Access: a grant may name one program, a share may name creators ──
+    // (20261121210000.) Both are additive, so the page has to read right in
+    // BOTH database states: before the migration and after it.
+    {
+      const PSIDE = '66666666-6666-4666-8666-666666666666';
+      const scoped = { ...tables,
+        affiliate_programs: [tables.affiliate_programs[0], { ...tables.affiliate_programs[0], id: PSIDE, name: 'Wholesale', slug: 'wholesale' }],
+        profiles: [tables.profiles[0], { id: 'u2', name: 'Robin Reps', email: 'robin@brand.invalid', role: 'member', is_active: true }],
+        affiliate_program_managers: [
+          { id: 'g1', company_entity_id: CO, user_id: 'u1', program_id: null, created_at: now },
+          { id: 'g2', company_entity_id: CO, user_id: 'u2', program_id: PROG, created_at: now },
+        ],
+        entity_memberships: [{ entity_id: CO, user_id: 'u1' }, { entity_id: CO, user_id: 'u2' }] };
+      const sc = await suite.open('/v2/affiliates/index.html', scoped, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      sc.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(sc);
+      await openRecords(sc);
+      await recTab(sc, 'team');
+      const team = await text(sc, '#recordsBody');
+      R.has(team, 'All programs', 'a grant that names no program says so');
+      R.has(team, 'Creators only', 'and one that names a program names it');
+      R.ok('the grant form asks which program', !!(await sc.$('#recordsBody #mgrProgram')));
+      // The form is read by id, so a second copy of it in a hidden panel
+      // would have the page send whatever that one holds.
+      R.eq(await sc.evaluate(() => [document.querySelectorAll('#mgrUser').length, document.querySelectorAll('#mgrProgram').length]), [1, 1],
+        'and the form exists once on the page');
+      await sc.selectOption('#recordsBody #mgrUser', 'u2');
+      await sc.selectOption('#recordsBody #mgrProgram', PSIDE);
+      await sc.click('#recordsBody [data-act="add-manager"]');
+      await sc.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_program_managers' && q._op === 'insert'), null, { timeout: 5000 });
+      const gr = await sc.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_program_managers' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+      R.eq([gr?.user_id, gr?.program_id], ['u2', PSIDE], 'and grants exactly the program picked');
+      await sc.close();
+    }
+    // Before the migration there is no program_id column, and the page must
+    // still list who can run Studio rather than showing nothing.
+    {
+      const old = { ...tables,
+        affiliate_program_managers: [{ id: 'g1', company_entity_id: CO, user_id: 'u1', created_at: now }] };
+      const og = await suite.open('/v2/affiliates/index.html', old, { ready, rpc: { can_manage_affiliate_programs: true },
+        missingColumns: { affiliate_program_managers: ['program_id'] } });
+      og.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(og);
+      await openRecords(og);
+      await recTab(og, 'team');
+      const oldTeam = await text(og, '#recordsBody');
+      R.has(oldTeam, 'Dana Ops', 'the grant list still renders with the column missing');
+      R.has(oldTeam, 'All programs', 'and every grant reads as what it is: all of them');
+      R.ok('with no program picker, so nothing is sent that the database would refuse', !(await og.$('#mgrProgram')));
+      await og.selectOption('#recordsBody #mgrUser', 'u1');
+      await og.click('#recordsBody [data-act="add-manager"]');
+      await og.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_program_managers' && q._op === 'insert'), null, { timeout: 5000 });
+      const og1 = await og.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_program_managers' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+      R.ok('the insert names no program at all', !('program_id' in (og1 || {})));
+      await og.close();
+    }
+    // A share is for everyone in the program until somebody is named.
+    {
+      const shared = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now },
+          { id: 'aff3', company_entity_id: CO, program_id: PROG, display_name: 'Gone', contact_email: 'gone@creator.invalid', status: 'ended', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [] };
+      const sh = await suite.open('/v2/affiliates/index.html', shared, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      sh.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(sh);
+      await sh.click('#tabs [data-tab="share"]');
+      await sh.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await sh.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await sh.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      R.has(await text(sh, '#shareBody'), 'Everyone', 'a share nobody is named on is for everyone');
+      await sh.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await sh.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      const ticked = await sh.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].filter((x) => x.checked).length);
+      R.eq(ticked, 0, 'the dialog opens on what the share means now: nobody named, so nothing ticked');
+      const offered = await sh.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].map((x) => x.value));
+      R.eq(offered, [AFF, 'aff2'], 'and offers the creators still in the program, not the ones who left');
+      await sh.check(`#afDialogBody .af-who[value="${AFF}"]`);
+      await sh.click('#afDialogBody [data-act="feed-who-save"]');
+      await sh.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert'), null, { timeout: 5000 });
+      const del = await sh.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_audience' && q._op === 'delete').pop());
+      R.ok('saving replaces the whole audience of that share, and only that share',
+        !!del && del.filters.some((f) => f.op === 'eq' && f.col === 'feed_item_id' && f.val === 'f1')
+        && del.filters.some((f) => f.op === 'eq' && f.col === 'company_entity_id'));
+      const ins = await sh.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r : [r]; });
+      R.eq(ins.map((r) => r.affiliate_id), [AFF], 'with a row for each creator ticked');
+      await sh.close();
+    }
+    // A share with somebody named says how many of the program see it, and
+    // ticking nobody gives it back to everyone.
+    {
+      const named = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [{ id: 'x1', company_entity_id: CO, feed_item_id: 'f1', affiliate_id: AFF }] };
+      const nm = await suite.open('/v2/affiliates/index.html', named, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      nm.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(nm);
+      await nm.click('#tabs [data-tab="share"]');
+      await nm.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await nm.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await nm.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const shBody = await text(nm, '#shareBody');
+      R.has(shBody, '1 of 2', 'a share with somebody named says how many of the program see it');
+      R.not(shBody, 'Everyone', 'and does not also claim everyone');
+      await nm.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await nm.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      R.eq(await nm.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].filter((x) => x.checked).map((x) => x.value)), [AFF],
+        'the dialog opens with the creators already named ticked');
+      await nm.uncheck(`#afDialogBody .af-who[value="${AFF}"]`);
+      await nm.click('#afDialogBody [data-act="feed-who-save"]');
+      await nm.waitForFunction(() => /everyone in this program/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('ticking nobody hands the share back to everyone', !(await nm.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert'))));
+      await nm.close();
+    }
+    // The audience table before the migration: unreadable, and the page says
+    // everyone rather than falling over or hiding the shares.
+    {
+      const noAud = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true },
+        broken: ['affiliate_feed_audience'] });
+      noAud.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(noAud);
+      await noAud.click('#tabs [data-tab="share"]');
+      await noAud.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await noAud.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await noAud.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const nb = await text(noAud, '#shareBody');
+      R.has(nb, 'Trail Hat', 'with the audience table unreadable the shares still render');
+      R.has(nb, 'Everyone', 'and read as what every share meant before it existed');
+      // And it is not reported as a loading failure: the migration is simply
+      // not applied yet, which is a known state, not a fault to alarm anyone.
+      const banner = await noAud.evaluate(() => { const el = document.getElementById('status'); return el && !el.hidden ? el.textContent : ''; });
+      R.ok('and the page does not cry about data that did not load', !/audience/i.test(banner));
+      await noAud.close();
     }
     // Setup always shows the application link row (Blake 2026-11-19).
     {

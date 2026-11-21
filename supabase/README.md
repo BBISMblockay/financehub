@@ -4001,3 +4001,30 @@ path: `use` writes the program's content bonus once as a `manual_adjustment`
 ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
+
+### Affiliate access: per-program staff, per-creator shares — 2026-11-21
+
+`20261121210000_affiliate_program_scoped_access.sql` closes two access gaps, both
+additive and both meaning "everything" when left null, so applying it changes
+nobody's access until somebody deliberately narrows it.
+
+`affiliate_program_managers.program_id` (nullable) names the one program a grant
+covers; NULL is every program, which is what every grant made before this means.
+The old `affiliate_program_managers_identity` unique index (one row per person
+per company) is replaced by two partial ones, so a person can hold several
+program grants. `affiliate_manager_scoped()` is true only when every grant a
+person holds names a program and they are not exec or owner;
+`affiliate_visible_program(program)` is true for everyone who is not scoped, and
+`can_manage_affiliate_program(program)` is `can_manage_affiliate_programs()`
+narrowed by it. Fourteen select policies and twelve write policies on the tables
+that carry a `program_id` now go through those; the money reads keep their
+`can_approve_affiliate_commissions()` gate as well. Tables with no program to
+point at (`affiliate_payout_accounts`, `_items`, `_sends`,
+`affiliate_prospect_observations`) are unchanged.
+
+`affiliate_feed_audience` (feed item, affiliate) names who a share is for. NO
+rows for a share means everyone in its program, which is what every share made
+before this means, so an unapplied audience or a failed read shows the share
+rather than hiding it. `affiliate_portal_feed` filters both the feed and the
+products under a launch through `affiliate_feed_item_for()`. Apply only; no
+deploy (`affiliate_portal_feed` is replaced in the same migration).
