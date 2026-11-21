@@ -81,6 +81,8 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // A file the browser cannot play must say so, not sit there as a blank box.
+  vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
   picnotitle: ['/affiliates/studio.js', '  const bare = out.filter((x) => !x.image_url && x.product_title);\n  if (!bare.length) return out;', '  return out;'],
   // A chip swap rebuilds the body, so it must carry what is typed with it.
@@ -112,7 +114,7 @@ const MUTATIONS = {
   todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
   photonone: ['/affiliates/studio.js', 'prospectPhotoUrl(x.evidence)', 'null'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
-  photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  photobroken: ['/affiliates/studio.js', "if (t?.classList?.contains('af-avatar-photo')) { ev.target.remove(); return; }", ''],
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
@@ -2150,7 +2152,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(cb, 'New', 'the posts are filtered by what has happened to them');
     R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
     const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
-    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#shareBody video.af-content-media')));
+    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4'));
+    // Blake's one real submission is a 29 MB video/quicktime .mov, which Chrome
+    // cannot decode. A <video> that never loads keeps its 300x150 default, and
+    // a percentage height does NOT resolve against a grid area for a replaced
+    // element, so it used to stand 150px tall inside a 54px tile and tear the
+    // row open. Nothing in a tile may be taller than the tile.
+    R.ok('a post never draws outside its tile, whatever the file turns out to be',
+      await ct.evaluate(() => [...document.querySelectorAll('#shareBody .af-ctile-media')].every((box) => {
+        const b = box.getBoundingClientRect();
+        return [...box.querySelectorAll('img, video')].every((m) => {
+          const r = m.getBoundingClientRect();
+          return r.height <= b.height + 1 && r.width <= b.width + 1;
+        });
+      })));
+    // And a file the browser cannot play says what it is rather than sitting
+    // there as an empty box; the file itself still opens in a new tab.
+    await ct.waitForFunction(() => /Video/.test(document.querySelector('#shareBody .af-ctile-media')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('a video the browser cannot play is labelled, not left blank',
+      await ct.evaluate(() => !!document.querySelector('#shareBody .af-ctile-media--none')
+        && !!document.querySelector('#shareBody .af-ctile-media')?.getAttribute('href')));
     R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
     await ct.click('#shareBody [data-act="q-all"][data-q="content"]');
     await ct.click('#shareBody [data-act="q-content-use"]');

@@ -604,7 +604,19 @@ function personAvatar(person, size = 'lg') {
 function photoAvatar(person, photo) {
   return personAvatar(person, 'lg') + (photo ? `<img class="af-avatar-photo" src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '');
 }
-document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
+// A post is whatever the affiliate's phone produced. Chrome cannot decode most
+// .mov files, and a <video> that never loads keeps its 300x150 default, so the
+// tile used to hold an empty box of the wrong shape. Say what the file is
+// instead; the file itself still opens in a new tab (Blake 2026-11-21).
+document.addEventListener('error', (ev) => {
+  const t = ev.target;
+  if (t?.classList?.contains('af-avatar-photo')) { ev.target.remove(); return; }
+  if (!t?.classList?.contains('af-content-media')) return;
+  const box = t.closest('.af-ctile-media');
+  if (!box) return;
+  box.classList.add('af-ctile-media--none');
+  box.textContent = t.tagName === 'VIDEO' ? 'Video' : 'Photo';
+}, true);
 // Tiles or a list (table with the same photos). Remembered per viewer.
 // Lists by default: tiles take three times the height for the same rows
 // (Blake 2026-11-20, "tiles are way large"). The choice is still remembered.
