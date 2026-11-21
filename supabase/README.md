@@ -4026,5 +4026,21 @@ point at (`affiliate_payout_accounts`, `_items`, `_sends`,
 rows for a share means everyone in its program, which is what every share made
 before this means, so an unapplied audience or a failed read shows the share
 rather than hiding it. `affiliate_portal_feed` filters both the feed and the
-products under a launch through `affiliate_feed_item_for()`. Apply only; no
-deploy (`affiliate_portal_feed` is replaced in the same migration).
+products under a launch through `affiliate_feed_item_for()`.
+
+Two things the policies alone could not do (found reviewing #1350). A policy is
+not the boundary for a SECURITY DEFINER function -- thirteen of those are
+callable by `authenticated` on `can_manage_affiliate_programs()` alone -- so
+`affiliate_program_scope_guard()` is attached, by
+`attach_affiliate_program_scope_triggers()`, to every affiliate table that
+carries a `program_id`: a STATEMENT trigger over the transition table, so a
+bulk write pays one check, and a caller with no `auth.uid()` (service role,
+cron, a sync) is never scoped and never checked. Call that function from a new
+affiliate migration, the way `attach_affiliate_same_company_twins()` is called.
+And `affiliate_feed_set_audience(item, affiliates[])` replaces a share's
+audience in ONE transaction with the share locked, because no audience rows
+means everyone: a delete followed by an insert leaves the share open to the
+whole program in between, and open for good if the insert never lands.
+
+Apply only; no deploy (`affiliate_portal_feed` is replaced in the same
+migration).

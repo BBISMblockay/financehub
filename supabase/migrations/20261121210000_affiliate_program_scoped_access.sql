@@ -437,3 +437,181 @@ $function$;
 revoke execute on function public.affiliate_portal_feed(text) from anon, authenticated;
 
 commit;
+
+-- ── 6. The scope holds against the privileged write paths too ────────────
+-- A policy is only the boundary for a caller the policies apply to. Thirteen
+-- SECURITY DEFINER functions are callable by `authenticated` and gated on
+-- can_manage_affiliate_programs() alone -- affiliate_content_decide,
+-- affiliate_add_to_program, affiliate_build_payout, affiliate_submit_period,
+-- affiliate_seed_decide and the rest -- and a definer function runs as the
+-- owner, so the policies in section 3 do not see it. A manager scoped to one
+-- program who knows an id in another could act on it through one of those
+-- (found in review of #1350).
+--
+-- Rewriting thirteen function bodies is not the fix. Several of them exist in
+-- no migration here, every one of them would have to be reproduced verbatim
+-- to add a line, and the fourteenth somebody writes next month would miss it.
+-- A trigger is not bypassed by SECURITY DEFINER, so ONE guard, attached to
+-- every affiliate table that carries a program, holds for every write path
+-- there is -- including the ones with no source in this repository.
+--
+-- It is a STATEMENT-level trigger over the transition table, so a bulk write
+-- pays one check, not one per row, and a server-side caller (a sync, a cron,
+-- the service role) has no grants at all, so `auth.uid() is null` takes the
+-- first branch and nothing else runs.
+begin;
+
+create or replace function public.affiliate_program_scope_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_bad uuid;
+  v_any boolean;
+begin
+  if auth.uid() is null or not public.affiliate_manager_scoped() then
+    return null;
+  end if;
+  if tg_op = 'INSERT' then
+    select true into v_any from new_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+  elsif tg_op = 'UPDATE' then
+    -- Both sides: a row may not be moved INTO a program they hold either.
+    select true into v_any from new_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+    if v_any is null then
+      select true into v_any from old_rows
+       where not public.affiliate_visible_program(program_id) limit 1;
+    end if;
+  else
+    select true into v_any from old_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+  end if;
+  if v_any then
+    raise exception 'affiliate_program_scope: % on %.% touches a program this user was not given',
+      tg_op, tg_table_schema, tg_table_name using errcode = '42501';
+  end if;
+  return null;
+end;
+$$;
+
+comment on function public.affiliate_program_scope_guard() is
+  'Statement trigger: refuses a write touching a program the caller was not granted. The boundary for SECURITY DEFINER paths, which the section 3 policies do not see. A caller with no auth.uid() (service role, cron, a sync) is never scoped and never checked. A NULL program_id is company-wide and so is not a scoped manager''s to write. (20261121210000)';
+
+revoke all on function public.affiliate_program_scope_guard() from public, anon, authenticated;
+
+-- Attached by a sweep rather than a list, the way the same-company twins are
+-- (20261111181000), so a new affiliate table gets it by calling this.
+create or replace function public.attach_affiliate_program_scope_triggers()
+returns void
+language plpgsql
+as $fn$
+declare
+  r record;
+begin
+  for r in
+    select c.relname as tbl
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind = 'r'
+       and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+       and exists (select 1 from pg_attribute a
+                    where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)
+     order by 1
+  loop
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_ins') then
+      execute format($q$create trigger %I after insert on public.%I
+        referencing new table as new_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_ins', r.tbl);
+    end if;
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_upd') then
+      execute format($q$create trigger %I after update on public.%I
+        referencing old table as old_rows new table as new_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_upd', r.tbl);
+    end if;
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_del') then
+      execute format($q$create trigger %I after delete on public.%I
+        referencing old table as old_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_del', r.tbl);
+    end if;
+  end loop;
+end $fn$;
+
+revoke all on function public.attach_affiliate_program_scope_triggers() from public, anon, authenticated;
+
+select public.attach_affiliate_program_scope_triggers();
+
+commit;
+
+-- ── 7. Replacing a share's audience is one step, not two ─────────────────
+-- No audience rows means EVERYONE, so a delete followed by an insert leaves
+-- the share open to the whole program in between, and leaves it open for good
+-- if the insert never lands (found in review of #1350). One function, so one
+-- transaction; the share is locked, so two people saving at once cannot
+-- interleave one's delete with the other's insert.
+begin;
+
+create or replace function public.affiliate_feed_set_audience(p_item uuid, p_affiliates uuid[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid := public.active_company_id();
+  v_item public.affiliate_feed_items%rowtype;
+  v_want uuid[] := coalesce(p_affiliates, '{}'::uuid[]);
+  v_named integer;
+begin
+  if v_company is null then
+    raise exception 'affiliate_feed_set_audience: no active company' using errcode = '42501';
+  end if;
+  select * into v_item from public.affiliate_feed_items
+   where id = p_item and company_entity_id = v_company
+     for update;
+  if not found then
+    raise exception 'affiliate_feed_set_audience: no such share in this company' using errcode = 'P0002';
+  end if;
+  if not public.can_manage_affiliate_program(v_item.program_id) then
+    raise exception 'affiliate_feed_set_audience: not allowed' using errcode = '42501';
+  end if;
+  -- Every creator named has to be someone in this share's own program who has
+  -- not left it, which is exactly who the dialog offers.
+  if exists (
+    select 1 from unnest(v_want) as w(id)
+     where not exists (
+       select 1 from public.affiliates a
+        where a.id = w.id
+          and a.company_entity_id = v_company
+          and a.program_id = v_item.program_id
+          and a.status <> 'ended')) then
+    raise exception 'affiliate_feed_set_audience: a creator named is not in this program' using errcode = '22023';
+  end if;
+  delete from public.affiliate_feed_audience
+   where feed_item_id = p_item and company_entity_id = v_company;
+  insert into public.affiliate_feed_audience (company_entity_id, feed_item_id, affiliate_id)
+  select v_company, p_item, w.id from unnest(v_want) as w(id)
+  on conflict do nothing;
+  select count(*) into v_named from public.affiliate_feed_audience where feed_item_id = p_item;
+  return jsonb_build_object('feed_item_id', p_item, 'named', v_named);
+end;
+$$;
+
+comment on function public.affiliate_feed_set_audience(uuid, uuid[]) is
+  'Replaces who a share is for, in one transaction, with the share locked. An empty array hands it back to everyone in its program. Refuses a creator who is not in that program, and needs can_manage_affiliate_program() for it. (20261121210000)';
+
+revoke all on function public.affiliate_feed_set_audience(uuid, uuid[]) from public, anon;
+grant execute on function public.affiliate_feed_set_audience(uuid, uuid[]) to authenticated;
+
+commit;

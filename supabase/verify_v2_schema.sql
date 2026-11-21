@@ -9474,6 +9474,8 @@ select 'Affiliate program scope' as check_name,
       or to_regprocedure('public.affiliate_visible_program(uuid)') is null
       or to_regprocedure('public.affiliate_manager_scoped()') is null
       or to_regclass('public.affiliate_feed_audience') is null
+      or to_regprocedure('public.affiliate_feed_set_audience(uuid,uuid[])') is null
+      or to_regprocedure('public.affiliate_program_scope_guard()') is null
       or not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'affiliate_program_managers'
                         and column_name = 'program_id')
@@ -9494,6 +9496,20 @@ select 'Affiliate program scope' as check_name,
            and polname = 'affiliates_select'
            and position('affiliate_visible_program' in pg_get_expr(polqual, polrelid)) > 0) <> 1
       then 'BROKEN — reads are not scoped to the programs a manager holds'
+    -- A policy is not the boundary for a SECURITY DEFINER function, and
+    -- thirteen of those are callable by `authenticated` on the company gate
+    -- alone. The trigger is what holds for those, so every affiliate table
+    -- that carries a program must have all three of its triggers.
+    when exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relkind = 'r'
+                    and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+                    and exists (select 1 from pg_attribute a where a.attrelid = c.oid
+                                 and a.attname = 'program_id' and not a.attisdropped)
+                    and (select count(*) from pg_trigger t where t.tgrelid = c.oid
+                          and t.tgname like '%\_program\_scope\_%' and t.tgenabled <> 'D') <> 3)
+      then 'BROKEN — an affiliate table with a program has no scope guard, so a definer RPC can write across programs'
+    when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[])', 'execute')
+      then 'BROKEN — anon can change who a share is for'
     else 'ok'
   end as status;
 

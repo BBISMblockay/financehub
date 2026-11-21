@@ -331,6 +331,13 @@ switch (MUT) {
   case 'scopeonegrant': mutate('scope', 'drop index if exists public.affiliate_program_managers_identity;', ''); break;
   case 'audall': mutate('scope', "  select not exists (select 1 from public.affiliate_feed_audience x where x.feed_item_id = p_item)", "  select true"); break;
   case 'audfeed': mutate('scope', "       and public.affiliate_feed_item_for(f.id, v_tok.affiliate_id)", ''); break;
+  // A policy is not the boundary for a SECURITY DEFINER function.
+  case 'scoperpc': mutate('scope', "  if v_any then\n    raise exception 'affiliate_program_scope: % on %.% touches a program this user was not given',\n      tg_op, tg_table_schema, tg_table_name using errcode = '42501';\n  end if;", ''); break;
+  case 'scopeattach': mutate('scope', "       and (c.relname = 'affiliates' or c.relname like 'affiliate\\_%')\n       and exists (select 1 from pg_attribute a\n                    where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)\n     order by 1", '       and false\n     order by 1'); break;
+  // Replacing an audience is one transaction, gated, and validated.
+  case 'audrpcgate': mutate('scope', "  if not public.can_manage_affiliate_program(v_item.program_id) then\n    raise exception 'affiliate_feed_set_audience: not allowed' using errcode = '42501';\n  end if;", ''); break;
+  case 'audrpcprog': mutate('scope', "          and a.program_id = v_item.program_id\n", ''); break;
+  case 'audrpcnodelete': mutate('scope', "  delete from public.affiliate_feed_audience\n   where feed_item_id = p_item and company_entity_id = v_company;", ''); break;
   case 'audpush': mutate('scope', "                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)", '                     ) end)'); break;
   case 'audprog': mutate('scope', "                        and a.program_id = f.program_id\n", ''); break;
   case 'financeopen': mutate('financereads', "             and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions()))", "             )"); break;
@@ -2762,6 +2769,109 @@ await check('P10 the audience table is scoped and is not client-readable by anon
   assert.equal((await one(`select has_function_privilege('anon', 'public.affiliate_manager_scoped()', 'execute') as x`)).x, false);
   assert.equal((await one(`select has_function_privilege('anon', 'public.affiliate_visible_program(uuid)', 'execute') as x`)).x, false);
   assert.equal((await one(`select relrowsecurity from pg_class where oid = 'public.affiliate_feed_audience'::regclass`)).relrowsecurity, true);
+});
+
+await check('P11 a scoped manager cannot reach another program through a privileged RPC', async () => {
+  // The policies in section 3 are not the boundary for a SECURITY DEFINER
+  // function: it runs as the owner, so they never see it. Thirteen of those
+  // are callable by `authenticated` on the company gate alone, which is why
+  // the scope is also a trigger (review of #1350).
+  await as(U.ownerA, A);
+  const src = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Reachable','reach@creator.test','active',1,now()) returning id`, [A, progA])).id;
+  await as(U.memberA, A);   // scoped to progA by P2
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, true, 'still scoped');
+  await assert.rejects(db.query('select public.affiliate_add_to_program($1,$2)', [src, progSide]),
+    /affiliate_program_scope/, 'the definer RPC is stopped by the trigger, not by a policy');
+  await asSuper();
+  assert.equal(Number((await one('select count(*)::int as n from affiliates where program_id = $1 and display_name = $2',
+    [progSide, 'Reachable'])).n), 0, 'and nothing was written');
+  // The same call for the program they WERE given goes through.
+  await as(U.ownerA, A);
+  const prog3 = await seedProgram(U.ownerA, A, 'scope-third');
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, prog3]);
+  await as(U.memberA, A);
+  const added = (await one('select public.affiliate_add_to_program($1,$2) as r', [src, prog3])).r;
+  assert.equal(added.added, true, 'a program they hold is theirs to add to');
+});
+
+await check('P12 a server-side caller is never scoped, so the syncs are untouched', async () => {
+  // auth.uid() is null for the service role, a cron and every sync, so the
+  // guard takes its first branch and nothing else runs.
+  await asSuper();
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, false,
+    'with no signed-in user there is nobody to be scoped');
+  // And the service role, which has no grant on that function at all, writes
+  // through the trigger without it standing in the way.
+  await as(null, null);
+  const r = await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Synced','synced@creator.test','active',1,now()) returning id`, [A, progSide]);
+  assert.equal(r.rows.length, 1, 'the service role writes any program, as before');
+  await asSuper();
+  await db.query('delete from affiliates where display_name = $1', ['Synced']);
+});
+
+await check('P13 the scope guard is attached to every affiliate table that has a program', async () => {
+  await asSuper();
+  const missing = await all(`
+    select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind = 'r'
+       and (c.relname = 'affiliates' or c.relname like 'affiliate\\_%')
+       and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)
+       and (select count(*) from pg_trigger t
+             where t.tgrelid = c.oid and t.tgname like '%_program_scope_%' and t.tgenabled <> 'D') <> 3
+     order by 1`);
+  assert.deepEqual(missing.map((r) => r.relname), [],
+    'insert, update and delete, on every one of them -- a sweep, so a new table gets it by calling the function');
+});
+
+await check('P14 a share\'s audience is replaced in one call, not emptied and refilled', async () => {
+  await as(U.ownerA, A);
+  const before = await all('select affiliate_id from affiliate_feed_audience where feed_item_id = $1 order by affiliate_id', [shareMain]);
+  assert.equal(before.length, 2, 'P8 left two creators named');
+  const r = (await one('select public.affiliate_feed_set_audience($1,$2) as r', [shareMain, [affPat]])).r;
+  assert.equal(r.named, 1);
+  assert.deepEqual((await all('select affiliate_id from affiliate_feed_audience where feed_item_id = $1', [shareMain])).map((x) => x.affiliate_id),
+    [affPat], 'the whole audience is replaced');
+  // PGlite is one connection, so the lock cannot be raced here. What IS
+  // provable is that the function is the only path that needs to be atomic:
+  // it does both changes in its own transaction, so no reader can see the
+  // share unnarrowed in between.
+  assert.equal((await one(`select public.affiliate_feed_set_audience($1,'{}') as r`, [shareMain])).r.named, 0);
+  // Read as the server, because affiliate_feed_item_for is deliberately out
+  // of reach of every client role.
+  await asSuper();
+  assert.equal((await one('select public.affiliate_feed_item_for($1,$2) as v', [shareMain, affSam])).v, true,
+    'an empty audience hands the share back to everyone');
+  await as(U.ownerA, A);
+  await db.query('select public.affiliate_feed_set_audience($1,$2)', [shareMain, [affPat]]);
+});
+
+await check('P15 the audience RPC refuses a creator from another program, and another program\'s manager', async () => {
+  await as(U.ownerA, A);
+  await assert.rejects(db.query('select public.affiliate_feed_set_audience($1,$2)', [shareMain, [affSide]]),
+    /not in this program/, 'a creator who is not in the share\'s program cannot be named');
+  // memberA holds progA and prog3, so a share of progA IS theirs.
+  await as(U.memberA, A);
+  assert.ok((await one('select public.affiliate_feed_set_audience($1,$2) as r', [shareMain, [affPat]])).r);
+  // A manager scoped to another program only must not touch it.
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where user_id = $1', [U.memberA]);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progSide]);
+  await as(U.memberA, A);
+  await assert.rejects(db.query('select public.affiliate_feed_set_audience($1,$2)', [shareMain, [affPat]]),
+    /not allowed|no such share/, 'and a manager of another program cannot');
+  await as(U.ownerB, B);
+  await assert.rejects(db.query('select public.affiliate_feed_set_audience($1,$2)', [shareMain, [affPat]]),
+    /no such share/, 'nor can another company, which cannot even see it');
+  // Put the grants back as P2 left them, for anything after this.
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where user_id = $1', [U.memberA]);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progA]);
+  await asSuper();
 });
 
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a

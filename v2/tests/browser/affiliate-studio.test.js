@@ -69,10 +69,10 @@
  *   AFFILIATE_UI_MUTATION=grantlabel  a grant that covers one program is listed as covering all
  *   AFFILIATE_UI_MUTATION=mgrhard     the grant list is blank where program_id is not applied yet
  *   AFFILIATE_UI_MUTATION=whoeveryone a share named for some creators still says everyone sees it
- *   AFFILIATE_UI_MUTATION=whonoclear  saving an audience adds to it, so nobody can be taken off
+ *   AFFILIATE_UI_MUTATION=audsilent   an audience that could not be read is treated as nobody named
+ *   AFFILIATE_UI_MUTATION=audknown    the page offers to change an audience it never read
  *   AFFILIATE_UI_MUTATION=whoprecheck the audience dialog opens with everyone ticked, changing what the share means
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
- *   AFFILIATE_UI_MUTATION=audhard     an audience table that is not there yet is reported as a failure
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -94,14 +94,14 @@ const MUTATIONS = {
     '  rows = full.data || [];'],
   // A share that says "Everyone" when creators are named misstates who sees it.
   whoeveryone: ['/affiliates/studio.js', "  const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };", "  const who = () => 'Everyone';"],
-  // Saving an audience must replace it, or nobody can ever be removed.
-  whonoclear: ['/affiliates/studio.js', "    const del = await db.from('affiliate_feed_audience').delete().eq('company_entity_id', CO).eq('feed_item_id', id);\n    if (del.error) throw del.error;", ''],
+  // A read that failed must not be saved over as "nobody named", which
+  // would hand a narrowed share to the whole program.
+  audsilent: ['/affiliates/studio.js', "      if (error) return error.code === '42P01' ? [] : null;", '      if (error) return [];'],
+  audknown: ['/affiliates/studio.js', '  const audKnown = Array.isArray(d.audience);', '  const audKnown = true;'],
   // The dialog must open on what the share means now, not pre-tick everyone.
   whoprecheck: ['/affiliates/studio.js', "${picked.has(x.id) ? ' checked' : ''}", " checked"],
   // Somebody who left the program is not someone to share with.
   whoended: ['/affiliates/studio.js', "      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');", '      const live = (d.affiliates || []);'],
-  // No audience table yet must read as every share being for everyone.
-  audhard: ['/affiliates/studio.js', "    if (r.error && keys[i] === 'audience') { d.audience = []; return; }", ''],
   listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
   bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
@@ -2485,7 +2485,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now },
           { id: 'aff3', company_entity_id: CO, program_id: PROG, display_name: 'Gone', contact_email: 'gone@creator.invalid', status: 'ended', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
         affiliate_feed_audience: [] };
-      const sh = await suite.open('/v2/affiliates/index.html', shared, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      const sh = await suite.open('/v2/affiliates/index.html', shared, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
       sh.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(sh);
       await sh.click('#tabs [data-tab="share"]');
@@ -2501,13 +2502,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(offered, [AFF, 'aff2'], 'and offers the creators still in the program, not the ones who left');
       await sh.check(`#afDialogBody .af-who[value="${AFF}"]`);
       await sh.click('#afDialogBody [data-act="feed-who-save"]');
-      await sh.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert'), null, { timeout: 5000 });
-      const del = await sh.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_audience' && q._op === 'delete').pop());
-      R.ok('saving replaces the whole audience of that share, and only that share',
-        !!del && del.filters.some((f) => f.op === 'eq' && f.col === 'feed_item_id' && f.val === 'f1')
-        && del.filters.some((f) => f.op === 'eq' && f.col === 'company_entity_id'));
-      const ins = await sh.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r : [r]; });
-      R.eq(ins.map((r) => r.affiliate_id), [AFF], 'with a row for each creator ticked');
+      await sh.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_feed_set_audience'), null, { timeout: 5000 });
+      const setArgs = await sh.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.eq([setArgs.p_item, setArgs.p_affiliates], ['f1', [AFF]], 'saving names the whole audience of that share in one call');
+      // Two steps would leave the share open to the whole program in between,
+      // and open for good if the second never landed.
+      R.ok('and never empties the table on its own',
+        !(await sh.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && (q._op === 'delete' || q._op === 'insert')))));
       await sh.close();
     }
     // A share with somebody named says how many of the program see it, and
@@ -2517,7 +2518,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         affiliates: [tables.affiliates[0],
           { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
         affiliate_feed_audience: [{ id: 'x1', company_entity_id: CO, feed_item_id: 'f1', affiliate_id: AFF }] };
-      const nm = await suite.open('/v2/affiliates/index.html', named, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      const nm = await suite.open('/v2/affiliates/index.html', named, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
       nm.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(nm);
       await nm.click('#tabs [data-tab="share"]');
@@ -2534,7 +2536,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await nm.uncheck(`#afDialogBody .af-who[value="${AFF}"]`);
       await nm.click('#afDialogBody [data-act="feed-who-save"]');
       await nm.waitForFunction(() => /everyone in this program/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
-      R.ok('ticking nobody hands the share back to everyone', !(await nm.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && q._op === 'insert'))));
+      const emptied = await nm.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.eq(emptied.p_affiliates, [], 'ticking nobody hands the share back to everyone, named as such');
       await nm.close();
     }
     // The audience table before the migration: unreadable, and the page says
@@ -2555,6 +2558,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // not applied yet, which is a known state, not a fault to alarm anyone.
       const banner = await noAud.evaluate(() => { const el = document.getElementById('status'); return el && !el.hidden ? el.textContent : ''; });
       R.ok('and the page does not cry about data that did not load', !/audience/i.test(banner));
+      // Saving replaces the whole audience, so an audience we could not read
+      // must not be offered for change: that would hand a narrowed share to
+      // the whole program (review of #1350).
+      R.ok('and does not offer to change an audience it never read', !(await noAud.$('#shareBody [data-act="feed-who"]')));
+      R.ok('while Stop sharing, which needs no audience, stays', !!(await noAud.$('#shareBody [data-act="feed-remove"]')));
       await noAud.close();
     }
     // Setup always shows the application link row (Blake 2026-11-19).

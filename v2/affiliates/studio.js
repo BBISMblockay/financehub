@@ -364,10 +364,6 @@ async function loadProgramData() {
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
     notifications: by('affiliate_notifications').order('created_at', { ascending: false }).limit(50),
     feed: by('affiliate_feed_items').order('shared_at', { ascending: false }).limit(200),
-    // Who each share is for (20261121210000). Read fail-soft like seeding:
-    // before the migration there is no table, and NO rows for a share has
-    // always meant everyone in the program, so an empty read is correct.
-    audience: db.from('affiliate_feed_audience').select('feed_item_id, affiliate_id').eq('company_entity_id', CO).limit(2000),
     // Product seeding (20261113093000). Read fail-soft below: before the
     // migration there is no table, and the page simply has no seeding.
     seeds: by('affiliate_seed_claims').order('requested_at', { ascending: false }).limit(300),
@@ -392,9 +388,6 @@ async function loadProgramData() {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
     if (r.error && keys[i] === 'seeds') { d.seeds = null; return; }
     if (r.error && keys[i] === 'content') { d.content = null; return; }
-    // No audience table yet means no share is narrowed, which is the same
-    // answer as an empty one: everyone in the program sees everything.
-    if (r.error && keys[i] === 'audience') { d.audience = []; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
@@ -404,6 +397,13 @@ async function loadProgramData() {
     const n = {}; items.forEach((i) => { n[i.payout_id] = (n[i.payout_id] || 0) + 1; });
     d.payouts.forEach((x) => { x.item_count = n[x.id] || 0; });
   }
+  // Who each share is for (20261121210000), read for exactly the shares on
+  // screen and paged, because one company-wide page would silently stop at
+  // its limit and a share whose rows fell off the end would read as being for
+  // everyone. NULL means could-not-read, which is NOT the same as nobody
+  // named: the page then shows what every share meant before the migration
+  // and does not offer to change it, rather than saving a guess over it.
+  d.audience = await loadAudience((d.feed || []).map((x) => x.id));
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
   // Files are private: a signed URL for each one on screen, for an hour.
   d.contentUrl = {};
@@ -489,6 +489,30 @@ async function loadStores() {
     if (error || !Array.isArray(data)) return null;
     return data.filter((x) => x.is_active !== false && /^[A-Za-z0-9.-]+$/.test(x.shop_domain || '')).map((x) => x.shop_domain.toLowerCase());
   } catch (_) { return null; }
+}
+
+// Who each share is for. Read for exactly the shares on screen, in pages, so
+// a company with more audience rows than one page holds cannot leave a
+// narrowed share looking like it is for everyone. pagedCollect returns null
+// for a read that errored or stopped short, and null is carried all the way
+// to the dialog: could-not-read must never be saved over as "nobody named"
+// (review of #1350).
+async function loadAudience(feedIds) {
+  const ids = (feedIds || []).filter(Boolean);
+  if (!ids.length) return [];
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_feed_audience')
+        .select('feed_item_id, affiliate_id')
+        .eq('company_entity_id', CO).in('feed_item_id', ids)
+        .order('feed_item_id', { ascending: true }).order('affiliate_id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      // Before 20261121210000 there is no table at all. That is not a failure
+      // to report: no share was narrowed, because none could be.
+      if (error) return error.code === '42P01' ? [] : null;
+      return data || [];
+    } catch (_) { return null; }
+  });
 }
 
 // ── Overview windows ─────────────────────────────────────────────────────
@@ -907,7 +931,14 @@ function dialogSpec() {
   if (S.feedWho) {
     const f = (d.feed || []).find((x) => x.id === S.feedWho);
     if (f) {
-      const picked = new Set((d.audience || []).filter((x) => x.feed_item_id === f.id).map((x) => x.affiliate_id));
+      // Saving replaces the whole audience, so it may only be offered over one
+      // we actually read. Null means we did not.
+      if (!Array.isArray(d.audience)) {
+        return { key: `whono:${f.id}`, title: `Who sees ${f.title}`,
+          body: `<p class="af-muted">Who this share is for could not be read, so it cannot be changed here. Everyone in the program sees it, which is what every share meant before this. Reload and try again.</p>
+            ${dlgFoot(btn('Close', 'dialog-close'))}` };
+      }
+      const picked = new Set(d.audience.filter((x) => x.feed_item_id === f.id).map((x) => x.affiliate_id));
       const live = (d.affiliates || []).filter((x) => x.status !== 'ended');
       const line = (x) => `<label class="af-item af-item--compact" style="display:flex;gap:10px;align-items:center;"><input type="checkbox" class="af-who" value="${esc(x.id)}"${picked.has(x.id) ? ' checked' : ''} /><span>${esc(x.display_name || x.contact_email || 'Creator')}</span></label>`;
       return { key: `who:${f.id}:${[...picked].sort().join(',')}`, title: `Who sees ${f.title}`,
@@ -2044,11 +2075,15 @@ async function renderShare() {
   const KIND = { launch: 'Launch', product: 'Product', ad: 'Ad' };
   // A share with nobody named is for the whole program, which is every share
   // made before 2026-11-21. Naming anyone narrows it to those people.
-  const audOf = (id) => (d.audience || []).filter((x) => x.feed_item_id === id);
+  // A null audience is could-not-read, not nobody-named: say what every share
+  // meant before this existed, and do not offer to change what we never read,
+  // because saving replaces the whole audience (review of #1350).
+  const audKnown = Array.isArray(d.audience);
+  const audOf = (id) => (audKnown ? d.audience.filter((x) => x.feed_item_id === id) : []);
   const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };
   const sharedRows = sharedAll.map((f) => shareRow(f.image_url, f.title,
     `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''} · ${esc(who(f))}`,
-    MANAGE ? `${btn('Who sees it', 'feed-who', { id: f.id }, 'surface')}${btn('Stop sharing', 'feed-remove', { id: f.id })}` : ''));
+    MANAGE ? `${audKnown ? btn('Who sees it', 'feed-who', { id: f.id }, 'surface') : ''}${btn('Stop sharing', 'feed-remove', { id: f.id })}` : ''));
   // The store links open is picked from the program's connected Shopify
   // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
   const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
@@ -3318,16 +3353,18 @@ const A = {
   'feed-who': ({ id }) => { S.feedWho = id; renderDialog(); return null; },
   // Nobody ticked is not an empty audience, it is no audience: the share goes
   // back to the whole program. So the rows are replaced, never merged.
+  // One call, one transaction, with the share locked. Emptying the audience
+  // and filling it again in two steps would leave the share open to the whole
+  // program in between -- and open for good if the second step never landed,
+  // because no audience rows means everyone (review of #1350).
   'feed-who-save': async ({ id }) => {
     const want = [...document.querySelectorAll('#afDialogBody .af-who:checked')].map((x) => x.value);
-    const del = await db.from('affiliate_feed_audience').delete().eq('company_entity_id', CO).eq('feed_item_id', id);
-    if (del.error) throw del.error;
-    if (want.length) {
-      must(await db.from('affiliate_feed_audience').insert(want.map((a) => ({ company_entity_id: CO, feed_item_id: id, affiliate_id: a }))));
-    }
+    const r = await db.rpc('affiliate_feed_set_audience', { p_item: id, p_affiliates: want });
+    if (r.error) throw r.error;
     S.feedWho = null;
     await reload();
-    return want.length ? `Shared with ${num(want.length)} creator(s).` : 'Shared with everyone in this program.';
+    const n = Number(r.data?.named ?? want.length);
+    return n ? `Shared with ${num(n)} creator(s).` : 'Shared with everyone in this program.';
   },
   'feed-remove': async ({ id }) => {
     const { data, error } = await db.from('affiliate_feed_items').delete().eq('id', id).select();
