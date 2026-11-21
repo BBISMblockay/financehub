@@ -81,6 +81,17 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // The media is taken out of flow so a percentage height resolves; laid out
+  // in the grid cell instead, a tall photo stands outside its tile.
+  tilefree: ['/affiliates/index.html', `    .af-studio .af-ctile-media > img, .af-studio .af-ctile-media > video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      max-width: 100%; max-height: 100%; object-fit: cover;
+    }
+    /* And a hard ceiling in pixels on anything else that turns up in a row,
+       since a percentage is only as good as the box it resolves against. */
+    .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
+      max-width: 72px; max-height: 54px;
+    }`, ''],
   // A file the browser cannot play must say so, not sit there as a blank box.
   vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
@@ -2172,6 +2183,41 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('a video the browser cannot play is labelled, not left blank',
       await ct.evaluate(() => !!document.querySelector('#shareBody .af-ctile-media--none')
         && !!document.querySelector('#shareBody .af-ctile-media')?.getAttribute('href')));
+    // The assertion above can only measure what is still there, and a file the
+    // browser cannot play is replaced before it can be measured -- `every()`
+    // over nothing is true (review cycle 1). So measure a post that really
+    // loads: a 100x200 photo, which is taller than any tile it can sit in.
+    {
+      // A real 100x200 PNG, generated: a photo taller than any tile.
+      const TALL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAGQAAADICAIAAACRXtOWAAABRUlEQVR4nO3QQQkAMAzAwAqrfyZrFvYLg4MICDdnV49NfvBRsGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVt4FuC+tsCKZ3gMAAAAASUVORK5CYII=', 'base64');
+      await suite.context.route('https://fixture.local/signed/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: TALL }));
+      const loadTables = { ...ctTables,
+        affiliate_content_submissions: [{ id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
+          kind: 'file', storage_path: 'ct1/shot.png', file_type: 'image/png', caption: 'Wearing it today',
+          state: 'submitted', submitted_at: now }] };
+      const lp = await suite.open('/v2/affiliates/index.html', loadTables, { ready, rpc: ctRpc });
+      lp.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(lp);
+      await lp.click('#tabs [data-tab="share"]');
+      await lp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+      await lp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+      await lp.waitForFunction(() => {
+        const i = document.querySelector('#shareBody .af-ctile-media img');
+        return !!i && i.complete && i.naturalHeight > 0;
+      }, null, { timeout: 5000 });
+      const fit = await lp.evaluate(() => {
+        const media = [...document.querySelectorAll('#shareBody .af-ctile-media img, #shareBody .af-ctile-media video')];
+        return { n: media.length, natural: media[0]?.naturalHeight || 0, over: media.filter((m) => {
+          const b = m.closest('.af-ctile-media').getBoundingClientRect();
+          const r = m.getBoundingClientRect();
+          return r.height > b.height + 1 || r.width > b.width + 1;
+        }).length };
+      });
+      R.ok('a post that really loads is bigger than its tile and still fits inside it',
+        fit.n > 0 && fit.natural > 100 && fit.over === 0);
+      await lp.close();
+      await suite.context.unroute('https://fixture.local/signed/**');
+    }
     R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
     await ct.click('#shareBody [data-act="q-all"][data-q="content"]');
     await ct.click('#shareBody [data-act="q-content-use"]');
