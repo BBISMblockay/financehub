@@ -364,8 +364,11 @@ switch (MUT) {
   case 'termsfilebump': mutate('termsfile', "\n     or new.terms_file_sha256 is distinct from old.terms_file_sha256 then", ' then'); break;
   case 'termsfilegate': mutate('termsfile', `    and public.can_manage_affiliate_programs()
     and exists`, `    and exists`); break;
-  case 'addproggate': mutate('addprog', "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
-  case 'addprogco': mutate('addprog', "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
+  // 20261121210000 re-creates affiliate_add_to_program (it has to require the
+  // SOURCE program too), so these have to reach the live body as well or they
+  // test a function production no longer runs.
+  case 'addproggate': mutateLive(['addprog', 'scope'], "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
+  case 'addprogco': mutateLive(['addprog', 'scope'], "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
   case 'rls': mutate('ledger', 'alter table public.affiliate_attributions enable row level security;', ''); break;
   // A paused affiliate may read their portal but must not raise a hand: the
   // brand's launch page would then name someone who is not earning.
@@ -431,6 +434,12 @@ switch (MUT) {
   for select to authenticated
   using (company_entity_id = public.active_company_id());`, `create policy affiliate_programs_select on public.affiliate_programs
   for select to authenticated
+  using (true);`);
+    // 20261121210000 recreates that policy, so the mutation has to reach the
+    // live definition as well or it tests a policy production never has.
+    mutate('scope', `create policy affiliate_programs_select on public.affiliate_programs for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(id));`,
+      `create policy affiliate_programs_select on public.affiliate_programs for select to authenticated
   using (true);`); break;
   case 'gate':
     mutate('core', `  select public.is_exec_or_owner()
