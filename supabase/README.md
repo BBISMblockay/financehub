@@ -4037,10 +4037,27 @@ carries a `program_id`: a STATEMENT trigger over the transition table, so a
 bulk write pays one check, and a caller with no `auth.uid()` (service role,
 cron, a sync) is never scoped and never checked. Call that function from a new
 affiliate migration, the way `attach_affiliate_same_company_twins()` is called.
-And `affiliate_feed_set_audience(item, affiliates[])` replaces a share's
-audience in ONE transaction with the share locked, because no audience rows
-means everyone: a delete followed by an insert leaves the share open to the
-whole program in between, and open for good if the insert never lands.
+And `affiliate_feed_set_audience(item, affiliates[], scope[])` replaces a
+share's audience in ONE transaction with the share locked, because no audience
+rows means everyone: a delete followed by an insert leaves the share open to the
+whole program in between, and open for good if the insert never lands. `scope`
+is the creators the caller offered; rows outside it are left as they are, so a
+recipient the dialog could not show (one past a truncated page, one who has left
+the program) is not dropped by a save of the boxes it did show. Null scope
+replaces the whole audience.
 
-Apply only; no deploy (`affiliate_portal_feed` is replaced in the same
-migration).
+Two more the trigger cannot see (review cycle 2 of #1350).
+`affiliate_add_to_program()` is re-created here to require
+`can_manage_affiliate_program()` for the program the person is being copied OUT
+of as well as the one they go into: it reads their contact details, their
+carried terms acceptance and their PayPal address from the source, while every
+row it writes belongs to the destination, which the caller does hold -- so the
+trigger passes and the scope leaks sideways. The same shape applies to anything
+that reads one program and writes another: gate the read, not just the write.
+And `supabase/functions/affiliate-invite` calls
+`can_manage_affiliate_program()` through the caller's own client before it mints
+a portal or sign-up link, creates Shopify codes or ends them, failing open only
+when the function is absent (before this migration).
+
+Apply, AND deploy `affiliate-invite` (`affiliate_portal_feed` is replaced in the
+same migration, so nothing else needs one).

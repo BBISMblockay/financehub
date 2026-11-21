@@ -338,6 +338,9 @@ switch (MUT) {
   case 'audrpcgate': mutate('scope', "  if not public.can_manage_affiliate_program(v_item.program_id) then\n    raise exception 'affiliate_feed_set_audience: not allowed' using errcode = '42501';\n  end if;", ''); break;
   case 'audrpcprog': mutate('scope', "          and a.program_id = v_item.program_id\n", ''); break;
   case 'audrpcnodelete': mutate('scope', "  delete from public.affiliate_feed_audience\n   where feed_item_id = p_item and company_entity_id = v_company;", ''); break;
+  case 'addprogsrc': mutate('scope', "  if not public.can_manage_affiliate_program(v_src.program_id) then\n    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';\n  end if;", ''); break;
+  case 'audrpcscopedel': mutate('scope', "     and (v_scope is null or affiliate_id = any (v_scope));", ";"); break;
+  case 'audrpcscopenamed': mutate('scope', "  if v_scope is not null and exists (\n    select 1 from unnest(v_want) as w(id) where not (w.id = any (v_scope))) then\n    raise exception 'affiliate_feed_set_audience: a creator named was not among those offered' using errcode = '22023';\n  end if;", ''); break;
   case 'audpush': mutate('scope', "                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)", '                     ) end)'); break;
   case 'audprog': mutate('scope', "                        and a.program_id = f.program_id\n", ''); break;
   case 'financeopen': mutate('financereads', "             and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions()))", "             )"); break;
@@ -2871,6 +2874,69 @@ await check('P15 the audience RPC refuses a creator from another program, and an
   await db.query('delete from affiliate_program_managers where user_id = $1', [U.memberA]);
   await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
     [A, U.memberA, progA]);
+  await asSuper();
+});
+
+await check('P16 adding someone to a program a manager holds still needs the program they come FROM', async () => {
+  // The reverse direction of P11, and the one the trigger CANNOT see: every
+  // row affiliate_add_to_program writes belongs to the destination, which this
+  // caller does hold. What it reads is the source: contact details, the
+  // carried terms acceptance and the PayPal address (review cycle 2 of #1350).
+  await as(U.ownerA, A);
+  const src = (await one(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Copy Me','copyme@creator.test','active',1,now()) returning id`, [A, progA])).id;
+  // That table has no write policy for a client role at all, so the row goes
+  // in as the server, which is how the real one gets there.
+  await asSuper();
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email)
+     values ($1,$2,'paypal','copyme@paypal.test')`, [A, src]);
+  await as(U.ownerA, A);
+  // Scope the manager to the DESTINATION only.
+  await db.query('delete from affiliate_program_managers where user_id = $1', [U.memberA]);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progSide]);
+  await as(U.memberA, A);
+  await assert.rejects(db.query('select public.affiliate_add_to_program($1,$2)', [src, progSide]),
+    /not allowed/, 'the program they are copied out of has to be one this caller was given');
+  await asSuper();
+  assert.equal(Number((await one('select count(*)::int as n from affiliates where program_id = $1 and display_name = $2',
+    [progSide, 'Copy Me'])).n), 0, 'and nothing of theirs was copied across');
+  assert.equal(Number((await one('select count(*)::int as n from affiliate_payout_accounts where payout_email = $1',
+    ['copyme@paypal.test'])).n), 1, 'their payout address stayed where it was');
+  // Holding both ends is what makes it allowed.
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progA]);
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_add_to_program($1,$2) as r', [src, progSide])).r.added, true,
+    'both ends held, the add goes through');
+  // Leave the grants as P2 had them.
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where user_id = $1', [U.memberA]);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)',
+    [A, U.memberA, progA]);
+  await asSuper();
+});
+
+await check('P17 a save only replaces within the creators it was shown', async () => {
+  // The dialog lists the program's creators, and a program past one page, or a
+  // creator who has left it, is not among them. Saving the ticked boxes must
+  // not drop a recipient the list never offered (review cycle 2 of #1350).
+  await as(U.ownerA, A);
+  assert.equal((await one('select public.affiliate_feed_set_audience($1,$2) as r', [shareMain, [affPat, affSam]])).r.named, 2);
+  const r = (await one('select public.affiliate_feed_set_audience($1,$2,$3) as r', [shareMain, [affSam], [affSam]])).r;
+  assert.equal(r.named, 2, 'the creator outside the scope keeps their row');
+  assert.deepEqual((await all('select affiliate_id from affiliate_feed_audience where feed_item_id = $1 order by affiliate_id', [shareMain]))
+    .map((x) => x.affiliate_id).sort(), [affPat, affSam].sort());
+  // Naming somebody the caller did not show is a list claiming authority it
+  // never had.
+  await assert.rejects(db.query('select public.affiliate_feed_set_audience($1,$2,$3)', [shareMain, [affPat], [affSam]]),
+    /not among those offered/);
+  // And a null scope is still the whole audience, which is what proves the
+  // scope is what preserved the row above.
+  assert.equal((await one('select public.affiliate_feed_set_audience($1,$2,null) as r', [shareMain, [affSam]])).r.named, 1);
+  await as(U.ownerA, A);
+  await db.query('select public.affiliate_feed_set_audience($1,$2)', [shareMain, [affPat]]);
   await asSuper();
 });
 

@@ -72,6 +72,8 @@
  *   AFFILIATE_UI_MUTATION=audsilent   an audience that could not be read is treated as nobody named
  *   AFFILIATE_UI_MUTATION=audknown    the page offers to change an audience it never read
  *   AFFILIATE_UI_MUTATION=whoprecheck the audience dialog opens with everyone ticked, changing what the share means
+ *   AFFILIATE_UI_MUTATION=whoscope    a save replaces the whole audience, not only the creators it offered
+ *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
  */
 'use strict';
@@ -100,6 +102,9 @@ const MUTATIONS = {
   audknown: ['/affiliates/studio.js', '  const audKnown = Array.isArray(d.audience);', '  const audKnown = true;'],
   // The dialog must open on what the share means now, not pre-tick everyone.
   whoprecheck: ['/affiliates/studio.js', "${picked.has(x.id) ? ' checked' : ''}", " checked"],
+  whoscope: ['/affiliates/studio.js', 'p_affiliates: want, p_scope: boxes.map((x) => x.value)', 'p_affiliates: want'],
+  affpaged: ['/affiliates/studio.js', '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);',
+    '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), Promise.resolve(null)]);'],
   // Somebody who left the program is not someone to share with.
   whoended: ['/affiliates/studio.js', "      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');", '      const live = (d.affiliates || []);'],
   listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
@@ -2505,6 +2510,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await sh.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_feed_set_audience'), null, { timeout: 5000 });
       const setArgs = await sh.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
       R.eq([setArgs.p_item, setArgs.p_affiliates], ['f1', [AFF]], 'saving names the whole audience of that share in one call');
+      R.eq(setArgs.p_scope, [AFF, 'aff2'], 'and says which creators it offered, so a save replaces only within them');
+      // Which is only honest if the list really is the whole program, so the
+      // read is paged and the dialog says so when it is not.
+      R.ok('the creator list is read in pages',
+        await sh.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliates' && q._op === 'select' && Array.isArray(q.range))));
+      R.not(await text(sh, '#afDialogBody'), 'Not every creator', 'and with the whole program read it does not warn about a partial list');
       // Two steps would leave the share open to the whole program in between,
       // and open for good if the second never landed.
       R.ok('and never empties the table on its own',
@@ -2539,6 +2550,35 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const emptied = await nm.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
       R.eq(emptied.p_affiliates, [], 'ticking nobody hands the share back to everyone, named as such');
       await nm.close();
+    }
+    // A named recipient the dialog cannot show -- here one who has left the
+    // program -- is not dropped by a save of the boxes it did show.
+    {
+      const outside = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now },
+          { id: 'aff3', company_entity_id: CO, program_id: PROG, display_name: 'Gone', contact_email: 'gone@creator.invalid', status: 'ended', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [{ id: 'x1', company_entity_id: CO, feed_item_id: 'f1', affiliate_id: 'aff3' }] };
+      const ou = await suite.open('/v2/affiliates/index.html', outside, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
+      ou.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(ou);
+      await ou.click('#tabs [data-tab="share"]');
+      await ou.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await ou.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await ou.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      await ou.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await ou.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      R.eq(await ou.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].map((x) => x.value)), [AFF, 'aff2'],
+        'the creator who left the program is not among those offered');
+      await ou.check(`#afDialogBody .af-who[value="${AFF}"]`);
+      await ou.click('#afDialogBody [data-act="feed-who-save"]');
+      await ou.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_feed_set_audience'), null, { timeout: 5000 });
+      const ouArgs = await ou.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.ok('so the save cannot reach their row: the scope it sends holds only what it showed',
+        Array.isArray(ouArgs.p_scope) && !ouArgs.p_scope.includes('aff3'));
+      R.eq(ouArgs.p_affiliates, [AFF], 'and it names only the box that was ticked');
+      await ou.close();
     }
     // The audience table before the migration: unreadable, and the page says
     // everyone rather than falling over or hiding the shares.

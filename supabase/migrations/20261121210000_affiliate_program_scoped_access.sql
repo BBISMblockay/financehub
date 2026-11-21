@@ -562,7 +562,13 @@ commit;
 -- interleave one's delete with the other's insert.
 begin;
 
-create or replace function public.affiliate_feed_set_audience(p_item uuid, p_affiliates uuid[])
+-- The caller passes p_scope: the creators the dialog actually offered. Rows for
+-- anyone outside it are left alone, so a creator the dialog did not show --
+-- one past a truncated page, or one who has left the program and is still a
+-- named recipient -- is not silently dropped by a save (review cycle 2 of
+-- #1350). Null p_scope keeps the old behaviour of replacing the whole audience.
+drop function if exists public.affiliate_feed_set_audience(uuid, uuid[]);
+create or replace function public.affiliate_feed_set_audience(p_item uuid, p_affiliates uuid[], p_scope uuid[] default null)
 returns jsonb
 language plpgsql
 security definer
@@ -572,6 +578,7 @@ declare
   v_company uuid := public.active_company_id();
   v_item public.affiliate_feed_items%rowtype;
   v_want uuid[] := coalesce(p_affiliates, '{}'::uuid[]);
+  v_scope uuid[] := p_scope;
   v_named integer;
 begin
   if v_company is null then
@@ -598,8 +605,15 @@ begin
           and a.status <> 'ended')) then
     raise exception 'affiliate_feed_set_audience: a creator named is not in this program' using errcode = '22023';
   end if;
+  -- Anyone named has to be inside the scope the caller saw, or the save is
+  -- claiming authority over a list it never showed.
+  if v_scope is not null and exists (
+    select 1 from unnest(v_want) as w(id) where not (w.id = any (v_scope))) then
+    raise exception 'affiliate_feed_set_audience: a creator named was not among those offered' using errcode = '22023';
+  end if;
   delete from public.affiliate_feed_audience
-   where feed_item_id = p_item and company_entity_id = v_company;
+   where feed_item_id = p_item and company_entity_id = v_company
+     and (v_scope is null or affiliate_id = any (v_scope));
   insert into public.affiliate_feed_audience (company_entity_id, feed_item_id, affiliate_id)
   select v_company, p_item, w.id from unnest(v_want) as w(id)
   on conflict do nothing;
@@ -608,10 +622,108 @@ begin
 end;
 $$;
 
-comment on function public.affiliate_feed_set_audience(uuid, uuid[]) is
-  'Replaces who a share is for, in one transaction, with the share locked. An empty array hands it back to everyone in its program. Refuses a creator who is not in that program, and needs can_manage_affiliate_program() for it. (20261121210000)';
+comment on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) is
+  'Replaces who a share is for, in one transaction, with the share locked. p_scope is the creators the caller offered: rows outside it are left as they are, and null replaces the whole audience. An empty audience hands the share back to everyone in its program. Refuses a creator who is not in that program, and needs can_manage_affiliate_program() for it. (20261121210000)';
 
-revoke all on function public.affiliate_feed_set_audience(uuid, uuid[]) from public, anon;
-grant execute on function public.affiliate_feed_set_audience(uuid, uuid[]) to authenticated;
+revoke all on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) from public, anon;
+grant execute on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) to authenticated;
 
+commit;
+
+-- 8. Adding a creator to a second program copies their contact details, their
+--    carried terms acceptance and their PayPal address out of the program they
+--    are already in. The scope trigger cannot see that: every row the function
+--    writes belongs to the DESTINATION program, which the caller does have. So
+--    the function itself has to require the source program too.
+begin;
+
+create or replace function public.affiliate_add_to_program(
+  p_affiliate uuid,
+  p_program uuid,
+  p_commission_kind text default null,
+  p_commission_percent numeric default null,
+  p_commission_fixed_cents integer default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid := public.active_company_id();
+  v_src public.affiliates%rowtype;
+  v_prog public.affiliate_programs%rowtype;
+  v_existing uuid;
+  v_new uuid;
+begin
+  if v_company is null or not public.can_manage_affiliate_programs() then
+    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';
+  end if;
+
+  select * into v_src from public.affiliates
+   where id = p_affiliate and company_entity_id = v_company;
+  if not found then
+    raise exception 'affiliate_add_to_program: no such affiliate in this company' using errcode = 'P0002';
+  end if;
+  -- 20261121210000: and the program they are ALREADY in has to be one this
+  -- caller was given. Checking only the destination is not enough -- this
+  -- copies the person's contact details, their carried terms acceptance and
+  -- their payout address out of the source program, and every row it writes
+  -- belongs to the destination, so the scope trigger sees nothing wrong
+  -- (review cycle 2 of #1350).
+  if not public.can_manage_affiliate_program(v_src.program_id) then
+    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';
+  end if;
+  if v_src.status not in ('active', 'paused') or v_src.terms_accepted_at is null then
+    raise exception 'affiliate_add_to_program: only someone who has joined can be added to another program' using errcode = '22023';
+  end if;
+
+  select * into v_prog from public.affiliate_programs
+   where id = p_program and company_entity_id = v_company;
+  if not found then
+    raise exception 'affiliate_add_to_program: no such program in this company' using errcode = 'P0002';
+  end if;
+  if v_prog.status <> 'active' then
+    raise exception 'affiliate_add_to_program: that program is not active' using errcode = '22023';
+  end if;
+
+  if p_commission_kind is not null and p_commission_kind not in ('percent_of_net', 'fixed_per_order') then
+    raise exception 'affiliate_add_to_program: unknown rate kind' using errcode = '22023';
+  end if;
+
+  select id into v_existing from public.affiliates
+   where company_entity_id = v_company and program_id = p_program
+     and lower(contact_email) = lower(v_src.contact_email)
+   limit 1;
+  if v_existing is not null then
+    return jsonb_build_object('affiliate_id', v_existing, 'added', false);
+  end if;
+
+  insert into public.affiliates (
+    company_entity_id, program_id, display_name, contact_email, contact_name, platform, handle, profile_url,
+    photo_url, photo_hidden, status, terms_version_accepted, terms_accepted_at, terms_acceptance,
+    commission_kind, commission_percent, commission_fixed_cents,
+    from_prospect_id, approved_by, approved_at, note, created_by, changed_by
+  ) values (
+    v_company, p_program, v_src.display_name, v_src.contact_email, v_src.contact_name, v_src.platform, v_src.handle, v_src.profile_url,
+    v_src.photo_url, coalesce(v_src.photo_hidden, false), 'active', v_prog.terms_version, now(),
+    jsonb_build_object('carried_from', v_src.id, 'carried_from_program', v_src.program_id,
+      'original_accepted_at', v_src.terms_accepted_at, 'original_terms_version', v_src.terms_version_accepted,
+      'added_by', auth.uid(), 'basis', 'added to another program of the same company'),
+    p_commission_kind,
+    case when p_commission_kind = 'percent_of_net' then p_commission_percent end,
+    case when p_commission_kind = 'fixed_per_order' then p_commission_fixed_cents end,
+    v_src.from_prospect_id, auth.uid(), now(), null, auth.uid(), auth.uid()
+  ) returning id into v_new;
+
+  -- Where they are paid follows them: their PayPal email, if they gave one.
+  insert into public.affiliate_payout_accounts (company_entity_id, affiliate_id, provider, payout_email)
+  select v_company, v_new, x.provider, x.payout_email
+    from public.affiliate_payout_accounts x
+   where x.company_entity_id = v_company and x.affiliate_id = v_src.id and x.provider = 'paypal' and x.payout_email is not null
+  on conflict do nothing;
+
+  return jsonb_build_object('affiliate_id', v_new, 'added', true);
+end;
+$$;
 commit;

@@ -9474,7 +9474,7 @@ select 'Affiliate program scope' as check_name,
       or to_regprocedure('public.affiliate_visible_program(uuid)') is null
       or to_regprocedure('public.affiliate_manager_scoped()') is null
       or to_regclass('public.affiliate_feed_audience') is null
-      or to_regprocedure('public.affiliate_feed_set_audience(uuid,uuid[])') is null
+      or to_regprocedure('public.affiliate_feed_set_audience(uuid,uuid[],uuid[])') is null
       or to_regprocedure('public.affiliate_program_scope_guard()') is null
       or not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'affiliate_program_managers'
@@ -9508,7 +9508,7 @@ select 'Affiliate program scope' as check_name,
                     and (select count(*) from pg_trigger t where t.tgrelid = c.oid
                           and t.tgname like '%\_program\_scope\_%' and t.tgenabled <> 'D') <> 3)
       then 'BROKEN — an affiliate table with a program has no scope guard, so a definer RPC can write across programs'
-    when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[])', 'execute')
+    when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[],uuid[])', 'execute')
       then 'BROKEN — anon can change who a share is for'
     else 'ok'
   end as status;
@@ -10230,6 +10230,12 @@ select 'Affiliate add to program' as check_name,
       or position('can_manage_affiliate_programs()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       or position('active_company_id()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       then 'BROKEN — add to program is not gated to managers of the active company'
+    -- It copies contact details, carried terms and the payout address OUT of
+    -- the program the person is already in, and every row it writes belongs to
+    -- the destination, so the scope trigger cannot see it. Since 20261121210000
+    -- the source program has to be one the caller holds too.
+    when position('can_manage_affiliate_program(v_src.program_id)' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
+      then 'BROKEN — add to program does not require the program it copies FROM'
     else 'ok'
   end as status;
 

@@ -351,7 +351,6 @@ async function loadProgramData() {
     suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
     drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(500),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
-    affiliates: by('affiliates').order('created_at'),
     codes: by('affiliate_codes').order('starts_on', { ascending: false }),
     links: by('affiliate_links').order('starts_on', { ascending: false }),
     attributions: by('affiliate_attributions').order('order_day', { ascending: false }).limit(300),
@@ -382,7 +381,11 @@ async function loadProgramData() {
       .order('created_at', { ascending: false }).order('attempt', { ascending: false }).limit(200),
   };
   const keys = Object.keys(q);
-  const res = await Promise.all(Object.values(q));
+  // The creator list is read paged and NOT in that batch: a program with more
+  // creators than one PostgREST page returns would otherwise show only its
+  // first 1,000, and the share audience dialog saves over what it shows
+  // (review cycle 2 of #1350).
+  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);
   const d = {}; const failed = [];
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
@@ -390,6 +393,17 @@ async function loadProgramData() {
     if (r.error && keys[i] === 'content') { d.content = null; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
+  // affFull says whether that list is the whole program. Null means a page
+  // errored or the list ran past the page cap; the page still works off one
+  // plain read, and affFull being false is what stops a save from treating
+  // the names it showed as the entire audience.
+  if (affRead) { d.affiliates = affRead; d.affFull = true; }
+  else {
+    const r = await db.from('affiliates').select('*').eq('company_entity_id', CO).eq('program_id', p.id).order('created_at');
+    d.affiliates = r.data || [];
+    d.affFull = false;
+    if (r.error) failed.push(`affiliates: ${r.error.message}`);
+  }
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
   const ids = d.payouts.map((x) => x.id);
   if (ids.length) {
@@ -489,6 +503,22 @@ async function loadStores() {
     if (error || !Array.isArray(data)) return null;
     return data.filter((x) => x.is_active !== false && /^[A-Za-z0-9.-]+$/.test(x.shop_domain || '')).map((x) => x.shop_domain.toLowerCase());
   } catch (_) { return null; }
+}
+
+// Everyone in one program, in pages. `created_at` alone is not a stable page
+// boundary, so `id` breaks the tie. Null means a page errored or the list runs
+// past the page cap -- see affFull in loadProgramData.
+async function loadAffiliates(p) {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliates').select('*')
+        .eq('company_entity_id', CO).eq('program_id', p.id)
+        .order('created_at', { ascending: true }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      if (error) return null;
+      return data || [];
+    } catch (_) { return null; }
+  });
 }
 
 // Who each share is for. Read for exactly the shares on screen, in pages, so
@@ -943,6 +973,7 @@ function dialogSpec() {
       const line = (x) => `<label class="af-item af-item--compact" style="display:flex;gap:10px;align-items:center;"><input type="checkbox" class="af-who" value="${esc(x.id)}"${picked.has(x.id) ? ' checked' : ''} /><span>${esc(x.display_name || x.contact_email || 'Creator')}</span></label>`;
       return { key: `who:${f.id}:${[...picked].sort().join(',')}`, title: `Who sees ${f.title}`,
         body: `<p class="af-muted">Tick nobody and it stays with everyone in this program, which is how it is shared now.</p>
+          ${d.affFull === false ? '<p class="af-muted">Not every creator in this program could be listed, so saving changes only the ones shown here.</p>' : ''}
           ${live.length ? live.map(line).join('') : empty('No creators in this program yet.')}
           ${dlgFoot(`${btn('Save', 'feed-who-save', { id: f.id }, 'primary')}${btn('Cancel', 'dialog-close')}`)}` };
     }
@@ -3358,8 +3389,13 @@ const A = {
   // program in between -- and open for good if the second step never landed,
   // because no audience rows means everyone (review of #1350).
   'feed-who-save': async ({ id }) => {
-    const want = [...document.querySelectorAll('#afDialogBody .af-who:checked')].map((x) => x.value);
-    const r = await db.rpc('affiliate_feed_set_audience', { p_item: id, p_affiliates: want });
+    // p_scope is literally the boxes the dialog drew. Anyone it never showed
+    // -- a creator past a truncated page, or one who has left the program and
+    // is still a named recipient -- keeps their row instead of being dropped
+    // by a list that did not include them (review cycle 2 of #1350).
+    const boxes = [...document.querySelectorAll('#afDialogBody .af-who')];
+    const want = boxes.filter((x) => x.checked).map((x) => x.value);
+    const r = await db.rpc('affiliate_feed_set_audience', { p_item: id, p_affiliates: want, p_scope: boxes.map((x) => x.value) });
     if (r.error) throw r.error;
     S.feedWho = null;
     await reload();
