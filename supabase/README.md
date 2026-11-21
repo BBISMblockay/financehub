@@ -4078,7 +4078,9 @@ directly:
 
 - `affiliate_payout_account_mirror()` on `affiliate_payout_accounts`: a PayPal
   address written for one membership follows the same person's other
-  memberships in that company, including into a program that had no row at all,
+  memberships in that company. PayPal only -- a Stripe Express account is per
+  affiliate row by construction, so an email copied onto a sibling's stripe row
+  would describe an account that does not exist, including into a program that had no row at all,
   so a person who gave an address once is payable everywhere. Recursion stops
   on the `is distinct from` guard: the mirrored rows fire the trigger again,
   find nothing to change and write nothing. The migration also converges what

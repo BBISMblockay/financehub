@@ -44,6 +44,13 @@ as $$
 declare
   v_key text;
 begin
+  -- PayPal only. A Stripe Express account is per affiliate row by
+  -- construction (it carries its own `stripe_account_id`, and
+  -- `stripe_connect_status_v` reports on it), so copying an email onto a
+  -- sibling's stripe row would describe an account that does not exist.
+  if new.provider <> 'paypal' then
+    return null;
+  end if;
   if nullif(btrim(new.payout_email), '') is null then
     return null;
   end if;

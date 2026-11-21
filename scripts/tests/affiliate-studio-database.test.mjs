@@ -343,6 +343,7 @@ switch (MUT) {
   case 'addprogsrc': mutate('scope', "  if not public.can_manage_affiliate_program(v_src.program_id) then\n    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';\n  end if;", ''); break;
   case 'audrpcscopedel': mutate('scope', "     and (v_scope is null or affiliate_id = any (v_scope));", ";"); break;
   case 'ppmirror': mutate('oneperson', "create trigger affiliate_payout_accounts_mirror\n  after insert or update of payout_email on public.affiliate_payout_accounts\n  for each row execute function public.affiliate_payout_account_mirror();", "select 1;"); break;
+  case 'ppmirrorprovider': mutate('oneperson', "  if new.provider <> 'paypal' then\n    return null;\n  end if;", ''); break;
   case 'ppmirrorkey': mutate('oneperson', "     and public.affiliate_contact_key(a.contact_email) = v_key\n  on conflict", "     and true\n  on conflict"); break;
   case 'emailfollow': mutate('oneperson', "  update public.affiliates a\n     set contact_email = new.contact_email\n   where a.company_entity_id = new.company_entity_id\n     and a.id <> new.id\n     and public.affiliate_contact_key(a.contact_email) = v_old;", ''); break;
   case 'emailrevoke': mutate('oneperson', "  update public.affiliate_access_tokens t\n     set revoked_at = now()\n   where t.company_entity_id = new.company_entity_id\n     and t.mailed_to_hash = v_old\n     and t.purpose = 'portal'\n     and t.revoked_at is null;", ''); break;
@@ -2969,6 +2970,13 @@ await check('Q1 one person has one PayPal address across their programs', async 
   await db.query(`update affiliate_payout_accounts set payout_email = 'pat.new@paypal.test' where affiliate_id = $1`, [twin]);
   assert.deepEqual((await all('select payout_email from affiliate_payout_accounts where affiliate_id in ($1,$2)', [affPat, twin]))
     .map((r) => r.payout_email), ['pat.new@paypal.test', 'pat.new@paypal.test'], 'an edit on one side moves both');
+  // A Stripe Express row is per affiliate by construction and is left alone.
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email)
+     values ($1,$2,'stripe_express','pat.stripe@paypal.test')`, [A, affPat]);
+  assert.equal(Number((await one(`select count(*)::int as n from affiliate_payout_accounts
+    where affiliate_id = $1 and provider = 'stripe_express'`, [twin])).n), 0,
+    'a Stripe row is not copied across: that account belongs to the one membership');
+  await db.query(`delete from affiliate_payout_accounts where provider = 'stripe_express' and affiliate_id = $1`, [affPat]);
   // Somebody else is not swept up in it.
   assert.equal(Number((await one(`select count(*)::int as n from affiliate_payout_accounts pa
      join affiliates a on a.id = pa.affiliate_id
