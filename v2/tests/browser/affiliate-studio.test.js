@@ -16,6 +16,8 @@
  *
  * Mutations (each must fail at least one assertion):
  *   AFFILIATE_UI_MUTATION=endnoshopify ending an affiliate leaves their code working in Shopify
+ *   AFFILIATE_UI_MUTATION=poststate   a post dialog offers decisions the server refuses for that state
+ *   AFFILIATE_UI_MUTATION=postbulk    a list of turned-down posts is offered Pay
  *   AFFILIATE_UI_MUTATION=nullzero    an unknown money amount renders as $0.00
  *   AFFILIATE_UI_MUTATION=termshtml   the program terms are rendered as HTML
  *   AFFILIATE_UI_MUTATION=tokenurl    the token is left in the address bar
@@ -140,6 +142,9 @@ const MUTATIONS = {
   // a wall of thumbnails and nothing can be judged.
   ctileopen: ['/affiliates/studio.js', "  'content-open': ({ id }) => { S.contentOpen = id; render(); return null; },", ''],
   // A decision taken on the opened post must be about that post.
+  // The dialog offers what the server will do to a post in THIS state.
+  poststate: ['/affiliates/studio.js', "  const live = ['submitted', 'approved'].includes(x.state);", '  const live = true;'],
+  postbulk: ['/affiliates/studio.js', "    ...(canUse && !['paid', 'no'].includes(want) ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),", "    ...(canUse && want !== 'paid' ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),"],
   ctileone: ['/affiliates/studio.js', 'const act = (lbl, k, kind, opts) => btn(lbl, \'content-decide\', { id: x.id, k }, kind, opts);',
     "const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: (S.d.content || []).map((y) => y.id).join(','), k }, kind, opts);"],
   // A file the browser cannot play must say so, not sit there as a blank box.
@@ -223,7 +228,7 @@ const MUTATIONS = {
   endcut: ['/affiliates/studio.js', "    for (const part of chunk(ids, 25)) results", "    for (const part of [ids.slice(0, 25)]) results"],
   endmissingok: ['/affiliates/studio.js', "  for (const id of ids) if (!answered.has(id)) results.push(", "  for (const id of []) if (!answered.has(id)) results.push("],
   exportall: ['/affiliates/studio.js', "!isDm(x) && (!only || only.includes(x.id))).slice(0, 200);", "!isDm(x)).slice(0, 200);"],
-  exportstale: ['/affiliates/studio.js', "    const m = await A['outreach-export']({ only: done });", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
+  exportstale: ['/affiliates/studio.js', "    const m = done.length ? await A['outreach-export']({ only: done }) : 'Nothing was exported.';", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
   applystale: ['/affiliates/studio.js', "    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });", ''],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
@@ -2444,6 +2449,42 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ctNoMoney.click('#shareBody [data-act="q-all"][data-q="content"]');
     R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#shareBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#shareBody [data-act="q-content-ok"]')));
     await ctNoMoney.close();
+    // A post the server will not act on is not offered the action. The server
+    // (affiliate_content_decide) skips 'use' and 'decline' on a declined post
+    // and anything at all on a paid one, and allows only 'approve' to bring a
+    // declined post back; the dialog used to offer the opposite of all three.
+    const ctStates = { ...ctTables,
+      affiliate_content_submissions: [
+        { id: 'cn1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link', link_url: 'https://www.instagram.com/p/no/', caption: 'Turned down', state: 'declined', submitted_at: now },
+        { id: 'cp1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link', link_url: 'https://www.instagram.com/p/paid/', caption: 'Already paid', state: 'used', bonus_cents: 2500, currency: 'USD', submitted_at: now }] };
+    const ctSt = await suite.open('/v2/affiliates/index.html', ctStates, { ready, rpc: ctRpc });
+    ctSt.on('pageerror', (e) => errors.push(e.message));
+    await closeDialog(ctSt);
+    await ctSt.click('#tabs [data-tab="share"]');
+    // With nothing new waiting, Share opens on what is shared; the posts are
+    // under "From affiliates".
+    await ctSt.waitForFunction(() => !!document.querySelector('#shareBody [data-act="share-tab"][data-k="content"]'), null, { timeout: 5000 });
+    await ctSt.click('#shareBody [data-act="share-tab"][data-k="content"]');
+    await ctSt.waitForFunction(() => !!document.querySelector('#shareBody .af-ctile-media'), null, { timeout: 5000 });
+    const chip = async (k) => { await ctSt.click(`#shareBody [data-act="content-filter"][data-f="${k}"]`); await ctSt.waitForFunction((f) => document.querySelector(`#shareBody [data-act="content-filter"][data-f="${f}"]`)?.classList.contains('af-filter-chip--on'), k, { timeout: 5000 }); };
+    await chip('no');
+    // The bulk actions appear once something is ticked.
+    await ctSt.click('#shareBody [data-act="q-all"][data-q="content"]');
+    await ctSt.waitForFunction(() => !!document.querySelector('#shareBody [data-act="q-content-ok"], #shareBody [data-act="q-content-use"], #shareBody [data-act="q-content-no"]'), null, { timeout: 5000 });
+    const noActs = await ctSt.evaluate(() => ['q-content-use', 'q-content-ok', 'q-content-no'].filter((a) => !!document.querySelector(`#shareBody [data-act="${a}"]`)));
+    R.eq(noActs, ['q-content-ok'], 'on a list of turned-down posts the only bulk action is the one the server allows');
+    await ctSt.click('#shareBody [data-act="q-all"][data-q="content"]');
+    await ctSt.click('#shareBody .af-ctile-media');
+    await ctSt.waitForFunction(() => document.getElementById('afDialog')?.open && /Turned down/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
+    const declinedActs = await ctSt.evaluate(() => ['approve', 'use', 'decline'].filter((k) => !!document.querySelector(`#afDialogBody [data-act="content-decide"][data-k="${k}"]`)));
+    R.eq(declinedActs, ['approve'], 'a turned-down post is offered only Keep after all');
+    await closeDialog(ctSt);
+    await chip('paid');
+    await ctSt.click('#shareBody .af-ctile-media');
+    await ctSt.waitForFunction(() => document.getElementById('afDialog')?.open && /Already paid/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
+    const paidActs = await ctSt.evaluate(() => ['approve', 'use', 'decline'].filter((k) => !!document.querySelector(`#afDialogBody [data-act="content-decide"][data-k="${k}"]`)));
+    R.eq(paidActs, [], 'and a paid post is final: no decision is offered on it');
+    await ctSt.close();
 
     // ── All programs: one lens over everyone the company manages ──────────
     // The same person (same email) in two programs is one card with a row per
@@ -2534,8 +2575,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await ex.waitForSelector('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]', { timeout: 5000 });
       await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d1"]');
       await ex.click('#outreachBody [data-act="q-pick"][data-q="msgs"][data-id="d2"]');
-      // d2 was deleted by someone else meanwhile: the approval changes d1 only.
-      await ex.evaluate(() => { window.__FIXTURE_UPDATE_RETURNS__ = (table, patch, filters) => (table === 'affiliate_outreach_drafts' && patch.state === 'approved' ? [{ id: 'd1' }] : undefined); });
+      // d2 was deleted by someone else meanwhile: every update of the drafts
+      // answers with the rows it really changed, as PostgREST does, and d2 is
+      // in none of them.
+      await ex.evaluate(() => {
+        window.__FIXTURE_UPDATE_RETURNS__ = (table, patch, filters) => {
+          if (table !== 'affiliate_outreach_drafts') return undefined;
+          const f = filters.filter((x) => x.col === 'id');
+          const ids = f.flatMap((x) => (x.op === 'in' ? x.vals : [x.val]));
+          return ids.filter((id) => id !== 'd2').map((id) => ({ id }));
+        };
+      });
       await ex.click('#outreachBody [data-act="q-msg-export"]');
       await ex.click('#outreachBody [data-act="q-msg-export"]');
       await ex.waitForFunction(() => (window.__names || []).some((n) => /^outreach-.*\.csv$/.test(n)), null, { timeout: 5000 }).catch(async () => { throw new Error('no CSV: ' + (await ex.evaluate(() => document.getElementById('status')?.textContent))); });

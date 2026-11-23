@@ -19894,4 +19894,11 @@ $c$select (select count(*) from v_po_header_summary
 -- company, and the matcher that badges a program's PROSPECTS against it (never
 -- a scan of the customer base). Nightly job keeps the lookup current.
 \i migrations/20261123210000_affiliate_past_customer_badge.sql
+-- 20261124000000: a program-scoped manager may not move a creator who is in
+-- programs they were not given, and recording "they asked to stop" is no
+-- longer refused by the suppression guard it just wrote to.
+\i migrations/20261124000000_affiliate_scope_and_outreach_fixes.sql
+-- 20261124001000: the customer lookup's per-customer history pass carries the
+-- predicate of the partial index it depends on, so the planner can use it.
+\i migrations/20261124001000_customer_profile_index_predicate.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

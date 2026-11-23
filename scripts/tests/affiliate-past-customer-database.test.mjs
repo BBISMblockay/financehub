@@ -36,6 +36,7 @@
 //   PASTCUST_MUTATION=anonread    anon keeps Supabase's default read of the lookup
 //   PASTCUST_MUTATION=clientwrite a browser role keeps Supabase's default write of the lookup
 //   PASTCUST_MUTATION=wholescan   the refresh aggregates the whole order history again
+//   PASTCUST_MUTATION=nopred      the per-customer history pass drops the partial index's predicate
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -99,6 +100,9 @@ alter default privileges in schema public grant execute on functions to anon, au
 `);
 
 let sql = await readFile(new URL('../../supabase/migrations/20261123210000_affiliate_past_customer_badge.sql', import.meta.url), 'utf8');
+// ...and the fix that followed its review: the per-customer history pass
+// carries the predicate of the partial index it is driven by (20261124001000).
+sql += '\n' + await readFile(new URL('../../supabase/migrations/20261124001000_customer_profile_index_predicate.sql', import.meta.url), 'utf8');
 function mutate(from, to) {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);
@@ -132,6 +136,10 @@ switch (MUT) {
     mutate('      ) a\n     where a.order_count > 0', '      ) a on true\n     where a.order_count > 0');
     break;
   case 'idxpred': mutate("    (coalesce(nullif(lower(btrim(customer_email)), ''), 'cid:' || customer_id))", '    (lower(customer_email))'); break;
+  // The partial index only gets used where the query is provably inside its
+  // predicate; without it each customer's history pass can scan the company's
+  // orders, against the 8s timeout every caller shares.
+  case 'nopred': mutate("           and (o.customer_email is not null or o.customer_id is not null)\n           and o.cancelled_at is null", '           and o.cancelled_at is null'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
