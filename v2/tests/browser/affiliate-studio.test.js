@@ -81,6 +81,19 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // The media is taken out of flow so a percentage height resolves; laid out
+  // in the grid cell instead, a tall photo stands outside its tile.
+  tilefree: ['/affiliates/index.html', `    .af-studio .af-ctile-media > img, .af-studio .af-ctile-media > video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      max-width: 100%; max-height: 100%; object-fit: cover;
+    }
+    /* And a hard ceiling in pixels on anything else that turns up in a row,
+       since a percentage is only as good as the box it resolves against. */
+    .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
+      max-width: 72px; max-height: 54px;
+    }`, ''],
+  // A file the browser cannot play must say so, not sit there as a blank box.
+  vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
   picnotitle: ['/affiliates/studio.js', '  const bare = out.filter((x) => !x.image_url && x.product_title);\n  if (!bare.length) return out;', '  return out;'],
   // A chip swap rebuilds the body, so it must carry what is typed with it.
@@ -112,7 +125,7 @@ const MUTATIONS = {
   todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
   photonone: ['/affiliates/studio.js', 'prospectPhotoUrl(x.evidence)', 'null'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
-  photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  photobroken: ['/affiliates/studio.js', "if (t?.classList?.contains('af-avatar-photo')) { ev.target.remove(); return; }", ''],
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
@@ -2150,7 +2163,61 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(cb, 'New', 'the posts are filtered by what has happened to them');
     R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
     const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
-    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#shareBody video.af-content-media')));
+    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4'));
+    // Blake's one real submission is a 29 MB video/quicktime .mov, which Chrome
+    // cannot decode. A <video> that never loads keeps its 300x150 default, and
+    // a percentage height does NOT resolve against a grid area for a replaced
+    // element, so it used to stand 150px tall inside a 54px tile and tear the
+    // row open. Nothing in a tile may be taller than the tile.
+    R.ok('a post never draws outside its tile, whatever the file turns out to be',
+      await ct.evaluate(() => [...document.querySelectorAll('#shareBody .af-ctile-media')].every((box) => {
+        const b = box.getBoundingClientRect();
+        return [...box.querySelectorAll('img, video')].every((m) => {
+          const r = m.getBoundingClientRect();
+          return r.height <= b.height + 1 && r.width <= b.width + 1;
+        });
+      })));
+    // And a file the browser cannot play says what it is rather than sitting
+    // there as an empty box; the file itself still opens in a new tab.
+    await ct.waitForFunction(() => /Video/.test(document.querySelector('#shareBody .af-ctile-media')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('a video the browser cannot play is labelled, not left blank',
+      await ct.evaluate(() => !!document.querySelector('#shareBody .af-ctile-media--none')
+        && !!document.querySelector('#shareBody .af-ctile-media')?.getAttribute('href')));
+    // The assertion above can only measure what is still there, and a file the
+    // browser cannot play is replaced before it can be measured -- `every()`
+    // over nothing is true (review cycle 1). So measure a post that really
+    // loads: a 100x200 photo, which is taller than any tile it can sit in.
+    {
+      // A real 100x200 PNG, generated: a photo taller than any tile.
+      const TALL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAGQAAADICAIAAACRXtOWAAABRUlEQVR4nO3QQQkAMAzAwAqrfyZrFvYLg4MICDdnV49NfvBRsGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVt4FuC+tsCKZ3gMAAAAASUVORK5CYII=', 'base64');
+      await suite.context.route('https://fixture.local/signed/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: TALL }));
+      const loadTables = { ...ctTables,
+        affiliate_content_submissions: [{ id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
+          kind: 'file', storage_path: 'ct1/shot.png', file_type: 'image/png', caption: 'Wearing it today',
+          state: 'submitted', submitted_at: now }] };
+      const lp = await suite.open('/v2/affiliates/index.html', loadTables, { ready, rpc: ctRpc });
+      lp.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(lp);
+      await lp.click('#tabs [data-tab="share"]');
+      await lp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+      await lp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+      await lp.waitForFunction(() => {
+        const i = document.querySelector('#shareBody .af-ctile-media img');
+        return !!i && i.complete && i.naturalHeight > 0;
+      }, null, { timeout: 5000 });
+      const fit = await lp.evaluate(() => {
+        const media = [...document.querySelectorAll('#shareBody .af-ctile-media img, #shareBody .af-ctile-media video')];
+        return { n: media.length, natural: media[0]?.naturalHeight || 0, over: media.filter((m) => {
+          const b = m.closest('.af-ctile-media').getBoundingClientRect();
+          const r = m.getBoundingClientRect();
+          return r.height > b.height + 1 || r.width > b.width + 1;
+        }).length };
+      });
+      R.ok('a post that really loads is bigger than its tile and still fits inside it',
+        fit.n > 0 && fit.natural > 100 && fit.over === 0);
+      await lp.close();
+      await suite.context.unroute('https://fixture.local/signed/**');
+    }
     R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
     await ct.click('#shareBody [data-act="q-all"][data-q="content"]');
     await ct.click('#shareBody [data-act="q-content-use"]');
