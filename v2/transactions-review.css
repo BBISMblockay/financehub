@@ -369,3 +369,112 @@
 .transactions-ui .txn-dates .bcn-btn,
 .transactions-ui .txn-presets .bcn-btn { min-height: 26px; padding: 3px 7px; font-size: 11px; }
 .transactions-ui .txn-dates label { font-size: 10.5px; gap: 4px; }
+
+/* ---- Register at the top of the window ----------------------------------
+   The page header is emptied into the workspace tab row (its buttons keep
+   their ids and handlers); the header element itself stays in the DOM because
+   accounting-suite.js anchors the suite strip after it. The account rail is
+   one line of chips, and the queue tabs share a row with search and actions. */
+.transactions-ui .accounting-workspace > .bcn-header { display: none; }
+.transactions-ui .accounting-workspace .cc-page > #ccTabs .bcn-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.transactions-ui .accounting-workspace .cc-page > #ccTabs .bcn-header-actions .bcn-btn {
+  min-height: 26px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+
+/* Account rail: one chip per account on a single line. */
+.transactions-ui .txn-context .wsec-lbl { display: none; }
+.transactions-ui .wtiles { padding: 0; gap: 6px; }
+.transactions-ui .wtile-wrap { flex: 0 0 auto; }
+.transactions-ui .wtile-wrap .wtile {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  min-height: 30px;
+}
+.transactions-ui .wtile-wrap .wtile-name { padding-right: 0; }
+.transactions-ui .wtile-top { flex: none; }
+.transactions-ui .wtile-mask { display: none; }
+.transactions-ui .wtile-mark { width: 18px; height: 18px; font-size: 9px; }
+.transactions-ui .wtile-bal { flex: none; font-size: 12px; }
+.transactions-ui .wtile-bal small { display: none; }
+.transactions-ui .wtile-ft { flex: none; border-top: 0; padding-top: 0; gap: 8px; }
+.transactions-ui .wtile-info { top: 50%; right: 4px; transform: translateY(-50%); }
+.transactions-ui .wtile-wrap .wtile { padding-right: 24px; }
+
+/* Queue tabs, search and actions on one row; the status line is one thin line.
+   .txn-card-head__row becomes display:contents so its title and actions are
+   laid out by the card head's grid, not by a row of their own. */
+@media (min-width: 1200px) {
+  .transactions-ui .transaction-list .txn-card-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "queues actions" "status status";
+    align-items: center;
+    column-gap: 10px;
+  }
+  .transactions-ui .txn-card-head__queues { grid-area: queues; border-bottom: 0; }
+  .transactions-ui .txn-card-head__row { display: contents; }
+  .transactions-ui .txn-card-head__actions {
+    grid-area: actions;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    justify-content: flex-end;
+    padding: 4px 12px 4px 0;
+  }
+  .transactions-ui .txn-card-head__title {
+    grid-area: status;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 4px 12px;
+    border-top: 1px solid var(--bcn-border);
+  }
+  .transactions-ui .txn-card-head__title #codeTitle,
+  .transactions-ui .txn-card-head__title #codeSub { font-size: 10.5px; }
+  .transactions-ui .txn-card-head__meta { flex: 1 1 auto; font-size: 10.5px; }
+}
+
+.transactions-ui .accounting-suite a { padding: 5px 0 4px; }
+.transactions-ui .accounting-suite { padding: 0 12px; }
+.transactions-ui .accounting-workspace .txn-context { padding-bottom: 4px; }
+.transactions-ui .accounting-workspace .txn-dates { padding-block: 2px; }
+.transactions-ui .accounting-suite-more summary { padding: 5px 0 4px; }
+.transactions-ui .accounting-suite-more { align-self: center; }
+
+/* The status line keeps its own row, held to one line of small text. */
+.transactions-ui .txn-card-head__title {
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.transactions-ui .txn-card-head__title #codeTitle,
+.transactions-ui .txn-card-head__title #codeSub,
+.transactions-ui .txn-card-head__meta,
+.transactions-ui .txn-card-head__meta .cc-note { font-size: 10.5px; }
+
+/* Phone and narrow: the moved actions get their own line inside the tab row
+   rather than scrolling off the end of it. */
+@media (max-width: 1000px) {
+  .transactions-ui .accounting-workspace .cc-page > #ccTabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    row-gap: 2px;
+  }
+  .transactions-ui .accounting-workspace .cc-page > #ccTabs .bcn-header-actions {
+    flex: 1 0 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    padding-bottom: 4px;
+  }
+}
