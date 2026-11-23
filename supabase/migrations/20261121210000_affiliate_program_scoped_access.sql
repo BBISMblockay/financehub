@@ -1,0 +1,729 @@
+-- Affiliate Studio: per-program staff scope, and a per-creator audience on a
+-- share. Both are additive and both mean "everything", the behaviour today,
+-- when left null -- so applying this changes nobody's access until somebody
+-- deliberately narrows it (Blake 2026-11-21, "want all gaps closed").
+--
+-- Two gaps this closes:
+--   1. `affiliate_program_managers` was keyed by COMPANY only, so a program
+--      manager could manage every program the company had.
+--   2. `affiliate_feed_items` had `program_id` and no audience, so every
+--      active affiliate in a program saw every share in it.
+
+begin;
+
+-- ── 1. A manager row may name one program ────────────────────────────────
+alter table public.affiliate_program_managers
+  add column if not exists program_id uuid references public.affiliate_programs(id) on delete cascade;
+
+-- A grant must not be able to point at another company's program, and nor
+-- can an audience row below. Both twin keys are attached in section 4 by the
+-- function every affiliate migration calls (20261111181000), rather than by
+-- hand, so their names match what verify looks for.
+
+-- The old rule was one row per person per company, which would make a second
+-- grant impossible and so leave nobody able to be scoped to two of three
+-- programs. The two partial indexes below cover everything it covered: one
+-- row per person per program, plus one unscoped row per person.
+drop index if exists public.affiliate_program_managers_identity;
+
+-- A partial unique index is how "program_id is null" gets a rule of its own.
+create unique index if not exists affiliate_program_managers_user_program_uq
+  on public.affiliate_program_managers (company_entity_id, user_id, program_id)
+  where program_id is not null;
+create unique index if not exists affiliate_program_managers_user_all_uq
+  on public.affiliate_program_managers (company_entity_id, user_id)
+  where program_id is null;
+create index if not exists affiliate_program_managers_program_idx
+  on public.affiliate_program_managers (company_entity_id, program_id)
+  where program_id is not null;
+
+comment on column public.affiliate_program_managers.program_id is
+  'The one program this grant covers. NULL means every program in the company, which is what every grant made before 2026-11-21 means.';
+
+-- ── 2. Who is scoped, and to what ────────────────────────────────────────
+-- A person is SCOPED when every grant they hold names a program. Holding one
+-- unscoped grant, or being an exec or owner, means the whole company as
+-- before. Nobody is scoped until somebody is given a program-only grant, so
+-- this function returns false for every user on the day it is applied.
+create or replace function public.affiliate_manager_scoped()
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select not public.is_exec_or_owner()
+     and exists (
+       select 1 from public.affiliate_program_managers g
+        join public.profiles p on p.id = g.user_id
+       where g.user_id = auth.uid()
+         and g.company_entity_id = public.active_company_id()
+         and p.is_active = true
+         and g.program_id is not null)
+     and not exists (
+       select 1 from public.affiliate_program_managers g
+       where g.user_id = auth.uid()
+         and g.company_entity_id = public.active_company_id()
+         and g.program_id is null);
+$$;
+
+-- May this user see this program at all? Everyone who is not scoped sees
+-- every program, which is today's answer for everyone.
+create or replace function public.affiliate_visible_program(p_program uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select not public.affiliate_manager_scoped()
+      or exists (
+        select 1 from public.affiliate_program_managers g
+        where g.user_id = auth.uid()
+          and g.company_entity_id = public.active_company_id()
+          and g.program_id = p_program);
+$$;
+
+-- The write gate for one program: the company-wide gate, narrowed.
+create or replace function public.can_manage_affiliate_program(p_program uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select public.can_manage_affiliate_programs()
+     and public.affiliate_visible_program(p_program);
+$$;
+
+-- EXECUTE on a new function is granted to PUBLIC, which anon inherits, so a
+-- revoke naming only anon leaves it callable. Revoke from PUBLIC and grant
+-- back to authenticated, which needs these: the policies below call them as
+-- the signed-in caller.
+revoke all on function public.affiliate_manager_scoped() from public, anon;
+revoke all on function public.affiliate_visible_program(uuid) from public, anon;
+revoke all on function public.can_manage_affiliate_program(uuid) from public, anon;
+grant execute on function public.affiliate_manager_scoped() to authenticated;
+grant execute on function public.affiliate_visible_program(uuid) to authenticated;
+grant execute on function public.can_manage_affiliate_program(uuid) to authenticated;
+
+comment on function public.can_manage_affiliate_programs() is
+  'May this user manage AT LEAST ONE affiliate program in the active company. Unchanged, and still the right gate for a table with no program to point at. Where a row names a program, use can_manage_affiliate_program(program_id).';
+
+commit;
+
+-- ── 3. The policies that have a program to point at ──────────────────────
+-- Fourteen tables carry `program_id`; five others (payout_accounts,
+-- payout_items, payout_sends, programs' own managers, prospect_observations)
+-- reach a program only through a parent row or not at all, and keep the
+-- company-wide gate. Each policy below is the live definition read from
+-- pg_policy on 2026-11-21 with the program clause added -- nothing else in
+-- them is changed.
+begin;
+
+-- Reads: a scoped manager sees their own programs. Everyone else, which is
+-- everyone today, sees the company as before.
+drop policy if exists affiliate_codes_select on public.affiliate_codes;
+create policy affiliate_codes_select on public.affiliate_codes for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_commission_periods_select on public.affiliate_commission_periods;
+create policy affiliate_commission_periods_select on public.affiliate_commission_periods for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_content_submissions_select on public.affiliate_content_submissions;
+create policy affiliate_content_submissions_select on public.affiliate_content_submissions for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_feed_items_select on public.affiliate_feed_items;
+create policy affiliate_feed_items_select on public.affiliate_feed_items for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_launch_claims_select on public.affiliate_launch_claims;
+create policy affiliate_launch_claims_select on public.affiliate_launch_claims for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_links_select on public.affiliate_links;
+create policy affiliate_links_select on public.affiliate_links for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_outreach_batches_select on public.affiliate_outreach_batches;
+create policy affiliate_outreach_batches_select on public.affiliate_outreach_batches for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_outreach_drafts_select on public.affiliate_outreach_drafts;
+create policy affiliate_outreach_drafts_select on public.affiliate_outreach_drafts for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_programs_select on public.affiliate_programs;
+create policy affiliate_programs_select on public.affiliate_programs for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(id));
+
+drop policy if exists affiliate_prospect_sources_select on public.affiliate_prospect_sources;
+create policy affiliate_prospect_sources_select on public.affiliate_prospect_sources for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_prospects_select on public.affiliate_prospects;
+create policy affiliate_prospects_select on public.affiliate_prospects for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_seed_claims_select on public.affiliate_seed_claims;
+create policy affiliate_seed_claims_select on public.affiliate_seed_claims for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_suppressions_select on public.affiliate_suppressions;
+create policy affiliate_suppressions_select on public.affiliate_suppressions for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliates_select on public.affiliates;
+create policy affiliates_select on public.affiliates for select to authenticated
+  using (company_entity_id = public.active_company_id() and public.affiliate_visible_program(program_id));
+
+-- The two reads that were already gated keep their money gate as well.
+drop policy if exists affiliate_commission_ledger_select on public.affiliate_commission_ledger;
+create policy affiliate_commission_ledger_select on public.affiliate_commission_ledger for select to authenticated
+  using (company_entity_id = public.active_company_id()
+         and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions())
+         and public.affiliate_visible_program(program_id));
+
+drop policy if exists affiliate_payouts_select on public.affiliate_payouts;
+create policy affiliate_payouts_select on public.affiliate_payouts for select to authenticated
+  using (company_entity_id = public.active_company_id()
+         and (public.can_manage_affiliate_programs() or public.can_approve_affiliate_commissions())
+         and public.affiliate_visible_program(program_id));
+
+-- Writes.
+drop policy if exists affiliate_codes_write on public.affiliate_codes;
+create policy affiliate_codes_write on public.affiliate_codes for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_commission_periods_write on public.affiliate_commission_periods;
+create policy affiliate_commission_periods_write on public.affiliate_commission_periods for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_feed_items_write on public.affiliate_feed_items;
+create policy affiliate_feed_items_write on public.affiliate_feed_items for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id)
+              and exists (select 1 from public.affiliate_programs p
+                           where p.id = affiliate_feed_items.program_id
+                             and p.company_entity_id = affiliate_feed_items.company_entity_id));
+
+drop policy if exists affiliate_launch_claims_write on public.affiliate_launch_claims;
+create policy affiliate_launch_claims_write on public.affiliate_launch_claims for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id)
+              and exists (select 1 from public.affiliate_programs p
+                           where p.id = affiliate_launch_claims.program_id
+                             and p.company_entity_id = affiliate_launch_claims.company_entity_id));
+
+drop policy if exists affiliate_links_write on public.affiliate_links;
+create policy affiliate_links_write on public.affiliate_links for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_outreach_batches_write on public.affiliate_outreach_batches;
+create policy affiliate_outreach_batches_write on public.affiliate_outreach_batches for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_outreach_drafts_write on public.affiliate_outreach_drafts;
+create policy affiliate_outreach_drafts_write on public.affiliate_outreach_drafts for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_programs_write on public.affiliate_programs;
+create policy affiliate_programs_write on public.affiliate_programs for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(id))
+  -- A NEW program has no grant naming it yet, so a scoped manager cannot
+  -- create one. That is the point of being scoped.
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(id));
+
+drop policy if exists affiliate_prospect_sources_write on public.affiliate_prospect_sources;
+create policy affiliate_prospect_sources_write on public.affiliate_prospect_sources for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_prospects_write on public.affiliate_prospects;
+create policy affiliate_prospects_write on public.affiliate_prospects for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliate_suppressions_delete on public.affiliate_suppressions;
+create policy affiliate_suppressions_delete on public.affiliate_suppressions for delete to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+drop policy if exists affiliates_write on public.affiliates;
+create policy affiliates_write on public.affiliates for all to authenticated
+  using (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id))
+  with check (company_entity_id = public.active_company_id() and public.can_manage_affiliate_program(program_id));
+
+commit;
+
+-- ── 4. A share may name who it is for ────────────────────────────────────
+-- No rows means the whole program, which is every share that exists today.
+-- A table rather than a column, so a share can name several creators without
+-- being rewritten.
+begin;
+
+create table if not exists public.affiliate_feed_audience (
+  id uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  feed_item_id uuid not null references public.affiliate_feed_items(id) on delete cascade,
+  affiliate_id uuid not null references public.affiliates(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- The same-company twins for every reference this migration adds: the
+-- audience's two, and the program a manager grant names.
+select public.attach_affiliate_same_company_twins();
+
+create unique index if not exists affiliate_feed_audience_uq
+  on public.affiliate_feed_audience (feed_item_id, affiliate_id);
+create index if not exists affiliate_feed_audience_aff_idx
+  on public.affiliate_feed_audience (company_entity_id, affiliate_id);
+
+-- A new table is granted to anon and authenticated by Supabase's default
+-- privileges, and RLS on its own does not undo that. Staff read and write it
+-- through the policies below; the portal reads it only inside
+-- affiliate_portal_feed, which is SECURITY DEFINER.
+revoke all on public.affiliate_feed_audience from anon, authenticated;
+grant select, insert, update, delete on public.affiliate_feed_audience to authenticated;
+grant all on public.affiliate_feed_audience to service_role;
+
+comment on table public.affiliate_feed_audience is
+  'Who a share is for. NO rows for a feed item means everyone in its program, which is what every share made before 2026-11-21 means. Rows mean only those creators.';
+
+alter table public.affiliate_feed_audience enable row level security;
+
+drop policy if exists affiliate_feed_audience_select on public.affiliate_feed_audience;
+create policy affiliate_feed_audience_select on public.affiliate_feed_audience for select to authenticated
+  using (company_entity_id = public.active_company_id()
+         and exists (select 1 from public.affiliate_feed_items f
+                      where f.id = affiliate_feed_audience.feed_item_id
+                        and public.affiliate_visible_program(f.program_id)));
+
+drop policy if exists affiliate_feed_audience_write on public.affiliate_feed_audience;
+create policy affiliate_feed_audience_write on public.affiliate_feed_audience for all to authenticated
+  using (company_entity_id = public.active_company_id()
+         and exists (select 1 from public.affiliate_feed_items f
+                      where f.id = affiliate_feed_audience.feed_item_id
+                        and public.can_manage_affiliate_program(f.program_id)))
+  with check (company_entity_id = public.active_company_id()
+         and exists (select 1 from public.affiliate_feed_items f
+                      where f.id = affiliate_feed_audience.feed_item_id
+                        and public.can_manage_affiliate_program(f.program_id))
+         -- The creator named has to be in the program the share belongs to.
+         and exists (select 1 from public.affiliate_feed_items f
+                       join public.affiliates a on a.id = affiliate_feed_audience.affiliate_id
+                      where f.id = affiliate_feed_audience.feed_item_id
+                        and a.program_id = f.program_id
+                        and a.company_entity_id = affiliate_feed_audience.company_entity_id));
+
+-- Is this share for this creator? No audience rows means yes, for everyone in
+-- the program -- so an unapplied audience, or a read that errors, shows the
+-- share rather than hiding it.
+create or replace function public.affiliate_feed_item_for(p_item uuid, p_affiliate uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $$
+  select not exists (select 1 from public.affiliate_feed_audience x where x.feed_item_id = p_item)
+      or exists (select 1 from public.affiliate_feed_audience x
+                  where x.feed_item_id = p_item and x.affiliate_id = p_affiliate);
+$$;
+-- Only affiliate_portal_feed calls this, and that is SECURITY DEFINER, so no
+-- client role needs it. PUBLIC is named because that is where the default
+-- EXECUTE grant lives.
+revoke all on function public.affiliate_feed_item_for(uuid, uuid) from public, anon, authenticated;
+
+select public.attach_stamp_company_entity_id_triggers();
+
+commit;
+
+-- ── 5. The portal only shows a creator what is for them ──────────────────
+-- The live definition read from the database on 2026-11-21, with one clause
+-- added in two places: the feed itself, and the products shown under a
+-- launch. Everything else is byte-for-byte what was there.
+begin;
+
+create or replace function public.affiliate_portal_feed(p_token_hash text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $function$
+declare
+  v_tok   record;
+  v_today date;
+  v_store text;
+begin
+  select t.company_entity_id, t.program_id, t.affiliate_id into v_tok
+    from public.affiliate_access_tokens t
+    join public.affiliates a
+      on a.id = t.affiliate_id and a.company_entity_id = t.company_entity_id and a.program_id = t.program_id
+   where t.token_hash = p_token_hash
+     and t.purpose = 'portal'
+     and t.revoked_at is null
+     and t.expires_at > now()
+     and a.status in ('active', 'paused');
+  if not found then
+    return null;
+  end if;
+
+  v_today := (now() at time zone public.silo_company_timezone(v_tok.company_entity_id))::date;
+
+  -- One rule for where an affiliate link opens, shared with the code tools:
+  -- the program's own address, else the company's Shopify domain ONLY when
+  -- there is exactly one active store, else NULL. Never picked here.
+  v_store := public.affiliate_program_store_url(v_tok.company_entity_id, v_tok.program_id);
+
+  return jsonb_build_object(
+    'store_url', v_store,
+    'codes', (
+      select coalesce(jsonb_agg(c.code order by c.starts_on desc, c.code), '[]'::jsonb)
+        from public.affiliate_codes c
+       where c.company_entity_id = v_tok.company_entity_id
+         and c.affiliate_id = v_tok.affiliate_id
+         and c.status = 'active'
+         and c.starts_on <= v_today
+         and (c.ends_on is null or c.ends_on >= v_today)),
+    'items', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'id', f.id,
+               'kind', f.kind, 'title', f.title, 'note', f.note, 'image_url', f.image_url,
+               'product_path', f.product_path, 'event_on', f.event_on, 'shared_at', f.shared_at,
+               -- A launch the affiliate has claimed, and what it asks them to
+               -- push. Products shared UNDER a launch are not loose feed
+               -- cards: they belong to that launch's row.
+               'claimed', f.kind = 'launch' and exists (
+                  select 1 from public.affiliate_launch_claims k
+                   where k.feed_item_id = f.id and k.affiliate_id = v_tok.affiliate_id),
+               'push', case when f.kind = 'launch' then (
+                  select coalesce(jsonb_agg(jsonb_build_object(
+                           'id', g.id, 'title', g.title, 'image_url', g.image_url, 'product_path', g.product_path)
+                         order by g.title), '[]'::jsonb)
+                    from public.affiliate_feed_items g
+                   where g.company_entity_id = f.company_entity_id
+                     and g.program_id = f.program_id
+                     and g.parent_source_id = f.source_id
+                     -- A product under a launch can be aimed at some creators
+                     -- too; with no audience it is for everyone, as before.
+                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)
+             order by case f.kind when 'launch' then 0 when 'product' then 1 else 2 end,
+                      f.event_on nulls last, f.shared_at desc), '[]'::jsonb)
+        from (select * from public.affiliate_feed_items f
+               where f.company_entity_id = v_tok.company_entity_id
+                 and f.program_id = v_tok.program_id
+                 -- A product shared under a launch is shown on that launch.
+                 and f.parent_source_id is null
+                 -- A launch that has passed drops out of "upcoming" by itself.
+                 and not (f.kind = 'launch' and f.event_on is not null and f.event_on < v_today)
+                 -- A share with no audience is for the whole program, which is
+                 -- every share made before 2026-11-21.
+                 and public.affiliate_feed_item_for(f.id, v_tok.affiliate_id)
+               order by f.shared_at desc
+               limit 60) f));
+end;
+$function$;
+
+-- It was already revoked from both before this migration; a create-or-replace
+-- keeps existing grants, and these two lines keep it true if that ever changes.
+revoke execute on function public.affiliate_portal_feed(text) from anon, authenticated;
+
+commit;
+
+-- ── 6. The scope holds against the privileged write paths too ────────────
+-- A policy is only the boundary for a caller the policies apply to. Thirteen
+-- SECURITY DEFINER functions are callable by `authenticated` and gated on
+-- can_manage_affiliate_programs() alone -- affiliate_content_decide,
+-- affiliate_add_to_program, affiliate_build_payout, affiliate_submit_period,
+-- affiliate_seed_decide and the rest -- and a definer function runs as the
+-- owner, so the policies in section 3 do not see it. A manager scoped to one
+-- program who knows an id in another could act on it through one of those
+-- (found in review of #1350).
+--
+-- Rewriting thirteen function bodies is not the fix. Several of them exist in
+-- no migration here, every one of them would have to be reproduced verbatim
+-- to add a line, and the fourteenth somebody writes next month would miss it.
+-- A trigger is not bypassed by SECURITY DEFINER, so ONE guard, attached to
+-- every affiliate table that carries a program, holds for every write path
+-- there is -- including the ones with no source in this repository.
+--
+-- It is a STATEMENT-level trigger over the transition table, so a bulk write
+-- pays one check, not one per row, and a server-side caller (a sync, a cron,
+-- the service role) has no grants at all, so `auth.uid() is null` takes the
+-- first branch and nothing else runs.
+begin;
+
+create or replace function public.affiliate_program_scope_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_bad uuid;
+  v_any boolean;
+begin
+  if auth.uid() is null or not public.affiliate_manager_scoped() then
+    return null;
+  end if;
+  if tg_op = 'INSERT' then
+    select true into v_any from new_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+  elsif tg_op = 'UPDATE' then
+    -- Both sides: a row may not be moved INTO a program they hold either.
+    select true into v_any from new_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+    if v_any is null then
+      select true into v_any from old_rows
+       where not public.affiliate_visible_program(program_id) limit 1;
+    end if;
+  else
+    select true into v_any from old_rows
+     where not public.affiliate_visible_program(program_id) limit 1;
+  end if;
+  if v_any then
+    raise exception 'affiliate_program_scope: % on %.% touches a program this user was not given',
+      tg_op, tg_table_schema, tg_table_name using errcode = '42501';
+  end if;
+  return null;
+end;
+$$;
+
+comment on function public.affiliate_program_scope_guard() is
+  'Statement trigger: refuses a write touching a program the caller was not granted. The boundary for SECURITY DEFINER paths, which the section 3 policies do not see. A caller with no auth.uid() (service role, cron, a sync) is never scoped and never checked. A NULL program_id is company-wide and so is not a scoped manager''s to write. (20261121210000)';
+
+revoke all on function public.affiliate_program_scope_guard() from public, anon, authenticated;
+
+-- Attached by a sweep rather than a list, the way the same-company twins are
+-- (20261111181000), so a new affiliate table gets it by calling this.
+create or replace function public.attach_affiliate_program_scope_triggers()
+returns void
+language plpgsql
+as $fn$
+declare
+  r record;
+begin
+  for r in
+    select c.relname as tbl
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind = 'r'
+       and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+       and exists (select 1 from pg_attribute a
+                    where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)
+     order by 1
+  loop
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_ins') then
+      execute format($q$create trigger %I after insert on public.%I
+        referencing new table as new_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_ins', r.tbl);
+    end if;
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_upd') then
+      execute format($q$create trigger %I after update on public.%I
+        referencing old table as old_rows new table as new_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_upd', r.tbl);
+    end if;
+    if not exists (select 1 from pg_trigger
+                    where tgrelid = ('public.' || r.tbl)::regclass
+                      and tgname = r.tbl || '_program_scope_del') then
+      execute format($q$create trigger %I after delete on public.%I
+        referencing old table as old_rows
+        for each statement execute function public.affiliate_program_scope_guard()$q$,
+        r.tbl || '_program_scope_del', r.tbl);
+    end if;
+  end loop;
+end $fn$;
+
+revoke all on function public.attach_affiliate_program_scope_triggers() from public, anon, authenticated;
+
+select public.attach_affiliate_program_scope_triggers();
+
+commit;
+
+-- ── 7. Replacing a share's audience is one step, not two ─────────────────
+-- No audience rows means EVERYONE, so a delete followed by an insert leaves
+-- the share open to the whole program in between, and leaves it open for good
+-- if the insert never lands (found in review of #1350). One function, so one
+-- transaction; the share is locked, so two people saving at once cannot
+-- interleave one's delete with the other's insert.
+begin;
+
+-- The caller passes p_scope: the creators the dialog actually offered. Rows for
+-- anyone outside it are left alone, so a creator the dialog did not show --
+-- one past a truncated page, or one who has left the program and is still a
+-- named recipient -- is not silently dropped by a save (review cycle 2 of
+-- #1350). Null p_scope keeps the old behaviour of replacing the whole audience.
+drop function if exists public.affiliate_feed_set_audience(uuid, uuid[]);
+create or replace function public.affiliate_feed_set_audience(p_item uuid, p_affiliates uuid[], p_scope uuid[] default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid := public.active_company_id();
+  v_item public.affiliate_feed_items%rowtype;
+  v_want uuid[] := coalesce(p_affiliates, '{}'::uuid[]);
+  v_scope uuid[] := p_scope;
+  v_named integer;
+begin
+  if v_company is null then
+    raise exception 'affiliate_feed_set_audience: no active company' using errcode = '42501';
+  end if;
+  select * into v_item from public.affiliate_feed_items
+   where id = p_item and company_entity_id = v_company
+     for update;
+  if not found then
+    raise exception 'affiliate_feed_set_audience: no such share in this company' using errcode = 'P0002';
+  end if;
+  if not public.can_manage_affiliate_program(v_item.program_id) then
+    raise exception 'affiliate_feed_set_audience: not allowed' using errcode = '42501';
+  end if;
+  -- Every creator named has to be someone in this share's own program who has
+  -- not left it, which is exactly who the dialog offers.
+  if exists (
+    select 1 from unnest(v_want) as w(id)
+     where not exists (
+       select 1 from public.affiliates a
+        where a.id = w.id
+          and a.company_entity_id = v_company
+          and a.program_id = v_item.program_id
+          and a.status <> 'ended')) then
+    raise exception 'affiliate_feed_set_audience: a creator named is not in this program' using errcode = '22023';
+  end if;
+  -- Anyone named has to be inside the scope the caller saw, or the save is
+  -- claiming authority over a list it never showed.
+  if v_scope is not null and exists (
+    select 1 from unnest(v_want) as w(id) where not (w.id = any (v_scope))) then
+    raise exception 'affiliate_feed_set_audience: a creator named was not among those offered' using errcode = '22023';
+  end if;
+  delete from public.affiliate_feed_audience
+   where feed_item_id = p_item and company_entity_id = v_company
+     and (v_scope is null or affiliate_id = any (v_scope));
+  insert into public.affiliate_feed_audience (company_entity_id, feed_item_id, affiliate_id)
+  select v_company, p_item, w.id from unnest(v_want) as w(id)
+  on conflict do nothing;
+  select count(*) into v_named from public.affiliate_feed_audience where feed_item_id = p_item;
+  return jsonb_build_object('feed_item_id', p_item, 'named', v_named);
+end;
+$$;
+
+comment on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) is
+  'Replaces who a share is for, in one transaction, with the share locked. p_scope is the creators the caller offered: rows outside it are left as they are, and null replaces the whole audience. An empty audience hands the share back to everyone in its program. Refuses a creator who is not in that program, and needs can_manage_affiliate_program() for it. (20261121210000)';
+
+revoke all on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) from public, anon;
+grant execute on function public.affiliate_feed_set_audience(uuid, uuid[], uuid[]) to authenticated;
+
+commit;
+
+-- 8. Adding a creator to a second program copies their contact details, their
+--    carried terms acceptance and their PayPal address out of the program they
+--    are already in. The scope trigger cannot see that: every row the function
+--    writes belongs to the DESTINATION program, which the caller does have. So
+--    the function itself has to require the source program too.
+begin;
+
+create or replace function public.affiliate_add_to_program(
+  p_affiliate uuid,
+  p_program uuid,
+  p_commission_kind text default null,
+  p_commission_percent numeric default null,
+  p_commission_fixed_cents integer default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_company uuid := public.active_company_id();
+  v_src public.affiliates%rowtype;
+  v_prog public.affiliate_programs%rowtype;
+  v_existing uuid;
+  v_new uuid;
+begin
+  if v_company is null or not public.can_manage_affiliate_programs() then
+    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';
+  end if;
+
+  select * into v_src from public.affiliates
+   where id = p_affiliate and company_entity_id = v_company;
+  if not found then
+    raise exception 'affiliate_add_to_program: no such affiliate in this company' using errcode = 'P0002';
+  end if;
+  -- 20261121210000: and the program they are ALREADY in has to be one this
+  -- caller was given. Checking only the destination is not enough -- this
+  -- copies the person's contact details, their carried terms acceptance and
+  -- their payout address out of the source program, and every row it writes
+  -- belongs to the destination, so the scope trigger sees nothing wrong
+  -- (review cycle 2 of #1350).
+  if not public.can_manage_affiliate_program(v_src.program_id) then
+    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';
+  end if;
+  if v_src.status not in ('active', 'paused') or v_src.terms_accepted_at is null then
+    raise exception 'affiliate_add_to_program: only someone who has joined can be added to another program' using errcode = '22023';
+  end if;
+
+  select * into v_prog from public.affiliate_programs
+   where id = p_program and company_entity_id = v_company;
+  if not found then
+    raise exception 'affiliate_add_to_program: no such program in this company' using errcode = 'P0002';
+  end if;
+  if v_prog.status <> 'active' then
+    raise exception 'affiliate_add_to_program: that program is not active' using errcode = '22023';
+  end if;
+
+  if p_commission_kind is not null and p_commission_kind not in ('percent_of_net', 'fixed_per_order') then
+    raise exception 'affiliate_add_to_program: unknown rate kind' using errcode = '22023';
+  end if;
+
+  select id into v_existing from public.affiliates
+   where company_entity_id = v_company and program_id = p_program
+     and lower(contact_email) = lower(v_src.contact_email)
+   limit 1;
+  if v_existing is not null then
+    return jsonb_build_object('affiliate_id', v_existing, 'added', false);
+  end if;
+
+  insert into public.affiliates (
+    company_entity_id, program_id, display_name, contact_email, contact_name, platform, handle, profile_url,
+    photo_url, photo_hidden, status, terms_version_accepted, terms_accepted_at, terms_acceptance,
+    commission_kind, commission_percent, commission_fixed_cents,
+    from_prospect_id, approved_by, approved_at, note, created_by, changed_by
+  ) values (
+    v_company, p_program, v_src.display_name, v_src.contact_email, v_src.contact_name, v_src.platform, v_src.handle, v_src.profile_url,
+    v_src.photo_url, coalesce(v_src.photo_hidden, false), 'active', v_prog.terms_version, now(),
+    jsonb_build_object('carried_from', v_src.id, 'carried_from_program', v_src.program_id,
+      'original_accepted_at', v_src.terms_accepted_at, 'original_terms_version', v_src.terms_version_accepted,
+      'added_by', auth.uid(), 'basis', 'added to another program of the same company'),
+    p_commission_kind,
+    case when p_commission_kind = 'percent_of_net' then p_commission_percent end,
+    case when p_commission_kind = 'fixed_per_order' then p_commission_fixed_cents end,
+    v_src.from_prospect_id, auth.uid(), now(), null, auth.uid(), auth.uid()
+  ) returning id into v_new;
+
+  -- Where they are paid follows them: their PayPal email, if they gave one.
+  insert into public.affiliate_payout_accounts (company_entity_id, affiliate_id, provider, payout_email)
+  select v_company, v_new, x.provider, x.payout_email
+    from public.affiliate_payout_accounts x
+   where x.company_entity_id = v_company and x.affiliate_id = v_src.id and x.provider = 'paypal' and x.payout_email is not null
+  on conflict do nothing;
+
+  return jsonb_build_object('affiliate_id', v_new, 'added', true);
+end;
+$$;
+commit;

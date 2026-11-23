@@ -482,6 +482,7 @@
        default; its SQL reads `{{location}} = 'all' or location_tag =
        {{location}}`, which the planner folds away when it is 'all'. */
     function buildChoice(decl) {
+      const isChannel = decl.options_source === 'channel';
       const id = `slicer_${decl.key}`;
       const wrap = fieldWrap(decl.key, decl.label, id);
       const sel = document.createElement('select');
@@ -514,18 +515,66 @@
         // everything. Carry it as its own option and say it is unknown.
         if (keep && keep !== ALL_CHOICES && !list.some((c) => c.value === keep)) {
           const o = document.createElement('option');
-          o.value = keep; o.textContent = `${keep} (not in this workspace)`;
+          o.value = keep; o.textContent = `${keep} (${isChannel ? 'not in recent choices' : 'not in this workspace'})`;
           sel.appendChild(o);
         }
         sel.value = keep == null || keep === '' ? ALL_CHOICES : keep;
         note.textContent = Array.isArray(got)
-          ? (got.length ? '' : 'Nothing to choose from yet')
+          ? (got.length ? (isChannel ? 'Recent channels only.' : '') : 'Nothing to choose from yet')
           : (got === false ? 'The choices could not be loaded' : 'Loading the choices…');
       };
       fill(getValues()[decl.key]);
       sel.addEventListener('change', () => commit({ [decl.key]: sel.value }));
       wrap.appendChild(sel);
       wrap.appendChild(note);
+      if (isChannel) {
+        // The source is intentionally limited to recent orders. Older names
+        // are still valid text values and need no extra database lookup, so
+        // the field for one sits in the open beside the dropdown rather than
+        // behind a disclosure -- nothing in SILO's filter bar folds out.
+        const row = document.createElement('div');
+        row.id = `${id}_manual`;
+        row.className = 'v3-slicer-manual';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'bcn-field';
+        input.autocomplete = 'off';
+        input.setAttribute('aria-label', 'Exact channel name');
+        input.placeholder = 'Or type an exact channel name';
+        const error = document.createElement('span');
+        error.className = 'v3-slicer-error';
+        error.setAttribute('role', 'status');
+        error.hidden = true;
+        const apply = document.createElement('button');
+        apply.type = 'button';
+        apply.className = 'bcn-btn bcn-btn--ghost';
+        apply.textContent = 'Apply';
+        const applyName = () => {
+          const value = input.value.trim();
+          if (!value || value === ALL_CHOICES || global.SiloReportParams.toLiteral(decl, value).error) {
+            error.textContent = 'Enter an exact channel name, or use All channels above.';
+            error.hidden = false;
+            input.focus();
+            return;
+          }
+          error.hidden = true;
+          input.value = '';
+          commit({ [decl.key]: value });
+        };
+        apply.addEventListener('click', applyName);
+        input.addEventListener('input', () => { error.hidden = true; });
+        input.addEventListener('keydown', (e) => {
+          // Escape clears what was typed; there is no panel to close.
+          if (e.key === 'Escape') { e.preventDefault(); input.value = ''; error.hidden = true; }
+          if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); applyName(); }
+        });
+        // Choosing from the dropdown abandons a half-typed name.
+        sel.addEventListener('change', () => { input.value = ''; error.hidden = true; });
+        row.appendChild(input);
+        row.appendChild(apply);
+        row.appendChild(error);
+        wrap.appendChild(row);
+      }
       return { wrap, update(v) { fill(v); } };
     }
 

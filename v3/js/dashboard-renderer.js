@@ -606,7 +606,7 @@
       // A section is a heading, not a query. It short-circuits before every
       // report check below -- otherwise the "no saved report attached"
       // notice would fire on a tile that correctly has none.
-      if (widget.visual_type === 'section') { renderBody(widget, { rows: [] }); return; }
+      if (widget.visual_type === 'section') { renderBody(widget, { rows: [] }); return 'static'; }
       // An answer widget needs report_answer, never query_sql -- it has to
       // short-circuit before the query_sql check below, which would
       // otherwise fire "no stored SQL to run" on a widget that was never
@@ -614,7 +614,7 @@
       if (widget.visual_type === 'answer') {
         if (!widget.report_id) {
           renderBody(widget, { notice: 'No saved report attached to this widget.' });
-          return;
+          return 'static';
         }
         if (!widget.report_answer) {
           // Same ambiguity as the query_sql check below: dashboard_widgets_v
@@ -626,14 +626,14 @@
               ? `"${widget.report_title}" has no saved answer text — it may be private to someone else, or it was built as a manual/system report rather than asked in chat.`
               : 'The source report was deleted, or it is private to someone else.',
           });
-          return;
+          return 'static';
         }
         renderBody(widget, { rows: [] });
-        return;
+        return 'static';
       }
       if (!widget.report_id) {
         renderBody(widget, { notice: 'No saved report attached to this widget.' });
-        return;
+        return 'failed';
       }
       if (!widget.query_sql) {
         // dashboard_widgets_v is security_invoker, so a private report
@@ -645,7 +645,7 @@
             ? `"${widget.report_title}" has no stored SQL to run.`
             : 'The source report was deleted, or it is private to someone else.',
         });
-        return;
+        return 'failed';
       }
       // Substitution failures are AUTHORING errors -- an undeclared token, a
       // value that is not a date -- so they are reported on the tile rather
@@ -654,7 +654,7 @@
       const resolved = resolveSql(widget);
       if (resolved.error) {
         renderBody(widget, { notice: resolved.error });
-        return;
+        return 'failed';
       }
       renderBody(widget, { loading: true });
       const [entry] = await Promise.all([fetchQuery(resolved.sql, 0), catalogIndexPromise]);
@@ -673,6 +673,7 @@
         });
       }
       renderBody(widget, entry);
+      return entry.error ? 'failed' : 'loaded';
     }
 
     /**
@@ -895,9 +896,15 @@
     }
 
     /** Re-run every distinct query against live data. */
-    function refresh() {
+    async function refresh() {
       dataCache = new Map();
-      return Promise.all(widgets.map(loadWidget));
+      // A tile's query error is rendered in place, not thrown. Count those
+      // outcomes too so a resolved refresh is not mistaken for a clean run.
+      const results = await Promise.allSettled(widgets.map(loadWidget));
+      return {
+        loaded: results.filter((r) => r.status === 'fulfilled' && r.value === 'loaded').length,
+        failed: results.filter((r) => r.status === 'rejected' || r.value === 'failed').length,
+      };
     }
 
     /**

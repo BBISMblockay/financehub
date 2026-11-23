@@ -1480,6 +1480,9 @@ table.dw-matrix th.dw-total-label {
 .v3-slicer-dash { color: var(--bcn-ink-3); font-size: 11px; }
 .v3-slicer-dash[hidden] { display: none; }
 .v3-slicer-field--range .v3-slicer-date input[type="date"] { max-width: 132px; }
+.v3-slicer-manual { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.v3-slicer-manual .bcn-field { max-width: 160px; }
+.v3-slicer-manual .v3-slicer-error { flex-basis: 100%; margin-top: 0; }
 .v3-slicer-error { font-size: 10px; color: var(--bcn-neg); margin-top: 2px; }
 .v3-slicer-error[hidden] { display: none; }
 .v3-slicer-pending { font-size: 10px; color: var(--bcn-warn); margin-top: 2px; }

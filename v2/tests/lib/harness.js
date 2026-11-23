@@ -321,12 +321,17 @@ window.__QUERIES__ = [];
       // (zero rows) from a delete.
       delete: function () {
         q._op = 'delete'; window.__QUERIES__.push(q);
-        return { eq: function (c, v) {
-          q.filters.push({ op: 'eq', col: c, val: v });
-          var p = Promise.resolve({ data: [], error: null });
-          p.select = function () { return Promise.resolve({ data: [{ id: v }], error: null }); };
-          return p;
-        } };
+        // Several filters chain, as they do in the real client: a delete
+        // scoped to a row AND its company is two eq calls, and a stub that
+        // allowed only one turned a correct page into a TypeError.
+        var idVal = null;
+        var api = {
+          eq: function (c, v) { q.filters.push({ op: 'eq', col: c, val: v }); if (c === 'id' || idVal === null) idVal = v; return api; },
+          in: function (c, vals) { q.filters.push({ op: 'in', col: c, vals: vals || [] }); return api; },
+          select: function () { return Promise.resolve({ data: [{ id: idVal }], error: null }); },
+          then: function (res, rej) { return Promise.resolve({ data: [], error: null }).then(res, rej); }
+        };
+        return api;
       },
       // A single-row read. Pages use both, and a missing method is a
       // TypeError that reads exactly like a page bug.

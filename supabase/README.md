@@ -4002,6 +4002,105 @@ ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
 
+### Affiliate access: per-program staff, per-creator shares — 2026-11-21
+
+`20261121210000_affiliate_program_scoped_access.sql` closes two access gaps, both
+additive and both meaning "everything" when left null, so applying it changes
+nobody's access until somebody deliberately narrows it.
+
+`affiliate_program_managers.program_id` (nullable) names the one program a grant
+covers; NULL is every program, which is what every grant made before this means.
+The old `affiliate_program_managers_identity` unique index (one row per person
+per company) is replaced by two partial ones, so a person can hold several
+program grants. `affiliate_manager_scoped()` is true only when every grant a
+person holds names a program and they are not exec or owner;
+`affiliate_visible_program(program)` is true for everyone who is not scoped, and
+`can_manage_affiliate_program(program)` is `can_manage_affiliate_programs()`
+narrowed by it. Fourteen select policies and twelve write policies on the tables
+that carry a `program_id` now go through those; the money reads keep their
+`can_approve_affiliate_commissions()` gate as well. Tables with no program to
+point at (`affiliate_payout_accounts`, `_items`, `_sends`,
+`affiliate_prospect_observations`) are unchanged.
+
+`affiliate_feed_audience` (feed item, affiliate) names who a share is for. NO
+rows for a share means everyone in its program, which is what every share made
+before this means, so an unapplied audience or a failed read shows the share
+rather than hiding it. `affiliate_portal_feed` filters both the feed and the
+products under a launch through `affiliate_feed_item_for()`.
+
+Two things the policies alone could not do (found reviewing #1350). A policy is
+not the boundary for a SECURITY DEFINER function -- thirteen of those are
+callable by `authenticated` on `can_manage_affiliate_programs()` alone -- so
+`affiliate_program_scope_guard()` is attached, by
+`attach_affiliate_program_scope_triggers()`, to every affiliate table that
+carries a `program_id`: a STATEMENT trigger over the transition table, so a
+bulk write pays one check, and a caller with no `auth.uid()` (service role,
+cron, a sync) is never scoped and never checked. Call that function from a new
+affiliate migration, the way `attach_affiliate_same_company_twins()` is called.
+And `affiliate_feed_set_audience(item, affiliates[], scope[])` replaces a
+share's audience in ONE transaction with the share locked, because no audience
+rows means everyone: a delete followed by an insert leaves the share open to the
+whole program in between, and open for good if the insert never lands. `scope`
+is the creators the caller offered; rows outside it are left as they are, so a
+recipient the dialog could not show (one past a truncated page, one who has left
+the program) is not dropped by a save of the boxes it did show. Null scope
+replaces the whole audience.
+
+Two more the trigger cannot see (review cycle 2 of #1350).
+`affiliate_add_to_program()` is re-created here to require
+`can_manage_affiliate_program()` for the program the person is being copied OUT
+of as well as the one they go into: it reads their contact details, their
+carried terms acceptance and their PayPal address from the source, while every
+row it writes belongs to the destination, which the caller does hold -- so the
+trigger passes and the scope leaks sideways. The same shape applies to anything
+that reads one program and writes another: gate the read, not just the write.
+And `supabase/functions/affiliate-invite` calls
+`can_manage_affiliate_program()` through the caller's own client before it mints
+a portal or sign-up link, creates Shopify codes or ends them, failing open only
+when the function is absent (before this migration).
+
+Apply, AND deploy `affiliate-invite` (`affiliate_portal_feed` is replaced in the
+same migration, so nothing else needs one).
+
+### Affiliate access: one person, one PayPal, one email — 2026-11-21
+
+`20261121230000_affiliate_one_person_one_paypal.sql`, the third of the three
+gaps, answered by Blake's own rule: a creator has ONE payout address for the
+company, not one per program.
+
+A program membership stays an `affiliates` row per program (Blake 2026-11-17,
+`20261118010000`): the rate, the codes, the ledger, the payouts and the portal
+are all program-scoped through `affiliates.program_id`, and that does not
+change. What moved is what belongs to the PERSON rather than to the membership,
+and both are held by TRIGGERS rather than by rewriting readers, because several
+deployed functions write these tables and the money path reads the stored row
+directly:
+
+- `affiliate_payout_account_mirror()` on `affiliate_payout_accounts`: a PayPal
+  address written for one membership follows the same person's other
+  memberships in that company. PayPal only -- a Stripe Express account is per
+  affiliate row by construction, so an email copied onto a sibling's stripe row
+  would describe an account that does not exist, including into a program that had no row at all,
+  so a person who gave an address once is payable everywhere. Recursion stops
+  on the `is distinct from` guard: the mirrored rows fire the trigger again,
+  find nothing to change and write nothing. The migration also converges what
+  is already stored onto the newest address each person gave.
+- `affiliate_person_email_follows()` on `affiliates`: a creator's address is
+  their identity, so changing it on one membership moves their other
+  memberships in the same company (or `affiliate_portal_brands()`, which finds
+  them by `affiliate_contact_key(contact_email)`, splits one person into two who
+  each see half their brands), and revokes the portal links mailed to the old
+  address. Those links already stopped working the moment the address changed —
+  the token check requires the mailed address to STILL be that affiliate's, and
+  that check is the authorization, so it is untouched. This records the
+  revocation instead of leaving a link that silently fails.
+- `affiliate_person_programs(affiliate)` lists the programs one person is in,
+  SECURITY INVOKER so RLS answers: a manager given one program sees only the
+  membership they were given, which is the isolation and not an omission.
+  Studio's **Add to program** dialog uses it to say "Also in …" and to stop
+  offering a program they are already in.
+
+Apply only; no deploy.
 `20261123200000_plaid_multiple_feeds_per_qbo_account.sql` lets SEVERAL Plaid
 feeds share one QuickBooks balancing account (two company cards, one account in
 the chart of accounts). `plaid_guard_source_authority` no longer refuses a
