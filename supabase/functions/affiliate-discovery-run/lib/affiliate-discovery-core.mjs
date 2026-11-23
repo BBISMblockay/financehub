@@ -419,7 +419,7 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
 }
 
 /**
- * The past-customer badge (20261123200000). Runs right after a batch of
+ * The past-customer badge (20261123210000). Runs right after a batch of
  * prospects lands -- from a search, from AI research or from an import --
  * so the badge is on the row by the time anyone looks at it.
  *

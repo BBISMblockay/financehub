@@ -112,7 +112,7 @@ function fakeSupabase(seed, { suppressed = [], matchFail = null } = {}) {
     from: builder,
     rpc: async (name, args) => {
       calls.push({ rpc: name, args });
-      // The past-customer badge (20261123200000) runs once a batch of
+      // The past-customer badge (20261123210000) runs once a batch of
       // prospects has landed. `matchFail` makes it fail the way an unapplied
       // migration or a database error would.
       if (name === 'affiliate_match_prospect_customers') {

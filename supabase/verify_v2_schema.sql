@@ -6883,6 +6883,25 @@ select signature as plaid_rpc,
     else 'ok' end as status
 from expected left join pg_proc p on p.oid=to_regprocedure(signature);
 
+-- Several Plaid feeds may share one QuickBooks balancing account (two cards,
+-- one account in the chart of accounts). What must stay refused is the SAME
+-- card mapped twice, which configure_plaid_account judges with
+-- plaid_duplicate_card_feed -- the card_sources trigger cannot, because it
+-- fires before plaid_accounts.source_id is set.
+select 'public.plaid_duplicate_card_feed' as plaid_duplicate_card_guard,
+  case when to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)') is null
+      then 'MISSING — duplicate card feed guard'
+    when has_function_privilege('anon',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      or has_function_privilege('authenticated',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      then 'CRITICAL — duplicate card feed guard is client-callable'
+    when position('plaid_duplicate_card_feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.configure_plaid_account(uuid,uuid,text,date,uuid)')),''))=0
+      then 'BROKEN — configure_plaid_account no longer checks for a duplicate card'
+    when position('already has an authoritative Plaid feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.plaid_guard_source_authority()')),''))>0
+      then 'BROKEN — one feed per QuickBooks account is back in the source trigger'
+    else 'ok' end as status;
+
 with expected(relation,trigger_name) as (values
   ('public.card_sources','plaid_source_authority'),
   ('public.card_transactions','plaid_transaction_integrity'),
@@ -9372,7 +9391,7 @@ select 'Affiliate Studio' as check_name,
     else 'ok'
   end as status;
 
--- The past-customer badge (20261123200000): a discovered creator who has
+-- The past-customer badge (20261123210000): a discovered creator who has
 -- already bought is badged on the prospect row. What must stay true: the
 -- customer lookup exists with its indexes and RLS, no browser role can run
 -- either function or write the lookup, and the orders-side index carries the
@@ -9388,7 +9407,7 @@ select 'Affiliate past-customer badge' as check_name,
       or not exists (select 1 from information_schema.columns
                       where table_schema = 'public' and table_name = 'affiliate_prospects'
                         and column_name = 'customer_match_status')
-      then 'MISSING — run 20261123200000_affiliate_past_customer_badge.sql'
+      then 'MISSING — run 20261123210000_affiliate_past_customer_badge.sql'
     when not (select relrowsecurity from pg_class where oid = 'public.company_customer_profiles'::regclass)
       or not (select relrowsecurity from pg_class where oid = 'public.company_customer_profile_state'::regclass)
       then 'CRITICAL — RLS is off on the customer lookup'
@@ -9503,7 +9522,9 @@ select 'Affiliate portal feed' as check_name,
       then 'BROKEN — affiliate_feed_items has RLS off'
     when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_feed_items'::regclass
                       and polname = 'affiliate_feed_items_write'
-                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+                      -- Matches both the company-wide gate and the per-program
+                      -- one it became in 20261121210000.
+                      and position('can_manage_affiliate_program' in pg_get_expr(polwithcheck, polrelid)) > 0)
       then 'BROKEN — sharing with affiliates is not limited to people who manage affiliate programs'
     when not exists (select 1 from pg_constraint where conname = 'affiliate_feed_items_path')
       then 'BROKEN — a shared item may point off the brand''s store'
@@ -9512,6 +9533,92 @@ select 'Affiliate portal feed' as check_name,
       then 'BROKEN — a client role can call affiliate_portal_feed'
     when position('''portal''' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
       then 'BROKEN — the feed is readable with a signup link'
+    else 'ok'
+  end as status;
+
+-- Per-program staff scope and the per-creator share audience (20261121210000).
+-- Both mean "everything" when null, so this check is about the machinery
+-- existing and still being closed to anon, not about anyone being scoped.
+select 'Affiliate program scope' as check_name,
+  case
+    when to_regprocedure('public.can_manage_affiliate_program(uuid)') is null
+      or to_regprocedure('public.affiliate_visible_program(uuid)') is null
+      or to_regprocedure('public.affiliate_manager_scoped()') is null
+      or to_regclass('public.affiliate_feed_audience') is null
+      or to_regprocedure('public.affiliate_feed_set_audience(uuid,uuid[],uuid[])') is null
+      or to_regprocedure('public.affiliate_program_scope_guard()') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_program_managers'
+                        and column_name = 'program_id')
+      then 'MISSING — run 20261121210000_affiliate_program_scoped_access.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_feed_audience'::regclass)
+      then 'BROKEN — affiliate_feed_audience has RLS off'
+    when exists (select 1 from unnest(array['anon']) r(role)
+                  where has_function_privilege(r.role, 'public.can_manage_affiliate_program(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_visible_program(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_manager_scoped()', 'execute'))
+      then 'BROKEN — anon can ask who manages an affiliate program'
+    when not has_function_privilege('authenticated', 'public.can_manage_affiliate_program(uuid)', 'execute')
+      then 'BROKEN — the policies call a gate the signed-in role cannot execute'
+    -- A grant that names no program still means every program, which is what
+    -- every grant made before 2026-11-21 means. If that ever stops being true,
+    -- everyone holding one silently loses access.
+    when (select count(*) from pg_policy where polrelid = 'public.affiliates'::regclass
+           and polname = 'affiliates_select'
+           and position('affiliate_visible_program' in pg_get_expr(polqual, polrelid)) > 0) <> 1
+      then 'BROKEN — reads are not scoped to the programs a manager holds'
+    -- A policy is not the boundary for a SECURITY DEFINER function, and
+    -- thirteen of those are callable by `authenticated` on the company gate
+    -- alone. The trigger is what holds for those, so every affiliate table
+    -- that carries a program must have all three of its triggers.
+    when exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relkind = 'r'
+                    and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+                    and exists (select 1 from pg_attribute a where a.attrelid = c.oid
+                                 and a.attname = 'program_id' and not a.attisdropped)
+                    and (select count(*) from pg_trigger t where t.tgrelid = c.oid
+                          and t.tgname like '%\_program\_scope\_%' and t.tgenabled <> 'D') <> 3)
+      then 'BROKEN — an affiliate table with a program has no scope guard, so a definer RPC can write across programs'
+    when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[],uuid[])', 'execute')
+      then 'BROKEN — anon can change who a share is for'
+    else 'ok'
+  end as status;
+
+-- One person, one payout address, one email (20261121230000). A membership is
+-- still an affiliates row per program; what belongs to the PERSON is their
+-- PayPal address and their email, and both are held together by a trigger
+-- because several deployed functions write these tables.
+select 'Affiliate one person' as check_name,
+  case
+    when to_regprocedure('public.affiliate_payout_account_mirror()') is null
+      or to_regprocedure('public.affiliate_person_email_follows()') is null
+      or to_regprocedure('public.affiliate_person_programs(uuid)') is null
+      then 'MISSING — run 20261121230000_affiliate_one_person_one_paypal.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliate_payout_accounts'::regclass
+                        and tgname = 'affiliate_payout_accounts_mirror' and tgenabled <> 'D')
+      then 'BROKEN — a PayPal address written for one membership no longer follows the person'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliates_person_email_follows' and tgenabled <> 'D')
+      then 'BROKEN — changing a creator''s address no longer moves the person or ends their old link'
+    when has_function_privilege('anon', 'public.affiliate_person_programs(uuid)', 'execute')
+      then 'BROKEN — anon can list which programs a creator is in'
+    -- The portal token check is the authorization and must stay as it is: the
+    -- address a link was mailed to has to STILL be that affiliate's, or an edit
+    -- after the mail could walk a token into another company.
+    when position('t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      or position('affiliate_contact_key(a.contact_email) = t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — the brand switcher no longer checks that the mailed address is still theirs'
+    -- Nobody may be payable at two addresses at once.
+    when exists (
+      select 1 from public.affiliates a
+        join public.affiliate_payout_accounts pa
+          on pa.affiliate_id = a.id and pa.company_entity_id = a.company_entity_id and pa.provider = 'paypal'
+       where nullif(btrim(pa.payout_email), '') is not null
+       group by a.company_entity_id, public.affiliate_contact_key(a.contact_email)
+      having count(distinct lower(btrim(pa.payout_email))) > 1)
+      then 'BROKEN — one person is payable at two PayPal addresses'
     else 'ok'
   end as status;
 
@@ -9529,8 +9636,10 @@ select 'Affiliate launch claims' as check_name,
     when not (select relrowsecurity from pg_class where oid = 'public.affiliate_launch_claims'::regclass)
       then 'BROKEN — affiliate_launch_claims has RLS off'
     when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_launch_claims'::regclass
+                      -- 'can_manage_affiliate_program' matches the per-program
+                      -- gate (20261121210000) and the company-wide one alike.
                       and polname = 'affiliate_launch_claims_write'
-                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+                      and position('can_manage_affiliate_program' in pg_get_expr(polwithcheck, polrelid)) > 0)
       then 'BROKEN — a claim can be written by anyone who can sign in'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_portal_claim(text, uuid, boolean)', 'execute')
@@ -10230,6 +10339,12 @@ select 'Affiliate add to program' as check_name,
       or position('can_manage_affiliate_programs()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       or position('active_company_id()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       then 'BROKEN — add to program is not gated to managers of the active company'
+    -- It copies contact details, carried terms and the payout address OUT of
+    -- the program the person is already in, and every row it writes belongs to
+    -- the destination, so the scope trigger cannot see it. Since 20261121210000
+    -- the source program has to be one the caller holds too.
+    when position('can_manage_affiliate_program(v_src.program_id)' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
+      then 'BROKEN — add to program does not require the program it copies FROM'
     else 'ok'
   end as status;
 

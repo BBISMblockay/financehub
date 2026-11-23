@@ -123,7 +123,7 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
   return summary;
 }
 
-// ── Past-customer badge (20261123200000) ────────────────────────────────────
+// ── Past-customer badge (20261123210000) ────────────────────────────────────
 //
 // Keeps the company's customer lookup current and then badges the program's
 // prospects. Two rules shape this:

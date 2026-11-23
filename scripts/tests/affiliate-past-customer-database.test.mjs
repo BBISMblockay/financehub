@@ -1,6 +1,6 @@
 // scripts/tests/affiliate-past-customer-database.test.mjs
 //
-// The past-customer badge (20261123200000) on real PostgreSQL (PGlite),
+// The past-customer badge (20261123210000) on real PostgreSQL (PGlite),
 // applied TWICE because apply_all_post_merge.sql re-runs every migration.
 //
 // What this proves:
@@ -98,7 +98,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant execute on functions to anon, authenticated;
 `);
 
-let sql = await readFile(new URL('../../supabase/migrations/20261123200000_affiliate_past_customer_badge.sql', import.meta.url), 'utf8');
+let sql = await readFile(new URL('../../supabase/migrations/20261123210000_affiliate_past_customer_badge.sql', import.meta.url), 'utf8');
 function mutate(from, to) {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);

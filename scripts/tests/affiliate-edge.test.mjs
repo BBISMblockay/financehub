@@ -25,6 +25,8 @@
 //   AFFILIATE_EDGE_MUTATION=mailedmint    a portal link handed to its requester is bound as though it had been mailed
 //   AFFILIATE_EDGE_MUTATION=gateorder     the staff function reads with the service role before the gate
 //   AFFILIATE_EDGE_MUTATION=bodycompany   the staff function takes the company from the body
+//   AFFILIATE_EDGE_MUTATION=anyprogram    the staff function acts on a program the caller was not given
+//   AFFILIATE_EDGE_MUTATION=scopefailopen a scope check that errors is treated as permission
 //   AFFILIATE_EDGE_MUTATION=prospectmail  a creator a search found is emailed the invite
 //   AFFILIATE_EDGE_MUTATION=invitekind    the invite is recorded under another kind
 //   AFFILIATE_EDGE_MUTATION=draftnews     a draft payout is announced
@@ -75,6 +77,11 @@ async function load(fn, file) {
     byprospectonly: ['affiliate-invite', "        if (!aff) {\n          const like", "        if (false) {\n          const like"],
     gateorder: ['affiliate-invite', "    const caller = userClientFor(authHeader);\n", "    await service.from('affiliates').select('id');\n    const caller = userClientFor(authHeader);\n"],
     bodycompany: ['affiliate-invite', "    const { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');", "    let { data: company, error: gateErr } = await caller.rpc('affiliate_managed_company');\n    const peek = await req.clone().json().catch(() => ({})); if (peek.company_entity_id) company = peek.company_entity_id;"],
+    // The company is no longer the whole answer: a grant may name ONE program
+    // (20261121210000), and a service-role write hides the staff caller from
+    // the database trigger.
+    anyprogram: ['affiliate-invite', "      if (!programId) return true;", '      return true;\n      // eslint-disable-next-line no-unreachable\n      if (!programId) return true;'],
+    scopefailopen: ['affiliate-invite', "      if (error) return error.code === '42883' || /could not find the function|does not exist/i.test(String(error.message || ''));", '      if (error) return true;'],
     prospectmail: ['affiliate-invite', "        if (!INVITE_SOURCES.has(p.source)) {", "        if (false) {"],
     paidtwice: ['affiliate-invite', "            if (!Array.isArray(claim) || !claim.length) return reply({ email: 'already_sent', reason: null });", ''],
     paidnoretry: ['affiliate-invite', "              .update(done ? { paid_notice_done_at: new Date().toISOString() } : { paid_notice_claimed_at: null })", "              .update(done ? { paid_notice_done_at: new Date().toISOString() } : { paid_notice_done_at: new Date().toISOString() })"],
@@ -118,7 +125,7 @@ async function load(fn, file) {
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup', 'anyprogram', 'scopefailopen'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -651,10 +658,20 @@ await test('portal: the application honeypot writes nothing; a bad company id is
 // The database answers "may manage" and "which company" together
 // (affiliate_managed_company): a company id, NULL for a non-manager, or an
 // error for a refused session.
-function caller({ gate = { data: true, error: null }, company = CO } = {}) {
+// `scope` is the second question, asked only for an action that takes a row id
+// from the request: may this caller manage THAT program (20261121210000)?
+// 'absent' is the database before that migration, where the function does not
+// exist and nobody is scoped.
+function caller({ gate = { data: true, error: null }, company = CO, scope = true } = {}) {
   const calls = [];
-  return { calls, client: { rpc: async (name) => {
+  return { calls, client: { rpc: async (name, args) => {
     calls.push(name);
+    if (name === 'can_manage_affiliate_program') {
+      if (scope === 'absent') return { data: null, error: { code: '42883', message: 'Could not find the function public.can_manage_affiliate_program' } };
+      // Anything else going wrong is not permission.
+      if (scope === 'error') return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+      return { data: typeof scope === 'function' ? scope(args) : scope, error: null };
+    }
     if (name !== 'affiliate_managed_company') return { data: null, error: { message: `unexpected rpc ${name}` } };
     return gate.error ? { data: null, error: gate.error } : { data: gate.data === true ? company : null, error: null };
   } } };
@@ -687,7 +704,9 @@ await test('invite: permission and company come from ONE caller request, so a co
   const c = caller({ company: OTHER });
   const h = createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: '' });
   await h(authed({ action: 'portal_link', affiliate_id: AFF }));
-  assert.deepEqual(c.calls, ['affiliate_managed_company'], 'exactly one caller-token request decides both');
+  assert.equal(c.calls.filter((x) => x === 'affiliate_managed_company').length, 1,
+    'exactly one caller-token request decides both');
+  assert.equal(c.calls[0], 'affiliate_managed_company', 'and it is the first thing asked');
   const reads = svc.log.filter((l) => l.table === 'affiliates');
   assert.ok(reads.length && reads.every((r) => r.filters.company_entity_id === OTHER),
     'every service-role read uses the company the gate returned');
@@ -700,6 +719,58 @@ await test('invite: the company comes from the caller, never from the body', asy
   await h(authed({ action: 'portal_link', affiliate_id: AFF, company_entity_id: '3f000000-0000-4000-8000-0000000000ff' }));
   const reads = svc.log.filter((l) => l.table === 'affiliates');
   assert.ok(reads.length && reads.every((r) => r.filters.company_entity_id === CO));
+});
+
+await test('invite: a manager given one program cannot mint another program\'s portal link', async () => {
+  // Review cycle 2 of #1350. affiliate_managed_company() answers "manages at
+  // least one program of this company", and since 20261121210000 a grant may
+  // name ONE program. The database trigger cannot help here: it sees the
+  // service client, not the staff caller behind it. A portal token IS that
+  // rep's session, so this has to be refused before anything is minted.
+  const mk = () => fakeService({
+    rpc: { ...noSuppression, affiliate_issue_access_token: { data: 'tok-u', error: null },
+      affiliate_portal_issue_mailed_token: { data: 'tok-b', error: null } },
+    tables: { affiliates: { id: AFF, program_id: PROG, display_name: 'Pat', contact_email: 'pat@x.invalid', status: 'active' }, entities: { title: 'Brand' } },
+  });
+  const svc = mk();
+  const c = caller({ scope: false });
+  const res = await createInviteHandler({ service: svc, userClientFor: () => c.client, siteUrl: 'https://app.test', resendKey: '' })(
+    authed({ action: 'portal_link', affiliate_id: AFF }));
+  assert.equal(res.status, 403);
+  assert.match((await res.json()).error, /not given access/);
+  assert.ok(c.calls.includes('can_manage_affiliate_program'), 'the caller\'s own session was asked about the program');
+  assert.ok(!svc.log.some((l) => /issue_access_token|issue_mailed_token/.test(String(l.name || ''))),
+    'and nothing was minted for it');
+  // The same manager, for a program they WERE given, still works.
+  const ok = mk();
+  const res2 = await createInviteHandler({ service: ok, userClientFor: () => caller({ scope: true }).client, siteUrl: 'https://app.test', resendKey: '' })(
+    authed({ action: 'portal_link', affiliate_id: AFF }));
+  assert.equal(res2.status, 200, JSON.stringify(await res2.json()));
+  // And before the migration the function does not exist, nobody is scoped,
+  // and the company gate is the whole answer, exactly as it was.
+  const old = mk();
+  const res3 = await createInviteHandler({ service: old, userClientFor: () => caller({ scope: 'absent' }).client, siteUrl: 'https://app.test', resendKey: '' })(
+    authed({ action: 'portal_link', affiliate_id: AFF }));
+  assert.equal(res3.status, 200, JSON.stringify(await res3.json()));
+  // But the function being there and failing is not permission: only the one
+  // error that means "not applied yet" may pass.
+  const broke = mk();
+  const res4 = await createInviteHandler({ service: broke, userClientFor: () => caller({ scope: 'error' }).client, siteUrl: 'https://app.test', resendKey: '' })(
+    authed({ action: 'portal_link', affiliate_id: AFF }));
+  assert.equal(res4.status, 403, 'a scope check that failed is refused, not waved through');
+  assert.ok(!broke.log.some((l) => /issue_access_token|issue_mailed_token/.test(String(l.name || ''))));
+});
+
+await test('invite: a signup link for another program\'s prospect is refused', async () => {
+  const svc = fakeService({
+    rpc: { ...noSuppression, affiliate_issue_access_token: { data: 'tok-u', error: null } },
+    tables: { affiliate_prospects: { id: PROSPECT, program_id: PROG, display_name: 'Sam', handle: '@sam', profile_url: 'https://y.test/@sam', contact_email: 'sam@x.invalid', status: 'approved', source: 'manual' } },
+  });
+  const res = await createInviteHandler({ service: svc, userClientFor: () => caller({ scope: false }).client, siteUrl: 'https://app.test', resendKey: '' })(
+    authed({ action: 'signup_link', prospect_id: PROSPECT }));
+  assert.equal(res.status, 403);
+  assert.ok(!svc.log.some((l) => /issue_access_token/.test(String(l.name || ''))), 'no link was minted');
+  assert.ok(!svc.log.some((l) => l.table === 'affiliates' && l.op === 'insert'), 'and nobody was added to the program');
 });
 
 await test('invite: a portal link that is emailed is bound to the rep and never handed back', async () => {

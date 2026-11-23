@@ -66,6 +66,17 @@
  *   AFFILIATE_UI_MUTATION=listnophoto the list view drops the photos
  *   AFFILIATE_UI_MUTATION=bulkunsent  a refused invite in a bulk approval is dropped silently
  *   AFFILIATE_UI_MUTATION=addlinkhidden a refused invite for someone added by hand puts the link on a hidden tab
+ *   AFFILIATE_UI_MUTATION=grantall    a grant made for one program is made for every program
+ *   AFFILIATE_UI_MUTATION=grantlabel  a grant that covers one program is listed as covering all
+ *   AFFILIATE_UI_MUTATION=mgrhard     the grant list is blank where program_id is not applied yet
+ *   AFFILIATE_UI_MUTATION=whoeveryone a share named for some creators still says everyone sees it
+ *   AFFILIATE_UI_MUTATION=audsilent   an audience that could not be read is treated as nobody named
+ *   AFFILIATE_UI_MUTATION=audknown    the page offers to change an audience it never read
+ *   AFFILIATE_UI_MUTATION=whoprecheck the audience dialog opens with everyone ticked, changing what the share means
+ *   AFFILIATE_UI_MUTATION=whoscope    a save replaces the whole audience, not only the creators it offered
+ *   AFFILIATE_UI_MUTATION=personprog a program they are already in is offered again
+ *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
+ *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -74,6 +85,31 @@ const assert = require('node:assert/strict');
 const R = createReporter('affiliate-studio');
 
 const MUTATIONS = {
+  // ── Access: a grant may name one program, a share may name creators ──
+  // A grant that ignores the program picked puts the person over every one.
+  grantall: ['/affiliates/studio.js', "    const forProgram = $('mgrProgram') ? (val('mgrProgram') || null) : null;", '    const forProgram = null;'],
+  // A grant list that calls every grant company-wide hides who is scoped.
+  grantlabel: ['/affiliates/studio.js', "  const covers = (r) => (r.program_id ? `${progLabel(r.program_id)} only` : 'All programs');", "  const covers = () => 'All programs';"],
+  // Reading the grant list must survive the column not being there yet.
+  mgrhard: ['/affiliates/studio.js', "  if (full.error) {\n"
+    + "    scoped = false;\n"
+    + "    rows = (await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO)).data || [];\n"
+    + "  } else { rows = full.data || []; }",
+    '  rows = full.data || [];'],
+  // A share that says "Everyone" when creators are named misstates who sees it.
+  whoeveryone: ['/affiliates/studio.js', "  const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };", "  const who = () => 'Everyone';"],
+  // A read that failed must not be saved over as "nobody named", which
+  // would hand a narrowed share to the whole program.
+  audsilent: ['/affiliates/studio.js', "      if (error) return error.code === '42P01' ? [] : null;", '      if (error) return [];'],
+  audknown: ['/affiliates/studio.js', '  const audKnown = Array.isArray(d.audience);', '  const audKnown = true;'],
+  // The dialog must open on what the share means now, not pre-tick everyone.
+  whoprecheck: ['/affiliates/studio.js', "${picked.has(x.id) ? ' checked' : ''}", " checked"],
+  whoscope: ['/affiliates/studio.js', 'p_affiliates: want, p_scope: boxes.map((x) => x.value)', 'p_affiliates: want'],
+  personprog: ['/affiliates/studio.js', '    const canAdd = otherPrograms().filter((x) => !inIds.has(x.id));', '    const canAdd = otherPrograms();'],
+  affpaged: ['/affiliates/studio.js', '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);',
+    '  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), Promise.resolve(null)]);'],
+  // Somebody who left the program is not someone to share with.
+  whoended: ['/affiliates/studio.js', "      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');", '      const live = (d.affiliates || []);'],
   listnophoto: ['/affiliates/studio.js', 'const listThumb = (person, photo) => `<span class="af-list-thumb">${photoAvatar(person, photo)}</span>`;', 'const listThumb = (person) => `<span class="af-list-thumb">${personAvatar(person)}</span>`;'],
   bulkunsent: ['/affiliates/studio.js', " else unsent.push({ name: x.display_name || x.handle || x.contact_email, out }); }", ' }'],
   addlinkhidden: ['/affiliates/studio.js', "sendInvite(row.id, email, 'mpOut')", 'sendInvite(row.id, email)'],
@@ -82,6 +118,19 @@ const MUTATIONS = {
   // A store whose list HAS been read and holds no match must not fall back to
   // the company-wide list, which offers handles that store cannot use.
   storeunread: ['/affiliates/studio.js', "    return (seen.error || !seen.data || !seen.data.length) ? null : [];", '    return null;'],
+  // The media is taken out of flow so a percentage height resolves; laid out
+  // in the grid cell instead, a tall photo stands outside its tile.
+  tilefree: ['/affiliates/index.html', `    .af-studio .af-ctile-media > img, .af-studio .af-ctile-media > video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      max-width: 100%; max-height: 100%; object-fit: cover;
+    }
+    /* And a hard ceiling in pixels on anything else that turns up in a row,
+       since a percentage is only as good as the box it resolves against. */
+    .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
+      max-width: 72px; max-height: 54px;
+    }`, ''],
+  // A file the browser cannot play must say so, not sit there as a blank box.
+  vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
   picnotitle: ['/affiliates/studio.js', '  const bare = out.filter((x) => !x.image_url && x.product_title);\n  if (!bare.length) return out;', '  return out;'],
   // A chip swap rebuilds the body, so it must carry what is typed with it.
@@ -114,7 +163,7 @@ const MUTATIONS = {
   todocodes: ['/affiliates/studio.js', '  add(pending, `', '  add(0, `'],
   photonone: ['/affiliates/studio.js', 'prospectPhotoUrl(x.evidence)', 'null'],
   photoaff: ['/affiliates/studio.js', 'd.prospectById[a.from_prospect_id]?.evidence', 'null'],
-  photobroken: ['/affiliates/studio.js', "if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove();", ''],
+  photobroken: ['/affiliates/studio.js', "if (t?.classList?.contains('af-avatar-photo')) { ev.target.remove(); return; }", ''],
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
@@ -446,7 +495,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await toTiles(page);
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
-    // The past-customer badge (20261123200000): one pill, and only on a
+    // The past-customer badge (20261123210000): one pill, and only on a
     // creator the database matched. The numbers are the hover, not the row.
     R.has(pr, 'Past customer', 'a creator who has already bought is badged');
     R.eq((await page.$$('#prospectsBody .bcn-pill[title*="Check before you write to them"]')).length, 1,
@@ -874,6 +923,53 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const args = await ap.evaluate(() => window.__addArgs);
       R.eq([args.p_program, args.p_commission_kind, args.p_commission_percent, args.p_commission_fixed_cents], [P2, 'percent_of_net', 15, null], 'adds them with their own rate, no second signup');
       await ap.close();
+    }
+    // One person across programs: the dialog says where they already are, and
+    // does not offer to add them there again (20261121230000).
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const P3 = '88888888-8888-4888-8888-888888888888';
+      const two = await suite.open('/v2/affiliates/index.html',
+        { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs,
+          { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' },
+          { ...loopTables.affiliate_programs[0], id: P3, name: 'Outlet', slug: 'outlet' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          // The fixture crosses into the page as SOURCE, with no closure, so
+          // every id in it is written out rather than referenced.
+          affiliate_person_programs: () => ([
+            { affiliate_id: '22222222-2222-4222-8222-222222222222', program_id: '11111111-1111-4111-8111-111111111111', program_name: 'Creators', status: 'active' },
+            { affiliate_id: 'aff-w', program_id: '66666666-6666-4666-8666-666666666666', program_name: 'Wholesale', status: 'active' }]) } });
+      two.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(two);
+      await toAffiliates(two);
+      await two.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await two.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await two.waitForFunction(() => /Also in/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
+      const body = await text(two, '#afDialogBody');
+      R.has(body, 'Also in Wholesale', 'the dialog says which other programs they are already in');
+      R.has(body, 'one payout address', 'and that their PayPal is the same in every one');
+      R.eq(await two.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Outlet'],
+        'a program they are already in is not offered again');
+      await two.close();
+    }
+    // And where that read fails the dialog is what it was before it existed.
+    {
+      const P2 = '66666666-6666-4666-8666-666666666666';
+      const noRead = await suite.open('/v2/affiliates/index.html',
+        { ...loopTables, affiliate_programs: [...loopTables.affiliate_programs,
+          { ...loopTables.affiliate_programs[0], id: P2, name: 'Wholesale', slug: 'wholesale' }] },
+        { ready, rpc: { can_manage_affiliate_programs: true,
+          affiliate_person_programs: () => ({ __error: { message: 'fixture: function does not exist', code: '42883' } }) } });
+      noRead.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(noRead);
+      await toAffiliates(noRead);
+      await noRead.waitForSelector('#affiliatesBody [data-act="aff-tool"][data-k="program"]', { timeout: 5000 });
+      await noRead.click('#affiliatesBody [data-act="aff-tool"][data-k="program"]');
+      await noRead.waitForSelector('#apProg', { timeout: 5000 });
+      R.eq(await noRead.evaluate(() => [...document.querySelectorAll('#apProg option')].map((o) => o.textContent)), ['Wholesale'],
+        'with their memberships unreadable every other program is offered, as before');
+      R.not(await text(noRead, '#afDialogBody'), 'Also in', 'and nothing is claimed about where they are');
+      await noRead.close();
     }
     // Workflow tabs show the list first: the To do strip stays off the page.
     await loop.setViewportSize({ width: 1280, height: 520 });
@@ -2163,7 +2259,61 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(cb, 'New', 'the posts are filtered by what has happened to them');
     R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
     const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
-    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4') && !!(await ct.$('#shareBody video.af-content-media')));
+    R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4'));
+    // Blake's one real submission is a 29 MB video/quicktime .mov, which Chrome
+    // cannot decode. A <video> that never loads keeps its 300x150 default, and
+    // a percentage height does NOT resolve against a grid area for a replaced
+    // element, so it used to stand 150px tall inside a 54px tile and tear the
+    // row open. Nothing in a tile may be taller than the tile.
+    R.ok('a post never draws outside its tile, whatever the file turns out to be',
+      await ct.evaluate(() => [...document.querySelectorAll('#shareBody .af-ctile-media')].every((box) => {
+        const b = box.getBoundingClientRect();
+        return [...box.querySelectorAll('img, video')].every((m) => {
+          const r = m.getBoundingClientRect();
+          return r.height <= b.height + 1 && r.width <= b.width + 1;
+        });
+      })));
+    // And a file the browser cannot play says what it is rather than sitting
+    // there as an empty box; the file itself still opens in a new tab.
+    await ct.waitForFunction(() => /Video/.test(document.querySelector('#shareBody .af-ctile-media')?.textContent || ''), null, { timeout: 5000 });
+    R.ok('a video the browser cannot play is labelled, not left blank',
+      await ct.evaluate(() => !!document.querySelector('#shareBody .af-ctile-media--none')
+        && !!document.querySelector('#shareBody .af-ctile-media')?.getAttribute('href')));
+    // The assertion above can only measure what is still there, and a file the
+    // browser cannot play is replaced before it can be measured -- `every()`
+    // over nothing is true (review cycle 1). So measure a post that really
+    // loads: a 100x200 photo, which is taller than any tile it can sit in.
+    {
+      // A real 100x200 PNG, generated: a photo taller than any tile.
+      const TALL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAGQAAADICAIAAACRXtOWAAABRUlEQVR4nO3QQQkAMAzAwAqrfyZrFvYLg4MICDdnV49NfvBRsGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVt4FuC+tsCKZ3gMAAAAASUVORK5CYII=', 'base64');
+      await suite.context.route('https://fixture.local/signed/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: TALL }));
+      const loadTables = { ...ctTables,
+        affiliate_content_submissions: [{ id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
+          kind: 'file', storage_path: 'ct1/shot.png', file_type: 'image/png', caption: 'Wearing it today',
+          state: 'submitted', submitted_at: now }] };
+      const lp = await suite.open('/v2/affiliates/index.html', loadTables, { ready, rpc: ctRpc });
+      lp.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(lp);
+      await lp.click('#tabs [data-tab="share"]');
+      await lp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+      await lp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+      await lp.waitForFunction(() => {
+        const i = document.querySelector('#shareBody .af-ctile-media img');
+        return !!i && i.complete && i.naturalHeight > 0;
+      }, null, { timeout: 5000 });
+      const fit = await lp.evaluate(() => {
+        const media = [...document.querySelectorAll('#shareBody .af-ctile-media img, #shareBody .af-ctile-media video')];
+        return { n: media.length, natural: media[0]?.naturalHeight || 0, over: media.filter((m) => {
+          const b = m.closest('.af-ctile-media').getBoundingClientRect();
+          const r = m.getBoundingClientRect();
+          return r.height > b.height + 1 || r.width > b.width + 1;
+        }).length };
+      });
+      R.ok('a post that really loads is bigger than its tile and still fits inside it',
+        fit.n > 0 && fit.natural > 100 && fit.over === 0);
+      await lp.close();
+      await suite.context.unroute('https://fixture.local/signed/**');
+    }
     R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
     await ct.click('#shareBody [data-act="q-all"][data-q="content"]');
     await ct.click('#shareBody [data-act="q-content-use"]');
@@ -2338,6 +2488,184 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await commsChip(ex, 'email');
       R.ok('the Send by email list offers the CSV by name', /Export \d+ as CSV|Nothing approved/.test(await text(ex, '#outreachBody')));
       await ex.close();
+    }
+    // ── Access: a grant may name one program, a share may name creators ──
+    // (20261121210000.) Both are additive, so the page has to read right in
+    // BOTH database states: before the migration and after it.
+    {
+      const PSIDE = '66666666-6666-4666-8666-666666666666';
+      const scoped = { ...tables,
+        affiliate_programs: [tables.affiliate_programs[0], { ...tables.affiliate_programs[0], id: PSIDE, name: 'Wholesale', slug: 'wholesale' }],
+        profiles: [tables.profiles[0], { id: 'u2', name: 'Robin Reps', email: 'robin@brand.invalid', role: 'member', is_active: true }],
+        affiliate_program_managers: [
+          { id: 'g1', company_entity_id: CO, user_id: 'u1', program_id: null, created_at: now },
+          { id: 'g2', company_entity_id: CO, user_id: 'u2', program_id: PROG, created_at: now },
+        ],
+        entity_memberships: [{ entity_id: CO, user_id: 'u1' }, { entity_id: CO, user_id: 'u2' }] };
+      const sc = await suite.open('/v2/affiliates/index.html', scoped, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      sc.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(sc);
+      await openRecords(sc);
+      await recTab(sc, 'team');
+      const team = await text(sc, '#recordsBody');
+      R.has(team, 'All programs', 'a grant that names no program says so');
+      R.has(team, 'Creators only', 'and one that names a program names it');
+      R.ok('the grant form asks which program', !!(await sc.$('#recordsBody #mgrProgram')));
+      // The form is read by id, so a second copy of it in a hidden panel
+      // would have the page send whatever that one holds.
+      R.eq(await sc.evaluate(() => [document.querySelectorAll('#mgrUser').length, document.querySelectorAll('#mgrProgram').length]), [1, 1],
+        'and the form exists once on the page');
+      await sc.selectOption('#recordsBody #mgrUser', 'u2');
+      await sc.selectOption('#recordsBody #mgrProgram', PSIDE);
+      await sc.click('#recordsBody [data-act="add-manager"]');
+      await sc.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_program_managers' && q._op === 'insert'), null, { timeout: 5000 });
+      const gr = await sc.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_program_managers' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+      R.eq([gr?.user_id, gr?.program_id], ['u2', PSIDE], 'and grants exactly the program picked');
+      await sc.close();
+    }
+    // Before the migration there is no program_id column, and the page must
+    // still list who can run Studio rather than showing nothing.
+    {
+      const old = { ...tables,
+        affiliate_program_managers: [{ id: 'g1', company_entity_id: CO, user_id: 'u1', created_at: now }] };
+      const og = await suite.open('/v2/affiliates/index.html', old, { ready, rpc: { can_manage_affiliate_programs: true },
+        missingColumns: { affiliate_program_managers: ['program_id'] } });
+      og.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(og);
+      await openRecords(og);
+      await recTab(og, 'team');
+      const oldTeam = await text(og, '#recordsBody');
+      R.has(oldTeam, 'Dana Ops', 'the grant list still renders with the column missing');
+      R.has(oldTeam, 'All programs', 'and every grant reads as what it is: all of them');
+      R.ok('with no program picker, so nothing is sent that the database would refuse', !(await og.$('#mgrProgram')));
+      await og.selectOption('#recordsBody #mgrUser', 'u1');
+      await og.click('#recordsBody [data-act="add-manager"]');
+      await og.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_program_managers' && q._op === 'insert'), null, { timeout: 5000 });
+      const og1 = await og.evaluate(() => { const r = window.__QUERIES__.filter((q) => q.table === 'affiliate_program_managers' && q._op === 'insert').pop().rows; return Array.isArray(r) ? r[0] : r; });
+      R.ok('the insert names no program at all', !('program_id' in (og1 || {})));
+      await og.close();
+    }
+    // A share is for everyone in the program until somebody is named.
+    {
+      const shared = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now },
+          { id: 'aff3', company_entity_id: CO, program_id: PROG, display_name: 'Gone', contact_email: 'gone@creator.invalid', status: 'ended', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [] };
+      const sh = await suite.open('/v2/affiliates/index.html', shared, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
+      sh.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(sh);
+      await sh.click('#tabs [data-tab="share"]');
+      await sh.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await sh.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await sh.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      R.has(await text(sh, '#shareBody'), 'Everyone', 'a share nobody is named on is for everyone');
+      await sh.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await sh.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      const ticked = await sh.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].filter((x) => x.checked).length);
+      R.eq(ticked, 0, 'the dialog opens on what the share means now: nobody named, so nothing ticked');
+      const offered = await sh.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].map((x) => x.value));
+      R.eq(offered, [AFF, 'aff2'], 'and offers the creators still in the program, not the ones who left');
+      await sh.check(`#afDialogBody .af-who[value="${AFF}"]`);
+      await sh.click('#afDialogBody [data-act="feed-who-save"]');
+      await sh.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_feed_set_audience'), null, { timeout: 5000 });
+      const setArgs = await sh.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.eq([setArgs.p_item, setArgs.p_affiliates], ['f1', [AFF]], 'saving names the whole audience of that share in one call');
+      R.eq(setArgs.p_scope, [AFF, 'aff2'], 'and says which creators it offered, so a save replaces only within them');
+      // Which is only honest if the list really is the whole program, so the
+      // read is paged and the dialog says so when it is not.
+      R.ok('the creator list is read in pages',
+        await sh.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliates' && q._op === 'select' && Array.isArray(q.range))));
+      R.not(await text(sh, '#afDialogBody'), 'Not every creator', 'and with the whole program read it does not warn about a partial list');
+      // Two steps would leave the share open to the whole program in between,
+      // and open for good if the second never landed.
+      R.ok('and never empties the table on its own',
+        !(await sh.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_feed_audience' && (q._op === 'delete' || q._op === 'insert')))));
+      await sh.close();
+    }
+    // A share with somebody named says how many of the program see it, and
+    // ticking nobody gives it back to everyone.
+    {
+      const named = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [{ id: 'x1', company_entity_id: CO, feed_item_id: 'f1', affiliate_id: AFF }] };
+      const nm = await suite.open('/v2/affiliates/index.html', named, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
+      nm.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(nm);
+      await nm.click('#tabs [data-tab="share"]');
+      await nm.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await nm.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await nm.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const shBody = await text(nm, '#shareBody');
+      R.has(shBody, '1 of 2', 'a share with somebody named says how many of the program see it');
+      R.not(shBody, 'Everyone', 'and does not also claim everyone');
+      await nm.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await nm.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      R.eq(await nm.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].filter((x) => x.checked).map((x) => x.value)), [AFF],
+        'the dialog opens with the creators already named ticked');
+      await nm.uncheck(`#afDialogBody .af-who[value="${AFF}"]`);
+      await nm.click('#afDialogBody [data-act="feed-who-save"]');
+      await nm.waitForFunction(() => /everyone in this program/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      const emptied = await nm.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.eq(emptied.p_affiliates, [], 'ticking nobody hands the share back to everyone, named as such');
+      await nm.close();
+    }
+    // A named recipient the dialog cannot show -- here one who has left the
+    // program -- is not dropped by a save of the boxes it did show.
+    {
+      const outside = { ...tables,
+        affiliates: [tables.affiliates[0],
+          { id: 'aff2', company_entity_id: CO, program_id: PROG, display_name: 'Robin Rides', contact_email: 'robin@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now },
+          { id: 'aff3', company_entity_id: CO, program_id: PROG, display_name: 'Gone', contact_email: 'gone@creator.invalid', status: 'ended', terms_version_accepted: 2, terms_accepted_at: now, created_at: now }],
+        affiliate_feed_audience: [{ id: 'x1', company_entity_id: CO, feed_item_id: 'f1', affiliate_id: 'aff3' }] };
+      const ou = await suite.open('/v2/affiliates/index.html', outside, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
+          affiliate_feed_set_audience: (a) => ({ named: (a.p_affiliates || []).length }) } });
+      ou.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(ou);
+      await ou.click('#tabs [data-tab="share"]');
+      await ou.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await ou.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await ou.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      await ou.click('#shareBody [data-act="feed-who"][data-id="f1"]');
+      await ou.waitForSelector('#afDialogBody .af-who', { timeout: 5000 });
+      R.eq(await ou.evaluate(() => [...document.querySelectorAll('#afDialogBody .af-who')].map((x) => x.value)), [AFF, 'aff2'],
+        'the creator who left the program is not among those offered');
+      await ou.check(`#afDialogBody .af-who[value="${AFF}"]`);
+      await ou.click('#afDialogBody [data-act="feed-who-save"]');
+      await ou.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_feed_set_audience'), null, { timeout: 5000 });
+      const ouArgs = await ou.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_feed_set_audience').pop().args);
+      R.ok('so the save cannot reach their row: the scope it sends holds only what it showed',
+        Array.isArray(ouArgs.p_scope) && !ouArgs.p_scope.includes('aff3'));
+      R.eq(ouArgs.p_affiliates, [AFF], 'and it names only the box that was ticked');
+      await ou.close();
+    }
+    // The audience table before the migration: unreadable, and the page says
+    // everyone rather than falling over or hiding the shares.
+    {
+      const noAud = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true },
+        broken: ['affiliate_feed_audience'] });
+      noAud.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(noAud);
+      await noAud.click('#tabs [data-tab="share"]');
+      await noAud.waitForSelector('#shareBody [data-act="share-tab"][data-k="shared"]', { timeout: 5000 });
+      await noAud.click('#shareBody [data-act="share-tab"][data-k="shared"]');
+      await noAud.waitForFunction(() => /Trail Hat/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+      const nb = await text(noAud, '#shareBody');
+      R.has(nb, 'Trail Hat', 'with the audience table unreadable the shares still render');
+      R.has(nb, 'Everyone', 'and read as what every share meant before it existed');
+      // And it is not reported as a loading failure: the migration is simply
+      // not applied yet, which is a known state, not a fault to alarm anyone.
+      const banner = await noAud.evaluate(() => { const el = document.getElementById('status'); return el && !el.hidden ? el.textContent : ''; });
+      R.ok('and the page does not cry about data that did not load', !/audience/i.test(banner));
+      // Saving replaces the whole audience, so an audience we could not read
+      // must not be offered for change: that would hand a narrowed share to
+      // the whole program (review of #1350).
+      R.ok('and does not offer to change an audience it never read', !(await noAud.$('#shareBody [data-act="feed-who"]')));
+      R.ok('while Stop sharing, which needs no audience, stays', !!(await noAud.$('#shareBody [data-act="feed-remove"]')));
+      await noAud.close();
     }
     // Setup always shows the application link row (Blake 2026-11-19).
     {
