@@ -37,7 +37,7 @@ const co = randomUUID(), otherCo = randomUUID();
 const finance = randomUUID(), outsider = randomUUID(), otherFinance = randomUUID();
 const conn = randomUUID(), otherConn = randomUUID();
 const mutation = process.env.PLAID_DB_MUTATION || '';
-assert.ok(['', 'csv-authority', 'one-feed-per-account'].includes(mutation), 'Unknown Plaid database mutation');
+assert.ok(['', 'csv-authority', 'one-feed-per-account', 'unknown-mask-is-a-new-card'].includes(mutation), 'Unknown Plaid database mutation');
 let passed = 0;
 
 async function asRole(role, user, fn) {
@@ -219,6 +219,15 @@ try {
     assert.ok(storedHashCheck);
     assert.equal(await scalar(storedHashCheck.text), 'ok', 'The existing approval verifier must remain compatible');
   });
+  if (mutation === 'unknown-mask-is-a-new-card') {
+    // Deliberately read a missing mask as proof of a different card. The
+    // indistinguishable-feed assertions must fail.
+    const definition = await scalar("select pg_get_functiondef('public.plaid_duplicate_card_feed(uuid,uuid,text)'::regprocedure)");
+    const identity = '      and (self.mask is null or other.mask is null or other.mask=self.mask)';
+    assert.ok(definition.includes(identity), 'Mutation must replace the live identity check');
+    await db.exec(definition.replace(identity, '      and other.mask=self.mask')
+      .replace('  where self.id=p_account_id\n', '  where self.id=p_account_id and self.mask is not null\n'));
+  }
   if (mutation === 'one-feed-per-account') {
     // Deliberately restore the refusal that blocked a second card feeding one
     // QuickBooks account. The two-cards-one-account assertion must fail.
@@ -300,6 +309,26 @@ try {
       join card_import_batches b on b.id=t.batch_id where b.source_id=$1`, [second_card.source]), 1);
     await apply(first_card, { added: [added] });
     assert.equal(await scalar('select count(*)::integer from card_transactions where external_transaction_id=$1', [added.transaction_id]), 1);
+  });
+
+  await test('a second feed SILO cannot tell apart from the first is refused, however the mask is missing', async () => {
+    // Plaid may send no mask at all, and plaid_apply_sync writes what it sends
+    // over a mask already held, so an absent mask is never evidence of a
+    // second card: the feed that is already there would be imported twice
+    // under new provider ids.
+    for (const [existing, incoming] of [[null, '2008'], ['4036', null], [null, null]]) {
+      const mapped = await bankAccount({ type: 'credit', mapped: false, mask: existing });
+      const second = await bankAccount({ type: 'credit', mapped: false, mask: incoming });
+      const qboId = `card-${randomUUID()}`;
+      await mapAccount(mapped, { qboId, cutover: '2026-08-01' });
+      await assert.rejects(mapAccount(second, { qboId, cutover: '2026-08-01' }),
+        /cannot tell this account apart/i, `masks ${existing} / ${incoming}`);
+      assert.equal((await load('plaid_accounts', second.id)).source_id, null);
+      assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [qboId]), 1);
+      // Nothing of the second account's can reach the books: with no source it
+      // cannot even claim a sync.
+      await assert.rejects(asService(() => rpc('plaid_claim_sync', [second.id, randomUUID()])), /configure|before syncing/i);
+    }
   });
 
   await test('registration validates the initiating company and cannot reassign an existing Plaid item', async () => {

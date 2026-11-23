@@ -26,7 +26,12 @@
 -- plaid_accounts.source_id is set, so it cannot judge it. Same institution,
 -- same type and the same non-null mask on the same QuickBooks account is
 -- refused; two different cards (different mask) are allowed. Fail-soft: an
--- unknown mask never blocks a mapping.
+-- refused; two different cards (different mask) are allowed. A MISSING mask is
+-- not evidence of a different card -- Plaid may send none, and
+-- plaid_apply_sync writes whatever it sends, including null, over a mask it
+-- already held -- so when a feed already covers the same QuickBooks account
+-- and either mask is unknown, the second mapping is refused as
+-- indistinguishable rather than waved through.
 --
 -- Generic: no company, entity key or account id appears here.
 
@@ -69,21 +74,32 @@ declare v_connection uuid; v_cutover date; begin
   return new;
 end $$;
 
--- Identity check for the same card arriving twice (see header). Returns the
--- display name of the feed that already covers it, or null when the mapping is
--- a different account.
+-- Identity check for the same card arriving twice (see header). Returns null
+-- when the account is demonstrably a different one -- same institution and
+-- type but a DIFFERENT known mask -- and otherwise
+-- {feed, ambiguous} naming the feed that already covers this QuickBooks
+-- account: ambiguous false when the mask matches (the same card), true when
+-- either mask is unknown and the two cannot be told apart. A mask SILO does
+-- not hold is never read as evidence of a second card.
+drop function if exists public.plaid_duplicate_card_feed(uuid,uuid,text);
 create or replace function public.plaid_duplicate_card_feed(p_account_id uuid,p_qbo_connection_id uuid,p_qbo_account_id text)
-returns text language sql stable security definer set search_path='public','pg_temp' as $$
-  select s.display_name from public.plaid_accounts self
+returns jsonb language sql stable security definer set search_path='public','pg_temp' as $$
+  select jsonb_build_object('feed',s.display_name,
+    'ambiguous',self.mask is null or other.mask is null)
+  from public.plaid_accounts self
     join public.plaid_connections self_conn on self_conn.id=self.connection_id
     join public.plaid_accounts other on other.company_entity_id=self.company_entity_id
       and other.id<>self.id and other.source_id is not null
-      and other.type=self.type and other.mask=self.mask
+      and other.type=self.type
+      and (self.mask is null or other.mask is null or other.mask=self.mask)
     join public.plaid_connections other_conn on other_conn.id=other.connection_id
       and other_conn.institution_name is not distinct from self_conn.institution_name
     join public.card_sources s on s.id=other.source_id and s.ingest_mode='plaid'
       and s.qbo_connection_id=p_qbo_connection_id and s.credit_qbo_account_id=p_qbo_account_id
-  where self.id=p_account_id and self.mask is not null
+  where self.id=p_account_id
+  -- A known duplicate first, so the message names the right reason when one
+  -- feed matches and another is merely unknown.
+  order by (self.mask is null or other.mask is null)
   limit 1;
 $$;
 revoke all on function public.plaid_duplicate_card_feed(uuid,uuid,text) from public,anon,authenticated;
@@ -92,7 +108,7 @@ create or replace function public.configure_plaid_account(
   p_account_id uuid,p_qbo_connection_id uuid,p_qbo_account_id text,p_authoritative_from date,p_source_id uuid default null
 ) returns jsonb language plpgsql security definer set search_path='public','pg_temp' as $$
 declare v_company uuid:=public.active_company_id(); v_account public.plaid_accounts%rowtype;
-  v_source public.card_sources%rowtype; v_qbo public.quickbooks_accounts%rowtype; v_source_id uuid; v_duplicate text;
+  v_source public.card_sources%rowtype; v_qbo public.quickbooks_accounts%rowtype; v_source_id uuid; v_duplicate jsonb;
 begin
   if auth.uid() is null or v_company is null or not (public.can_manage_journal_entries() or public.is_exec_or_owner()) then raise exception 'Finance access required'; end if;
   select * into v_account from public.plaid_accounts where id=p_account_id and company_entity_id=v_company for update;
@@ -125,10 +141,14 @@ begin
     end if;
     raise exception 'A mapped feed cannot be rebound or change its cutover';
   end if;
-  -- Another card may share this QuickBooks account; the same card may not.
+  -- Another card may share this QuickBooks account; the same card may not,
+  -- and nor may one SILO cannot tell apart from a feed already there.
   v_duplicate:=public.plaid_duplicate_card_feed(p_account_id,p_qbo_connection_id,p_qbo_account_id);
   if v_duplicate is not null then
-    raise exception 'That card already feeds this QuickBooks account as %',v_duplicate;
+    if (v_duplicate->>'ambiguous')::boolean then
+      raise exception 'Cannot tell this account apart from % on that QuickBooks account: no last four digits',v_duplicate->>'feed';
+    end if;
+    raise exception 'That card already feeds this QuickBooks account as %',v_duplicate->>'feed';
   end if;
   if p_source_id is not null then
     select * into v_source from public.card_sources where id=p_source_id and company_entity_id=v_company for update;
