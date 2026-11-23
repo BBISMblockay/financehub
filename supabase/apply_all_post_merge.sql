@@ -19901,4 +19901,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261124001000: the customer lookup's per-customer history pass carries the
 -- predicate of the partial index it depends on, so the planner can use it.
 \i migrations/20261124001000_customer_profile_index_predicate.sql
+-- 20261124010000: the past-customer badge also matches the name in a creator's
+-- HANDLE against customer names ("@emily_durrance"), since a discovered
+-- creator's profile name is usually a channel name. Function-only.
+\i migrations/20261124010000_affiliate_handle_name_match.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

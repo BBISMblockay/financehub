@@ -9427,26 +9427,49 @@ select 'Affiliate past-customer badge' as check_name,
     when (select pg_get_indexdef(c.oid) from pg_class c where c.relname = 'shopify_orders_co_customer_key_idx')
            not like '%COALESCE(NULLIF(lower(btrim(customer_email))%cid:%customer_id%'
       then 'CRITICAL — the orders index no longer carries the refresh''s customer-key expression'
-    when pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure)
+    when pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'))
            not like '%cid:%customer_id%'
       then 'CRITICAL — the refresh no longer uses the indexed customer key'
     -- Measured on production 2026-11-23: as one aggregate over the company's
     -- orders this plans a seq scan (727,177 rows, 7.32s cold) against the 8s
     -- timeout every caller shares. The per-customer LATERAL is what keeps the
     -- cost proportional to the window instead of the whole history.
-    when pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure)
+    when pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'))
            not like '%cross join lateral%'
       then 'CRITICAL — the refresh aggregates the whole order history again instead of one pass per customer'
     -- A matching key expression is not enough: PostgreSQL only uses a PARTIAL
     -- index where it can prove the query is inside the predicate, so the
     -- per-customer pass has to carry it too (20261124001000).
     when (select count(*) from regexp_matches(
-            pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure),
+            pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)')),
             'customer_email is not null or o?\.?customer_id is not null', 'g')) < 2
       then 'CRITICAL — the per-customer history pass dropped the index predicate and can scan the orders table'
-    when pg_get_functiondef('public.affiliate_match_prospect_customers(uuid,integer,interval)'::regprocedure)
+    when pg_get_functiondef(to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)'))
            not like '%c.company_entity_id = v_company%'
       then 'CRITICAL — the prospect matcher can read another company''s customers'
+    -- 20261124010000: the name in the handle is matched too, because a
+    -- discovered creator's profile name is usually a channel name
+    -- ("Emily | Baseball Mama") while the matchable name is in the handle.
+    -- Nothing below CALLS the helper, and every function here is looked up
+    -- through to_regprocedure(), which returns null for a function that is not
+    -- there. Both matter for the same reason: a call in a CASE arm is resolved
+    -- when the statement is parsed, and a '...'::regprocedure cast is IMMUTABLE
+    -- so the planner folds it before any arm runs -- either one would make this
+    -- whole file error out on a database that has not had the migration applied
+    -- yet, which is the very state it is run to report. The helper's behaviour
+    -- is pinned on real PostgreSQL instead, in
+    -- scripts/tests/affiliate-past-customer-database.test.mjs (H1, G2).
+    when to_regprocedure('public.silo_handle_name_key(text)') is null
+      then 'MISSING — run 20261124010000_affiliate_handle_name_match.sql'
+    when has_function_privilege('anon', 'public.silo_handle_name_key(text)', 'execute')
+      or has_function_privilege('authenticated', 'public.silo_handle_name_key(text)', 'execute')
+      then 'CRITICAL — a browser role can run the handle-name helper'
+    when pg_get_functiondef(to_regprocedure('public.silo_handle_name_key(text)')) not like '%silo_name_key%'
+      or pg_get_functiondef(to_regprocedure('public.silo_handle_name_key(text)')) not like '%^.*/%'
+      then 'CRITICAL — the handle-name helper no longer normalizes a handle into a name'
+    when pg_get_functiondef(to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)'))
+           not like '%silo_handle_name_key%'
+      then 'CRITICAL — the matcher reads the profile name only, so a creator named by their channel is never matched'
     else 'ok'
   end as status;
 

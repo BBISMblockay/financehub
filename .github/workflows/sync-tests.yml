@@ -2840,7 +2840,7 @@ jobs:
       - name: The past-customer badge guards, removed, must break it
         run: |
           set -u
-          for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan; do
+          for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan handle handleshare handlebrand handlefirst; do
             if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1

@@ -4007,6 +4007,17 @@ import). Both fail soft and neither needs a deploy to be correct — but the dis
 copies of that lib, so **deploy affiliate-discovery-run and affiliate-research** for the badge to appear right after a
 search rather than on the next nightly run.
 
+`20261124010000_affiliate_handle_name_match.sql` (follow-up) also matches the name in the creator's HANDLE. A
+discovered creator is usually named by their channel — Blake's own example is a prospect called
+"Emily | Baseball Mama" whose matching customer name, "emily durrance", exists only in `@emily_durrance` — so the new
+IMMUTABLE `silo_handle_name_key(handle)` strips a URL prefix, separators and digits out of a handle, the result has to
+pass the same `silo_looks_like_person_name` test the profile name faces, and it is matched against
+`company_customer_profiles.name_lc` through the index already there. 0.75 when the profile name carries one of those
+words too, 0.65 for the handle alone, with the same namesake discount, recency weakening and short-history cap. It
+runs only when the email and profile-name passes found nothing, so it can never weaken a stronger match, and it does
+override a `not_matchable` profile name, because a person's name in the handle is evidence about a person whatever the
+channel is called. Function-only: no table, column, policy or index change, and no deploy.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

@@ -15,6 +15,11 @@
 //   D  one company's customers never match another company's prospects
 //   E  neither function is callable by a browser role, and a human
 //      'confirmed' is never overwritten
+//   H  the name in the HANDLE is matched too (20261124010000), because a
+//      discovered creator's profile name is usually a channel name: the
+//      handle's name has to read as a person's, it scores in the
+//      supporting-signal band, it never runs where a stronger match landed,
+//      and it does override a "brand or channel name" verdict
 //   F  Blake's own hand pass of 2026-11-23 reproduces: the exact-name creator
 //      is flagged, the two surname-only ones are not, the channel names
 //      cannot match
@@ -37,6 +42,10 @@
 //   PASTCUST_MUTATION=clientwrite a browser role keeps Supabase's default write of the lookup
 //   PASTCUST_MUTATION=wholescan   the refresh aggregates the whole order history again
 //   PASTCUST_MUTATION=nopred      the per-customer history pass drops the partial index's predicate
+//   PASTCUST_MUTATION=handle      the matcher ignores the name in the handle
+//   PASTCUST_MUTATION=handleshare the handle match loses its supporting signal
+//   PASTCUST_MUTATION=handlebrand a brand-shaped handle is matched like a person's name
+//   PASTCUST_MUTATION=handlefirst the handle pass runs even where a stronger match landed
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -103,6 +112,8 @@ let sql = await readFile(new URL('../../supabase/migrations/20261123210000_affil
 // ...and the fix that followed its review: the per-customer history pass
 // carries the predicate of the partial index it is driven by (20261124001000).
 sql += '\n' + await readFile(new URL('../../supabase/migrations/20261124001000_customer_profile_index_predicate.sql', import.meta.url), 'utf8');
+// ...and the follow-up that matches the name in the HANDLE too (20261124010000).
+sql += '\n' + await readFile(new URL('../../supabase/migrations/20261124010000_affiliate_handle_name_match.sql', import.meta.url), 'utf8');
 function mutate(from, to) {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);
@@ -119,9 +130,14 @@ switch (MUT) {
   case 'namesake': mutate('            v_score := 0.40;', '            v_score := 0.50;'); mutate('            v_score := 0.30;', '            v_score := 0.50;'); break;
   case 'stale': mutate('      v_score := round(v_score * 0.8, 3);', '      v_score := round(v_score * 1.0, 3);'); break;
   case 'shorthist': mutate('      if v_score > 0.60 then v_score := 0.60; end if;', 'null;'); break;
-  case 'crossco': mutate('       where c.company_entity_id = v_company and c.name_lc = v_name\n           order by c.last_order_at desc nulls last limit 1;', '       where c.name_lc = v_name\n           order by c.last_order_at desc nulls last limit 1;'); break;
+  case 'crossco': mutate('       where c.company_entity_id = v_company and c.name_lc = v_name\n           order by c.last_order_at desc nulls last limit 1;', '       where c.name_lc = v_name\n           order by c.last_order_at desc nulls last limit 1;');
+    // ...and the handle pass, which reads the same table (20261124010000).
+    mutate('           where c.company_entity_id = v_company and c.name_lc = v_handle_name\n           order by c.last_order_at desc nulls last limit 1;', '           where c.name_lc = v_handle_name\n           order by c.last_order_at desc nulls last limit 1;'); break;
   case 'confirmed': mutate("       and p.customer_match_status <> 'confirmed'", '       and true'); break;
-  case 'cancelled': mutate('         where o.company_entity_id = p_company\n           and o.cancelled_at is null', '         where o.company_entity_id = p_company\n           and true'); break;
+  // Every copy: 20261124001000 replaces the whole refresh, so an anchor that
+  // only matches 20261123210000's text mutates a function that is then
+  // overwritten -- a mutation that changes nothing reads as an untested guard.
+  case 'cancelled': mutate('and o.cancelled_at is null', 'and true'); break;
   // The LATERAL totals that customer's WHOLE history; this confines it to the
   // refresh window, which is what would make a narrow window store a wrong
   // lifetime figure.
@@ -140,6 +156,12 @@ switch (MUT) {
   // predicate; without it each customer's history pass can scan the company's
   // orders, against the 8s timeout every caller shares.
   case 'nopred': mutate("           and (o.customer_email is not null or o.customer_id is not null)\n           and o.cancelled_at is null", '           and o.cancelled_at is null'); break;
+  // 20261124010000: a creator named by their channel is matched on the name in
+  // their handle, which is Blake's own worked example.
+  case 'handle': mutate('      v_handle_name := public.silo_handle_name_key(r.handle);', '      v_handle_name := null;'); break;
+  case 'handleshare': mutate('          v_shared := v_name is not null and exists (', '          v_shared := false and exists ('); break;
+  case 'handlebrand': mutate('         and public.silo_looks_like_person_name(v_handle_name) then', '         and true then'); break;
+  case 'handlefirst': mutate('    if v_score is null then\n      v_handle_name := public.silo_handle_name_key(r.handle);', '    if true then\n      v_handle_name := public.silo_handle_name_key(r.handle);'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
 
@@ -184,8 +206,15 @@ for (const [i, e] of ['s1', 's2', 's3', 's4'].entries()) {
 await order(CO_A, { id: 'a-stale', email: 'old.friend@example.com', name: 'Riley Nakamura', price: 90, at: ago(900) });
 // A customer with a store id and no email at all.
 await order(CO_A, { id: 'a-noemail', email: null, cid: 'cust-900', name: 'Jordan Vega', price: 55, at: ago(45) });
+// For the handle pass (20261124010000): a customer nobody's PROFILE name
+// matches, so only the handle can find them.
+await order(CO_A, { id: 'a-handle', email: 'taylor.b@example.com', name: 'Taylor Brooks', price: 210, at: ago(70) });
+// A wholesale customer whose name IS trade vocabulary, so a handle that
+// reduces to it must still be refused.
+await order(CO_A, { id: 'a-trade', email: 'buyer@dugout.example', name: 'Dugout Threads', price: 800, at: ago(90) });
 // Company B: the same person's name, so a leak would show.
 await order(CO_B, { id: 'b-1', email: 'emily.other@example.com', name: 'Emily Durrance', price: 500, at: ago(30) });
+await order(CO_B, { id: 'b-2', email: 'pat.q@example.com', name: 'Pat Quinn', price: 65, at: ago(50) });
 
 const prospect = async (co, prog, row) => (await one(
   `insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status)
@@ -204,6 +233,20 @@ P.common = await prospect(CO_A, PROG_A, { name: 'Sam Smith', handle: '@diamond_d
 P.stale = await prospect(CO_A, PROG_A, { name: 'Riley Nakamura', handle: '@fieldnotes' });
 P.nocustomer = await prospect(CO_A, PROG_A, { name: 'Alex Fontaine', handle: '@afontaine' });
 P.crossco = await prospect(CO_A, PROG_A, { name: 'Emily Durrance', handle: '@someoneelse', status: 'approved' });
+// The handle pass (20261124010000). Blake's own row: the profile name is the
+// channel, the matchable name is only in the handle.
+P.handleOnly = await prospect(CO_A, PROG_A, { name: 'Emily | Baseball Mama', handle: '@emily_durrance', status: 'approved' });
+// Nothing in the profile name agrees, and the handle is a URL with digits.
+P.handleAlone = await prospect(CO_A, PROG_A, { name: 'Clubhouse Chatter', handle: 'instagram.com/taylor.brooks22' });
+// A handle that reduces to trade vocabulary, matching a real customer of that
+// name: it must still not flag a person.
+P.handleTrade = await prospect(CO_A, PROG_A, { name: 'Field Notes Daily', handle: '@dugout_threads' });
+// A profile name that matches on its own: the handle pass must not touch it.
+P.handleAfterName = await prospect(CO_A, PROG_A, { name: 'Emily Durrance', handle: '@sam_smith' });
+// A channel name ("can't match") whose handle carries a real person's name.
+P.handleOverride = await prospect(CO_A, PROG_A, { name: 'Diamond Dreams TV', handle: '@jordan_vega' });
+// Only COMPANY B has this customer.
+P.handleCrossco = await prospect(CO_A, PROG_A, { name: 'Who Knows Really', handle: '@pat_quinn' });
 
 const refreshAll = true;   // every company's lookup is built, so a leak has something to leak
 const refresh = (co, since, until = null) =>
@@ -385,6 +428,66 @@ await check('E5 a re-run changes no answer (idempotent)', async () => {
   assert.deepEqual(after, before);
 });
 
+// ── H. the name in the handle (20261124010000) ──────────────────────────────
+await check('H1 the handle name key strips a URL, separators and digits, keeps names', async () => {
+  const r = await one(`select
+    public.silo_handle_name_key('@emily_durrance') as a,
+    public.silo_handle_name_key('instagram.com/taylor.brooks22') as b,
+    public.silo_handle_name_key('@o''connor-smith') as c,
+    public.silo_handle_name_key('@emilydurrance') as d,
+    public.silo_looks_like_person_name(public.silo_handle_name_key('@emilydurrance')) as d_person,
+    public.silo_looks_like_person_name(public.silo_handle_name_key('@shop_official')) as e_person`);
+  assert.equal(r.a, 'emily durrance');
+  assert.equal(r.b, 'taylor brooks', 'a URL prefix and trailing digits are not part of the name');
+  assert.equal(r.c, "o'connor-smith", 'apostrophes and hyphens belong to names');
+  assert.equal(r.d, 'emilydurrance');
+  assert.equal(r.d_person, false, 'one token is not a person name, so a run-together handle is not guessed apart');
+  assert.equal(r.e_person, false, 'trade vocabulary in a handle is not a person');
+});
+
+await check('H2 Blake\'s row: the channel in the name, the person in the handle, badged', async () => {
+  const x = await pro(P.handleOnly);
+  assert.equal(x.customer_match_status, 'likely', 'this is the row that shipped unbadged');
+  assert.equal(Number(x.customer_match_score), 0.75, "Blake's name-plus-a-supporting-signal band");
+  assert.match(x.customer_match_basis, /handle/);
+  assert.equal(x.customer_order_count, 2, 'the hover carries her real history');
+  assert.equal(Number(x.customer_lifetime_spend), 321);
+});
+
+await check('H3 the handle alone, with nothing in the profile name agreeing: 0.65, possible', async () => {
+  const x = await pro(P.handleAlone);
+  assert.equal(Number(x.customer_match_score), 0.65, 'one field agreeing is weaker than two');
+  assert.equal(x.customer_match_status, 'possible', 'below likely, so it reads as worth a check');
+  assert.equal(Number(x.customer_lifetime_spend), 210, 'the customer the handle found, not another');
+});
+
+await check('H4 a handle that reads as a trade name never matches a customer of that name', async () => {
+  const x = await pro(P.handleTrade);
+  assert.equal(x.customer_match_score, null);
+  assert.ok(['none', 'not_matchable'].includes(x.customer_match_status),
+    `no person was claimed (${x.customer_match_status})`);
+});
+
+await check('H5 the handle pass never weakens a match the profile name already made', async () => {
+  const x = await pro(P.handleAfterName);
+  assert.equal(Number(x.customer_match_score), 0.5, 'the exact-name score stands');
+  assert.match(x.customer_match_basis, /exact name/);
+  assert.equal(x.customer_match_key, 'emily.d@example.com', 'and it is still her customer row');
+});
+
+await check('H6 a person\'s name in the handle outranks a "brand or channel name" verdict', async () => {
+  const x = await pro(P.handleOverride);
+  assert.equal(x.customer_match_status, 'possible', 'the channel is called what it likes; the person bought');
+  assert.equal(Number(x.customer_match_score), 0.65);
+  assert.equal(x.customer_match_key, 'cid:cust-900', 'the customer with no email, found by name');
+});
+
+await check('H7 a handle never reaches another company\'s customers', async () => {
+  const x = await pro(P.handleCrossco);
+  assert.equal(x.customer_match_status, 'none', 'Pat Quinn is company B\'s customer');
+  assert.equal(x.customer_match_key, null);
+});
+
 // ── C2. a company whose own history is short ────────────────────────────────
 await check('C2 a short order history caps every score and says so', async () => {
   const CO_C = '55555555-5555-5555-5555-555555555555';
@@ -425,6 +528,31 @@ await check('G1 the production verify block says ok against this schema', async 
   const block = verify.slice(start, verify.indexOf('end as status;', start) + 'end as status;'.length);
   const r = await one(block);
   assert.equal(r.status, 'ok', `verify said: ${r.status}`);
+});
+
+await check('G2 the verify block reports MISSING, not an error, before the migration is applied', async () => {
+  // The state the drift check reports on: the badge's own migrations applied,
+  // the handle follow-up not yet. A function named in a CASE arm -- as a call
+  // or as a '...'::regprocedure cast, which is IMMUTABLE and folded before any
+  // arm runs -- is resolved too early for the MISSING arm to answer, and the
+  // whole file errors out instead.
+  const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const start = verify.indexOf("select 'Affiliate past-customer badge' as check_name,");
+  const block = verify.slice(start, verify.indexOf('end as status;', start) + 'end as status;'.length);
+  await db.exec('drop function public.silo_handle_name_key(text)');
+  try {
+    const r = await one(block);
+    assert.match(r.status, /^MISSING/, `it must say what to run, got: ${r.status}`);
+  } finally {
+    const mig = await readFile(new URL('../../supabase/migrations/20261124010000_affiliate_handle_name_match.sql', import.meta.url), 'utf8');
+    const from = mig.indexOf('create or replace function public.silo_handle_name_key');
+    // ...with its revokes, which Supabase's default privileges undo otherwise.
+    const end = mig.indexOf('grant execute on function public.silo_handle_name_key(text) to service_role;');
+    await db.exec(mig.slice(from, end + 'grant execute on function public.silo_handle_name_key(text) to service_role;'.length));
+  }
+  // ...and with it back, the block is ok again.
+  const r = await one(block);
+  assert.equal(r.status, 'ok');
 });
 
 console.log(`ok ${checks.length} checks:\n- ${checks.join('\n- ')}`);
