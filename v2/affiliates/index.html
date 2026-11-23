@@ -220,21 +220,28 @@
       gap: 8px; margin-bottom: 14px; padding: 6px;
       border-radius: 12px; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
     }
+    /* Two kinds of control, one look each (Blake 2026-11-20: "they all need
+       to flow and look similar"). Moving between lists is always the underline
+       bar `.af-subtabs`, the same one People uses. Narrowing the list you are
+       already on is always this pill -- never the accent colour, which on a
+       filter read as a third style competing with the tabs above it. */
     .af-studio .af-filter-chip {
       border-radius: 999px;
-      padding: 8px 14px;
+      padding: 6px 14px;
+      font-size: 13px;
       font-weight: 600;
-      border: 1px solid var(--bcn-border-strong);
+      color: var(--bcn-ink-2);
+      border: 1px solid var(--bcn-border);
       background: var(--bcn-surface);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+      box-shadow: none;
     }
     .af-studio .af-filter-chip:hover { background: var(--bcn-sunken); }
     .af-studio .af-filter-chip--on,
     .af-studio .af-filter-chip.bcn-btn--primary {
-      background: var(--bcn-accent);
-      color: #fff;
-      border-color: var(--bcn-accent);
-      box-shadow: 0 2px 10px color-mix(in srgb, var(--bcn-accent) 24%, transparent);
+      background: var(--bcn-ink);
+      color: var(--bcn-surface);
+      border-color: var(--bcn-ink);
+      box-shadow: none;
     }
     .af-studio .af-filter-chip.bcn-btn--primary .af-mono { color: inherit; opacity: .92; }
     /* No invisible controls: ghost reads as surfaced inside Studio panels. */
@@ -346,7 +353,6 @@
        filter rows, smaller card buttons on one line, tighter tiles. */
     .af-studio .af-filter-bar { padding: 0; background: none; border: 0; gap: 6px; margin-bottom: 12px; }
     .af-studio .af-filter-chip { padding: 5px 12px; font-size: 12.5px; box-shadow: none; }
-    .af-studio .af-filter-chip--on, .af-studio .af-filter-chip.bcn-btn--primary { box-shadow: none; }
     .af-studio .af-catalog-foot .bcn-btn, .af-studio .af-item-foot .bcn-btn { min-height: 28px; padding: 3px 9px; font-size: 12px; box-shadow: none; }
     .af-studio .af-catalog-foot .bcn-btn--danger { border-color: transparent; background: transparent; }
     .af-studio .af-catalog-foot .af-actions { gap: 4px; padding: 0; background: none; }
@@ -423,6 +429,15 @@
     .af-rec-chip { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); border-radius: 99px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
     .af-rec-chip.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
     .af-rec-list { display: flex; flex-direction: column; gap: 12px; }
+    /* The store picker on Share narrows what you are looking at, so it is the
+       same pill as every other filter (Blake 2026-11-20). */
+    .af-studio .af-share-store .af-chip-tog {
+      border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2);
+    }
+    .af-studio .af-share-store .af-chip-tog.is-on {
+      background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface);
+    }
     .af-rec-capped [role="list"] > :nth-child(n+13) { display: none; }
 
     /* ── Money: the flow from the store to PayPal (Blake 2026-11-17) ───── */
@@ -747,6 +762,12 @@
     /* Content: a gallery row is a row, not a poster. */
     .af-ctile-media { width: 72px; height: 54px; }
     .af-content-media { max-height: 110px; }
+    /* Whatever the markup around it, a post's photo or video is bounded by its
+       row. An affiliate uploads at any size, and one that sizes itself tears
+       the row open (Blake 2026-11-20). */
+    .af-studio .af-ctile img, .af-studio .af-ctile video {
+      max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: cover;
+    }
     @media (max-width: 640px) { .af-ctile-media { width: 60px; height: 45px; } }
     /* Dashboard: the four figures and the chart fit above the fold. */
     .af-ov { gap: 10px; }
@@ -782,8 +803,10 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Dashboard</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
+      <!-- People first: it is where the work starts, so it is what opens
+           (Blake 2026-11-20). The program's numbers sit one along. -->
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="people" id="tab-people">People</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="overview" id="tab-overview">Program</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="comms" id="tab-comms">Outreach</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Money</button>
