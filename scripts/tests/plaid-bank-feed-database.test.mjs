@@ -37,7 +37,7 @@ const co = randomUUID(), otherCo = randomUUID();
 const finance = randomUUID(), outsider = randomUUID(), otherFinance = randomUUID();
 const conn = randomUUID(), otherConn = randomUUID();
 const mutation = process.env.PLAID_DB_MUTATION || '';
-assert.ok(['', 'csv-authority', 'one-feed-per-account', 'unknown-mask-is-a-new-card'].includes(mutation), 'Unknown Plaid database mutation');
+assert.ok(['', 'csv-authority', 'one-feed-per-account', 'unknown-mask-is-a-new-card', 'label-is-an-institution'].includes(mutation), 'Unknown Plaid database mutation');
 let passed = 0;
 
 async function asRole(role, user, fn) {
@@ -74,10 +74,11 @@ function providerTransaction(account, overrides = {}) {
     merchant_name: 'Synthetic merchant', amount: 35, iso_currency_code: 'USD',
     pending: false, pending_transaction_id: null, ...overrides };
 }
-async function bankAccount({ company = co, actor = finance, type = 'depository', mapped = true, mask = '1234' } = {}) {
+async function bankAccount({ company = co, actor = finance, type = 'depository', mapped = true, mask = '1234',
+  institution = 'Synthetic bank' } = {}) {
   const providerId = `account-${randomUUID()}`, itemId = `item-${randomUUID()}`;
   const result = await asService(() => rpc('plaid_register_connection', [company, itemId,
-    'sandbox', 'Synthetic bank', { v: 1, iv: 'synthetic-iv', ciphertext: 'synthetic-ciphertext' },
+    'sandbox', institution, { v: 1, iv: 'synthetic-iv', ciphertext: 'synthetic-ciphertext' },
     [providerAccount(providerId, type, mask)], actor]));
   const account = await first('select * from plaid_accounts where connection_id=$1 and provider_account_id=$2',
     [result.connection_id, providerId]);
@@ -219,6 +220,17 @@ try {
     assert.ok(storedHashCheck);
     assert.equal(await scalar(storedHashCheck.text), 'ok', 'The existing approval verifier must remain compatible');
   });
+  if (mutation === 'label-is-an-institution') {
+    // Deliberately read two display labels as two institutions. The
+    // differing-label assertions must fail.
+    const definition = await scalar("select pg_get_functiondef('public.plaid_duplicate_card_feed(uuid,uuid,text)'::regprocedure)");
+    const join = '    join public.card_sources s on s.id=other.source_id';
+    assert.ok(definition.includes(join), 'Mutation must replace the live identity check');
+    await db.exec(definition.replace(join, `    join public.plaid_connections self_conn on self_conn.id=self.connection_id
+    join public.plaid_connections other_conn on other_conn.id=other.connection_id
+      and other_conn.institution_name is not distinct from self_conn.institution_name
+${join}`));
+  }
   if (mutation === 'unknown-mask-is-a-new-card') {
     // Deliberately read a missing mask as proof of a different card. The
     // indistinguishable-feed assertions must fail.
@@ -329,6 +341,35 @@ try {
       // cannot even claim a sync.
       await assert.rejects(asService(() => rpc('plaid_claim_sync', [second.id, randomUUID()])), /configure|before syncing/i);
     }
+  });
+
+  await test('two differing institution labels are not two institutions', async () => {
+    // institution_name is a display label: the browser passes through whatever
+    // Plaid Link gave it, and plaid-finance stores 'Bank connection' when Link
+    // gave none, so the same bank can sit under two labels. Reading two labels
+    // as two banks would fail open on exactly the relink this guard is for.
+    for (const [existingLabel, incomingLabel, existingMask, incomingMask, refusal] of [
+      ['Bank connection', 'Synthetic bank', null, '2008', /cannot tell this account apart/i],
+      ['Synthetic bank', 'Bank connection', '4036', null, /cannot tell this account apart/i],
+      ['Bank connection', 'Synthetic bank', '4036', '4036', /already feeds this quickbooks account/i],
+    ]) {
+      const mapped = await bankAccount({ type: 'credit', mapped: false, mask: existingMask, institution: existingLabel });
+      const second = await bankAccount({ type: 'credit', mapped: false, mask: incomingMask, institution: incomingLabel });
+      const qboId = `card-${randomUUID()}`;
+      await mapAccount(mapped, { qboId, cutover: '2026-08-01' });
+      await assert.rejects(mapAccount(second, { qboId, cutover: '2026-08-01' }), refusal,
+        `${existingLabel}/${existingMask} then ${incomingLabel}/${incomingMask}`);
+      assert.equal((await load('plaid_accounts', second.id)).source_id, null);
+      assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [qboId]), 1);
+      await assert.rejects(asService(() => rpc('plaid_claim_sync', [second.id, randomUUID()])), /configure|before syncing/i);
+    }
+    // Two known, different masks are still two cards, whatever the labels say.
+    const one = await bankAccount({ type: 'credit', mapped: false, mask: '4036', institution: 'Bank connection' });
+    const two = await bankAccount({ type: 'credit', mapped: false, mask: '2008', institution: 'Synthetic bank' });
+    const shared = `card-${randomUUID()}`;
+    await mapAccount(one, { qboId: shared, cutover: '2026-08-01' });
+    await mapAccount(two, { qboId: shared, cutover: '2026-08-01' });
+    assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [shared]), 2);
   });
 
   await test('registration validates the initiating company and cannot reassign an existing Plaid item', async () => {

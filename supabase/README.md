@@ -4012,9 +4012,11 @@ account, so the earliest feed still governs what CSV may cover, and dedupe stays
 per Plaid account. The same card arriving twice (a relink: same institution,
 type and mask) is still refused, now by `configure_plaid_account` through the
 service-only `plaid_duplicate_card_feed()` — the `card_sources` trigger fires
-before `plaid_accounts.source_id` is set, so it cannot judge card identity. A
-mask SILO does not hold is NOT read as a different card (Plaid may send none,
-and `plaid_apply_sync` writes what it sends over a mask already held): with a
-feed already on that QuickBooks account and either mask unknown, the second
-mapping is refused as indistinguishable. No
+before `plaid_accounts.source_id` is set, so it cannot judge card identity. Only
+one thing counts as proof of a second account -- both masks known and
+different. An unknown mask on either side is refused as indistinguishable
+(Plaid may send none, and `plaid_apply_sync` writes what it sends over a mask
+already held), and the institution LABEL is not consulted at all, because
+`plaid-finance` stores `Bank connection` when Link sends none, so one bank can
+sit under two labels. No
 backfill, no edge deploy; the browser calls the RPC directly.
