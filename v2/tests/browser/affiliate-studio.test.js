@@ -2461,11 +2461,19 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     ctSt.on('pageerror', (e) => errors.push(e.message));
     await closeDialog(ctSt);
     await ctSt.click('#tabs [data-tab="share"]');
+    // With nothing new waiting, Share opens on what is shared; the posts are
+    // under "From affiliates".
+    await ctSt.waitForFunction(() => !!document.querySelector('#shareBody [data-act="share-tab"][data-k="content"]'), null, { timeout: 5000 });
+    await ctSt.click('#shareBody [data-act="share-tab"][data-k="content"]');
     await ctSt.waitForFunction(() => !!document.querySelector('#shareBody .af-ctile-media'), null, { timeout: 5000 });
     const chip = async (k) => { await ctSt.click(`#shareBody [data-act="content-filter"][data-f="${k}"]`); await ctSt.waitForFunction((f) => document.querySelector(`#shareBody [data-act="content-filter"][data-f="${f}"]`)?.classList.contains('af-filter-chip--on'), k, { timeout: 5000 }); };
     await chip('no');
+    // The bulk actions appear once something is ticked.
+    await ctSt.click('#shareBody [data-act="q-all"][data-q="content"]');
+    await ctSt.waitForFunction(() => !!document.querySelector('#shareBody [data-act="q-content-ok"], #shareBody [data-act="q-content-use"], #shareBody [data-act="q-content-no"]'), null, { timeout: 5000 });
     const noActs = await ctSt.evaluate(() => ['q-content-use', 'q-content-ok', 'q-content-no'].filter((a) => !!document.querySelector(`#shareBody [data-act="${a}"]`)));
     R.eq(noActs, ['q-content-ok'], 'on a list of turned-down posts the only bulk action is the one the server allows');
+    await ctSt.click('#shareBody [data-act="q-all"][data-q="content"]');
     await ctSt.click('#shareBody .af-ctile-media');
     await ctSt.waitForFunction(() => document.getElementById('afDialog')?.open && /Turned down/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
     const declinedActs = await ctSt.evaluate(() => ['approve', 'use', 'decline'].filter((k) => !!document.querySelector(`#afDialogBody [data-act="content-decide"][data-k="${k}"]`)));
