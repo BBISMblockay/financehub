@@ -220,9 +220,24 @@ function fakeService({ codes, seeds = [], ledger = [], sentEarnings = [], conns 
   };
 }
 const pending = (over = {}) => ({ id: CODE, created_at: '2026-11-17T00:00:00Z', company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', code: 'PAT10', starts_on: '2026-11-17', ends_on: null, discount_percent: 10, ...over });
-const staff = (gate = { data: CO, error: null }) => () => ({ rpc: async () => gate });
+// The caller's own client answers two questions now: which company they are
+// in, and whether they manage the program a code belongs to (20261121210000).
+// A stub that answered the company to everything made the program check read
+// as a refusal.
+const staff = (gate = { data: CO, error: null }, scope = true) => () => ({
+  rpc: async (name) => (name === 'can_manage_affiliate_program' ? { data: scope, error: null } : gate),
+});
 const post = (body, auth = 'Bearer staff.jwt') => new Request('https://fn.test', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: auth }, body: JSON.stringify(body) });
 const mk = (svc, shop, extra = {}) => createInviteHandler({ service: svc, userClientFor: staff(), siteUrl: 'https://app.test', resendKey: '', serviceKey: 'svc-key', fetchImpl: shop.fetchImpl, isServiceToken: async () => false, ...extra });
+
+await test('staff: a code of a program this manager was not given is refused', async () => {
+  const svc = fakeService({ codes: [pending()] }); const shop = fakeShopify();
+  const res = await createInviteHandler({ service: svc, userClientFor: staff({ data: CO, error: null }, false),
+    siteUrl: 'https://app.test', resendKey: '', serviceKey: 'svc-key', fetchImpl: shop.fetchImpl, isServiceToken: async () => false })(
+    post({ action: 'create_shopify_codes', code_ids: [CODE] }));
+  assert.equal(res.status, 403);
+  assert.equal(shop.calls.length, 0, 'and nothing is made in the store');
+});
 
 await test('staff: makes the waiting code in Shopify, then marks it live -- only if still waiting, in its own company', async () => {
   const svc = fakeService({ codes: [pending()] }); const shop = fakeShopify();

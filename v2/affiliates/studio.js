@@ -351,7 +351,6 @@ async function loadProgramData() {
     suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
     drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(500),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
-    affiliates: by('affiliates').order('created_at'),
     codes: by('affiliate_codes').order('starts_on', { ascending: false }),
     links: by('affiliate_links').order('starts_on', { ascending: false }),
     attributions: by('affiliate_attributions').order('order_day', { ascending: false }).limit(300),
@@ -382,7 +381,11 @@ async function loadProgramData() {
       .order('created_at', { ascending: false }).order('attempt', { ascending: false }).limit(200),
   };
   const keys = Object.keys(q);
-  const res = await Promise.all(Object.values(q));
+  // The creator list is read paged and NOT in that batch: a program with more
+  // creators than one PostgREST page returns would otherwise show only its
+  // first 1,000, and the share audience dialog saves over what it shows
+  // (review cycle 2 of #1350).
+  const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);
   const d = {}; const failed = [];
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
@@ -390,6 +393,17 @@ async function loadProgramData() {
     if (r.error && keys[i] === 'content') { d.content = null; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
+  // affFull says whether that list is the whole program. Null means a page
+  // errored or the list ran past the page cap; the page still works off one
+  // plain read, and affFull being false is what stops a save from treating
+  // the names it showed as the entire audience.
+  if (affRead) { d.affiliates = affRead; d.affFull = true; }
+  else {
+    const r = await db.from('affiliates').select('*').eq('company_entity_id', CO).eq('program_id', p.id).order('created_at');
+    d.affiliates = r.data || [];
+    d.affFull = false;
+    if (r.error) failed.push(`affiliates: ${r.error.message}`);
+  }
   d.ledgerCount = res[keys.indexOf('ledgerCount')].count ?? 0;
   const ids = d.payouts.map((x) => x.id);
   if (ids.length) {
@@ -397,6 +411,13 @@ async function loadProgramData() {
     const n = {}; items.forEach((i) => { n[i.payout_id] = (n[i.payout_id] || 0) + 1; });
     d.payouts.forEach((x) => { x.item_count = n[x.id] || 0; });
   }
+  // Who each share is for (20261121210000), read for exactly the shares on
+  // screen and paged, because one company-wide page would silently stop at
+  // its limit and a share whose rows fell off the end would read as being for
+  // everyone. NULL means could-not-read, which is NOT the same as nobody
+  // named: the page then shows what every share meant before the migration
+  // and does not offer to change it, rather than saving a guess over it.
+  d.audience = await loadAudience((d.feed || []).map((x) => x.id));
   d.affById = Object.fromEntries(d.affiliates.map((a) => [a.id, a]));
   // Files are private: a signed URL for each one on screen, for an hour.
   d.contentUrl = {};
@@ -482,6 +503,46 @@ async function loadStores() {
     if (error || !Array.isArray(data)) return null;
     return data.filter((x) => x.is_active !== false && /^[A-Za-z0-9.-]+$/.test(x.shop_domain || '')).map((x) => x.shop_domain.toLowerCase());
   } catch (_) { return null; }
+}
+
+// Everyone in one program, in pages. `created_at` alone is not a stable page
+// boundary, so `id` breaks the tie. Null means a page errored or the list runs
+// past the page cap -- see affFull in loadProgramData.
+async function loadAffiliates(p) {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliates').select('*')
+        .eq('company_entity_id', CO).eq('program_id', p.id)
+        .order('created_at', { ascending: true }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      if (error) return null;
+      return data || [];
+    } catch (_) { return null; }
+  });
+}
+
+// Who each share is for. Read for exactly the shares on screen, in pages, so
+// a company with more audience rows than one page holds cannot leave a
+// narrowed share looking like it is for everyone. pagedCollect returns null
+// for a read that errored or stopped short, and null is carried all the way
+// to the dialog: could-not-read must never be saved over as "nobody named"
+// (review of #1350).
+async function loadAudience(feedIds) {
+  const ids = (feedIds || []).filter(Boolean);
+  if (!ids.length) return [];
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_feed_audience')
+        .select('feed_item_id, affiliate_id')
+        .eq('company_entity_id', CO).in('feed_item_id', ids)
+        .order('feed_item_id', { ascending: true }).order('affiliate_id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      // Before 20261121210000 there is no table at all. That is not a failure
+      // to report: no share was narrowed, because none could be.
+      if (error) return error.code === '42P01' ? [] : null;
+      return data || [];
+    } catch (_) { return null; }
+  });
 }
 
 // ── Overview windows ─────────────────────────────────────────────────────
@@ -604,7 +665,19 @@ function personAvatar(person, size = 'lg') {
 function photoAvatar(person, photo) {
   return personAvatar(person, 'lg') + (photo ? `<img class="af-avatar-photo" src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '');
 }
-document.addEventListener('error', (ev) => { if (ev.target?.classList?.contains('af-avatar-photo')) ev.target.remove(); }, true);
+// A post is whatever the affiliate's phone produced. Chrome cannot decode most
+// .mov files, and a <video> that never loads keeps its 300x150 default, so the
+// tile used to hold an empty box of the wrong shape. Say what the file is
+// instead; the file itself still opens in a new tab (Blake 2026-11-21).
+document.addEventListener('error', (ev) => {
+  const t = ev.target;
+  if (t?.classList?.contains('af-avatar-photo')) { ev.target.remove(); return; }
+  if (!t?.classList?.contains('af-content-media')) return;
+  const box = t.closest('.af-ctile-media');
+  if (!box) return;
+  box.classList.add('af-ctile-media--none');
+  box.textContent = t.tagName === 'VIDEO' ? 'Video' : 'Photo';
+}, true);
 // Tiles or a list (table with the same photos). Remembered per viewer.
 // Lists by default: tiles take three times the height for the same rows
 // (Blake 2026-11-20, "tiles are way large"). The choice is still remembered.
@@ -844,8 +917,23 @@ function addCreatorsBody() {
 function affToolBody(a, k) {
   const d = S.d; const p = prog();
   if (k === 'program') {
+    // Which programs this person is ALREADY in. Read on demand, as far as this
+    // account may see: a manager given one program sees the one membership
+    // they were given, which is the isolation, not an omission
+    // (20261121230000). Null means it could not be read, and then the picker
+    // offers every program as it did before -- adding them to one they are in
+    // is answered with "Already in ..." rather than a second membership.
+    const inAlready = S.personProg && S.personProg.id === a.id ? S.personProg.rows : null;
+    const inIds = new Set((inAlready || []).map((x) => x.program_id));
+    const canAdd = otherPrograms().filter((x) => !inIds.has(x.id));
+    const alsoIn = (inAlready || []).filter((x) => x.program_id !== S.programId)
+      .map((x) => x.program_name).filter(Boolean);
+    if (inAlready && !canAdd.length) {
+      return `<p class="af-muted">${esc(a.display_name || 'They')} is already in every active program.</p>${dlgFoot(btn('Close', 'dialog-close'))}`;
+    }
     return `<input type="hidden" id="apAff" value="${esc(a.id)}" /><div class="af-grid--settings">
-      ${field('Program', `<select class="bcn-field" id="apProg">${otherPrograms().map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>`)}
+      ${alsoIn.length ? `<p class="af-muted af-span-full">Also in ${esc(alsoIn.join(', '))}. One person, one payout address: their PayPal is the same in every program.</p>` : ''}
+      ${field('Program', `<select class="bcn-field" id="apProg">${canAdd.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>`)}
       ${field('Their rate', seg('apKind', [['', "Program's rate"], ['percent_of_net', '% of order'], ['fixed_per_order', 'Fixed per order']], '', ''))}
       ${field('%', input('apPct', 'type="number" min="0" max="100" step="0.5" placeholder="10"'))}
       ${field('Per order', input('apFixed', 'type="number" min="0" step="0.01" placeholder="5.00"'))}
@@ -882,16 +970,42 @@ function dialogSpec() {
     const acts = prospectActions(mp).join('');
     return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
+  // Who a share is for. Nobody ticked means the whole program, which is what
+  // every share has meant until now, so the dialog opens on that honestly
+  // rather than pre-ticking everyone and calling it the same thing.
+  if (S.feedWho) {
+    const f = (d.feed || []).find((x) => x.id === S.feedWho);
+    if (f) {
+      // Saving replaces the whole audience, so it may only be offered over one
+      // we actually read. Null means we did not.
+      if (!Array.isArray(d.audience)) {
+        return { key: `whono:${f.id}`, title: `Who sees ${f.title}`,
+          body: `<p class="af-muted">Who this share is for could not be read, so it cannot be changed here. Everyone in the program sees it, which is what every share meant before this. Reload and try again.</p>
+            ${dlgFoot(btn('Close', 'dialog-close'))}` };
+      }
+      const picked = new Set(d.audience.filter((x) => x.feed_item_id === f.id).map((x) => x.affiliate_id));
+      const live = (d.affiliates || []).filter((x) => x.status !== 'ended');
+      const line = (x) => `<label class="af-item af-item--compact" style="display:flex;gap:10px;align-items:center;"><input type="checkbox" class="af-who" value="${esc(x.id)}"${picked.has(x.id) ? ' checked' : ''} /><span>${esc(x.display_name || x.contact_email || 'Creator')}</span></label>`;
+      return { key: `who:${f.id}:${[...picked].sort().join(',')}`, title: `Who sees ${f.title}`,
+        body: `<p class="af-muted">Tick nobody and it stays with everyone in this program, which is how it is shared now.</p>
+          ${d.affFull === false ? '<p class="af-muted">Not every creator in this program could be listed, so saving changes only the ones shown here.</p>' : ''}
+          ${live.length ? live.map(line).join('') : empty('No creators in this program yet.')}
+          ${dlgFoot(`${btn('Save', 'feed-who-save', { id: f.id }, 'primary')}${btn('Cancel', 'dialog-close')}`)}` };
+    }
+  }
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
     const k = S.affTool.k;
     const title = k === 'program' ? `Add ${a.display_name} to another program`
       : k === 'link' ? `Link for ${a.display_name}` : `Code for ${a.display_name}`;
-    return { key: `tool:${a.id}:${k}`, title, body: affToolBody(a, k) };
+    // The key moves when their other memberships arrive, or the dialog would
+    // keep the body it drew before the read came back.
+    const loaded = k === 'program' ? (S.personProg && S.personProg.id === a.id && S.personProg.rows ? `p${S.personProg.rows.length}` : 'p?') : '';
+    return { key: `tool:${a.id}:${k}:${loaded}`, title, body: affToolBody(a, k) };
   }
   return null;
 }
-function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; }
+function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1296,12 +1410,27 @@ async function autosaveProgram({ id, row }) {
 
 async function renderManagers() {
   const el = $('managersCard'); if (!el) return;
-  const { data } = await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO);
-  const rows = data || [];
+  // program_id arrives with 20261121210000; until it is applied the column is
+  // not there, so a failed read falls back to the grant list without it and
+  // every grant reads as "All programs", which is what it is.
+  let rows = [];
+  let scoped = true;
+  const full = await db.from('affiliate_program_managers').select('id, user_id, created_at, program_id').eq('company_entity_id', CO);
+  if (full.error) {
+    scoped = false;
+    rows = (await db.from('affiliate_program_managers').select('id, user_id, created_at').eq('company_entity_id', CO)).data || [];
+  } else { rows = full.data || []; }
   const name = (id) => { const u = S.profiles.find((x) => x.id === id); return esc(u?.name || u?.email || id); };
-  const mgrRow = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${name(r.user_id)}</div><div class="af-muted">Since ${fmtDate(r.created_at)}</div></div><div class="af-item-foot">${btn('Remove', 'remove-manager', { id: r.id }, 'surface', { confirm: true })}</div></article>`;
+  const progLabel = (id) => esc(S.programs.find((x) => x.id === id)?.name || 'one program');
+  // A grant that names no program is every program, which is what every grant
+  // made before 2026-11-21 is.
+  const covers = (r) => (r.program_id ? `${progLabel(r.program_id)} only` : 'All programs');
+  const mgrRow = (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${name(r.user_id)} ${pill(covers(r), r.program_id ? '' : 'accent')}</div><div class="af-muted">Since ${fmtDate(r.created_at)}</div></div><div class="af-item-foot">${btn('Remove', 'remove-manager', { id: r.id }, 'surface', { confirm: true })}</div></article>`;
   el.innerHTML = card('Who can run Affiliate Studio', `${itemList(rows, mgrRow, 'Only owners and executives so far.')}
-    <div class="af-row" style="margin-top:8px;">${field('Grant access to', `<select class="bcn-field" id="mgrUser"><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}</select>`)}${btn('Grant', 'add-manager', {}, 'primary')}</div>`);
+    <div class="af-row" style="margin-top:8px;">${field('Grant access to', `<select class="bcn-field" id="mgrUser"><option value="">—</option>${S.profiles.map((u) => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}</select>`)}${
+      scoped ? field('For', `<select class="bcn-field" id="mgrProgram"><option value="">All programs</option>${S.programs.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select>`) : ''
+    }${btn('Grant', 'add-manager', {}, 'primary')}</div>
+    <p class="af-muted">Someone granted one program sees and changes only that program. Granted all, they work across every one, which is how every grant before today was made.</p>`);
 }
 
 // The link name is made URL-safe as typed ("Testing-2" -> "testing-2"), so
@@ -1990,11 +2119,20 @@ async function renderShare() {
   // A product shared under a launch belongs to that launch's card, not to a
   // card of its own.
   const childCount = (f) => d.feed.filter((g) => g.parent_source_id && String(g.parent_source_id) === String(f.source_id)).length;
+  const inProgram = (d.affiliates || []).filter((a) => a.status !== 'ended');
   const sharedAll = d.feed.filter((f) => !f.parent_source_id);
   const KIND = { launch: 'Launch', product: 'Product', ad: 'Ad' };
+  // A share with nobody named is for the whole program, which is every share
+  // made before 2026-11-21. Naming anyone narrows it to those people.
+  // A null audience is could-not-read, not nobody-named: say what every share
+  // meant before this existed, and do not offer to change what we never read,
+  // because saving replaces the whole audience (review of #1350).
+  const audKnown = Array.isArray(d.audience);
+  const audOf = (id) => (audKnown ? d.audience.filter((x) => x.feed_item_id === id) : []);
+  const who = (f) => { const n = audOf(f.id).length; return n ? `${num(n)} of ${num(inProgram.length)}` : 'Everyone'; };
   const sharedRows = sharedAll.map((f) => shareRow(f.image_url, f.title,
-    `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''}`,
-    MANAGE ? btn('Stop sharing', 'feed-remove', { id: f.id }) : ''));
+    `${KIND[f.kind] || ''}${f.event_on ? ` · ${fmtDate(f.event_on)}` : ''}${f.kind === 'launch' && childCount(f) ? ` · ${childCount(f)} product(s) to push` : ''} · ${esc(who(f))}`,
+    MANAGE ? `${audKnown ? btn('Who sees it', 'feed-who', { id: f.id }, 'surface') : ''}${btn('Stop sharing', 'feed-remove', { id: f.id })}` : ''));
   // The store links open is picked from the program's connected Shopify
   // stores (Blake 2026-11-17), not typed. Typed only with no store connected.
   const pickable = (Array.isArray(d.stores) ? d.stores : []).filter((x) => !Array.isArray(p.shop_domains) || !p.shop_domains.length || p.shop_domains.includes(x));
@@ -2765,12 +2903,19 @@ const A = {
   },
   'add-manager': async () => {
     if (!val('mgrUser')) throw new Error('Pick a person.');
-    must(await db.from('affiliate_program_managers').insert({ company_entity_id: CO, user_id: val('mgrUser'), granted_by: me.id }));
-    return 'Access granted.';
+    // No program picked means every program, which is the only thing a grant
+    // could mean before 20261121210000. The field is absent until it is
+    // applied, and an absent field is the same answer.
+    const forProgram = $('mgrProgram') ? (val('mgrProgram') || null) : null;
+    const row = { company_entity_id: CO, user_id: val('mgrUser'), granted_by: me.id };
+    if (forProgram) row.program_id = forProgram;
+    const r = await db.from('affiliate_program_managers').insert(row);
+    // A grant they already hold is not a failure worth a Postgres message.
+    if (r.error && r.error.code === '23505') throw new Error('They already have that access.');
+    must(r);
+    return forProgram ? 'Access granted for that program.' : 'Access granted.';
   },
   'remove-manager': async ({ id }) => { const r = must(await db.from('affiliate_program_managers').delete().eq('id', id).eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Only an owner or executive can remove access.'); return 'Access removed.'; },
-  // A chip swap must not throw away what someone has typed: the editor and
-  // the template live in this body and are rebuilt from the saved row.
   // A chip swap must not throw away what someone has typed: the editor and
   // the template live in this body and are rebuilt from the saved row.
   'comms-tab': ({ k }) => {
@@ -3003,7 +3148,22 @@ const A = {
     await updateRows('affiliate_prospects', { status: 'suppressed', reviewed_by: me.id, reviewed_at: new Date().toISOString() }, { id });
     return 'Added to the do-not-contact list.';
   },
-  'aff-tool': ({ id, k }) => { S.affTool = { id, k }; render(); scrollWorkflowTo('affiliatesBody'); return null; },
+  'aff-tool': async ({ id, k }) => {
+    S.affTool = { id, k };
+    // Their other memberships, for the add-to-program dialog only. Fail-soft:
+    // null is "could not read", and the dialog then behaves as it did before.
+    if (k === 'program') {
+      S.personProg = { id, rows: null };
+      render();
+      try {
+        const { data, error } = await db.rpc('affiliate_person_programs', { p_affiliate: id });
+        S.personProg = { id, rows: error ? null : (data || []) };
+      } catch (_) { S.personProg = { id, rows: null }; }
+    }
+    render();
+    scrollWorkflowTo('affiliatesBody');
+    return null;
+  },
   'aff-tool-close': () => { S.affTool = null; render(); return null; },
   'dialog-close': () => { closeDialogState(); render(); return null; },
   // Joined once, added anywhere: no second signup, their own rate if set.
@@ -3253,6 +3413,27 @@ const A = {
     // by sharing it again.
     if (kind === 'launch') await shareLaunchProducts(String(src));
     return 'Shared. It shows in your affiliates\' portal now.';
+  },
+  'feed-who': ({ id }) => { S.feedWho = id; renderDialog(); return null; },
+  // Nobody ticked is not an empty audience, it is no audience: the share goes
+  // back to the whole program. So the rows are replaced, never merged.
+  // One call, one transaction, with the share locked. Emptying the audience
+  // and filling it again in two steps would leave the share open to the whole
+  // program in between -- and open for good if the second step never landed,
+  // because no audience rows means everyone (review of #1350).
+  'feed-who-save': async ({ id }) => {
+    // p_scope is literally the boxes the dialog drew. Anyone it never showed
+    // -- a creator past a truncated page, or one who has left the program and
+    // is still a named recipient -- keeps their row instead of being dropped
+    // by a list that did not include them (review cycle 2 of #1350).
+    const boxes = [...document.querySelectorAll('#afDialogBody .af-who')];
+    const want = boxes.filter((x) => x.checked).map((x) => x.value);
+    const r = await db.rpc('affiliate_feed_set_audience', { p_item: id, p_affiliates: want, p_scope: boxes.map((x) => x.value) });
+    if (r.error) throw r.error;
+    S.feedWho = null;
+    await reload();
+    const n = Number(r.data?.named ?? want.length);
+    return n ? `Shared with ${num(n)} creator(s).` : 'Shared with everyone in this program.';
   },
   'feed-remove': async ({ id }) => {
     const { data, error } = await db.from('affiliate_feed_items').delete().eq('id', id).select();
