@@ -357,8 +357,11 @@ switch (MUT) {
   case 'ppmirror': mutate('oneperson', "create trigger affiliate_payout_accounts_mirror\n  after insert or update of payout_email on public.affiliate_payout_accounts\n  for each row execute function public.affiliate_payout_account_mirror();", "select 1;"); break;
   case 'ppmirrorprovider': mutate('oneperson', "  if new.provider <> 'paypal' then\n    return null;\n  end if;", ''); break;
   case 'ppmirrorkey': mutate('oneperson', "     and public.affiliate_contact_key(a.contact_email) = v_key\n  on conflict", "     and true\n  on conflict"); break;
-  case 'emailfollow': mutate('oneperson', "  update public.affiliates a\n     set contact_email = new.contact_email\n   where a.company_entity_id = new.company_entity_id\n     and a.id <> new.id\n     and public.affiliate_contact_key(a.contact_email) = v_old;", ''); break;
-  case 'emailrevoke': mutate('oneperson', "  update public.affiliate_access_tokens t\n     set revoked_at = now()\n   where t.company_entity_id = new.company_entity_id\n     and t.mailed_to_hash = v_old\n     and t.purpose = 'portal'\n     and t.revoked_at is null;", ''); break;
+  // Both the original definition and the one 20261124000000 replaces it with,
+  // or the later file restores the guard the mutation removed and the mutant
+  // run passes -- which the sweep reads as an untested guard.
+  case 'emailfollow': mutateLive(['oneperson', 'reviewfixes'], "  update public.affiliates a\n     set contact_email = new.contact_email\n   where a.company_entity_id = new.company_entity_id\n     and a.id <> new.id\n     and public.affiliate_contact_key(a.contact_email) = v_old;", ''); break;
+  case 'emailrevoke': mutateLive(['oneperson', 'reviewfixes'], "  update public.affiliate_access_tokens t\n     set revoked_at = now()\n   where t.company_entity_id = new.company_entity_id\n     and t.mailed_to_hash = v_old\n     and t.purpose = 'portal'\n     and t.revoked_at is null;", ''); break;
   case 'audrpcscopenamed': mutate('scope', "  if v_scope is not null and exists (\n    select 1 from unnest(v_want) as w(id) where not (w.id = any (v_scope))) then\n    raise exception 'affiliate_feed_set_audience: a creator named was not among those offered' using errcode = '22023';\n  end if;", ''); break;
   case 'audpush': mutate('scope', "                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)", '                     ) end)'); break;
   case 'audprog': mutate('scope', "                        and a.program_id = f.program_id\n", ''); break;

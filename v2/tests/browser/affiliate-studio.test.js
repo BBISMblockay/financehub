@@ -16,6 +16,7 @@
  *
  * Mutations (each must fail at least one assertion):
  *   AFFILIATE_UI_MUTATION=endnoshopify ending an affiliate leaves their code working in Shopify
+ *   AFFILIATE_UI_MUTATION=endretry    a retry after a half-done ending never reaches Shopify
  *   AFFILIATE_UI_MUTATION=poststate   a post dialog offers decisions the server refuses for that state
  *   AFFILIATE_UI_MUTATION=postbulk    a list of turned-down posts is offered Pay
  *   AFFILIATE_UI_MUTATION=nullzero    an unknown money amount renders as $0.00
@@ -228,12 +229,16 @@ const MUTATIONS = {
   endcut: ['/affiliates/studio.js', "    for (const part of chunk(ids, 25)) results", "    for (const part of [ids.slice(0, 25)]) results"],
   endmissingok: ['/affiliates/studio.js', "  for (const id of ids) if (!answered.has(id)) results.push(", "  for (const id of []) if (!answered.has(id)) results.push("],
   exportall: ['/affiliates/studio.js', "!isDm(x) && (!only || only.includes(x.id))).slice(0, 200);", "!isDm(x)).slice(0, 200);"],
+  // The only way back to a file for messages already marked exported.
+  batchstuck: ['/affiliates/studio.js', "      const waiting = !b.fingerprint && d.drafts.some((x) => x.batch_id === b.id && x.state === 'exported');", '      const waiting = false;'],
   exportstale: ['/affiliates/studio.js', "    const m = done.length ? await A['outreach-export']({ only: done }) : 'Nothing was exported.';", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
   applystale: ['/affiliates/studio.js', "    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });", ''],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
   fixemailaff: ['/affiliates/studio.js', "      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;", ''],
   endnoshopify: ['/affiliates/studio.js', "    if (s === 'terminated') {", '    if (false) {'],
+  // A retry after a half-done ending must still reach Shopify.
+  endretry: ['/affiliates/studio.js', "      const owed = codes.filter((c) => !c.shopify_ended_at\n        && (c.status === 'active' || (c.status === 'retired' && (c.shopify_discount_id || c.source === 'manual'))));", "      const owed = live.filter((c) => c.status === 'active');"],
   untargeted: ['/affiliates/studio.js', "await invoke('affiliate-payouts', { action: 'refresh', payout_id: id });", "await invoke('affiliate-payouts', { action: 'refresh' });"],
   checkfirst: ['/affiliates/studio.js', '    .sort((x, y) => OPEN_RANK[x.state] - OPEN_RANK[y.state])\n', ''],
   checkotherenv: ['/affiliates/studio.js', "    .filter((sn) => (sn.environment === 'live' ? 'live' : 'sandbox') === connEnv)", '    .filter(() => true)'],
@@ -902,6 +907,27 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await en.waitForFunction(() => /turned off in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
       R.ok('and says so', true);
       await en.close();
+    }
+    // A second press after a half-done ending still turns the code off in
+    // Shopify: the codes were retired by the first attempt, so "nothing is
+    // live" must not be read as "nothing to do" (review of #1357).
+    {
+      const halfDone = { ...loopTables,
+        affiliate_codes: [{ ...loopTables.affiliate_codes.find((c) => c.id === 'c1'), status: 'retired', shopify_discount_id: 'gid://shopify/DiscountCodeNode/55', shopify_ended_at: null }] };
+      const rt = await suite.open('/v2/affiliates/index.html', halfDone,
+        { ready, rpc: { can_manage_affiliate_programs: true }, edge: { 'affiliate-invite': { status: 200, body: { results: [{ code_id: 'c1', code: 'PAT10', status: 'ended' }] } } } });
+      rt.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(rt);
+      await toAffiliates(rt);
+      await rt.waitForSelector('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]', { timeout: 5000 });
+      await rt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await rt.click('#affiliatesBody [data-act="affiliate-status"][data-s="terminated"]');
+      await rt.waitForFunction(() => (window.__EDGE_CALLS__ || []).some((c) => c.name === 'affiliate-invite'), null, { timeout: 5000 });
+      const again = await rt.evaluate(() => window.__EDGE_CALLS__.filter((c) => c.name === 'affiliate-invite').pop().body);
+      R.eq([again.action, again.code_ids], ['end_shopify_codes', ['c1']], 'a retry turns off the code the first attempt retired but never ended');
+      await rt.waitForFunction(() => /turned off in Shopify/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('and says so rather than reporting a clean ending', true);
+      await rt.close();
     }
     // 26 live codes: ended in batches of 25, and a code with no answer is said to be still on (review on #1331).
     {
@@ -2449,6 +2475,29 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ctNoMoney.click('#shareBody [data-act="q-all"][data-q="content"]');
     R.ok('without payout approval there is no Use (with bonus) button', !(await ctNoMoney.$('#shareBody [data-act="q-content-use"]')) && !!(await ctNoMoney.$('#shareBody [data-act="q-content-ok"]')));
     await ctNoMoney.close();
+    // An export the browser claimed but never delivered -- the tab closed
+    // between the claim and the download -- is finished from Records. Without
+    // it the messages sit marked exported with nobody holding the file, and
+    // the queue cannot reach them again (review of #1357).
+    const stuckTables = { ...ctTables,
+      affiliate_outreach_batches: [{ id: 'b9', company_entity_id: CO, program_id: PROG, channel: 'email', row_count: 0, fingerprint: null, exported_at: now, created_at: now }],
+      affiliate_outreach_drafts: [{ id: 'd9', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'exported', channel: 'email', recipient_email: 'stuck@creator.invalid', subject: 'Hi', body: 'Join: {signup_link}', batch_id: 'b9', exported_at: now, created_at: now }] };
+    const st = await suite.open('/v2/affiliates/index.html', stuckTables, { ready, rpc: ctRpc,
+      edge: { 'affiliate-invite': { status: 200, body: { signup_url: 'https://get-silo.invalid/join?t=again', expires_at: now } } } });
+    st.on('pageerror', (e) => errors.push(e.message));
+    await st.evaluate(() => { if (!crypto.subtle) Object.defineProperty(crypto, 'subtle', { configurable: true, value: { digest: async () => new Uint8Array(32).buffer } }); });
+    await st.evaluate(() => { window.__files = []; window.__names = []; const click = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__names.push(this.download); return click.call(this); }; const orig = URL.createObjectURL; URL.createObjectURL = (b) => { b.text().then((t) => window.__files.push(t)); return orig.call(URL, b); }; });
+    await openRecords(st);
+    await recTab(st, 'messages');
+    R.has(await text(st, '#recordsBody'), 'Not downloaded', 'a claimed batch that was never delivered says so');
+    await st.click('#recordsBody [data-act="batch-finish"][data-id="b9"]');
+    await st.waitForFunction(() => (window.__names || []).some((n) => /^outreach-.*\.csv$/.test(n)), null, { timeout: 5000 });
+    const back = await st.evaluate(() => window.__files.join('\n'));
+    R.has(back, 'stuck@creator.invalid', 'and its messages come back in a file');
+    R.has(back, 'https://get-silo.invalid/join?t=again', 'with a working personal link');
+    const stamped = await st.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_batches' && q._op === 'update').pop());
+    R.eq([stamped?.patch?.row_count, !!stamped?.patch?.fingerprint], [1, true], 'the batch is stamped with what the file holds, so it stops offering the download');
+    await st.close();
     // A post the server will not act on is not offered the action. The server
     // (affiliate_content_decide) skips 'use' and 'decline' on a declined post
     // and anything at all on a paid one, and allows only 'approve' to bring a

@@ -110,6 +110,22 @@ async function moveDrafts(rows, patch, fromState) {
   }
   return { moved, refused };
 }
+// The deliverable half of an export: a personal sign-up link for each row,
+// the file, and the batch stamped with what the file contains. A batch with
+// no fingerprint was claimed and never delivered, which is what 'batch-finish'
+// looks for. Returns how many rows carry no link.
+async function deliverBatch(batchId, drafts, stamp) {
+  const links = {};
+  for (const x of drafts) {
+    if (!x.recipient_email) { links[x.id] = { error: 'No email address, so no personal link. Send the open-application link, or add their email first.' }; continue; }
+    try { const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: x.prospect_id }); links[x.id] = { url: out.signup_url, expires_at: out.expires_at }; }
+    catch (e) { links[x.id] = { error: friendly(e) }; }
+  }
+  const csv = toCsv(OUTREACH_HEADER, outreachRows(drafts, links));
+  await db.from('affiliate_outreach_batches').update({ row_count: drafts.length, fingerprint: await sha256Hex(csv) }).eq('id', batchId).eq('company_entity_id', CO);
+  download(`outreach-${prog().slug}-${String(stamp).slice(0, 10)}.csv`, csv);
+  return Object.values(links).filter((l) => l.error).length;
+}
 // AI research runs in the background; the page watches its run row.
 const RESEARCH_STALE_MS = 10 * 60_000;
 function researchSummary(r) {
@@ -1702,7 +1718,12 @@ function renderOutreach() {
   // registers that Records group and renders nothing on Outreach.
   more('Message history', [
     card('Sent and outcomes', itemList(byState(['sent', 'replied', 'declined', 'bounced', 'signed_up']), (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)} ${statusPill(x.state)}</div><div class="af-muted">Marked ${fmtTime(x.sent_marked_at)}${x.sent_via_app ? ` · via ${esc(x.sent_via_app)}` : ''}</div>${x.sent_evidence ? `<div class="af-kv-line">${esc(x.sent_evidence)}</div>` : ''}</div>${MANAGE && x.state === 'sent' ? `<div class="af-item-foot"><div class="af-actions">${btn('Asked to stop', 'draft-optout', { id: x.id }, 'danger', { confirm: true })}</div></div>` : ''}</article>`, 'Nothing sent yet.')),
-    card('Export batches', itemList(d.batches, (b) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div></article>`, 'No exports yet.')),
+    card('Export batches', itemList(d.batches, (b) => {
+      // No fingerprint means the file was never built: the messages are
+      // claimed and nobody has them. Say so, and offer the download.
+      const waiting = !b.fingerprint && d.drafts.some((x) => x.batch_id === b.id && x.state === 'exported');
+      return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${fmtTime(b.exported_at)} · ${num(b.row_count)} row(s)</div>${b.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''}${waiting ? '<div class="af-muted">Not downloaded. The messages are waiting in this batch.</div>' : ''}<div class="af-mono af-copy" style="font-size:11px;margin-top:4px;">${esc(b.fingerprint || '—')}</div></div>${waiting && MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Download it', 'batch-finish', { id: b.id }, 'primary')}</div></div>` : ''}</article>`;
+    }, 'No exports yet.')),
   ]);
   $('outreachBody').innerHTML = [
     editing ? card('Edit message', `${field('Subject', input('edSubject', `value="${esc(editing.subject || '')}"`))}${field('Message ({signup_link} is replaced at export)', `<textarea class="bcn-field" id="edBody" rows="10">${esc(editing.body || '')}</textarea>`)}<div class="af-row" style="margin-top:8px;">${btn('Save', 'draft-save', { id: editing.id }, 'primary')}${btn('Close', 'draft-edit-close')}</div>`) : '',
@@ -3449,17 +3470,20 @@ const A = {
       await db.from('affiliate_outreach_batches').delete().eq('id', batch.id).eq('company_entity_id', CO);
       return `Nothing was exported.${left}`;
     }
-    const links = {};
-    for (const x of drafts) {
-      if (!x.recipient_email) { links[x.id] = { error: 'No email address, so no personal link. Send the open-application link, or add their email first.' }; continue; }
-      try { const out = await invoke('affiliate-invite', { action: 'signup_link', prospect_id: x.prospect_id }); links[x.id] = { url: out.signup_url, expires_at: out.expires_at }; }
-      catch (e) { links[x.id] = { error: friendly(e) }; }
-    }
-    const csv = toCsv(OUTREACH_HEADER, outreachRows(drafts, links));
-    await db.from('affiliate_outreach_batches').update({ row_count: drafts.length, fingerprint: await sha256Hex(csv) }).eq('id', batch.id).eq('company_entity_id', CO);
-    download(`outreach-${prog().slug}-${now.slice(0, 10)}.csv`, csv);
-    const missing = Object.values(links).filter((l) => l.error).length;
+    const missing = await deliverBatch(batch.id, drafts, now);
     return `Exported ${drafts.length}.${left} ${missing ? `${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
+  },
+  // A batch the browser claimed but never delivered -- the tab was closed or
+  // refreshed between the claim and the download -- is finished from Records.
+  // The rows are already this batch's, so nothing else is claimed and no
+  // other batch's links are touched; it is the only way back to a file for
+  // messages that are already marked exported (review of #1357).
+  'batch-finish': async ({ id }) => {
+    const b = (S.d.batches || []).find((x) => x.id === id);
+    const rows = S.d.drafts.filter((x) => x.batch_id === id && x.state === 'exported');
+    if (!rows.length) return 'Nothing is waiting in that batch.';
+    const missing = await deliverBatch(id, rows, b?.exported_at || new Date().toISOString());
+    return `Downloaded ${rows.length}.${missing ? ` ${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
   },
   'portal-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'portal_link', affiliate_id: id, email: true });
@@ -3485,12 +3509,23 @@ const A = {
       // affiliate exactly as they were, with the button still there to press
       // again. Shopify is last because it reports rather than throws: a code
       // retired in SILO stops earning even if the store still has to be told.
-      const live = must(await db.from('affiliate_codes').select('id, status').eq('company_entity_id', CO).eq('affiliate_id', id).in('status', ['active', 'pending']));
+      const codes = must(await db.from('affiliate_codes').select('id, status, source, shopify_discount_id, shopify_ended_at').eq('company_entity_id', CO).eq('affiliate_id', id));
+      const live = codes.filter((c) => c.status === 'active' || c.status === 'pending');
       if (live.length) await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id: live.map((c) => c.id) });
       await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
-      if (!live.length) return 'Affiliate ended.';
-      const ended = await endInShopify(live.filter((c) => c.status === 'active').map((c) => c.id));
-      return `Affiliate ended and ${num(live.length)} code(s) retired. ${ended}`.trim();
+      // Everything the store still has to be told about, which is not only
+      // what this press retired: an attempt that retired the codes and then
+      // failed on the affiliate left them retired, and a second press would
+      // otherwise find nothing live and report an ending Shopify never heard
+      // of (review of #1357). A code already retired counts only where there
+      // is something to turn off -- SILO's own code carries its discount id,
+      // and a code made by hand is reported as yours to turn off -- so one
+      // that was only ever waiting to be made is left out.
+      const owed = codes.filter((c) => !c.shopify_ended_at
+        && (c.status === 'active' || (c.status === 'retired' && (c.shopify_discount_id || c.source === 'manual'))));
+      if (!live.length && !owed.length) return 'Affiliate ended.';
+      const ended = await endInShopify(owed.map((c) => c.id));
+      return `Affiliate ended${live.length ? ` and ${num(live.length)} code(s) retired` : ''}. ${ended}`.trim();
     }
     await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
     if (s !== 'active') return `Affiliate ${s}.`;
