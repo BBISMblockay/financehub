@@ -762,9 +762,11 @@ const TABLES = {
         await page.setViewportSize({width,height:1000});
         await page.keyboard.press('Escape');
         if(width <= 900) await page.waitForFunction(() => document.querySelector('.silo-sidebar').getBoundingClientRect().right <= 1);
-        await page.locator('#codeTitle').scrollIntoViewIfNeeded();
+        await page.locator('#codeFilterSegments').scrollIntoViewIfNeeded();
         await page.waitForFunction(() => {
-          const n=document.getElementById('codeTitle'),r=n.getBoundingClientRect();
+          const n=document.querySelector('#codeFilterSegments button[aria-pressed="true"]')||document.querySelector('#codeFilterSegments button');
+          if(!n) return false;
+          const r=n.getBoundingClientRect();
           const x=r.left+r.width/2,y=r.top+r.height/2;
           return x>0&&x<innerWidth&&y>0&&y<innerHeight&&n.contains(document.elementFromPoint(x,y));
         });
