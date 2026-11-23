@@ -4001,3 +4001,63 @@ path: `use` writes the program's content bonus once as a `manual_adjustment`
 ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
+
+### Affiliate access: per-program staff, per-creator shares — 2026-11-21
+
+`20261121210000_affiliate_program_scoped_access.sql` closes two access gaps, both
+additive and both meaning "everything" when left null, so applying it changes
+nobody's access until somebody deliberately narrows it.
+
+`affiliate_program_managers.program_id` (nullable) names the one program a grant
+covers; NULL is every program, which is what every grant made before this means.
+The old `affiliate_program_managers_identity` unique index (one row per person
+per company) is replaced by two partial ones, so a person can hold several
+program grants. `affiliate_manager_scoped()` is true only when every grant a
+person holds names a program and they are not exec or owner;
+`affiliate_visible_program(program)` is true for everyone who is not scoped, and
+`can_manage_affiliate_program(program)` is `can_manage_affiliate_programs()`
+narrowed by it. Fourteen select policies and twelve write policies on the tables
+that carry a `program_id` now go through those; the money reads keep their
+`can_approve_affiliate_commissions()` gate as well. Tables with no program to
+point at (`affiliate_payout_accounts`, `_items`, `_sends`,
+`affiliate_prospect_observations`) are unchanged.
+
+`affiliate_feed_audience` (feed item, affiliate) names who a share is for. NO
+rows for a share means everyone in its program, which is what every share made
+before this means, so an unapplied audience or a failed read shows the share
+rather than hiding it. `affiliate_portal_feed` filters both the feed and the
+products under a launch through `affiliate_feed_item_for()`.
+
+Two things the policies alone could not do (found reviewing #1350). A policy is
+not the boundary for a SECURITY DEFINER function -- thirteen of those are
+callable by `authenticated` on `can_manage_affiliate_programs()` alone -- so
+`affiliate_program_scope_guard()` is attached, by
+`attach_affiliate_program_scope_triggers()`, to every affiliate table that
+carries a `program_id`: a STATEMENT trigger over the transition table, so a
+bulk write pays one check, and a caller with no `auth.uid()` (service role,
+cron, a sync) is never scoped and never checked. Call that function from a new
+affiliate migration, the way `attach_affiliate_same_company_twins()` is called.
+And `affiliate_feed_set_audience(item, affiliates[], scope[])` replaces a
+share's audience in ONE transaction with the share locked, because no audience
+rows means everyone: a delete followed by an insert leaves the share open to the
+whole program in between, and open for good if the insert never lands. `scope`
+is the creators the caller offered; rows outside it are left as they are, so a
+recipient the dialog could not show (one past a truncated page, one who has left
+the program) is not dropped by a save of the boxes it did show. Null scope
+replaces the whole audience.
+
+Two more the trigger cannot see (review cycle 2 of #1350).
+`affiliate_add_to_program()` is re-created here to require
+`can_manage_affiliate_program()` for the program the person is being copied OUT
+of as well as the one they go into: it reads their contact details, their
+carried terms acceptance and their PayPal address from the source, while every
+row it writes belongs to the destination, which the caller does hold -- so the
+trigger passes and the scope leaks sideways. The same shape applies to anything
+that reads one program and writes another: gate the read, not just the write.
+And `supabase/functions/affiliate-invite` calls
+`can_manage_affiliate_program()` through the caller's own client before it mints
+a portal or sign-up link, creates Shopify codes or ends them, failing open only
+when the function is absent (before this migration).
+
+Apply, AND deploy `affiliate-invite` (`affiliate_portal_feed` is replaced in the
+same migration, so nothing else needs one).

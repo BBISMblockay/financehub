@@ -19879,4 +19879,8 @@ $c$select (select count(*) from v_po_header_summary
 -- often" and "what time" are two controls. Needs the generic computeNextRunAt
 -- (three copies) deployed with it.
 \i migrations/20261120040000_report_email_cadence_matrix.sql
+-- 20261121210000: per-program staff scope and a per-creator audience on a
+-- share. Both mean "everything" when null, so applying it changes nobody's
+-- access until somebody narrows it deliberately.
+\i migrations/20261121210000_affiliate_program_scoped_access.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

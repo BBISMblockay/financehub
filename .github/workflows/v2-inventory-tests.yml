@@ -140,17 +140,19 @@ jobs:
   # guard (~40s each), which outgrew the Browser job's 15 minutes. It runs
   # beside it here, split into six shards that each take every 6th guard.
   affiliate-guards:
-    name: Affiliate Studio guards (${{ matrix.shard }}/6)
+    name: Affiliate Studio guards (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Six shards, not four: the sweep is one full suite run per mutation,
-        # so every guard added lengthens every shard. Shard 1 of four ran
-        # 27 minutes on 2026-11-20 and then hit the 30-minute cap, which
-        # reports as cancelled and tells you nothing about the guards.
-        shard: [0, 1, 2, 3, 4, 5]
+        # Eight shards, not four or six: the sweep is one full suite run per
+        # mutation, so every guard added lengthens every shard. Shard 1 of
+        # four ran 27 minutes on 2026-11-20 and then hit the 30-minute cap,
+        # which reports as cancelled and tells you nothing about the guards;
+        # six shards ran 12-19 minutes on 2026-11-21 with nine more guards
+        # going in, so the count goes up again rather than creep back.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -174,8 +176,8 @@ jobs:
         run: |
           set -u
           i=0
-          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly offsetpage seedpush seedstick seedqall seedloudfail savelate bulkunsent addlinkhidden listnophoto storepickall storeunread storedrafts chipwipe picnotitle vidblank tilefree autonothrottle paidsilent refreshwipes nocatchup norecheck qpickall contentmoney tplsetup dmexport editnomove nocontacted noinbound showempty moneyplain makeall resumenomake endnoshopify exportall exportstale applystale endcut endmissingok moneyshown setupnext stepnoresend fixemailaff orderpending; do
-            i=$((i + 1)); [ $(( (i - 1) % 6 )) = "${{ matrix.shard }}" ] || continue
+          for m in nullzero termshtml tokenurl membergate exportlocal exportctx periodtotal logoignored logoanyurl feedhtml adnoimage pendingactive codestate calpast autocodeold todocodes todomoney photonone photoaff photobroken photopng photostuck affownphoto sillodraft silentswitch codeblame sendwhileopen sendnoaddress connflag nostalereload sandboxlabel envblock paidblocks sendallskips autocheck untargeted checkfirst checkotherenv claimany pushalways ordersrestart ordersshut ordersgid checkfromcache qmsgsent qcodesall qpayanycur autopaymoney autopayearly offsetpage seedpush seedstick seedqall seedloudfail savelate bulkunsent addlinkhidden listnophoto storepickall storeunread storedrafts chipwipe picnotitle vidblank tilefree autonothrottle paidsilent refreshwipes nocatchup norecheck qpickall contentmoney tplsetup dmexport editnomove nocontacted noinbound showempty moneyplain makeall resumenomake endnoshopify exportall exportstale applystale endcut endmissingok moneyshown setupnext stepnoresend fixemailaff orderpending grantall grantlabel mgrhard whoeveryone whoprecheck whoended audsilent audknown whoscope affpaged; do
+            i=$((i + 1)); [ $(( (i - 1) % 8 )) = "${{ matrix.shard }}" ] || continue
             AFFILIATE_UI_MUTATION="$m" node v2/tests/browser/affiliate-studio.test.js >/dev/null 2>&1 && code=0 || code=$?
             if [ "$code" = "0" ]; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
