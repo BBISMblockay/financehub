@@ -14,7 +14,8 @@
   min-height: 36px;
   border-bottom: 1px solid var(--bcn-border);
 }
-.transactions-ui .cc-tabbar .bcn-tab { padding: 6px 10px; font-size: 12px; }
+.transactions-ui .cc-tabbar .bcn-tab { padding: 5px 10px; font-size: 12px; }
+.transactions-ui .cc-page > .bcn-status { margin: 6px 14px 0; }
 
 /* Account rail: one band, no extra box. */
 .transactions-ui .txn-context {
@@ -30,6 +31,12 @@
 .transactions-ui .wsec-lbl { color: var(--bcn-ink-2); font-size: 9.5px; letter-spacing: .06em; margin-bottom: 4px; }
 .transactions-ui .wsec-lbl::after { display: none; }
 .transactions-ui .wtile { border-radius: 4px; box-shadow: none; }
+.transactions-ui .wtiles { padding: 1px 1px 3px; }
+.transactions-ui .wtile-wrap { flex-basis: 204px; }
+.transactions-ui .wtile-wrap .wtile { padding: 6px 10px; gap: 4px; }
+.transactions-ui .wtile-wrap .wtile-name { font-size: 11.5px; }
+.transactions-ui .wtile-bal { font-size: 13.5px; }
+.transactions-ui .wtile-ft { font-size: 10.5px; }
 .transactions-ui .wtile.is-on {
   background: var(--bcn-accent-soft);
   border-color: var(--bcn-accent);
@@ -88,9 +95,16 @@
   gap: 8px 10px;
   box-sizing: border-box;
 }
-.transactions-ui .txn-card-head__title { flex: 0 1 auto; min-width: 0; }
+.transactions-ui .txn-card-head__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
 .transactions-ui .txn-card-head__title #codeTitle {
-  display: block;
+  display: inline-block;
   font-size: 11px;
   font-weight: 600;
   color: var(--bcn-ink-2);
@@ -102,7 +116,7 @@
   margin: 0;
 }
 .transactions-ui .txn-card-head__title #codeSub:empty { display: none; }
-.transactions-ui .txn-card-head__meta { margin-top: 0; gap: 6px 10px; }
+.transactions-ui .txn-card-head__meta { flex: 1 1 100%; margin-top: 0; gap: 4px 10px; }
 .transactions-ui .txn-card-head__actions { flex: 1 1 280px; gap: 6px; justify-content: flex-end; }
 .transactions-ui #codeSearch { min-height: 32px; max-width: min(280px, 42vw); border-radius: 4px; font-size: 12px; }
 .transactions-ui .txn-tools { order: initial; }
@@ -189,14 +203,14 @@
 .transactions-ui .cc-foot .bcn-btn { border-radius: 4px; }
 
 /* Hide duplicate page title when accounting suite already marks Bank activity. */
-.transactions-ui.accounting-workspace > .bcn-header .bcn-header-title { display: none; }
-.transactions-ui.accounting-workspace > .bcn-header {
+.transactions-ui .accounting-workspace > .bcn-header .bcn-header-title { display: none; }
+.transactions-ui .accounting-workspace > .bcn-header {
   padding: 6px 12px;
   min-height: 0;
   justify-content: flex-end;
   border-bottom: 0;
 }
-.transactions-ui.accounting-workspace > .bcn-header .bcn-header-actions { margin-left: auto; }
+.transactions-ui .accounting-workspace > .bcn-header .bcn-header-actions { margin-left: auto; }
 
 .transactions-ui #txnDetailDrawer {
   width: min(560px, 94vw);
@@ -253,16 +267,17 @@
   .transactions-ui .transaction-list .cc-body { scrollbar-gutter: stable; }
   .transactions-ui .txn-card-head__row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(200px, 320px) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
   }
   .transactions-ui .txn-card-head__title { grid-column: 1; }
-  .transactions-ui #codeSearch { grid-column: 2; width: 100%; max-width: none; }
   .transactions-ui .txn-card-head__actions {
-    grid-column: 3;
+    grid-column: 2;
     flex: none;
+    flex-wrap: nowrap;
     justify-content: flex-end;
   }
+  .transactions-ui #codeSearch { width: 240px; max-width: none; }
 }
 
 @media (max-width: 1000px) {
@@ -329,3 +344,28 @@
 }
 .transactions-ui #rawDrawer .cc-kv dd { color: var(--bcn-ink); overflow-wrap: anywhere; }
 .transactions-ui #rawDrawer .cc-kv-head { color: var(--bcn-ink-2); font-size: 11px; letter-spacing: .04em; padding-top: 20px; }
+
+/* Register first: the workbench chrome above the table is held to one line
+   each, so the feed itself keeps the rest of the window. These selectors carry
+   the id the accounting workbench rules use, so they land on the same cascade
+   step rather than relying on file order. */
+.transactions-ui .accounting-workspace .cc-page > #ccTabs {
+  min-height: 34px;
+  gap: 18px;
+  padding: 0 14px;
+}
+.transactions-ui .accounting-workspace .cc-page > #ccTabs .bcn-tab {
+  padding: 8px 0;
+  font-size: 12.5px;
+}
+.transactions-ui .accounting-workspace .cc-content { padding: 8px 14px 12px; }
+.transactions-ui .accounting-workspace .txn-context { padding-bottom: 6px; }
+.transactions-ui .accounting-workspace .txn-dates { gap: 8px; padding-block: 4px; }
+.transactions-ui .wtile-wrap .wtile { padding: 5px 9px; gap: 3px; }
+.transactions-ui .wtile-mask { margin-top: 0; }
+.transactions-ui .wtile-bal { font-size: 13px; }
+.transactions-ui .wtile-mark { width: 22px; height: 22px; }
+.transactions-ui .txn-dates .bcn-field { width: 116px; height: 26px; }
+.transactions-ui .txn-dates .bcn-btn,
+.transactions-ui .txn-presets .bcn-btn { min-height: 26px; padding: 3px 7px; font-size: 11px; }
+.transactions-ui .txn-dates label { font-size: 10.5px; gap: 4px; }
