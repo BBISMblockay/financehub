@@ -529,41 +529,26 @@
       wrap.appendChild(note);
       if (isChannel) {
         // The source is intentionally limited to recent orders. Older names
-        // are still valid text values and need no extra database lookup.
-        const open = document.createElement('button');
-        open.type = 'button';
-        open.className = 'bcn-btn bcn-btn--ghost';
-        open.textContent = 'Enter a channel name';
-        open.setAttribute('aria-expanded', 'false');
-        const panel = document.createElement('div');
-        panel.id = `${id}_manual`;
-        panel.hidden = true;
-        open.setAttribute('aria-controls', panel.id);
+        // are still valid text values and need no extra database lookup, so
+        // the field for one sits in the open beside the dropdown rather than
+        // behind a disclosure -- nothing in SILO's filter bar folds out.
+        const row = document.createElement('div');
+        row.id = `${id}_manual`;
+        row.className = 'v3-slicer-manual';
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'bcn-field';
         input.autocomplete = 'off';
         input.setAttribute('aria-label', 'Exact channel name');
-        input.placeholder = 'Exact channel name';
+        input.placeholder = 'Or type an exact channel name';
         const error = document.createElement('span');
         error.className = 'v3-slicer-error';
         error.setAttribute('role', 'status');
         error.hidden = true;
         const apply = document.createElement('button');
         apply.type = 'button';
-        apply.className = 'bcn-btn bcn-btn--primary';
+        apply.className = 'bcn-btn bcn-btn--ghost';
         apply.textContent = 'Apply';
-        const cancel = document.createElement('button');
-        cancel.type = 'button';
-        cancel.className = 'bcn-btn bcn-btn--ghost';
-        cancel.textContent = 'Cancel';
-        const setOpen = (on, returnFocus = true) => {
-          panel.hidden = !on;
-          open.setAttribute('aria-expanded', String(on));
-          error.hidden = true;
-          if (on) { input.value = ''; input.focus(); }
-          else if (returnFocus) open.focus();
-        };
         const applyName = () => {
           const value = input.value.trim();
           if (!value || value === ALL_CHOICES || global.SiloReportParams.toLiteral(decl, value).error) {
@@ -572,24 +557,23 @@
             input.focus();
             return;
           }
-          setOpen(false);
+          error.hidden = true;
+          input.value = '';
           commit({ [decl.key]: value });
         };
-        open.addEventListener('click', () => setOpen(panel.hidden));
-        cancel.addEventListener('click', () => setOpen(false));
         apply.addEventListener('click', applyName);
         input.addEventListener('input', () => { error.hidden = true; });
-        panel.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
-          if (e.key === 'Enter' && e.target === input && !e.isComposing) { e.preventDefault(); applyName(); }
+        input.addEventListener('keydown', (e) => {
+          // Escape clears what was typed; there is no panel to close.
+          if (e.key === 'Escape') { e.preventDefault(); input.value = ''; error.hidden = true; }
+          if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); applyName(); }
         });
-        sel.addEventListener('change', () => setOpen(false, false));
-        panel.appendChild(input);
-        panel.appendChild(apply);
-        panel.appendChild(cancel);
-        panel.appendChild(error);
-        wrap.appendChild(open);
-        wrap.appendChild(panel);
+        // Choosing from the dropdown abandons a half-typed name.
+        sel.addEventListener('change', () => { input.value = ''; error.hidden = true; });
+        row.appendChild(input);
+        row.appendChild(apply);
+        row.appendChild(error);
+        wrap.appendChild(row);
       }
       return { wrap, update(v) { fill(v); } };
     }

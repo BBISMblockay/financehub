@@ -65,19 +65,20 @@ const { startSuite, FIXTURES } = require('../lib/harness');
     const queryCount = () => page.evaluate(() => window.__FAKE_DB__.rpcCalls
       .filter((call) => call.name === 'chat_run_readonly_query').length);
     const n = await queryCount();
-    const open = page.getByRole('button', { name: 'Enter a channel name' });
     const field = page.getByRole('textbox', { name: 'Exact channel name' });
-    await open.click();
+    // The field is in the open beside the dropdown, not behind a disclosure.
+    assert.equal(await field.isVisible(), true, 'the exact-name field needs no opening');
+    assert.equal(await page.getByRole('button', { name: /Enter a channel name/ }).count(), 0,
+      'and there is no fold-out to open it');
     await field.fill('bad; value');
     await field.press('Enter');
     await page.waitForFunction(() => /Enter an exact channel name/.test(
       document.querySelector('#slicer_channel_manual .v3-slicer-error').textContent));
     assert.equal(await queryCount(), n, 'invalid names do not run a query');
     await field.press('Escape');
-    assert.equal(await field.isVisible(), false);
-    assert.equal(await queryCount(), n, 'cancel leaves the current report untouched');
+    assert.equal(await field.inputValue(), '', 'Escape clears what was typed');
+    assert.equal(await queryCount(), n, 'clearing leaves the current report untouched');
 
-    await open.click();
     await field.fill("Retired O'Hare Channel");
     await field.press('Enter');
     const waitForChannelInBothTiles = (name) => page.waitForFunction((channel) =>
