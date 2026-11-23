@@ -19,6 +19,7 @@
 //   AFFILIATE_COMMISSIONS_MUTATION=matchchained the badge runs on every chained sync, not nightly only
 //   AFFILIATE_COMMISSIONS_MUTATION=matchrebuild  the customer lookup is rebuilt once per program, not once per company
 //   AFFILIATE_COMMISSIONS_MUTATION=nosplit       a window that times out is never halved and retried
+//   AFFILIATE_COMMISSIONS_MUTATION=oldestfirst   a split window is walked oldest half first, so a failed newer half is recorded as covered
 // Run: node scripts/tests/affiliate-commissions.test.mjs
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -45,6 +46,7 @@ const muts = {
   matchchained: ["      if (source === 'nightly') {\n        try {\n          result.customer_match", '      if (true) {\n        try {\n          result.customer_match'],
   matchrebuild: ['            refreshLookup: !lookupDone.has(p.company_entity_id),', '            refreshLookup: true,'],
   nosplit: ['    if (depth >= CUSTOMER_WINDOW_SPLITS || span <= 86400000) throw new Error(`customer lookup: ${r.error.message}`);', '    throw new Error(`customer lookup: ${r.error.message}`);'],
+  oldestfirst: ['    await refreshWindow(mid, upper, depth + 1);\n    return refreshWindow(sinceMs, mid, depth + 1);', '    await refreshWindow(sinceMs, mid, depth + 1);\n    return refreshWindow(mid, upper, depth + 1);'],
 };
 // Mutations applied to the orchestrator instead of the core.
 const syncMuts = {
@@ -309,10 +311,18 @@ await test('a window that times out is halved and retried, and the halves land',
   assert.ok(w.length > 2, `the window was split, not abandoned (${w.length} calls)`);
   const ok = w.filter((x) => ((x.args.p_until ? Date.parse(x.args.p_until) : NOW.getTime()) - Date.parse(x.args.p_since)) <= 86400000);
   assert.ok(ok.length >= 2, 'the halves that fit were applied');
-  // Within one split the oldest half goes first; `covered_from` is stored with
-  // least() either way, so a later half cannot move coverage forwards.
-  assert.ok(Date.parse(ok[0].args.p_since) < Date.parse(ok[1].args.p_since),
-    'the oldest half of a split window is applied first');
+  // The NEWEST half of a split goes first, and every half that lands abuts
+  // the one before it. `refresh_company_customer_profiles` moves
+  // `covered_from` back on every success, so coverage is only ever honest
+  // while the windows walk backwards without a hole: oldest-first meant a
+  // failing newer half left the skipped middle recorded as covered, and a
+  // customer whose only orders fall in it would never be badged (#1355).
+  const top = ok.filter((x) => Date.parse(x.args.p_since) >= NOW.getTime() - CUSTOMER_WINDOW_DAYS * 86400000);
+  assert.ok(top.length >= 2, 'the nightly top-up came back as halves');
+  for (let i = 1; i < top.length; i += 1) {
+    assert.equal(Date.parse(top[i].args.p_until), Date.parse(top[i - 1].args.p_since),
+      'each half that lands abuts the one before it, newest first, so coverage never crosses a window that failed');
+  }
   const jobs = sb.log.filter((x) => x.insert === 'sync_jobs');
   assert.equal(jobs[0].row.status, 'success', 'and the run is not failed by it');
   assert.ok(jobs[0].row.result.customer_match.splits >= 1, 'the split is recorded, so a store that always splits is visible');

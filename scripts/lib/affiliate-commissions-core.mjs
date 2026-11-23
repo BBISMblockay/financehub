@@ -165,9 +165,16 @@ export async function refreshAndMatchCustomers({ supabase, program, now = () => 
     if (depth >= CUSTOMER_WINDOW_SPLITS || span <= 86400000) throw new Error(`customer lookup: ${r.error.message}`);
     out.splits = (out.splits || 0) + 1;
     const mid = sinceMs + Math.floor(span / 2);
-    // Oldest half first, so `covered_from` only ever moves backwards.
-    await refreshWindow(sinceMs, mid, depth + 1);
-    return refreshWindow(mid, untilMs ?? now().getTime(), depth + 1);
+    // NEWEST half first. `covered_from` is moved back by every successful
+    // call, so a half that fails must never sit NEWER than coverage already
+    // claimed: oldest-first meant a succeeding old half followed by a failing
+    // new half recorded the whole window as covered, and the skipped middle
+    // was never rebuilt -- a customer whose only orders fall in it carries no
+    // past-customer badge for good. Newest-first makes every claim contiguous
+    // with the frontier it started from, so a failure just stops the walk.
+    const upper = untilMs ?? now().getTime();
+    await refreshWindow(mid, upper, depth + 1);
+    return refreshWindow(sinceMs, mid, depth + 1);
   };
 
   // 1. The recent window, every run. Before the migration is applied the

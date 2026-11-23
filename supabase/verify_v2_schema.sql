@@ -9437,6 +9437,13 @@ select 'Affiliate past-customer badge' as check_name,
     when pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure)
            not like '%cross join lateral%'
       then 'CRITICAL — the refresh aggregates the whole order history again instead of one pass per customer'
+    -- A matching key expression is not enough: PostgreSQL only uses a PARTIAL
+    -- index where it can prove the query is inside the predicate, so the
+    -- per-customer pass has to carry it too (20261124001000).
+    when (select count(*) from regexp_matches(
+            pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure),
+            'customer_email is not null or o?\.?customer_id is not null', 'g')) < 2
+      then 'CRITICAL — the per-customer history pass dropped the index predicate and can scan the orders table'
     when pg_get_functiondef('public.affiliate_match_prospect_customers(uuid,integer,interval)'::regprocedure)
            not like '%c.company_entity_id = v_company%'
       then 'CRITICAL — the prospect matcher can read another company''s customers'
@@ -9604,6 +9611,12 @@ select 'Affiliate one person' as check_name,
       then 'BROKEN — changing a creator''s address no longer moves the person or ends their old link'
     when has_function_privilege('anon', 'public.affiliate_person_programs(uuid)', 'execute')
       then 'BROKEN — anon can list which programs a creator is in'
+    -- The cascade is SECURITY DEFINER and reaches every program the person is
+    -- in, so a scoped manager's right to make it is checked FIRST
+    -- (20261124000000).
+    when position('affiliate_manager_scoped' in pg_get_functiondef('public.affiliate_person_email_follows()'::regprocedure)) = 0
+      or position('affiliate_visible_program' in pg_get_functiondef('public.affiliate_person_email_follows()'::regprocedure)) = 0
+      then 'CRITICAL — a program-scoped manager can move a creator through programs they were not given'
     -- The portal token check is the authorization and must stay as it is: the
     -- address a link was mailed to has to STILL be that affiliate's, or an edit
     -- after the mail could walk a token into another company.

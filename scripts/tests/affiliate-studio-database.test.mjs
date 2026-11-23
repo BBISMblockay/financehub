@@ -70,6 +70,8 @@
 //   AFFILIATE_DB_MUTATION=appendonly    the ledger append-only trigger is gone
 //   AFFILIATE_DB_MUTATION=evidence      "sent" no longer needs evidence
 //   AFFILIATE_DB_MUTATION=suppression   suppressed recipients can be approved
+//   AFFILIATE_DB_MUTATION=emailscope   a program-scoped manager may move a creator through programs they were not given
+//   AFFILIATE_DB_MUTATION=stopblocked  recording "they asked to stop" is refused by the list it just wrote to
 //   AFFILIATE_DB_MUTATION=tokenread     authenticated may read token hashes
 //   AFFILIATE_DB_MUTATION=clamp         a refund larger than the subtotal goes negative
 //   AFFILIATE_DB_MUTATION=hold          positive entries are payable inside the refund hold
@@ -305,6 +307,10 @@ const files = {
   scope: '20261121210000_affiliate_program_scoped_access.sql',
   // One person, one payout address, one email (20261121230000).
   oneperson: '20261121230000_affiliate_one_person_one_paypal.sql',
+  // The review fixes that followed both of those (20261124000000): the email
+  // cascade asks whether the editor may make it, and recording an outcome is
+  // no longer treated as a decision to contact.
+  reviewfixes: '20261124000000_affiliate_scope_and_outreach_fixes.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -334,6 +340,12 @@ switch (MUT) {
   case 'audall': mutate('scope', "  select not exists (select 1 from public.affiliate_feed_audience x where x.feed_item_id = p_item)", "  select true"); break;
   case 'audfeed': mutate('scope', "       and public.affiliate_feed_item_for(f.id, v_tok.affiliate_id)", ''); break;
   // A policy is not the boundary for a SECURITY DEFINER function.
+  // The cascade runs SECURITY DEFINER across every program the person is in;
+  // without this check a manager given one program moves the rest.
+  case 'emailscope': mutate('reviewfixes', "  if auth.uid() is not null and public.affiliate_manager_scoped() then", '  if false then'); break;
+  // Recording "they asked to stop" is not a decision to contact anyone, and
+  // the first half of that action is what puts them on the list.
+  case 'stopblocked': mutate('reviewfixes', "  if new.state in ('approved','exported','sent','signed_up')", "  if new.state in ('approved','exported','sent','signed_up','declined','bounced','replied')"); break;
   case 'scoperpc': mutate('scope', "  if v_any then\n    raise exception 'affiliate_program_scope: % on %.% touches a program this user was not given',\n      tg_op, tg_table_schema, tg_table_name using errcode = '42501';\n  end if;", ''); break;
   case 'scopeattach': mutate('scope', "       and (c.relname = 'affiliates' or c.relname like 'affiliate\\_%')\n       and exists (select 1 from pg_attribute a\n                    where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)\n     order by 1", '       and false\n     order by 1'); break;
   // Replacing an audience is one transaction, gated, and validated.
@@ -641,7 +653,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope', 'oneperson']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope', 'oneperson', 'reviewfixes']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -816,6 +828,23 @@ await check('E1 "sent" cannot be recorded without a person and evidence', async 
   await assert.rejects(db.query(`update affiliate_outreach_drafts set state = 'sent' where prospect_id = $1`, [prospect]),
     'sent with no evidence must be refused');
   await db.query(`update affiliate_outreach_drafts set state = 'sent', sent_marked_by = $1, sent_marked_at = now(), sent_evidence = 'Gmail, sent folder 2026-11-10' where prospect_id = $2`, [U.mgrA, prospect]);
+});
+
+await check('E2 "they asked to stop" records the outcome on a message already sent', async () => {
+  // The Studio button adds the person to the do-not-contact list and then
+  // marks their sent message declined. Blocking the second step (the guard
+  // re-reading the list the first step just wrote to) left the opt-out saved
+  // and the message stuck on 'sent', with a permission error on screen.
+  await as(U.memberA, A);
+  await db.query(`insert into affiliate_suppressions(company_entity_id, kind, value_normalized, reason) values ($1,'email','pat@coach.test','opted_out')`, [A]);
+  await as(U.mgrA, A);
+  await db.query(`update affiliate_outreach_drafts set state = 'declined', outcome_note = 'asked not to be contacted' where prospect_id = $1`, [prospect]);
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [prospect])).state, 'declined');
+  // And the list still decides who may be CONTACTED: approving them again is
+  // refused, which is the rule this does not loosen.
+  await assert.rejects(db.query(`update affiliate_outreach_drafts set state = 'approved', approved_by = $1, approved_at = now() where prospect_id = $2`,
+    [U.mgrA, prospect]), /suppression/);
+  await db.query(`delete from affiliate_suppressions where company_entity_id = $1 and value_normalized = 'pat@coach.test'`, [A]);
 });
 
 // Affiliates for attribution.
@@ -3015,6 +3044,36 @@ await check('Q2 changing a creator\'s address moves the whole person and ends th
   assert.equal(Number((await one(`select count(*)::int as n from public.affiliate_portal_brands('hash-person-live')`)).n), 0,
     'which is what it already did: that check is the authorization and is untouched');
   // Put the address back for anything after this.
+  await as(U.ownerA, A);
+  await db.query('update affiliates set contact_email = $2 where id = $1', [affPat, was]);
+  await asSuper();
+});
+
+await check('Q2b a scoped manager may not move a person through a program they were not given', async () => {
+  // The cascade is SECURITY DEFINER and reaches every membership and every
+  // portal link of that person in the company, so the right to make it is
+  // the right to manage ALL of their programs -- checked before anything is
+  // written, and said in words rather than as a raw refusal from a table the
+  // editor never named (#1351).
+  await asSuper();
+  const other = (await one(`select id from affiliate_programs where company_entity_id = $1 and slug = 'person-second'`, [A])).id;
+  const was = (await one('select contact_email from affiliates where id = $1', [affPat])).contact_email;
+  await as(U.ownerA, A);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3) on conflict do nothing',
+    [A, U.memberA, progA]);
+  await as(U.memberA, A);
+  assert.equal((await one('select public.affiliate_manager_scoped() as v')).v, true, 'the grant is a program-only one');
+  assert.equal((await one('select public.affiliate_visible_program($1) as v', [other])).v, false, 'and the person\'s other program is not theirs');
+  await assert.rejects(db.query(`update affiliates set contact_email = 'pat.taken@creator.test' where id = $1`, [affPat]),
+    /affiliate_program_scope/, 'the edit is refused before anything is propagated');
+  await asSuper();
+  assert.equal((await one('select contact_email from affiliates where id = $1', [affPat])).contact_email, was,
+    'and nothing moved: not their own row either');
+  // The same edit by someone who manages the whole company still works.
+  await as(U.ownerA, A);
+  await db.query(`update affiliates set contact_email = 'pat.moved2@creator.test' where id = $1`, [affPat]);
+  await asSuper();
+  assert.equal((await one('select contact_email from affiliates where id = $1 and company_entity_id = $2', [affPat, A])).contact_email, 'pat.moved2@creator.test');
   await as(U.ownerA, A);
   await db.query('update affiliates set contact_email = $2 where id = $1', [affPat, was]);
   await asSuper();

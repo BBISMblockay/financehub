@@ -88,6 +88,28 @@ async function updateRows(table, patch, match) {
   if (!rows?.length) throw new Error('Nothing was changed: the row was not found, or you do not have permission to change it.');
   return rows;
 }
+// Move a set of outreach drafts from one state to the next, and say which
+// ones the database would not move. One statement for the common case; a
+// refusal (the recipient went onto the do-not-contact list after the draft
+// was written, and the drafts guard refuses to contact them) raises and so
+// fails the whole statement, which is why the retry is row by row. Each row
+// is independent, and a row that does not move is left exactly as it was.
+async function moveDrafts(rows, patch, fromState) {
+  const moved = []; const refused = [];
+  if (!rows.length) return { moved, refused };
+  try {
+    // Only the rows this update really changed: one another person deleted or
+    // sent meanwhile simply does not match, and is left out without an error
+    // (review on #1334).
+    const done = (await updateRows('affiliate_outreach_drafts', patch, { id: rows.map((x) => x.id), state: fromState })).map((r) => r.id);
+    return { moved: rows.filter((x) => done.includes(x.id)), refused };
+  } catch { /* a refusal fails the whole statement; find out which ones */ }
+  for (const x of rows) {
+    try { await updateRows('affiliate_outreach_drafts', patch, { id: x.id, state: fromState }); moved.push(x); }
+    catch (e) { refused.push({ x, why: friendly(e) }); }
+  }
+  return { moved, refused };
+}
 // AI research runs in the background; the page watches its run row.
 const RESEARCH_STALE_MS = 10 * 60_000;
 function researchSummary(r) {
@@ -1834,10 +1856,12 @@ function contentCard() {
   // Paying the bonus is a money decision: only payout approvers.
   const canUse = MANAGE && (!bonus || MONEY);
   const payLabel = bonus ? `Pay ${money(bonus)} each` : 'Mark as used';
+  // The same rule as one post's own buttons: on a list of declined posts the
+  // only thing the server will do is keep them, and a paid post is final.
   const acts = !MANAGE ? [] : [
-    ...(canUse && want !== 'paid' ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),
-    ...(['new', 'all'].includes(want) ? [['Keep', 'q-content-ok']] : []),
-    ...(want !== 'no' ? [['Not used', 'q-content-no']] : []),
+    ...(canUse && !['paid', 'no'].includes(want) ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),
+    ...(['new', 'all', 'no'].includes(want) ? [[want === 'no' ? 'Keep after all' : 'Keep', 'q-content-ok']] : []),
+    ...(!['paid', 'no'].includes(want) ? [['Not used', 'q-content-no']] : []),
   ];
   const meta = bonus ? `A post you pay for earns ${money(bonus)}` : 'No bonus set for posts';
   return surface('Posts from affiliates', [
@@ -1866,10 +1890,15 @@ function contentOpenBody(x) {
       : `<p class="af-muted">The ${video ? 'video' : 'photo'} could not be loaded. It is still on file.</p>`;
   const paid = x.state === 'used' && x.bonus_cents ? ` · +${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
   const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: x.id, k }, kind, opts);
+  // Only what the server will actually do to a post in THIS state
+  // (affiliate_content_decide, 20261117050000): a declined post can only be
+  // kept, a paid one is final, and one still uploading is nobody's decision
+  // yet. Offering the rest made the button do nothing and say "1 skipped".
+  const live = ['submitted', 'approved'].includes(x.state);
   const acts = !MANAGE ? '' : [
-    ...(canUse && x.state !== 'used' ? [act(bonus ? `Pay ${money(bonus)}` : 'Mark as used', 'use', 'primary', { confirm: bonus > 0 })] : []),
-    ...(x.state === 'submitted' ? [act('Keep', 'approve')] : []),
-    ...(x.state !== 'declined' ? [act('Not used', 'decline')] : []),
+    ...(canUse && live ? [act(bonus ? `Pay ${money(bonus)}` : 'Mark as used', 'use', 'primary', { confirm: bonus > 0 })] : []),
+    ...(['submitted', 'declined'].includes(x.state) ? [act(x.state === 'declined' ? 'Keep after all' : 'Keep', 'approve')] : []),
+    ...(live ? [act('Not used', 'decline')] : []),
   ].join('');
   return `${big}
     <div class="af-ctile-who" style="margin-top:10px;">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<strong>${esc(a?.display_name || '—')}</strong>${pill(label, tone)}</div>
@@ -3023,9 +3052,13 @@ const A = {
   'q-all': ({ q }) => { const sel = qsel(q); const ids = QROWS[q] || []; if (ids.length && ids.every((id) => sel.has(id))) sel.clear(); else ids.forEach((id) => sel.add(id)); render(); return null; },
   'q-msg-ok': async () => {
     const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
-    const rows = await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: ids, state: 'draft' });
+    const rows = ids.map((id) => S.d.drafts.find((r) => r.id === id)).filter(Boolean);
+    // One recipient the database will not let you contact must not fail the
+    // whole press: the rest are approved and that one is named.
+    const { moved, refused } = await moveDrafts(rows, { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, 'draft');
     qsel('msgs').clear();
-    return `${num(rows.length)} message(s) approved.${rows.length < ids.length ? ` ${num(ids.length - rows.length)} were no longer drafts.` : ''}`;
+    const stale = ids.length - moved.length - refused.length;
+    return `${num(moved.length)} message(s) approved.${stale > 0 ? ` ${num(stale)} were no longer drafts.` : ''}${refused.length ? ` ${num(refused.length)} could not be approved: ${refused[0].why}` : ''}`;
   },
   'q-msg-del': async () => {
     const ids = picked('msgs'); if (!ids.length) return 'Tick at least one.';
@@ -3382,17 +3415,40 @@ const A = {
     const email = ids.filter((id) => { const x = S.d.drafts.find((r) => r.id === id); return x && !isDm(x); });
     if (!email.length) return 'None of those has an email address: send them by DM.';
     // Only the rows this update really approved are exported: one another
-    // person deleted or sent meanwhile is left out (review on #1334).
-    const done = (await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id: email, state: 'draft' })).map((r) => r.id);
+    // person deleted or sent meanwhile is left out, and one the database
+    // refuses to approve (the recipient asked not to be contacted) is named
+    // rather than failing the whole press.
+    const rows = email.map((id) => S.d.drafts.find((r) => r.id === id)).filter(Boolean);
+    const { moved, refused } = await moveDrafts(rows, { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, 'draft');
+    const done = moved.map((r) => r.id);
     for (const x of S.d.drafts) if (done.includes(x.id)) x.state = 'approved';
     qsel('msgs').clear();
-    const m = await A['outreach-export']({ only: done });
-    const gone = email.length - done.length;
-    return `${m}${gone ? ` ${num(gone)} were no longer drafts and were left out.` : ''}${email.length < ids.length ? ` ${num(ids.length - email.length)} with no email stay for DM.` : ''}`;
+    const m = done.length ? await A['outreach-export']({ only: done }) : 'Nothing was exported.';
+    const gone = email.length - done.length - refused.length;
+    return `${m}${gone > 0 ? ` ${num(gone)} were no longer drafts and were left out.` : ''}${refused.length ? ` ${num(refused.length)} could not be approved: ${refused[0].why}` : ''}${email.length < ids.length ? ` ${num(ids.length - email.length)} with no email stay for DM.` : ''}`;
   },
   'outreach-export': async ({ only } = {}) => {
-    const drafts = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x) && (!only || only.includes(x.id))).slice(0, 200);
-    if (!drafts.length) return 'Nothing to export: messages with no email are sent by DM.';
+    const picks = S.d.drafts.filter((x) => x.state === 'approved' && !isDm(x) && (!only || only.includes(x.id))).slice(0, 200);
+    if (!picks.length) return 'Nothing to export: messages with no email are sent by DM.';
+    const now = new Date().toISOString();
+    const batch = must(await db.from('affiliate_outreach_batches').insert({ company_entity_id: CO, program_id: S.programId, channel: 'email', row_count: 0, exported_at: now, exported_by: me.id, created_by: me.id }).select('id').single());
+    // The drafts MOVE FIRST, and only the ones that moved are exported. The
+    // database is what knows who may be contacted -- it refuses to export a
+    // message to anyone added to the do-not-contact list since approval -- so
+    // reading the list here would be a second, staler copy of that rule.
+    // Doing it the other way round cost three things at once (review
+    // 2026-11-23): a suppressed person's address went into the file, the one
+    // refused row failed the whole batch's update, and the drafts stayed
+    // 'approved' so the next export minted new signup links, killing the
+    // links in the file someone may already have sent.
+    // The page's own copy of the rows is left alone: the database decided,
+    // and the reload after the action is what the screen follows.
+    const { moved: drafts, refused } = await moveDrafts(picks, { state: 'exported', batch_id: batch.id, exported_at: now }, 'approved');
+    const left = refused.length ? ` ${num(refused.length)} left out: ${refused[0].why}` : '';
+    if (!drafts.length) {
+      await db.from('affiliate_outreach_batches').delete().eq('id', batch.id).eq('company_entity_id', CO);
+      return `Nothing was exported.${left}`;
+    }
     const links = {};
     for (const x of drafts) {
       if (!x.recipient_email) { links[x.id] = { error: 'No email address, so no personal link. Send the open-application link, or add their email first.' }; continue; }
@@ -3400,15 +3456,10 @@ const A = {
       catch (e) { links[x.id] = { error: friendly(e) }; }
     }
     const csv = toCsv(OUTREACH_HEADER, outreachRows(drafts, links));
-    const fingerprint = await sha256Hex(csv);
-    const now = new Date().toISOString();
-    const batch = must(await db.from('affiliate_outreach_batches').insert({ company_entity_id: CO, program_id: S.programId, channel: 'email', row_count: drafts.length, exported_at: now, exported_by: me.id, fingerprint, created_by: me.id }).select('id').single());
-    // The file is downloaded before the drafts move, so a failure below
-    // still leaves the person holding the links that were just created.
+    await db.from('affiliate_outreach_batches').update({ row_count: drafts.length, fingerprint: await sha256Hex(csv) }).eq('id', batch.id).eq('company_entity_id', CO);
     download(`outreach-${prog().slug}-${now.slice(0, 10)}.csv`, csv);
-    await updateRows('affiliate_outreach_drafts', { state: 'exported', batch_id: batch.id, exported_at: now }, { id: drafts.map((x) => x.id), state: 'approved' });
     const missing = Object.values(links).filter((l) => l.error).length;
-    return `Exported ${drafts.length}. ${missing ? `${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
+    return `Exported ${drafts.length}.${left} ${missing ? `${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
   },
   'portal-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'portal_link', affiliate_id: id, email: true });
@@ -3422,16 +3473,26 @@ const A = {
     return out.email === 'sent' ? 'Portal link emailed.' : 'Portal link created.';
   },
   'affiliate-status': async ({ id, s }) => {
-    await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
     if (s === 'terminated') {
       // Ending someone ends their codes, here and at checkout. Pausing does
       // not: a paused affiliate comes back with the same code.
-      const { data: live } = await db.from('affiliate_codes').select('id, status').eq('company_entity_id', CO).eq('affiliate_id', id).in('status', ['active', 'pending']);
-      if (!live?.length) return 'Affiliate ended.';
-      await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id: live.map((c) => c.id) });
+      //
+      // The CODES go first, and nothing here is swallowed (review
+      // 2026-11-23). Marking the affiliate ended first and then failing to
+      // read or retire their codes said "Affiliate ended" while the code was
+      // still live at checkout -- and the End button was gone, so the only
+      // way back was retiring each code by hand. Now a failure leaves the
+      // affiliate exactly as they were, with the button still there to press
+      // again. Shopify is last because it reports rather than throws: a code
+      // retired in SILO stops earning even if the store still has to be told.
+      const live = must(await db.from('affiliate_codes').select('id, status').eq('company_entity_id', CO).eq('affiliate_id', id).in('status', ['active', 'pending']));
+      if (live.length) await updateRows('affiliate_codes', { status: 'retired', changed_by: me.id }, { id: live.map((c) => c.id) });
+      await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
+      if (!live.length) return 'Affiliate ended.';
       const ended = await endInShopify(live.filter((c) => c.status === 'active').map((c) => c.id));
       return `Affiliate ended and ${num(live.length)} code(s) retired. ${ended}`.trim();
     }
+    await updateRows('affiliates', { status: s, changed_by: me.id }, { id });
     if (s !== 'active') return `Affiliate ${s}.`;
     // Turning an affiliate on queues their first code in the database
     // (affiliate_queue_first_code); make it in Shopify now, not overnight.
