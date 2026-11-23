@@ -9447,6 +9447,25 @@ select 'Affiliate past-customer badge' as check_name,
     when pg_get_functiondef('public.affiliate_match_prospect_customers(uuid,integer,interval)'::regprocedure)
            not like '%c.company_entity_id = v_company%'
       then 'CRITICAL — the prospect matcher can read another company''s customers'
+    -- 20261124010000: the name in the handle is matched too, because a
+    -- discovered creator's profile name is usually a channel name
+    -- ("Emily | Baseball Mama") while the matchable name is in the handle.
+    -- Nothing below CALLS the helper: a CASE arm naming a function is resolved
+    -- when this file is parsed, so a call here would make the whole check error
+    -- out on a database that has not had the migration applied -- the very
+    -- state this file is run to report. Its behaviour is pinned on real
+    -- PostgreSQL in scripts/tests/affiliate-past-customer-database.test.mjs.
+    when to_regprocedure('public.silo_handle_name_key(text)') is null
+      then 'MISSING — run 20261124010000_affiliate_handle_name_match.sql'
+    when has_function_privilege('anon', 'public.silo_handle_name_key(text)', 'execute')
+      or has_function_privilege('authenticated', 'public.silo_handle_name_key(text)', 'execute')
+      then 'CRITICAL — a browser role can run the handle-name helper'
+    when pg_get_functiondef('public.silo_handle_name_key(text)'::regprocedure) not like '%silo_name_key%'
+      or pg_get_functiondef('public.silo_handle_name_key(text)'::regprocedure) not like '%^.*/%'
+      then 'CRITICAL — the handle-name helper no longer normalizes a handle into a name'
+    when pg_get_functiondef('public.affiliate_match_prospect_customers(uuid,integer,interval)'::regprocedure)
+           not like '%silo_handle_name_key%'
+      then 'CRITICAL — the matcher reads the profile name only, so a creator named by their channel is never matched'
     else 'ok'
   end as status;
 
