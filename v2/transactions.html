@@ -256,10 +256,10 @@
   </style>
   <!-- Keep workspace asset hashes in sync with file contents; transactions-tiles.test.mjs verifies them. -->
   <link rel="stylesheet" href="./transactions-workspace.css?v=1f8c055e7ca4" />
-  <link rel="stylesheet" href="accounting-suite.css?v=eea2fd7b717e" />
+  <link rel="stylesheet" href="accounting-suite.css?v=1fd0aab8e88a" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="transactions-review.css?v=001ebc7592ce" />
+  <link rel="stylesheet" href="transactions-review.css?v=19dedadf0b75" />
   <script src="v2-shell.js" defer></script>
   <script src="nav-config.js"></script>
   <script src="avatar.js"></script>
@@ -274,11 +274,7 @@
         <div class="bcn-header-title">Bank activity</div>
       </div>
 
-      <div class="bcn-header-actions">
-        <button class="bcn-btn accounting-action" id="btnImportTop" aria-label="Import CSV" title="Import CSV"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M4 14v6h16v-6"/></svg>Import</button>
-        <button class="bcn-btn accounting-action" id="btnManageBank" aria-label="Connect account" title="Connect account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 15 6-6M8 17l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 7l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg>Connect bank</button>
-        <button class="bcn-btn accounting-action" id="btnRefresh" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg></button>
-      </div>
+
     </header>
 
     <div class="cc-page">
@@ -288,6 +284,11 @@
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="rules">Rules</button>
         <button class="bcn-tab" role="tab" aria-selected="false" data-pane="cards">Accounts</button>
         <span class="bcn-tabs-meta" id="ccMeta"></span>
+        <div class="bcn-header-actions">
+        <button class="bcn-btn accounting-action" id="btnImportTop" aria-label="Import CSV" title="Import CSV"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M4 14v6h16v-6"/></svg>Import</button>
+        <button class="bcn-btn accounting-action" id="btnManageBank" aria-label="Connect account" title="Connect account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 15 6-6M8 17l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 7l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg>Connect bank</button>
+        <button class="bcn-btn accounting-action" id="btnRefresh" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg></button>
+      </div>
       </nav>
       <div class="bcn-status" id="status" hidden></div>
 
@@ -399,7 +400,7 @@
           <div class="cc-kpis" id="codeKpis" hidden></div>
           <div class="cc-card cc-card--grow transaction-list">
             <div class="cc-card-head txn-card-head">
-              <div class="txn-review-heading"><div><span class="txn-eyebrow">Bank &amp; card activity</span><h2>Review transactions</h2></div><p>Review categories here. Open a row for source details, splits and posting status.</p></div>
+              <h2 class="txn-sr-only">Review transactions</h2>
               <div id="codeFilterSegments" class="txn-filters txn-card-head__queues" role="group" aria-label="Transaction filters"></div>
               <div class="txn-card-head__row">
                 <div class="txn-card-head__title">
@@ -495,6 +496,7 @@
             <div class="cc-body">
               <table class="cc-tbl" id="tblCoding"></table>
             </div>
+            <div id="transactionFlow" class="txn-flow txn-flow--compact" aria-label="Review workflow"></div>
             <div class="cc-foot" id="codeActionBar" hidden>
             <div class="cc-bulk" id="codeBulk" hidden>
               <span class="cc-bulk-count" id="bulkCount"></span>
@@ -513,7 +515,6 @@
               <button class="bcn-btn" id="btnReloadCoding" hidden>Discard unsaved changes</button>
             </div>
           </div>
-          <div id="transactionFlow" class="txn-flow" aria-label="Review workflow"></div>
         </section>
 
         <!-- ================= ENTRY ================= -->

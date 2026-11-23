@@ -1,5 +1,7 @@
 /* Shared accounting surfaces. Scoped so other working modules keep their layout. */
-.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 18px;background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.accounting-suite {flex:none;display:flex;align-items:center;gap:20px;padding:0 14px;background:var(--bcn-surface);border-bottom:1px solid var(--bcn-border);min-width:0;}
+.transactions-ui .accounting-suite {padding:0 14px;gap:14px;}
+.transactions-ui .accounting-suite a {padding:7px 0 6px;font-size:11.5px;}
 .accounting-suite-label {font-size:12px;font-weight:650;color:var(--bcn-ink);}
 .accounting-suite-links {display:flex;align-items:stretch;gap:18px;overflow-x:auto;min-width:0;}
 .accounting-suite a {position:relative;display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:10px 0 9px;white-space:nowrap;text-decoration:none;color:var(--bcn-ink-2);border-bottom:2px solid transparent;}
