@@ -4001,3 +4001,16 @@ path: `use` writes the program's content bonus once as a `manual_adjustment`
 ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
+
+`20261123200000_plaid_multiple_feeds_per_qbo_account.sql` lets SEVERAL Plaid
+feeds share one QuickBooks balancing account (two company cards, one account in
+the chart of accounts). `plaid_guard_source_authority` no longer refuses a
+second `ingest_mode='plaid'` source on the same (company, QuickBooks
+connection, QuickBooks account); the authoritative cutover and the CSV-overlap
+checks already read `min(authoritative_from)` across every Plaid source on that
+account, so the earliest feed still governs what CSV may cover, and dedupe stays
+per Plaid account. The same card arriving twice (a relink: same institution,
+type and mask) is still refused, now by `configure_plaid_account` through the
+service-only `plaid_duplicate_card_feed()` — the `card_sources` trigger fires
+before `plaid_accounts.source_id` is set, so it cannot judge card identity. No
+backfill, no edge deploy; the browser calls the RPC directly.
