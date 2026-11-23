@@ -286,6 +286,13 @@
       box-shadow: 0 2px 4px rgba(15, 23, 42, .04), 0 12px 28px rgba(15, 23, 42, .06);
       transition: transform .14s ease, box-shadow .14s ease;
     }
+    /* A creator's own photo is a small square wherever it appears. Each thumb
+       wrapper below sets its own size and wins over this by coming later; this
+       is the floor under a photo that is in no wrapper. Without it the <img>
+       had no size at all and rendered at whatever the creator uploaded, so in
+       Share > From affiliates a post's 72x54 content sat beside a full-size
+       "profile picture" (Blake 2026-11-23). */
+    .af-studio .af-avatar-photo { width: 36px; height: 36px; object-fit: cover; border-radius: 8px; }
     /* Affiliato-style product cards: thumb + title, Summary block, Sales/Amount rows. */
     .af-item--catalog { padding: 16px 16px 14px; gap: 12px; }
     .af-catalog-head { display: flex; gap: 12px; align-items: flex-start; }
@@ -783,6 +790,42 @@
       max-width: 72px; max-height: 54px;
     }
     @media (max-width: 640px) { .af-ctile-media { width: 60px; height: 45px; } }
+    /* A hundred posts to review, not three (Blake 2026-11-23: "should expand
+       out to show imagine we had 100 of these to review"). The queue becomes a
+       wall of square tiles that fills the width; one click opens the post. */
+    .af-studio .af-q--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 10px; }
+    .af-studio .af-q--grid .af-q-row { position: relative; display: block; gap: 0; }
+    .af-studio .af-q--grid .af-q-row > .af-q-pick {
+      position: absolute; top: 6px; left: 6px; z-index: 2; margin: 0;
+      background: var(--bcn-surface); border-radius: 4px;
+    }
+    .af-studio .af-q--grid .af-q-body { flex: none; }
+    .af-studio .af-q--grid .af-ctile { display: block; gap: 0; }
+    .af-studio .af-q--grid .af-ctile-media {
+      width: 100%; height: auto; aspect-ratio: 1 / 1; margin: 0 0 6px; padding: 0; cursor: pointer;
+    }
+    .af-studio .af-q--grid .af-ctile-media:hover { border-color: var(--bcn-accent); }
+    .af-studio .af-q--grid .af-q-row.is-selected .af-ctile-media { border-color: var(--bcn-accent); box-shadow: inset 0 0 0 2px var(--bcn-accent); }
+    /* The pixel ceiling above is sized for the old row; in a tile the box
+       itself is the ceiling, so percentages are enough. */
+    .af-studio .af-q--grid .af-ctile img:not(.af-avatar-photo), .af-studio .af-q--grid .af-ctile video { max-width: 100%; max-height: 100%; }
+    .af-studio .af-q--grid .af-ctile-txt { gap: 2px; }
+    .af-studio .af-q--grid .af-ctile-who { flex-wrap: nowrap; gap: 6px; }
+    .af-studio .af-q--grid .af-ctile-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .af-studio .af-q--grid .af-ctile-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .af-studio .af-q--grid .af-ctile-foot .af-muted { font-size: 11px; white-space: nowrap; }
+    .af-studio .af-q--grid .af-list-thumb,
+    .af-studio .af-q--grid .af-list-thumb .bcn-avatar,
+    .af-studio .af-q--grid .af-list-thumb .af-avatar,
+    .af-studio .af-q--grid .af-list-thumb .af-avatar-photo { width: 20px; height: 20px; font-size: 9px; border-radius: 5px; }
+    @media (max-width: 640px) {
+      .af-studio .af-q--grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+    }
+    /* The tile is a button now, so it must not look or size like one. */
+    .af-studio button.af-ctile-media { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); padding: 0; cursor: pointer; }
+    /* One post, opened: as big as the dialog allows, never bigger. */
+    .af-copen-media { display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border); border-radius: 10px; overflow: hidden; }
+    .af-copen-media > img, .af-copen-media > video { max-width: 100%; max-height: 56vh; width: auto; height: auto; display: block; }
     /* Dashboard: the four figures and the chart fit above the fold. */
     .af-ov { gap: 10px; }
     .af-ov-metrics { gap: 10px; }

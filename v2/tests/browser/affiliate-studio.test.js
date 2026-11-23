@@ -129,6 +129,19 @@ const MUTATIONS = {
     .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
       max-width: 72px; max-height: 54px;
     }`, ''],
+  // A hundred posts to review means a wall of tiles, not a column of rows.
+  qgrid: ['/affiliates/studio.js', "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.', { grid: true }",
+    "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.'"],
+  // The creator's photo in no wrapper draws at whatever size they uploaded,
+  // which is how it became the big image on the tile.
+  ctilephoto: ['/affiliates/studio.js', '<div class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">',
+    '<div class="af-ctile-who">${photoAvatar({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">'],
+  // Opening a post is the only way to see it whole; without it the wall is
+  // a wall of thumbnails and nothing can be judged.
+  ctileopen: ['/affiliates/studio.js', "  'content-open': ({ id }) => { S.contentOpen = id; render(); return null; },", ''],
+  // A decision taken on the opened post must be about that post.
+  ctileone: ['/affiliates/studio.js', 'const act = (lbl, k, kind, opts) => btn(lbl, \'content-decide\', { id: x.id, k }, kind, opts);',
+    "const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: (S.d.content || []).map((y) => y.id).join(','), k }, kind, opts);"],
   // A file the browser cannot play must say so, not sit there as a blank box.
   vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
@@ -2253,11 +2266,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(ct, '#overviewBody'), '2 posts', 'Home lists content waiting for review');
     await closeDialog(ct);
     await ct.click('#tabs [data-tab="share"]');
-    await ct.waitForFunction(() => /Cage reel/.test(document.getElementById('shareBody')?.textContent || ''), null, { timeout: 5000 });
+    await ct.waitForFunction(() => !!document.querySelector('#shareBody .af-ctile-media'), null, { timeout: 5000 });
     const cb = await text(ct, '#shareBody');
     R.has(cb, 'A post you pay for earns $25.00', 'the bonus is named once');
     R.has(cb, 'New', 'the posts are filtered by what has happened to them');
-    R.not(cb, 'Half sent', 'an upload that has not landed is not shown');
+    // A tile each for the two that landed; the caption is in the opened post.
+    R.eq(await ct.$$eval('#shareBody .af-ctile', (n) => n.length), 2,
+      'an upload that has not landed is not shown');
     const signed = await ct.evaluate(() => (window.__SIGNED__ || []).flat());
     R.ok('the video is drawn from a signed link to its private file', signed.includes('ct1/content.mp4'));
     // Blake's one real submission is a 29 MB video/quicktime .mov, which Chrome
@@ -2276,9 +2291,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // And a file the browser cannot play says what it is rather than sitting
     // there as an empty box; the file itself still opens in a new tab.
     await ct.waitForFunction(() => /Video/.test(document.querySelector('#shareBody .af-ctile-media')?.textContent || ''), null, { timeout: 5000 });
-    R.ok('a video the browser cannot play is labelled, not left blank',
+    R.ok('a video the browser cannot play is labelled, not left blank, and still opens',
       await ct.evaluate(() => !!document.querySelector('#shareBody .af-ctile-media--none')
-        && !!document.querySelector('#shareBody .af-ctile-media')?.getAttribute('href')));
+        && document.querySelector('#shareBody .af-ctile-media')?.dataset.act === 'content-open'));
     // The assertion above can only measure what is still there, and a file the
     // browser cannot play is replaced before it can be measured -- `every()`
     // over nothing is true (review cycle 1). So measure a post that really
@@ -2288,9 +2303,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const TALL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAGQAAADICAIAAACRXtOWAAABRUlEQVR4nO3QQQkAMAzAwAqrfyZrFvYLg4MICDdnV49NfvBRsGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVh4sWLDyYMGClQcLFqw8WLBg5cGCBSsPFixYebBgwcqDBQtWHixYsPJgwYKVBwsWrDxYsGDlwYIFKw8WLFh5sGDByoMFC1YeLFiw8mDBgpUHCxasPFiwYOXBggUrDxYsWHmwYMHKgwULVt4FuC+tsCKZ3gMAAAAASUVORK5CYII=', 'base64');
       await suite.context.route('https://fixture.local/signed/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: TALL }));
       const loadTables = { ...ctTables,
-        affiliate_content_submissions: [{ id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
-          kind: 'file', storage_path: 'ct1/shot.png', file_type: 'image/png', caption: 'Wearing it today',
-          state: 'submitted', submitted_at: now }] };
+        // A creator photo that is itself 100x200: the post is what the tile is
+        // about, so their picture may never be the big image on it
+        // (Blake 2026-11-23).
+        affiliates: ctTables.affiliates.map((x) => ({ ...x, photo_url: 'https://fixture.local/signed/avatar.png' })),
+        affiliate_content_submissions: [
+          { id: 'ct1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
+            kind: 'file', storage_path: 'ct1/shot.png', file_type: 'image/png', caption: 'Wearing it today',
+            state: 'submitted', submitted_at: now },
+          { id: 'ct2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF,
+            kind: 'file', storage_path: 'ct2/shot.png', file_type: 'image/png', caption: 'Second post',
+            state: 'submitted', submitted_at: now }] };
       const lp = await suite.open('/v2/affiliates/index.html', loadTables, { ready, rpc: ctRpc });
       lp.on('pageerror', (e) => errors.push(e.message));
       await closeDialog(lp);
@@ -2311,6 +2334,45 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       });
       R.ok('a post that really loads is bigger than its tile and still fits inside it',
         fit.n > 0 && fit.natural > 100 && fit.over === 0);
+      // A hundred posts are reviewed at once, so the tiles sit across the
+      // width rather than one per line (Blake 2026-11-23).
+      const grid = await lp.evaluate(() => {
+        const q = document.querySelector('#shareBody .af-q--grid');
+        const rows = [...document.querySelectorAll('#shareBody .af-q--grid .af-q-row')];
+        return { display: q && getComputedStyle(q).display, n: rows.length,
+          tops: new Set(rows.map((r) => Math.round(r.getBoundingClientRect().top))).size,
+          width: rows[0] ? Math.round(rows[0].getBoundingClientRect().width) : 0 };
+      });
+      R.ok('posts sit side by side across the width, not one per line',
+        grid.display === 'grid' && grid.n === 2 && grid.tops === 1 && grid.width > 0 && grid.width < 320);
+      // The creator's own picture is a thumbnail beside their name. It used to
+      // be the only photo on the page in no wrapper, and drew at full size.
+      const pic = await lp.evaluate(() => {
+        const ph = document.querySelector('#shareBody .af-ctile-who .af-avatar-photo');
+        const media = document.querySelector('#shareBody .af-ctile-media');
+        if (!ph || !media) return null;
+        const a = ph.getBoundingClientRect(); const m = media.getBoundingClientRect();
+        return { wrapped: !!ph.closest('.af-list-thumb'), h: a.height, w: a.width, mh: m.height };
+      });
+      R.ok('the creator photo is a thumbnail, never the big image on the tile',
+        !!pic && pic.wrapped && pic.h <= 24 && pic.w <= 24 && pic.h < pic.mh);
+      // Clicking the post opens it, big, with that one post's decisions.
+      await lp.click('#shareBody .af-ctile-media');
+      await lp.waitForFunction(() => document.getElementById('afDialog')?.open
+        && /Wearing it today/.test(document.getElementById('afDialogBody')?.textContent || ''), null, { timeout: 5000 });
+      const open = await lp.evaluate(() => {
+        const img = document.querySelector('#afDialogBody .af-copen-media img');
+        const tile = document.querySelector('#shareBody .af-ctile-media img');
+        return { big: img ? img.getBoundingClientRect().height : 0,
+          tile: tile ? tile.getBoundingClientRect().height : 0,
+          keep: !!document.querySelector('#afDialogBody [data-act="content-decide"][data-k="approve"]') };
+      });
+      R.ok('the opened post is bigger than its tile and offers that post\'s decisions',
+        open.big > open.tile && open.keep);
+      await lp.click('#afDialogBody [data-act="content-decide"][data-k="approve"]');
+      await lp.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_content_decide'), null, { timeout: 5000 });
+      const one = await lp.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_content_decide').pop().args);
+      R.eq([one.p_ids, one.p_decision], [['ct1'], 'approve'], 'a decision taken on the opened post is about that post alone');
       await lp.close();
       await suite.context.unroute('https://fixture.local/signed/**');
     }

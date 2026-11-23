@@ -638,7 +638,7 @@ function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'st
 const QSEL = {}; const QROWS = {};
 const qsel = (k) => (QSEL[k] ||= new Set());
 const subtabs = (label, items, act, current) => `<nav class="bcn-tabs af-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([k, title, n]) => `<button type="button" class="bcn-tab${k === current ? ' bcn-tab--active' : ''}" role="tab" aria-selected="${k === current}" data-act="${act}" data-k="${esc(k)}">${esc(title)}${n ? ` <span class="af-tab-count">${num(n)}</span>` : ''}</button>`).join('')}</nav>`;
-function queue(k, rows, renderRow, actions, emptyText) {
+function queue(k, rows, renderRow, actions, emptyText, opts = {}) {
   const sel = qsel(k);
   const ids = rows.map((r) => r.id); QROWS[k] = ids;
   for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
@@ -647,7 +647,7 @@ function queue(k, rows, renderRow, actions, emptyText) {
   const all = ids.every((id) => sel.has(id));
   const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
   const pick = (r) => (can ? `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />` : '');
-  return `${bar}<div class="af-q" role="list">${rows.map((r) => `<div class="af-q-row${sel.has(r.id) ? ' is-selected' : ''}" role="listitem">${pick(r)}<div class="af-q-body">${renderRow(r)}</div></div>`).join('')}</div>`;
+  return `${bar}<div class="af-q${opts.grid ? ' af-q--grid' : ''}" role="list">${rows.map((r) => `<div class="af-q-row${sel.has(r.id) ? ' is-selected' : ''}" role="listitem">${pick(r)}<div class="af-q-body">${renderRow(r)}</div></div>`).join('')}</div>`;
 }
 const picked = (k) => [...qsel(k)];
 
@@ -999,6 +999,13 @@ function dialogSpec() {
           ${dlgFoot(`${btn('Save', 'feed-who-save', { id: f.id }, 'primary')}${btn('Cancel', 'dialog-close')}`)}` };
     }
   }
+  // One post, opened from the wall. Keyed by its state as well as its id, so
+  // a decision taken here redraws the buttons instead of offering the same
+  // one again.
+  if (S.contentOpen) {
+    const x = (d.content || []).find((y) => y.id === S.contentOpen);
+    if (x) return { key: `post:${x.id}:${x.state}`, title: 'Post', body: contentOpenBody(x) };
+  }
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
     const k = S.affTool.k;
@@ -1011,7 +1018,7 @@ function dialogSpec() {
   }
   return null;
 }
-function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
+function closeDialogState() { S.contentOpen = null; S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1793,26 +1800,28 @@ function contentCard() {
   const d = S.d; const p = prog();
   if (!d.content) return '';
   const bonus = Number(p.content_bonus_cents || 0);
-  // A tile per post, big enough to judge: the full photo or video opens in a
-  // new tab (Blake 2026-11-20: the list was too small to be worth reading).
+  // The tile OPENS the post rather than leaving for a new tab: a hundred of
+  // these are reviewed in one sitting, and a tab per post is not a review
+  // (Blake 2026-11-23). The file itself is still one click away, inside.
   const media = (x) => {
-    if (x.kind === 'link') return `<a class="af-ctile-media af-ctile-media--none" href="${esc(x.link_url)}" target="_blank" rel="noopener noreferrer" aria-label="Open link">Link</a>`;
+    const open = `data-act="content-open" data-id="${esc(x.id)}"`;
+    if (x.kind === 'link') return `<button type="button" class="af-ctile-media af-ctile-media--none" ${open} aria-label="Open this post">Link</button>`;
     const u = d.contentUrl?.[x.storage_path];
     const video = /^video\//.test(x.file_type || '');
-    if (!u) return `<span class="af-ctile-media af-ctile-media--none">${video ? 'Video' : 'Photo'}</span>`;
-    return `<a class="af-ctile-media" href="${esc(u)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${video ? 'video' : 'photo'}">${video
+    if (!u) return `<button type="button" class="af-ctile-media af-ctile-media--none" ${open} aria-label="Open this post">${video ? 'Video' : 'Photo'}</button>`;
+    return `<button type="button" class="af-ctile-media" ${open} aria-label="Open this ${video ? 'video' : 'photo'}">${video
       ? `<video class="af-content-media" src="${esc(u)}#t=0.1" muted playsinline preload="metadata"></video>`
-      : `<img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" />`}</a>`;
+      : `<img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" />`}</button>`;
   };
+  // One tile: the post, who sent it, where it stands. The caption and the link
+  // are in the opened view -- on a wall of a hundred they are noise.
   const row = (x) => {
     const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
     const a = d.affById[x.affiliate_id];
     const paid = x.state === 'used' && x.bonus_cents ? `+${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
-    const sub = x.kind === 'link' ? `<div class="af-muted af-srow-clip">${ext(x.link_url, x.link_url)}</div>` : '';
     return `<article class="af-ctile" role="listitem">${media(x)}
-      <div class="af-ctile-txt"><div class="af-ctile-who">${photoAvatar({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<strong>${esc(a?.display_name || '—')}</strong>${pill(label, tone)}</div>
-      ${x.caption ? `<div class="af-srow-clip">${esc(x.caption)}</div>` : ''}${sub}
-      <div class="af-muted">${fmtDate(x.submitted_at)}${paid ? ` · ${paid}` : ''}</div></div></article>`;
+      <div class="af-ctile-txt"><div class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">${esc(a?.display_name || '—')}</span></div>
+      <div class="af-ctile-foot">${pill(label, tone)}<span class="af-muted">${fmtDate(x.submitted_at)}${paid ? ` · ${paid}` : ''}</span></div></div></article>`;
   };
   const counts = Object.fromEntries(CONTENT_FILTERS.map(([k, , states]) => [k, states ? d.content.filter((x) => states.includes(x.state)).length : d.content.length]));
   // Open on whichever list has something waiting, so the first thing on
@@ -1833,9 +1842,41 @@ function contentCard() {
   const meta = bonus ? `A post you pay for earns ${money(bonus)}` : 'No bonus set for posts';
   return surface('Posts from affiliates', [
     `<div class="af-filter-bar">${chips}${info('Affiliates share posts from their own portal. Keep the ones you like; paying one adds the bonus to their next payout.')}</div>`,
-    queue('content', shareCap(list), row, acts, want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.'),
+    queue('content', shareCap(list), row, acts, want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.', { grid: true }),
     shareMore(list.length),
   ].join(''), meta);
+}
+// A post on its own, big enough to actually look at, with the decisions for
+// that one post. The wall is for picking which one to open; this is where a
+// post is judged (Blake 2026-11-23).
+function contentOpenBody(x) {
+  const d = S.d; const p = prog();
+  const a = d.affById[x.affiliate_id];
+  const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
+  const bonus = Number(p.content_bonus_cents || 0);
+  const canUse = MANAGE && (!bonus || MONEY);
+  const u = x.kind === 'link' ? null : d.contentUrl?.[x.storage_path];
+  const video = /^video\//.test(x.file_type || '');
+  const big = x.kind === 'link'
+    ? `<p>${ext(x.link_url, x.link_url)}</p>`
+    : u
+      ? `<div class="af-copen-media">${video
+          ? `<video src="${esc(u)}" controls playsinline preload="metadata"></video>`
+          : `<img src="${esc(u)}" alt="" />`}</div>`
+      : `<p class="af-muted">The ${video ? 'video' : 'photo'} could not be loaded. It is still on file.</p>`;
+  const paid = x.state === 'used' && x.bonus_cents ? ` · +${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
+  const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: x.id, k }, kind, opts);
+  const acts = !MANAGE ? '' : [
+    ...(canUse && x.state !== 'used' ? [act(bonus ? `Pay ${money(bonus)}` : 'Mark as used', 'use', 'primary', { confirm: bonus > 0 })] : []),
+    ...(x.state === 'submitted' ? [act('Keep', 'approve')] : []),
+    ...(x.state !== 'declined' ? [act('Not used', 'decline')] : []),
+  ].join('');
+  return `${big}
+    <div class="af-ctile-who" style="margin-top:10px;">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<strong>${esc(a?.display_name || '—')}</strong>${pill(label, tone)}</div>
+    <div class="af-muted">${fmtDate(x.submitted_at)}${paid}</div>
+    ${x.caption ? `<p>${esc(x.caption)}</p>` : ''}
+    ${u ? `<p class="af-muted">${ext(u, video ? 'Open the video on its own' : 'Open the photo on its own')}</p>` : ''}
+    ${dlgFoot(`${acts}${btn('Close', 'dialog-close')}`)}`;
 }
 
 // The one store this program sells through: its own pick, else the company's
@@ -2995,6 +3036,10 @@ const A = {
   'q-seed-ok': async () => { const ids = picked('seeds'); if (!ids.length) return 'Tick at least one.'; const m = await seedDecide(ids, true); qsel('seeds').clear(); return m; },
   'q-seed-no': async () => { const ids = picked('seeds'); if (!ids.length) return 'Tick at least one.'; const m = await seedDecide(ids, false); qsel('seeds').clear(); return m; },
   'content-filter': ({ f }) => { S.contentFilter = f; qsel('content').clear(); render(); return null; },
+  'content-open': ({ id }) => { S.contentOpen = id; render(); return null; },
+  // One post's own decision. Clearing what is open first means the reload the
+  // dispatcher runs draws the wall, not a dialog over a post that just moved.
+  'content-decide': async ({ id, k }) => { const m = await contentDecide([id], k); S.contentOpen = null; return m; },
   'q-content-use': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'use'); qsel(q).clear(); return m; },
   'q-content-ok': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'approve'); qsel(q).clear(); return m; },
   'q-content-no': async ({ q }) => { const ids = picked(q); const m = await contentDecide(ids, 'decline'); qsel(q).clear(); return m; },
