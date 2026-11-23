@@ -38,6 +38,7 @@
  *   AFFILIATE_UI_MUTATION=seedpush    a launch's products cannot be asked for at the seeding price
  *   AFFILIATE_UI_MUTATION=seedstick   a product asked for keeps offering the button
  *   AFFILIATE_UI_MUTATION=feedhtml    a shared item's title is rendered as HTML in the portal
+ *   AFFILIATE_UI_MUTATION=badgenone   a creator who never bought is badged a past customer too
  *   AFFILIATE_UI_MUTATION=calpast     the calendar keeps drops whose date has passed
  *   AFFILIATE_UI_MUTATION=adnoimage   sharing an ad does not publish its picture for affiliates
  *   AFFILIATE_UI_MUTATION=pendingactive a code for the AI to create is saved as already live
@@ -152,6 +153,7 @@ const MUTATIONS = {
   membergate: ['/affiliates/studio.js', 'const MANAGE = canManage === true;', 'const MANAGE = true;'],
   exportlocal: ['/affiliates/studio.js', 'const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));', "const csv = toCsv(PAYOUT_HEADER, payoutRows(S.d.payouts.filter((x) => x.status === 'approved'), S.d.affById));"],
   exportctx: ['/affiliates/studio.js', 'download(`payouts-${slug}-${today()}.csv`, csv);', 'download(`payouts-${prog().slug}-${today()}.csv`, csv);'],
+  badgenone: ['/affiliates/studio-core.js', "  if (!['possible', 'likely', 'confirmed'].includes(st)) return null;", '  if (false) return null;'],
   feedhtml: ['/affiliates/portal.html', '<div class="af-cal-title">${esc(i.title)}</div>', '<div class="af-cal-title">${i.title}</div>'],
   calpast: ['/affiliates/portal.html', "    .filter((i) => !today || day(i.event_on) >= today)\n", ''],
   logoignored: ['/affiliates/public.js', "if (typeof logo === 'string' && LOGO_RE.test(logo)) {", 'if (false) {'],
@@ -286,7 +288,8 @@ const tables = {
   affiliate_program_health_v: [{ company_entity_id: CO, program_id: PROG, prospects_new: 1, prospects_approved: 0, outreach_approved: 0, outreach_exported: 0, outreach_marked_sent: 0, affiliates_active: 1, codes_active: 1, codes_never_seen: 0, attributions_earning: 1, attributions_ambiguous: 1 }],
   affiliate_prospect_sources: [{ id: 's1', company_entity_id: CO, program_id: PROG, kind: 'serp_query', query: 'trail running youtube', location_code: 2840, language_code: 'en', enabled: true, max_results: 30, created_at: now }],
   affiliate_discovery_runs: [{ id: 'r1', company_entity_id: CO, program_id: PROG, query: 'trail running youtube', started_at: now, dry_run: false, status: 'ok', results_returned: 30, profiles_recognized: 4, prospects_new: 1, emails_found: 0, suppressed_skipped: 0, cost_usd: 0.002 }],
-  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09', creator_profile: { version: 1, engagement: { avg_views: 4000, rate: 0.02, sample: 12, source: 'youtube_api' }, topics: { value: ['Running'] }, brand_mentions: { domains: [{ domain: 'shoe.example', videos: 3 }], sponsored_videos: 2, sample: 12 }, other_profiles: [{ platform: 'instagram', profile_url: 'https://www.instagram.com/samruns' }] } }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new' }],
+  affiliate_prospects: [{ id: 'p1', company_entity_id: CO, program_id: PROG, display_name: 'Sam Runs', platform: 'youtube', handle: '@samruns', profile_url: 'https://www.youtube.com/@samruns', contact_email: null, source: 'serp', source_url: 'https://www.youtube.com/@samruns', collected_at: now, evidence: { title: 'Sam Runs', snippet: 'Trail running every week', query: 'trail running youtube', followers: 12400, followers_source_url: 'https://www.youtube.com/@samruns', followers_as_of: '2026-11-09', profile_image_url: 'https://photos.invalid/samruns.png', profile_image_source_url: 'https://www.youtube.com/@samruns', profile_image_as_of: '2026-11-09', creator_profile: { version: 1, engagement: { avg_views: 4000, rate: 0.02, sample: 12, source: 'youtube_api' }, topics: { value: ['Running'] }, brand_mentions: { domains: [{ domain: 'shoe.example', videos: 3 }], sponsored_videos: 2, sample: 12 }, other_profiles: [{ platform: 'instagram', profile_url: 'https://www.instagram.com/samruns' }] } }, confidence: 0.45, confidence_basis: 'recognised youtube profile; niche words in title', status: 'new', customer_match_status: 'likely', customer_match_score: 0.8, customer_match_basis: 'exact name match, and their handle carries the same name', customer_order_count: 2, customer_last_order_at: '2026-07-20T18:00:00Z', customer_lifetime_spend: 321, customer_matched_at: now },
+    { id: 'p-nobuy', company_entity_id: CO, program_id: PROG, display_name: 'Never Bought', platform: 'tiktok', handle: '@neverbought', profile_url: 'https://www.tiktok.com/@neverbought', contact_email: null, source: 'serp', collected_at: now, evidence: { profile_image_url: 'https://photos.invalid/neverbought.png', profile_image_source_url: 'https://www.tiktok.com/@neverbought', profile_image_as_of: '2026-11-09' }, status: 'new', customer_match_status: 'none', customer_matched_at: now }],
   affiliate_suppressions: [],
   affiliate_outreach_drafts: [], affiliate_outreach_batches: [],
   affiliates: [{ id: AFF, company_entity_id: CO, program_id: PROG, display_name: 'Pat Trails', contact_email: 'pat@creator.invalid', status: 'active', terms_version_accepted: 2, terms_accepted_at: now, created_at: now, from_prospect_id: 'p1' }],
@@ -492,6 +495,15 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await toTiles(page);
     const pr = await text(page, '#prospectsBody');
     R.has(pr, 'Trail running every week', 'a prospect shows the search result it came from');
+    // The past-customer badge (20261123210000): one pill, and only on a
+    // creator the database matched. The numbers are the hover, not the row.
+    R.has(pr, 'Past customer', 'a creator who has already bought is badged');
+    R.eq((await page.$$('#prospectsBody .bcn-pill[title*="Check before you write to them"]')).length, 1,
+      'exactly one badge for the two creators on the list, so a creator who never bought carries none');
+    R.has(await page.getAttribute('#prospectsBody .bcn-pill[title*="Check before you write to them"]', 'title'),
+      '2 orders', 'the order count is on hover only');
+    R.has(await page.getAttribute('#prospectsBody .bcn-pill[title*="Check before you write to them"]', 'title'),
+      'last 2026-07-20', 'with the last order day');
     // Creator photo: shown over the initials when research found one; a photo
     // that no longer loads is removed so the initials show again.
     const photoLoaded = (sel) => page.waitForFunction((q) => { const i = document.querySelector(q); return !!i && i.complete && i.naturalWidth > 0; }, sel, { timeout: 5000 }).then(() => true, () => false);
@@ -536,6 +548,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('List shows creators as a table', !!(await page.$('#prospectsBody table.bcn-table')) && !(await page.$('#prospectsBody .af-item--catalog')));
     R.ok('with their photo in each row', await photoLoaded('#prospectsBody table.bcn-table .af-list-thumb img.af-avatar-photo'));
     R.ok('and the select boxes and actions', !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-pick"]')) && !!(await page.$('#prospectsBody table.bcn-table [data-act="prospect-status"]')));
+    R.ok('the past-customer badge is in the list view too, beside the status', !!(await page.$('#prospectsBody table.bcn-table .bcn-pill[title*="Check before you write to them"]')));
     R.ok('affiliates follow the same choice, photo included', !!(await page.$('#affiliatesBody table.bcn-table .af-list-thumb')) && await photoLoaded('#affiliatesBody table.bcn-table img.af-avatar-photo[src="https://photos.invalid/samruns.png"]'));
     R.eq(await page.evaluate(() => localStorage.getItem('silo.affiliates.view')), 'list', 'the choice is remembered');
     await page.evaluate(() => localStorage.setItem('silo.affiliates.view', 'tiles'));

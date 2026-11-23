@@ -7,7 +7,7 @@ import {
   formatMoney, minorUnits, parseMajorToMinor, describeCommission, basisLabel, BASIS_LABELS, validateProgram, slugify,
   toCsv, IMPORT_TEMPLATE, fillTemplate, outreachTemplate, templateRow, prospectEditRow, asWebUrl, liveCodeCount, affiliatePhotoUrl, OUTREACH_HEADER, outreachRows, sha256Hex, PAYOUT_HEADER, payoutRows,
   linkUrl, affiliateLink, storeLinkFor, applyUrl, stageLabels, safeHref, SEARCH_COUNTRIES, SEARCH_LANGUAGES, countryName, languageName, friendlySearchError,
-  parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel,
+  parseCsv, chunk, runKindLabel, followersFrom, creatorStats, prospectPhotoUrl, sourceLabel, pastCustomerBadge,
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
@@ -717,6 +717,12 @@ const statusPill = (s) => pill(s, STATUS_TONE[s] || '');
 // unchanged; this is what it is called on screen.
 const PROSPECT_LABEL = { new: 'to review', qualified: 'to review', approved: 'shortlisted', rejected: 'not a fit', invited: 'invited', signed_up: 'signed up', suppressed: 'do not contact' };
 const prospectPill = (s) => pill(PROSPECT_LABEL[s] || s, STATUS_TONE[s] || '');
+// Already bought from this company. The badge is the whole feature: no queue,
+// no hold on an outreach draft (Blake 2026-11-23).
+const customerPill = (x) => {
+  const b = pastCustomerBadge(x, prog()?.currency);
+  return b ? `<span class="bcn-pill${b.tone ? ` bcn-pill--${b.tone}` : ''}" title="${esc(b.title)}">${esc(b.label)}</span>` : '';
+};
 // Secondary tools stay one click away, closed by default, so each tab shows
 // only what most people need.
 // Nothing is folded away (Blake, 2026-11-13: "i don't want hiding optional
@@ -1553,7 +1559,7 @@ function renderProspects() {
           <div class="af-catalog-sub">${esc(sub)}</div>
           <div class="af-catalog-meta">${meta}</div>
         </div>
-        ${prospectPill(x.status)}
+        ${prospectPill(x.status)}${customerPill(x)}
       </header>
       <p class="af-catalog-summary-p">${esc(evidenceSummary(x, 120))}</p>
       <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
@@ -1588,7 +1594,7 @@ function renderProspects() {
           { h: 'Followers', num: true, f: (x) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
           { h: 'Engagement', num: true, f: (x) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
           { left: true, h: 'Email', f: (x) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', f: (x) => prospectPill(x.status) },
+          { left: true, h: 'Status', f: (x) => `${prospectPill(x.status)}${customerPill(x)}` },
           { h: '', f: (x) => actions(x) },
         ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}

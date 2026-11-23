@@ -19886,8 +19886,12 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261121230000: one person, one PayPal address, one email -- triggers, so
 -- every write path including the deployed ones is covered.
 \i migrations/20261121230000_affiliate_one_person_one_paypal.sql
--- 20261123200000: two cards (or bank accounts) may feed ONE QuickBooks
+-- 20261123210000: two cards (or bank accounts) may feed ONE QuickBooks
 -- balancing account. The same card mapped twice is still refused, now by
 -- configure_plaid_account, which can see the Plaid account's identity.
-\i migrations/20261123200000_plaid_multiple_feeds_per_qbo_account.sql
+\i migrations/20261123210000_plaid_multiple_feeds_per_qbo_account.sql
+-- 20261123210000: the past-customer badge -- a precomputed customer lookup per
+-- company, and the matcher that badges a program's PROSPECTS against it (never
+-- a scan of the customer base). Nightly job keeps the lookup current.
+\i migrations/20261123210000_affiliate_past_customer_badge.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

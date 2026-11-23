@@ -9391,6 +9391,58 @@ select 'Affiliate Studio' as check_name,
     else 'ok'
   end as status;
 
+-- The past-customer badge (20261123210000): a discovered creator who has
+-- already bought is badged on the prospect row. What must stay true: the
+-- customer lookup exists with its indexes and RLS, no browser role can run
+-- either function or write the lookup, and the orders-side index carries the
+-- SAME customer-key expression the refresh uses -- if those two drift the
+-- planner stops using it and the refresh goes back to scanning the orders
+-- table, which is the 20261112220000 failure all over again.
+select 'Affiliate past-customer badge' as check_name,
+  case
+    when to_regclass('public.company_customer_profiles') is null
+      or to_regclass('public.company_customer_profile_state') is null
+      or to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)') is null
+      or to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_prospects'
+                        and column_name = 'customer_match_status')
+      then 'MISSING — run 20261123210000_affiliate_past_customer_badge.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.company_customer_profiles'::regclass)
+      or not (select relrowsecurity from pg_class where oid = 'public.company_customer_profile_state'::regclass)
+      then 'CRITICAL — RLS is off on the customer lookup'
+    when has_table_privilege('anon', 'public.company_customer_profiles', 'select')
+      then 'CRITICAL — anon can read the customer lookup'
+    when has_table_privilege('authenticated', 'public.company_customer_profiles', 'insert')
+      or has_table_privilege('authenticated', 'public.company_customer_profiles', 'update')
+      or has_table_privilege('authenticated', 'public.company_customer_profiles', 'delete')
+      then 'CRITICAL — a client role can write the customer lookup'
+    when has_function_privilege('authenticated', 'public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)', 'execute')
+      or has_function_privilege('anon', 'public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_match_prospect_customers(uuid,integer,interval)', 'execute')
+      or has_function_privilege('anon', 'public.affiliate_match_prospect_customers(uuid,integer,interval)', 'execute')
+      then 'CRITICAL — a browser role can run the customer lookup or the prospect matcher'
+    when not exists (select 1 from pg_class c where c.relname = 'shopify_orders_co_customer_key_idx')
+      then 'MISSING — the orders customer-key index (the refresh scans every order without it)'
+    when (select pg_get_indexdef(c.oid) from pg_class c where c.relname = 'shopify_orders_co_customer_key_idx')
+           not like '%COALESCE(NULLIF(lower(btrim(customer_email))%cid:%customer_id%'
+      then 'CRITICAL — the orders index no longer carries the refresh''s customer-key expression'
+    when pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure)
+           not like '%cid:%customer_id%'
+      then 'CRITICAL — the refresh no longer uses the indexed customer key'
+    -- Measured on production 2026-11-23: as one aggregate over the company's
+    -- orders this plans a seq scan (727,177 rows, 7.32s cold) against the 8s
+    -- timeout every caller shares. The per-customer LATERAL is what keeps the
+    -- cost proportional to the window instead of the whole history.
+    when pg_get_functiondef('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'::regprocedure)
+           not like '%cross join lateral%'
+      then 'CRITICAL — the refresh aggregates the whole order history again instead of one pass per customer'
+    when pg_get_functiondef('public.affiliate_match_prospect_customers(uuid,integer,interval)'::regprocedure)
+           not like '%c.company_entity_id = v_company%'
+      then 'CRITICAL — the prospect matcher can read another company''s customers'
+    else 'ok'
+  end as status;
+
 -- outreach:send (20261110093000): a connection takes affiliate outreach a
 -- person approved and records each send; SILO sends nothing. What must stay
 -- true: only the integration role can call the two tools, their helpers

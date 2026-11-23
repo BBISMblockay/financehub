@@ -1412,10 +1412,10 @@ jobs:
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
           run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup anyprogram scopefailopen
           run MUT scripts/tests/affiliate-shopify-codes.test.mjs scnoadopt scnoscope scnotpending scguess scsweepopen scanyco scendday scnoremint scfirstpage scnonext scwrongstore scadoptany scnorename scendanyco scendfailok scendcut scendmissing scseednear scseedstate scseedpages scearnagain scearnanon
-          run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent
+          run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent nomatch matchfatal matchchained matchrebuild nosplit
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge ytcompany ytavgrate ythiddenzero ytoverwrite ytblank ytstale nocache knownkept knownbrief knownallco photoclobber ytclobber rpcfallback ytthumb ytnoleads ytanyplat leanoff leanalways
-          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash
+          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash badgeall
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
           run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter noauthflag
       # Both suites below sat in this contract check's KNOWN_UNWIRED list until
@@ -2826,6 +2826,22 @@ jobs:
           set -u
           for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail mailedonly boundaddress photohttp nolink nomatchindex connread payoutsecret sendinflight sendunknown unclaimedpaid terminalrewrite sendtenant sendgrant voidinflight voidlock sandboxpaid sandboxblock recordlock pausedclaim anylaunch anyorders autoshareflag autosharepast autosharecrossco autoshareagain autoshareproduct autosharefails autosharenofollow autosharefollowany seedgate seedcountsseed seedrefund seedanyproduct seedotheraff seedtwice seedwholeorder seedprorate seedrefunded seedpaystored seednullrefund seedmixedguess addproggate addprogco termsfilebump termsfilegate portalrevoke sendrecheck exportrecheck retryrecheck anyagerate anyageup anyageactive orderhold orderapproved financeopen anyageunknown scopeopen scopewrite scopeexec scopenull scopeprogco scopeonegrant audall audfeed audpush audprog scoperpc scopeattach audrpcgate audrpcprog audrpcnodelete addprogsrc audrpcscopedel audrpcscopenamed ppmirror ppmirrorkey ppmirrorprovider emailfollow emailrevoke; do
             if AFFILIATE_DB_MUTATION="$m" node scripts/tests/affiliate-studio-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # The past-customer badge (20261123210000) on real PostgreSQL: the
+      # customer lookup's totals, Blake's own scores, a short order history
+      # capping them, tenant isolation, and the production verify block.
+      - name: Affiliate past-customer badge database (real PostgreSQL)
+        run: node scripts/tests/affiliate-past-customer-database.test.mjs
+      - name: The past-customer badge guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred anonread clientwrite wholescan; do
+            if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
