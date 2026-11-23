@@ -530,4 +530,29 @@ await check('G1 the production verify block says ok against this schema', async 
   assert.equal(r.status, 'ok', `verify said: ${r.status}`);
 });
 
+await check('G2 the verify block reports MISSING, not an error, before the migration is applied', async () => {
+  // The state the drift check reports on: the badge's own migrations applied,
+  // the handle follow-up not yet. A function named in a CASE arm -- as a call
+  // or as a '...'::regprocedure cast, which is IMMUTABLE and folded before any
+  // arm runs -- is resolved too early for the MISSING arm to answer, and the
+  // whole file errors out instead.
+  const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const start = verify.indexOf("select 'Affiliate past-customer badge' as check_name,");
+  const block = verify.slice(start, verify.indexOf('end as status;', start) + 'end as status;'.length);
+  await db.exec('drop function public.silo_handle_name_key(text)');
+  try {
+    const r = await one(block);
+    assert.match(r.status, /^MISSING/, `it must say what to run, got: ${r.status}`);
+  } finally {
+    const mig = await readFile(new URL('../../supabase/migrations/20261124010000_affiliate_handle_name_match.sql', import.meta.url), 'utf8');
+    const from = mig.indexOf('create or replace function public.silo_handle_name_key');
+    // ...with its revokes, which Supabase's default privileges undo otherwise.
+    const end = mig.indexOf('grant execute on function public.silo_handle_name_key(text) to service_role;');
+    await db.exec(mig.slice(from, end + 'grant execute on function public.silo_handle_name_key(text) to service_role;'.length));
+  }
+  // ...and with it back, the block is ok again.
+  const r = await one(block);
+  assert.equal(r.status, 'ok');
+});
+
 console.log(`ok ${checks.length} checks:\n- ${checks.join('\n- ')}`);
