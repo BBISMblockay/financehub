@@ -303,6 +303,8 @@ const files = {
   content: '20261117050000_affiliate_content.sql',
   // Staff scoped to one program, and a share named for some creators (20261121210000).
   scope: '20261121210000_affiliate_program_scoped_access.sql',
+  // One person, one payout address, one email (20261121230000).
+  oneperson: '20261121230000_affiliate_one_person_one_paypal.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -340,6 +342,11 @@ switch (MUT) {
   case 'audrpcnodelete': mutate('scope', "  delete from public.affiliate_feed_audience\n   where feed_item_id = p_item and company_entity_id = v_company;", ''); break;
   case 'addprogsrc': mutate('scope', "  if not public.can_manage_affiliate_program(v_src.program_id) then\n    raise exception 'affiliate_add_to_program: not allowed' using errcode = '42501';\n  end if;", ''); break;
   case 'audrpcscopedel': mutate('scope', "     and (v_scope is null or affiliate_id = any (v_scope));", ";"); break;
+  case 'ppmirror': mutate('oneperson', "create trigger affiliate_payout_accounts_mirror\n  after insert or update of payout_email on public.affiliate_payout_accounts\n  for each row execute function public.affiliate_payout_account_mirror();", "select 1;"); break;
+  case 'ppmirrorprovider': mutate('oneperson', "  if new.provider <> 'paypal' then\n    return null;\n  end if;", ''); break;
+  case 'ppmirrorkey': mutate('oneperson', "     and public.affiliate_contact_key(a.contact_email) = v_key\n  on conflict", "     and true\n  on conflict"); break;
+  case 'emailfollow': mutate('oneperson', "  update public.affiliates a\n     set contact_email = new.contact_email\n   where a.company_entity_id = new.company_entity_id\n     and a.id <> new.id\n     and public.affiliate_contact_key(a.contact_email) = v_old;", ''); break;
+  case 'emailrevoke': mutate('oneperson', "  update public.affiliate_access_tokens t\n     set revoked_at = now()\n   where t.company_entity_id = new.company_entity_id\n     and t.mailed_to_hash = v_old\n     and t.purpose = 'portal'\n     and t.revoked_at is null;", ''); break;
   case 'audrpcscopenamed': mutate('scope', "  if v_scope is not null and exists (\n    select 1 from unnest(v_want) as w(id) where not (w.id = any (v_scope))) then\n    raise exception 'affiliate_feed_set_audience: a creator named was not among those offered' using errcode = '22023';\n  end if;", ''); break;
   case 'audpush': mutate('scope', "                     and public.affiliate_feed_item_for(g.id, v_tok.affiliate_id)) end)", '                     ) end)'); break;
   case 'audprog': mutate('scope', "                        and a.program_id = f.program_id\n", ''); break;
@@ -634,7 +641,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope', 'oneperson']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -2949,13 +2956,93 @@ await check('P17 a save only replaces within the creators it was shown', async (
   await asSuper();
 });
 
+await check('Q1 one person has one PayPal address across their programs', async () => {
+  // Blake, 2026-11-21: "No one PayPal per affiliate" -- the address belongs to
+  // the person, not to the membership.
+  await asSuper();
+  const other = await seedProgram(U.ownerA, A, 'person-second');
+  await as(U.ownerA, A);
+  await db.query('select public.affiliate_add_to_program($1,$2)', [affPat, other]);
+  const twin = (await one('select id from affiliates where company_entity_id = $1 and program_id = $2 and lower(contact_email) = lower((select contact_email from affiliates where id = $3))',
+    [A, other, affPat])).id;
+  await asSuper();
+  // An address given in one program reaches the other, even where that one had
+  // no row at all.
+  await db.query('delete from affiliate_payout_accounts where affiliate_id in ($1,$2)', [affPat, twin]);
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email)
+     values ($1,$2,'paypal','pat@paypal.test')`, [A, affPat]);
+  assert.deepEqual((await all('select affiliate_id, payout_email from affiliate_payout_accounts where affiliate_id in ($1,$2) order by affiliate_id', [affPat, twin]))
+    .map((r) => r.payout_email), ['pat@paypal.test', 'pat@paypal.test'].slice(0, 2), 'both memberships hold the one address');
+  assert.equal(Number((await one('select count(*)::int as n from affiliate_payout_accounts where affiliate_id = $1', [twin])).n), 1,
+    'a row was written where there was none, so the other program can pay them');
+  // And a change on either side moves the person, not one program.
+  await db.query(`update affiliate_payout_accounts set payout_email = 'pat.new@paypal.test' where affiliate_id = $1`, [twin]);
+  assert.deepEqual((await all('select payout_email from affiliate_payout_accounts where affiliate_id in ($1,$2)', [affPat, twin]))
+    .map((r) => r.payout_email), ['pat.new@paypal.test', 'pat.new@paypal.test'], 'an edit on one side moves both');
+  // A Stripe Express row is per affiliate by construction and is left alone.
+  await db.query(`insert into affiliate_payout_accounts(company_entity_id, affiliate_id, provider, payout_email)
+     values ($1,$2,'stripe_express','pat.stripe@paypal.test')`, [A, affPat]);
+  assert.equal(Number((await one(`select count(*)::int as n from affiliate_payout_accounts
+    where affiliate_id = $1 and provider = 'stripe_express'`, [twin])).n), 0,
+    'a Stripe row is not copied across: that account belongs to the one membership');
+  await db.query(`delete from affiliate_payout_accounts where provider = 'stripe_express' and affiliate_id = $1`, [affPat]);
+  // Somebody else is not swept up in it.
+  assert.equal(Number((await one(`select count(*)::int as n from affiliate_payout_accounts pa
+     join affiliates a on a.id = pa.affiliate_id
+    where a.company_entity_id = $1 and lower(a.contact_email) <> lower((select contact_email from affiliates where id = $2))
+      and pa.payout_email like 'pat%@paypal.test'`, [A, affPat])).n), 0,
+    'and nobody else is paid at their address');
+});
+
+await check('Q2 changing a creator\'s address moves the whole person and ends the link mailed to the old one', async () => {
+  await asSuper();
+  const other = (await one(`select id from affiliate_programs where company_entity_id = $1 and slug = 'person-second'`, [A])).id;
+  const twin = (await one('select id from affiliates where company_entity_id = $1 and program_id = $2 and lower(contact_email) = lower((select contact_email from affiliates where id = $3))',
+    [A, other, affPat])).id;
+  const was = (await one('select contact_email from affiliates where id = $1', [affPat])).contact_email;
+  await db.query(`select public.affiliate_issue_access_token($1,$2,'portal','hash-person-live',now() + interval '30 days',$3)`, [A, progA, affPat]);
+  await db.query('update affiliate_access_tokens set mailed_to_hash = public.affiliate_contact_key($1) where token_hash = $2', [was, 'hash-person-live']);
+  // The portal link works while the address is still theirs.
+  assert.ok(Number((await one(`select count(*)::int as n from public.affiliate_portal_brands('hash-person-live')`)).n) >= 2,
+    'and the brand switcher shows both of their programs');
+  await as(U.ownerA, A);
+  await db.query(`update affiliates set contact_email = 'pat.moved@creator.test' where id = $1`, [affPat]);
+  await asSuper();
+  assert.equal((await one('select contact_email from affiliates where id = $1', [twin])).contact_email, 'pat.moved@creator.test',
+    'their other membership follows, or the brand switcher splits one person in two');
+  assert.ok((await one('select revoked_at from affiliate_access_tokens where token_hash = $1', ['hash-person-live'])).revoked_at,
+    'and the link mailed to the old address is revoked, not left to fail silently');
+  assert.equal(Number((await one(`select count(*)::int as n from public.affiliate_portal_brands('hash-person-live')`)).n), 0,
+    'which is what it already did: that check is the authorization and is untouched');
+  // Put the address back for anything after this.
+  await as(U.ownerA, A);
+  await db.query('update affiliates set contact_email = $2 where id = $1', [affPat, was]);
+  await asSuper();
+});
+
+await check('Q3 a person\'s programs are listed only as far as the caller may see them', async () => {
+  await as(U.ownerA, A);
+  const mine = await all('select program_id, program_name from public.affiliate_person_programs($1) order by program_name', [affPat]);
+  assert.ok(mine.length >= 2, 'the owner sees every program this one person is in');
+  // A manager given one program sees the one membership they were given: RLS
+  // answers, so this is isolation rather than an omission.
+  await as(U.memberA, A);
+  const scoped = await all('select program_id from public.affiliate_person_programs($1)', [affPat]);
+  assert.deepEqual(scoped.map((r) => r.program_id), [progA], 'a scoped manager sees only their own program\'s membership');
+  await as(U.ownerB, B);
+  assert.deepEqual(await all('select program_id from public.affiliate_person_programs($1)', [affPat]), [],
+    'another company sees nothing at all');
+  await asSuper();
+  assert.equal((await one(`select has_function_privilege('anon','public.affiliate_person_programs(uuid)','execute') as x`)).x, false);
+});
+
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope', 'Affiliate one person']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

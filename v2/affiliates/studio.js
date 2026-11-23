@@ -917,8 +917,23 @@ function addCreatorsBody() {
 function affToolBody(a, k) {
   const d = S.d; const p = prog();
   if (k === 'program') {
+    // Which programs this person is ALREADY in. Read on demand, as far as this
+    // account may see: a manager given one program sees the one membership
+    // they were given, which is the isolation, not an omission
+    // (20261121230000). Null means it could not be read, and then the picker
+    // offers every program as it did before -- adding them to one they are in
+    // is answered with "Already in ..." rather than a second membership.
+    const inAlready = S.personProg && S.personProg.id === a.id ? S.personProg.rows : null;
+    const inIds = new Set((inAlready || []).map((x) => x.program_id));
+    const canAdd = otherPrograms().filter((x) => !inIds.has(x.id));
+    const alsoIn = (inAlready || []).filter((x) => x.program_id !== S.programId)
+      .map((x) => x.program_name).filter(Boolean);
+    if (inAlready && !canAdd.length) {
+      return `<p class="af-muted">${esc(a.display_name || 'They')} is already in every active program.</p>${dlgFoot(btn('Close', 'dialog-close'))}`;
+    }
     return `<input type="hidden" id="apAff" value="${esc(a.id)}" /><div class="af-grid--settings">
-      ${field('Program', `<select class="bcn-field" id="apProg">${otherPrograms().map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>`)}
+      ${alsoIn.length ? `<p class="af-muted af-span-full">Also in ${esc(alsoIn.join(', '))}. One person, one payout address: their PayPal is the same in every program.</p>` : ''}
+      ${field('Program', `<select class="bcn-field" id="apProg">${canAdd.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>`)}
       ${field('Their rate', seg('apKind', [['', "Program's rate"], ['percent_of_net', '% of order'], ['fixed_per_order', 'Fixed per order']], '', ''))}
       ${field('%', input('apPct', 'type="number" min="0" max="100" step="0.5" placeholder="10"'))}
       ${field('Per order', input('apFixed', 'type="number" min="0" step="0.01" placeholder="5.00"'))}
@@ -983,11 +998,14 @@ function dialogSpec() {
     const k = S.affTool.k;
     const title = k === 'program' ? `Add ${a.display_name} to another program`
       : k === 'link' ? `Link for ${a.display_name}` : `Code for ${a.display_name}`;
-    return { key: `tool:${a.id}:${k}`, title, body: affToolBody(a, k) };
+    // The key moves when their other memberships arrive, or the dialog would
+    // keep the body it drew before the read came back.
+    const loaded = k === 'program' ? (S.personProg && S.personProg.id === a.id && S.personProg.rows ? `p${S.personProg.rows.length}` : 'p?') : '';
+    return { key: `tool:${a.id}:${k}:${loaded}`, title, body: affToolBody(a, k) };
   }
   return null;
 }
-function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; }
+function closeDialogState() { S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -3130,7 +3148,22 @@ const A = {
     await updateRows('affiliate_prospects', { status: 'suppressed', reviewed_by: me.id, reviewed_at: new Date().toISOString() }, { id });
     return 'Added to the do-not-contact list.';
   },
-  'aff-tool': ({ id, k }) => { S.affTool = { id, k }; render(); scrollWorkflowTo('affiliatesBody'); return null; },
+  'aff-tool': async ({ id, k }) => {
+    S.affTool = { id, k };
+    // Their other memberships, for the add-to-program dialog only. Fail-soft:
+    // null is "could not read", and the dialog then behaves as it did before.
+    if (k === 'program') {
+      S.personProg = { id, rows: null };
+      render();
+      try {
+        const { data, error } = await db.rpc('affiliate_person_programs', { p_affiliate: id });
+        S.personProg = { id, rows: error ? null : (data || []) };
+      } catch (_) { S.personProg = { id, rows: null }; }
+    }
+    render();
+    scrollWorkflowTo('affiliatesBody');
+    return null;
+  },
   'aff-tool-close': () => { S.affTool = null; render(); return null; },
   'dialog-close': () => { closeDialogState(); render(); return null; },
   // Joined once, added anywhere: no second signup, their own rate if set.
