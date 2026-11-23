@@ -3978,6 +3978,35 @@ portal can say why an order's earnings are pending, approved or paid. Apply only
 and payout accounts readable only by `can_manage_affiliate_programs()` or `can_approve_affiliate_commissions()`
 (they were readable by every member of the company). Studio shows a viewer the program without the money. Apply only.
 
+### Affiliate past-customer badge — 2026-11-23
+
+`20261123200000_affiliate_past_customer_badge.sql` badges a discovered creator who has already bought.
+
+Two pieces, both generic:
+
+* `company_customer_profiles` (+ `company_customer_profile_state`) — a precomputed customer lookup per company, one
+  row per customer, with lowercased name and email, order count, first/last order and lifetime spend, built from
+  `shopify_orders` by `refresh_company_customer_profiles(company, since, until, recent_months)`. Reads are scoped to
+  the active company; no client role can write it, and neither function is callable from a browser. The refresh takes
+  a WINDOW of order dates because every caller shares the 8s statement timeout, and recomputes each touched customer's
+  totals from their whole history, so a narrow window still stores a correct lifetime figure. It needs
+  `shopify_orders_co_customer_key_idx`, whose key expression must stay identical to the function's (verify checks
+  both sides).
+* `affiliate_match_prospect_customers(program, limit, recheck_after)` — matches that program's PROSPECTS against the
+  lookup and writes `customer_match_status` (`unknown`/`none`/`possible`/`likely`/`confirmed`/`not_matchable`),
+  score, basis, matched customer, order count, last order and lifetime spend onto `affiliate_prospects`. The customer
+  base is never scanned looking for creators. Scores: email 0.95; exact name + the name in the handle 0.72-0.80; exact
+  name alone 0.50, reduced when customers share the name; one-token (surname- or first-name-only) names do not flag; a
+  brand or channel name is `not_matchable`. A last order over 24 months old is weakened; a company whose own order
+  history is shorter than 24 months has every score capped at 0.60 with "history incomplete" in the basis. A human
+  `confirmed` is never overwritten.
+
+Callers: the nightly `scripts/affiliate-commissions.mjs` (tops up the lookup, walks a few older windows, then
+matches) and `upsertCandidates` in `scripts/lib/affiliate-discovery-core.mjs` (after a search, AI research or an
+import). Both fail soft and neither needs a deploy to be correct — but the discovery and research functions carry
+copies of that lib, so **deploy affiliate-discovery-run and affiliate-research** for the badge to appear right after a
+search rather than on the next nightly run.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column

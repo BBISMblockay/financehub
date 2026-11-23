@@ -14,6 +14,11 @@
 //   AFFILIATE_COMMISSIONS_MUTATION=refreshsilent a failed re-read leaves the run green
 //   AFFILIATE_COMMISSIONS_MUTATION=noseed      product seeding is never swept
 //   AFFILIATE_COMMISSIONS_MUTATION=seedsilent  a failed seeding sweep leaves the run green
+//   AFFILIATE_COMMISSIONS_MUTATION=nomatch     prospects are never badged as past customers
+//   AFFILIATE_COMMISSIONS_MUTATION=matchfatal  a failed past-customer match fails the commissions run
+//   AFFILIATE_COMMISSIONS_MUTATION=matchchained the badge runs on every chained sync, not nightly only
+//   AFFILIATE_COMMISSIONS_MUTATION=matchrebuild  the customer lookup is rebuilt once per program, not once per company
+//   AFFILIATE_COMMISSIONS_MUTATION=nosplit       a window that times out is never halved and retried
 // Run: node scripts/tests/affiliate-commissions.test.mjs
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -35,6 +40,11 @@ const muts = {
   refreshsilent: ["          if (!missing) throw new Error(`refresh credited: ${rr.error.message}`);", "          if (!missing) result.refresh_error = rr.error.message;"],
   noseed: ["      const r3 = await supabase.rpc('affiliate_seed_sweep', { p_program: p.id });", '      const r3 = { data: null };'],
   seedsilent: ["        if (!missing) { status = 'error'; summary.failed += 1; result.seeding_error = r3.error.message; }", '        if (!missing) { result.seeding_error = r3.error.message; }'],
+  nomatch: ['          result.customer_match = await refreshAndMatchCustomers({ supabase, program: p, now });', '          result.customer_match = null;'],
+  matchfatal: ['        } catch (err) {\n          result.customer_match = { error: String(err?.message || err) };', '        } catch (err) {\n          status = \'error\'; summary.failed += 1;\n          result.customer_match = { error: String(err?.message || err) };'],
+  matchchained: ["      if (source === 'nightly') {\n        try {\n          result.customer_match", '      if (true) {\n        try {\n          result.customer_match'],
+  matchrebuild: ['            refreshLookup: !lookupDone.has(p.company_entity_id),', '            refreshLookup: true,'],
+  nosplit: ['    if (depth >= CUSTOMER_WINDOW_SPLITS || span <= 86400000) throw new Error(`customer lookup: ${r.error.message}`);', '    throw new Error(`customer lookup: ${r.error.message}`);'],
 };
 // Mutations applied to the orchestrator instead of the core.
 const syncMuts = {
@@ -57,7 +67,7 @@ if (MUT && muts[MUT]) {
   await writeFile(p, code.split(m[0]).join(m[1]));
   mod = await import(pathToFileURL(p).href);
 } else mod = await import(SRC);
-const { runCommissions, LOOKBACK_DAYS, CHAINED_LOOKBACK_DAYS } = mod;
+const { runCommissions, LOOKBACK_DAYS, CHAINED_LOOKBACK_DAYS, CUSTOMER_WINDOW_DAYS } = mod;
 
 let passed = 0;
 async function test(name, fn) {
@@ -65,17 +75,26 @@ async function test(name, fn) {
   catch (e) { console.error(`FAILED: ${name}\n`, e); process.exit(1); }
 }
 
-function fake({ fail = null, seedFail = null, refreshFail = null } = {}) {
+function fake({ fail = null, seedFail = null, refreshFail = null, matchFail = null, programs = null, slowWindow = null } = {}) {
   const log = [];
   return {
     log,
     from: (t) => {
       const b = { _f: {}, select() { return b; }, eq(k, v) { b._f[k] = v; return b; },
         in(k, v) { b._f[`in:${k}`] = v; return b; },
+        not() { return b; }, order() { return b; }, limit() { return b; },
+        // The past-customer badge reads the lookup's coverage and the company's
+        // oldest order before it walks a backfill window.
+        maybeSingle: async () => {
+          log.push({ select: t, f: b._f, single: true });
+          if (t === 'company_customer_profile_state') return { data: { covered_from: '2026-11-01T00:00:00Z' }, error: null };
+          if (t === 'shopify_orders') return { data: { shopify_created_at: '2026-10-01T00:00:00Z' }, error: null };
+          return { data: null, error: null };
+        },
         insert: async (row) => { log.push({ insert: t, row }); return { error: null }; },
         then(res) {
           log.push({ select: t, f: b._f });
-          const all = [{ id: 'p1', company_entity_id: 'c1' }, { id: 'p2', company_entity_id: 'c2' }];
+          const all = programs || [{ id: 'p1', company_entity_id: 'c1' }, { id: 'p2', company_entity_id: 'c2' }];
           const only = b._f['in:company_entity_id'];
           res({ data: only ? all.filter((p) => only.includes(p.company_entity_id)) : all, error: null });
         } };
@@ -90,6 +109,16 @@ function fake({ fail = null, seedFail = null, refreshFail = null } = {}) {
       if (refreshFail === 'missing' && name === 'affiliate_refresh_credited_orders') return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.affiliate_refresh_credited_orders(p_program) in the schema cache' } };
       if (refreshFail === 'boom' && name === 'affiliate_refresh_credited_orders') return { data: null, error: { code: 'P0001', message: 'refresh boom' } };
       if (name === 'affiliate_refresh_credited_orders') return { data: { orders_changed: 1, entries_reduced: 1, net_amount_cents: -300 }, error: null };
+      // A statement timeout on the first (widest) window, the realistic way a
+      // busy store's week fails. Halves succeed.
+      if (slowWindow && name === 'refresh_company_customer_profiles') {
+        const span = (args.p_until ? Date.parse(args.p_until) : NOW.getTime()) - Date.parse(args.p_since);
+        if (span > slowWindow) return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+      }
+      if (matchFail === 'missing' && /customer/.test(name)) return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${name} in the schema cache` } };
+      if (matchFail === 'boom' && /customer/.test(name)) return { data: null, error: { code: 'P0001', message: 'match boom' } };
+      if (name === 'refresh_company_customer_profiles') return { data: { customers_written: 4, customers_total: 40 }, error: null };
+      if (name === 'affiliate_match_prospect_customers') return { data: { prospects_checked: 7, likely: 1, possible: 2 }, error: null };
       return { data: name === 'affiliate_accrue_commissions' ? { entries_accrued: 2, entries_reduced: 1, net_amount_cents: 500 } : { rows_written: 3 }, error: null };
     },
   };
@@ -100,7 +129,9 @@ await test('each active program: match orders, then accrue, over the last 45 day
   const sb = fake(); let swept = 0;
   const s = await runCommissions({ supabase: sb, now: () => NOW, deliverNotices: async () => { swept += 1; return { sent: 1 }; } });
   assert.equal(LOOKBACK_DAYS, 45);
-  const rpcs = sb.log.filter((x) => x.rpc);
+  // The past-customer badge is asserted on its own below; the money steps are
+  // what this order is about.
+  const rpcs = sb.log.filter((x) => x.rpc && !/customer/.test(x.rpc));
   assert.deepEqual(rpcs.map((x) => `${x.rpc}:${x.args.p_program}`), ['affiliate_resolve_attributions:p1', 'affiliate_accrue_commissions:p1', 'affiliate_refresh_credited_orders:p1', 'affiliate_seed_sweep:p1', 'affiliate_resolve_attributions:p2', 'affiliate_accrue_commissions:p2', 'affiliate_refresh_credited_orders:p2', 'affiliate_seed_sweep:p2'], 'credited orders of any age are re-read, then seeding is swept, after each program accrues');
   assert.equal(rpcs[0].args.p_from, '2026-09-26');
   assert.equal(rpcs[0].args.p_to, '2026-11-11', 'through tomorrow UTC, so every zone\'s today is in');
@@ -178,7 +209,9 @@ await test('a chained run updates only the companies it was given, over the shor
   const s = await runCommissions({ supabase: sb, now: () => NOW, onlyCompanyIds: ['c2'], lookbackDays: CHAINED_LOOKBACK_DAYS, source: 'shopify_sync' });
   assert.equal(CHAINED_LOOKBACK_DAYS, 3, 'short on purpose: it runs on every sync and shares the 8s timeout');
   assert.ok(CHAINED_LOOKBACK_DAYS < LOOKBACK_DAYS, 'the nightly sweep is the one that reverses late refunds');
-  const rpcs = sb.log.filter((x) => x.rpc);
+  // The past-customer badge is asserted on its own below; the money steps are
+  // what this order is about.
+  const rpcs = sb.log.filter((x) => x.rpc && !/customer/.test(x.rpc));
   assert.deepEqual(rpcs.map((x) => `${x.rpc}:${x.args.p_program}`), ['affiliate_resolve_attributions:p2', 'affiliate_accrue_commissions:p2', 'affiliate_seed_sweep:p2'], 'c1 has a program too and is left alone');
   assert.equal(rpcs[0].args.p_from, '2026-11-07');
   assert.equal(rpcs[0].args.p_to, '2026-11-11');
@@ -219,6 +252,77 @@ await test('the Shopify sync resolves the companies it just synced, on the short
   assert.ok(!/hadError = true/.test(chained), 'a lagging commissions run is a warning: the sales sync still imported every order');
   assert.ok(/::warning title=Affiliate commissions lagging::/.test(chained), 'and it must be visible, not silent');
   assert.ok(chained.includes('.filter((r) => !r.error && !r.skipped)'), 'a store that failed imported nothing');
+});
+
+await test('the past-customer badge: the lookup is topped up, older windows walked, then this program\'s prospects badged', async () => {
+  const sb = fake();
+  const s = await runCommissions({ supabase: sb, now: () => NOW });
+  const mine = sb.log.filter((x) => x.rpc && /customer/.test(x.rpc));
+  // One recent window, then backfill windows, then the match -- per program.
+  assert.equal(mine.filter((x) => x.rpc === 'refresh_company_customer_profiles').length >= 2, true,
+    'the recent window and at least one older one');
+  const first = mine[0];
+  assert.equal(first.rpc, 'refresh_company_customer_profiles');
+  assert.equal(first.args.p_since, new Date(NOW.getTime() - CUSTOMER_WINDOW_DAYS * 86400000).toISOString(),
+    'the nightly top-up is a short window, because every caller shares the 8s statement timeout');
+  assert.ok(CUSTOMER_WINDOW_DAYS <= 3, 'and measured short: a week of a big store\'s orders touches ~11,900 customers');
+  const matches = mine.filter((x) => x.rpc === 'affiliate_match_prospect_customers');
+  assert.deepEqual(matches.map((x) => x.args.p_program), ['p1', 'p2'], 'the prospects of each program, never a customer scan');
+  const jobs = sb.log.filter((x) => x.insert === 'sync_jobs');
+  assert.deepEqual(jobs[0].row.result.customer_match.matched, { prospects_checked: 7, likely: 1, possible: 2 },
+    'what it found is on the run record');
+  assert.equal(s.failed, 0);
+});
+
+await test('a failed badge never costs a commission, and before the migration it is simply not installed', async () => {
+  for (const [mode, expect] of [['boom', /match boom/], ['missing', null]]) {
+    const sb = fake({ matchFail: mode });
+    const s = await runCommissions({ supabase: sb, now: () => NOW });
+    const jobs = sb.log.filter((x) => x.insert === 'sync_jobs');
+    assert.deepEqual(jobs.map((x) => x.row.status), ['success', 'success'], `${mode}: the money steps stand`);
+    assert.equal(s.failed, 0, `${mode}: the run is not failed by a recruiting aid`);
+    assert.equal(s.entries_accrued, 4, `${mode}: commissions accrued as normal`);
+    if (expect) assert.match(jobs[0].row.result.customer_match.error, expect, 'the failure is recorded, not hidden');
+    else assert.equal(jobs[0].row.result.customer_match.skipped, 'not_installed');
+  }
+});
+
+await test('two programs in one company share one lookup refresh, and both get badged', async () => {
+  const sb = fake({ programs: [{ id: 'p1', company_entity_id: 'c1' }, { id: 'p1b', company_entity_id: 'c1' }] });
+  await runCommissions({ supabase: sb, now: () => NOW });
+  const refreshes = sb.log.filter((x) => x.rpc === 'refresh_company_customer_profiles');
+  const matches = sb.log.filter((x) => x.rpc === 'affiliate_match_prospect_customers');
+  assert.ok(refreshes.every((x) => x.args.p_company === 'c1'));
+  assert.deepEqual(matches.map((x) => x.args.p_program), ['p1', 'p1b'], 'each program\'s own prospects');
+  const first = sb.log.findIndex((x) => x.rpc === 'affiliate_match_prospect_customers' && x.args.p_program === 'p1');
+  const second = sb.log.findIndex((x) => x.rpc === 'affiliate_match_prospect_customers' && x.args.p_program === 'p1b');
+  assert.equal(sb.log.slice(first, second).filter((x) => x.rpc === 'refresh_company_customer_profiles').length, 0,
+    'the lookup is not rebuilt for the second program in the same company');
+});
+
+await test('a window that times out is halved and retried, and the halves land', async () => {
+  // Anything wider than a day fails, so the 3-day top-up must come back as
+  // narrower windows rather than as a lost run.
+  const sb = fake({ slowWindow: 86400000, programs: [{ id: 'p1', company_entity_id: 'c1' }] });
+  const s = await runCommissions({ supabase: sb, now: () => NOW });
+  const w = sb.log.filter((x) => x.rpc === 'refresh_company_customer_profiles');
+  assert.ok(w.length > 2, `the window was split, not abandoned (${w.length} calls)`);
+  const ok = w.filter((x) => ((x.args.p_until ? Date.parse(x.args.p_until) : NOW.getTime()) - Date.parse(x.args.p_since)) <= 86400000);
+  assert.ok(ok.length >= 2, 'the halves that fit were applied');
+  // Within one split the oldest half goes first; `covered_from` is stored with
+  // least() either way, so a later half cannot move coverage forwards.
+  assert.ok(Date.parse(ok[0].args.p_since) < Date.parse(ok[1].args.p_since),
+    'the oldest half of a split window is applied first');
+  const jobs = sb.log.filter((x) => x.insert === 'sync_jobs');
+  assert.equal(jobs[0].row.status, 'success', 'and the run is not failed by it');
+  assert.ok(jobs[0].row.result.customer_match.splits >= 1, 'the split is recorded, so a store that always splits is visible');
+  assert.equal(s.failed, 0);
+});
+
+await test('a chained sync run does not badge: it is a recruiting aid, not a money step', async () => {
+  const sb = fake();
+  await runCommissions({ supabase: sb, now: () => NOW, onlyCompanyIds: ['c1'], lookbackDays: CHAINED_LOOKBACK_DAYS, source: 'shopify_sync' });
+  assert.equal(sb.log.filter((x) => x.rpc && /customer/.test(x.rpc)).length, 0);
 });
 
 await test('the index the match depends on ships with the migration and is checked on production', async () => {

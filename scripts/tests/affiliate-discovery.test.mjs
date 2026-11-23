@@ -65,7 +65,7 @@ async function test(name, fn) {
 }
 
 // ── A minimal fake Supabase: enough of the query builder for the core ────
-function fakeSupabase(seed, { suppressed = [] } = {}) {
+function fakeSupabase(seed, { suppressed = [], matchFail = null } = {}) {
   const tables = structuredClone(seed);
   const calls = [];
   const ensure = (t) => (tables[t] ||= []);
@@ -111,8 +111,16 @@ function fakeSupabase(seed, { suppressed = [] } = {}) {
     tables, calls,
     from: builder,
     rpc: async (name, args) => {
-      assert.equal(name, 'affiliate_outreach_can_contact');
       calls.push({ rpc: name, args });
+      // The past-customer badge (20261123200000) runs once a batch of
+      // prospects has landed. `matchFail` makes it fail the way an unapplied
+      // migration or a database error would.
+      if (name === 'affiliate_match_prospect_customers') {
+        if (matchFail === 'missing') return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.affiliate_match_prospect_customers in the schema cache' } };
+        if (matchFail === 'boom') return { data: null, error: { code: 'P0001', message: 'match boom' } };
+        return { data: { prospects_checked: 3, likely: 1, possible: 1 }, error: null };
+      }
+      assert.equal(name, 'affiliate_outreach_can_contact');
       const hit = suppressed.some((s) => [args.p_email, args.p_handle, args.p_profile_url].filter(Boolean).map((x) => x.toLowerCase()).includes(s));
       return { data: !hit, error: null };
     },
@@ -260,6 +268,24 @@ await test('suppressed creators are skipped and counted', async () => {
   assert.ok(!sb.tables.affiliate_prospects.some((p) => p.handle === '@travelballmom'));
   assert.equal(sb.tables.affiliate_discovery_runs[0].suppressed_skipped, 1);
   assert.ok(sb.calls.filter((c) => c.rpc).length >= 3, 'every candidate is checked');
+});
+
+await test('the past-customer badge runs once the prospects land, and cannot lose them', async () => {
+  const sb = fakeSupabase({ affiliate_programs: [PROGRAM], affiliate_prospect_sources: [SOURCE('s1', 'q')] });
+  await runDiscovery({ supabase: sb, now: clock, uuid, fetchSerp: async () => ({ items: ITEMS, cost: 0.001 }) });
+  const matched = sb.calls.filter((c) => c.rpc === 'affiliate_match_prospect_customers');
+  assert.equal(matched.length, 1, 'once per batch, and the PROSPECTS are what it reads');
+  assert.deepEqual(matched[0].args, { p_program: PROGRAM.id });
+
+  // A failed match -- or an unapplied migration -- leaves the prospects
+  // exactly as they would be without the feature.
+  for (const mode of ['boom', 'missing']) {
+    const sb2 = fakeSupabase({ affiliate_programs: [PROGRAM], affiliate_prospect_sources: [SOURCE('s1', 'q')] }, { matchFail: mode });
+    const summary = await runDiscovery({ supabase: sb2, now: clock, uuid, fetchSerp: async () => ({ items: ITEMS, cost: 0.001 }) });
+    assert.equal(summary.failed, 0, `${mode}: discovery is not failed by a badge`);
+    assert.ok(sb2.tables.affiliate_prospects.length > 0, `${mode}: the prospects are written`);
+    assert.equal(sb2.tables.affiliate_discovery_runs[0].status, 'ok');
+  }
 });
 
 await test('the cost cap stops querying, measured by the provider\'s own cost', async () => {

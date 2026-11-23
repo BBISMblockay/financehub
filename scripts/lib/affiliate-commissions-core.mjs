@@ -38,6 +38,7 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
   const { data: programs, error } = await q;
   if (error) throw new Error(`affiliate_programs: ${error.message}`);
 
+  const lookupDone = new Set();               // companies whose customer lookup this run refreshed
   const to = dayOffset(now(), -1);            // tomorrow (UTC) covers every zone's today
   const from = dayOffset(now(), lookbackDays);
   for (const p of programs || []) {
@@ -81,6 +82,24 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
       } else if (r3.data) {
         result.seeding = r3.data;
       }
+      // The past-customer badge on this program's prospects. Nightly only:
+      // it is a recruiting aid, not a money step, and a chained sync run has
+      // nothing new for it. Its failure is recorded and changes nothing else
+      // on the run -- a missing badge must never cost a commission.
+      if (source === 'nightly') {
+        try {
+          result.customer_match = await refreshAndMatchCustomers({
+            supabase, program: p, now,
+            // Two programs in one company share one customer lookup, so it is
+            // refreshed once per run and then only the prospects differ.
+            refreshLookup: !lookupDone.has(p.company_entity_id),
+          });
+          lookupDone.add(p.company_entity_id);
+        } catch (err) {
+          result.customer_match = { error: String(err?.message || err) };
+          log(`[affiliate-commissions] ${p.id} customer match failed (commissions unaffected): ${result.customer_match.error}`);
+        }
+      }
       summary.entries_accrued += Number(result.entries_accrued) || 0;
       summary.entries_reduced += Number(result.entries_reduced) || 0;
       log(`[affiliate-commissions] ${p.id}: ${JSON.stringify(result)}`);
@@ -102,4 +121,104 @@ export async function runCommissions({ supabase, now = () => new Date(), deliver
     catch (err) { summary.failed += 1; summary.notices = { error: String(err?.message || err) }; }
   }
   return summary;
+}
+
+// ── Past-customer badge (20261123200000) ────────────────────────────────────
+//
+// Keeps the company's customer lookup current and then badges the program's
+// prospects. Two rules shape this:
+//
+//   * Every call shares the 8s API statement timeout, so the lookup is built
+//     in WINDOWS of order dates. A nightly run refreshes the last few days and
+//     walks a few older windows, so a company with ten years of orders fills
+//     in over a few nights instead of timing out on the first.
+//   * None of it can touch the money steps above. Its failure is recorded on
+//     the run and nothing else.
+// Windows are short because the cost of one is set by how many customers
+// ordered inside it, and every caller shares the 8s API statement timeout.
+// Measured on production 2026-11-23: a week of Baseballism's orders touches
+// ~11,900 customers, so a week is not a small window for a big store.
+export const CUSTOMER_WINDOW_DAYS = 3;          // the nightly top-up
+export const CUSTOMER_BACKFILL_DAYS = 30;       // one backfill window
+export const CUSTOMER_BACKFILL_WINDOWS = 4;     // per run
+export const CUSTOMER_WINDOW_SPLITS = 5;        // halvings before a window gives up
+
+export async function refreshAndMatchCustomers({ supabase, program, now = () => new Date(), windows = CUSTOMER_BACKFILL_WINDOWS, refreshLookup = true }) {
+  const out = { windows: 0, customers_total: null, matched: null };
+  const iso = (d) => new Date(d).toISOString();
+  if (!refreshLookup) return matchOnly({ supabase, program, out });
+
+  // A window that fails -- a statement timeout on a busy store's week is the
+  // realistic way -- is halved and tried again, rather than losing the whole
+  // run. Each half is an independent, idempotent call.
+  const refreshWindow = async (sinceMs, untilMs, depth = 0) => {
+    const args = { p_company: program.company_entity_id, p_since: iso(sinceMs) };
+    if (untilMs != null) args.p_until = iso(untilMs);
+    const r = await supabase.rpc('refresh_company_customer_profiles', args);
+    if (!r.error) {
+      out.windows += 1;
+      if (r.data?.customers_total != null) out.customers_total = r.data.customers_total;
+      return r;
+    }
+    if (missingFunction(r.error, 'refresh_company_customer_profiles')) return { notInstalled: true };
+    const span = (untilMs ?? now().getTime()) - sinceMs;
+    if (depth >= CUSTOMER_WINDOW_SPLITS || span <= 86400000) throw new Error(`customer lookup: ${r.error.message}`);
+    out.splits = (out.splits || 0) + 1;
+    const mid = sinceMs + Math.floor(span / 2);
+    // Oldest half first, so `covered_from` only ever moves backwards.
+    await refreshWindow(sinceMs, mid, depth + 1);
+    return refreshWindow(mid, untilMs ?? now().getTime(), depth + 1);
+  };
+
+  // 1. The recent window, every run. Before the migration is applied the
+  // function does not exist, which is not a failure: the prospects simply
+  // carry no badge yet.
+  const top = await refreshWindow(now().getTime() - CUSTOMER_WINDOW_DAYS * 86400000, null);
+  if (top?.notInstalled) return { skipped: 'not_installed' };
+
+  // 2. A few older windows, until the lookup reaches the company's first
+  //    order. `covered_from` is stored state, not a derived minimum: a
+  //    customer touched by a recent window can have a first order years
+  //    earlier, which would read as coverage the build never did.
+  const { data: state } = await supabase.from('company_customer_profile_state')
+    .select('covered_from').eq('company_entity_id', program.company_entity_id).maybeSingle();
+  const { data: oldest } = await supabase.from('shopify_orders')
+    .select('shopify_created_at').eq('company_entity_id', program.company_entity_id)
+    .not('shopify_created_at', 'is', null)
+    .order('shopify_created_at', { ascending: true }).limit(1).maybeSingle();
+  const floor = oldest?.shopify_created_at ? new Date(oldest.shopify_created_at).getTime() : null;
+  let frontier = state?.covered_from ? new Date(state.covered_from).getTime() : now().getTime();
+  // A backfill window that cannot be made to fit stops the WALK, not the run:
+  // the recent window above is what this program's new prospects are matched
+  // against, and the next run tries the older window again.
+  try {
+    for (let i = 0; i < windows && floor != null && frontier > floor; i += 1) {
+      const since = Math.max(floor, frontier - CUSTOMER_BACKFILL_DAYS * 86400000);
+      await refreshWindow(since, frontier);
+      if (since <= floor) { out.history_complete = true; break; }
+      frontier = since;
+    }
+  } catch (err) {
+    out.backfill_error = String(err?.message || err);
+  }
+
+  // 3. The prospects of this program only. The customer base is never scanned
+  //    looking for creators; that is both the wrong direction and the
+  //    expensive one.
+  return matchOnly({ supabase, program, out });
+}
+
+async function matchOnly({ supabase, program, out }) {
+  const m = await supabase.rpc('affiliate_match_prospect_customers', { p_program: program.id });
+  if (m.error) {
+    if (missingFunction(m.error, 'affiliate_match_prospect_customers')) return { ...out, skipped: 'matcher_not_installed' };
+    throw new Error(`prospect match: ${m.error.message}`);
+  }
+  out.matched = m.data ?? null;
+  return out;
+}
+
+function missingFunction(error, name) {
+  return error.code === 'PGRST202'
+    || (new RegExp(name).test(error.message || '') && /not find|does not exist/i.test(error.message || ''));
 }

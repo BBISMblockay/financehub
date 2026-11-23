@@ -15,6 +15,7 @@
 //   AFFILIATE_CORE_MUTATION=imgshrink  a card asks the CDN for a SMALLER image than it already had
 //   AFFILIATE_CORE_MUTATION=imganyhost a width parameter is forced onto any host's address
 //   AFFILIATE_CORE_MUTATION=codeclash  a suggested code repeats one already taken
+//   AFFILIATE_CORE_MUTATION=badgeall   a prospect with no match still gets a past-customer badge
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,6 +33,7 @@ const MUTS = {
   nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
   imgshrink: ["  if (!Number.isFinite(w) || w <= 0 || w >= px) return url;", '  if (!Number.isFinite(w) || w <= 0) return url;'],
   imganyhost: ["  if (!WIDTH_PARAM_HOSTS.has(u.hostname)) return url;", ''],
+  badgeall: ["  if (!['possible', 'likely', 'confirmed'].includes(st)) return null;", '  if (false) return null;'],
   codeclash: ["  if (!used.has(base)) return base;", '  return base;'],
   pindefault: ["row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;", "row.outreach_body = body === '' ? null : body;"],
   rounding: ["const re = units === 1 ? /^-?\\d+$/ : /^-?\\d+(\\.\\d{1,2})?$/;", 'const re = /^-?\\d+(\\.\\d+)?$/;'],
@@ -298,6 +300,24 @@ await t('the import template is a file the import reads back: one creator, every
   assert.equal(r.stats.kept, 1, 'its example row imports');
   assert.equal(r.stats.followers_kept, 1, 'followers column is read');
   assert.equal(r.stats.emails_kept, 1, 'email column is read');
+});
+
+await t('the past-customer badge is one label, with the detail only on hover', () => {
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'none' }), null, 'no match, no badge');
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'not_matchable' }), null, 'a brand name shows nothing');
+  assert.equal(C.pastCustomerBadge({}), null);
+  const likely = C.pastCustomerBadge({
+    customer_match_status: 'likely', customer_order_count: 2,
+    customer_last_order_at: '2026-07-20T18:00:00Z', customer_lifetime_spend: '321',
+    customer_match_basis: 'exact name match on one customer, name only',
+  });
+  assert.equal(likely.label, 'Past customer');
+  assert.match(likely.title, /2 orders/);
+  assert.match(likely.title, /last 2026-07-20/);
+  assert.match(likely.title, /\$321/);
+  assert.match(likely.title, /Check before you write to them/);
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'possible', customer_order_count: 1 }).label,
+    'Possible customer', 'a weaker match says so rather than claiming it');
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);

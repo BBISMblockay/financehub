@@ -445,6 +445,37 @@ export function outreachTemplate(program) {
 }
 
 // Where a prospect came from, in words.
+// The past-customer badge (20261123200000). Blake 2026-11-23: "Without
+// muddying up or showing a lot of info on this, we'd give a badge to the
+// prospect, showing they have ordered in past". So: one short label, and the
+// order count, last order and lifetime spend only on hover.
+//
+// `customer_lifetime_spend` is a currency AMOUNT (Shopify's order totals), not
+// minor units, so it is not formatMoney's input.
+export function pastCustomerBadge(p, currency = 'USD') {
+  const st = p?.customer_match_status;
+  if (!['possible', 'likely', 'confirmed'].includes(st)) return null;
+  const n = Number(p.customer_order_count || 0);
+  const spend = Number(p.customer_lifetime_spend);
+  const bits = [];
+  if (n > 0) bits.push(`${n} order${n === 1 ? '' : 's'}`);
+  if (p.customer_last_order_at) bits.push(`last ${String(p.customer_last_order_at).slice(0, 10)}`);
+  if (Number.isFinite(spend) && spend > 0) {
+    const cur = String(currency || 'USD').toUpperCase();
+    try {
+      bits.push(spend.toLocaleString('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }));
+    } catch {
+      bits.push(`${Math.round(spend)} ${cur}`);
+    }
+  }
+  if (p.customer_match_basis) bits.push(p.customer_match_basis);
+  return {
+    label: st === 'possible' ? 'Possible customer' : 'Past customer',
+    tone: st === 'possible' ? '' : 'pos',
+    title: bits.length ? `${bits.join(' · ')}. Check before you write to them.` : 'Check before you write to them.',
+  };
+}
+
 export const SOURCE_LABELS = { serp: 'search', manual: 'added by hand', csv_import: 'your list', applied: 'applied', ai_research: 'AI research' };
 export const sourceLabel = (s) => SOURCE_LABELS[s] || s || '';
 

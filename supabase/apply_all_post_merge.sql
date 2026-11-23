@@ -19879,4 +19879,8 @@ $c$select (select count(*) from v_po_header_summary
 -- often" and "what time" are two controls. Needs the generic computeNextRunAt
 -- (three copies) deployed with it.
 \i migrations/20261120040000_report_email_cadence_matrix.sql
+-- 20261123200000: the past-customer badge -- a precomputed customer lookup per
+-- company, and the matcher that badges a program's PROSPECTS against it (never
+-- a scan of the customer base). Nightly job keeps the lookup current.
+\i migrations/20261123200000_affiliate_past_customer_badge.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
