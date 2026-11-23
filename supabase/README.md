@@ -4101,3 +4101,21 @@ directly:
   offering a program they are already in.
 
 Apply only; no deploy.
+`20261123200000_plaid_multiple_feeds_per_qbo_account.sql` lets SEVERAL Plaid
+feeds share one QuickBooks balancing account (two company cards, one account in
+the chart of accounts). `plaid_guard_source_authority` no longer refuses a
+second `ingest_mode='plaid'` source on the same (company, QuickBooks
+connection, QuickBooks account); the authoritative cutover and the CSV-overlap
+checks already read `min(authoritative_from)` across every Plaid source on that
+account, so the earliest feed still governs what CSV may cover, and dedupe stays
+per Plaid account. The same card arriving twice (a relink: same institution,
+type and mask) is still refused, now by `configure_plaid_account` through the
+service-only `plaid_duplicate_card_feed()` — the `card_sources` trigger fires
+before `plaid_accounts.source_id` is set, so it cannot judge card identity. Only
+one thing counts as proof of a second account -- both masks known and
+different. An unknown mask on either side is refused as indistinguishable
+(Plaid may send none, and `plaid_apply_sync` writes what it sends over a mask
+already held), and the institution LABEL is not consulted at all, because
+`plaid-finance` stores `Bank connection` when Link sends none, so one bank can
+sit under two labels. No
+backfill, no edge deploy; the browser calls the RPC directly.

@@ -6883,6 +6883,25 @@ select signature as plaid_rpc,
     else 'ok' end as status
 from expected left join pg_proc p on p.oid=to_regprocedure(signature);
 
+-- Several Plaid feeds may share one QuickBooks balancing account (two cards,
+-- one account in the chart of accounts). What must stay refused is the SAME
+-- card mapped twice, which configure_plaid_account judges with
+-- plaid_duplicate_card_feed -- the card_sources trigger cannot, because it
+-- fires before plaid_accounts.source_id is set.
+select 'public.plaid_duplicate_card_feed' as plaid_duplicate_card_guard,
+  case when to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)') is null
+      then 'MISSING — duplicate card feed guard'
+    when has_function_privilege('anon',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      or has_function_privilege('authenticated',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      then 'CRITICAL — duplicate card feed guard is client-callable'
+    when position('plaid_duplicate_card_feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.configure_plaid_account(uuid,uuid,text,date,uuid)')),''))=0
+      then 'BROKEN — configure_plaid_account no longer checks for a duplicate card'
+    when position('already has an authoritative Plaid feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.plaid_guard_source_authority()')),''))>0
+      then 'BROKEN — one feed per QuickBooks account is back in the source trigger'
+    else 'ok' end as status;
+
 with expected(relation,trigger_name) as (values
   ('public.card_sources','plaid_source_authority'),
   ('public.card_transactions','plaid_transaction_integrity'),
