@@ -42,6 +42,10 @@ export const SYNC_STAGES = [
   { jobType: 'collections_sync', enableEnv: 'SHOPIFY_COLLECTIONS_ENABLED', modes: ['incremental', 'full'] },
   { jobType: 'discount_codes_sync', skipEnv: 'SHOPIFY_SKIP_DISCOUNT_CODES', daysEnv: 'SHOPIFY_DISCOUNT_CODES_DAYS', modes: ['incremental', 'full'] },
   { jobType: 'draft_orders_sync', skipEnv: 'SHOPIFY_SKIP_DRAFT_ORDERS', modes: ['incremental', 'full'] },
+  // Customers (marketing consent). Incremental by construction: it asks
+  // Shopify only for customers changed since the last run, so the nightly
+  // cost is a page or two per store.
+  { jobType: 'customers_sync', skipEnv: 'SHOPIFY_SKIP_CUSTOMERS', modes: ['incremental', 'full'] },
   { jobType: 'inventory_snapshot', skipEnv: 'SHOPIFY_SKIP_INVENTORY', modes: ['incremental', 'full'] },
   { jobType: 'catalog_sync', skipEnv: 'SHOPIFY_SKIP_CATALOG', modes: ['incremental', 'full'] },
 ];

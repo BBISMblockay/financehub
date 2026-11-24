@@ -718,6 +718,31 @@ select
     else 'MISSING — run 20260723150000_shopify_draft_orders.sql'
   end as shopify_draft_orders;
 
+-- 8b. shopify_customers + marketing consent (migration 20261124020000)
+select
+  case
+    when exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public' and table_name = 'shopify_customers'
+    ) and exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'shopify_customers'
+        and policyname = 'shopify_customers_active_select'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'company_customer_profiles'
+        and column_name = 'email_consent_state'
+    ) and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'refresh_company_customer_consent'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'sync_jobs_job_type_check'
+        and pg_get_constraintdef(oid) ilike '%customers_sync%'
+    ) then 'ok'
+    else 'MISSING — run 20261124020000_shopify_customer_marketing_consent.sql'
+  end as shopify_customers_consent;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,
