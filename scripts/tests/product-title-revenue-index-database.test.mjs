@@ -9,6 +9,7 @@ try {
   await db.exec(`
     create role anon;
     create role authenticated;
+    create role service_role;
     create schema auth;
     create function auth.uid() returns uuid language sql stable as
       $$ select current_setting('request.jwt.claim.sub')::uuid $$;
@@ -35,6 +36,7 @@ try {
   `);
   await db.exec('vacuum analyze public.sales_by_product_title_daily_mv');
   await db.exec(readFileSync(new URL('../../supabase/migrations/20260916120000_chat_readonly_query_read_only_txn.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL("../../supabase/migrations/20261030100000_readonly_query_refuse_identity_switch.sql", import.meta.url), "utf8"));
   // Captured from the failed first-page RPC's server-side SQL context.
   const saved = `select product_title as product_name, sum(net_sales) as net_sales
 from sales_by_product_title_daily_v
@@ -91,3 +93,4 @@ group by product_title order by net_sales desc limit 15`;
 } finally {
   await db.close();
 }
+
