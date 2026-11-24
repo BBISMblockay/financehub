@@ -19934,6 +19934,9 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261124235000: Find match score -- 0-100 on every find, a niche-word
 -- signal, and one count search for a profile matched without a count.
 \i migrations/20261124235000_affiliate_customer_social_score.sql
+-- 20261125010000: customer consent rollup in resumable batches (the one-
+-- statement rollup timed out for large companies).
+\i migrations/20261125010000_customer_consent_batched_rollup.sql
 -- 20261125020000: a card paydown matched to the bank payment that made it --
 -- the bank side posts it, so the card row is excluded with that payment named.
 -- The bank row is read, never written, so one already posted still settles it.

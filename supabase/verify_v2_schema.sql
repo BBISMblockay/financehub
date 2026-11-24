@@ -743,6 +743,29 @@ select
     else 'MISSING — run 20261124020000_shopify_customer_marketing_consent.sql'
   end as shopify_customers_consent;
 
+-- 8b2. Consent rollup in batches (migration 20261125010000). The one-statement
+-- rollup is cancelled by the statement timeout for a large company, so the
+-- sync calls the step function; without it the Affiliate customer list shows
+-- "not checked yet" for almost everyone.
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'refresh_company_customer_consent_step'
+    ) then 'MISSING — run 20261125010000_customer_consent_batched_rollup.sql'
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'company_customer_profile_state'
+        and column_name = 'consent_cursor'
+    ) and exists (
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'shopify_customers_co_email_consent_cover_idx'
+    ) and not has_function_privilege('authenticated', 'public.refresh_company_customer_consent_step(uuid, integer)', 'execute')
+      and not has_function_privilege('anon', 'public.refresh_company_customer_consent_step(uuid, integer)', 'execute')
+    then 'ok'
+    else 'MISSING — run 20261125010000_customer_consent_batched_rollup.sql'
+  end as customer_consent_batched_rollup;
+
 -- 8c. Recruiting an existing customer (migration 20261124030000). The
 -- identifiable constraint is checked for the EMAIL branch specifically: a
 -- customer has no channel yet, so without it their prospect row cannot be
