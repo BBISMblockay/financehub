@@ -226,6 +226,8 @@ on:
       - 'scripts/tests/shopify-customers-consent-database.test.mjs'
       - 'scripts/lib/shopify-customers-core.mjs'
       - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
+      - 'scripts/tests/customer-consent-step-database.test.mjs'
+      - 'supabase/migrations/*customer_consent_batched_rollup.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
@@ -2880,6 +2882,19 @@ jobs:
           set -u
           for m in rls company funcgrant clientwrite coalesce noclear boolean; do
             if CONSENT_MUTATION="$m" node scripts/tests/shopify-customers-consent-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      # The consent rollup in resumable batches (20261125010000).
+      - name: Customer consent rollup in batches (real PostgreSQL)
+        run: node scripts/tests/customer-consent-step-database.test.mjs
+      - name: The batched rollup guards, removed, must break it
+        run: |
+          set -u
+          for m in nocursor noclear grant nocompany; do
+            if STEP_MUTATION="$m" node scripts/tests/customer-consent-step-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

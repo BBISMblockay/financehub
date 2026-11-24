@@ -4186,6 +4186,12 @@ gets its answer. It did not, and `accepts_marketing` no longer exists in Shopify
   a person who changes or removes their email leaves an old-address profile row the join can never reach
   again, which would otherwise carry "subscribed" for ever. Order totals are never touched.
 * `sync_jobs.job_type` gains `customers_sync`.
+* `20261125010000_customer_consent_batched_rollup.sql` — the one-statement refresh above is cancelled by the
+  statement timeout for a large company (~1.1M customers), so the sync now calls
+  `refresh_company_customer_consent_step(company, limit)` in a loop under a time budget. Each step handles the next
+  `limit` profile emails after `company_customer_profile_state.consent_cursor` (same consent and clearing rules) and
+  moves the cursor; a pass that runs out of time resumes on the next sync. A covering index
+  `shopify_customers_co_email_consent_cover_idx` keeps each step to index reads. service_role only.
 
 Fed by the `customers_sync` stage of `scripts/shopify-sync.mjs`, which needs the `read_customers` scope and is
 deliberately NOT in `REQUIRED_FOR_SYNC`: a store that has not granted it keeps syncing everything else and only
