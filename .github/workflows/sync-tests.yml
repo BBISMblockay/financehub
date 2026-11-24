@@ -162,6 +162,9 @@ on:
       # only the copy runs no check at all.
       - 'supabase/functions/report-email-deliver/**'
       - 'scripts/shopify-sync.mjs'
+      - 'scripts/lib/shopify-sync-core.mjs'
+      - 'scripts/lib/shopify-scopes.mjs'
+      - 'scripts/lib/sync-plan.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
@@ -218,6 +221,11 @@ on:
       - 'v2/shopify-install.html'
       - 'v2/shopify-install.js'
       - 'scripts/tests/shopify-auth.test.mjs'
+      # Shopify customers / marketing consent (shopify-customers-sync.test.mjs).
+      - 'scripts/tests/shopify-customers-sync.test.mjs'
+      - 'scripts/tests/shopify-customers-consent-database.test.mjs'
+      - 'scripts/lib/shopify-customers-core.mjs'
+      - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
@@ -618,6 +626,14 @@ jobs:
       # history actions all refuse a store whose orders another company holds.
       - name: Shopify tenant guard
         run: node scripts/tests/shopify-tenant-guard.test.mjs
+
+      # Shopify customers (marketing consent, 20261124020000): consent is a
+      # STATE and an absent one is NOT "not subscribed"; the walk is
+      # incremental, budgeted and resumable; and a store without
+      # read_customers (or a database without the migration) SKIPS rather than
+      # failing the run or touching the rest of that store's sync.
+      - name: Shopify customers consent sync
+        run: node --test scripts/tests/shopify-customers-sync.test.mjs
 
       # 20261013220000 keys order facts per company: every order-fact upsert
       # goes through upsertOrderFact (per-company key, old key only while the
@@ -2842,6 +2858,24 @@ jobs:
           set -u
           for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan handle handleshare handlebrand handlefirst; do
             if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify customer marketing consent (20261124020000) on real
+      # PostgreSQL: a consent STATE kept verbatim with derived booleans and
+      # NULL meaning not measured, a cross-store view that picks one real
+      # consent EVENT, the rollup onto the past-customer lookup, consent
+      # cleared when its email no longer has a source, and tenancy/grants.
+      - name: Shopify customer consent database (real PostgreSQL)
+        run: node scripts/tests/shopify-customers-consent-database.test.mjs
+      - name: The customer consent guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company funcgrant clientwrite coalesce noclear boolean; do
+            if CONSENT_MUTATION="$m" node scripts/tests/shopify-customers-consent-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

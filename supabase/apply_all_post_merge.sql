@@ -19905,6 +19905,10 @@ $c$select (select count(*) from v_po_header_summary
 -- HANDLE against customer names ("@emily_durrance"), since a discovered
 -- creator's profile name is usually a channel name. Function-only.
 \i migrations/20261124010000_affiliate_handle_name_match.sql
+-- 20261124010000: Shopify customers -- marketing consent as it stands now,
+-- its own sync job and scope, plus the consent columns it carries onto the
+-- past-customer lookup. A store without read_customers is unaffected.
+\i migrations/20261124020000_shopify_customer_marketing_consent.sql
 -- 20261124140000: a live membership closes that person's open outreach, so a
 -- recruiting message cannot sit waiting for somebody who already joined.
 \i migrations/20261124140000_affiliate_outreach_close_when_joined.sql
