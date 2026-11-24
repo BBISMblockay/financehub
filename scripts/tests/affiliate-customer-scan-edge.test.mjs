@@ -10,7 +10,11 @@
 //     the model never supplies one: its choice must be a profile that row was
 //     shown, and the count is re-read from that profile's text;
 //   * only a profile carrying the customer's first AND last name counts;
-//   * one search per customer, never a second for a customer this program
+//   * the scan is the COMPANY's (Blake 2026-11-24, people come before
+//     program): no program is needed or read, every platform is searched,
+//     the follower bar is entities.meta data, one scan runs per company and a
+//     customer scanned under any program is never searched again;
+//   * one search per customer, never a second for a customer this company
 //     already scanned; rows are queued before any search, so a run that runs
 //     out of time leaves a queue the next press finishes;
 //   * a press while a scan runs joins it; a dead worker's scan is taken over;
@@ -28,7 +32,10 @@
 //   AFFILIATE_SCAN_MUTATION=aicount      the model's chosen profile keeps a count its text does not state
 //   AFFILIATE_SCAN_MUTATION=aianyurl     the model may choose a profile the row was never shown
 //   AFFILIATE_SCAN_MUTATION=firstonly    a profile with only the first name counts as theirs
-//   AFFILIATE_SCAN_MUTATION=rescan       a customer already scanned for this program is searched again
+//   AFFILIATE_SCAN_MUTATION=rescan       a customer already scanned for this company is searched again
+//   AFFILIATE_SCAN_MUTATION=programscope the search is narrowed to one program's platforms
+//   AFFILIATE_SCAN_MUTATION=programjoin  a press in another program starts a second scan instead of joining
+//   AFFILIATE_SCAN_MUTATION=programbar   the follower bar is read from the program, not the company
 //   AFFILIATE_SCAN_MUTATION=nojoin       a second press starts a second scan while one runs
 //   AFFILIATE_SCAN_MUTATION=noresume     rows a stopped scan left pending are not finished by the next press
 //   AFFILIATE_SCAN_MUTATION=resumeoptout a queued customer who unsubscribed since is still searched on resume
@@ -43,7 +50,7 @@
 //   AFFILIATE_SCAN_MUTATION=maskedmail   a marketplace's masked relay username is searched
 //   AFFILIATE_SCAN_MUTATION=handleloose  a handle merely CONTAINING the username counts as theirs
 //   AFFILIATE_SCAN_MUTATION=aiall        the model is asked about every customer, not only ambiguous ones
-//   AFFILIATE_SCAN_MUTATION=nobar        the program's follower bar is ignored for the default
+//   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -75,6 +82,9 @@ const MUTS = {
   maskedmail: [LIB, "  if (MASKED_MAIL.some((d) => domain === d || domain.endsWith(`.${d}`))) return null;\n", ''],
   handleloose: [LIB, "    && coreOf(c.handle) === handle.core);", '    && coreOf(c.handle).includes(handle.core.slice(0, 4)));'],
   aiall: ['handler.mjs', "            if (j.status === 'ambiguous') ambiguous.push(", '            if (true) ambiguous.push('],
+  programscope: ['handler.mjs', '    const program = COMPANY_SCAN_SCOPE;', "    const program = { platforms: ['instagram', 'tiktok'] };"],
+  programjoin: ['handler.mjs', ".eq('company_entity_id', company)\n      .eq('status', 'running')", ".eq('company_entity_id', company).eq('program_id', body?.program_id ?? null)\n      .eq('status', 'running')"],
+  programbar: ['handler.mjs', '    const minFollowers = companyMinFollowers(ent?.meta);', "    const { data: pb } = await service.from('affiliate_programs').select('customer_scan_min_followers').eq('company_entity_id', company).limit(1).maybeSingle();\n    const minFollowers = minFollowersFor(pb);"],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -205,10 +215,15 @@ await test('trust: suffixes, junk pages, off-platform profiles and the second si
   assert.ok(team('owner@gmail.com') && !team('someone@gmail.com'), 'a free mail member is matched by address only');
 });
 
-await test('the bar is the program\'s own; the slice is clamped and never includes unsubscribed', () => {
+await test('the bar is the company\'s own; the slice is clamped and never includes unsubscribed', () => {
   assert.equal(L.minFollowersFor({ customer_scan_min_followers: 2000 }), 2000);
   assert.equal(L.minFollowersFor({ customer_scan_min_followers: 0 }), 0);
   assert.equal(L.minFollowersFor({}), 750);
+  assert.equal(L.companyMinFollowers({ affiliate_customer_scan_min_followers: 2000 }), 2000);
+  assert.equal(L.companyMinFollowers({ affiliate_customer_scan_min_followers: 0 }), 0, 'zero is a real bar');
+  assert.equal(L.companyMinFollowers({ affiliate_customer_scan_min_followers: 'abc' }), 750);
+  assert.equal(L.companyMinFollowers(null), 750, 'unset is the default');
+  assert.deepEqual([...L.COMPANY_SCAN_SCOPE.platforms], [], 'every platform: no program narrows it');
   assert.equal(L.clampScanCount(5000), 1000); assert.equal(L.clampScanCount(0), 500); assert.equal(L.clampScanCount('x'), 500);
   const f = L.scanFilters({ consent: 'unsubscribed', minOrders: 99, to: '2026-12-31', sort: 'drop table' });
   assert.equal(f.consent, 'any', 'unsubscribed cannot be chosen as a slice');
@@ -219,6 +234,7 @@ await test('the bar is the program\'s own; the slice is clamped and never includ
 const CO = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const PA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const PB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 // A PostgREST stand-in rich enough for this action: eq / in / gte / lt / is,
 // the or() the opt-out filter uses, order, range, limit and the unique keys
@@ -264,12 +280,12 @@ function fakeService(seed) {
         let last = null;
         for (const r of list) {
           if (table === 'affiliate_customer_scans' && r.status === 'running'
-            && rows.some((x) => x.status === 'running' && x.company_entity_id === r.company_entity_id && x.program_id === r.program_id)) {
-            return { data: null, error: { code: '23505', message: 'one running scan per program' } };
+            && rows.some((x) => x.status === 'running' && x.company_entity_id === r.company_entity_id)) {
+            return { data: null, error: { code: '23505', message: 'one running scan per company' } };
           }
           if (table === 'affiliate_customer_social'
-            && rows.some((x) => x.company_entity_id === r.company_entity_id && x.program_id === r.program_id && x.customer_key === r.customer_key)) {
-            return { data: null, error: { code: '23505', message: 'customer already scanned for this program' } };
+            && rows.some((x) => x.company_entity_id === r.company_entity_id && x.customer_key === r.customer_key)) {
+            return { data: null, error: { code: '23505', message: 'customer already scanned for this company' } };
           }
           last = { id: `${table}-${n++}`, created_at: new Date(1_700_000_000_000 + n).toISOString(), ...r }; rows.push(last);
         }
@@ -304,7 +320,10 @@ function fakeService(seed) {
 
 const cust = (key, name, o = {}) => ({ company_entity_id: CO, customer_key: key, email_lc: `${key}@buyer.invalid`, name_lc: name, first_name_lc: null, last_name_lc: null, order_count: 5, last_order_at: '2026-10-01T00:00:00Z', lifetime_spend: 500, email_consent_state: null, ...o });
 const seed = (extra = {}) => ({
+  // A program that recruits on two platforms only: the company-level scan
+  // must not inherit that narrowing. Its old per-program bar is not read.
   affiliate_programs: [{ id: PA, company_entity_id: CO, name: 'A', status: 'active', niche: 'baseball', platforms: ['instagram', 'tiktok'], geographies: [], customer_scan_min_followers: 750 }],
+  entities: [{ id: CO, meta: {} }, { id: OTHER, meta: { affiliate_customer_scan_min_followers: 1 } }],
   company_customer_profiles: [
     cust('emily', 'emily durrance', { order_count: 9 }),
     cust('nobody', 'quiet person', { order_count: 8 }),
@@ -368,7 +387,7 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false } 
     background: (p) => { bg.push(p); },
   });
   const call = async (body) => {
-    const res = await handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: 'Bearer user', 'Content-Type': 'application/json' }, body: JSON.stringify({ program_id: PA, action: 'customer_scan', ...body }) }));
+    const res = await handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: 'Bearer user', 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'customer_scan', ...body }) }));
     return { status: res.status, body: await res.json() };
   };
   return { service, searches, modelCalls, bg, call, settle: () => Promise.all(bg), tick: (ms) => { t += ms; } };
@@ -389,7 +408,9 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   assert.equal(s.searches.filter((t) => /^"[^"]* [^"]*"/.test(t.keyword)).length, 3, 'one name search per customer');
   assert.deepEqual(s.searches.filter((t) => /^"[a-z0-9._-]+"/.test(t.keyword)).map((t) => t.keyword.split(' ')[0]).sort(), ['"nobody"', '"twins"'], 'and the email username, where it is not just their name');
   assert.ok(!s.searches.some((t) => /[a-z0-9]@[a-z]/i.test(t.keyword) || /buyer\.invalid/.test(t.keyword)), 'never a full email address');
-  assert.match(s.searches.find((t) => /Emily/.test(t.keyword)).keyword, /^"Emily Durrance" Phoenix \(site:instagram\.com OR site:tiktok\.com\/@\)$/, 'name, city, pinned to the program\'s platforms');
+  assert.equal(s.searches.find((t) => /Emily/.test(t.keyword)).keyword,
+    '"Emily Durrance" Phoenix (site:instagram.com OR site:tiktok.com/@ OR site:youtube.com/@ OR site:twitch.tv OR site:x.com OR site:twitter.com OR site:pinterest.com)',
+    'name and city, on every platform: no program narrows a company-level scan');
   assert.equal(row(s, 'emily').status, 'found');
   assert.equal(row(s, 'emily').followers, 1204);
   assert.equal(row(s, 'emily').followers_quote, '1,204 Followers');
@@ -399,6 +420,9 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   assert.equal(row(s, 'nobody').status, 'none');
   const scan = s.service.tables.affiliate_customer_scans[0];
   assert.equal(scan.company_entity_id, CO);
+  assert.equal(scan.program_id, null, 'no program: the scan is the company\'s');
+  assert.ok(s.service.tables.affiliate_customer_social.every((x) => x.program_id === null), 'and so is every answer');
+  assert.ok(!s.service.log.includes('select:affiliate_programs'), 'no program is loaded or needed');
   assert.equal(scan.status, 'done');
   assert.deepEqual([scan.requested, scan.checked, scan.found], [3, 3, 2]);
   assert.equal(scan.cost_usd, 0.01, 'spend is recorded for SILO: five searches');
@@ -449,7 +473,7 @@ await test('no model key leaves ambiguous customers ambiguous, with their candid
   assert.equal(row(s, 'twins').candidates.length, 2);
 });
 
-await test('a customer this program already scanned is never searched or paid for twice', async () => {
+await test('a customer the company already scanned, under any program, is never searched or paid for twice', async () => {
   const s = setup({ data: seed({ affiliate_customer_social: [{ id: 'old', company_entity_id: CO, program_id: PA, customer_key: 'emily', status: 'found', created_at: '2026-11-01' }] }) });
   await s.call({ filters: { minOrders: 2 } });
   await s.settle();
@@ -462,6 +486,12 @@ await test('a press while a scan runs joins it; a dead worker\'s scan is taken o
   const r = await s.call({ filters: { minOrders: 2 } });
   assert.equal(r.status, 200); assert.deepEqual(r.body, { scan_id: 'live', joined: true });
   assert.equal(s.searches.length, 0, 'joining spends nothing');
+  // A scan started from one program is joined by a press from another: one
+  // running scan per company.
+  const other = setup({ data: seed({ affiliate_customer_scans: [{ id: 'live', company_entity_id: CO, program_id: PA, status: 'running', started_at: '2026-11-24T03:59:30Z', heartbeat_at: '2026-11-24T03:59:30Z' }] }) });
+  const r3 = await other.call({ program_id: PB, filters: { minOrders: 2 } });
+  assert.deepEqual(r3.body, { scan_id: 'live', joined: true }, 'a press in another program joins the running scan');
+  assert.equal(other.service.tables.affiliate_customer_scans.length, 1);
   const dead = setup({ data: seed({ affiliate_customer_scans: [{ id: 'dead', company_entity_id: CO, program_id: PA, status: 'running', started_at: '2026-11-24T03:00:00Z', heartbeat_at: '2026-11-24T03:00:00Z' }] }) });
   const r2 = await dead.call({ filters: { minOrders: 2 } });
   assert.equal(r2.status, 202);
@@ -504,14 +534,23 @@ await test('a queued customer who unsubscribes before the next press is dropped,
   }
 });
 
-await test('the program\'s own bar decides found and below', async () => {
+await test('the company\'s own bar decides found and below; a program\'s old bar is not read', async () => {
   const data = seed();
-  data.affiliate_programs[0].customer_scan_min_followers = 2000;
+  data.entities[0].meta = { affiliate_customer_scan_min_followers: 2000 };
+  data.affiliate_programs[0].customer_scan_min_followers = 100;
   const s = setup({ data });
   await s.call({ filters: { minOrders: 2 } });
   await s.settle();
-  assert.equal(row(s, 'emily').status, 'below', '1,204 is under this brand\'s bar of 2,000');
+  assert.equal(row(s, 'emily').status, 'below', '1,204 is under this company\'s bar of 2,000');
   assert.equal(s.service.tables.affiliate_customer_scans[0].min_followers, 2000);
+  // Unset is 750, whatever the program column says.
+  const d2 = seed();
+  d2.affiliate_programs[0].customer_scan_min_followers = 5000;
+  const s2 = setup({ data: d2 });
+  await s2.call({ filters: { minOrders: 2 } });
+  await s2.settle();
+  assert.equal(row(s2, 'emily').status, 'found', 'the default bar, not the program\'s 5,000');
+  assert.equal(s2.service.tables.affiliate_customer_scans[0].min_followers, 750);
 });
 
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);

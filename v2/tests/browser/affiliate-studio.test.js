@@ -188,6 +188,12 @@ const MUTATIONS = {
   scanoptout: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: running })"],
   scannopoll: ['/affiliates/studio.js', "  if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;", '  return;'],
   scanfilters: ['/affiliates/studio.js', "filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },", 'filters: {},'],
+  // The scan is the company's: a program filter on its reads hides finds
+  // when the person switches program, and a program in the press makes it
+  // one program's again.
+  scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
+  socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
+  pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', count: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, count: c.scanCount,"],
   nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
   tierpill: ['/affiliates/studio.js', "pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match',", "pill('Likely',"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
@@ -3267,6 +3273,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('the press calls the scan', !!call);
         R.eq([call?.count, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [500, 3, 'any', 'orders'], 'with the count and the slice the person is looking at');
         R.ok('never a company id from the page', !('company_entity_id' in (call || {})));
+        R.ok('and no program: the scan is the company\'s, the program is chosen at Add to outreach', !!call && !('program_id' in call));
+        const progFilter = (t) => window.__QUERIES__.filter((q) => q.table === t).some((q) => (q.filters || []).some((f) => f.col === 'program_id'));
+        R.ok('the scan progress is read for the company, not one program', await pg.evaluate(progFilter, 'affiliate_customer_scans') === false
+          && await pg.evaluate((t) => window.__QUERIES__.some((q) => q.table === t), 'affiliate_customer_scans'));
+        R.ok('and so are the finds', await pg.evaluate(progFilter, 'affiliate_customer_social') === false
+          && await pg.evaluate((t) => window.__QUERIES__.some((q) => q.table === t), 'affiliate_customer_social'));
         R.has(await text(pg, '#custScanLine'), 'Scanning', 'and the line switches to scanning at once');
 
         // An opt-out view has nobody to scan.

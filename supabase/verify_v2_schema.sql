@@ -784,12 +784,14 @@ select
   case
     when exists (
       select 1 from pg_indexes
-      where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running'
+      -- Per company since 20261124210000 (8f checks which); per program before.
+      where schemaname = 'public' and indexname in ('affiliate_customer_scans_one_running', 'affiliate_customer_scans_one_running_company')
         and indexdef ilike '%unique%' and indexdef ilike '%running%'
     ) and exists (
       select 1 from pg_constraint
       where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
-        and pg_get_constraintdef(oid) ilike '%company_entity_id, program_id, customer_key%'
+        and (pg_get_constraintdef(oid) ilike '%company_entity_id, program_id, customer_key%'
+          or pg_get_constraintdef(oid) ilike 'UNIQUE (company_entity_id, customer_key)')
     ) and exists (
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'customer_scan_min_followers'
@@ -823,6 +825,42 @@ select
     then 'ok'
     else 'MISSING — run 20261124190000_affiliate_customer_social_trust.sql'
   end as affiliate_customer_social_trust;
+
+-- 8f. The customer scan is the COMPANY's (migration 20261124210000): one
+-- answer per customer per company, one running scan per company, program_id
+-- not a key and nullable, a deleted program keeps the results (SET NULL, not
+-- CASCADE), and reads scoped by company with no program-visibility check.
+select
+  case
+    when exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and pg_get_constraintdef(oid) ilike 'UNIQUE (company_entity_id, customer_key)'
+    ) and not exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and pg_get_constraintdef(oid) ilike '%program_id%'
+    ) and exists (
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running_company'
+        and indexdef ilike '%unique%' and indexdef not ilike '%program_id%'
+    ) and not exists (
+      select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running'
+    ) and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name in ('affiliate_customer_social', 'affiliate_customer_scans')
+        and column_name = 'program_id' and is_nullable = 'NO'
+    ) and not exists (
+      select 1 from pg_constraint
+      where conrelid in (to_regclass('public.affiliate_customer_social'), to_regclass('public.affiliate_customer_scans'))
+        and contype = 'f' and confrelid = to_regclass('public.affiliate_programs') and confdeltype <> 'n'
+    ) and not exists (
+      select 1 from pg_policy
+      where polrelid in (to_regclass('public.affiliate_customer_social'), to_regclass('public.affiliate_customer_scans'))
+        and pg_get_expr(polqual, polrelid) ilike '%affiliate_visible_program%'
+    ) then 'ok'
+    else 'MISSING — run 20261124210000_affiliate_customer_social_company.sql'
+  end as affiliate_customer_social_company;
 
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
