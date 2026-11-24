@@ -93,6 +93,8 @@ export const SCAN_TAIL_MS = 40_000;
 // whole table.
 export const SCAN_PAGE = 1000;
 export const SCAN_MAX_PAGES = 20;
+// Ambiguous rows from earlier scans judged per press, from stored profiles.
+export const CARRY_AMBIGUOUS = 200;
 const CHUNK = 200;
 const chunks = (list, n = CHUNK) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -518,7 +520,10 @@ export function createResearchHandler({
         const row = batch.find((b) => b.key === o.key);
         await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at,
           basis: o.pick ? matchBasis({ pick: o.pick, person: row.person, email: row.email, city: row.city }) : null }));
-        t.ambiguous -= 1; t[o.status] += 1; aiDecided += 1;
+        // A row carried over from an earlier scan was never counted in this
+        // one, so this scan's counters are left alone.
+        if (!row.carried) { t.ambiguous -= 1; t[o.status] += 1; }
+        aiDecided += 1;
       }
     }
 
@@ -531,6 +536,7 @@ export function createResearchHandler({
         .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(queued || 1);
       if (tErr) throw new Error(`could not read the queue: ${tErr.message || tErr}`);
       const ambiguous = [];
+      const triedHere = new Set();
       let next = 0; let sinceBeat = 0;
       const worker = async () => {
         while (next < (todo || []).length) {
@@ -556,8 +562,12 @@ export function createResearchHandler({
             }
             await write(row.id, socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: row.query, checkedAt: now().toISOString(), basis }));
             t[j.status] += 1;
+            if (j.status === 'ambiguous') triedHere.add(row.id);
             if (j.status === 'ambiguous') ambiguous.push({ id: row.id, key: row.customer_key, name: person.display, city: row.city, query: row.query, candidates: j.candidates, person, email: row.email_lc });
-          } catch {
+          } catch (err) {
+            // Logged without the customer: a run with a third of its searches
+            // failing (2026-11-24) said nothing about why.
+            console.warn(`customer_scan: search failed ${String(err?.message || err).slice(0, 200)}`);
             await write(row.id, { status: 'error', checked_at: now().toISOString() });
             t.error += 1;
           }
@@ -568,6 +578,18 @@ export function createResearchHandler({
       };
       await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, worker));
       while (ambiguous.length) await decide(ambiguous.splice(0, AI_BATCH));
+      // Searches an EARLIER scan left ambiguous (its model step failed, or
+      // there was no time) are judged now from the profiles already stored:
+      // no new search, so nothing is paid twice. Only with time to spare.
+      if (apiKey && left() > SCAN_TAIL_MS / 2) {
+        const { data: old } = await service.from('affiliate_customer_social')
+          .select('id, customer_key, email_lc, display_name, city, query, candidates').eq('company_entity_id', company)
+          .eq('status', 'ambiguous').order('created_at', { ascending: true }).limit(CARRY_AMBIGUOUS + triedHere.size);
+        const carried = (old || []).filter((r) => !triedHere.has(r.id)).slice(0, CARRY_AMBIGUOUS).map((r) => ({ ...r, person: personName(r.display_name) }))
+          .filter((r) => r.person && Array.isArray(r.candidates) && r.candidates.length)
+          .map((r) => ({ id: r.id, key: r.customer_key, name: r.person.display, city: r.city, query: r.query, candidates: r.candidates, person: r.person, email: r.email_lc, carried: true }));
+        while (carried.length && left() > 15_000) await decide(carried.splice(0, AI_BATCH));
+      }
       if (status !== 'stopped' && t.checked < (todo || []).length) status = 'stopped';
     } catch (err) {
       status = 'error'; error = String(err?.message || err).slice(0, 500);
