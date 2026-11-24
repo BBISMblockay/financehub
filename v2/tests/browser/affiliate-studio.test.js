@@ -193,8 +193,13 @@ const MUTATIONS = {
   // one program's again.
   scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
   socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
-  pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', count: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, count: c.scanCount,"],
+  pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', finds: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, finds: c.scanCount,"],
   foundbaronly: ['/affiliates/studio.js', ".eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])", ".eq('company_entity_id', CO).eq('status', 'found')"],
+  huntall: ['/affiliates/studio.js', ".in('status', HUNT_TIERS[tier] || HUNT_TIERS.top)", ".in('status', [...HUNT_TIERS.top, ...HUNT_TIERS.more])"],
+  huntoptout: ['/affiliates/studio.js', "      .or(`email_consent_state.is.null,email_consent_state.not.in.(${HUNT_NEVER.join(',')})`);\n    if (p.error) throw p.error;", "      ;\n    if (p.error) throw p.error;"],
+  huntnolive: ['/affiliates/studio.js', "  const live = running\n    ? `<div class=\"af-hunt-live\"", "  const live = false\n    ? `<div class=\"af-hunt-live\""],
+  huntrecent: ['/affiliates/studio.js', "  if (sc?.status === 'running') {\n    const r = await", "  if (false) {\n    const r = await"],
+  huntlanding: ['/affiliates/studio.js', "  view: 'hunt', huntTier: 'top', hunt: null,", "  view: 'all', huntTier: 'top', hunt: null,"],
   nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
   tierpill: ['/affiliates/studio.js', "pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match',", "pill('Likely',"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
@@ -2992,6 +2997,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(readsBefore, 0, 'Your Customers reads nothing until it is opened');
 
       await cu.click('#peopleSubtabs [data-k="customers"]');
+      // Hunt is the landing view; these checks are about the full list.
+      await cu.click('#customersBody [data-act="cust-view"][data-k="all"]');
       await cu.waitForFunction(() => {
         const el = document.getElementById('customersBody');
         return !!el && !el.hidden && /Lou Loyal/.test(el.textContent || '');
@@ -3076,6 +3083,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       };
       const showList = async (pg) => {
         await pg.click('#peopleSubtabs [data-k="customers"]');
+        // Hunt is the landing view; these checks are about the full list.
+        await pg.click('#customersBody [data-act="cust-view"][data-k="all"]');
         await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
       };
       const press = async (pg, key) => {
@@ -3161,6 +3170,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           };
         });
         await pg.click('#peopleSubtabs [data-k="customers"]');
+        // Hunt is the landing view; these checks are about the full list.
+        await pg.click('#customersBody [data-act="cust-view"][data-k="all"]');
         await pg.waitForFunction(() => typeof window.__releaseFirst === 'function', null, { timeout: 5000 });
         await pg.selectOption('#custConsent', 'subscribed');
         // The newer read lands first and draws the subscribed list.
@@ -3225,7 +3236,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
         { customer_key: 'under@buyer.invalid', company_entity_id: CO, name_lc: 'una under', email_lc: 'under@buyer.invalid', order_count: 3, lifetime_spend: '210.00', first_order_at: '2025-04-04T00:00:00Z', last_order_at: '2026-09-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
       ];
-      const SOCIAL = [{ id: 'cs2', company_entity_id: CO, program_id: null, customer_key: 'under@buyer.invalid', status: 'below', platform: 'instagram', handle: '@una', profile_url: 'https://www.instagram.com/una', followers: 312, followers_approx: false, followers_quote: '312 Followers', source_url: 'https://www.instagram.com/una', checked_at: now }, { id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
+      const SOCIAL = [{ id: 'cs2', company_entity_id: CO, program_id: null, customer_key: 'under@buyer.invalid', status: 'below', platform: 'instagram', handle: '@una', profile_url: 'https://www.instagram.com/una', followers: 312, followers_approx: false, followers_quote: '312 Followers', source_url: 'https://www.instagram.com/una', checked_at: now }, { id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', scan_id: 'scan1', display_name: 'Lou Loyal', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
       const scanRow = (o) => ({ id: 'scan1', company_entity_id: CO, program_id: PROG, status: 'running', requested: 500, checked: 240, found: 6, below: 0, no_count: 0, ambiguous: 0, not_found: 0, failed: 0, min_followers: 750, error_message: null, started_at: now, heartbeat_at: now, finished_at: null, ...o });
       const fx = (scan) => ({ ...tables, company_customer_profiles: SC, affiliate_suppressions: [],
         affiliate_customer_scans: [scanRow(scan)], affiliate_customer_social: SOCIAL,
@@ -3239,17 +3250,43 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ scan_id: 'scan2' }) });
         });
         await pg.click('#peopleSubtabs [data-k="customers"]');
+        // Hunt is the landing view; these checks are about the full list.
+        await pg.click('#customersBody [data-act="cust-view"][data-k="all"]');
         await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || '')
           && !!document.getElementById('custScanLine'), null, { timeout: 5000 });
         return { pg, calls };
       };
+
+      // Hunt, the landing view (Blake 2026-11-24): a live module while it
+      // runs, then only the people it brought back, never the whole list.
+      {
+        const pg = await suite.open('/v2/affiliates/index.html', fx({ filters: { want: 25 } }), { ready, rpc: { can_manage_affiliate_programs: true } });
+        pg.on('pageerror', (e) => errors.push(`customer-hunt: ${e.message}`));
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => !!document.getElementById('custHuntLive') && /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        R.ok('Hunt is what opens', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-view"][data-k="hunt"]')?.classList.contains('bcn-tab--active') === true));
+        const live = await text(pg, '#custHuntLive');
+        R.has(live, 'Found 6 of 25 · 240 checked', 'a running hunt counts finds against what was asked for');
+        R.has(live, 'Just checked: Lou Loyal', 'and the last people it checked, so it visibly moves');
+        R.eq(await pg.evaluate(() => document.querySelector('#custHuntLive .af-hunt-meter i')?.style.width), '24%', 'with a bar that fills as finds come back');
+        R.ok('never a cost', !/\$|cost|spend|budget|credit/i.test(live));
+        R.ok('and no second press while it runs', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
+        const shown = await text(pg, '#customersBody table');
+        R.ok('only the finds over the bar come back, never the whole customer list', /Lou Loyal/.test(shown) && !/Quin Quiet/.test(shown) && !/Una Under/.test(shown));
+        const pq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
+        R.ok('a find who has since unsubscribed drops out', /unsubscribed/.test(JSON.stringify(pq || {})));
+        await pg.click('#customersBody [data-act="cust-hunt-tier"][data-k="more"]');
+        await pg.waitForFunction(() => /Una Under/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        const more = await text(pg, '#customersBody table');
+        R.ok('"Under the bar" holds the smaller accounts', /Una Under/.test(more) && !/Lou Loyal/.test(more));
+        await pg.close();
+      }
 
       // A scan already running: its progress, no second press, and it keeps
       // refreshing on its own.
       {
         const { pg } = await openScan({});
         R.has(await text(pg, '#custScanLine'), 'Scanning… 240 of 500 checked · 6 found', 'a running scan shows live counts');
-        R.ok('and the button cannot start a second one', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
         R.ok('the scan bar never shows a cost', !/\$|cost|spend|budget|credit/i.test(await text(pg, '.af-cust-scan')));
         const reads0 = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_customer_scans').length);
         await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_customer_scans').length > n, reads0, { timeout: 7000 }).catch(() => {});
@@ -3269,11 +3306,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       {
         const { pg, calls } = await openScan({ status: 'done', checked: 500, found: 12, finished_at: now });
         R.has(await text(pg, '#custScanLine'), 'Last scan: 500 of 500 checked · 12 found.', 'a finished scan says what it found');
+        R.ok('the full list has no second Hunt button', await pg.evaluate(() => !document.querySelector('#customersBody [data-act="cust-scan"]')));
+        await pg.click('#customersBody [data-act="cust-view"][data-k="hunt"]');
         await pg.click('#customersBody [data-act="cust-scan"]');
-        await pg.waitForFunction(() => /Scanning/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        await pg.waitForFunction(() => /Hunting/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const call = calls.find((c) => c.action === 'customer_scan');
         R.ok('the press calls the scan', !!call);
-        R.eq([call?.count, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [500, 3, 'any', 'orders'], 'with the count and the slice the person is looking at');
+        R.eq([call?.finds, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [25, 3, 'any', 'orders'], 'with the finds wanted and the slice the person is looking at');
         R.ok('never a company id from the page', !('company_entity_id' in (call || {})));
         R.ok('and no program: the scan is the company\'s, the program is chosen at Add to outreach', !!call && !('program_id' in call));
         const progFilter = (t) => window.__QUERIES__.filter((q) => q.table === t).some((q) => (q.filters || []).some((f) => f.col === 'program_id'));
@@ -3281,7 +3320,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           && await pg.evaluate((t) => window.__QUERIES__.some((q) => q.table === t), 'affiliate_customer_scans'));
         R.ok('and so are the finds', await pg.evaluate(progFilter, 'affiliate_customer_social') === false
           && await pg.evaluate((t) => window.__QUERIES__.some((q) => q.table === t), 'affiliate_customer_social'));
-        R.has(await text(pg, '#custScanLine'), 'Scanning', 'and the line switches to scanning at once');
+        await pg.waitForFunction(() => !!document.getElementById('custHuntLive'), null, { timeout: 5000 }).catch(() => {});
+        R.has(await text(pg, '#custHuntLive'), 'Hunting your customers', 'and the live module shows at once');
 
         // An opt-out view has nobody to scan.
         await pg.selectOption('#custConsent', 'unsubscribed');
@@ -3289,10 +3329,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('people who unsubscribed cannot be scanned', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
         await pg.selectOption('#custConsent', 'any');
         await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+        await pg.click('#customersBody [data-act="cust-view"][data-k="all"]');
+        await pg.waitForFunction(() => !!document.getElementById('custSocial'), null, { timeout: 5000 });
 
         // Found accounts only: a filter on the list, by this program's finds.
+        const inBefore = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).length);
         await pg.selectOption('#custSocial', 'found');
-        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in' && f.col === 'customer_key')), null, { timeout: 5000 }).catch(() => {});
+        await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in' && f.col === 'customer_key')).length > n, inBefore, { timeout: 5000 }).catch(() => {});
         const inq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
         R.ok('"Found accounts only" narrows the list to who was found', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('loyal@buyer.invalid') && !(f.vals || []).includes('quiet@buyer.invalid')));
         R.ok('including an account under the bar, as the list shows it', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('under@buyer.invalid')));

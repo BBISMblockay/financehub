@@ -4199,6 +4199,16 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124230000_affiliate_customer_social_queue.sql` — Hunt: queued searches, "Find 25" means 25
+
+Blake, 2026-11-24: the number entered is how many finds come back ("not a partial or trimmed list"), and "Yes" to
+DataForSEO's cheaper standard queue. A press keeps checking customers best-first until it has that many people over
+the bar, the slice runs out, or the company's cap on customers checked per press
+(`entities.meta.affiliate_customer_scan_max_checks`, 10,000 when unset) -- the scan row's `filters.end` says which.
+A queued search is collected a minute or two after it is posted, often by a later run of the same scan, so its task
+id is stored on the customer's row (`serp_task_id`, `serp_task_kind` name/handle, `serp_posted_at`) before anything
+is collected. Additive: three nullable columns, a check and a partial index. Apply first, then deploy affiliate-research.
+
 ### `20261124210000_affiliate_customer_social_company.sql` — the customer scan belongs to the company
 
 Blake, 2026-11-24: "I feel like people come before program in n hierarchy of studio", then "Yes" to moving the
