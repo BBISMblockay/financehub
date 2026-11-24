@@ -928,6 +928,16 @@ export const SOCIAL_BASIS = {
 // the two). Only the score promotes: a row scored before scores existed
 // (NULL) is "Check", exactly as the scan counts it.
 export const LIKELY_SCORE = 70;
+// A run whose last heartbeat is older than the server's own stale window
+// (STALE_SCAN_MS, 3 minutes) died partway. The page reads it as stopped, so a
+// dead run never locks Find; the next press clears it on the server too.
+export const SCAN_STALE_MS = 3 * 60_000;
+export function liveScan(scan, nowMs = Date.now()) {
+  if (!scan || scan.status !== 'running') return scan || null;
+  const beat = new Date(scan.heartbeat_at || scan.started_at || 0).getTime();
+  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;
+  return { ...scan, status: 'stopped' };
+}
 export function socialScore(row) {
   const s = row?.match_score;
   return s === null || s === undefined || s === '' || !Number.isFinite(Number(s)) ? null : Math.round(Number(s));

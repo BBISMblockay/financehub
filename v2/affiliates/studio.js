@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -982,7 +982,7 @@ async function loadSocial(c, keys) {
   ]);
   if (scan.error || soc.error) { c.scanReady = false; c.scan = null; c.social = {}; return; }
   c.scanReady = true;
-  c.scan = scan.data?.[0] || null;
+  c.scan = liveScan(scan.data?.[0]);
   c.social = Object.fromEntries((soc.data || []).map((r) => [r.customer_key, r]));
 }
 // Hunt: the scan and the people it brought back, not the whole customer list
@@ -1023,7 +1023,7 @@ async function readHunt(tier) {
       .order('followers', { ascending: false, nullsFirst: false }).order('checked_at', { ascending: false }).limit(HUNT_LIMIT),
   ]);
   if (scan.error || hits.error) return null;
-  const sc = scan.data?.[0] || null;
+  const sc = liveScan(scan.data?.[0]);
   // The last few people checked, so a running hunt visibly moves.
   let recent = [];
   if (sc?.status === 'running') {

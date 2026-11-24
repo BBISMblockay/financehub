@@ -27,6 +27,7 @@
 //   AFFILIATE_CORE_MUTATION=socialzero   a social row with no stated count shows 0 followers
 //   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
 //   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
+//   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -61,6 +62,7 @@ const MUTS = {
   socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
   basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
   scorepromote: ['  return s !== null && s >= LIKELY_SCORE ? \'likely\' : \'name\';', "  return s !== null || row?.match_basis === 'city' ? 'likely' : 'name';"],
+  deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -561,6 +563,13 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.match(C.huntLine({ status: 'done', checked: 10000, found: 18, filters: { want: 25, end: 'cap' } }), /the most one search checks: 18 found\. Press Find to keep going\.$/);
   assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last search: found 25 · 2,400 checked.');
   assert.ok(!/\$|cost|spend|budget|credit/i.test(C.huntLine({ status: 'done', checked: 1, found: 0, cost_usd: 9, filters: { end: 'cap' } })), 'no cost in the UI');
+  // A run that died partway (no heartbeat for 3 minutes) never locks Find.
+  const t0 = Date.parse('2026-11-24T07:20:00Z');
+  assert.equal(C.liveScan({ status: 'running', heartbeat_at: '2026-11-24T07:16:00Z' }, t0).status, 'stopped', 'a dead run reads as stopped');
+  assert.equal(C.liveScan({ status: 'running', heartbeat_at: '2026-11-24T07:19:00Z' }, t0).status, 'running', 'a live run stays running');
+  assert.equal(C.liveScan({ status: 'running' }, t0).status, 'running', 'the page\'s own just-pressed run has no heartbeat yet');
+  assert.equal(C.liveScan({ status: 'done', heartbeat_at: '2026-11-24T07:00:00Z' }, t0).status, 'done');
+  assert.equal(C.liveScan(undefined), null);
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
