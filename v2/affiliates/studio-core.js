@@ -868,6 +868,40 @@ export function customerSuppressed(email, suppressions = []) {
   return false;
 }
 
+// How a customer may be reached (Blake 2026-11-24: "want all prospect
+// available and then comms path decided by status tag"). Everyone found is
+// listed; the consent tag picks the path:
+//   email  their email consent allows it (anything but unsubscribed / erased)
+//   dm     they unsubscribed, so never email -- a DM by hand to the social
+//          account Find matched, which SILO never sends
+//   null   no way to reach them: unsubscribed with no account found, no
+//          email at all, or on the do-not-contact list (email, domain or the
+//          matched handle)
+export const NO_EMAIL_CONSENT = ['unsubscribed', 'redacted'];
+const bareHandle = (h) => String(h || '').trim().toLowerCase().replace(/^@/, '');
+export function customerContactPath(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  if (c.email_consent_state === 'redacted') return null;
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  if (email && customerSuppressed(email, suppressions)) return null;
+  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return { channel: 'email', email, handle: null };
+  const ev = customerSocialEvidence(social);
+  if (!ev) return null;
+  const h = bareHandle(ev.handle);
+  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;
+  return { channel: 'dm', email: null, handle: ev.profile_url, platform: ev.platform };
+}
+// Why a listed customer has no tick box, in the words the row shows.
+export function customerNoPathReason(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  if (customerContactPath(c, social, suppressions)) return '';
+  if (c.email_consent_state === 'redacted') return 'data erased';
+  if (email && customerSuppressed(email, suppressions)) return 'on your do-not-contact list';
+  if (c.email_consent_state === 'unsubscribed') return customerSocialEvidence(social) ? 'on your do-not-contact list' : 'unsubscribed, no account to message';
+  return 'no email on file';
+}
+
 // What a picked customer becomes: an ordinary prospect row. `platform` is
 // 'other' because they have no channel yet -- finding one is the social
 // scan's job, and claiming 'web' would say we looked.

@@ -165,8 +165,14 @@ const MUTATIONS = {
     "    if (spec.consentIsNull) q = q.is('email_consent_state', null);\n    else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);",
     "    q = q.eq('email_consent_state', spec.consentState || 'subscribed');"],
   custsuppick: ['/affiliates/studio.js',
-    "  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);",
+    "  const pickable = (x) => MANAGE && !!customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || []);",
     '  const pickable = (x) => MANAGE && !!x.email_lc;'],
+  // Blake 2026-11-24: everyone found is listed, and the consent tag picks the
+  // path -- an unsubscribed customer gets a DM draft, never an email one.
+  unsubemail: ['/affiliates/studio.js',
+    "channel: path.channel,\n            recipient_email: path.email, recipient_handle: path.handle,",
+    "channel: 'email',\n            recipient_email: x.email_lc, recipient_handle: null,"],
+  unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
   // Source is what picks the template, on every path that writes a draft.
   custcreatorpitch: ['/affiliates/studio.js',
     "const draftFor = (x) => (x?.source === 'customer'",
@@ -184,8 +190,7 @@ const MUTATIONS = {
     "            if (e?.code !== '23505') throw e;\n            id = must(await db.from('affiliate_prospects').select('id')",
     "            throw e;\n            id = must(await db.from('affiliate_prospects').select('id')"],
   // Find their social accounts (20261124170000).
-  scanjoinbtn: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: optOutView })"],
-  scanoptout: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: running })"],
+  scanjoinbtn: ['/affiliates/studio.js', "{ disabled: running })", "{ disabled: false })"],
   scannopoll: ['/affiliates/studio.js', "  if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;", '  return;'],
   scanfilters: ['/affiliates/studio.js', "filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },", 'filters: {},'],
   // The scan is the company's: a program filter on its reads hides finds
@@ -3269,17 +3274,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       };
 
       // The tab counts agree with the list (Blake 2026-11-24: "check says 76
-      // then shows 67"): a find whose customer unsubscribed since is left out
+      // then shows 67"): a find whose customer was erased since is left out
       // of its count too, even past the first 1,000 stored answers.
       {
         const filler = Array.from({ length: 1000 }, (_, i) => ({ id: `cf${String(i).padStart(4, '0')}`, company_entity_id: CO, program_id: null, customer_key: `f${i}@buyer.invalid`, status: 'found', match_basis: 'name_only', match_score: 30, platform: 'instagram', handle: `@f${i}`, profile_url: `https://www.instagram.com/f${i}`, followers: 900, checked_at: now }));
         const gone = { id: 'cz9999', company_entity_id: CO, program_id: null, customer_key: 'gone@buyer.invalid', status: 'found', match_basis: 'name_only', match_score: 30, platform: 'instagram', handle: '@gone', profile_url: 'https://www.instagram.com/gone', followers: 5000, checked_at: now };
-        const goneProfile = { ...SC[2], customer_key: 'gone@buyer.invalid', email_lc: 'gone@buyer.invalid', name_lc: 'gus gone', email_consent_state: 'unsubscribed' };
+        const goneProfile = { ...SC[2], customer_key: 'gone@buyer.invalid', email_lc: 'gone@buyer.invalid', name_lc: 'gus gone', email_consent_state: 'redacted' };
         const pg = await suite.open('/v2/affiliates/index.html', { ...fx({ status: 'done', finished_at: now }), company_customer_profiles: [...SC, goneProfile], affiliate_customer_social: [...SOCIAL, ...filler, gone] }, { ready, rpc: { can_manage_affiliate_programs: true } });
         pg.on('pageerror', (e) => errors.push(`customer-hunt-counts: ${e.message}`));
         await pg.click('#peopleSubtabs [data-k="customers"]');
         await pg.waitForFunction(() => !!document.querySelector('#customersBody [data-act="cust-hunt-tier"][data-k="check"]'), null, { timeout: 5000 }).catch(() => {});
-        R.has(await text(pg, '#customersBody [data-act="cust-hunt-tier"][data-k="check"]'), '1,001', 'Check counts what its list can show: an unsubscribed customer past the first page is left out');
+        R.has(await text(pg, '#customersBody [data-act="cust-hunt-tier"][data-k="check"]'), '1,001', 'Check counts what its list can show: an erased customer past the first page is left out');
         await pg.close();
       }
 
@@ -3302,7 +3307,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('a name-only find over the bar is not with the Likely ones', !/Cy Check/.test(shown));
         R.has(shown, 'Likely 82', 'each find shows its match score');
         const pq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
-        R.ok('a find who has since unsubscribed drops out', /unsubscribed/.test(JSON.stringify(pq || {})));
+        R.ok('only a find who has since been erased drops out', /redacted/.test(JSON.stringify(pq || {})) && !/unsubscribed/.test(JSON.stringify(pq || {})));
         await pg.click('#customersBody [data-act="cust-hunt-tier"][data-k="more"]');
         await pg.waitForFunction(() => /Una Under/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const more = await text(pg, '#customersBody table');
@@ -3361,10 +3366,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         await pg.waitForFunction(() => !!document.getElementById('custHuntLive'), null, { timeout: 5000 }).catch(() => {});
         R.has(await text(pg, '#custHuntLive'), 'Searching your customers', 'and the live module shows at once');
 
-        // An opt-out view has nobody to scan.
+        // Unsubscribed is a view like any other: they are found too.
         await pg.selectOption('#custConsent', 'unsubscribed');
-        await pg.waitForFunction(() => /never looked up/.test(document.getElementById('custScanLine')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-        R.ok('people who unsubscribed cannot be scanned', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
+        await pg.waitForFunction(() => !!document.getElementById('custScanLine'), null, { timeout: 5000 }).catch(() => {});
+        R.ok('an unsubscribed view is never told nobody can be looked up', !/never looked up/.test(await text(pg, '#customersBody')));
         await pg.selectOption('#custConsent', 'any');
         await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
         await pg.click('#customersBody [data-act="cust-view"][data-k="all"]');
@@ -3394,6 +3399,28 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.eq(pros?.evidence?.social?.profile_url, 'https://www.instagram.com/lou', 'the found profile travels with the prospect');
         R.eq(pros?.evidence?.social?.followers, 1204, 'with the count the result stated');
         R.eq(pros?.profile_url, null, 'but not as its identity, which a Discovery prospect of the same profile would refuse');
+        await pg.close();
+      }
+
+      // Show every prospect; the tag decides the path (Blake 2026-11-24):
+      // an unsubscribed customer is listed, tagged, and reached by DM only.
+      {
+        const unsub = { ...SC[0], customer_key: 'opt@buyer.invalid', email_lc: 'opt@buyer.invalid', name_lc: 'ola optout', email_consent_state: 'unsubscribed' };
+        const unsubFind = { ...SOCIAL[1], id: 'cs9', customer_key: 'opt@buyer.invalid', display_name: 'Ola Optout', handle: '@ola', profile_url: 'https://www.instagram.com/ola', source_url: 'https://www.instagram.com/ola', match_score: 90 };
+        const pg = await suite.open('/v2/affiliates/index.html', { ...fx({ status: 'done', finished_at: now }), company_customer_profiles: [...SC, unsub], affiliate_customer_social: [...SOCIAL, unsubFind] }, { ready, rpc: { can_manage_affiliate_programs: true } });
+        pg.on('pageerror', (e) => errors.push(`customer-unsub: ${e.message}`));
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => /Ola Optout/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        const shown = await text(pg, '#customersBody table');
+        R.ok('an unsubscribed customer who was found is listed', /Ola Optout/.test(shown));
+        R.ok('tagged unsubscribed, DM only', /unsubscribed\s*DM only/i.test(shown));
+        await pg.click('#customersBody [data-act="cust-pick"][data-k="opt@buyer.invalid"]').catch(() => {});
+        await pg.click('#customersBody [data-act="cust-add"]').catch(() => {});
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+        const dr = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+        R.eq(dr?.channel, 'dm', 'their message is a DM to send by hand');
+        R.eq(dr?.recipient_email ?? null, null, 'and never an email');
+        R.eq(dr?.recipient_handle, 'https://www.instagram.com/ola', 'to the account Find matched');
         await pg.close();
       }
     }

@@ -12,7 +12,7 @@ import {
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
-  customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
+  customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
   customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
 
@@ -989,8 +989,10 @@ async function loadSocial(c, keys) {
 // with tags (Blake 2026-11-24: "show more of a module ... visual loading and
 // hunting the queue ... then bring back the found opportunity rather than
 // show all customers and tag possible"). Every find of the company's, best
-// first: over the bar, or under it / no count stated. A customer who has
-// since unsubscribed drops out, as they would from a scan.
+// first: over the bar, or under it / no count stated. Everyone found is
+// listed whatever their consent (Blake 2026-11-24); the consent tag decides
+// how they are reached (customerContactPath). Only an erased customer drops
+// out, as they would from a scan.
 // Over the bar splits by the match score: Likely (LIKELY_SCORE and up, or an
 // unscored older row with a second signal) or Check (everything else over the
 // bar). Only Likely counts toward the finds asked for.
@@ -1004,9 +1006,9 @@ function huntTier(q, tier) {
   return q;
 }
 const HUNT_LIMIT = 200;
-const HUNT_NEVER = ['unsubscribed', 'redacted'];
+const HUNT_NEVER = ['redacted'];
 const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
-// The over-the-bar answers whose customer the list hides (opted out since
+// The over-the-bar answers whose customer the list hides (erased since
 // their search). Every page of them, as the tab counts count every row.
 async function huntHidden() {
   // Keyset pages (id after the last one seen), so an answer a running scan
@@ -1070,7 +1072,7 @@ async function readHunt(tier) {
     const at = new Map(keys.map((k, i) => [k, i]));
     rows = (p.data || []).sort((a, b) => at.get(a.customer_key) - at.get(b.customer_key));
   }
-  // The list never shows a customer who opted out since their search, so
+  // The list never shows a customer erased since their search, so
   // neither do the tab counts. A failed read leaves the stored counts.
   let hidden = [];
   try { hidden = await huntHidden(); } catch (_) { hidden = []; }
@@ -1220,7 +1222,7 @@ async function loadCustomers(force = false) {
 
 // The Hunt view: the slice to hunt, a live module while it runs, then only
 // the people it brought back.
-function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable }) {
+function huntBody({ c, spec, filters, running, socialCell, consentCell, pickable, noPath }) {
   const s = c.scan;
   const n0 = (v) => Number(v || 0);
   const { want, pct } = huntProgress(s);
@@ -1233,8 +1235,8 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
     ? `<div class="af-row af-cust-scan">
         ${field(`Finds wanted (${bar}+ followers)`, input('custScanCount', `type="number" min="1" max="500" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
         ${field('Niche words', input('custScanTerms', `type="text" maxlength="500" placeholder="baseball, softball" value="${esc(c.scanTerms || '')}" style="max-width:16rem"`))}
-        ${btn(running ? 'Finding…' : 'Find', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}
-        <span class="af-mono" id="custScanLine">${esc(optOutView ? 'People who unsubscribed are never looked up.' : running ? '' : huntLine(s))}</span>
+        ${btn(running ? 'Finding…' : 'Find', 'cust-scan', {}, 'primary', { disabled: running })}
+        <span class="af-mono" id="custScanLine">${esc(running ? '' : huntLine(s))}</span>
       </div>`
     : `<div class="af-row af-cust-scan"><span class="af-mono" id="custScanLine">${esc(running ? '' : huntLine(s))}</span></div>`;
   // While it runs: a bar that fills, counts that tick, the last names checked.
@@ -1252,8 +1254,10 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
     ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
       ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
       : '')}] : []),
-    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${x.email_lc ? `<div class="af-muted">${esc(x.email_lc)}</div>` : '<div class="af-muted">no email on file</div>'}` },
+    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
     { left: true, h: 'Account', f: socialCell },
+    // Everyone found is listed; this tag decides email or DM.
+    { left: true, h: 'Status', f: consentCell },
     { num: true, h: 'Orders', f: (x) => num(x.order_count) },
     { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
     { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
@@ -1306,10 +1310,8 @@ function renderCustomers() {
     ${c.scanReady && c.view !== 'hunt' ? field('Social', `<select class="bcn-field" id="custSocial"><option value="any"${c.socialOnly ? '' : ' selected'}>Anyone</option><option value="found"${c.socialOnly ? ' selected' : ''}>Found accounts only</option></select>`) : ''}
   </div>`;
   // Find their social accounts: one search per customer, top of this view
-  // first. A customer who unsubscribed is never looked up, so that view has
-  // nothing to scan. Progress is live counts, never a cost.
+  // first. Progress is live counts, never a cost.
   const running = c.scan?.status === 'running';
-  const optOutView = spec.consent === 'unsubscribed';
   const scanBar = c.scanReady && (MANAGE || c.scan)
     ? `<div class="af-row af-cust-scan">
         <span class="af-mono" id="custScanLine">${esc(running ? customerScanLine(c.scan) : huntLine(c.scan))}</span>
@@ -1331,18 +1333,22 @@ function renderCustomers() {
   const consentCell = (row) => {
     const v = customerConsentView(row.email_consent_state);
     const s = customerConsentView(row.sms_consent_state);
-    return `${pill(v.label, v.tone)}${s.measured ? ` <span class="af-muted">SMS ${esc(s.label)}</span>` : ''}`;
+    // The tag decides the contact path: an unsubscribed customer is reached
+    // by DM only, never email.
+    const dmOnly = row.email_consent_state === 'unsubscribed' ? ' <span class="af-muted">DM only</span>' : '';
+    return `${pill(v.label, v.tone)}${dmOnly}${s.measured ? ` <span class="af-muted">SMS ${esc(s.label)}</span>` : ''}`;
   };
-  // A customer with no email on file cannot be written to, so there is
-  // nothing to tick: the row still shows (they are a real customer and count
-  // towards the totals) and says why instead of offering an action that
-  // would fail.
-  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);
+  // A customer with no way to reach them (no email, unsubscribed with no
+  // account found, do-not-contact) has nothing to tick: the row still shows
+  // (they are a real customer and count towards the totals) and says why
+  // instead of offering an action that would fail.
+  const pickable = (x) => MANAGE && !!customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || []);
+  const noPath = (x) => customerNoPathReason(x, c.social[x.customer_key], S.d?.suppressions || []);
   const rows = table([
     ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
       ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
       : '')}] : []),
-    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${x.email_lc ? `<div class="af-muted">${esc(x.email_lc)}${customerSuppressed(x.email_lc, S.d?.suppressions || []) ? ' · on your do-not-contact list' : ''}</div>` : '<div class="af-muted">no email on file</div>'}` },
+    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
     { num: true, h: 'Orders', f: (x) => num(x.order_count) },
     { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
     { h: 'First order', f: (x) => fmtDate(x.first_order_at) },
@@ -1387,7 +1393,7 @@ function renderCustomers() {
     ? subtabs('Your customers view', [['hunt', 'Find creators'], ['all', 'All customers']], 'cust-view', c.view)
     : '';
   const hunting = c.view === 'hunt' && c.scanReady;
-  if (hunting) body.innerHTML = surface('Your customers', `${views}${huntBody({ c, spec, filters, running, optOutView, socialCell, pickable })}`,
+  if (hunting) body.innerHTML = surface('Your customers', `${views}${huntBody({ c, spec, filters, running, socialCell, consentCell, pickable, noPath })}`,
     c.hunt?.counts?.top == null ? '' : `${num(c.hunt.counts.top)} over the bar`, 'afCustomers');
   else body.innerHTML = surface('Your customers',
     `${views}
@@ -2180,8 +2186,13 @@ function renderOutreach() {
   const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
   const dmCard = (x) => {
     const pr = d.prospectById[x.prospect_id] || {};
-    const where = pr.profile_url ? ext(pr.profile_url, `Open ${PLATFORM_NAMES[pr.platform] || pr.platform || 'profile'}`) : '';
-    return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[pr.platform] || pr.platform || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
+    // A customer's account lives in their evidence (never the prospect's own
+    // profile_url, which feeds the identity index), so read it from there.
+    const soc = pr.evidence?.social || null;
+    const url = pr.profile_url || soc?.profile_url || '';
+    const plat = pr.profile_url ? pr.platform : (soc?.platform || pr.platform);
+    const where = url ? ext(url, `Open ${PLATFORM_NAMES[plat] || plat || 'profile'}`) : '';
+    return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[plat] || plat || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
       <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
   };
   const canSend = (d.aiApps || []).some((a) => a.canSend);
@@ -2260,6 +2271,25 @@ async function publishAdImage(path) {
 
 // What the person pastes into their own AI (or sets as a daily task there).
 const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach by email from my own mailbox, then mark each one sent with where I sent it from. Creators with no email stay in SILO for me to message on social.';
+// How a prospect may be reached. A creator: email if they have one, else a
+// DM. A customer: by their CURRENT email consent (re-read, not the snapshot
+// taken when they were added), so somebody who has since unsubscribed is
+// never given an email draft (customerContactPath). Null: no way to reach.
+async function prospectContact(x) {
+  if (!x) return null;
+  if (x.source !== 'customer') {
+    return x.contact_email ? { channel: 'email', email: x.contact_email, handle: null } : { channel: 'dm', email: null, handle: x.handle || x.profile_url };
+  }
+  let consent = x.evidence?.email_consent_state ?? null;
+  const key = x.evidence?.customer_key;
+  if (key) {
+    const r = await db.from('company_customer_profiles').select('email_consent_state')
+      .eq('company_entity_id', CO).eq('customer_key', key).maybeSingle();
+    if (r.error) throw r.error;
+    if (r.data) consent = r.data.email_consent_state;
+  }
+  return customerContactPath({ email_lc: x.contact_email, email_consent_state: consent }, x.evidence?.social || null, S.d?.suppressions || []);
+}
 // A creator with no public email is reached by a DM the person sends by hand
 // (Blake, 2026-11-17: "use social or email to connect"). SILO sends nothing.
 const isDm = (x) => x.channel !== 'email' || !x.recipient_email;
@@ -3806,7 +3836,7 @@ const A = {
   // reload() of the whole program.
   'cust-sort': ({ k }) => { const c = custState(); c.sort = k; c.page = 0; loadCustomers(true); return null; },
   'cust-pick': ({ k }) => { const c = custState(); if (c.sel.has(k)) c.sel.delete(k); else c.sel.add(k); renderCustomers(); return null; },
-  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
+  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
   'cust-select-none': () => { custState().sel.clear(); renderCustomers(); return null; },
   // Picked customers enter the SAME outreach flow a creator does: a prospect
   // row and a draft, and nothing else differs after this point. The draft is
@@ -3837,10 +3867,15 @@ const A = {
     // already in the program. There is no transaction from the browser, so
     // resuming is what makes the pair safe to retry.
     const drafted = new Set((S.d?.drafts || []).map((x) => x.prospect_id));
-    const picked = c.rows.filter((x) => c.sel.has(x.customer_key) && x.email_lc);
-    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0;
+    const picked = c.rows.filter((x) => c.sel.has(x.customer_key));
+    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0; let noWay = 0; let dms = 0;
     for (const x of picked) {
-      if (customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
+      if (x.email_lc && customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
+      // The consent tag decides the path: email where it allows, otherwise a
+      // DM to the matched account, which SILO never sends. Nobody
+      // unsubscribed ever gets an email draft.
+      const path = customerContactPath(x, c.social[x.customer_key] || null, sup);
+      if (!path) { noWay += 1; continue; }
       try {
         const row = customerProspectRow({ customer: x, social: c.social[x.customer_key] || null });
         let id = pid.get(x.email_lc) || null;
@@ -3881,8 +3916,8 @@ const A = {
         const { tpl, vars } = draftFor({ ...row, id });
         try {
           must(await db.from('affiliate_outreach_drafts').insert({
-            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: 'email',
-            recipient_email: x.email_lc, recipient_handle: null,
+            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: path.channel,
+            recipient_email: path.email, recipient_handle: path.handle,
             subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
           }));
         } catch (e) {
@@ -3893,6 +3928,7 @@ const A = {
           drafted.add(id); skippedDupe += 1; continue;
         }
         drafted.add(id);
+        if (path.channel === 'dm') dms += 1;
         if (fresh) added += 1; else resumed += 1;
       } catch (_) { failed += 1; }
     }
@@ -3901,7 +3937,9 @@ const A = {
     const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created`];
     if (resumed) bits.push(`${num(resumed)} message${resumed === 1 ? '' : 's'} finished from an earlier attempt`);
     if (skippedDupe) bits.push(`${num(skippedDupe)} already in the program`);
+    if (dms) bits.push(`${num(dms)} unsubscribed, so a DM to send by hand`);
     if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
+    if (noWay) bits.push(`${num(noWay)} with no way to reach them`);
     if (failed) bits.push(`${num(failed)} could not be added`);
     return `${bits.join(' · ')}. Approve them on Outreach.`;
   },
@@ -4012,7 +4050,9 @@ const A = {
     // A creator who now has an email is reached by email: their waiting
     // message moves from DM to email. Sent ones keep their history.
     let moved = 0;
-    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {
+    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()
+      // ...unless they are a customer who unsubscribed: they stay on DM.
+      && (await prospectContact({ ...x, ...row }))?.channel === 'email') {
       const r = must(await db.from('affiliate_outreach_drafts').update({ channel: 'email', recipient_email: row.contact_email })
         .eq('company_entity_id', CO).eq('prospect_id', id).in('state', ['draft', 'approved']).select('id'));
       moved = r?.length || 0;
@@ -4105,11 +4145,14 @@ const A = {
   },
   'draft-create': async ({ id }) => {
     // A customer prospect appears on the creators list too, so this path
-    // picks its template by source as well.
+    // picks its template by source as well -- and its channel by their
+    // CURRENT consent: an unsubscribed customer gets a DM, never an email.
     const x = S.d.prospectById[id]; const { tpl, vars } = draftFor(x);
+    const path = await prospectContact(x);
+    if (!path) throw new Error('No way to reach them: they unsubscribed and no account was found to message.');
     must(await db.from('affiliate_outreach_drafts').insert({
-      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
-      recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
+      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,
+      recipient_email: path.email, recipient_handle: path.handle,
       subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
     }));
     return 'Draft created. Approve it on Outreach.';
