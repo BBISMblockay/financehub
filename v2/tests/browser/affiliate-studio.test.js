@@ -2997,7 +2997,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
 
       // LAZY: nothing is read until the sub-tab is opened. People must not get
       // slower for everybody who never looks at this list.
-      const readsBefore = await cu.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles').length);
+      // Find (the landing view) reads the scan tables, the full list reads
+      // profiles: none of them before the sub-tab is opened.
+      const readsBefore = await cu.evaluate(() => window.__QUERIES__.filter((q) => ['company_customer_profiles', 'affiliate_customer_scans', 'affiliate_customer_social'].includes(q.table)).length);
       R.eq(readsBefore, 0, 'Your Customers reads nothing until it is opened');
 
       await cu.click('#peopleSubtabs [data-k="customers"]');
