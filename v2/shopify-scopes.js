@@ -14,10 +14,6 @@ window.SiloShopifyScopes = {
     payouts_sync: ['read_shopify_payments_payouts'],
     draft_orders_sync: ['read_draft_orders'],
   sessions_sync: ['read_reports'],
-  // Marketing consent lives on the CUSTOMER, so this is its own job and its
-  // own scope. Deliberately NOT in REQUIRED_FOR_SYNC: a store that has not
-  // granted it keeps syncing everything else, and only this stage skips.
-  customers_sync: ['read_customers'],
   },
 
   /** Union of scopes needed before any Phase 2 sync */
@@ -33,7 +29,6 @@ window.SiloShopifyScopes = {
     read_products: 'Read products',
     read_inventory: 'Read inventory',
     read_locations: 'Read locations',
-    read_customers: 'Read customers',
   },
 
   normalizeGranted(scopesPayload) {

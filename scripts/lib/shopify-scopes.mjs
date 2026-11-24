@@ -12,10 +12,6 @@ export const JOB_SCOPES = {
   // connection already has it (72 scopes granted, none missing), so this
   // needs no re-authorisation -- unlike the Meta organic blocker.
   sessions_sync: ['read_reports'],
-  // Marketing consent lives on the CUSTOMER, so this is its own job and its
-  // own scope. Deliberately NOT in REQUIRED_FOR_SYNC: a store that has not
-  // granted it keeps syncing everything else, and only this stage skips.
-  customers_sync: ['read_customers'],
 };
 
 export const REQUIRED_FOR_SYNC = [

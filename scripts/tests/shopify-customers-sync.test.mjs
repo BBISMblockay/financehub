@@ -27,11 +27,14 @@ import { createFakeSupabase } from './lib/fake-supabase.mjs';
 import {
   customerConsentRow,
   customersAccessRefused,
+  customersCursorRejected,
+  customersScopesMissing,
+  CUSTOMERS_SCOPES,
   customersNotInstalled,
   normalizeConsentValue,
   runCustomersSync,
-} from '../lib/shopify-sync-core.mjs';
-import { JOB_SCOPES, REQUIRED_FOR_SYNC, scopesMissingForJob } from '../lib/shopify-scopes.mjs';
+} from '../lib/shopify-customers-core.mjs';
+import { REQUIRED_FOR_SYNC } from '../lib/shopify-scopes.mjs';
 
 const read = (p) => fs.readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const MIGRATION = 'supabase/migrations/20261124020000_shopify_customer_marketing_consent.sql';
@@ -171,6 +174,8 @@ test('a first run asks for every customer; the next run asks only for changes', 
     connection({ meta: { last_customer_sync_at: first.last_customer_sync_at } }),
     { batchId: 'b2', gql: gql2 },
   );
+  assert.equal(first.complete, true);
+  assert.equal(first.customer_walk, null, 'a finished walk stores no continuation');
   assert.equal(second.first_run, false);
   // A FULL DAY of overlap: Shopify's search syntax documents updated_at as
   // matching "a whole day" and says nothing about sub-second precision, so the
@@ -195,7 +200,7 @@ test('the rows land once per (company, store, customer), merged on re-sync', asy
   assert.equal(db.calls.upserts.at(-1).opts.onConflict, 'company_entity_id,shop_domain,customer_id');
 });
 
-test('the page budget stops a run and the watermark lets the next one continue', async () => {
+test('the page budget stops a run and hands the next one its cursor', async () => {
   const db = createFakeSupabase();
   const pages = [
     [node({ legacyResourceId: '1', id: 'gid://shopify/Customer/1', updatedAt: '2026-11-01T00:00:00Z' })],
@@ -208,56 +213,108 @@ test('the page budget stops a run and the watermark lets the next one continue',
 
   assert.equal(run.pages_fetched, 2);
   assert.equal(run.customers_upserted, 2);
+  assert.equal(run.complete, false);
   assert.equal(run.more_available, true, 'the caller must be able to tell that there is more');
-  // Exactly what landed, so the next run re-reads the boundary rather than
-  // stepping over the page it never fetched.
-  assert.equal(run.last_customer_sync_at, '2026-11-02T00:00:00Z');
+  assert.equal(run.customer_walk.cursor, '2', 'the continuation is a cursor, not a timestamp');
+  assert.equal(run.customer_walk.filter, null, 'and it carries the filter the walk started with');
+  // An unfinished walk must NOT move the incremental window: the window only
+  // advances once every page of the walk has landed.
+  assert.equal(run.last_customer_sync_at, null);
+
+  const resumed = await runCustomersSync(
+    db,
+    connection({ meta: { customer_walk: run.customer_walk } }),
+    { batchId: 'b2', gql: fakeGql(pages), maxPages: 2 },
+  );
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.complete, true);
+  assert.equal(resumed.customer_walk, null);
+  assert.equal(resumed.last_customer_sync_at, '2026-11-03T00:00:00Z');
 });
 
-test('a customer Shopify dated nothing cannot pull the watermark backwards', async () => {
+test('25,000 customers sharing one timestamp still finish, a budget at a time', async () => {
+  // The failure this replaced: resuming from the newest timestamp written
+  // means a bulk edit that leaves more customers on one `updated_at` than a
+  // run's budget covers would re-walk the same pages for ever and never reach
+  // the rest (found in review of this PR). Three pages of identical
+  // timestamps, a budget of one page, so the walk can only finish if the
+  // CURSOR is what carries over.
+  const SAME = '2026-11-15T00:00:00Z';
+  const pages = [0, 1, 2].map((p) => [
+    node({ legacyResourceId: `${p}a`, id: `gid://shopify/Customer/${p}a`, updatedAt: SAME }),
+    node({ legacyResourceId: `${p}b`, id: `gid://shopify/Customer/${p}b`, updatedAt: SAME }),
+  ]);
+
   const db = createFakeSupabase();
-  const gql = fakeGql([[
-    node({ legacyResourceId: '1', updatedAt: '2026-11-18T00:00:00Z' }),
-    node({ legacyResourceId: '2', updatedAt: null }),
-  ]]);
+  let meta = {};
+  const seenFilters = [];
+  for (let run = 0; run < 3; run += 1) {
+    const gql = fakeGql(pages);
+    const r = await runCustomersSync(db, connection({ meta }), { batchId: `b${run}`, gql, maxPages: 1 });
+    seenFilters.push(gql.seen[0]);
+    meta = { ...meta, customer_walk: r.customer_walk || null };
+    if (r.last_customer_sync_at) meta.last_customer_sync_at = r.last_customer_sync_at;
+    assert.equal(r.pages_fetched, 1);
+    assert.equal(r.complete, run === 2, `run ${run} completion`);
+  }
+
+  assert.equal(db.rows('shopify_customers').length, 6, 'every customer behind the tie is reached');
+  assert.deepEqual(seenFilters.map((v) => v.cursor), [null, '1', '2'],
+    'each run continues from the previous cursor instead of re-filtering');
+  assert.equal(meta.customer_walk, null);
+  assert.equal(meta.last_customer_sync_at, SAME, 'and only then does the window move');
+});
+
+test('a resumed walk reuses its own filter verbatim, not one recomputed from the watermark', async () => {
+  // The cursor is only valid for the query that produced it. Recomputing the
+  // filter on resume (from a watermark that has moved, or with a fresh
+  // overlap) would page a different sort with an old cursor.
+  const db = createFakeSupabase();
+  const gql = fakeGql([[node({ updatedAt: '2026-11-17T00:00:00Z' })]]);
 
   const run = await runCustomersSync(
     db,
-    connection({ meta: { last_customer_sync_at: '2026-11-10T00:00:00Z' } }),
+    connection({
+      meta: {
+        last_customer_sync_at: '2026-11-16T00:00:00Z',
+        customer_walk: { cursor: 'c1', filter: "updated_at:>='2026-11-01T00:00:00.000Z'" },
+      },
+    }),
     { batchId: 'b1', gql },
   );
 
-  assert.equal(run.customers_upserted, 2);
-  assert.equal(run.last_customer_sync_at, '2026-11-18T00:00:00Z',
-    'an undated row must neither null the watermark nor move it back');
+  assert.equal(gql.seen[0].cursor, 'c1');
+  assert.equal(gql.seen[0].filter, "updated_at:>='2026-11-01T00:00:00.000Z'",
+    'the walk keeps the window it started with');
+  assert.equal(run.resumed, true);
 });
 
-test('the watermark is the NEWEST row written, whatever order the page arrives in', async () => {
+test('a continuation cursor Shopify no longer accepts restarts the walk, once', async () => {
   const db = createFakeSupabase();
-  // The query asks for sortKey UPDATED_AT ascending, so in practice the last
-  // row of a page is the newest. Taking "the last row" instead of "the max"
-  // would make the watermark -- and so every later window -- depend on that
-  // sort staying exactly as it is.
-  const gql = fakeGql([[
-    node({ legacyResourceId: '1', updatedAt: '2026-11-19T00:00:00Z' }),
-    node({ legacyResourceId: '2', updatedAt: '2026-11-12T00:00:00Z' }),
-  ]]);
+  let calls = 0;
+  const gql = async (_c, _q, variables) => {
+    calls += 1;
+    if (variables.cursor === 'stale') throw new Error('Shopify GraphQL: invalid cursor');
+    return {
+      customers: {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: [node({ updatedAt: '2026-11-16T00:00:00Z' })],
+      },
+    };
+  };
 
-  const run = await runCustomersSync(db, connection(), { batchId: 'b1', gql });
-  assert.equal(run.last_customer_sync_at, '2026-11-19T00:00:00Z');
-});
-
-test('a run that fetched nothing leaves the stored watermark exactly as it was', async () => {
-  const db = createFakeSupabase();
   const run = await runCustomersSync(
     db,
-    connection({ meta: { last_customer_sync_at: '2026-11-10T00:00:00Z' } }),
-    { batchId: 'b1', gql: fakeGql([[]]) },
+    connection({ meta: { customer_walk: { cursor: 'stale', filter: null } } }),
+    { batchId: 'b1', gql },
   );
 
-  assert.equal(run.customers_upserted, 0);
-  assert.equal(run.last_customer_sync_at, '2026-11-10T00:00:00Z',
-    'an empty night must not re-open a window that was already covered');
+  assert.equal(calls, 2, 'one refusal, one restart from the filter');
+  assert.equal(run.cursor_restart, true);
+  assert.equal(run.complete, true);
+  assert.equal(db.rows('shopify_customers').length, 1);
+  assert.equal(customersCursorRejected('invalid cursor'), true);
+  assert.equal(customersCursorRejected('internal server error'), false);
 });
 
 test('a walk that dies mid-way leaves a watermark covering only what was written', async () => {
@@ -297,15 +354,15 @@ test('a store without read_customers skips, and nothing else about it changes', 
 });
 
 test('read_customers gates ONLY this job -- it is not required for the sync', () => {
-  assert.deepEqual(JOB_SCOPES.customers_sync, ['read_customers']);
+  assert.deepEqual(CUSTOMERS_SCOPES, ['read_customers']);
   assert.equal(
     REQUIRED_FOR_SYNC.includes('read_customers'), false,
-    'adding it here would mark every store without it as not ready to sync at all',
+    'adding it there would mark every store without it as not ready to sync at all',
   );
-  assert.deepEqual(scopesMissingForJob(['read_orders'], 'customers_sync'), ['read_customers']);
-  assert.deepEqual(scopesMissingForJob(['read_orders', 'read_customers'], 'customers_sync'), []);
-  // The stores that DO have it must still be gated on the same single scope.
-  assert.deepEqual(scopesMissingForJob(['read_customers'], 'customers_sync'), []);
+  assert.deepEqual(customersScopesMissing(['read_orders']), ['read_customers']);
+  assert.deepEqual(customersScopesMissing(['read_orders', 'read_customers']), []);
+  assert.deepEqual(customersScopesMissing([]), ['read_customers']);
+  assert.deepEqual(customersScopesMissing(['read_customers']), []);
 });
 
 test('a database without the migration is a skip, not a failure', async () => {
@@ -383,6 +440,8 @@ test('the sync wiring is in place: stage, skip flag, nightly only', () => {
   // A customers failure is a warning: the store's sales, inventory, products
   // and payouts all landed, and the next run resumes from the watermark.
   assert.match(runner, /::warning title=Shopify customers sync failed::/);
+
+  assert.match(runner, /customer_walk/);
 
   const workflow = read('.github/workflows/shopify-sync.yml');
   assert.match(workflow, /SHOPIFY_SKIP_CUSTOMERS:/);

@@ -223,6 +223,8 @@ on:
       - 'scripts/tests/shopify-auth.test.mjs'
       # Shopify customers / marketing consent (shopify-customers-sync.test.mjs).
       - 'scripts/tests/shopify-customers-sync.test.mjs'
+      - 'scripts/tests/shopify-customers-consent-database.test.mjs'
+      - 'scripts/lib/shopify-customers-core.mjs'
       - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
@@ -2856,6 +2858,24 @@ jobs:
           set -u
           for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan handle handleshare handlebrand handlefirst; do
             if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify customer marketing consent (20261124020000) on real
+      # PostgreSQL: a consent STATE kept verbatim with derived booleans and
+      # NULL meaning not measured, a cross-store view that picks one real
+      # consent EVENT, the rollup onto the past-customer lookup, consent
+      # cleared when its email no longer has a source, and tenancy/grants.
+      - name: Shopify customer consent database (real PostgreSQL)
+        run: node scripts/tests/shopify-customers-consent-database.test.mjs
+      - name: The customer consent guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company funcgrant clientwrite coalesce noclear boolean; do
+            if CONSENT_MUTATION="$m" node scripts/tests/shopify-customers-consent-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

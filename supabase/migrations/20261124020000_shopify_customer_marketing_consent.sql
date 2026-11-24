@@ -133,6 +133,15 @@ grant all on public.shopify_customers to service_role;
 -- in another is SUBSCRIBED here, because the newest consent event is the one
 -- that describes them -- and the store that recorded it is named, so a reader
 -- can always get back to the row it came from.
+--
+-- A MEASURED consent always outranks an unmeasured one, whatever the record's
+-- own updated_at. Ranking on coalesce(consent_updated_at, shopify_updated_at)
+-- alone (the first version, caught in review) let a store with NULL consent
+-- and a later address edit replace another store's explicit unsubscribe with
+-- NULL -- and, because the date came from a separate max(), report that NULL
+-- next to the unsubscribe's own timestamp. Every field of a channel is now
+-- taken from the SAME chosen record, so the state, its level, its date and
+-- the store that recorded it always describe one real consent event.
 create or replace view public.shopify_customer_consent_v
 with (security_invoker = true) as
 select
@@ -140,13 +149,13 @@ select
   c.email_lc,
   (array_agg(c.customer_name order by c.shopify_updated_at desc nulls last))[1] as customer_name,
   (array_agg(c.phone order by c.shopify_updated_at desc nulls last))[1] as phone,
-  (array_agg(c.shop_domain order by coalesce(c.email_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as consent_shop_domain,
-  (array_agg(c.email_consent_state order by coalesce(c.email_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as email_consent_state,
-  (array_agg(c.email_consent_opt_in_level order by coalesce(c.email_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as email_consent_opt_in_level,
-  max(c.email_consent_updated_at) as email_consent_updated_at,
-  (array_agg(c.sms_consent_state order by coalesce(c.sms_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as sms_consent_state,
-  (array_agg(c.sms_consent_opt_in_level order by coalesce(c.sms_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as sms_consent_opt_in_level,
-  max(c.sms_consent_updated_at) as sms_consent_updated_at,
+  (array_agg(c.shop_domain order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as consent_shop_domain,
+  (array_agg(c.email_consent_state order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as email_consent_state,
+  (array_agg(c.email_consent_opt_in_level order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as email_consent_opt_in_level,
+  (array_agg(c.email_consent_updated_at order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as email_consent_updated_at,
+  (array_agg(c.sms_consent_state order by (c.sms_consent_state is not null) desc, c.sms_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as sms_consent_state,
+  (array_agg(c.sms_consent_opt_in_level order by (c.sms_consent_state is not null) desc, c.sms_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as sms_consent_opt_in_level,
+  (array_agg(c.sms_consent_updated_at order by (c.sms_consent_state is not null) desc, c.sms_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as sms_consent_updated_at,
   bool_or(c.email_subscribed) as email_subscribed_anywhere,
   bool_or(c.sms_subscribed) as sms_subscribed_anywhere,
   count(*)::int as store_records,
@@ -195,17 +204,25 @@ security definer
 set search_path = public
 as $$
 declare
-  v_rows integer := 0;
+  v_rows    integer := 0;
+  v_cleared integer := 0;
 begin
   if p_company is null then
     raise exception 'refresh_company_customer_consent: company is required';
   end if;
 
+  -- The chosen consent event per channel, with a MEASURED state always ahead
+  -- of an unmeasured one -- the same rule as shopify_customer_consent_v, and
+  -- for the same reason: a store with NULL consent and a later profile edit
+  -- must not replace another store's explicit unsubscribe. The date comes from
+  -- the chosen events, so it can never describe a different record than the
+  -- state does.
   with src as (
     select c.email_lc,
-           (array_agg(c.email_consent_state order by coalesce(c.email_consent_updated_at, c.shopify_updated_at) desc nulls last))[1] as email_consent_state,
-           (array_agg(c.sms_consent_state   order by coalesce(c.sms_consent_updated_at,   c.shopify_updated_at) desc nulls last))[1] as sms_consent_state,
-           greatest(max(c.email_consent_updated_at), max(c.sms_consent_updated_at)) as consent_updated_at
+           (array_agg(c.email_consent_state order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as email_consent_state,
+           (array_agg(c.email_consent_updated_at order by (c.email_consent_state is not null) desc, c.email_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as email_consent_updated_at,
+           (array_agg(c.sms_consent_state order by (c.sms_consent_state is not null) desc, c.sms_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as sms_consent_state,
+           (array_agg(c.sms_consent_updated_at order by (c.sms_consent_state is not null) desc, c.sms_consent_updated_at desc nulls last, c.shopify_updated_at desc nulls last))[1] as sms_consent_updated_at
       from public.shopify_customers c
      where c.company_entity_id = p_company
        and c.email_lc is not null
@@ -215,7 +232,7 @@ begin
   update public.company_customer_profiles p
      set email_consent_state = src.email_consent_state,
          sms_consent_state   = src.sms_consent_state,
-         consent_updated_at  = src.consent_updated_at,
+         consent_updated_at  = greatest(src.email_consent_updated_at, src.sms_consent_updated_at),
          consent_checked_at  = now(),
          updated_at          = now()
     from src
@@ -224,15 +241,42 @@ begin
      and (
        p.email_consent_state is distinct from src.email_consent_state
        or p.sms_consent_state is distinct from src.sms_consent_state
-       or p.consent_updated_at is distinct from src.consent_updated_at
+       or p.consent_updated_at is distinct from greatest(src.email_consent_updated_at, src.sms_consent_updated_at)
        or p.consent_checked_at is null
      );
   get diagnostics v_rows = row_count;
 
+  -- A FULL refresh also takes consent back OFF a profile whose email no longer
+  -- has a customer record behind it. A person who changes their email, or has
+  -- it removed, leaves an old-address profile row (built from orders, which
+  -- keep the address they were placed with) that the join above can never
+  -- touch again -- so without this it would carry "subscribed" for ever,
+  -- which is the one direction a consent field must never fail in. Order
+  -- totals are untouched; only the copied consent is cleared, back to NULL,
+  -- which means not measured.
+  if p_since is null then
+    update public.company_customer_profiles p
+       set email_consent_state = null,
+           sms_consent_state   = null,
+           consent_updated_at  = null,
+           consent_checked_at  = now(),
+           updated_at          = now()
+     where p.company_entity_id = p_company
+       and (p.email_consent_state is not null or p.sms_consent_state is not null)
+       and not exists (
+         select 1 from public.shopify_customers c
+          where c.company_entity_id = p_company
+            and c.email_lc is not null
+            and c.email_lc = p.email_lc
+       );
+    get diagnostics v_cleared = row_count;
+  end if;
+
   return jsonb_build_object(
     'company_entity_id', p_company,
     'since', p_since,
-    'profiles_updated', v_rows
+    'profiles_updated', v_rows,
+    'profiles_cleared', v_cleared
   );
 end $$;
 

@@ -7,13 +7,13 @@ import {
   connectionReadyForSync,
 } from './lib/shopify-scopes.mjs';
 import { buildSyncPlan, runOutcomeReport, shouldRecordSkippedJob } from './lib/sync-plan.mjs';
+import { runCustomersSync } from './lib/shopify-customers-core.mjs';
 import { runCommissions, CHAINED_LOOKBACK_DAYS } from './lib/affiliate-commissions-core.mjs';
 import { orderFactsHeldElsewhere } from './lib/shopify-tenant-guard.mjs';
 import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting.mjs';
 import {
   DEFAULT_CHUNK_DAYS,
   runCatalogSync,
-  runCustomersSync,
   runDraftOrdersSync,
   runIncrementalSales,
   runInventorySnapshot,
@@ -540,15 +540,23 @@ async function syncConnection(connection) {
         if (result.skipped) {
           await finishScopeSkipped(jobId, connection, 'customers_sync', result);
         } else {
-          if (result.last_customer_sync_at) {
-            const meta = { ...(connection.meta || {}), last_customer_sync_at: result.last_customer_sync_at };
+          // Two keys, written together: the continuation of an unfinished
+          // walk, and the incremental window, which only moves when a walk
+          // FINISHED. Writing one without the other is how a store would
+          // either re-walk for ever or step over the rest of a walk.
+          {
+            const meta = {
+              ...(connection.meta || {}),
+              customer_walk: result.customer_walk || null,
+            };
+            if (result.last_customer_sync_at) meta.last_customer_sync_at = result.last_customer_sync_at;
             const { error: metaErr } = await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
             if (metaErr) throw new Error(`meta update failed: ${metaErr.message}`);
             connection.meta = meta;
           }
           await finishJob(jobId, 'success', result);
           record(connection, 'customers_sync', 'success');
-          console.log(`[ok] ${connection.shop_domain} customers_sync: ${result.customers_upserted} customers in ${result.pages_fetched} page(s)${result.more_available ? ' (page budget reached — the next run continues from the watermark)' : ''}`);
+          console.log(`[ok] ${connection.shop_domain} customers_sync: ${result.customers_upserted} customers in ${result.pages_fetched} page(s)${result.more_available ? ' (page budget reached — the next run continues from this cursor)' : ''}`);
         }
       } catch (err) {
         // A warning, not an exit code. Consent is additive: a store whose
