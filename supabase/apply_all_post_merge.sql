@@ -19909,4 +19909,7 @@ $c$select (select count(*) from v_po_header_summary
 -- its own sync job and scope, plus the consent columns it carries onto the
 -- past-customer lookup. A store without read_customers is unaffected.
 \i migrations/20261124020000_shopify_customer_marketing_consent.sql
+-- 20261124140000: a live membership closes that person's open outreach, so a
+-- recruiting message cannot sit waiting for somebody who already joined.
+\i migrations/20261124140000_affiliate_outreach_close_when_joined.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -1669,16 +1669,19 @@ function renderOutreach() {
   // the approver's own mailbox, and a send it recorded. Null for a person.
   const batchById = Object.fromEntries((d.batches || []).map((b) => [b.id, b]));
   const viaBatch = (x) => { const b = batchById[x.batch_id]; return b?.created_by_app ? `<div class="af-muted">Via ${esc(b.created_by_app)}</div>` : ''; };
-  const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Edit', 'draft-edit', { id: x.id }) : ''}</div></article>`;
-  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Mark sent', 'dm-sent', { id: x.id })}</div></div>` : ''}</article>`;
-  const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
+  // "I already sent this one myself" has to be here, on the draft, not three
+  // states away: a message sent by hand outside SILO is the ordinary case,
+  // and a draft nobody marks sits in this queue for weeks (Blake 2026-11-24).
+  const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot"><div class="af-actions">${MANAGE ? `${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}${btn('Edit', 'draft-edit', { id: x.id })}` : ''}</div></div></article>`;
+  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Mark as sent', 'dm-sent', { id: x.id }, 'primary')}</div></div>` : ''}</article>`;
+  const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark as sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
   const drafts = byState('draft'); const readyAll = byState('approved'); const out = byState('exported');
   const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
   const dmCard = (x) => {
     const pr = d.prospectById[x.prospect_id] || {};
     const where = pr.profile_url ? ext(pr.profile_url, `Open ${PLATFORM_NAMES[pr.platform] || pr.platform || 'profile'}`) : '';
     return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[pr.platform] || pr.platform || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
-      <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
+      <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
   };
   const canSend = (d.aiApps || []).some((a) => a.canSend);
   // What the program has saved, unless something is typed and unsaved: the
@@ -1696,7 +1699,7 @@ function renderOutreach() {
   // (Blake 2026-11-20: the tab scrolled for pages). Nothing folds: a chip is
   // a tab, and the list under it is open.
   const views = [
-    ['approve', 'To approve', drafts.length, () => surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+    ['approve', 'To approve', drafts.length, () => surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
       'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`)],
     ['email', 'Send by email', ready.length, () => surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
       ${aiSendBlock(d.aiApps)}
@@ -1753,6 +1756,36 @@ function dmText(x) {
   const p = prog();
   const join = p?.intake_mode === 'open' && p.slug ? applyUrl(location.origin, CO, p.slug) : "reply with your email and I'll send your invite link";
   return String(x.body || '').split('{signup_link}').join(join);
+}
+// Mark messages as sent by hand, from 'draft' or 'approved'. A draft that was
+// never approved is approved by the same press: somebody sending a message
+// themselves has made that decision, and the two facts are stamped with the
+// same person and time rather than left half-recorded (Blake 2026-11-24).
+async function markSentByHand(ids) {
+  const stamp = new Date().toISOString();
+  let n = 0;
+  const failed = [];
+  for (const id of ids) {
+    const x = S.d.drafts.find((r) => r.id === id);
+    if (!x || !['draft', 'approved'].includes(x.state)) continue;
+    const plat = PLATFORM_NAMES[S.d.prospectById[x.prospect_id]?.platform] || 'social';
+    const how = isDm(x) ? `Sent by DM on ${plat}` : 'Sent by email by hand';
+    try {
+      const rows = await updateRows('affiliate_outreach_drafts', {
+        state: 'sent',
+        approved_by: x.approved_by || me.id,
+        approved_at: x.approved_at || stamp,
+        sent_marked_by: me.id,
+        sent_marked_at: stamp,
+        sent_evidence: how,
+      }, { id, state: x.state });
+      n += rows.length;
+    } catch (e) {
+      failed.push(friendly(e));
+    }
+  }
+  if (!n && failed.length) throw new Error(failed[0]);
+  return n;
 }
 const CODES_PROMPT = 'Using SILO, create every affiliate code and product code waiting for Shopify in my Shopify store, exactly as SILO describes each one, then mark each one created in SILO.';
 function aiCodesBlock(apps) {
@@ -3403,6 +3436,19 @@ const A = {
   'draft-save': async ({ id }) => { await updateRows('affiliate_outreach_drafts', { subject: val('edSubject'), body: $('edBody').value, changed_by: me.id, updated_at: new Date().toISOString() }, { id, state: 'draft' }); S.editDraft = null; return 'Saved.'; },
   'draft-delete': async ({ id }) => { const r = must(await db.from('affiliate_outreach_drafts').delete().eq('id', id).eq('state', 'draft').eq('company_entity_id', CO).select('id')); if (!r.length) throw new Error('Not deleted: only a draft can be deleted, by a manager.'); return 'Deleted.'; },
   'draft-approve': async ({ id }) => { await updateRows('affiliate_outreach_drafts', { state: 'approved', approved_by: me.id, approved_at: new Date().toISOString() }, { id, state: 'draft' }); return 'Approved.'; },
+  // "I already sent this one myself." A message sent by hand outside SILO is
+  // the ordinary case, so it is marked in one press from wherever the draft
+  // sits -- approval and the send recorded together, because they happened
+  // together. One row at a time: the evidence line names the channel, and a
+  // row the database refuses leaves the others alone.
+  'draft-sent-now': async ({ id }) => `${num(await markSentByHand([id]))} marked as sent.`,
+  'q-msg-sent': async () => {
+    const ids = picked('msgs');
+    if (!ids.length) return 'Tick at least one.';
+    const n = await markSentByHand(ids);
+    qsel('msgs').clear();
+    return `${num(n)} marked as sent.`;
+  },
   'draft-sent': async ({ id }) => {
     const ev = val(`ev-${id}`);
     if (!ev) throw new Error('Say where it was sent from, such as a sent-folder link.');
@@ -3413,7 +3459,7 @@ const A = {
     const x = S.d.drafts.find((r) => r.id === id); if (!x) return null;
     const t = dmText(x);
     try { await navigator.clipboard.writeText(t); } catch { setStatus(t, 'info'); return null; }
-    setStatus('Message copied. Send it from your own account, then press Mark sent.', 'pos', 5000);
+    setStatus('Message copied. Send it from your own account, then press Mark as sent.', 'pos', 5000);
     return null;
   },
   'dm-sent': async ({ id }) => {

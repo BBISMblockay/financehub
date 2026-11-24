@@ -132,6 +132,10 @@ const MUTATIONS = {
     .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
       max-width: 72px; max-height: 54px;
     }`, ''],
+  // A message sent by hand must be markable where the draft is.
+  draftsent: ['/affiliates/studio.js', "${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}", ''],
+  // Marking it sent without recording the approval leaves the row half-told.
+  draftsentappr: ['/affiliates/studio.js', "        approved_by: x.approved_by || me.id,\n        approved_at: x.approved_at || stamp,", ''],
   // A hundred posts to review means a wall of tiles, not a column of rows.
   qgrid: ['/affiliates/studio.js', "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.', { grid: true }",
     "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.'"],
@@ -2426,6 +2430,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const mu = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').pop());
     R.eq((mu.filters.find((f) => f.op === 'in' && f.col === 'id') || {}).vals, ['d1'], 'Approve selected approves only the ticked message');
     R.ok('and only while it is still a draft', mu.filters.some((f) => f.op === 'eq' && f.col === 'state' && f.val === 'draft'));
+    // A message somebody sent by hand is marked from the draft itself, in one
+    // press: the ordinary case used to need an approval first, and a draft
+    // nobody marked sat in this queue for weeks (Blake 2026-11-24).
+    await ct.waitForFunction(() => !!document.querySelector('#outreachBody [data-act="draft-sent-now"]'), null, { timeout: 5000 });
+    await ct.click('#outreachBody [data-act="draft-sent-now"]');
+    await ct.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent'), null, { timeout: 5000 });
+    const hand = await ct.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update' && q.patch?.state === 'sent').pop());
+    R.ok('marking a draft sent records the approval and the send together, with evidence',
+      !!hand.patch.approved_by && !!hand.patch.approved_at && !!hand.patch.sent_marked_by && !!String(hand.patch.sent_evidence || '').trim());
+    R.ok('and only moves a row still in the state it was read in',
+      hand.filters.some((f) => f.op === 'eq' && f.col === 'state' && ['draft', 'approved'].includes(f.val)));
     R.not(await text(ct, '#outreachBody'), 'Emails to affiliates', 'with no affiliate emails yet, that chip is not offered');
     R.not(await text(ct, '#outreachBody'), 'Nothing sent yet', 'and no empty box says so');
     await commsChip(ct, 'template');

@@ -9639,6 +9639,33 @@ select 'Affiliate program scope' as check_name,
     else 'ok'
   end as status;
 
+-- Outreach stops when somebody joins (20261124140000): a live membership
+-- closes that person's open recruiting drafts, so one cannot sit waiting for
+-- an affiliate of this brand.
+select 'Affiliate outreach closes on joining' as check_name,
+  case
+    when to_regprocedure('public.affiliate_outreach_close_when_joined()') is null
+      then 'MISSING — run 20261124140000_affiliate_outreach_close_when_joined.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliate_outreach_close_when_joined_trg' and tgenabled <> 'D')
+      then 'BROKEN — a recruiting draft can sit open for somebody who already joined'
+    when has_function_privilege('authenticated', 'public.affiliate_outreach_close_when_joined()', 'execute')
+      then 'BROKEN — the outreach closer is client-callable'
+    -- Closing a draft because they joined is not a decision to contact them,
+    -- and the close runs inside the transaction that creates the membership:
+    -- leaving 'signed_up' in the suppression check makes inviting a suppressed
+    -- person fail at the invite (20261124140000).
+    when position('''approved'',''exported'',''sent'')' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_drafts_guard()')), '')) = 0
+      then 'BROKEN — the drafts guard no longer separates contacting from recording an outcome'
+    -- A scoped manager's own invite closes only the drafts in their programs,
+    -- so a leftover is not by itself a fault; what must not happen is the
+    -- closer losing its scope check and refusing their write.
+    when position('affiliate_visible_program' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_close_when_joined()')), '')) = 0
+      then 'BROKEN — the outreach closer can refuse a membership write a scoped manager is entitled to make'
+    else 'ok'
+  end as status;
+
 -- One person, one payout address, one email (20261121230000). A membership is
 -- still an affiliates row per program; what belongs to the PERSON is their
 -- PayPal address and their email, and both are held together by a trigger
