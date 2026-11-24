@@ -53,6 +53,9 @@
 //   AFFILIATE_SCAN_MUTATION=forcedtool   the model request forces the tool, which the production model refuses
 //   AFFILIATE_SCAN_MUTATION=nocarry      a search an earlier scan left ambiguous is never judged
 //   AFFILIATE_SCAN_MUTATION=carryoptout  a carried ambiguous customer who has since unsubscribed is sent to the model
+//   AFFILIATE_SCAN_MUTATION=nochain      a run out of time ends the scan instead of continuing it
+//   AFFILIATE_SCAN_MUTATION=nohandoff    any continue call runs a second worker over the queue
+//   AFFILIATE_SCAN_MUTATION=nolegcap     a scan can continue for ever
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -89,8 +92,11 @@ const MUTS = {
   programjoin: ['handler.mjs', ".eq('company_entity_id', company)\n      .eq('status', 'running')", ".eq('company_entity_id', company).eq('program_id', body?.program_id ?? null)\n      .eq('status', 'running')"],
   programbar: ['handler.mjs', '    const minFollowers = companyMinFollowers(ent?.meta);', "    const { data: pb } = await service.from('affiliate_programs').select('customer_scan_min_followers').eq('company_entity_id', company).limit(1).maybeSingle();\n    const minFollowers = minFollowersFor(pb);"],
   forcedtool: [LIB, "    tool_choice: { type: 'auto' },", "    tool_choice: { type: 'tool', name: 'record_matches' },"],
-  nocarry: ['handler.mjs', '      if (apiKey && left() > SCAN_TAIL_MS / 2) {', '      if (false) {'],
+  nocarry: ['handler.mjs', "      if (apiKey && status !== 'stopped' && left() > SCAN_TAIL_MS / 2) {", '      if (false) {'],
   carryoptout: ['handler.mjs', '        const carried = fresh.filter(okNow).map(', '        const carried = fresh.map('],
+  nochain: ['handler.mjs', "      if (status === 'stopped' && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {", '      if (false) {'],
+  nohandoff: ['handler.mjs', " || row.filters?.handoff !== handoff) return reply(", ") return reply("],
+  nolegcap: ['handler.mjs', '&& authHeader && leg + 1 < SCAN_MAX_LEGS) {', '&& authHeader) {'],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -267,7 +273,7 @@ function fakeService(seed) {
     return (r) => cmp('notin', r[col], raw.replace(/^\(|\)$/g, '').split(','));
   });
   function builder(table) {
-    const filters = []; let op = 'select'; let payload = null; let single = false; let maybe = false; let lim = null; const ords = []; let rng = null;
+    const filters = []; let op = 'select'; let payload = null; let single = false; let maybe = false; let lim = null; const ords = []; let rng = null; let head = false;
     const run = () => {
       log.push(`${op}:${table}`);
       const rows = (tables[table] ||= []);
@@ -277,6 +283,7 @@ function fakeService(seed) {
         if (ords.length) out.sort((a, b) => { for (const o of ords) { if (a[o.k] === b[o.k]) continue; return (a[o.k] < b[o.k] ? -1 : 1) * (o.asc ? 1 : -1); } return 0; });
         if (rng) out = out.slice(rng[0], rng[1] + 1);
         if (lim != null) out = out.slice(0, lim);
+        if (head) return { data: null, count: out.length, error: null };
         if (maybe) return { data: out[0] ?? null, error: null };
         if (single) return out.length === 1 ? { data: out[0], error: null } : { data: null, error: { message: 'not one row' } };
         return { data: out, error: null };
@@ -293,7 +300,7 @@ function fakeService(seed) {
             && rows.some((x) => x.company_entity_id === r.company_entity_id && x.customer_key === r.customer_key)) {
             return { data: null, error: { code: '23505', message: 'customer already scanned for this company' } };
           }
-          last = { id: `${table}-${n++}`, created_at: new Date(1_700_000_000_000 + n).toISOString(), ...r }; rows.push(last);
+          last = { id: table === "affiliate_customer_scans" ? `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}` : `${table}-${n++}`, created_at: new Date(1_700_000_000_000 + n).toISOString(), ...r }; rows.push(last);
         }
         return { data: single ? { id: last.id } : null, error: null };
       }
@@ -302,7 +309,7 @@ function fakeService(seed) {
       throw new Error(op);
     };
     const b = {
-      select() { return b; }, delete() { op = 'delete'; return b; }, insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
+      select(_cols, opts) { if (opts?.head) head = true; return b; }, delete() { op = 'delete'; return b; }, insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
       eq(k, v) { filters.push((r) => cmp('eq', r[k], v)); return b; }, in(k, v) { filters.push((r) => cmp('in', r[k], v)); return b; },
       gte(k, v) { filters.push((r) => cmp('gte', r[k], v)); return b; }, lt(k, v) { filters.push((r) => cmp('lt', r[k], v)); return b; },
       is(k, v) { filters.push((r) => cmp('is', r[k], v)); return b; },
@@ -361,11 +368,17 @@ const RESULTS = {
   samtwin_az: [ig('samtwinfans', 'Sam Twin Fans (@samtwinfans)', '50K Followers'), ig('samtwin_az', 'Sam T (@samtwin_az) • Instagram', '1,900 Followers, 210 Following', 2)],
   'Olive Out': [ig('oliveout', 'Olive Out (@oliveout)', '90K Followers')],
 };
-function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false } = {}) {
+function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false } = {}) {
   const service = fakeService(data);
-  const searches = []; const modelCalls = []; const bg = [];
+  const searches = []; const modelCalls = []; const bg = []; const legs = [];
   let t = Date.parse('2026-11-24T04:00:00Z');
-  const handler = createResearchHandler({
+  let handler = null;
+  handler = createResearchHandler({
+    // The next leg is this same handler, called as the same person.
+    selfInvoke: chain ? async (auth, body) => {
+      legs.push({ auth, body });
+      return handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+    } : null,
     service,
     userClientFor: () => ({
       rpc: async () => ({ data: CO, error: null }),
@@ -400,7 +413,9 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false } 
     const res = await handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: 'Bearer user', 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'customer_scan', ...body }) }));
     return { status: res.status, body: await res.json() };
   };
-  return { service, searches, modelCalls, bg, call, settle: () => Promise.all(bg), tick: (ms) => { t += ms; } };
+  // Legs add background work while earlier legs finish: wait for all of it.
+  const settle = async () => { for (let i = 0; i < bg.length; i += 1) await bg[i]; };
+  return { service, searches, modelCalls, bg, legs, call, settle, tick: (ms) => { t += ms; } };
 }
 const row = (s, key) => s.service.tables.affiliate_customer_social.find((r) => r.customer_key === key);
 
@@ -556,6 +571,40 @@ await test('a run out of time stops early with its queue kept, and the next pres
   await next.settle();
   assert.equal(next.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'the queue is finished');
   assert.ok(next.searches.length >= pending.length && before >= 1);
+});
+
+await test('a press runs to the end on its own: a run out of time continues the SAME scan, as the same person', async () => {
+  const s = setup({ budgetHit: true, chain: true });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  const scans = s.service.tables.affiliate_customer_scans;
+  assert.equal(scans.length, 1, 'one scan, never a new one per run');
+  assert.equal(scans[0].status, 'done', 'it finished, not "stopped early"');
+  assert.equal(scans[0].error_message, null);
+  assert.equal(s.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'the whole queue was searched');
+  assert.equal(scans[0].checked, scans[0].requested, 'counts carry across runs');
+  assert.ok(s.legs.length >= 1, 'it was handed to another run');
+  assert.ok(s.legs.every((l) => l.auth === 'Bearer user'), 'as the person who pressed, never a service key');
+  assert.equal(scans[0].cost_usd, Math.round(s.searches.length * 0.002 * 10000) / 10000, 'spend adds up across runs');
+  assert.ok(!('handoff' in (scans[0].filters || {})), 'the one-time handoff is used up');
+  // A replayed or forged continue call is refused: no second worker.
+  const replay = await s.call({ continue_scan: scans[0].id, handoff: s.legs[0].body.handoff, leg: 1 });
+  assert.equal(replay.status, 409);
+  const forged = setup({ data: seed({ affiliate_customer_scans: [{ id: 'aaaaaaaa-0000-4000-8000-000000000001', company_entity_id: CO, status: 'running', requested: 3, filters: {}, started_at: '2026-11-24T03:59:30Z', heartbeat_at: '2026-11-24T03:59:30Z' }] }) });
+  const f = await forged.call({ continue_scan: 'aaaaaaaa-0000-4000-8000-000000000001', handoff: 'guess', leg: 1 });
+  assert.equal(f.status, 409, 'a continue without the handoff the last run wrote is refused');
+});
+
+await test('a scan whose runs keep running out stops after the run cap, saying so', async () => {
+  const data = seed();
+  for (let i = 0; i < 40; i += 1) data.company_customer_profiles.push(cust(`c${i}`, `cara num${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`, { order_count: 4 }));
+  const s = setup({ data, budgetHit: true, chain: true });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(s.legs.length, H.SCAN_MAX_LEGS - 1, 'at most the cap of runs');
+  assert.equal(scan.status, 'stopped');
+  assert.equal(scan.error_message, 'Stopped early. More to check.');
 });
 
 await test('a queued customer who unsubscribes before the next press is dropped, never searched', async () => {

@@ -33,4 +33,12 @@ Deno.serve(createResearchHandler({
   // YouTube channel numbers from the official API (lib/affiliate-youtube-core.mjs); unset = off.
   youtubeKey: Deno.env.get('YOUTUBE_API_KEY') ?? '',
   background: (p: Promise<unknown>) => { if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(p); },
+  // "Find their social accounts" continues a scan in a fresh run of this
+  // function, as the same person (their own token), when one run's time is up.
+  selfInvoke: (authHeader: string, body: unknown) => fetch(`${url}/functions/v1/affiliate-research`, {
+    method: 'POST',
+    headers: { Authorization: authHeader, apikey: Deno.env.get('SUPABASE_ANON_KEY') ?? '', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  }),
 }));
