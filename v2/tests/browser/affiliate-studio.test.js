@@ -3306,8 +3306,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('only the Likely finds over the bar come back, never the whole customer list', /Lou Loyal/.test(shown) && !/Quin Quiet/.test(shown) && !/Una Under/.test(shown));
         R.ok('a name-only find over the bar is not with the Likely ones', !/Cy Check/.test(shown));
         R.has(shown, 'Likely 82', 'each find shows its match score');
-        const pq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
-        R.ok('only a find who has since been erased drops out', /redacted/.test(JSON.stringify(pq || {})) && !/unsubscribed/.test(JSON.stringify(pq || {})));
+        // The list's own read (not the hidden-count read, which also names
+        // the erased state) carries the consent filter.
+        const pq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && /email_consent_state\.not\.in/.test(JSON.stringify(q.filters || []))).pop());
+        R.ok('only a find who has since been erased drops out', /redacted/.test(JSON.stringify(pq?.filters || null)) && !/unsubscribed/.test(JSON.stringify(pq?.filters || null)));
         await pg.click('#customersBody [data-act="cust-hunt-tier"][data-k="more"]');
         await pg.waitForFunction(() => /Una Under/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const more = await text(pg, '#customersBody table');
