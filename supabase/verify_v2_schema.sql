@@ -874,6 +874,20 @@ select
     else 'MISSING — run 20261124230000_affiliate_customer_social_queue.sql'
   end as affiliate_customer_social_queue;
 
+-- 8h. Find match score (migration 20261124235000): a 0-100 score on every
+-- find, the 'niche' basis and the 'count' search kind.
+select
+  case
+    when exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'affiliate_customer_social' and column_name = 'match_score')
+     and exists (select 1 from pg_constraint where conname = 'affiliate_customer_social_match_basis_check'
+                 and pg_get_constraintdef(oid) ilike '%niche%')
+     and exists (select 1 from pg_constraint where conname = 'affiliate_customer_social_serp_task_kind'
+                 and pg_get_constraintdef(oid) ilike '%count%')
+    then 'ok'
+    else 'MISSING — run 20261124235000_affiliate_customer_social_score.sql'
+  end as affiliate_customer_social_score;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,

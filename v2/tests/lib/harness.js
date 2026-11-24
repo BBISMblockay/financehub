@@ -138,6 +138,15 @@ window.__QUERIES__ = [];
         if (op === 'ilike') return matchIlike(v, val);
         if (op === 'like') return matchLike(v, val);
         if (op === 'neq')   return String(v) !== String(val);
+        // Comparisons inside or(), numeric when both sides are numbers, as
+        // PostgREST compares a number column. NULL compares false, as in SQL.
+        if (op === 'lt' || op === 'gt' || op === 'lte' || op === 'gte') {
+          if (v === null || v === undefined) return false;
+          var nv = Number(v), nf = Number(val);
+          var num = isFinite(nv) && isFinite(nf) && String(v).trim() !== '' && String(val).trim() !== '';
+          var a = num ? nv : String(v), b = num ? nf : String(val);
+          return op === 'lt' ? a < b : op === 'gt' ? a > b : op === 'lte' ? a <= b : a >= b;
+        }
         return true;
       }
 

@@ -48,6 +48,7 @@ import {
   socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
   matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle, COMPANY_SCAN_SCOPE, companyMinFollowers,
   clampFinds, companyMaxChecks, createSerpQueue, QUEUE_POST_BATCH,
+  scorePick, tallyBucket, companyTerms, buildCountTask, judgeCount,
 } from './lib/affiliate-customer-scan-core.mjs';
 
 export const corsHeaders = {
@@ -101,7 +102,16 @@ export const CARRY_AMBIGUOUS = 200;
 // function (Blake 2026-11-24: "Stopped early. Doesn't seem great user
 // experience"). At most this many runs per press, so a scan whose searches
 // keep failing cannot chain for ever.
-export const SCAN_MAX_LEGS = 40;
+// Legs end on WORK, not only on time (production 2026-11-24, scan c005d734:
+// a leg that collected ~370 queued searches in its last two minutes was
+// killed for "CPU Time exceeded" (2,000 ms) before it could hand off, and the
+// scan sat "running" with 909 searches in flight). Reading and judging a
+// search result is the CPU cost, so a leg looks at no more than
+// SCAN_LEG_GETS of them and then hands the same scan to a fresh run -- well
+// under the limit at the ~5 ms each that leg measured. More legs per press as
+// a result, so the cap on legs is higher.
+export const SCAN_LEG_GETS = 150;
+export const SCAN_MAX_LEGS = 150;
 // The hunt's queue: customers in flight at once, collected this many at a
 // time; a search is first looked for this long after it was posted (the
 // provider answered in 106-139s when measured), looked for again every
@@ -390,7 +400,12 @@ export function createResearchHandler({
     // customers one press may check to get them.
     const want = clampFinds(body?.finds);
     const maxChecks = companyMaxChecks(ent?.meta);
-    const filters = scanFilters(body?.filters);
+    // The company's niche words, for the niche signal in the match score:
+    // company data, else its active programs' own niche text. Kept on the
+    // scan row so every leg of the press scores the same way.
+    const { data: progs } = await service.from('affiliate_programs').select('niche, audience_notes')
+      .eq('company_entity_id', company).eq('status', 'active').limit(50);
+    const filters = { ...scanFilters(body?.filters), terms: companyTerms(ent?.meta, progs || []) };
     const startedAt = now();
     const { data: scan, error: sErr } = await service.from('affiliate_customer_scans').insert({
       company_entity_id: company, program_id: null, created_by: callerId, status: 'running',
@@ -564,8 +579,12 @@ export function createResearchHandler({
     const left = () => RUN_BUDGET_MS - (now().getTime() - started);
     // A continued scan keeps counting from where the previous leg stopped.
     const r0 = resume || {};
+    // 'check': over the bar, but the score is under LIKELY_SCORE. Never
+    // counted as found; kept on the scan row's filters (to_check), so the
+    // page needs no new column to read it.
     const t = { checked: +r0.checked || 0, found: +r0.found || 0, below: +r0.below || 0, no_count: +r0.no_count || 0,
-      ambiguous: +r0.ambiguous || 0, none: +r0.not_found || 0, error: +r0.failed || 0 };
+      ambiguous: +r0.ambiguous || 0, none: +r0.not_found || 0, error: +r0.failed || 0, check: +r0.filters?.to_check || 0 };
+    const terms = Array.isArray(filters.terms) ? filters.terms : [];
     let requested = +r0.requested || 0;
     const st = { cursor: Math.max(0, Math.floor(Number(filters.cursor)) || 0), poolDone: filters.pool_done === true };
     const costBefore = Number(r0.cost_usd) || 0;
@@ -577,7 +596,7 @@ export function createResearchHandler({
     // The scan row's counters. Column names differ from two statuses ('none'
     // and 'error' read badly as columns, and the row has its own error text).
     const counts = () => ({ requested, checked: t.checked, found: t.found, below: t.below, no_count: t.no_count, ambiguous: t.ambiguous, not_found: t.none, failed: t.error });
-    const state = () => ({ ...filters, want, max_checks: maxChecks, cursor: st.cursor, pool_done: st.poolDone });
+    const state = () => ({ ...filters, want, max_checks: maxChecks, cursor: st.cursor, pool_done: st.poolDone, to_check: t.check });
     // Builders are thenables, not Promises: wrap so .catch() exists.
     const beat = (patch = {}) => Promise.resolve(service.from('affiliate_customer_scans').update({ ...counts(), heartbeat_at: now().toISOString(), filters: state(), ...patch })
       .eq('id', scanId).eq('company_entity_id', company));
@@ -617,18 +636,25 @@ export function createResearchHandler({
       usages.push(answer?.usage || {});
       for (const b of batch) asked.add(b.id);
       const at = now().toISOString();
+      const countAsk = [];
       for (const o of applyAiAnswer({ rows: batch, answer, minFollowers })) {
         const row = batch.find((b) => b.key === o.key);
         // Still unclear to the model: recorded as judged, so no later run
         // asks again about the same profiles.
         if (o.status === 'ambiguous') { await write(row.id, { decided_by: 'ai' }); continue; }
+        const sp = o.pick ? scorePick({ pick: o.pick, person: row.person, email: row.email, city: row.city, terms, decidedBy: 'ai' }) : null;
         await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at,
-          basis: o.pick ? matchBasis({ pick: o.pick, person: row.person, email: row.email, city: row.city }) : null }));
+          basis: sp?.basis ?? null, score: sp?.score ?? null }));
         // A row carried over from an earlier scan was never counted in this
         // one, so this scan's counters are left alone.
-        if (!row.carried) { t.ambiguous -= 1; t[o.status] += 1; }
+        if (!row.carried) {
+          t.ambiguous -= 1; t[tallyBucket(o.status, sp?.score)] += 1;
+          const ct = o.status === 'no_count' ? buildCountTask(o.pick) : null;
+          if (ct) countAsk.push({ row: { id: row.id }, kind: 'count', task: ct });
+        }
         aiDecided += 1;
       }
+      await post(countAsk);
     }
     const forModel = (r, carried = false) => {
       const person = personName(r.display_name);
@@ -665,7 +691,9 @@ export function createResearchHandler({
     async function collect(rows) {
       const handles = [];
       await each(rows, SCAN_GET_CONCURRENCY, async (r) => {
-        if (left() < SCAN_TAIL_MS / 2) return;
+        if (left() < SCAN_TAIL_MS / 2 || gets >= SCAN_LEG_GETS) return;
+        // Counted before the call, so concurrent workers respect the cap.
+        gets += 1;
         let res;
         try { res = await serpQueue.get(r.serp_task_id); } catch (err) {
           console.warn(`customer_scan: collecting a search failed ${String(err?.message || err).slice(0, 200)}`);
@@ -676,14 +704,33 @@ export function createResearchHandler({
         if (res.state === 'pending' && !stale) return;
         const clear = { serp_task_id: null, serp_task_kind: null, serp_posted_at: null };
         const person = personName(r.display_name);
+        if (r.serp_task_kind === 'count') {
+          // The follower count for a profile matched without one. Read only
+          // from that profile's own result; nothing found leaves it as it was.
+          const pick = { platform: r.platform, handle: r.handle, profile_url: r.profile_url };
+          const got = res.state === 'ready' && r.status === 'no_count' && r.profile_url ? judgeCount({ items: res.items || [], pick, collectedAt: at }) : null;
+          if (got && person) {
+            const status = got.followers >= minFollowers ? 'found' : 'below';
+            const shown = (Array.isArray(r.candidates) ? r.candidates : []).find((c) => c?.profile_url === r.profile_url) || {};
+            const sp = scorePick({ pick: { ...shown, ...pick, followers: got.followers }, person, email: r.email_lc, city: r.city, terms,
+              decidedBy: r.decided_by === 'ai' ? 'ai' : 'search', also: r.match_basis === 'email_handle' ? ['email_handle'] : [] });
+            await write(r.id, { status, followers: got.followers, followers_approx: got.followers_approx, followers_quote: got.followers_quote,
+              source_url: got.source_url, match_basis: sp.basis, match_score: sp.score, checked_at: at, ...clear });
+            t.no_count -= 1; t[tallyBucket(status, sp.score)] += 1;
+          } else await write(r.id, clear);
+          return;
+        }
         if (r.serp_task_kind === 'handle') {
           const eh = person ? emailHandle(r.email_lc, person) : null;
           const h = res.state === 'ready' && eh ? judgeHandle({ items: res.items || [], handle: eh, program, minFollowers, collectedAt: at }) : null;
           if (h?.pick) {
             // The profile whose handle IS their email username: it settles
             // the name search, whatever it said.
-            await write(r.id, { ...socialRowPatch({ status: h.status, pick: h.pick, candidates: null, decidedBy: 'search', query: r.query, checkedAt: at, basis: 'email_handle' }), ...clear });
-            t[r.status] -= 1; t[h.status] += 1;
+            const sp = scorePick({ pick: h.pick, person, email: r.email_lc, city: r.city, terms, also: ['email_handle'] });
+            await write(r.id, { ...socialRowPatch({ status: h.status, pick: h.pick, candidates: null, decidedBy: 'search', query: r.query, checkedAt: at, basis: 'email_handle', score: sp.score }), ...clear });
+            t[r.status] -= 1; t[tallyBucket(h.status, sp.score)] += 1;
+            const ct = h.status === 'no_count' ? buildCountTask(h.pick) : null;
+            if (ct) handles.push({ row: { id: r.id }, kind: 'count', task: ct });
           } else await write(r.id, clear);
           return;
         }
@@ -694,9 +741,14 @@ export function createResearchHandler({
           return;
         }
         const j = judgeResults({ items: res.items || [], person, program, minFollowers, collectedAt: at });
-        const basis = j.pick ? matchBasis({ pick: j.pick, person, email: r.email_lc, city: r.city }) : null;
-        await write(r.id, { ...socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: r.query, checkedAt: at, basis }), ...clear });
-        t.checked += 1; t[j.status] += 1;
+        const sp = j.pick ? scorePick({ pick: j.pick, person, email: r.email_lc, city: r.city, terms }) : null;
+        const basis = sp?.basis ?? null;
+        await write(r.id, { ...socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: r.query, checkedAt: at, basis, score: sp?.score ?? null }), ...clear });
+        t.checked += 1; t[tallyBucket(j.status, sp?.score)] += 1;
+        // A profile matched with no count stated: one search for its own
+        // handle, which usually states it.
+        const ct = j.status === 'no_count' ? buildCountTask(j.pick) : null;
+        if (ct) handles.push({ row: { id: r.id }, kind: 'count', task: ct });
         // The email username, as one more search, only when the name
         // search did not settle it (nothing, or several namesakes): a
         // second paid search on every customer roughly doubled the cost
@@ -710,6 +762,8 @@ export function createResearchHandler({
     }
 
     let status = 'done'; let error = null; let aiOwed = false; let complete = false;
+    // Search results looked at in this leg (see SCAN_LEG_GETS).
+    let gets = 0;
     try {
       const guards = await scanGuards(company);
       const goalMet = () => t.found >= want;
@@ -727,7 +781,7 @@ export function createResearchHandler({
         if (e) throw new Error(`could not read the scan: ${e.message || e}`);
         return data || [];
       };
-      const ROW_COLS = 'id, customer_key, email_lc, display_name, city, query, status, candidates, serp_task_id, serp_task_kind, serp_posted_at';
+      const ROW_COLS = 'id, customer_key, email_lc, display_name, city, query, status, decided_by, candidates, platform, handle, profile_url, match_basis, serp_task_id, serp_task_kind, serp_posted_at';
       while (left() > SCAN_TAIL_MS) {
         let inflight = await readScanRows(ROW_COLS, (q) => q.not('serp_task_id', 'is', null).limit(SCAN_MAX_INFLIGHT * 2));
         let waiting = await readScanRows(ROW_COLS, (q) => q.eq('status', 'pending').is('serp_task_id', null).order('created_at', { ascending: true }).limit(SCAN_MAX_INFLIGHT));
@@ -768,6 +822,8 @@ export function createResearchHandler({
         }
         await beat();
         if (!open.length && !more) { complete = true; break; }
+        // This leg has done its share of work: the next leg carries on.
+        if (gets >= SCAN_LEG_GETS) break;
         // The queue answers in a minute or two: wait, then look again.
         await sleep(Math.max(0, Math.min(SCAN_POLL_MS, left() - SCAN_TAIL_MS)));
       }

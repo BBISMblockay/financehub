@@ -4199,6 +4199,16 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124235000_affiliate_customer_social_score.sql` — Find: a match score on every find
+
+Blake, 2026-11-24, after the audit ("need scores"): every find over the 750 bar matched on the name alone, and the
+biggest were famous namesakes. `affiliate_customer_social.match_score` (0-100, computed by `matchScore` in
+`scripts/lib/affiliate-customer-scan-core.mjs`) says how sure SILO is; 70+ is "Likely" and only those count toward
+the finds asked for, the rest show under "Check". `match_basis` may now be `niche` (a company niche word in the
+profile's own text: `entities.meta.affiliate_customer_scan_terms`, else the active programs' niche text) and
+`serp_task_kind` may be `count` (one search for a matched profile's own handle, to read the count it states).
+Additive: one nullable column and three checks. NULL score = scored before this. Apply first, then deploy affiliate-research.
+
 ### `20261124230000_affiliate_customer_social_queue.sql` — Hunt: queued searches, "Find 25" means 25
 
 Blake, 2026-11-24: the number entered is how many finds come back ("not a partial or trimmed list"), and "Yes" to

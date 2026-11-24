@@ -19931,4 +19931,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261124230000: Hunt queue mode -- the queued search's task id on the
 -- customer's row, so a later run of the scan collects it.
 \i migrations/20261124230000_affiliate_customer_social_queue.sql
+-- 20261124235000: Find match score -- 0-100 on every find, a niche-word
+-- signal, and one count search for a profile matched without a count.
+\i migrations/20261124235000_affiliate_customer_social_score.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
