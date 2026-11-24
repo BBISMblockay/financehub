@@ -20,8 +20,13 @@
 // Request: POST { action: 'import', program_id, rows: [...] }  (<= 500 rows)
 //   -> { kept, prospects_new, prospects_updated, skipped_minors, skipped_not_profile, suppressed_skipped }
 //
-// Request: POST { action: 'customer_scan', program_id, count?, filters? }
+// Request: POST { action: 'customer_scan', count?, filters? }
 //   -> 202 { scan_id } (or 200 { scan_id, joined: true } while one runs).
+//      COMPANY level, no program (Blake 2026-11-24: people come before
+//      program): one answer per customer per company, one running scan per
+//      company, every platform searched, the follower bar from
+//      entities.meta.affiliate_customer_scan_min_followers. A program_id in
+//      the request is ignored.
 //      "Find their social accounts" on Your Customers: one search per customer
 //      through the same provider, the model only for ambiguous searches
 //      (lib/affiliate-customer-scan-core.mjs). The page watches the scan row.
@@ -41,7 +46,7 @@ import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } f
 import {
   personName, buildScanTask, scanQuery, judgeResults, buildAiRequest, applyAiAnswer, clampScanCount, minFollowersFor,
   socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
-  matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle,
+  matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle, COMPANY_SCAN_SCOPE, companyMinFollowers,
 } from './lib/affiliate-customer-scan-core.mjs';
 
 export const corsHeaders = {
@@ -317,10 +322,13 @@ export function createResearchHandler({
   // search runs, so a run that hits its time limit leaves a queue the next
   // press finishes -- "stopped early, more to check" -- rather than losing its
   // place. A press while a scan is running joins it.
-  async function customerScan({ company, program, body, callerId }) {
+  async function customerScan({ company, body, callerId }) {
     if (!search) return reply({ error: 'Social lookups are not set up yet.' }, 503);
+    // Every platform SILO reads profiles from, not one program's ticks: the
+    // answer is about the customer, and it is the same in every program.
+    const program = COMPANY_SCAN_SCOPE;
     const { data: live, error: lErr } = await service.from('affiliate_customer_scans')
-      .select('id, heartbeat_at, started_at').eq('company_entity_id', company).eq('program_id', program.id)
+      .select('id, heartbeat_at, started_at').eq('company_entity_id', company)
       .eq('status', 'running').order('started_at', { ascending: false }).limit(1);
     if (lErr) return reply({ error: 'Social lookups need a database update first.' }, 503);
     const prev = live?.[0];
@@ -330,14 +338,14 @@ export function createResearchHandler({
       await service.from('affiliate_customer_scans').update({ status: 'stopped', finished_at: now().toISOString(), error_message: 'The scan stopped before it finished.' })
         .eq('id', prev.id).eq('company_entity_id', company);
     }
-    const { data: bar } = await service.from('affiliate_programs').select('customer_scan_min_followers')
-      .eq('id', program.id).eq('company_entity_id', company).maybeSingle();
-    const minFollowers = minFollowersFor(bar);
+    // The follower bar is the company's (data, 750 when unset).
+    const { data: ent } = await service.from('entities').select('meta').eq('id', company).maybeSingle();
+    const minFollowers = companyMinFollowers(ent?.meta);
     const want = clampScanCount(body?.count);
     const filters = scanFilters(body?.filters);
     const startedAt = now();
     const { data: scan, error: sErr } = await service.from('affiliate_customer_scans').insert({
-      company_entity_id: company, program_id: program.id, created_by: callerId, status: 'running',
+      company_entity_id: company, program_id: null, created_by: callerId, status: 'running',
       requested: 0, started_at: startedAt.toISOString(), heartbeat_at: startedAt.toISOString(), filters, min_followers: minFollowers,
     }).select('id').single();
     // The partial unique index refuses a second running scan: two presses at
@@ -374,7 +382,7 @@ export function createResearchHandler({
     }
     const isTeam = teamFilter(memberEmails);
     const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
-      .eq('company_entity_id', company).eq('program_id', program.id).in('status', ['pending', 'error'])
+      .eq('company_entity_id', company).in('status', ['pending', 'error'])
       .order('created_at', { ascending: true }).limit(want);
     // A queued customer is re-checked before it is resumed: consent can
     // change between the press that queued them and the one that finishes
@@ -422,11 +430,12 @@ export function createResearchHandler({
       if (error) throw new Error(`could not read customers: ${error.message || error}`);
       if (!rows?.length) break;
       let pick = rows.filter((r) => personName(r.name_lc, r.first_name_lc, r.last_name_lc) && !suppressed(r.email_lc) && !isTeam(r.email_lc));
-      // Somebody this program already scanned is not searched (or paid for) twice.
+      // Somebody this company already scanned -- under any program, or none
+      // -- is not searched (or paid for) twice.
       const seen = new Set();
       for (const keys of chunks(pick.map((r) => r.customer_key))) {
         const { data: had } = await service.from('affiliate_customer_social').select('customer_key')
-          .eq('company_entity_id', company).eq('program_id', program.id).in('customer_key', keys);
+          .eq('company_entity_id', company).in('customer_key', keys);
         for (const h of had || []) seen.add(h.customer_key);
       }
       pick = pick.filter((r) => !seen.has(r.customer_key)).slice(0, need);
@@ -449,7 +458,7 @@ export function createResearchHandler({
         const { error: iErr } = await service.from('affiliate_customer_social').insert(part.map((r) => {
           const person = personName(r.name_lc, r.first_name_lc, r.last_name_lc);
           return {
-            company_entity_id: company, program_id: program.id, scan_id: scanId, customer_key: r.customer_key,
+            company_entity_id: company, program_id: null, scan_id: scanId, customer_key: r.customer_key,
             email_lc: r.email_lc, display_name: person.display, city: city.get(r.email_lc) || null,
             status: 'pending', query: scanQuery(person, city.get(r.email_lc) || null),
           };
@@ -587,6 +596,8 @@ export function createResearchHandler({
 
     let body;
     try { body = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
+    // Company level: no program to load or check.
+    if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null });
     const programId = String(body?.program_id || '');
     if (!UUID_RE.test(programId)) return reply({ error: 'Choose a program.' }, 400);
 
@@ -601,7 +612,6 @@ export function createResearchHandler({
     if (body?.action === 'refresh_stats') return refreshStats({ company, program });
     if (body?.action === 'research') return research({ company, program, body, callerId: who?.user?.id ?? null });
     if (body?.action === 'import') return importRows({ company, program, body });
-    if (body?.action === 'customer_scan') return customerScan({ company, program, body, callerId: who?.user?.id ?? null });
     return reply({ error: 'Unknown action.' }, 400);
   };
 }

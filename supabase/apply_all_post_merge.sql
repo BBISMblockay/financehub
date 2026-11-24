@@ -19924,4 +19924,8 @@ $c$select (select count(*) from v_po_header_summary
 -- be the customer (match_basis), "Not them", and a one-time clear of the
 -- pilot's results judged by the old rules.
 \i migrations/20261124190000_affiliate_customer_social_trust.sql
+-- 20261124210000: the customer scan is the company's, not a program's --
+-- one answer per customer per company, one running scan per company, the
+-- follower bar in entities.meta, a deleted program keeps the results.
+\i migrations/20261124210000_affiliate_customer_social_company.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

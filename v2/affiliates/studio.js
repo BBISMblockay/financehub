@@ -957,8 +957,9 @@ const CUST_DEFAULTS = () => ({
   // Ticks are kept by customer_key, and a tick on a row that left the view is
   // dropped when the view reloads -- the same stance as the prospect list.
   sel: new Set(),
-  // "Find their social accounts": this program's result row per customer on
-  // the page, and the latest scan. scanReady is false until the tables exist
+  // "Find their social accounts": the COMPANY's result row per customer on
+  // the page (the same in every program -- Blake 2026-11-24, people come
+  // before program), and the company's latest scan. scanReady is false until the tables exist
   // (a database before the migration), which hides the scan bar.
   social: {}, scan: null, scanReady: false, scanCount: 500, socialOnly: false,
 });
@@ -969,16 +970,13 @@ const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambig
 // read failing leaves the list as it was and hides only the scan bar.
 let scanTimer = null;
 async function loadSocial(c, keys) {
-  if (isAll() || !S.programId) { c.social = {}; c.scan = null; c.scanReady = false; return; }
-  const pidNow = S.programId;
   const [scan, soc] = await Promise.all([
-    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', pidNow)
+    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)
       .order('started_at', { ascending: false }).limit(1),
     keys.length
-      ? db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', pidNow).in('customer_key', keys)
+      ? db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (pidNow !== S.programId) return;
   if (scan.error || soc.error) { c.scanReady = false; c.scan = null; c.social = {}; return; }
   c.scanReady = true;
   c.scan = scan.data?.[0] || null;
@@ -1052,11 +1050,11 @@ async function loadCustomers(force = false) {
     if (spec.toExclusive) q = q.lt('last_order_at', spec.toExclusive);
     if (spec.consentIsNull) q = q.is('email_consent_state', null);
     else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);
-    // "Found accounts only": the customers this program's scans found. A
+    // "Found accounts only": the customers the company's scans found. A
     // pilot finds tens, so one bounded list of keys is enough.
-    if (c.socialOnly && !isAll() && S.programId) {
+    if (c.socialOnly) {
       const { data: hit, error: hErr } = await db.from('affiliate_customer_social').select('customer_key')
-        .eq('company_entity_id', CO).eq('program_id', S.programId).eq('status', 'found')
+        .eq('company_entity_id', CO).eq('status', 'found')
         .order('followers', { ascending: false }).limit(500);
       if (hErr) throw hErr;
       q = q.in('customer_key', (hit || []).map((r) => r.customer_key).concat(['~none~']));
@@ -3710,7 +3708,7 @@ const A = {
     return `${bits.join(' · ')}. Approve them on Outreach.`;
   },
   // "Not them": a find that is somebody else. The database keeps the row, so
-  // that customer is never searched again for this program.
+  // that customer is never searched again for this company.
   'cust-social-reject': async ({ id }) => {
     const c = custState();
     must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));
@@ -3722,10 +3720,11 @@ const A = {
   // scan), so pressing twice never pays twice.
   'cust-scan': async () => {
     const c = custState();
-    if (isAll() || !S.programId) throw new Error('Pick a program first.');
+    // Company level: no program is sent. The program is chosen only when a
+    // ticked customer is added to outreach.
     const spec = customerQuerySpec(c);
     const out = await invoke('affiliate-research', {
-      action: 'customer_scan', program_id: S.programId, count: c.scanCount,
+      action: 'customer_scan', count: c.scanCount,
       filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },
     });
     await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => {});

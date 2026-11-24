@@ -300,6 +300,24 @@ export function minFollowersFor(program) {
   return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;
 }
 
+/**
+ * The scan is the COMPANY's, not a program's (Blake 2026-11-24: "people come
+ * before program"). Its bar is company data -- entities.meta key
+ * affiliate_customer_scan_min_followers -- and 750 when unset.
+ */
+export function companyMinFollowers(meta) {
+  const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_min_followers : undefined;
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_MIN_FOLLOWERS;
+  return minFollowersFor({ customer_scan_min_followers: raw });
+}
+
+/**
+ * What a company-level scan searches: every platform SILO reads a profile
+ * from. Empty platforms means "all of them" to the search builder and to the
+ * judges, so no program's ticks narrow an answer that every program shares.
+ */
+export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze([]) });
+
 /** One row of the result table, from a judgement. Columns match affiliate_customer_social. */
 export function socialRowPatch({ status, pick, candidates = null, decidedBy, query, checkedAt, basis = null }) {
   return {

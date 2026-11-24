@@ -4199,6 +4199,21 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124210000_affiliate_customer_social_company.sql` — the customer scan belongs to the company
+
+Blake, 2026-11-24: "I feel like people come before program in n hierarchy of studio", then "Yes" to moving the
+scan to company level. `affiliate_customer_social` is now keyed `(company_entity_id, customer_key)`: one answer per
+customer per company, the same whichever program is open, and a customer scanned under any program is never searched
+again. Where a company had the same customer under two programs, one row survives (a "Not them" first, then a find, then
+the newest check). One running scan per company (`affiliate_customer_scans_one_running_company`; extra running rows are
+closed as stopped first). `program_id` is no longer a key, is nullable and NULL on new rows, and its foreign key is
+`ON DELETE SET NULL`, so deleting a program never deletes what SILO learned about the company's customers. Reads are
+scoped to the active company only, like `company_customer_profiles`; "Not them" is gated on
+`can_manage_affiliate_programs()`. The follower bar is company data, `entities.meta.affiliate_customer_scan_min_followers`
+(750 when unset); `affiliate_programs.customer_scan_min_followers` stays and is no longer read. The affiliate-research
+function searches every platform for this action and needs no program; the program is chosen only at Add to outreach.
+Apply first, then deploy affiliate-research.
+
 ### `20261124190000_affiliate_customer_social_trust.sql` — social finds you can trust
 
 Blake, on the first pilot (283 checked, 9 "found"): "How to trust finds I know a few are wrong like the Jenny one is an
