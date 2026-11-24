@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- Amazon Ads work-in-progress preview. Chrome-less and in testing/ on
+     purpose (Blake, 2026-11-24: in-progress UI lives here so it can be
+     watched building up, and is promoted to v2/ when the feature goes live).
+     No sign-in, no Supabase, no network beyond this repo: the page writes
+     nothing and reads nothing.
+
+     It DUPLICATES NOTHING. It fetches ../v2/integrations.html, lifts that
+     page's own <style> block and its Amazon <section> out of the response,
+     and injects both -- so what is on screen here is the real card, and it
+     changes the moment the real card does. A static copy of the markup would
+     have been a second thing to keep in step, which is the one thing a
+     preview must not be.
+
+     The live card in v2/integrations.html stays where it is and stays HIDDEN:
+     Login with Amazon redirects back to that page, so the UI has to be there
+     for the flow to land, and probeAmazonOauth only reveals it once an
+     AMAZON_ADS_CLIENT_ID exists in the deployment. Nobody sees it before
+     then, which is the same effect as it not being there. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO — Amazon Ads card preview</title>
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <style>
+    body { background: var(--bcn-bg); margin: 0; }
+    .az-wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; display: flex; flex-direction: column; gap: 16px; }
+    /* Not .bcn-header: that is a grid built for a page's title bar, and it
+       squeezes a one-line title into a narrow column beside the text. */
+    .az-head h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.01em; }
+    .az-head p { margin: 0; max-width: 72ch; }
+    .az-note { color: var(--bcn-ink-2); font-size: 13px; line-height: 1.55; }
+    .az-note code { font-family: var(--bcn-mono); font-size: 12px; }
+    .az-owed { margin: 0; padding-left: 18px; color: var(--bcn-ink-2); font-size: 13px; line-height: 1.6; }
+    .az-slot:empty::after { content: 'Loading the card from v2/integrations.html…'; color: var(--bcn-ink-3); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="az-wrap">
+    <header class="az-head">
+      <h1>Amazon Ads <span class="bcn-pill">preview</span></h1>
+      <p class="az-note">
+        The Integrations card for Amazon Ads, lifted live out of
+        <code>v2/integrations.html</code>. Not a copy — if the card changes
+        there, it changes here. Nothing on this page is wired to anything:
+        Connect does nothing, and there are no connections to list because
+        this page reads no database.
+      </p>
+    </header>
+
+    <div class="az-slot" id="cardSlot"></div>
+
+    <section class="bcn-card">
+      <div class="bcn-card-header"><h2>Why the live card is hidden</h2></div>
+      <div class="bcn-card-body az-note">
+        <p style="margin-top:0;">
+          The card is already in <code>v2/integrations.html</code> and has to
+          stay there: Login with Amazon redirects the browser back to that
+          page, so that is where the connection lands. It is <strong>hidden
+          until the deployment says Amazon is configured</strong> —
+          <code>probeAmazonOauth()</code> asks
+          <code>amazon-oauth-start</code> whether an
+          <code>AMAZON_ADS_CLIENT_ID</code> exists, and only then reveals it.
+          An existing connection reveals it too, so failing closed can never
+          hide a live one.
+        </p>
+        <p style="margin-bottom:0;">Still owed before anyone can connect:</p>
+        <ul class="az-owed">
+          <li>An approved Amazon Ads API application and a Login with Amazon client</li>
+          <li><code>supabase/migrations/20261120050000_amazon_ads_connection.sql</code> applied</li>
+          <li><code>amazon-oauth-start</code>, <code>amazon-oauth-callback</code>,
+              <code>test-ad-platform-connection</code> and
+              <code>ad-platform-sync-run</code> deployed</li>
+          <li><code>AMAZON_ADS_CLIENT_ID</code> and <code>AMAZON_ADS_CLIENT_SECRET</code> set</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Lift the real page's styles and the real Amazon section. Parsed with
+    // DOMParser rather than innerHTML so none of that page's scripts run --
+    // integrations.html boots against Supabase, which this page has no
+    // business doing.
+    (async () => {
+      const slot = document.getElementById('cardSlot');
+      try {
+        const res = await fetch('../v2/integrations.html', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`integrations.html → ${res.status}`);
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+
+        // The int-* classes the card is built from live in that page's own
+        // inline <style>. Take every one of them, in order.
+        for (const style of doc.querySelectorAll('style')) {
+          const copy = document.createElement('style');
+          copy.textContent = style.textContent;
+          document.head.appendChild(copy);
+        }
+
+        const card = doc.querySelector('section[data-ad-card="amazon_ads"]');
+        if (!card) throw new Error('no Amazon section in v2/integrations.html');
+        card.hidden = false;           // the probe's job in the real page
+        card.removeAttribute('id');    // not the live card; nothing may target it
+        slot.appendChild(card);
+      } catch (err) {
+        slot.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'az-note';
+        p.textContent = `Could not read the card: ${err.message}`;
+        slot.appendChild(p);
+      }
+    })();
+  </script>
+</body>
+</html>
