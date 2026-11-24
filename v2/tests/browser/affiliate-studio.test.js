@@ -3537,14 +3537,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(dr?.program_id, PROGB, 'a Beta creator\'s message is filed under Beta');
       R.ok('and written from Beta\'s own message', /^Beta pitch for Nia New/.test(dr?.subject || ''));
       R.eq(drA?.program_id, PROG, 'and the other program\'s creator under theirs, in the same press');
-      // Find creators picks its program on the button.
-      await pg.waitForSelector('#prospectsBody [data-act="find-pg"][data-pg="' + PROGB + '"]', { timeout: 5000 }).catch(() => {});
-      await pg.click('#prospectsBody [data-act="find-pg"][data-pg="' + PROGB + '"]').catch(() => {});
+      // Find creators has no program picker: one list (Blake 2026-11-24).
+      await pg.waitForSelector('#prospectsBody [data-act="research-run"]', { timeout: 5000 }).catch(() => {});
+      R.ok('Find creators shows no program picker', !(await pg.$('#prospectsBody [aria-label="Find for"]')) && !(await pg.$('#prospectsBody [data-act="find-pg"]')));
       const nBefore = researchCalls.filter((c) => c.action === 'research').length;
       await pg.click('#prospectsBody [data-act="research-run"]').catch(() => {});
       await pg.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const rcB = researchCalls.filter((c) => c.action === 'research').slice(nBefore);
-      R.ok('Find creators runs for the program picked on it', rcB.length === 1 && rcB[0].program_id === PROGB);
+      R.ok('Find creators still runs', rcB.length === 1 && [PROG, PROGB].includes(rcB[0].program_id));
       // Add to: their own row in the other program, shortlisted, without that
       // program's decisions or search.
       await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
