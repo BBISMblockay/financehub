@@ -1050,11 +1050,13 @@ async function loadCustomers(force = false) {
     if (spec.toExclusive) q = q.lt('last_order_at', spec.toExclusive);
     if (spec.consentIsNull) q = q.is('email_consent_state', null);
     else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);
-    // "Found accounts only": the customers the company's scans found. A
-    // pilot finds tens, so one bounded list of keys is enough.
+    // "Found accounts only": every customer a scan matched to an account --
+    // over the bar, under it, or with no count stated -- the same people the
+    // list marks with one (Blake, 2026-11-24: the filter showed fewer than the
+    // list did). A pilot finds tens, so one bounded list of keys is enough.
     if (c.socialOnly) {
       const { data: hit, error: hErr } = await db.from('affiliate_customer_social').select('customer_key')
-        .eq('company_entity_id', CO).eq('status', 'found')
+        .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])
         .order('followers', { ascending: false }).limit(500);
       if (hErr) throw hErr;
       q = q.in('customer_key', (hit || []).map((r) => r.customer_key).concat(['~none~']));

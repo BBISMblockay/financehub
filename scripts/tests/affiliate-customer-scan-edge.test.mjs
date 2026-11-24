@@ -56,6 +56,9 @@
 //   AFFILIATE_SCAN_MUTATION=nochain      a run out of time ends the scan instead of continuing it
 //   AFFILIATE_SCAN_MUTATION=nohandoff    any continue call runs a second worker over the queue
 //   AFFILIATE_SCAN_MUTATION=nolegcap     a scan can continue for ever
+//   AFFILIATE_SCAN_MUTATION=noresults    Google having nothing for a name counts as a failed search
+//   AFFILIATE_SCAN_MUTATION=handlealways the email username is searched even when the name search settled it
+//   AFFILIATE_SCAN_MUTATION=noaileg      ambiguous searches a run had no time to judge are left unjudged
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -94,9 +97,12 @@ const MUTS = {
   forcedtool: [LIB, "    tool_choice: { type: 'auto' },", "    tool_choice: { type: 'tool', name: 'record_matches' },"],
   nocarry: ['handler.mjs', "      if (apiKey && status !== 'stopped' && left() > SCAN_TAIL_MS / 2) {", '      if (false) {'],
   carryoptout: ['handler.mjs', '        const carried = fresh.filter(okNow).map(', '        const carried = fresh.map('],
-  nochain: ['handler.mjs', "      if (status === 'stopped' && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {", '      if (false) {'],
+  nochain: ['handler.mjs', "      if ((status === 'stopped' || (status === 'done' && aiOwed)) && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {", '      if (false) {'],
   nohandoff: ['handler.mjs', " || row.filters?.handoff !== handoff) return reply(", ") return reply("],
   nolegcap: ['handler.mjs', '&& authHeader && leg + 1 < SCAN_MAX_LEGS) {', '&& authHeader) {'],
+  noresults: ['handler.mjs', '        if (err?.code === 40102) return { items: [], cost: null };\n', ''],
+  handlealways: ['handler.mjs', "const eh = (j.status === 'none' || j.status === 'ambiguous') ? emailHandle(row.email_lc, person) : null;", "const eh = basis === 'email_handle' ? null : emailHandle(row.email_lc, person);"],
+  noaileg: ['handler.mjs', "|| (status === 'done' && aiOwed)) && !error", ') && !error'],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -368,7 +374,7 @@ const RESULTS = {
   samtwin_az: [ig('samtwinfans', 'Sam Twin Fans (@samtwinfans)', '50K Followers'), ig('samtwin_az', 'Sam T (@samtwin_az) • Instagram', '1,900 Followers, 210 Following', 2)],
   'Olive Out': [ig('oliveout', 'Olive Out (@oliveout)', '90K Followers')],
 };
-function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false } = {}) {
+function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false, searchMs = 0, refuse = {} } = {}) {
   const service = fakeService(data);
   const searches = []; const modelCalls = []; const bg = []; const legs = [];
   let t = Date.parse('2026-11-24T04:00:00Z');
@@ -390,7 +396,10 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
       searches.push(task);
       // A run that hits its time limit: the clock jumps after the first search.
       if (budgetHit) t += 10 * 60_000;
+      t += searchMs;
       const name = (task.keyword.match(/"([^"]+)"/) || [])[1];
+      // The provider's task-level refusals, as DataForSEO words them.
+      if (refuse[name]) throw Object.assign(new Error(`SERP provider refused the task: ${refuse[name]}`), { code: refuse[name] });
       return { items: RESULTS[name] || [], cost: 0.002 };
     },
     fetchImpl: async (url, init) => {
@@ -644,4 +653,59 @@ await test('the company\'s own bar decides found and below; a program\'s old bar
   assert.equal(s2.service.tables.affiliate_customer_scans[0].min_followers, 750);
 });
 
+await test('Google having nothing for a name is an answer (no account), not a failed search', async () => {
+  // DataForSEO's 40102 "No Search Results" was most of the pilot's "failed".
+  const s = setup({ refuse: { 'Quiet Person': 40102, nobody: 40102 } });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  assert.equal(row(s, 'nobody').status, 'none');
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.failed, 0, 'nothing failed');
+  // A real provider fault is still a failure, kept to retry.
+  const f = setup({ refuse: { 'Quiet Person': 40101 } });
+  await f.call({ filters: { minOrders: 2 } });
+  await f.settle();
+  assert.equal(row(f, 'nobody').status, 'error');
+  assert.equal(f.service.tables.affiliate_customer_scans[0].failed, 1);
+});
+
+await test('the email username is searched only when the name search did not settle it', async () => {
+  const data = seed();
+  data.company_customer_profiles.find((c) => c.customer_key === 'emily').email_lc = 'emd.az.77@buyer.invalid';
+  const s = setup({ data });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  assert.equal(row(s, 'emily').status, 'found', 'one profile carrying her name answered it');
+  assert.ok(!s.searches.some((t) => /emd\.az\.77/.test(t.keyword)), 'so her username is not searched, or paid for');
+  assert.ok(s.searches.some((t) => /^"nobody"/.test(t.keyword)) && s.searches.some((t) => /^"twins"/.test(t.keyword)),
+    'it still is for nothing found and for several namesakes');
+});
+
+await test('ambiguous searches a run had no time to judge are judged by one more run, then the scan is done', async () => {
+  // Each search takes 107s: the third ends with 9s of the run left, too
+  // little for the model (the 2026-11-24 pilot: 100 checked, none judged).
+  const s = setup({ chain: true, searchMs: 107_000 });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  assert.equal(s.legs.length, 1, 'handed to one more run');
+  assert.equal(s.modelCalls.length, 1, 'which asks the model');
+  assert.equal(row(s, 'twins').decided_by, 'ai');
+  assert.equal(row(s, 'twins').status, 'found');
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.status, 'done');
+  assert.equal(scan.error_message, null);
+  assert.equal(s.service.tables.affiliate_customer_scans.length, 1, 'the same scan');
+  assert.equal(s.searches.length, 3, 'with no new search');
+  // Nowhere to hand it (no caller token to continue as): done, not "stopped early".
+  const solo = setup({ searchMs: 107_000 });
+  await solo.call({ filters: { minOrders: 2 } });
+  await solo.settle();
+  assert.equal(solo.service.tables.affiliate_customer_scans[0].status, 'done');
+  assert.equal(row(solo, 'twins').status, 'ambiguous', 'left for the next press to judge');
+  // Nothing owed: no extra run.
+  const quick = setup({ chain: true });
+  await quick.call({ filters: { minOrders: 2 } });
+  await quick.settle();
+  assert.equal(quick.legs.length, 0, 'a run that judged everything ends there');
+});
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);

@@ -194,6 +194,7 @@ const MUTATIONS = {
   scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
   socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
   pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', count: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, count: c.scanCount,"],
+  foundbaronly: ['/affiliates/studio.js', ".eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])", ".eq('company_entity_id', CO).eq('status', 'found')"],
   nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
   tierpill: ['/affiliates/studio.js', "pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match',", "pill('Likely',"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
@@ -3222,8 +3223,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const SC = [
         { customer_key: 'loyal@buyer.invalid', company_entity_id: CO, name_lc: 'lou loyal', email_lc: 'loyal@buyer.invalid', order_count: 9, lifetime_spend: '1811.40', first_order_at: '2025-02-02T00:00:00Z', last_order_at: '2026-11-01T00:00:00Z', email_consent_state: 'subscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
         { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
+        { customer_key: 'under@buyer.invalid', company_entity_id: CO, name_lc: 'una under', email_lc: 'under@buyer.invalid', order_count: 3, lifetime_spend: '210.00', first_order_at: '2025-04-04T00:00:00Z', last_order_at: '2026-09-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
       ];
-      const SOCIAL = [{ id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
+      const SOCIAL = [{ id: 'cs2', company_entity_id: CO, program_id: null, customer_key: 'under@buyer.invalid', status: 'below', platform: 'instagram', handle: '@una', profile_url: 'https://www.instagram.com/una', followers: 312, followers_approx: false, followers_quote: '312 Followers', source_url: 'https://www.instagram.com/una', checked_at: now }, { id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
       const scanRow = (o) => ({ id: 'scan1', company_entity_id: CO, program_id: PROG, status: 'running', requested: 500, checked: 240, found: 6, below: 0, no_count: 0, ambiguous: 0, not_found: 0, failed: 0, min_followers: 750, error_message: null, started_at: now, heartbeat_at: now, finished_at: null, ...o });
       const fx = (scan) => ({ ...tables, company_customer_profiles: SC, affiliate_suppressions: [],
         affiliate_customer_scans: [scanRow(scan)], affiliate_customer_social: SOCIAL,
@@ -3293,6 +3295,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in' && f.col === 'customer_key')), null, { timeout: 5000 }).catch(() => {});
         const inq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
         R.ok('"Found accounts only" narrows the list to who was found', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('loyal@buyer.invalid') && !(f.vals || []).includes('quiet@buyer.invalid')));
+        R.ok('including an account under the bar, as the list shows it', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('under@buyer.invalid')));
         await pg.selectOption('#custSocial', 'any');
         await pg.waitForFunction(() => /Quin Quiet/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
 
