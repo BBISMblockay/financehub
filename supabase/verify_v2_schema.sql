@@ -6959,6 +6959,29 @@ select 'Posted transaction reclass' as check_name,
   else 'ok' end as status;
 -- End posted transaction reclass checks.
 
+-- Card paydown match (20261125020000): the record exists with RLS on, its integrity trigger is
+-- attached (the record is what keeps a paydown out of the entry, so a pairing the transactions do
+-- not support must be impossible even for a direct write), and no browser-anon reach.
+select 'Card paydown match' as check_name,
+ case when to_regclass('public.card_payment_matches') is null
+        or to_regprocedure('public.link_card_payment_match(uuid,uuid)') is null
+        or to_regprocedure('public.card_payment_match_candidates(uuid,integer)') is null
+        or to_regprocedure('public.unlink_card_payment_match(uuid)') is null
+   then 'MISSING — run 20261125020000_card_payment_match.sql'
+  when not exists (select 1 from pg_class where oid = to_regclass('public.card_payment_matches') and relrowsecurity)
+   then 'CRITICAL: card_payment_matches has RLS off'
+  when not exists (select 1 from pg_trigger where tgname = 'card_payment_match_integrity'
+                   and tgrelid = 'public.card_payment_matches'::regclass)
+   then 'CRITICAL: the match integrity trigger is not attached; a record could claim a pairing the transactions do not support'
+  when has_function_privilege('anon', 'public.link_card_payment_match(uuid,uuid)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_match_candidates(uuid,integer)', 'execute')
+    or has_table_privilege('anon', 'public.card_payment_matches', 'SELECT')
+   then 'CRITICAL: anon can reach the card paydown match'
+  when position('status = ''excluded''' in coalesce(pg_get_functiondef(to_regprocedure('public.link_card_payment_match(uuid,uuid)')), '')) = 0
+   then 'STALE — re-run 20261125020000_card_payment_match.sql: matching no longer excludes the card row, so the paydown would post twice'
+  else 'ok' end as status;
+-- End card paydown match checks.
+
 -- SILO ledger mirrors journal adjustments (20261014040000): every posted
 -- adjustment is a ledger entry, recorded by trigger, internals not client-callable.
 select 'SILO ledger mirrors journal adjustments' as check_name,

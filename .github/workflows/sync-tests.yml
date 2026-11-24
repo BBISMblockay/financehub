@@ -333,6 +333,8 @@ on:
       - 'scripts/tests/card-posting-start-database.test.mjs'
       - 'v2/accounting-mode.js'
       - 'scripts/tests/bookkeeping-mode-database.test.mjs'
+      - 'scripts/tests/card-payment-match-database.test.mjs'
+      - 'supabase/migrations/*card_payment_match.sql'
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -1905,6 +1907,23 @@ jobs:
             # A mutation whose target text is gone exits non-zero too, and would pass as killed.
             if grep -q "is stale" /tmp/bookkeeping-mode-mutation.log; then
               cat /tmp/bookkeeping-mode-mutation.log; echo "Stale bookkeeping mode mutation (target text gone): $mutation"; exit 1
+            fi
+          done
+
+      # A card paydown matched to the bank payment that made it: the bank side
+      # is read and never written (so an already posted payment still settles
+      # its card row), and the record cannot claim a pairing the transactions
+      # do not support.
+      - name: Execute card payment match regressions
+        run: |
+          node scripts/tests/card-payment-match-database.test.mjs
+          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount; do
+            if CARD_MATCH_MUTATION="$mutation" node scripts/tests/card-payment-match-database.test.mjs > /tmp/card-match-mutation.log 2>&1; then
+              cat /tmp/card-match-mutation.log; echo "Survived card payment match mutation: $mutation"; exit 1
+            fi
+            # A mutation whose target text is gone exits non-zero too, and would pass as killed.
+            if grep -q "is stale" /tmp/card-match-mutation.log; then
+              cat /tmp/card-match-mutation.log; echo "Stale card payment match mutation (target text gone): $mutation"; exit 1
             fi
           done
 
