@@ -4149,7 +4149,7 @@ const A = {
     // CURRENT consent: an unsubscribed customer gets a DM, never an email.
     const x = S.d.prospectById[id]; const { tpl, vars } = draftFor(x);
     const path = await prospectContact(x);
-    if (!path) throw new Error('No way to reach them: they unsubscribed and no account was found to message.');
+    if (!path) throw new Error('No way to reach them: no email they allow, and no account to message.');
     must(await db.from('affiliate_outreach_drafts').insert({
       company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,
       recipient_email: path.email, recipient_handle: path.handle,
