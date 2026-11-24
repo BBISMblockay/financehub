@@ -26,7 +26,8 @@ const originalLines = seeds.map((line, i) => ({
 }));
 
 async function composer({ accounts = chart, lines = seeds, error = null, resume = false,
-  referenceError = null, reviewOnly = false, status = 'draft', lineError = null } = {}) {
+  referenceError = null, reviewOnly = false, status = 'draft', lineError = null,
+  statusAtRefusal = null } = {}) {
   const ids = new Map();
   class Element {
     constructor() { this.listeners = new Map(); this.children = []; this.value = ''; this.disabled = false; }
@@ -65,6 +66,7 @@ async function composer({ accounts = chart, lines = seeds, error = null, resume 
         insert(value) { operation = 'insert'; payload = value; return query; },
         delete() { operation = 'delete'; return query; },
         single() { single = true; return query; },
+        maybeSingle() { single = true; return query; },
         then(resolve, reject) {
           const run = () => {
             if (operation === 'select') {
@@ -88,6 +90,9 @@ async function composer({ accounts = chart, lines = seeds, error = null, resume 
               return { data: null, error: null };
             }
             if (table === 'journal_adjustment_lines' && lineError && operation === 'insert') {
+              // The race itself: by the time the refusal is read, the entry may
+              // already say what refused it.
+              if (statusAtRefusal) headers[0].status = statusAtRefusal;
               return { data: null, error: lineError };
             }
             if (operation === 'delete') {
@@ -277,16 +282,30 @@ await test('a posted entry cannot be posted again from the composer', async () =
   assert.deepEqual(page.writes, []);
 });
 
-await test('a policy refusal on the lines is explained as the entry having left draft', async () => {
-  const page = await composer({ resume: true, lineError: {
-    code: '42501',
-    message: 'new row violates row-level security policy for table "journal_adjustment_lines"',
-  } });
+const policyRefusal = {
+  code: '42501',
+  message: 'new row violates row-level security policy for table "journal_adjustment_lines"',
+};
+
+await test('a policy refusal on an entry that has left draft says so', async () => {
+  const page = await composer({ resume: true, lineError: policyRefusal, statusAtRefusal: 'approved' });
   await page.click('jeStage');
-  assert.match(page.message(), /no longer a draft/);
+  assert.match(page.message(), /is approved, not a draft/);
   assert.match(page.message(), /Reopen the approval under Adjustments/);
   assert.doesNotMatch(page.message(), /row-level security|42501/);
   assert.equal(page.ids.get('jeEdit').hidden, false, 'and the form is still there to close or retry');
+});
+
+// The same refusal, with the entry still a draft: the line policy also demands
+// the active company and finance access, so this is the reader's standing, not
+// the entry's state. Telling them to reopen an approval that does not exist
+// sends them looking for a control that is not there.
+await test('a policy refusal on a draft is explained as access, not approval', async () => {
+  const page = await composer({ resume: true, lineError: policyRefusal });
+  await page.click('jeStage');
+  assert.match(page.message(), /access that changed|finance permission|active company/i);
+  assert.doesNotMatch(page.message(), /Reopen the approval|no longer a draft|not a draft/);
+  assert.doesNotMatch(page.message(), /row-level security|42501/);
 });
 
 await test('reviewOnly opens a stored entry on its database read-back, with no way back to editing', async () => {

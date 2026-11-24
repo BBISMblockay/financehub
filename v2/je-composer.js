@@ -474,17 +474,33 @@
         return new Error(`An entry${period} already exists as a draft, approved, or posted entry. `
           + 'Open the existing entry under Adjustments. It has not been changed.');
       }
-      // An entry leaves draft while a composer is open on it -- approved in
-      // another tab, or opened from a list that still called it staged. The
-      // write is refused by RLS, and 'violates row-level security policy for
-      // table "journal_adjustment_lines"' says nothing a reader can act on.
-      // Matched on the refusal's own wording, not on 42501, which also covers
-      // "permission denied for table" -- a different fault with its own cause.
-      if (/row-level security/i.test(error.message || '')) {
-        return new Error('This entry is no longer a draft — it has been approved or posted, so its '
-          + 'lines cannot be changed. Reopen the approval under Adjustments to edit it, or post it as it stands.');
-      }
       return new Error(error.message);
+    }
+
+    /* A write the database refused by policy. 'new row violates row-level
+       security policy for table "journal_adjustment_lines"' says nothing a
+       reader can act on, and it has TWO causes that need opposite answers: the
+       entry left draft (approved in another tab, or opened from a list that
+       still called it staged), or the reader's own standing changed -- finance
+       access withdrawn, or the active company switched in another tab. The
+       line policy requires all three, so the status is read back and only a
+       confirmed non-draft is explained as one. Matched on the refusal's own
+       wording, not on 42501, which also covers "permission denied for table". */
+    async function refusalError(error) {
+      if (!/row-level security/i.test(error.message || '')) return stageError(error);
+      if (state.id) {
+        try {
+          const { data } = await db.from('journal_adjustments').select('status').eq('id', state.id).maybeSingle();
+          if (data?.status) storedStatus = data.status;
+        } catch { /* the read-back is evidence, not a second failure to report */ }
+      }
+      if (storedStatus && storedStatus !== 'draft') {
+        return new Error(`This entry is ${storedStatus}, not a draft, so its lines cannot be changed. `
+          + 'Reopen the approval under Adjustments to edit it, or post it as it stands.');
+      }
+      return new Error('The database refused this change, and the entry is still a draft — so it is your '
+        + 'access that changed: finance permission withdrawn, or another tab switched the active company. '
+        + 'Reload the page and try again. Nothing was saved.');
     }
 
     function newEntryConnection() {
@@ -538,7 +554,7 @@
       if (state.id) {
         const { error } = await db.from('journal_adjustments')
           .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', state.id);
-        if (error) throw stageError(error);
+        if (error) throw await refusalError(error);
         const { error: dErr } = await db.from('journal_adjustment_lines')
           .delete().eq('adjustment_id', state.id);
         if (dErr) throw new Error(dErr.message);
@@ -572,7 +588,7 @@
       });
 
       const { error: lErr } = await db.from('journal_adjustment_lines').insert(rows);
-      if (lErr) throw stageError(lErr);
+      if (lErr) throw await refusalError(lErr);
 
       if (onStaged) onStaged(state.id);
       return state.id;
