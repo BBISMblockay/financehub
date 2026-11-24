@@ -1193,14 +1193,14 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
   const press = MANAGE
     ? `<div class="af-row af-cust-scan">
         ${field(`Finds wanted (${bar}+ followers)`, input('custScanCount', `type="number" min="1" max="500" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
-        ${btn(running ? 'Hunting…' : 'Hunt', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}
+        ${btn(running ? 'Finding…' : 'Find', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}
         <span class="af-mono" id="custScanLine">${esc(optOutView ? 'People who unsubscribed are never looked up.' : running ? '' : huntLine(s))}</span>
       </div>`
     : `<div class="af-row af-cust-scan"><span class="af-mono" id="custScanLine">${esc(running ? '' : huntLine(s))}</span></div>`;
   // While it runs: a bar that fills, counts that tick, the last names checked.
   const live = running
     ? `<div class="af-hunt-live" id="custHuntLive" role="status" aria-live="polite">
-        <div class="af-hunt-head"><strong>Hunting your customers</strong><span class="af-mono">${s?.requested || chk ? huntLine(s) : 'Lining up customers…'}</span></div>
+        <div class="af-hunt-head"><strong>Searching your customers</strong><span class="af-mono">${s?.requested || chk ? huntLine(s) : 'Lining up customers…'}</span></div>
         <div class="af-pay-meter af-hunt-meter"><i style="width:${pct}%"></i></div>
         <div class="af-hunt-tiles">${tile(want ? `Found of ${num(want)}` : `${bar}+ followers`, num(s?.found))}${tile('Checked', num(chk))}${tile('Accounts matched', num(matched))}${tile('To check', num(toCheck))}</div>
         ${c.hunt?.recent?.length ? `<div class="af-muted af-hunt-recent">Just checked: ${c.hunt.recent.map((r) => esc(r.display_name || 'a customer')).join(' · ')}</div>` : ''}
@@ -1218,7 +1218,7 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
     { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
     { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
   ], c.rows, c.loading ? 'Loading…' : (c.huntTier === 'top'
-    ? (running ? 'Nobody over the bar yet. Finds appear here as they come back.' : 'Nobody over the bar yet. Press Hunt to check more customers.')
+    ? (running ? 'Nobody over the bar yet. Finds appear here as they come back.' : 'Nobody over the bar yet. Press Find to check more customers.')
     : 'Nobody here yet.'));
   const onPage = c.rows.filter((x) => pickable(x));
   const bulk = MANAGE && onPage.length
@@ -1344,7 +1344,7 @@ function renderCustomers() {
   // Hunt or every customer. Only once the scan tables exist; before that the
   // list is all there is.
   const views = c.scanReady
-    ? subtabs('Your customers view', [['hunt', 'Hunt'], ['all', 'All customers']], 'cust-view', c.view)
+    ? subtabs('Your customers view', [['hunt', 'Find creators'], ['all', 'All customers']], 'cust-view', c.view)
     : '';
   const hunting = c.view === 'hunt' && c.scanReady;
   if (hunting) body.innerHTML = surface('Your customers', `${views}${huntBody({ c, spec, filters, running, optOutView, socialCell, pickable })}`,
@@ -3891,7 +3891,7 @@ const A = {
     if (!c.scan || c.scan.status !== 'running') c.scan = { status: 'running', requested: 0, checked: 0, found: 0 };
     renderCustomers();
     pollScan();
-    if (c.view === 'hunt') return out?.joined ? 'A hunt is already running. Its progress is below.' : 'Hunting. Finds appear below as they come back.';
+    if (c.view === 'hunt') return out?.joined ? 'A search is already running. Its progress is below.' : 'Searching. Finds appear below as they come back.';
     return out?.joined ? 'A scan is already running. Its progress is below.' : 'Scanning. Results fill in on this list as they come back.';
   },
   'cust-view': ({ k }) => { const c = custState(); c.view = k === 'all' ? 'all' : 'hunt'; c.sel.clear(); c.page = 0; loadCustomers(true); return null; },
