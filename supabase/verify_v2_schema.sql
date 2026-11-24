@@ -762,6 +762,16 @@ select
       select 1 from information_schema.columns
       where table_schema = 'public' and table_name = 'affiliate_programs'
         and column_name = 'customer_outreach_body'
+    ) and exists (
+      -- The duplicate guard, checked structurally: a customer has no handle
+      -- and no profile URL, so affiliate_prospects_identity keys every one of
+      -- them as NULL and a unique index permits NULLs without limit. Without
+      -- this index two adds of one customer make two prospects and two
+      -- signup links, and no browser-side check can prevent it.
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_prospects_customer_identity'
+        and indexdef ilike '%unique%' and indexdef ilike '%contact_email%'
+        and indexdef ilike '%company_entity_id%' and indexdef ilike '%program_id%'
     ) then 'ok'
     else 'MISSING — run 20261124030000_affiliate_customer_outreach.sql'
   end as affiliate_customer_outreach;

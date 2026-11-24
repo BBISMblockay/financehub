@@ -60,4 +60,25 @@ comment on column public.affiliate_programs.customer_outreach_subject is
 comment on column public.affiliate_programs.customer_outreach_body is
   'Body for outreach to an existing CUSTOMER. Null means use SILO''s default. Must contain {signup_link} to be used, exactly as outreach_body must -- a message with no way to join is not a message.';
 
+-- 4 ── One prospect per customer per program, enforced by the DATABASE.
+--
+-- `affiliate_prospects_identity` cannot do this job: its key is
+-- `coalesce(nullif(btrim(profile_url),''), platform || ':' || btrim(handle))`,
+-- and a customer has neither a profile URL nor a handle until the social scan
+-- finds one -- so the expression is NULL, and a unique index permits NULLs
+-- without limit. Two adds of the same customer therefore made two prospects
+-- and two drafts, which is two signup links to one person. The browser's own
+-- duplicate check reads only the newest 500 prospects it has loaded, so it
+-- cannot be the guard either: an older customer, or a second tab, slips past
+-- it. This index is the guard; the browser's check only spares a round trip.
+--
+-- Partial on `source = 'customer'` so a creator's row is untouched, and no
+-- existing row can collide: this source did not exist until this migration.
+create unique index if not exists affiliate_prospects_customer_identity
+  on public.affiliate_prospects (company_entity_id, program_id, lower(btrim(contact_email)))
+  where source = 'customer' and btrim(coalesce(contact_email, '')) <> '';
+
+comment on index public.affiliate_prospects_customer_identity is
+  'One customer prospect per email per program. A customer has no handle or profile URL, so affiliate_prospects_identity keys them all as NULL and cannot deduplicate them.';
+
 select public.refresh_chat_schema_catalog();

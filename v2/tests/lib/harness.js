@@ -23,6 +23,10 @@
  *   gateTables       ['table'] -- every list read of those tables waits until
  *                    the page calls window.__RELEASE_TABLE__(table), so a
  *                    suite can act on the page while a read is in flight
+ *   (in page)        window.__FAIL_WRITES__ = [{ table, code, times }] makes
+ *                    the next `times` inserts into that table fail with that
+ *                    PostgREST code, so a partial failure and the retry after
+ *                    it can be tested
  *   missingColumns   { table: ['col'] } -- reads and writes naming one of
  *                    those columns fail with PostgREST's real 42703, so a
  *                    page that feature-detects an unapplied migration can be
@@ -275,6 +279,26 @@ window.__QUERIES__ = [];
         var created = Object.assign({ id: 'fixture-inserted-id' }, one);
         var mcw = missingColumn(Object.keys(one || {}).join(','));
         var wErr = mcw ? { code: '42703', message: 'column ' + table + '.' + mcw + ' does not exist' } : null;
+        // Write-failure injection. A suite sets
+        //   window.__FAIL_WRITES__ = [{ table: 't', code: '23505', times: 1 }]
+        // and each matching insert consumes one. Without it a PARTIAL failure
+        // cannot be reproduced: a page that writes two rows in sequence (a
+        // prospect and then its message) is only safe to retry if the second
+        // write failing is a state it can finish from, and that is not
+        // provable from a fixture where every write succeeds. The attempt is
+        // already recorded on __QUERIES__ above, so a suite can assert that
+        // the page tried once and only once.
+        if (!wErr) {
+          var fws = window.__FAIL_WRITES__ || [];
+          for (var fi = 0; fi < fws.length; fi++) {
+            var fw = fws[fi];
+            if (fw.table !== table) continue;
+            if (fw.times != null && fw.times <= 0) continue;
+            if (fw.times != null) fw.times -= 1;
+            wErr = { code: fw.code || '23505', message: fw.message || 'injected write failure' };
+            break;
+          }
+        }
         var ins = {
           select: function () { return ins; },
           single: function () { return Promise.resolve(wErr ? { data: null, error: wErr } : { data: created, error: null }); },

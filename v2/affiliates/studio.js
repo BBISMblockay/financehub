@@ -989,10 +989,20 @@ async function custCounts(spec) {
   };
 }
 
+// Which read owns the view. A filter change while a read is in flight must
+// NOT be dropped: dropping it leaves the old rows on screen under the new
+// filter, so customers outside the chosen segment stay tickable. And an older
+// read must not land on top of a newer one. So every read takes a ticket, a
+// newer read supersedes it, and a superseded read discards its own results
+// and leaves the view to the read that now owns it.
+let custSeq = 0;
 async function loadCustomers(force = false) {
   const c = custState();
-  if (c.loading) return;
   if (c.loaded && !force) return;
+  // The lazy first read never stacks; a filter or page change always counts.
+  if (c.loading && !force) return;
+  const seq = ++custSeq;
+  const mine = () => seq === custSeq;
   c.loading = true; c.error = ''; renderCustomers();
   const spec = customerQuerySpec(c);
   try {
@@ -1006,6 +1016,7 @@ async function loadCustomers(force = false) {
     for (const o of spec.order) q = q.order(o.column, { ascending: o.ascending, nullsFirst: false });
     const { data, error, count } = await q.range(spec.range[0], spec.range[1]);
     if (error) throw error;
+    if (!mine()) return;
     c.rows = data || [];
     c.total = count ?? null;
     {
@@ -1014,14 +1025,19 @@ async function loadCustomers(force = false) {
     }
     // The counts describe the date window, not the current filters, so the
     // "2+ orders" tile does not change when you filter TO 2+ orders.
-    c.kpi = await custCounts(spec).catch(() => null);
+    const kpi = await custCounts(spec).catch(() => null);
+    if (!mine()) return;
+    c.kpi = kpi;
     c.loaded = true;
   } catch (e) {
+    if (!mine()) return;
     c.rows = []; c.total = null; c.kpi = null; c.loaded = true;
     c.error = friendly(e);
   } finally {
-    c.loading = false;
-    renderCustomers();
+    if (mine()) {
+      c.loading = false;
+      renderCustomers();
+    }
   }
 }
 
@@ -2875,6 +2891,26 @@ function payoutPayHtml() {
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────
+// A customer prospect's own variables. The creator set would fill {source}
+// with "a search", which is a lie to somebody who has been buying from the
+// brand for years, and has no {orders_line} at all. The order facts come off
+// the prospect's evidence, which is where cust-add put them.
+const customerVars = (x) => {
+  const p = prog();
+  const owner = S.profiles.find((u) => u.id === p.owner_user_id);
+  return {
+    name: x.display_name || 'there', brand: S.brand || p.name, program: p.name,
+    orders_line: customerOrdersLine({ order_count: x.evidence?.order_count ?? null }),
+    commission: describeCommission({ kind: p.commission_kind, percent: p.commission_percent, fixed_cents: p.commission_fixed_cents, currency: p.currency }),
+    sender: owner?.name || '',
+  };
+};
+// Which template and which variables a prospect's draft is written from.
+// Source decides it, everywhere a draft is written or rewritten, so no caller
+// can pitch a customer as a stranger.
+const draftFor = (x) => (x?.source === 'customer'
+  ? { tpl: customerOutreachTemplate(prog()), vars: customerVars(x) }
+  : { tpl: outreachTemplate(prog()), vars: outreachVars(x) });
 const outreachVars = (x) => {
   const p = prog();
   const owner = S.profiles.find((u) => u.id === p.owner_user_id);
@@ -3375,11 +3411,14 @@ const A = {
   },
   // Waiting drafts re-filled from the saved template; approved ones are left alone.
   'tpl-redraft': async () => {
-    const tpl = outreachTemplate(prog());
     const drafts = S.d.drafts.filter((x) => x.state === 'draft' && S.d.prospectById[x.prospect_id]);
     let n = 0;
     for (const x of drafts) {
-      const vars = outreachVars(S.d.prospectById[x.prospect_id]);
+      // By SOURCE, not by which Redraft button was pressed: a mixed queue
+      // rewrites each draft from its own template, so redrafting after a
+      // creator-template edit cannot replace a customer's message with the
+      // creator pitch.
+      const { tpl, vars } = draftFor(S.d.prospectById[x.prospect_id]);
       try {
         const rows = await updateRows('affiliate_outreach_drafts', { subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), changed_by: me.id, updated_at: new Date().toISOString() }, { id: x.id, state: 'draft' });
         n += rows.length;
@@ -3506,38 +3545,84 @@ const A = {
     if (!p) throw new Error('Pick a program first.');
     if (!c.sel.size) return 'Tick at least one customer.';
     const sup = S.d?.suppressions || [];
-    const already = new Set((S.d?.prospects || []).map((x) => String(x.contact_email || '').toLowerCase()).filter(Boolean));
+    // The prospects this page has loaded are the NEWEST 500, so this map
+    // spares a round trip and is not the duplicate guard: a customer added
+    // longer ago, or from a second tab, is not in it. The guard is
+    // `affiliate_prospects_customer_identity`, and a row it refuses is
+    // adopted below rather than reported as a failure.
+    const pid = new Map();
+    for (const x of (S.d?.prospects || [])) {
+      const e = String(x.contact_email || '').toLowerCase();
+      if (e && x.source === 'customer' && !pid.has(e)) pid.set(e, x.id);
+    }
+    // A prospect whose draft is missing -- the second write of the pair
+    // failed last time -- must be FINISHED on a retry, not reported as
+    // already in the program. There is no transaction from the browser, so
+    // resuming is what makes the pair safe to retry.
+    const drafted = new Set((S.d?.drafts || []).map((x) => x.prospect_id));
     const picked = c.rows.filter((x) => c.sel.has(x.customer_key) && x.email_lc);
-    const tpl = customerOutreachTemplate(p);
-    const owner = S.profiles.find((u) => u.id === p.owner_user_id);
-    let added = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0;
+    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0;
     for (const x of picked) {
       if (customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
-      if (already.has(x.email_lc)) { skippedDupe += 1; continue; }
       try {
         const row = customerProspectRow({ customer: x });
-        const ins = must(await db.from('affiliate_prospects').insert({
-          ...row, company_entity_id: CO, program_id: p.id,
-          reviewed_by: me.id, reviewed_at: new Date().toISOString(), created_by: me.id, changed_by: me.id,
-        }).select('id').single());
-        const vars = {
-          name: row.display_name || 'there', brand: S.brand || p.name, program: p.name,
-          orders_line: customerOrdersLine(x),
-          commission: describeCommission({ kind: p.commission_kind, percent: p.commission_percent, fixed_cents: p.commission_fixed_cents, currency: p.currency }),
-          sender: owner?.name || '',
-        };
-        must(await db.from('affiliate_outreach_drafts').insert({
-          company_entity_id: CO, program_id: p.id, prospect_id: ins.id, channel: 'email',
-          recipient_email: x.email_lc, recipient_handle: null,
-          subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
-        }));
-        added += 1;
-        already.add(x.email_lc);
+        let id = pid.get(x.email_lc) || null;
+        let fresh = false;
+        if (!id) {
+          try {
+            id = must(await db.from('affiliate_prospects').insert({
+              ...row, company_entity_id: CO, program_id: p.id,
+              reviewed_by: me.id, reviewed_at: new Date().toISOString(), created_by: me.id, changed_by: me.id,
+            }).select('id').single()).id;
+            fresh = true;
+          } catch (e) {
+            // 23505: the identity index already holds this customer, from
+            // before the loaded window or from another tab. Adopt that row,
+            // so one person still ends up with one prospect and one draft.
+            if (e?.code !== '23505') throw e;
+            id = must(await db.from('affiliate_prospects').select('id')
+              // eq, not ilike: an underscore is a LIKE wildcard and is
+              // ordinary in an email address, so ilike could adopt somebody
+              // else's prospect row. The column holds what this tab wrote,
+              // which is already the lowercased address.
+              .eq('company_entity_id', CO).eq('program_id', p.id).eq('source', 'customer')
+              .eq('contact_email', x.email_lc).limit(1).maybeSingle())?.id || null;
+            if (!id) throw e;
+          }
+        }
+        pid.set(x.email_lc, id);
+        if (!fresh) {
+          // This customer was already a prospect. They get a message only if
+          // they have none AT ALL -- not a live one, not one already sent --
+          // so finishing an interrupted attempt can never be a second
+          // approach to somebody who has had one. The loaded drafts answer
+          // this for the common case; beyond that window, the database does.
+          const has = drafted.has(id) || (must(await db.from('affiliate_outreach_drafts').select('id')
+            .eq('company_entity_id', CO).eq('prospect_id', id).limit(1)) || []).length > 0;
+          if (has) { drafted.add(id); skippedDupe += 1; continue; }
+        }
+        const { tpl, vars } = draftFor({ ...row, id });
+        try {
+          must(await db.from('affiliate_outreach_drafts').insert({
+            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: 'email',
+            recipient_email: x.email_lc, recipient_handle: null,
+            subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
+          }));
+        } catch (e) {
+          // One live draft per prospect is the database's rule. Hitting it
+          // means the message this press would have written is already
+          // waiting, which is not a failure to report.
+          if (e?.code !== '23505') throw e;
+          drafted.add(id); skippedDupe += 1; continue;
+        }
+        drafted.add(id);
+        if (fresh) added += 1; else resumed += 1;
       } catch (_) { failed += 1; }
     }
     c.sel.clear();
     loadCustomers(true);
     const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created`];
+    if (resumed) bits.push(`${num(resumed)} message${resumed === 1 ? '' : 's'} finished from an earlier attempt`);
     if (skippedDupe) bits.push(`${num(skippedDupe)} already in the program`);
     if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
     if (failed) bits.push(`${num(failed)} could not be added`);
@@ -3707,7 +3792,9 @@ const A = {
     return 'Marked contacted.';
   },
   'draft-create': async ({ id }) => {
-    const x = S.d.prospectById[id]; const vars = outreachVars(x); const tpl = outreachTemplate(prog());
+    // A customer prospect appears on the creators list too, so this path
+    // picks its template by source as well.
+    const x = S.d.prospectById[id]; const { tpl, vars } = draftFor(x);
     must(await db.from('affiliate_outreach_drafts').insert({
       company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),

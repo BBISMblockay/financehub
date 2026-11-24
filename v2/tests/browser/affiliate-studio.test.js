@@ -167,9 +167,26 @@ const MUTATIONS = {
   custsuppick: ['/affiliates/studio.js',
     "  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);",
     '  const pickable = (x) => MANAGE && !!x.email_lc;'],
+  // Source is what picks the template, on every path that writes a draft.
   custcreatorpitch: ['/affiliates/studio.js',
-    '    const tpl = customerOutreachTemplate(p);',
-    '    const tpl = outreachTemplate(p);'],
+    "const draftFor = (x) => (x?.source === 'customer'",
+    'const draftFor = (x) => (false'],
+  // Redrafting a mixed queue must read each draft's own source.
+  custmixedredraft: ['/affiliates/studio.js',
+    '      const { tpl, vars } = draftFor(S.d.prospectById[x.prospect_id]);',
+    '      const { tpl, vars } = { tpl: outreachTemplate(prog()), vars: outreachVars(S.d.prospectById[x.prospect_id]) };'],
+  // A read that has been superseded must not land on the newer one's view.
+  custstale: ['/affiliates/studio.js',
+    "    if (!mine()) return;\n    c.rows = data || [];",
+    '    c.rows = data || [];'],
+  // The database's duplicate refusal is adopted, not reported as a failure.
+  custdupeadopt: ['/affiliates/studio.js',
+    "            if (e?.code !== '23505') throw e;\n            id = must(await db.from('affiliate_prospects').select('id')",
+    "            throw e;\n            id = must(await db.from('affiliate_prospects').select('id')"],
+  // A prospect whose message never landed is finished on a retry.
+  custnoresume: ['/affiliates/studio.js',
+    "          const has = drafted.has(id) || (must(await db.from('affiliate_outreach_drafts').select('id')",
+    "          const has = true || (must(await db.from('affiliate_outreach_drafts').select('id')"],
   chipwipe: ['/affiliates/studio.js', "    if (k === S.commsTab) return null;\n"
     + "    if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };\n"
     + "    if ($('custTplBody')) S.custTplDraft = { subject: val('custTplSubject'), body: $('custTplBody').value };\n"
@@ -204,7 +221,7 @@ const MUTATIONS = {
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
-  sillodraft: ['/affiliates/studio.js', 'const tpl = outreachTemplate(prog());', 'const tpl = outreachTemplate({});'],
+  sillodraft: ['/affiliates/studio.js', ': { tpl: outreachTemplate(prog()), vars: outreachVars(x) });', ': { tpl: outreachTemplate({}), vars: outreachVars(x) });'],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   resumenomake: ['/affiliates/studio.js', "    return waiting?.length ? `Affiliate active. ${await makeInShopify(waiting.map((r) => r.id))}` : 'Affiliate active.';", "    return 'Affiliate active.';"],
@@ -3026,6 +3043,151 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.has(String(draft?.body || ''), '9 times', 'and leans on them already being a customer');
       R.ok('the creator pitch is not reused on a customer', !/through a search|found your/i.test(String(draft?.body || '')));
       await cu.close();
+    }
+
+    // ── Your Customers: the four ways Add to outreach can go wrong ────────
+    // All four come from the same fact: there are TWO writes per customer and
+    // a browser has no transaction, so every one of these is about what the
+    // page does when the database, another tab, or the clock interferes.
+    {
+      const CUST1 = [{ customer_key: 'loyal@buyer.invalid', company_entity_id: CO, name_lc: 'lou loyal', email_lc: 'loyal@buyer.invalid', order_count: 9, lifetime_spend: '1811.40', first_order_at: '2025-02-02T00:00:00Z', last_order_at: '2026-11-01T00:00:00Z', email_consent_state: 'subscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
+        { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null }];
+      const base = { ...tables, company_customer_profiles: CUST1, affiliate_suppressions: [],
+        affiliate_programs: [{ ...tables.affiliate_programs[0], customer_outreach_subject: null, customer_outreach_body: null }] };
+      const openCust = async (fx) => {
+        const pg = await suite.open('/v2/affiliates/index.html', fx, { ready, rpc: { can_manage_affiliate_programs: true } });
+        pg.on('pageerror', (e) => errors.push(`customer-writes: ${e.message}`));
+        return pg;
+      };
+      const showList = async (pg) => {
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+      };
+      const press = async (pg, key) => {
+        await pg.click(`#customersBody [data-act="cust-pick"][data-k="${key}"]`);
+        await pg.waitForSelector('#customersBody [data-act="cust-add"]', { timeout: 5000 });
+        await pg.click('#customersBody [data-act="cust-add"]');
+        await pg.waitForFunction(() => /draft|added|could not/i.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        return text(pg, '#status');
+      };
+      const inserts = (pg, table) => pg.evaluate((t) => window.__QUERIES__.filter((x) => x.table === t && x._op === 'insert')
+        .map((x) => (Array.isArray(x.rows) ? x.rows[0] : x.rows)), table);
+
+      // 1 ── The same customer added twice, from two tabs. This tab loaded
+      // before the other one wrote, so its own list cannot know -- the
+      // database's identity index is what refuses the second prospect, and
+      // the press has to ADOPT that row rather than report a failure, or one
+      // person ends up with two prospects and two signup links.
+      {
+        const pg = await openCust(base);
+        await showList(pg);
+        await pg.evaluate(([co, prg]) => {
+          window.__FIXTURE_TABLES__.affiliate_prospects.push({ id: 'p-other-tab', company_entity_id: co, program_id: prg, display_name: 'Lou Loyal', platform: 'other', handle: null, profile_url: null, contact_email: 'loyal@buyer.invalid', source: 'customer', status: 'approved', collected_at: new Date().toISOString(), evidence: { order_count: 9 } });
+          window.__FAIL_WRITES__ = [{ table: 'affiliate_prospects', code: '23505', times: 1 }];
+        }, [CO, PROG]);
+        const st = await press(pg, 'loyal@buyer.invalid');
+        const tried = await inserts(pg, 'affiliate_prospects');
+        R.eq(tried.length, 1, 'the duplicate prospect is attempted once, not retried into existence');
+        const dr = await inserts(pg, 'affiliate_outreach_drafts');
+        R.eq(dr.length, 1, 'and the customer still gets exactly one message');
+        R.eq(dr[0]?.prospect_id, 'p-other-tab', 'written against the prospect that already existed, not a second one');
+        R.ok('the press does not report a failure for a duplicate it resolved', !/could not be added/.test(st));
+        await pg.close();
+      }
+
+      // 2 ── The prospect lands and the message does not. The pair is not
+      // atomic from a browser, so a retry has to FINISH it: reporting
+      // "already in the program" would leave an approved customer prospect
+      // that nobody will ever be messaged from.
+      {
+        const pg = await openCust(base);
+        await showList(pg);
+        await pg.evaluate(() => { window.__FAIL_WRITES__ = [{ table: 'affiliate_outreach_drafts', code: 'XX000', times: 1 }]; });
+        const first = await press(pg, 'loyal@buyer.invalid');
+        R.has(first, 'could not be added', 'a draft that fails is reported, not counted as created');
+        const madeP = (await inserts(pg, 'affiliate_prospects'))[0];
+        R.eq(madeP?.contact_email, 'loyal@buyer.invalid', 'the prospect was written before the failure');
+
+        await pg.close();
+
+        // The retry, from the state that press left behind: the customer is
+        // an approved prospect and has no message. This is a fresh page
+        // because that is how it is really met -- the operator comes back.
+        const half = { ...base, affiliate_prospects: [...tables.affiliate_prospects,
+          { id: 'p-half-done', company_entity_id: CO, program_id: PROG, display_name: 'Lou Loyal', platform: 'other', handle: null, profile_url: null, contact_email: 'loyal@buyer.invalid', source: 'customer', status: 'approved', collected_at: now, evidence: { order_count: 9 } }],
+          affiliate_outreach_drafts: [] };
+        const pg2 = await openCust(half);
+        await showList(pg2);
+        const second = await press(pg2, 'loyal@buyer.invalid');
+        R.has(second, 'finished from an earlier attempt', 'the retry says it completed the interrupted one');
+        const dr = await inserts(pg2, 'affiliate_outreach_drafts');
+        R.eq(dr.length, 1, 'the retry writes the missing message');
+        R.eq(dr[0]?.prospect_id, 'p-half-done', 'against the prospect that was already there');
+        R.eq((await inserts(pg2, 'affiliate_prospects')).length, 0,
+          'and makes no second prospect for the same person');
+        await pg2.close();
+      }
+
+      // 3 ── A filter changed while the read was in flight. Dropping that
+      // change leaves the OLD rows under the NEW filter, so a customer
+      // outside the chosen segment stays tickable -- a message to somebody
+      // the operator had just filtered out.
+      {
+        const pg = await suite.open('/v2/affiliates/index.html', base,
+          { ready, rpc: { can_manage_affiliate_programs: true }, gateTables: ['company_customer_profiles'] });
+        pg.on('pageerror', (e) => errors.push(`customer-stale: ${e.message}`));
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles' && !q.head), null, { timeout: 5000 });
+        await pg.selectOption('#custConsent', 'subscribed');
+        // The filter's own read is issued (and still gated) before anything
+        // is released: that is the in-flight overlap being tested.
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles'
+          && (q.filters || []).some((f) => f.col === 'email_consent_state' && f.op === 'eq' && f.val === 'subscribed')), null, { timeout: 5000 });
+        await pg.evaluate(() => window.__RELEASE_TABLE__('company_customer_profiles'));
+        await pg.waitForFunction(() => {
+          const el = document.getElementById('customersBody');
+          return !!el && /Lou Loyal/.test(el.textContent || '') && !/Loading|…/.test(el.textContent || '');
+        }, null, { timeout: 5000 });
+        const shown = await text(pg, '#customersBody');
+        R.ok('the subscribed filter is what is on screen once both reads land', !/Quin Quiet/.test(shown));
+        const picks = await pg.evaluate(() => [...document.querySelectorAll('#customersBody [data-act="cust-pick"]')].map((el) => el.dataset.k));
+        R.eq(picks, ['loyal@buyer.invalid'], 'and nobody outside the chosen segment is tickable');
+        await pg.close();
+      }
+
+      // 4 ── A mixed queue redrafted from the creator template. Source
+      // decides the template, so editing the creator pitch and pressing
+      // Redraft cannot overwrite a customer's message with "we found your
+      // channel through a search".
+      {
+        const mixed = { ...base,
+          // The Template chip is offered only once the creator template's
+          // columns exist, so the program row carries them.
+          affiliate_programs: [{ ...base.affiliate_programs[0], outreach_subject: null, outreach_body: null }],
+          affiliate_prospects: [
+            tables.affiliate_prospects[0],
+            { id: 'p-cust', company_entity_id: CO, program_id: PROG, display_name: 'Lou Loyal', platform: 'other', handle: null, profile_url: null, contact_email: 'loyal@buyer.invalid', source: 'customer', status: 'approved', collected_at: now, evidence: { order_count: 9, found_via: 'your own customers' } },
+          ],
+          affiliate_outreach_drafts: [
+            { id: 'd-creator', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', state: 'draft', channel: 'dm', recipient_handle: '@samruns', subject: 'Hi', body: 'old creator text', created_at: now },
+            { id: 'd-cust', company_entity_id: CO, program_id: PROG, prospect_id: 'p-cust', state: 'draft', channel: 'email', recipient_email: 'loyal@buyer.invalid', subject: 'Hi', body: 'old customer text', created_at: now },
+          ] };
+        const pg = await openCust(mixed);
+        await tab(pg, 'comms');
+        await pg.waitForFunction(() => !!document.getElementById('outreachBody')?.innerHTML.trim(), null, { timeout: 5000 });
+        await commsChip(pg, 'template');
+        await pg.click('[data-act="tpl-redraft"]');
+        await pg.click('[data-act="tpl-redraft"]');   // the confirm
+        await pg.waitForFunction(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update').length >= 2, null, { timeout: 5000 });
+        const ups = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'update')
+          .map((q) => ({ id: (q.filters || []).find((f) => f.col === 'id')?.val, body: String(q.patch?.body || '') })));
+        const cust = ups.find((u) => u.id === 'd-cust');
+        const creator = ups.find((u) => u.id === 'd-creator');
+        R.ok('a customer in the queue is redrafted from the CUSTOMER template', !!cust && /9 times/.test(cust.body));
+        R.ok('and is never told their channel was found in a search', !!cust && !/through a search|found your/i.test(cust.body));
+        R.ok('while the creator in the same queue still gets the creator pitch', !!creator && /through a search|found your/i.test(creator.body));
+        await pg.close();
+      }
     }
 
     R.eq(errors, [], 'no page errors on any affiliate page');

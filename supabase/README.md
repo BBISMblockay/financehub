@@ -4207,7 +4207,7 @@ report of its own, and picking somebody there puts them into the outreach flow D
 where they lead from discovery or customer routes". So this migration adds no pipeline and no new table; it only
 makes room for a customer in the one that exists.
 
-Three changes. `affiliate_prospects.source` accepts `'customer'`, so where they came from is recorded rather than
+Four changes. `affiliate_prospects.source` accepts `'customer'`, so where they came from is recorded rather than
 disguised as a search hit (the queues, the counts and the badge all read `source` already).
 `affiliate_prospects_identifiable` accepts a `contact_email` as a third way to be identifiable: it demanded a
 profile URL or a handle, which is right for a creator found on the web and impossible for somebody who has only
@@ -4217,6 +4217,19 @@ identifier than either. Without this the tab's **Add to outreach** would fail on
 saying SILO found their channel in a search, which read by a four-year customer is worse than no message, so
 customers get their own per-brand template with the same `{token}` filling and SILO's own default when a program
 has not written one. `{orders_line}` is empty when the order count is unknown rather than guessing.
+
+The fourth change is the duplicate guard, and it is a correction from review on #1362.
+`affiliate_prospects_identity` cannot do this job: its key is
+`coalesce(nullif(btrim(profile_url),''), platform || ':' || btrim(handle))`, and a customer has neither until the
+social scan finds one, so the expression is NULL and a unique index permits NULLs without limit. Two adds of the
+same customer therefore made two prospects and two drafts, which is two signup links to one person. The browser
+cannot be the guard either: the page's duplicate check reads only the newest 500 prospects it loaded, so an older
+customer or a second tab slips past it. `affiliate_prospects_customer_identity` is a unique index on
+`(company_entity_id, program_id, lower(btrim(contact_email)))`, partial on `source = 'customer'` so a creator's
+row is untouched and no existing row can collide — the source did not exist before this migration. The page now
+treats its refusal (23505) as a row to ADOPT: the press finishes the message against the prospect that already
+exists, so one person still ends up with one prospect and one draft. `verify_v2_schema.sql` block 8c asserts the
+index structurally.
 
 Do-not-contact is deliberately NOT re-implemented here. Blake asked for suppressed customers to be skipped, and
 the database already makes that absolute (`affiliate_outreach_can_contact()` and the trigger that refuses to
