@@ -2342,13 +2342,137 @@
     return `${base} SILO has not posted ${names} — ${periods.length === 1 ? 'it is' : 'they are'} still a draft here.`;
   }
 
+
+  /* A card paydown and the bank payment that made it are the same money, and
+     only one side may reach the books: approval refuses a card paying a card
+     ("the bank feed owns card payments"), so the BANK row is the one that
+     posts. A categorized card row therefore records the paydown a second time
+     against the clearing or card account -- the doubling this section exists to
+     stop. Matching names the bank row and excludes this one: the same outcome
+     as a hand exclusion, with the evidence attached.
+
+     It READS the bank row and never writes it. That is what makes the common
+     case work: the paying account is usually days ahead of the card review, so
+     its row is often already coded, approved or posted, and anything that had
+     to change it could not settle this side at all. */
+  const paydownCandidate = (t) => batchSource()?.source_type === 'card' && Number(t.amount) < 0;
+  const matchCache = new Map();   // card transaction id -> match row, or null for "none"
+  const matchLoading = new Set();
+  let matchSearch = null;         // { id, days, rows, busy, error }
+  const matchFor = (t) => (matchCache.has(t.id) ? matchCache.get(t.id) : undefined);
+
+  /* Read for every paydown on screen, not only the one open: the bulk actions
+     and the row list must know a matched row before anybody clicks it. */
+  function ensureMatches(rows) {
+    const want = (rows || []).filter((t) => paydownCandidate(t) && !matchCache.has(t.id) && !matchLoading.has(t.id))
+      .map((t) => t.id);
+    if (!want.length) return;
+    for (const id of want) matchLoading.add(id);
+    sb.from('card_payment_matches').select('card_transaction_id,bank_transaction_id,note,matched_at')
+      .in('card_transaction_id', want.slice(0, 200))
+      .then(({ data, error }) => {
+        for (const id of want) matchLoading.delete(id);
+        // A failed read stays unknown rather than claiming there is no match.
+        if (error) return;
+        const byId = new Map((data || []).map((m) => [m.card_transaction_id, m]));
+        for (const id of want.slice(0, 200)) matchCache.set(id, byId.get(id) || null);
+        if (expandedTransaction && byId.size >= 0) renderTxnDetailDrawer();
+      }, () => { for (const id of want) matchLoading.delete(id); });
+  }
+
+  const matchStateLine = (r) => ({ draft: 'Not approved yet', categorized: 'Not approved yet',
+    approved: 'Approved', posted: 'In QuickBooks' }[r.batch_status] || r.batch_status || '');
+
+  function paymentMatchSection(t) {
+    if (!paydownCandidate(t)) return '';
+    const head = '<section><h3>Card paydown</h3><p class="cc-note">The bank account that paid this card is what posts this payment. Match it here and this row stays out of the entry, so the paydown is recorded once.</p>';
+    const m = matchFor(t);
+    if (m === undefined) return `${head}<p class="cc-note">Checking for a match…</p></section>`;
+    if (m) {
+      return `${head}<p class="txn-qbo-state"><b>Matched</b> ${esc(m.note || 'Matched to a bank payment')}</p>`
+        + `<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-unlink-match>Unmatch</button></div></section>`;
+    }
+    const search = matchSearch && matchSearch.id === t.id ? matchSearch : null;
+    let body = '';
+    if (search?.busy) body = '<p class="cc-note">Looking for a matching bank payment…</p>';
+    else if (search?.error) body = `<p class="cc-note">${esc(search.error)}</p>`;
+    else if (search && !search.rows.length) {
+      body = `<p class="cc-note">No unmatched bank payment of ${esc(money(Math.abs(Number(t.amount))))} within ${search.days} days of ${esc(t.txn_date || 'this date')}.</p>`
+        + (search.days < 30 ? '<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-find-match="30">Search ±30 days</button></div>' : '');
+    } else if (search) {
+      body = `<table class="bcn-table"><thead><tr><th>Date</th><th>Account</th><th class="bcn-num">Amount</th><th>State</th><th></th></tr></thead><tbody>`
+        + search.rows.map((r) => `<tr><td class="bcn-mono">${esc(r.txn_date || '')}</td>`
+          + `<td>${esc(r.source_name || '')}<div class="cc-note">${esc(r.description || '')}</div></td>`
+          + `<td class="bcn-num">${esc(money(Math.abs(Number(r.amount))))}</td>`
+          + `<td>${esc(matchStateLine(r))}${r.day_gap ? `<div class="cc-note">${r.day_gap} day${r.day_gap === 1 ? '' : 's'} apart</div>` : ''}</td>`
+          + `<td><button class="bcn-btn bcn-btn--primary" type="button" data-link-match="${esc(r.transaction_id)}">Match</button></td></tr>`).join('')
+        + '</tbody></table>';
+    }
+    return `${head}<div class="txn-detail-actions"><button class="bcn-btn" type="button" data-find-match="7"${search?.busy ? ' disabled' : ''}>Find matching bank payment</button></div>${body}</section>`;
+  }
+
+  async function onPaymentMatchClick(e) {
+    const find = e.target.closest('[data-find-match]');
+    const link = e.target.closest('[data-link-match]');
+    const unlink = e.target.closest('[data-unlink-match]');
+    if (!find && !link && !unlink) return;
+    e.stopImmediatePropagation();
+    const panel = e.target.closest('[data-txn]');
+    const t = panel && workingRows().find((x) => x.id === panel.dataset.txn);
+    if (!t) return;
+
+    if (find) {
+      const days = Number(find.dataset.findMatch) || 7;
+      matchSearch = { id: t.id, days, rows: [], busy: true, error: '' };
+      renderTxnDetailDrawer();
+      const { data, error } = await sb.rpc('card_payment_match_candidates', { p_transaction_id: t.id, p_days: days });
+      if (!matchSearch || matchSearch.id !== t.id) return;   // the reader moved on
+      matchSearch = { id: t.id, days, rows: data || [], busy: false,
+        error: error ? `Could not look for a match — ${error.message}` : '' };
+      renderTxnDetailDrawer();
+      return;
+    }
+
+    if (!requireEditable() || !rowEditable(t)) return;
+    if (state.dirty.has(t.id)) return setStatus('Save or discard your edits on this row before matching it.', 'neg', 6000);
+
+    const applied = (status, reason) => {
+      t.status = status;
+      t.exclude_reason = reason || null;
+      state.dirty.delete(t.id);
+      if (dateBrowse && state.batch) {
+        state.txns = state.txns.map((x) => (x.id === t.id ? { ...x, status, exclude_reason: reason || null } : x));
+      }
+      matchSearch = null;
+      renderCoding();
+      renderEntry();
+    };
+
+    if (link) {
+      const { data, error } = await sb.rpc('link_card_payment_match',
+        { p_card_transaction_id: t.id, p_bank_transaction_id: link.dataset.linkMatch });
+      if (error) return setStatus(`Could not match it — ${error.message}`, 'neg', 12000);
+      matchCache.set(t.id, { card_transaction_id: t.id, bank_transaction_id: data?.bank_transaction_id,
+        note: data?.exclude_reason, matched_at: new Date().toISOString() });
+      applied('excluded', data?.exclude_reason || 'Matched to the bank payment');
+      setStatus('Matched to the bank payment. This row is out of the entry, so the paydown is recorded once.', 'pos', 8000);
+      return;
+    }
+
+    const { data, error } = await sb.rpc('unlink_card_payment_match', { p_card_transaction_id: t.id });
+    if (error) return setStatus(`Could not undo the match — ${error.message}`, 'neg', 12000);
+    matchCache.set(t.id, null);
+    applied(data?.status || 'uncoded', data?.exclude_reason || null);
+    setStatus('Match removed. This row is back in the import — code it or exclude it.', 'info', 8000);
+  }
+
   function transactionDetailInner(t) {
     const suggestion = liveSuggestion(t);
     const suggestedCategory = suggestion?.kind === 'ready' && resolveSuggestedAccount(t, suggestion);
     const importCount = dateBrowse ? reviewDateRows().length : (state.txns?.length || 0);
     const journalLabel = dateBrowse ? 'Review import journal' : `Review full import journal (${importCount} rows)`;
     return `<section class="txn-explanation"><h3>${suggestedCategory ? 'Suggested category' : 'Review details'}</h3>${suggestionCell(t) || confidenceChip(t)}<p class="txn-detail-description">${t.origin === 'plaid' && !bank.isAvailable(t) ? esc(providerNote(t)) + ' · ' : ''}${esc(t.description)}</p><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-raw>Source details</button><button class="bcn-btn" type="button" data-journal title="Opens the Journal entry preview for this entire import — every row in the batch, not just this transaction">${esc(journalLabel)}</button><button class="bcn-btn" type="button" data-merch title="Find transactions from this merchant">${esc(merchantKey(t))}</button></div></section>
-        <section><h3>Accounting details</h3>${(line => line ? `<p class="txn-qbo-state"><b>QuickBooks</b> ${esc(line)}</p>` : '')(quickbooksStateLine(t))}${isBankFeedRow(t) ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${reclassSection(t)}`;
+        <section><h3>Accounting details</h3>${(line => line ? `<p class="txn-qbo-state"><b>QuickBooks</b> ${esc(line)}</p>` : '')(quickbooksStateLine(t))}${isBankFeedRow(t) ? `<label class="txn-treatment-detail">Transaction type <select class="bcn-field" data-field="treatment" ${!rowEditable(t) ? 'disabled' : ''}>${treatmentOptions(t.accounting_treatment || 'unknown')}</select></label>${(g => g ? `<p class="cc-note">${esc(g.reason)}.${g.choices.length ? ' Approval accepts: ' + esc(g.choices.map(c => TREATMENTS[c]).join(', ')) + '.' : ''}</p>` : '')(treatmentGapFor(t))}` : ''}<table class="txn-dimensions"><tbody><tr><th>Location</th><td data-cell="location">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : cellButton(t.qbo_location_name, 'location')}</td></tr><tr><th>Entity</th><td data-cell="entity">${isSplit(t) ? '<span class="cc-note">set per split line</span>' : entityCell(t)}</td></tr></tbody></table><div class="txn-detail-actions"><button class="bcn-btn" type="button" data-toggle-exclude>${t.status === 'excluded' ? 'Include transaction' : 'Exclude transaction'}</button><button class="bcn-btn" type="button" data-split title="Code this transaction across several accounts">${isSplit(t) ? 'Edit split' : 'Split across accounts'}</button></div></section>${paymentMatchSection(t)}${reclassSection(t)}`;
   }
 
   function renderTxnDetailDrawer() {
@@ -2368,6 +2492,7 @@
     drawer.hidden = false;
     el('txnDetailTitle').textContent = t.description || 'Transaction';
     el('txnDetailSub').textContent = `${t.txn_date || '—'} · ${money(Math.abs(Number(t.amount)))} · ${accountingStateLine(t)}`;
+    ensureMatches([t]);
     el('txnDetailBody').innerHTML = `<div class="txn-detail-panel" data-txn="${esc(t.id)}">${transactionDetailInner(t)}</div>`;
     for (const control of el('txnDetailBody').querySelectorAll('[data-edit], [data-toggle-exclude], [data-accept-suggestion], [data-dismiss-suggestion], [data-retry-suggestion], select')) {
       if (!rowEditable(t)) control.disabled = true;
@@ -2481,6 +2606,7 @@
     el('codeActionBar').hidden=(!dateBrowse && !state.batch) || (!state.selected.size && !state.dirty.size);
   }
   function renderCoding() {
+    ensureMatches(workingRows());
     renderSaveBar();
     for(const id of ['dateStart','dateEnd'])el(id).disabled=state.codingBusy || !!state.dirty.size;
 
@@ -3311,7 +3437,14 @@
 
   el('btnBulkInclude').addEventListener('click', () => {
     if (!requireEditable()) return;
-    for (const t of selectedTxns()) {
+    // A row matched to a bank payment is excluded because that payment posts
+    // it. Bulk include leaves those alone and says so, rather than quietly
+    // putting the paydown back into the entry a second time.
+    const matched = selectedTxns().filter((t) => matchFor(t));
+    if (matched.length) {
+      setStatus(`${matched.length} selected row${matched.length === 1 ? ' is' : 's are'} matched to a bank payment and stay excluded. Unmatch ${matched.length === 1 ? 'it' : 'them'} in Card paydown to include ${matched.length === 1 ? 'it' : 'them'}.`, 'info', 9000);
+    }
+    for (const t of selectedTxns().filter((t) => !matchFor(t))) {
       t.status = t.qbo_account_id ? 'coded' : 'uncoded';
       t.exclude_reason = null;
       state.dirty.add(t.id);
@@ -3478,6 +3611,9 @@
     const t = workingRows().find((x) => x.id === tr.dataset.txn);
     if (!t) return;
     if (t.status === 'excluded') {
+      // A matched row is excluded BECAUSE of the bank payment it is paired
+      // with. Including it by hand would leave the pairing claiming otherwise.
+      if (matchFor(t)) return setStatus('This row is matched to a bank payment. Use Unmatch in Card paydown to bring it back.', 'neg', 8000);
       // A split row has no qbo_account_id of its own and is still coded.
       t.status = (t.qbo_account_id || isSplit(t)) ? 'coded' : 'uncoded';
       t.exclude_reason = null;
@@ -3492,6 +3628,7 @@
     renderEntry();
   }
   el('tblCoding').addEventListener('click', onTxnTableClick);
+  el('txnDetailBody').addEventListener('click', onPaymentMatchClick);
   el('txnDetailBody').addEventListener('click', onTxnTableClick);
 
   // Shows the ORIGINAL row alongside what SILO derived from it, so a value
