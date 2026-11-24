@@ -718,6 +718,150 @@ select
     else 'MISSING — run 20260723150000_shopify_draft_orders.sql'
   end as shopify_draft_orders;
 
+-- 8b. shopify_customers + marketing consent (migration 20261124020000)
+select
+  case
+    when exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public' and table_name = 'shopify_customers'
+    ) and exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'shopify_customers'
+        and policyname = 'shopify_customers_active_select'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'company_customer_profiles'
+        and column_name = 'email_consent_state'
+    ) and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'refresh_company_customer_consent'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'sync_jobs_job_type_check'
+        and pg_get_constraintdef(oid) ilike '%customers_sync%'
+    ) then 'ok'
+    else 'MISSING — run 20261124020000_shopify_customer_marketing_consent.sql'
+  end as shopify_customers_consent;
+
+-- 8c. Recruiting an existing customer (migration 20261124030000). The
+-- identifiable constraint is checked for the EMAIL branch specifically: a
+-- customer has no channel yet, so without it their prospect row cannot be
+-- inserted at all and the Your Customers tab's Add to outreach fails on every
+-- press.
+select
+  case
+    when exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_prospects_source_check'
+        and pg_get_constraintdef(oid) ilike '%customer%'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_prospects_identifiable'
+        and pg_get_constraintdef(oid) ilike '%contact_email%'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_programs'
+        and column_name = 'customer_outreach_body'
+    ) and exists (
+      -- The duplicate guard, checked structurally: a customer has no handle
+      -- and no profile URL, so affiliate_prospects_identity keys every one of
+      -- them as NULL and a unique index permits NULLs without limit. Without
+      -- this index two adds of one customer make two prospects and two
+      -- signup links, and no browser-side check can prevent it.
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_prospects_customer_identity'
+        and indexdef ilike '%unique%' and indexdef ilike '%contact_email%'
+        and indexdef ilike '%company_entity_id%' and indexdef ilike '%program_id%'
+    ) then 'ok'
+    else 'MISSING — run 20261124030000_affiliate_customer_outreach.sql'
+  end as affiliate_customer_outreach;
+
+-- 8d. Your Customers "Find their social accounts" (migration 20261124170000).
+-- Checked structurally: the one-running-scan index (without it two presses
+-- pay twice), the per-program customer key (without it a customer is searched
+-- and paid for again on every press), and that browsers cannot read spend.
+select
+  case
+    when exists (
+      select 1 from pg_indexes
+      -- Per company since 20261124210000 (8f checks which); per program before.
+      where schemaname = 'public' and indexname in ('affiliate_customer_scans_one_running', 'affiliate_customer_scans_one_running_company')
+        and indexdef ilike '%unique%' and indexdef ilike '%running%'
+    ) and exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and (pg_get_constraintdef(oid) ilike '%company_entity_id, program_id, customer_key%'
+          or pg_get_constraintdef(oid) ilike 'UNIQUE (company_entity_id, customer_key)')
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'customer_scan_min_followers'
+    ) and exists (
+      -- Browsers read progress, never spend, and write nothing. A CASE so the
+      -- privilege checks run only once both tables exist.
+      select 1 from pg_class c
+      where c.oid = to_regclass('public.affiliate_customer_scans') and c.relrowsecurity
+        and (select relrowsecurity from pg_class where oid = to_regclass('public.affiliate_customer_social'))
+        and case when to_regclass('public.affiliate_customer_social') is null then false
+          else not has_column_privilege('authenticated', 'public.affiliate_customer_scans', 'cost_usd', 'select')
+           and not has_table_privilege('authenticated', 'public.affiliate_customer_social', 'insert') end
+    ) then 'ok'
+    else 'MISSING — run 20261124170000_affiliate_customer_social_scan.sql'
+  end as affiliate_customer_social_scan;
+
+-- 8e. Social finds you can trust (migration 20261124190000): the reason a
+-- profile is believed to be the customer, "Not them" as a status, and the one
+-- function a browser may call to set it -- never by anon.
+select
+  case
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_customer_social' and column_name = 'match_basis'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_customer_social_status_check' and pg_get_constraintdef(oid) ilike '%rejected%'
+    ) and to_regprocedure('public.affiliate_customer_social_reject(uuid)') is not null
+      and case when to_regprocedure('public.affiliate_customer_social_reject(uuid)') is null then false
+        else not has_function_privilege('anon', 'public.affiliate_customer_social_reject(uuid)', 'execute') end
+    then 'ok'
+    else 'MISSING — run 20261124190000_affiliate_customer_social_trust.sql'
+  end as affiliate_customer_social_trust;
+
+-- 8f. The customer scan is the COMPANY's (migration 20261124210000): one
+-- answer per customer per company, one running scan per company, program_id
+-- not a key and nullable, a deleted program keeps the results (SET NULL, not
+-- CASCADE), and reads scoped by company with no program-visibility check.
+select
+  case
+    when exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and pg_get_constraintdef(oid) ilike 'UNIQUE (company_entity_id, customer_key)'
+    ) and not exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and pg_get_constraintdef(oid) ilike '%program_id%'
+    ) and exists (
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running_company'
+        and indexdef ilike '%unique%' and indexdef not ilike '%program_id%'
+    ) and not exists (
+      select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running'
+    ) and not exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name in ('affiliate_customer_social', 'affiliate_customer_scans')
+        and column_name = 'program_id' and is_nullable = 'NO'
+    ) and not exists (
+      select 1 from pg_constraint
+      where conrelid in (to_regclass('public.affiliate_customer_social'), to_regclass('public.affiliate_customer_scans'))
+        and contype = 'f' and confrelid = to_regclass('public.affiliate_programs') and confdeltype <> 'n'
+    ) and not exists (
+      select 1 from pg_policy
+      where polrelid in (to_regclass('public.affiliate_customer_social'), to_regclass('public.affiliate_customer_scans'))
+        and pg_get_expr(polqual, polrelid) ilike '%affiliate_visible_program%'
+    ) then 'ok'
+    else 'MISSING — run 20261124210000_affiliate_customer_social_company.sql'
+  end as affiliate_customer_social_company;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,
@@ -6945,6 +7089,25 @@ select signature as plaid_rpc,
     else 'ok' end as status
 from expected left join pg_proc p on p.oid=to_regprocedure(signature);
 
+-- Several Plaid feeds may share one QuickBooks balancing account (two cards,
+-- one account in the chart of accounts). What must stay refused is the SAME
+-- card mapped twice, which configure_plaid_account judges with
+-- plaid_duplicate_card_feed -- the card_sources trigger cannot, because it
+-- fires before plaid_accounts.source_id is set.
+select 'public.plaid_duplicate_card_feed' as plaid_duplicate_card_guard,
+  case when to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)') is null
+      then 'MISSING — duplicate card feed guard'
+    when has_function_privilege('anon',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      or has_function_privilege('authenticated',to_regprocedure('public.plaid_duplicate_card_feed(uuid,uuid,text)'),'EXECUTE')
+      then 'CRITICAL — duplicate card feed guard is client-callable'
+    when position('plaid_duplicate_card_feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.configure_plaid_account(uuid,uuid,text,date,uuid)')),''))=0
+      then 'BROKEN — configure_plaid_account no longer checks for a duplicate card'
+    when position('already has an authoritative Plaid feed' in
+      coalesce(pg_get_functiondef(to_regprocedure('public.plaid_guard_source_authority()')),''))>0
+      then 'BROKEN — one feed per QuickBooks account is back in the source trigger'
+    else 'ok' end as status;
+
 with expected(relation,trigger_name) as (values
   ('public.card_sources','plaid_source_authority'),
   ('public.card_transactions','plaid_transaction_integrity'),
@@ -7683,6 +7846,16 @@ select 'Scheduled report CSV email' as check_name,
           where n.nspname = 'public' and p.proname = 'resolve_report_email_recipients'
           limit 1) not like '%v_kind = ''email''%'
       then 'MISSING — resolve_report_email_recipients() has no ''email'' branch; run 20261014060000_report_email_external_recipients.sql, or outside recipients are silently dropped'
+    -- 20261120040000 completes the 4x2 cadence matrix, which is what lets the
+    -- schedule panel offer "how often" and "what time" as two controls. Without
+    -- it the panel's 6:00 weekday option is refused by the CHECK at save time
+    -- and the person is told a database update is pending -- fail-soft, but the
+    -- feature is half there, so say so here rather than leaving it to a report
+    -- nobody can schedule.
+    when (select pg_get_constraintdef(oid) from pg_constraint
+          where conname = 'report_email_schedules_cadence_preset_check'
+          limit 1) not like '%weekdays_0600%'
+      then 'MISSING — the cadence CHECK still allows only the original four presets; run 20261120040000_report_email_cadence_matrix.sql, or half the delivery times the schedule panel offers are refused on save'
     else 'ok'
   end as status;
 
@@ -9424,6 +9597,88 @@ select 'Affiliate Studio' as check_name,
     else 'ok'
   end as status;
 
+-- The past-customer badge (20261123210000): a discovered creator who has
+-- already bought is badged on the prospect row. What must stay true: the
+-- customer lookup exists with its indexes and RLS, no browser role can run
+-- either function or write the lookup, and the orders-side index carries the
+-- SAME customer-key expression the refresh uses -- if those two drift the
+-- planner stops using it and the refresh goes back to scanning the orders
+-- table, which is the 20261112220000 failure all over again.
+select 'Affiliate past-customer badge' as check_name,
+  case
+    when to_regclass('public.company_customer_profiles') is null
+      or to_regclass('public.company_customer_profile_state') is null
+      or to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)') is null
+      or to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_prospects'
+                        and column_name = 'customer_match_status')
+      then 'MISSING — run 20261123210000_affiliate_past_customer_badge.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.company_customer_profiles'::regclass)
+      or not (select relrowsecurity from pg_class where oid = 'public.company_customer_profile_state'::regclass)
+      then 'CRITICAL — RLS is off on the customer lookup'
+    when has_table_privilege('anon', 'public.company_customer_profiles', 'select')
+      then 'CRITICAL — anon can read the customer lookup'
+    when has_table_privilege('authenticated', 'public.company_customer_profiles', 'insert')
+      or has_table_privilege('authenticated', 'public.company_customer_profiles', 'update')
+      or has_table_privilege('authenticated', 'public.company_customer_profiles', 'delete')
+      then 'CRITICAL — a client role can write the customer lookup'
+    when has_function_privilege('authenticated', 'public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)', 'execute')
+      or has_function_privilege('anon', 'public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)', 'execute')
+      or has_function_privilege('authenticated', 'public.affiliate_match_prospect_customers(uuid,integer,interval)', 'execute')
+      or has_function_privilege('anon', 'public.affiliate_match_prospect_customers(uuid,integer,interval)', 'execute')
+      then 'CRITICAL — a browser role can run the customer lookup or the prospect matcher'
+    when not exists (select 1 from pg_class c where c.relname = 'shopify_orders_co_customer_key_idx')
+      then 'MISSING — the orders customer-key index (the refresh scans every order without it)'
+    when (select pg_get_indexdef(c.oid) from pg_class c where c.relname = 'shopify_orders_co_customer_key_idx')
+           not like '%COALESCE(NULLIF(lower(btrim(customer_email))%cid:%customer_id%'
+      then 'CRITICAL — the orders index no longer carries the refresh''s customer-key expression'
+    when pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'))
+           not like '%cid:%customer_id%'
+      then 'CRITICAL — the refresh no longer uses the indexed customer key'
+    -- Measured on production 2026-11-23: as one aggregate over the company's
+    -- orders this plans a seq scan (727,177 rows, 7.32s cold) against the 8s
+    -- timeout every caller shares. The per-customer LATERAL is what keeps the
+    -- cost proportional to the window instead of the whole history.
+    when pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)'))
+           not like '%cross join lateral%'
+      then 'CRITICAL — the refresh aggregates the whole order history again instead of one pass per customer'
+    -- A matching key expression is not enough: PostgreSQL only uses a PARTIAL
+    -- index where it can prove the query is inside the predicate, so the
+    -- per-customer pass has to carry it too (20261124001000).
+    when (select count(*) from regexp_matches(
+            pg_get_functiondef(to_regprocedure('public.refresh_company_customer_profiles(uuid,timestamptz,timestamptz,integer)')),
+            'customer_email is not null or o?\.?customer_id is not null', 'g')) < 2
+      then 'CRITICAL — the per-customer history pass dropped the index predicate and can scan the orders table'
+    when pg_get_functiondef(to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)'))
+           not like '%c.company_entity_id = v_company%'
+      then 'CRITICAL — the prospect matcher can read another company''s customers'
+    -- 20261124010000: the name in the handle is matched too, because a
+    -- discovered creator's profile name is usually a channel name
+    -- ("Emily | Baseball Mama") while the matchable name is in the handle.
+    -- Nothing below CALLS the helper, and every function here is looked up
+    -- through to_regprocedure(), which returns null for a function that is not
+    -- there. Both matter for the same reason: a call in a CASE arm is resolved
+    -- when the statement is parsed, and a '...'::regprocedure cast is IMMUTABLE
+    -- so the planner folds it before any arm runs -- either one would make this
+    -- whole file error out on a database that has not had the migration applied
+    -- yet, which is the very state it is run to report. The helper's behaviour
+    -- is pinned on real PostgreSQL instead, in
+    -- scripts/tests/affiliate-past-customer-database.test.mjs (H1, G2).
+    when to_regprocedure('public.silo_handle_name_key(text)') is null
+      then 'MISSING — run 20261124010000_affiliate_handle_name_match.sql'
+    when has_function_privilege('anon', 'public.silo_handle_name_key(text)', 'execute')
+      or has_function_privilege('authenticated', 'public.silo_handle_name_key(text)', 'execute')
+      then 'CRITICAL — a browser role can run the handle-name helper'
+    when pg_get_functiondef(to_regprocedure('public.silo_handle_name_key(text)')) not like '%silo_name_key%'
+      or pg_get_functiondef(to_regprocedure('public.silo_handle_name_key(text)')) not like '%^.*/%'
+      then 'CRITICAL — the handle-name helper no longer normalizes a handle into a name'
+    when pg_get_functiondef(to_regprocedure('public.affiliate_match_prospect_customers(uuid,integer,interval)'))
+           not like '%silo_handle_name_key%'
+      then 'CRITICAL — the matcher reads the profile name only, so a creator named by their channel is never matched'
+    else 'ok'
+  end as status;
+
 -- outreach:send (20261110093000): a connection takes affiliate outreach a
 -- person approved and records each send; SILO sends nothing. What must stay
 -- true: only the integration role can call the two tools, their helpers
@@ -9503,7 +9758,9 @@ select 'Affiliate portal feed' as check_name,
       then 'BROKEN — affiliate_feed_items has RLS off'
     when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_feed_items'::regclass
                       and polname = 'affiliate_feed_items_write'
-                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+                      -- Matches both the company-wide gate and the per-program
+                      -- one it became in 20261121210000.
+                      and position('can_manage_affiliate_program' in pg_get_expr(polwithcheck, polrelid)) > 0)
       then 'BROKEN — sharing with affiliates is not limited to people who manage affiliate programs'
     when not exists (select 1 from pg_constraint where conname = 'affiliate_feed_items_path')
       then 'BROKEN — a shared item may point off the brand''s store'
@@ -9512,6 +9769,125 @@ select 'Affiliate portal feed' as check_name,
       then 'BROKEN — a client role can call affiliate_portal_feed'
     when position('''portal''' in pg_get_functiondef('public.affiliate_portal_feed(text)'::regprocedure)) = 0
       then 'BROKEN — the feed is readable with a signup link'
+    else 'ok'
+  end as status;
+
+-- Per-program staff scope and the per-creator share audience (20261121210000).
+-- Both mean "everything" when null, so this check is about the machinery
+-- existing and still being closed to anon, not about anyone being scoped.
+select 'Affiliate program scope' as check_name,
+  case
+    when to_regprocedure('public.can_manage_affiliate_program(uuid)') is null
+      or to_regprocedure('public.affiliate_visible_program(uuid)') is null
+      or to_regprocedure('public.affiliate_manager_scoped()') is null
+      or to_regclass('public.affiliate_feed_audience') is null
+      or to_regprocedure('public.affiliate_feed_set_audience(uuid,uuid[],uuid[])') is null
+      or to_regprocedure('public.affiliate_program_scope_guard()') is null
+      or not exists (select 1 from information_schema.columns
+                      where table_schema = 'public' and table_name = 'affiliate_program_managers'
+                        and column_name = 'program_id')
+      then 'MISSING — run 20261121210000_affiliate_program_scoped_access.sql'
+    when not (select relrowsecurity from pg_class where oid = 'public.affiliate_feed_audience'::regclass)
+      then 'BROKEN — affiliate_feed_audience has RLS off'
+    when exists (select 1 from unnest(array['anon']) r(role)
+                  where has_function_privilege(r.role, 'public.can_manage_affiliate_program(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_visible_program(uuid)', 'execute')
+                     or has_function_privilege(r.role, 'public.affiliate_manager_scoped()', 'execute'))
+      then 'BROKEN — anon can ask who manages an affiliate program'
+    when not has_function_privilege('authenticated', 'public.can_manage_affiliate_program(uuid)', 'execute')
+      then 'BROKEN — the policies call a gate the signed-in role cannot execute'
+    -- A grant that names no program still means every program, which is what
+    -- every grant made before 2026-11-21 means. If that ever stops being true,
+    -- everyone holding one silently loses access.
+    when (select count(*) from pg_policy where polrelid = 'public.affiliates'::regclass
+           and polname = 'affiliates_select'
+           and position('affiliate_visible_program' in pg_get_expr(polqual, polrelid)) > 0) <> 1
+      then 'BROKEN — reads are not scoped to the programs a manager holds'
+    -- A policy is not the boundary for a SECURITY DEFINER function, and
+    -- thirteen of those are callable by `authenticated` on the company gate
+    -- alone. The trigger is what holds for those, so every affiliate table
+    -- that carries a program must have all three of its triggers.
+    when exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relkind = 'r'
+                    and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+                    and exists (select 1 from pg_attribute a where a.attrelid = c.oid
+                                 and a.attname = 'program_id' and not a.attisdropped)
+                    and (select count(*) from pg_trigger t where t.tgrelid = c.oid
+                          and t.tgname like '%\_program\_scope\_%' and t.tgenabled <> 'D') <> 3)
+      then 'BROKEN — an affiliate table with a program has no scope guard, so a definer RPC can write across programs'
+    when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[],uuid[])', 'execute')
+      then 'BROKEN — anon can change who a share is for'
+    else 'ok'
+  end as status;
+
+-- Outreach stops when somebody joins (20261124140000): a live membership
+-- closes that person's open recruiting drafts, so one cannot sit waiting for
+-- an affiliate of this brand.
+select 'Affiliate outreach closes on joining' as check_name,
+  case
+    when to_regprocedure('public.affiliate_outreach_close_when_joined()') is null
+      then 'MISSING — run 20261124140000_affiliate_outreach_close_when_joined.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliate_outreach_close_when_joined_trg' and tgenabled <> 'D')
+      then 'BROKEN — a recruiting draft can sit open for somebody who already joined'
+    when has_function_privilege('authenticated', 'public.affiliate_outreach_close_when_joined()', 'execute')
+      then 'BROKEN — the outreach closer is client-callable'
+    -- Closing a draft because they joined is not a decision to contact them,
+    -- and the close runs inside the transaction that creates the membership:
+    -- leaving 'signed_up' in the suppression check makes inviting a suppressed
+    -- person fail at the invite (20261124140000).
+    when position('''approved'',''exported'',''sent'')' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_drafts_guard()')), '')) = 0
+      then 'BROKEN — the drafts guard no longer separates contacting from recording an outcome'
+    -- A scoped manager's own invite closes only the drafts in their programs,
+    -- so a leftover is not by itself a fault; what must not happen is the
+    -- closer losing its scope check and refusing their write.
+    when position('affiliate_visible_program' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_close_when_joined()')), '')) = 0
+      then 'BROKEN — the outreach closer can refuse a membership write a scoped manager is entitled to make'
+    else 'ok'
+  end as status;
+
+-- One person, one payout address, one email (20261121230000). A membership is
+-- still an affiliates row per program; what belongs to the PERSON is their
+-- PayPal address and their email, and both are held together by a trigger
+-- because several deployed functions write these tables.
+select 'Affiliate one person' as check_name,
+  case
+    when to_regprocedure('public.affiliate_payout_account_mirror()') is null
+      or to_regprocedure('public.affiliate_person_email_follows()') is null
+      or to_regprocedure('public.affiliate_person_programs(uuid)') is null
+      then 'MISSING — run 20261121230000_affiliate_one_person_one_paypal.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliate_payout_accounts'::regclass
+                        and tgname = 'affiliate_payout_accounts_mirror' and tgenabled <> 'D')
+      then 'BROKEN — a PayPal address written for one membership no longer follows the person'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliates_person_email_follows' and tgenabled <> 'D')
+      then 'BROKEN — changing a creator''s address no longer moves the person or ends their old link'
+    when has_function_privilege('anon', 'public.affiliate_person_programs(uuid)', 'execute')
+      then 'BROKEN — anon can list which programs a creator is in'
+    -- The cascade is SECURITY DEFINER and reaches every program the person is
+    -- in, so a scoped manager's right to make it is checked FIRST
+    -- (20261124000000).
+    when position('affiliate_manager_scoped' in pg_get_functiondef('public.affiliate_person_email_follows()'::regprocedure)) = 0
+      or position('affiliate_visible_program' in pg_get_functiondef('public.affiliate_person_email_follows()'::regprocedure)) = 0
+      then 'CRITICAL — a program-scoped manager can move a creator through programs they were not given'
+    -- The portal token check is the authorization and must stay as it is: the
+    -- address a link was mailed to has to STILL be that affiliate's, or an edit
+    -- after the mail could walk a token into another company.
+    when position('t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      or position('affiliate_contact_key(a.contact_email) = t.mailed_to_hash' in pg_get_functiondef('public.affiliate_portal_brands(text)'::regprocedure)) = 0
+      then 'BROKEN — the brand switcher no longer checks that the mailed address is still theirs'
+    -- Nobody may be payable at two addresses at once.
+    when exists (
+      select 1 from public.affiliates a
+        join public.affiliate_payout_accounts pa
+          on pa.affiliate_id = a.id and pa.company_entity_id = a.company_entity_id and pa.provider = 'paypal'
+       where nullif(btrim(pa.payout_email), '') is not null
+       group by a.company_entity_id, public.affiliate_contact_key(a.contact_email)
+      having count(distinct lower(btrim(pa.payout_email))) > 1)
+      then 'BROKEN — one person is payable at two PayPal addresses'
     else 'ok'
   end as status;
 
@@ -9529,8 +9905,10 @@ select 'Affiliate launch claims' as check_name,
     when not (select relrowsecurity from pg_class where oid = 'public.affiliate_launch_claims'::regclass)
       then 'BROKEN — affiliate_launch_claims has RLS off'
     when not exists (select 1 from pg_policy where polrelid = 'public.affiliate_launch_claims'::regclass
+                      -- 'can_manage_affiliate_program' matches the per-program
+                      -- gate (20261121210000) and the company-wide one alike.
                       and polname = 'affiliate_launch_claims_write'
-                      and position('can_manage_affiliate_programs' in pg_get_expr(polwithcheck, polrelid)) > 0)
+                      and position('can_manage_affiliate_program' in pg_get_expr(polwithcheck, polrelid)) > 0)
       then 'BROKEN — a claim can be written by anyone who can sign in'
     when exists (select 1 from unnest(array['anon', 'authenticated', 'silo_integration']) r(role)
                   where has_function_privilege(r.role, 'public.affiliate_portal_claim(text, uuid, boolean)', 'execute')
@@ -9598,6 +9976,10 @@ select 'Affiliate product seeding' as check_name,
       then 'CRITICAL — a product seeding payback can be written twice'
     when position('can_manage_affiliate_programs' in pg_get_functiondef('public.affiliate_seed_decide(uuid[], boolean)'::regprocedure)) = 0
       then 'BROKEN — anyone in the company can approve a product request'
+    -- 20261120030000: a product the company shared is approved as it is asked
+    -- for. Without this apply, every request still waits for a person.
+    when position('affiliate_payout_accounts' in pg_get_functiondef('public.affiliate_portal_seed_request(text, uuid, text, text)'::regprocedure)) = 0
+      then 'MISSING — run 20261120030000_affiliate_seed_shared_auto.sql'
     when position('affiliate_seed_claims' in pg_get_functiondef((select p.oid from pg_proc p where p.proname = 'affiliate_resolve_attributions'
                                                                  and p.pronamespace = 'public'::regnamespace limit 1))) > 0
       then 'CRITICAL — a seed code can earn commission'
@@ -10226,6 +10608,12 @@ select 'Affiliate add to program' as check_name,
       or position('can_manage_affiliate_programs()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       or position('active_company_id()' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
       then 'BROKEN — add to program is not gated to managers of the active company'
+    -- It copies contact details, carried terms and the payout address OUT of
+    -- the program the person is already in, and every row it writes belongs to
+    -- the destination, so the scope trigger cannot see it. Since 20261121210000
+    -- the source program has to be one the caller holds too.
+    when position('can_manage_affiliate_program(v_src.program_id)' in pg_get_functiondef('public.affiliate_add_to_program(uuid, uuid, text, numeric, integer)'::regprocedure)) = 0
+      then 'BROKEN — add to program does not require the program it copies FROM'
     else 'ok'
   end as status;
 

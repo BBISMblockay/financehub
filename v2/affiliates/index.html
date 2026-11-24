@@ -60,6 +60,9 @@
     .af-row > .bcn-field-group { min-width: 140px; flex: 1; }
     .bcn-field-group[hidden] { display: none; }
     .af-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    /* A flex box needs this or `hidden` does nothing, which is how the
+       People sub-tabs showed both lists at once (Blake 2026-11-20). */
+    .af-stack[hidden] { display: none; }
     .af-panel > .af-stack { gap: 16px; }
     .af-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
     .af-filter-bar .bcn-btn { font-size: 12px; padding: 5px 10px; }
@@ -217,21 +220,28 @@
       gap: 8px; margin-bottom: 14px; padding: 6px;
       border-radius: 12px; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
     }
+    /* Two kinds of control, one look each (Blake 2026-11-20: "they all need
+       to flow and look similar"). Moving between lists is always the underline
+       bar `.af-subtabs`, the same one People uses. Narrowing the list you are
+       already on is always this pill -- never the accent colour, which on a
+       filter read as a third style competing with the tabs above it. */
     .af-studio .af-filter-chip {
       border-radius: 999px;
-      padding: 8px 14px;
+      padding: 6px 14px;
+      font-size: 13px;
       font-weight: 600;
-      border: 1px solid var(--bcn-border-strong);
+      color: var(--bcn-ink-2);
+      border: 1px solid var(--bcn-border);
       background: var(--bcn-surface);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+      box-shadow: none;
     }
     .af-studio .af-filter-chip:hover { background: var(--bcn-sunken); }
     .af-studio .af-filter-chip--on,
     .af-studio .af-filter-chip.bcn-btn--primary {
-      background: var(--bcn-accent);
-      color: #fff;
-      border-color: var(--bcn-accent);
-      box-shadow: 0 2px 10px color-mix(in srgb, var(--bcn-accent) 24%, transparent);
+      background: var(--bcn-ink);
+      color: var(--bcn-surface);
+      border-color: var(--bcn-ink);
+      box-shadow: none;
     }
     .af-studio .af-filter-chip.bcn-btn--primary .af-mono { color: inherit; opacity: .92; }
     /* No invisible controls: ghost reads as surfaced inside Studio panels. */
@@ -276,6 +286,13 @@
       box-shadow: 0 2px 4px rgba(15, 23, 42, .04), 0 12px 28px rgba(15, 23, 42, .06);
       transition: transform .14s ease, box-shadow .14s ease;
     }
+    /* A creator's own photo is a small square wherever it appears. Each thumb
+       wrapper below sets its own size and wins over this by coming later; this
+       is the floor under a photo that is in no wrapper. Without it the <img>
+       had no size at all and rendered at whatever the creator uploaded, so in
+       Share > From affiliates a post's 72x54 content sat beside a full-size
+       "profile picture" (Blake 2026-11-23). */
+    .af-studio .af-avatar-photo { width: 36px; height: 36px; object-fit: cover; border-radius: 8px; }
     /* Affiliato-style product cards: thumb + title, Summary block, Sales/Amount rows. */
     .af-item--catalog { padding: 16px 16px 14px; gap: 12px; }
     .af-catalog-head { display: flex; gap: 12px; align-items: flex-start; }
@@ -343,7 +360,6 @@
        filter rows, smaller card buttons on one line, tighter tiles. */
     .af-studio .af-filter-bar { padding: 0; background: none; border: 0; gap: 6px; margin-bottom: 12px; }
     .af-studio .af-filter-chip { padding: 5px 12px; font-size: 12.5px; box-shadow: none; }
-    .af-studio .af-filter-chip--on, .af-studio .af-filter-chip.bcn-btn--primary { box-shadow: none; }
     .af-studio .af-catalog-foot .bcn-btn, .af-studio .af-item-foot .bcn-btn { min-height: 28px; padding: 3px 9px; font-size: 12px; box-shadow: none; }
     .af-studio .af-catalog-foot .bcn-btn--danger { border-color: transparent; background: transparent; }
     .af-studio .af-catalog-foot .af-actions { gap: 4px; padding: 0; background: none; }
@@ -420,6 +436,15 @@
     .af-rec-chip { border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2); border-radius: 99px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
     .af-rec-chip.is-on { background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface); }
     .af-rec-list { display: flex; flex-direction: column; gap: 12px; }
+    /* The store picker on Share narrows what you are looking at, so it is the
+       same pill as every other filter (Blake 2026-11-20). */
+    .af-studio .af-share-store .af-chip-tog {
+      border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--bcn-border); background: var(--bcn-surface); color: var(--bcn-ink-2);
+    }
+    .af-studio .af-share-store .af-chip-tog.is-on {
+      background: var(--bcn-ink); border-color: var(--bcn-ink); color: var(--bcn-surface);
+    }
     .af-rec-capped [role="list"] > :nth-child(n+13) { display: none; }
 
     /* ── Money: the flow from the store to PayPal (Blake 2026-11-17) ───── */
@@ -645,6 +670,178 @@
       .af-ov-lb-row { grid-template-columns: 18px 34px minmax(0, 1fr) 80px; row-gap: 4px; }
       .af-ov-lb-row .af-ov-when, .af-ov-lb-row .af-ov-money--comm { display: none; }
     }
+
+    /* Posts from affiliates: a tile big enough to judge the post by. */
+    .af-ctile { display: flex; gap: 12px; align-items: flex-start; width: 100%; }
+    .af-ctile-media {
+      width: 108px; height: 108px; flex: none; border-radius: 10px; overflow: hidden;
+      display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border);
+    }
+    .af-ctile-media .af-content-media { width: 100%; height: 100%; max-height: none; object-fit: cover; border-radius: 0; }
+    .af-ctile-media--none { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .af-ctile-txt { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .af-ctile-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* The post is what the row is about, so the person who sent it sits
+       under the thumbnail, not level with it (Blake 2026-11-21). */
+    .af-ctile-who .af-item-avatar { width: 20px; height: 20px; font-size: 9px; }
+    @media (max-width: 620px) {
+      .af-ctile-media { width: 84px; height: 84px; }
+    }
+
+    /* People: Affiliates / Discovery / Your Customers. */
+    .af-subtabs { margin: 0 0 14px; }
+    /* Your Customers: the filter row wraps rather than scrolls, so every
+       control is reachable at phone width. */
+    .af-cust-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    .af-cust-filters .bcn-field-group { margin: 0; }
+    .af-cust-kpis { margin: 10px 0 6px; }
+    .af-cust-pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+
+    /* Adding or editing in the middle of the screen. */
+    dialog.af-dialog {
+      border: 1px solid var(--bcn-border); border-radius: 12px; padding: 0;
+      width: min(640px, 94vw); max-height: 88vh; background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    dialog.af-dialog::backdrop { background: rgba(0, 0, 0, .38); }
+    dialog.af-dialog .bcn-card-body { max-height: 72vh; overflow: auto; }
+    .af-dialog-foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* One short line, with the detail on hover instead of in the copy. */
+    .af-info {
+      display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 5px;
+      border: 1px solid var(--bcn-border); border-radius: 50%; vertical-align: -2px;
+      font-size: 10px; font-weight: 700; color: var(--bcn-ink-3); cursor: help; background: var(--bcn-bg);
+    }
+
+    /* Any dates, not just the last 30 or 90 days. */
+    .af-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .af-range input[type="date"] {
+      height: 28px; padding: 0 8px; font-size: 11.5px; font-family: var(--bcn-mono);
+      border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius);
+      background: var(--bcn-surface); color: var(--bcn-ink);
+    }
+    .af-range-sep { color: var(--bcn-ink-3); font-size: 11.5px; }
+    /* ── Density (Blake 2026-11-20: "everything looks a bit large", "tiles are
+       way large", "each tab should almost fit on one page", "still looks not
+       pro enough"). One pass over the whole suite: smaller type, tighter
+       padding, flatter surfaces. Colours and fonts stay Beacon's. ── */
+    .af-studio { background: var(--bcn-bg); }
+    .silo-main > .af-panel { padding: 10px 18px 24px; }
+    .af-studio .bcn-header { padding: 14px 0 4px; }
+    .af-studio.af-studio--ready .bcn-header { padding: 10px 0 2px; }
+    .af-studio .bcn-header-title h1 { font-size: 1.15rem; }
+    .af-studio .af-panel .bcn-card {
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+    .af-studio .bcn-card-header { padding: 9px 13px 8px; }
+    .af-studio .bcn-card-header h2 { font-size: 13.5px; }
+    .af-studio .bcn-card-body { padding: 10px 13px 12px; }
+    .af-studio .af-card-hero .bcn-card-body { padding: 12px 13px 14px; background: var(--bcn-surface); }
+    .af-studio .af-card-hero .bcn-field { min-height: 36px; border-radius: 8px; }
+    .af-studio .af-next, .af-studio .af-pipeline, .af-studio .af-ai-hub { border-radius: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+    .af-surface-head { padding-bottom: 7px; margin-bottom: 9px; }
+    .af-surface-head h2 { font-size: 13.5px; }
+    .af-workflow-h { font-size: .95rem; margin-bottom: 8px; }
+    .af-stack { gap: 10px; }
+    .af-panel > .af-stack { gap: 12px; }
+    .af-panel > .af-stack + .af-stack:not(:empty) { margin-top: 16px; }
+    .af-subtabs { margin-bottom: 4px; }
+    /* Rows: the list view is the one that has to fit on a page. */
+    .af-items { gap: 6px; }
+    .af-item { padding: 9px 12px; gap: 10px; border-radius: 8px; }
+    .af-item--compact { padding: 7px 10px; }
+    .af-item-head { font-size: 13px; }
+    .af-item-stats { font-size: 11.5px; margin-top: 2px; }
+    .af-item-detail { font-size: 11.5px; margin-top: 5px; }
+    .af-kv-line { font-size: 11.5px; margin-top: 2px; }
+    .af-muted, .af-mono { font-size: 11.5px; }
+    .af-studio table.bcn-table th, .af-studio table.bcn-table td { padding: 6px 10px; font-size: 12.5px; }
+    .af-list-who { min-width: 150px; gap: 8px; }
+    .af-list-thumb, .af-list-thumb .bcn-avatar, .af-list-thumb .af-avatar, .af-list-thumb .af-avatar-photo { width: 28px; height: 28px; font-size: 11px; border-radius: 6px; }
+    /* Tiles: same card, two thirds the size. */
+    .af-items--grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .af-item--tile { border-radius: 10px; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+    .af-item--catalog { padding: 11px 12px 10px; gap: 8px; }
+    .af-catalog-head { gap: 9px; }
+    .af-catalog-thumb, .af-catalog-thumb .bcn-avatar, .af-catalog-thumb .af-avatar, .af-catalog-thumb .af-avatar-photo { width: 44px; height: 44px; border-radius: 9px; font-size: 15px; }
+    .af-catalog-name { font-size: 13.5px; }
+    .af-catalog-sub, .af-catalog-meta { font-size: 11.5px; }
+    .af-catalog-summary-h { font-size: 12px; margin-bottom: 3px; }
+    .af-catalog-summary-p { font-size: 11.5px; -webkit-line-clamp: 2; }
+    .af-catalog-why .af-evidence { -webkit-line-clamp: 2; font-size: 11.5px; }
+    .af-catalog-stats { gap: 6px; }
+    .af-catalog-stat { font-size: 11.5px; }
+    .af-catalog-foot { padding-top: 8px; }
+    .af-item--tile .af-catalog-why { margin: 6px 12px 0; }
+    /* Content: a gallery row is a row, not a poster. */
+    .af-ctile-media { width: 72px; height: 54px; }
+    .af-content-media { max-height: 110px; }
+    /* Whatever the markup around it, a post's photo or video is bounded by its
+       row. An affiliate uploads at any size, and one that sizes itself tears
+       the row open (Blake 2026-11-20).
+       The media is taken out of flow to do it: a percentage height on a grid
+       item does NOT resolve against the grid area for a replaced element, so
+       `height: 100%` on an undecoded <video> left it at its 300x150 default
+       and 150px tall inside a 54px tile. Positioned against the box, the
+       percentages resolve and nothing can escape it (Blake 2026-11-21). */
+    .af-studio .af-ctile-media { position: relative; }
+    .af-studio .af-ctile-media > img, .af-studio .af-ctile-media > video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      max-width: 100%; max-height: 100%; object-fit: cover;
+    }
+    /* And a hard ceiling in pixels on anything else that turns up in a row,
+       since a percentage is only as good as the box it resolves against. */
+    .af-studio .af-ctile img:not(.af-avatar-photo), .af-studio .af-ctile video {
+      max-width: 72px; max-height: 54px;
+    }
+    @media (max-width: 640px) { .af-ctile-media { width: 60px; height: 45px; } }
+    /* A hundred posts to review, not three (Blake 2026-11-23: "should expand
+       out to show imagine we had 100 of these to review"). The queue becomes a
+       wall of square tiles that fills the width; one click opens the post. */
+    .af-studio .af-q--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 10px; }
+    .af-studio .af-q--grid .af-q-row { position: relative; display: block; gap: 0; }
+    .af-studio .af-q--grid .af-q-row > .af-q-pick {
+      position: absolute; top: 6px; left: 6px; z-index: 2; margin: 0;
+      background: var(--bcn-surface); border-radius: 4px;
+    }
+    .af-studio .af-q--grid .af-q-body { flex: none; }
+    .af-studio .af-q--grid .af-ctile { display: block; gap: 0; }
+    .af-studio .af-q--grid .af-ctile-media {
+      width: 100%; height: auto; aspect-ratio: 1 / 1; margin: 0 0 6px; padding: 0; cursor: pointer;
+    }
+    .af-studio .af-q--grid .af-ctile-media:hover { border-color: var(--bcn-accent); }
+    .af-studio .af-q--grid .af-q-row.is-selected .af-ctile-media { border-color: var(--bcn-accent); box-shadow: inset 0 0 0 2px var(--bcn-accent); }
+    /* The pixel ceiling above is sized for the old row; in a tile the box
+       itself is the ceiling, so percentages are enough. */
+    .af-studio .af-q--grid .af-ctile img:not(.af-avatar-photo), .af-studio .af-q--grid .af-ctile video { max-width: 100%; max-height: 100%; }
+    .af-studio .af-q--grid .af-ctile-txt { gap: 2px; }
+    .af-studio .af-q--grid .af-ctile-who { flex-wrap: nowrap; gap: 6px; }
+    .af-studio .af-q--grid .af-ctile-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .af-studio .af-q--grid .af-ctile-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .af-studio .af-q--grid .af-ctile-foot .af-muted { font-size: 11px; white-space: nowrap; }
+    .af-studio .af-q--grid .af-list-thumb,
+    .af-studio .af-q--grid .af-list-thumb .bcn-avatar,
+    .af-studio .af-q--grid .af-list-thumb .af-avatar,
+    .af-studio .af-q--grid .af-list-thumb .af-avatar-photo { width: 20px; height: 20px; font-size: 9px; border-radius: 5px; }
+    @media (max-width: 640px) {
+      .af-studio .af-q--grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+    }
+    /* The tile is a button now, so it must not look or size like one. */
+    .af-studio button.af-ctile-media { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); padding: 0; cursor: pointer; }
+    /* One post, opened: as big as the dialog allows, never bigger. */
+    .af-copen-media { display: grid; place-items: center; background: var(--bcn-bg); border: 1px solid var(--bcn-border); border-radius: 10px; overflow: hidden; }
+    .af-copen-media > img, .af-copen-media > video { max-width: 100%; max-height: 56vh; width: auto; height: auto; display: block; }
+    /* Dashboard: the four figures and the chart fit above the fold. */
+    .af-ov { gap: 10px; }
+    .af-ov-metrics { gap: 10px; }
+    .af-studio .af-ov-metric { border-radius: 10px; padding: 10px 12px 0; }
+    .af-ov-metric .af-ov-val { font-size: 21px; margin-top: 4px; }
+    .af-ov-metric .af-ov-foot { margin-top: 4px; }
+    .af-ov-spark { height: 34px; width: calc(100% + 24px); margin: 6px -12px 0; }
+    .af-studio .af-ov-band { border-radius: 10px; padding: 9px 13px; }
+    .af-ov-chart svg { max-height: 220px; }
+    .af-ov-cols { gap: 10px; }
   </style>
   <link rel="stylesheet" href="../beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="../v2-mobile.css" />
@@ -669,8 +866,10 @@
     <div class="bcn-kpi-band" id="kpis"></div>
 
     <nav class="bcn-tabs" id="tabs" role="tablist" aria-label="Affiliate Studio sections">
-      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="overview" id="tab-overview">Home</button>
-      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="people" id="tab-people">People</button>
+      <!-- People first: it is where the work starts, so it is what opens
+           (Blake 2026-11-20). The program's numbers sit one along. -->
+      <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-tab="people" id="tab-people">People</button>
+      <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="overview" id="tab-overview">Program</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="comms" id="tab-comms">Outreach</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="share" id="tab-share">Share</button>
       <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-tab="payouts" id="tab-payouts">Money</button>
@@ -683,8 +882,20 @@
          creators not in yet, and the messages waiting on them. They were three
          tabs; moving between them was most of the clicking. -->
     <section class="af-panel" data-panel="people" hidden>
+      <!-- Two jobs, two sub-tabs (Blake 2026-11-20): the affiliates already in
+           the programme, and discovery -- the creators who are not. -->
+      <nav class="bcn-tabs af-subtabs" id="peopleSubtabs" role="tablist" aria-label="People">
+        <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-act="people-sub" data-k="discovery">Discovery</button>
+        <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="affiliates">Affiliates</button>
+        <!-- Your Customers (Blake 2026-11-24): the people who already buy
+             from you, which is where the next affiliates come from. Third
+             sub-tab rather than a report of its own, and its read only
+             happens when it is opened. -->
+        <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="customers">Your Customers</button>
+      </nav>
       <div class="af-stack" id="affiliatesBody"></div>
       <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
+      <div class="af-stack" id="customersBody" hidden></div>
     </section>
     <!-- Comms: every message to a creator or an affiliate, prepped and
          approved in queues, plus the template they start from. -->
@@ -698,6 +909,16 @@
     <section class="af-panel" data-panel="records" hidden><div class="af-stack" id="recordsBody"></div></section>
   </main>
 </div>
+
+<!-- Adding or editing a person happens in the middle of the screen, not in a
+     form that opens at the top of a long list (Blake 2026-11-20). studio.js
+     fills the body and opens it with showModal(). -->
+<dialog class="af-dialog" id="afDialog" aria-labelledby="afDialogTitle">
+  <div class="bcn-card" style="margin:0;border:0">
+    <div class="bcn-card-header"><h2 id="afDialogTitle">&nbsp;</h2><button class="bcn-btn bcn-btn--ghost" type="button" data-act="dialog-close">Close</button></div>
+    <div class="bcn-card-body" id="afDialogBody"></div>
+  </div>
+</dialog>
 
 <script src="../nav-config.js"></script>
 <script src="../avatar.js"></script>

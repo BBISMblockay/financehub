@@ -32,4 +32,18 @@ Deno.serve(createPortalHandler({
       });
     } catch (_) { /* the nightly run makes it */ } finally { clearTimeout(timer); }
   },
+  // The same call for a PRODUCT code the database approved as it was asked
+  // for (a product the company shared, 20261120030000).
+  makeSeedCode: async (seedId: string) => {
+    const anon = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    try {
+      await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/affiliate-invite`, {
+        method: 'POST', signal: ctl.signal,
+        headers: { apikey: anon, Authorization: `Bearer ${anon}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_shopify_codes', seed_id: seedId }),
+      });
+    } catch (_) { /* the nightly run makes it */ } finally { clearTimeout(timer); }
+  },
 }));

@@ -414,7 +414,37 @@ export async function upsertCandidates({ supabase, program, source, candidates, 
     });
     if (obsErr) throw new Error(`affiliate_prospect_observations insert failed: ${obsErr.message}`);
   }
+  await matchPastCustomers({ supabase, program });
   return out;
+}
+
+/**
+ * The past-customer badge (20261123210000). Runs right after a batch of
+ * prospects lands -- from a search, from AI research or from an import --
+ * so the badge is on the row by the time anyone looks at it.
+ *
+ * Only the PROSPECTS are read: the customer base is never scanned looking for
+ * creators, which is both the wrong direction and the expensive one. The
+ * lookup it reads is kept current by the nightly commissions job.
+ *
+ * It cannot fail the write above it. A prospect with no badge is a prospect
+ * exactly as it was before this existed, and before the migration is applied
+ * the function does not exist at all, which is not a failure either.
+ */
+export async function matchPastCustomers({ supabase, program, log = () => {} }) {
+  try {
+    const { data, error } = await supabase.rpc('affiliate_match_prospect_customers', { p_program: program.id });
+    if (error) {
+      const missing = error.code === 'PGRST202'
+        || (/affiliate_match_prospect_customers/.test(error.message || '') && /not find|does not exist/i.test(error.message || ''));
+      if (!missing) log(`[affiliate-discovery] past-customer match failed: ${error.message}`);
+      return null;
+    }
+    return data ?? null;
+  } catch (err) {
+    log(`[affiliate-discovery] past-customer match failed: ${String(err?.message || err)}`);
+    return null;
+  }
 }
 
 /**

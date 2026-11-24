@@ -16,6 +16,30 @@ Only items that still matter today. Fixed items live in [CHANGELOG.md](CHANGELOG
 
 ---
 
+## Scheduled report email: what SILO cannot tell you yet (P3)
+
+Written up 2026-11-20 with the Reports front door, so the gaps are recorded rather than papered
+over in the UI. None of these is a regression; each is a limit of the delivery path as it stands.
+
+- **"Sent" is not "Delivered."** `report_email_runs` records that `report-email-deliver` handed the
+  message to Resend and that Resend accepted it. There is no Resend webhook and no per-recipient
+  row, so a bounce, a spam placement or a rejected mailbox is invisible to SILO. The Schedules view
+  and the run history therefore say **Sent**, with a line saying what that means, and never
+  "Delivered". Closing this needs a Resend webhook endpoint and a per-recipient table.
+- **Delivery times are limited to 6:00 and 7:00 company time** because delivery runs on the GitHub
+  Actions cron in `report-email-sync.yml` (`5 13,14,15,18,23 * * *`), and those are the only hours
+  whose slot lands correctly under both PDT and PST. The panel offers exactly what the cron can
+  serve. More times means more cron slots, not a schema change.
+- **One business timezone.** `supported_business_timezones` ships a single row
+  (`America/Los_Angeles`) and `set_company_settings()` refuses anything else, so the schedule panel
+  states the zone and says why instead of offering a choice. It renders a real picker the moment a
+  second supported zone exists -- nothing in the page names a zone.
+- **A send leaves within about two hours of its time, not at it.** The runner claims a schedule at
+  the next cron slot at or after `next_run_at`; free-tier Actions crons start late. The panel says
+  so in the first-send line rather than promising a minute.
+
+---
+
 ## An admin can deactivate an owner, platform-wide, and the owner cannot undo it (P2)
 
 Found 2026-10-19 while closing the `admin_update_profile` owner-escalation hole (Critical 4 of the

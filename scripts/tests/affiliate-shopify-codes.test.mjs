@@ -220,9 +220,24 @@ function fakeService({ codes, seeds = [], ledger = [], sentEarnings = [], conns 
   };
 }
 const pending = (over = {}) => ({ id: CODE, created_at: '2026-11-17T00:00:00Z', company_entity_id: CO, program_id: PROG, affiliate_id: 'aff', code: 'PAT10', starts_on: '2026-11-17', ends_on: null, discount_percent: 10, ...over });
-const staff = (gate = { data: CO, error: null }) => () => ({ rpc: async () => gate });
+// The caller's own client answers two questions now: which company they are
+// in, and whether they manage the program a code belongs to (20261121210000).
+// A stub that answered the company to everything made the program check read
+// as a refusal.
+const staff = (gate = { data: CO, error: null }, scope = true) => () => ({
+  rpc: async (name) => (name === 'can_manage_affiliate_program' ? { data: scope, error: null } : gate),
+});
 const post = (body, auth = 'Bearer staff.jwt') => new Request('https://fn.test', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: auth }, body: JSON.stringify(body) });
 const mk = (svc, shop, extra = {}) => createInviteHandler({ service: svc, userClientFor: staff(), siteUrl: 'https://app.test', resendKey: '', serviceKey: 'svc-key', fetchImpl: shop.fetchImpl, isServiceToken: async () => false, ...extra });
+
+await test('staff: a code of a program this manager was not given is refused', async () => {
+  const svc = fakeService({ codes: [pending()] }); const shop = fakeShopify();
+  const res = await createInviteHandler({ service: svc, userClientFor: staff({ data: CO, error: null }, false),
+    siteUrl: 'https://app.test', resendKey: '', serviceKey: 'svc-key', fetchImpl: shop.fetchImpl, isServiceToken: async () => false })(
+    post({ action: 'create_shopify_codes', code_ids: [CODE] }));
+  assert.equal(res.status, 403);
+  assert.equal(shop.calls.length, 0, 'and nothing is made in the store');
+});
 
 await test('staff: makes the waiting code in Shopify, then marks it live -- only if still waiting, in its own company', async () => {
   const svc = fakeService({ codes: [pending()] }); const shop = fakeShopify();
@@ -439,6 +454,25 @@ await test('access: no gate, no codes; one code by id needs no session; the all-
   assert.equal((await res.json()).results.length, 2, 'every company');
 });
 
+// 20261120030000: a claim the database approved by itself (a product the
+// company shared) is made by ID with no staff session, exactly like one code
+// after signup. The claim still decides everything; the id only brings it
+// forward from the nightly sweep.
+await test('seeding: a shared-product claim is made by id with no session, and only that claim', async () => {
+  const other = '3f000000-0000-4000-8000-00000000005f';
+  const svc = fakeService({ codes: [], seeds: [seed(), seed({ id: other, code: 'PATSEEDZZ99Z' })] });
+  const shop = fakeShopify();
+  const out = await (await mk(svc, shop)(post({ action: 'create_shopify_codes', seed_id: SEED }, 'Bearer anon'))).json();
+  assert.deepEqual(out.results.map((r) => [r.seed_id, r.status]), [[SEED, 'created']], 'one claim, by its id');
+  assert.equal(shop.calls.filter((c) => c.op === 'create').length, 1, 'and no other claim is touched');
+  // A claim that is NOT approved is not made, whoever asks by id: the state
+  // in the database is what decides, never the request.
+  const svc2 = fakeService({ codes: [], seeds: [seed({ state: 'requested' })] }); const shop2 = fakeShopify();
+  const out2 = await (await mk(svc2, shop2)(post({ action: 'create_shopify_codes', seed_id: SEED }, 'Bearer anon'))).json();
+  assert.deepEqual(out2.results, [], 'a request still waiting on a person makes nothing');
+  assert.equal(shop2.calls.filter((c) => c.op === 'create').length, 0);
+});
+
 await test('portal: joining kicks SILO to make the new code', async () => {
   const { createPortalHandler } = await import(new URL('supabase/functions/affiliate-portal/handler.mjs', ROOT));
   const src = await readFile(new URL('supabase/functions/affiliate-portal/handler.mjs', ROOT), 'utf8');
@@ -446,6 +480,8 @@ await test('portal: joining kicks SILO to make the new code', async () => {
   assert.equal(typeof createPortalHandler, 'function');
   const idx = await readFile(new URL('supabase/functions/affiliate-portal/index.ts', ROOT), 'utf8');
   assert.match(idx, /action: 'create_shopify_codes', code_id: codeId/);
+  assert.ok(src.includes('await makeSeedCode(String(data.id));'), 'and an approved product claim asks for its code too');
+  assert.match(idx, /action: 'create_shopify_codes', seed_id: seedId/);
 });
 
 await test('the nightly sweep walks past codes that stay waiting, to a newer company\'s code', async () => {

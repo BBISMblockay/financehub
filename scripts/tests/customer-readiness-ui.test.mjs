@@ -60,10 +60,19 @@ test('standard dashboard hub hides report authoring while keeping Ask SILO', asy
   // doing it): a standard workspace gets an allow-list and every tab outside it
   // is hidden by the loop below, so the allow-list is what has to be asserted.
   assert.match(html, /el\('btnNewReport'\)\.hidden = true/);
-  assert.match(html, /allowedTabs = explicitManagement \? \[[^\]]*\] : \['silo', 'dashboards'\]/);
+  // The one named door to SQL is hidden in a standard workspace too.
+  assert.match(html, /el\('btnAdvanced'\)\.hidden = true/);
+  // The allow-list moved out of the page into report-library.js, where the
+  // schedules tab can be gated on the DATABASE's admin check rather than on
+  // the nav profile. Assert it where it now lives: reading is allowed,
+  // authoring is not.
+  assert.match(html, /allowedTabs = L\.allowedTabsFor\(\{ navProfile, explicitManagement, isScheduleAdmin \}\)/);
   assert.match(html, /for \(const t of L\.TABS\) el\(`tab-\$\{t\.id\}`\)\.hidden = !allowedTabs\.includes\(t\.id\)/);
+  const lib = await read('v3/js/report-library.js');
+  assert.match(lib, /function allowedTabsFor/);
+  assert.match(lib, /o\.navProfile === 'standard'/);
   // No deep link into the report builder from a standard workspace either.
-  assert.match(html, /navProfile === 'standard' \? null : `\/v3\/report-builder\.html\?id=/);
+  assert.match(lib, /if \(!r\.id \|\| r\.href \|\| navProfile !== 'grandfathered'\) return null;/);
   assert.match(html, /crumbs: navProfile === 'standard' \? \['Insights',/);
   assert.match(html, /href="\/v2\/silo-chat\.html">Ask SILO<\/a>/);
 });

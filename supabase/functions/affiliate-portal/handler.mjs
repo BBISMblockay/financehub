@@ -24,7 +24,10 @@
 //   claim     { token, item_id, claim? }      -> put a hand up for a shared launch, or take it down
 //   seeds     { token }                       -> the seeding offer and the rep's own product requests
 //   seed_request { token, item_id? | title, note? }
-//                                             -> ask for a shared product (or another one) at the seeding price
+//                                             -> ask for a shared product (or another one) at the seeding price.
+//                                                A product the COMPANY shared is approved as it is asked for and its
+//                                                code is made straight away (20261120030000); anything else waits
+//                                                for a manager.
 //   renew     { token }                       -> expired portal link: mail a new one
 //   signin    { email }                       -> mail a portal link to that address if it is an affiliate's
 //                                                to the address ON FILE
@@ -106,7 +109,7 @@ function fromBase64(v) {
 }
 export { affiliateLink };
 
-export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log, makeShopifyCode = null }) {
+export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = fetch, now = () => new Date(), makeToken = randomToken, log = console.log, makeShopifyCode = null, makeSeedCode = null }) {
   const portalUrl = (raw) => `${siteUrl.replace(/\/$/, '')}/v2/affiliates/portal.html?t=${encodeURIComponent(raw)}`;
 
   // `mailed` says the raw token will go ONLY to the address this mints it for
@@ -643,7 +646,15 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
         p_token_hash: hash, p_feed_item_id: rawItem, p_title: rawItem ? null : title, p_note: note || null,
       });
       if (error) return dbError(error);
-      return reply({ requested: true, replayed: data?.replayed === true, id: data?.id ?? null });
+      // A product the company shared comes back already approved
+      // (20261120030000). Bring its code forward from tonight's sweep, the
+      // same way a new affiliate's first code is brought forward; if that
+      // call fails, the sweep still makes it.
+      const state = data?.state === 'approved' ? 'approved' : 'requested';
+      if (state === 'approved' && makeSeedCode && data?.id) {
+        try { await makeSeedCode(String(data.id)); } catch (_) { /* the nightly run makes it */ }
+      }
+      return reply({ requested: true, approved: state === 'approved', state, replayed: data?.replayed === true, id: data?.id ?? null });
     }
 
     // The rep's own orders. The database returns only their side of each

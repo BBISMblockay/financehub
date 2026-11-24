@@ -163,6 +163,9 @@ on:
       # only the copy runs no check at all.
       - 'supabase/functions/report-email-deliver/**'
       - 'scripts/shopify-sync.mjs'
+      - 'scripts/lib/shopify-sync-core.mjs'
+      - 'scripts/lib/shopify-scopes.mjs'
+      - 'scripts/lib/sync-plan.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
@@ -219,6 +222,11 @@ on:
       - 'v2/shopify-install.html'
       - 'v2/shopify-install.js'
       - 'scripts/tests/shopify-auth.test.mjs'
+      # Shopify customers / marketing consent (shopify-customers-sync.test.mjs).
+      - 'scripts/tests/shopify-customers-sync.test.mjs'
+      - 'scripts/tests/shopify-customers-consent-database.test.mjs'
+      - 'scripts/lib/shopify-customers-core.mjs'
+      - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
@@ -398,6 +406,9 @@ on:
       - 'v2/marketing-suite.*'
       - 'scripts/tests/performance-suite.test.mjs'
       - 'v2/performance-suite.*'
+      - 'v2/marketing-charts.*'
+      - 'scripts/tests/marketing-charts.test.mjs'
+      - 'scripts/tests/seo-overview.test.mjs'
       # Inventory suite: Overview plus its three tabs.
       - 'scripts/tests/inventory-overview.test.mjs'
       - 'v2/inventory-overview.*'
@@ -619,6 +630,14 @@ jobs:
       - name: Shopify tenant guard
         run: node scripts/tests/shopify-tenant-guard.test.mjs
 
+      # Shopify customers (marketing consent, 20261124020000): consent is a
+      # STATE and an absent one is NOT "not subscribed"; the walk is
+      # incremental, budgeted and resumable; and a store without
+      # read_customers (or a database without the migration) SKIPS rather than
+      # failing the run or touching the rest of that store's sync.
+      - name: Shopify customers consent sync
+        run: node --test scripts/tests/shopify-customers-sync.test.mjs
+
       # 20261013220000 keys order facts per company: every order-fact upsert
       # goes through upsertOrderFact (per-company key, old key only while the
       # migration is unapplied), and the edge functions ship the same module.
@@ -793,6 +812,9 @@ jobs:
       # companyGate, because each tab's visibility is its own nav row's.
       - name: Performance suite navigation
         run: node --test scripts/tests/performance-suite.test.mjs
+
+      - name: Marketing chart chrome
+        run: node --test scripts/tests/marketing-charts.test.mjs
 
       # The Inventory Overview (2026-11-16): the suite's first tab, and the
       # only page that aggregates inventory in SQL rather than reading the
@@ -1403,6 +1425,7 @@ jobs:
           node scripts/tests/affiliate-shopify-codes.test.mjs
           node scripts/tests/affiliate-discovery-run-edge.test.mjs
           node scripts/tests/affiliate-research-edge.test.mjs
+          node scripts/tests/affiliate-customer-scan-edge.test.mjs
           node scripts/tests/affiliate-studio-ui.test.mjs
           node scripts/tests/affiliate-overview.test.mjs
           node scripts/tests/affiliate-payouts.test.mjs
@@ -1421,12 +1444,13 @@ jobs:
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
-          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup anyprogram scopefailopen
           run MUT scripts/tests/affiliate-shopify-codes.test.mjs scnoadopt scnoscope scnotpending scguess scsweepopen scanyco scendday scnoremint scfirstpage scnonext scwrongstore scadoptany scnorename scendanyco scendfailok scendcut scendmissing scseednear scseedstate scseedpages scearnagain scearnanon
-          run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent
+          run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent nomatch matchfatal matchchained matchrebuild nosplit oldestfirst
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
           run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge ytcompany ytavgrate ythiddenzero ytoverwrite ytblank ytstale nocache knownkept knownbrief knownallco photoclobber ytclobber rpcfallback ytthumb ytnoleads ytanyplat leanoff leanalways
-          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash
+          run AFFILIATE_SCAN_MUTATION scripts/tests/affiliate-customer-scan-edge.test.mjs nullconsent optoutscan aicount aianyurl firstonly rescan nojoin noresume resumeoptout aiall forcedtool nocarry carryoptout nochain nohandoff nolegcap nobar programscope programjoin programbar teamskip teamdomain suffix popular offplatform namebasis aikeyleak nohandle maskedmail handleloose noresults handlealways noaileg
+          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash badgeall consentgate consentblank windowend minfree supdomain supcase custnolink custpin socialzero socialhref socialident basispromote
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
           run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter noauthflag
       # Both suites below sat in this contract check's KNOWN_UNWIRED list until
@@ -2835,8 +2859,42 @@ jobs:
       - name: The Affiliate Studio database guards, removed, must break it
         run: |
           set -u
-          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail mailedonly boundaddress photohttp nolink nomatchindex connread payoutsecret sendinflight sendunknown unclaimedpaid terminalrewrite sendtenant sendgrant voidinflight voidlock sandboxpaid sandboxblock recordlock pausedclaim anylaunch anyorders autoshareflag autosharepast autosharecrossco autoshareagain autoshareproduct autosharefails autosharenofollow autosharefollowany seedgate seedcountsseed seedrefund seedanyproduct seedotheraff seedtwice seedwholeorder seedprorate seedrefunded seedpaystored seednullrefund seedmixedguess addproggate addprogco termsfilebump termsfilegate portalrevoke sendrecheck exportrecheck retryrecheck anyagerate anyageup anyageactive orderhold orderapproved financeopen anyageunknown; do
+          for m in rls company gate moneygate uniqueorder crossprogram appendonly evidence suppression tokenread clamp hold manualonly minor overlap staleterms portalgrant periodguard claimonce termsbump normalize cancelreverse cancelretired inactiveneg stalepayout periodinsert periodreopen samecompany applyoverwrite exportconfirm managedco moneylock anyemail mailedonly boundaddress photohttp nolink nomatchindex connread payoutsecret sendinflight sendunknown unclaimedpaid terminalrewrite sendtenant sendgrant voidinflight voidlock sandboxpaid sandboxblock recordlock pausedclaim anylaunch anyorders autoshareflag autosharepast autosharecrossco autoshareagain autoshareproduct autosharefails autosharenofollow autosharefollowany seedgate seedcountsseed seedrefund seedanyproduct seedotheraff seedtwice seedwholeorder seedprorate seedrefunded seedpaystored seednullrefund seedmixedguess addproggate addprogco termsfilebump termsfilegate portalrevoke sendrecheck exportrecheck retryrecheck anyagerate anyageup anyageactive orderhold orderapproved financeopen anyageunknown scopeopen scopewrite scopeexec scopenull scopeprogco scopeonegrant audall audfeed audpush audprog scoperpc scopeattach audrpcgate audrpcprog audrpcnodelete addprogsrc audrpcscopedel audrpcscopenamed ppmirror ppmirrorkey ppmirrorprovider emailfollow emailrevoke emailscope stopblocked joinopen joinemail joinended joinguard joinscope joincast; do
             if AFFILIATE_DB_MUTATION="$m" node scripts/tests/affiliate-studio-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # The past-customer badge (20261123210000) on real PostgreSQL: the
+      # customer lookup's totals, Blake's own scores, a short order history
+      # capping them, tenant isolation, and the production verify block.
+      - name: Affiliate past-customer badge database (real PostgreSQL)
+        run: node scripts/tests/affiliate-past-customer-database.test.mjs
+      - name: The past-customer badge guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company funcgrant surname brand namesake stale shorthist crossco confirmed cancelled window idxpred nopred anonread clientwrite wholescan handle handleshare handlebrand handlefirst; do
+            if PASTCUST_MUTATION="$m" node scripts/tests/affiliate-past-customer-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # Shopify customer marketing consent (20261124020000) on real
+      # PostgreSQL: a consent STATE kept verbatim with derived booleans and
+      # NULL meaning not measured, a cross-store view that picks one real
+      # consent EVENT, the rollup onto the past-customer lookup, consent
+      # cleared when its email no longer has a source, and tenancy/grants.
+      - name: Shopify customer consent database (real PostgreSQL)
+        run: node scripts/tests/shopify-customers-consent-database.test.mjs
+      - name: The customer consent guards, removed, must break it
+        run: |
+          set -u
+          for m in rls company funcgrant clientwrite coalesce noclear boolean; do
+            if CONSENT_MUTATION="$m" node scripts/tests/shopify-customers-consent-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

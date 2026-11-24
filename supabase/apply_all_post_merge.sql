@@ -19872,8 +19872,64 @@ $c$select (select count(*) from v_po_header_summary
 -- Corrections land on marketing_kpis_daily itself, so pages, reports, Ask SILO
 -- and the MCP agree, and the platform's raw value stays in extra.silo_adjusted.
 \i migrations/20261120020000_ad_metric_adjustments.sql
+-- 20261120030000: a product the company itself shared is seeded without a
+-- second approval -- the claim is created approved, with its one-use code.
+\i migrations/20261120030000_affiliate_seed_shared_auto.sql
+-- 20261120040000: scheduled report email -- the 4x2 cadence matrix, so "how
+-- often" and "what time" are two controls. Needs the generic computeNextRunAt
+-- (three copies) deployed with it.
+\i migrations/20261120040000_report_email_cadence_matrix.sql
 -- 20261120050000: Amazon Ads as the fourth ad platform -- the two platform
 -- CHECKs, the profile/region pair on the connection, and the nightly's
 -- job_type. Apply BEFORE deploying amazon-oauth-start / amazon-oauth-callback.
 \i migrations/20261120050000_amazon_ads_connection.sql
+-- 20261121210000: per-program staff scope and a per-creator audience on a
+-- share. Both mean "everything" when null, so applying it changes nobody's
+-- access until somebody narrows it deliberately.
+\i migrations/20261121210000_affiliate_program_scoped_access.sql
+-- 20261121230000: one person, one PayPal address, one email -- triggers, so
+-- every write path including the deployed ones is covered.
+\i migrations/20261121230000_affiliate_one_person_one_paypal.sql
+-- 20261123210000: two cards (or bank accounts) may feed ONE QuickBooks
+-- balancing account. The same card mapped twice is still refused, now by
+-- configure_plaid_account, which can see the Plaid account's identity.
+\i migrations/20261123210000_plaid_multiple_feeds_per_qbo_account.sql
+-- 20261123210000: the past-customer badge -- a precomputed customer lookup per
+-- company, and the matcher that badges a program's PROSPECTS against it (never
+-- a scan of the customer base). Nightly job keeps the lookup current.
+\i migrations/20261123210000_affiliate_past_customer_badge.sql
+-- 20261124000000: a program-scoped manager may not move a creator who is in
+-- programs they were not given, and recording "they asked to stop" is no
+-- longer refused by the suppression guard it just wrote to.
+\i migrations/20261124000000_affiliate_scope_and_outreach_fixes.sql
+-- 20261124001000: the customer lookup's per-customer history pass carries the
+-- predicate of the partial index it depends on, so the planner can use it.
+\i migrations/20261124001000_customer_profile_index_predicate.sql
+-- 20261124010000: the past-customer badge also matches the name in a creator's
+-- HANDLE against customer names ("@emily_durrance"), since a discovered
+-- creator's profile name is usually a channel name. Function-only.
+\i migrations/20261124010000_affiliate_handle_name_match.sql
+-- 20261124010000: Shopify customers -- marketing consent as it stands now,
+-- its own sync job and scope, plus the consent columns it carries onto the
+-- past-customer lookup. A store without read_customers is unaffected.
+\i migrations/20261124020000_shopify_customer_marketing_consent.sql
+-- 20261124140000: a live membership closes that person's open outreach, so a
+-- recruiting message cannot sit waiting for somebody who already joined.
+\i migrations/20261124140000_affiliate_outreach_close_when_joined.sql
+-- 20261124030000: recruiting an existing customer -- source 'customer', an
+-- email as a third way to be identifiable, and the program's own customer
+-- outreach template. Same outreach flow after that, nothing forked.
+\i migrations/20261124030000_affiliate_customer_outreach.sql
+-- 20261124170000: Your Customers "Find their social accounts" -- one row per
+-- press (progress, one running scan per program) and one per customer per
+-- program (the queue, then the answer). Written only by affiliate-research.
+\i migrations/20261124170000_affiliate_customer_social_scan.sql
+-- 20261124190000: social finds you can trust -- why a profile is believed to
+-- be the customer (match_basis), "Not them", and a one-time clear of the
+-- pilot's results judged by the old rules.
+\i migrations/20261124190000_affiliate_customer_social_trust.sql
+-- 20261124210000: the customer scan is the company's, not a program's --
+-- one answer per customer per company, one running scan per company, the
+-- follower bar in entities.meta, a deleted program keeps the results.
+\i migrations/20261124210000_affiliate_customer_social_company.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

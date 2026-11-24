@@ -37,7 +37,7 @@ const co = randomUUID(), otherCo = randomUUID();
 const finance = randomUUID(), outsider = randomUUID(), otherFinance = randomUUID();
 const conn = randomUUID(), otherConn = randomUUID();
 const mutation = process.env.PLAID_DB_MUTATION || '';
-assert.ok(['', 'csv-authority'].includes(mutation), 'Unknown Plaid database mutation');
+assert.ok(['', 'csv-authority', 'one-feed-per-account', 'unknown-mask-is-a-new-card', 'label-is-an-institution'].includes(mutation), 'Unknown Plaid database mutation');
 let passed = 0;
 
 async function asRole(role, user, fn) {
@@ -63,9 +63,9 @@ async function test(name, fn) {
   }
 }
 
-function providerAccount(id, type = 'depository') {
+function providerAccount(id, type = 'depository', mask = '1234') {
   return { account_id: id, name: 'Synthetic account', official_name: 'Synthetic bank account',
-    mask: '1234', type, subtype: type === 'credit' ? 'credit card' : 'checking',
+    mask, type, subtype: type === 'credit' ? 'credit card' : 'checking',
     balances: { current: 1000, available: 900, iso_currency_code: 'USD' } };
 }
 function providerTransaction(account, overrides = {}) {
@@ -74,16 +74,17 @@ function providerTransaction(account, overrides = {}) {
     merchant_name: 'Synthetic merchant', amount: 35, iso_currency_code: 'USD',
     pending: false, pending_transaction_id: null, ...overrides };
 }
-async function bankAccount({ company = co, actor = finance, type = 'depository', mapped = true } = {}) {
+async function bankAccount({ company = co, actor = finance, type = 'depository', mapped = true, mask = '1234',
+  institution = 'Synthetic bank' } = {}) {
   const providerId = `account-${randomUUID()}`, itemId = `item-${randomUUID()}`;
   const result = await asService(() => rpc('plaid_register_connection', [company, itemId,
-    'sandbox', 'Synthetic bank', { v: 1, iv: 'synthetic-iv', ciphertext: 'synthetic-ciphertext' },
-    [providerAccount(providerId, type)], actor]));
+    'sandbox', institution, { v: 1, iv: 'synthetic-iv', ciphertext: 'synthetic-ciphertext' },
+    [providerAccount(providerId, type, mask)], actor]));
   const account = await first('select * from plaid_accounts where connection_id=$1 and provider_account_id=$2',
     [result.connection_id, providerId]);
   assert.ok(account?.id, 'Registration persists its authoritative account response');
   const fixture = { id: account.id, connectionId: result.connection_id, providerId, itemId, company,
-    actor, type, cursor: null, qboId: `bank-${randomUUID()}` };
+    actor, type, mask, cursor: null, qboId: `bank-${randomUUID()}` };
   if (mapped) await mapAccount(fixture);
   return fixture;
 }
@@ -107,7 +108,7 @@ async function apply(account, changes = {}, lease = null) {
   const next = `cursor-${randomUUID()}`;
   const result = await asService(() => rpc('plaid_apply_sync', [account.id, claimed.lease,
     claimed.cursor ?? null, next, changes.added || [], changes.modified || [], changes.removed || [],
-    [providerAccount(account.providerId, account.type)]]));
+    [providerAccount(account.providerId, account.type, account.mask)]]));
   account.cursor = next;
   return result;
 }
@@ -193,7 +194,7 @@ try {
     // "End of Plaid fixture checks" marker, so each migration whose check lands after that marker must
     // be applied here first. #684 and #686 appended checks without doing so and
     // the finance-database job went red on every push to main from then on.
-    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql', '20261103200000_plaid_discard_stale_pending.sql', '20261112040000_plaid_auto_refresh_requested.sql']) {
+    for (const later of ['20260913054723_profiles_active_company_scope.sql', '20260913062551_cashflow_overrides_liquidity.sql', '20260914220000_qbo_history_number_formats.sql', '20260915000000_qbo_history_bounded_archive.sql', '20260915100000_card_transaction_splits.sql', '20260915200000_qbo_history_unattributed_section.sql', '20260915210000_qbo_history_trial_balance_period.sql', '20260915220000_plaid_removed_from_status.sql', '20260923120000_card_coding_suggestions.sql', '20260923130000_card_coding_background_preparation.sql', '20260923140000_card_coding_evidence_and_rules.sql', '20261103070000_plaid_manual_days.sql', '20261103200000_plaid_discard_stale_pending.sql', '20261112040000_plaid_auto_refresh_requested.sql', '20261123200000_plaid_multiple_feeds_per_qbo_account.sql']) {
       const sql = await readFile(new URL(`supabase/migrations/${later}`, root), 'utf8');
       await db.exec(sql); await db.exec(sql);
     }
@@ -219,6 +220,39 @@ try {
     assert.ok(storedHashCheck);
     assert.equal(await scalar(storedHashCheck.text), 'ok', 'The existing approval verifier must remain compatible');
   });
+  if (mutation === 'label-is-an-institution') {
+    // Deliberately read two display labels as two institutions. The
+    // differing-label assertions must fail.
+    const definition = await scalar("select pg_get_functiondef('public.plaid_duplicate_card_feed(uuid,uuid,text)'::regprocedure)");
+    const join = '    join public.card_sources s on s.id=other.source_id';
+    assert.ok(definition.includes(join), 'Mutation must replace the live identity check');
+    await db.exec(definition.replace(join, `    join public.plaid_connections self_conn on self_conn.id=self.connection_id
+    join public.plaid_connections other_conn on other_conn.id=other.connection_id
+      and other_conn.institution_name is not distinct from self_conn.institution_name
+${join}`));
+  }
+  if (mutation === 'unknown-mask-is-a-new-card') {
+    // Deliberately read a missing mask as proof of a different card. The
+    // indistinguishable-feed assertions must fail.
+    const definition = await scalar("select pg_get_functiondef('public.plaid_duplicate_card_feed(uuid,uuid,text)'::regprocedure)");
+    const identity = '      and (self.mask is null or other.mask is null or other.mask=self.mask)';
+    assert.ok(definition.includes(identity), 'Mutation must replace the live identity check');
+    await db.exec(definition.replace(identity, '      and other.mask=self.mask')
+      .replace('  where self.id=p_account_id\n', '  where self.id=p_account_id and self.mask is not null\n'));
+  }
+  if (mutation === 'one-feed-per-account') {
+    // Deliberately restore the refusal that blocked a second card feeding one
+    // QuickBooks account. The two-cards-one-account assertion must fail.
+    const definition = await scalar("select pg_get_functiondef('public.plaid_guard_source_authority()'::regprocedure)");
+    const anchor = `    -- Several Plaid feeds may share one QuickBooks account. The earliest
+    -- cutover across all of them is what CSV must stay clear of, below.`;
+    assert.ok(definition.includes(anchor), 'Mutation must replace the live source authority guard');
+    await db.exec(definition.replace(anchor, `    if exists(select 1 from public.card_sources s where s.id<>new.id and s.company_entity_id=new.company_entity_id
+      and s.ingest_mode='plaid' and s.qbo_connection_id=new.qbo_connection_id and s.credit_qbo_account_id=new.credit_qbo_account_id) then
+      raise exception 'This QuickBooks account already has an authoritative Plaid feed';
+    end if;
+`));
+  }
   if (mutation === 'csv-authority') {
     // Deliberately restore the double-import defect in the actual PostgreSQL
     // trigger. The unchanged alternate-CSV-source assertion must reject it.
@@ -268,6 +302,76 @@ try {
     assert.equal((await load('plaid_accounts', account.id)).source_id, null);
   });
 
+  await test('two cards can feed one QuickBooks account; each keeps its own statement account and feed', async () => {
+    const first_card = await bankAccount({ type: 'credit', mapped: false, mask: '4036' });
+    const second_card = await bankAccount({ type: 'credit', mapped: false, mask: '2008' });
+    const qboId = `card-${randomUUID()}`;
+    await mapAccount(first_card, { qboId, cutover: '2026-08-01' });
+    await mapAccount(second_card, { qboId, cutover: '2026-08-01' });
+    assert.notEqual(first_card.source, second_card.source);
+    assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [qboId]), 2);
+    // Each feed imports under its own Plaid account, so the per-account
+    // identity index still carries dedupe and the two sets never merge.
+    const added = providerTransaction(first_card, { date: '2026-09-02' });
+    await apply(first_card, { added: [added] });
+    await apply(second_card, { added: [providerTransaction(second_card, { date: '2026-09-02' })] });
+    assert.equal(await scalar(`select count(*)::integer from card_transactions t
+      join card_import_batches b on b.id=t.batch_id where b.source_id=$1`, [first_card.source]), 1);
+    assert.equal(await scalar(`select count(*)::integer from card_transactions t
+      join card_import_batches b on b.id=t.batch_id where b.source_id=$1`, [second_card.source]), 1);
+    await apply(first_card, { added: [added] });
+    assert.equal(await scalar('select count(*)::integer from card_transactions where external_transaction_id=$1', [added.transaction_id]), 1);
+  });
+
+  await test('a second feed SILO cannot tell apart from the first is refused, however the mask is missing', async () => {
+    // Plaid may send no mask at all, and plaid_apply_sync writes what it sends
+    // over a mask already held, so an absent mask is never evidence of a
+    // second card: the feed that is already there would be imported twice
+    // under new provider ids.
+    for (const [existing, incoming] of [[null, '2008'], ['4036', null], [null, null]]) {
+      const mapped = await bankAccount({ type: 'credit', mapped: false, mask: existing });
+      const second = await bankAccount({ type: 'credit', mapped: false, mask: incoming });
+      const qboId = `card-${randomUUID()}`;
+      await mapAccount(mapped, { qboId, cutover: '2026-08-01' });
+      await assert.rejects(mapAccount(second, { qboId, cutover: '2026-08-01' }),
+        /cannot tell this account apart/i, `masks ${existing} / ${incoming}`);
+      assert.equal((await load('plaid_accounts', second.id)).source_id, null);
+      assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [qboId]), 1);
+      // Nothing of the second account's can reach the books: with no source it
+      // cannot even claim a sync.
+      await assert.rejects(asService(() => rpc('plaid_claim_sync', [second.id, randomUUID()])), /configure|before syncing/i);
+    }
+  });
+
+  await test('two differing institution labels are not two institutions', async () => {
+    // institution_name is a display label: the browser passes through whatever
+    // Plaid Link gave it, and plaid-finance stores 'Bank connection' when Link
+    // gave none, so the same bank can sit under two labels. Reading two labels
+    // as two banks would fail open on exactly the relink this guard is for.
+    for (const [existingLabel, incomingLabel, existingMask, incomingMask, refusal] of [
+      ['Bank connection', 'Synthetic bank', null, '2008', /cannot tell this account apart/i],
+      ['Synthetic bank', 'Bank connection', '4036', null, /cannot tell this account apart/i],
+      ['Bank connection', 'Synthetic bank', '4036', '4036', /already feeds this quickbooks account/i],
+    ]) {
+      const mapped = await bankAccount({ type: 'credit', mapped: false, mask: existingMask, institution: existingLabel });
+      const second = await bankAccount({ type: 'credit', mapped: false, mask: incomingMask, institution: incomingLabel });
+      const qboId = `card-${randomUUID()}`;
+      await mapAccount(mapped, { qboId, cutover: '2026-08-01' });
+      await assert.rejects(mapAccount(second, { qboId, cutover: '2026-08-01' }), refusal,
+        `${existingLabel}/${existingMask} then ${incomingLabel}/${incomingMask}`);
+      assert.equal((await load('plaid_accounts', second.id)).source_id, null);
+      assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [qboId]), 1);
+      await assert.rejects(asService(() => rpc('plaid_claim_sync', [second.id, randomUUID()])), /configure|before syncing/i);
+    }
+    // Two known, different masks are still two cards, whatever the labels say.
+    const one = await bankAccount({ type: 'credit', mapped: false, mask: '4036', institution: 'Bank connection' });
+    const two = await bankAccount({ type: 'credit', mapped: false, mask: '2008', institution: 'Synthetic bank' });
+    const shared = `card-${randomUUID()}`;
+    await mapAccount(one, { qboId: shared, cutover: '2026-08-01' });
+    await mapAccount(two, { qboId: shared, cutover: '2026-08-01' });
+    assert.equal(await scalar("select count(*)::integer from card_sources where ingest_mode='plaid' and credit_qbo_account_id=$1", [shared]), 2);
+  });
+
   await test('registration validates the initiating company and cannot reassign an existing Plaid item', async () => {
     const account = await bankAccount({ mapped: false });
     const register = (company, actor) => asService(() => rpc('plaid_register_connection', [company,
@@ -294,8 +398,12 @@ try {
     await assert.rejects(csv(source.id, { date: '2026-09-11' }), /CSV|overlap/i);
     const alternate = await csvSource(source.qboId);
     await assert.rejects(csv(alternate.id, { date: '2026-09-12' }), /CSV|overlap/i);
+    // The SAME card arriving again (a relink: new item, same institution, type
+    // and mask) must not feed the account twice -- every transaction would come
+    // back under a new provider id.
     const duplicate = await bankAccount({ mapped: false });
-    await assert.rejects(mapAccount(duplicate, { qboId: source.qboId, cutover: '2026-09-11' }), /authoritative|already|mapped/i);
+    await assert.rejects(mapAccount(duplicate, { qboId: source.qboId, cutover: '2026-09-11' }), /that card already feeds/i);
+    assert.equal((await load('plaid_accounts', duplicate.id)).source_id, null);
     await assert.rejects(asFinance(() => q("update card_sources set authoritative_from='2026-10-01' where id=$1", [account.source])), /rebound|cutover|configure/i);
   });
 

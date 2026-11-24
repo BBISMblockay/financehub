@@ -445,6 +445,37 @@ export function outreachTemplate(program) {
 }
 
 // Where a prospect came from, in words.
+// The past-customer badge (20261123210000). Blake 2026-11-23: "Without
+// muddying up or showing a lot of info on this, we'd give a badge to the
+// prospect, showing they have ordered in past". So: one short label, and the
+// order count, last order and lifetime spend only on hover.
+//
+// `customer_lifetime_spend` is a currency AMOUNT (Shopify's order totals), not
+// minor units, so it is not formatMoney's input.
+export function pastCustomerBadge(p, currency = 'USD') {
+  const st = p?.customer_match_status;
+  if (!['possible', 'likely', 'confirmed'].includes(st)) return null;
+  const n = Number(p.customer_order_count || 0);
+  const spend = Number(p.customer_lifetime_spend);
+  const bits = [];
+  if (n > 0) bits.push(`${n} order${n === 1 ? '' : 's'}`);
+  if (p.customer_last_order_at) bits.push(`last ${String(p.customer_last_order_at).slice(0, 10)}`);
+  if (Number.isFinite(spend) && spend > 0) {
+    const cur = String(currency || 'USD').toUpperCase();
+    try {
+      bits.push(spend.toLocaleString('en-US', { style: 'currency', currency: cur, maximumFractionDigits: 0 }));
+    } catch {
+      bits.push(`${Math.round(spend)} ${cur}`);
+    }
+  }
+  if (p.customer_match_basis) bits.push(p.customer_match_basis);
+  return {
+    label: st === 'possible' ? 'Possible customer' : 'Past customer',
+    tone: st === 'possible' ? '' : 'pos',
+    title: bits.length ? `${bits.join(' · ')}. Check before you write to them.` : 'Check before you write to them.',
+  };
+}
+
 export const SOURCE_LABELS = { serp: 'search', manual: 'added by hand', csv_import: 'your list', applied: 'applied', ai_research: 'AI research' };
 export const sourceLabel = (s) => SOURCE_LABELS[s] || s || '';
 
@@ -706,4 +737,284 @@ export function seedView(c = {}) {
     open: ['requested', 'approved', 'code_ready', 'purchased'].includes(c.state),
     pct: c.state === 'earned' ? 100 : (hasGoal ? Math.max(0, Math.min(100, Math.round(prog / goal * 100))) : null),
   };
+}
+
+// ── Your Customers ────────────────────────────────────────────────────────
+// Blake, 2026-11-24: "if the data is there, literally what are we waiting
+// for ha?" -- the repeat buyers to recruit from, as a sub-tab under People
+// rather than a report of its own, built on `company_customer_profiles`
+// (one row per customer PER COMPANY, so a person who bought in two stores is
+// one person here).
+//
+// CONSENT IS A FILTER, NEVER A GATE. Blake's own framing: "that is a tough
+// barrier, we should use as filtering segment tactic, not barrier." The
+// default is `any` and NO consent predicate is applied at all, because this
+// is one-to-one recruiting, not a marketing send. The one value that is a
+// decision rather than a filter is `unmeasured`, which means "SILO has not
+// looked yet" -- the store may lack the read_customers scope, or the customer
+// walk may not have reached that person. It is NOT unsubscribed, and reading
+// it that way would invent an opt-out for hundreds of thousands of people.
+//
+// RANKING (Blake asked, 2026-11-24, "what is our ranking? is it configurable
+// by brand?"): most orders, then highest lifetime spend, then most recent
+// order. No blended score -- a weighted number nobody can explain is worse
+// than two columns you can read, and the follower counts that would justify
+// one do not exist until the social scan runs. Every sort is a named ordering
+// here, so the column headers can re-rank without inventing arithmetic.
+export const CUSTOMER_PAGE_SIZE = 100;
+export const CUSTOMER_CONSENTS = ['any', 'subscribed', 'not_subscribed', 'unsubscribed', 'pending', 'unmeasured'];
+export const CUSTOMER_MIN_ORDERS_MAX = 50;
+// Each entry is the full tie-break chain, so two customers with the same
+// order count never come back in storage order (which changes under paging
+// and makes a row appear on two pages).
+export const CUSTOMER_SORTS = {
+  orders: [['order_count', false], ['lifetime_spend', false], ['last_order_at', false], ['customer_key', true]],
+  spend: [['lifetime_spend', false], ['order_count', false], ['last_order_at', false], ['customer_key', true]],
+  recent: [['last_order_at', false], ['order_count', false], ['lifetime_spend', false], ['customer_key', true]],
+  oldest: [['first_order_at', true], ['order_count', false], ['customer_key', true]],
+  name: [['name_lc', true], ['customer_key', true]],
+};
+export const CUSTOMER_SORT_DEFAULT = 'orders';
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// The one filter spec every read of this tab goes through: what the database
+// is asked, derived from what the person picked, with every value clamped
+// here rather than at the call site.
+export function customerQuerySpec(f = {}) {
+  const sort = Object.prototype.hasOwnProperty.call(CUSTOMER_SORTS, f.sort) ? f.sort : CUSTOMER_SORT_DEFAULT;
+  const minRaw = Number(f.minOrders);
+  const minOrders = Number.isFinite(minRaw)
+    ? Math.max(1, Math.min(CUSTOMER_MIN_ORDERS_MAX, Math.trunc(minRaw)))
+    : 1;
+  const consent = CUSTOMER_CONSENTS.includes(f.consent) ? f.consent : 'any';
+  const from = ISO_DAY_RE.test(f.from) ? f.from : null;
+  const to = ISO_DAY_RE.test(f.to) ? f.to : null;
+  const page = Number.isFinite(Number(f.page)) ? Math.max(0, Math.trunc(Number(f.page))) : 0;
+  const size = CUSTOMER_PAGE_SIZE;
+  return {
+    sort,
+    minOrders,
+    consent,
+    from,
+    // The window is on the customer's LAST order, and the end is EXCLUSIVE of
+    // the next day: `last_order_at` is a timestamp, so `lte` the chosen day
+    // would drop everyone who ordered that day after midnight.
+    toExclusive: to ? dayShift(to, -1) : null,
+    // `any` applies no predicate at all; `unmeasured` is an IS NULL, not a
+    // state comparison, and the two must never collapse into one branch.
+    consentIsNull: consent === 'unmeasured',
+    consentState: consent === 'any' || consent === 'unmeasured' ? null : consent,
+    order: CUSTOMER_SORTS[sort].map(([column, ascending]) => ({ column, ascending })),
+    range: [page * size, page * size + size - 1],
+    page,
+    size,
+  };
+}
+
+// What the tab says a customer's consent is. A blank state is the measured-
+// nothing-yet case and says so; it is never shown as unsubscribed.
+export function customerConsentView(state) {
+  if (state === null || state === undefined || state === '') {
+    return { label: 'not checked yet', tone: '', measured: false };
+  }
+  const tone = state === 'subscribed' ? 'pos' : state === 'unsubscribed' ? 'neg' : '';
+  return { label: String(state).replace(/_/g, ' '), tone, measured: true };
+}
+
+// Outreach to an existing CUSTOMER, not a creator found on the web. The
+// creator template opens "We found your {platform} through {source}", which
+// read by somebody who has bought from you nine times is worse than silence.
+// Same tokens, same per-brand editing, its own default (20261124030000).
+export const DEFAULT_CUSTOMER_OUTREACH = {
+  subject: 'Would you want to partner with {brand}?',
+  body: 'Hi {name},\n\nYou have shopped with us{orders_line}, so you already know {brand} better than most people we talk to. We run an affiliate program and we would rather have customers in it than strangers: {commission}.\n\nIf you are up for it, this link has the terms and lets you join: {signup_link}\n\nNot interested? Just reply and say so and we will leave it there.\n\n{sender}',
+};
+// The same rule as outreachTemplate: a body with no {signup_link} is not
+// usable, so the default stands in rather than sending a message nobody can
+// act on.
+export function customerOutreachTemplate(program) {
+  const subject = typeof program?.customer_outreach_subject === 'string' && program.customer_outreach_subject.trim()
+    ? program.customer_outreach_subject : DEFAULT_CUSTOMER_OUTREACH.subject;
+  const body = typeof program?.customer_outreach_body === 'string' && program.customer_outreach_body.includes('{signup_link}')
+    ? program.customer_outreach_body : DEFAULT_CUSTOMER_OUTREACH.body;
+  return { subject, body };
+}
+
+// Do-not-contact, read the way the database reads it. Blake 2026-11-24: "skip
+// do not contacts yes as they don't want contact." This is the convenience
+// pass so a suppressed customer never appears on a list to be picked; the
+// database is still the boundary (affiliate_outreach_can_contact() and the
+// trigger that refuses to approve such a draft).
+//
+// `email` and `domain` are the two kinds that can match an email address, and
+// they are normalised exactly as affiliate_normalize_contact does: an email
+// lowercased and trimmed, a domain also stripped of scheme and www.
+export function customerSuppressed(email, suppressions = []) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return false;
+  const at = e.lastIndexOf('@');
+  const domain = at > 0 ? e.slice(at + 1) : '';
+  for (const s of suppressions || []) {
+    const v = String(s?.value_normalized || '').trim().toLowerCase();
+    if (!v) continue;
+    if (s.kind === 'email' && v === e) return true;
+    if (s.kind === 'domain' && domain) {
+      const d = v.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/+$/, '');
+      // A suppressed domain covers its subdomains, which is how a company
+      // that asked not to be contacted stops being contacted at mail.x.com.
+      if (d && (domain === d || domain.endsWith(`.${d}`))) return true;
+    }
+  }
+  return false;
+}
+
+// What a picked customer becomes: an ordinary prospect row. `platform` is
+// 'other' because they have no channel yet -- finding one is the social
+// scan's job, and claiming 'web' would say we looked.
+//
+// The order facts go in `evidence`, which is what the rest of the studio
+// already reads for provenance, so the row explains itself on screen without
+// any new column.
+export function customerProspectRow({ customer, social = null, collectedAt = new Date().toISOString() }) {
+  const c = customer || {};
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  const orders = Number(c.order_count);
+  const spend = Number(c.lifetime_spend);
+  return {
+    source: 'customer',
+    // Lined up for outreach, which is what 'approved' means here (it is not a
+    // decision about the person; see PROSPECT_LABEL).
+    status: 'approved',
+    platform: 'other',
+    display_name: customerDisplayName(c) || email || null,
+    contact_email: email || null,
+    handle: null,
+    profile_url: null,
+    collected_at: collectedAt,
+    evidence: {
+      found_via: 'your own customers',
+      note: customerEvidenceNote(c),
+      customer_key: c.customer_key || null,
+      order_count: Number.isFinite(orders) ? orders : null,
+      lifetime_spend: Number.isFinite(spend) ? spend : null,
+      first_order_at: c.first_order_at || null,
+      last_order_at: c.last_order_at || null,
+      // Carried so a reader can see it was a filter, never a gate, and so a
+      // blank stays blank rather than becoming "not subscribed".
+      email_consent_state: c.email_consent_state ?? null,
+      // What "Find their social accounts" found, carried as evidence only.
+      // Never the prospect's own profile_url: that column feeds the identity
+      // index, and the same profile already on the list from Discovery would
+      // refuse this customer's row outright.
+      ...(customerSocialEvidence(social) ? { social: customerSocialEvidence(social) } : {}),
+    },
+  };
+}
+
+// ── Find their social accounts ──────────────────────────────────────────
+// A result row is evidence only when it names a profile; 'ambiguous', 'none'
+// and the rest carry nothing a reader could act on.
+export const SOCIAL_KEPT = ['found', 'below', 'no_count'];
+// Why a profile is believed to be the customer (match_basis), and what the
+// page calls it. Anything unknown reads as a name match: never promoted.
+export const SOCIAL_BASIS = {
+  email_handle: { trust: 'likely', pill: 'Likely', why: 'The handle matches their email name' },
+  city: { trust: 'likely', pill: 'Likely', why: 'Their city appears on the profile' },
+  name_only: { trust: 'name', pill: 'Name match', why: 'Only the name matches. Check it is them' },
+};
+export function customerSocialEvidence(s) {
+  if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
+  return {
+    status: s.status,
+    platform: s.platform || null,
+    handle: s.handle || null,
+    profile_url: s.profile_url,
+    // NULL is "no result stated a count", never zero.
+    followers: Number.isFinite(Number(s.followers)) && s.followers !== null ? Number(s.followers) : null,
+    followers_quote: s.followers_quote || null,
+    match_basis: SOCIAL_BASIS[s.match_basis] ? s.match_basis : 'name_only',
+    source_url: s.source_url || null,
+    checked_at: s.checked_at || null,
+  };
+}
+export function compactCount(n) {
+  const v = Number(n);
+  if (n === null || n === undefined || !Number.isFinite(v)) return '';
+  if (v >= 1e6) return `${(Math.floor(v / 1e5) / 10).toString()}M`;
+  if (v >= 1e4) return `${Math.floor(v / 1e3)}K`;
+  if (v >= 1e3) return `${(Math.floor(v / 100) / 10).toString()}K`;
+  return String(Math.floor(v));
+}
+// What the Social column says for one customer. `row` is their
+// affiliate_customer_social row for this program, or undefined if never
+// scanned. Only http(s) links are ever handed back as `url`.
+export function customerSocialView(row) {
+  if (!row) return { label: '—', tone: 'muted', url: null, scanned: false };
+  const url = /^https?:\/\//i.test(String(row.profile_url || '')) ? row.profile_url : null;
+  const who = row.handle || (url ? url.replace(/^https?:\/\/(www\.)?/i, '') : '');
+  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;
+  // How far to trust it (Blake, 2026-11-24). Only a second signal makes a
+  // find "Likely"; a name alone is what a namesake has too, so it says so.
+  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;
+  const tier = { trust: basis.trust, why: basis.why, rejectable: true };
+  switch (row.status) {
+    case 'found': return { label: `${who} · ${count}`, tone: basis.trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
+    case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar', ...tier };
+    case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true, ...tier };
+    case 'rejected': return { label: 'Not them', tone: 'muted', url: null, scanned: true };
+    case 'ambiguous': return { label: 'Several possible', tone: 'muted', url: null, scanned: true };
+    case 'none': return { label: 'None found', tone: 'muted', url: null, scanned: true };
+    case 'pending': return { label: 'Queued', tone: 'muted', url: null, scanned: false };
+    case 'error': return { label: 'Not checked', tone: 'muted', url: null, scanned: false };
+    default: return { label: '—', tone: 'muted', url: null, scanned: false };
+  }
+}
+// The progress line. Live counts only: never a cost, a spend or a budget
+// (Blake 2026-11-24).
+export function customerScanLine(scan) {
+  if (!scan) return '';
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const found = Number(scan.found || 0);
+  const tail = `${n(scan.checked)} of ${n(scan.requested)} checked · ${n(found)} found`;
+  if (scan.status === 'running') return Number(scan.requested || 0) ? `Scanning… ${tail}` : 'Scanning… lining up customers';
+  if (scan.status === 'stopped') return `Last scan: ${tail}. Stopped early, more to check.`;
+  if (scan.status === 'error') return `Last scan: ${tail}. It hit a problem, more to check.`;
+  return `Last scan: ${tail}.`;
+}
+// name_lc is stored lowercased; it needs casing back before a person reads it.
+export function customerDisplayName(c) {
+  return String(c?.name_lc || '').replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1)).trim();
+}
+export function customerEvidenceNote(c) {
+  const orders = Number(c?.order_count);
+  const bits = [];
+  if (Number.isFinite(orders) && orders > 0) bits.push(`${orders} order${orders === 1 ? '' : 's'}`);
+  if (c?.last_order_at) bits.push(`last ${String(c.last_order_at).slice(0, 10)}`);
+  return bits.length ? `Your customer: ${bits.join(', ')}.` : 'Your customer.';
+}
+// "{orders_line}" in the customer template: " nine times" reads as a brag, so
+// it is a plain count, and it is EMPTY when the count is unknown rather than
+// filling in a guess.
+export function customerOrdersLine(c) {
+  const orders = Number(c?.order_count);
+  if (!Number.isFinite(orders) || orders < 1) return '';
+  return orders === 1 ? ' once' : ` ${orders} times`;
+}
+
+// The customer template's own save, with the same rules as templateRow: a
+// value equal to SILO's default is stored as NULL so the program follows the
+// default rather than pinning a copy of it, and a body with no {signup_link}
+// is refused rather than saved unusable.
+export function customerTemplateRow(subject, body) {
+  const errors = [];
+  const subj = String(subject ?? '').trim();
+  const text = String(body ?? '').replace(/\r\n/g, '\n').trim();
+  const row = {
+    customer_outreach_subject: subj === '' || subj === DEFAULT_CUSTOMER_OUTREACH.subject ? null : subj,
+    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,
+  };
+  if (row.customer_outreach_subject && row.customer_outreach_subject.length > 200) errors.push('Keep the customer subject under 200 characters.');
+  if (row.customer_outreach_body && row.customer_outreach_body.length > 5000) errors.push('Keep the customer message under 5,000 characters.');
+  if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');
+  return { row, errors };
 }

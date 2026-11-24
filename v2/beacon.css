@@ -118,6 +118,23 @@ table { border-collapse: collapse; }
   min-height: 0;
 }
 
+/* A scrolling column must not SQUEEZE its own rows (2026-11-20). .silo-main is
+   a flex column, so every row it holds is a flex item that shrinks by default:
+   once the rows together are taller than the window, the browser compresses
+   them instead of scrolling, and a card with its own overflow -- a status strip
+   -- is then cut through the middle of a line. Seen on /v2/seo-overview.html
+   and /v2/seo-keywords.html, whose strips lost two thirds of their height on a
+   short window. These are the blocks whose height IS their content; a page's
+   own scrolling content area still sets flex: 1 for itself and keeps it. */
+.silo-main > .bcn-header,
+.silo-main > .bcn-kpi-band,
+.silo-main > .bcn-filter-bar,
+.silo-main > .bcn-status,
+.silo-main > .bcn-tabs,
+.silo-main > .bcn-card {
+  flex-shrink: 0;
+}
+
 /* ---- SIDEBAR ----------------------------------------------------------- */
 
 .silo-sidebar {

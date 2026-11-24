@@ -3978,6 +3978,46 @@ portal can say why an order's earnings are pending, approved or paid. Apply only
 and payout accounts readable only by `can_manage_affiliate_programs()` or `can_approve_affiliate_commissions()`
 (they were readable by every member of the company). Studio shows a viewer the program without the money. Apply only.
 
+### Affiliate past-customer badge — 2026-11-23
+
+`20261123210000_affiliate_past_customer_badge.sql` badges a discovered creator who has already bought.
+
+Two pieces, both generic:
+
+* `company_customer_profiles` (+ `company_customer_profile_state`) — a precomputed customer lookup per company, one
+  row per customer, with lowercased name and email, order count, first/last order and lifetime spend, built from
+  `shopify_orders` by `refresh_company_customer_profiles(company, since, until, recent_months)`. Reads are scoped to
+  the active company; no client role can write it, and neither function is callable from a browser. The refresh takes
+  a WINDOW of order dates because every caller shares the 8s statement timeout, and recomputes each touched customer's
+  totals from their whole history, so a narrow window still stores a correct lifetime figure. It needs
+  `shopify_orders_co_customer_key_idx`, whose key expression must stay identical to the function's (verify checks
+  both sides).
+* `affiliate_match_prospect_customers(program, limit, recheck_after)` — matches that program's PROSPECTS against the
+  lookup and writes `customer_match_status` (`unknown`/`none`/`possible`/`likely`/`confirmed`/`not_matchable`),
+  score, basis, matched customer, order count, last order and lifetime spend onto `affiliate_prospects`. The customer
+  base is never scanned looking for creators. Scores: email 0.95; exact name + the name in the handle 0.72-0.80; exact
+  name alone 0.50, reduced when customers share the name; one-token (surname- or first-name-only) names do not flag; a
+  brand or channel name is `not_matchable`. A last order over 24 months old is weakened; a company whose own order
+  history is shorter than 24 months has every score capped at 0.60 with "history incomplete" in the basis. A human
+  `confirmed` is never overwritten.
+
+Callers: the nightly `scripts/affiliate-commissions.mjs` (tops up the lookup, walks a few older windows, then
+matches) and `upsertCandidates` in `scripts/lib/affiliate-discovery-core.mjs` (after a search, AI research or an
+import). Both fail soft and neither needs a deploy to be correct — but the discovery and research functions carry
+copies of that lib, so **deploy affiliate-discovery-run and affiliate-research** for the badge to appear right after a
+search rather than on the next nightly run.
+
+`20261124010000_affiliate_handle_name_match.sql` (follow-up) also matches the name in the creator's HANDLE. A
+discovered creator is usually named by their channel — Blake's own example is a prospect called
+"Emily | Baseball Mama" whose matching customer name, "emily durrance", exists only in `@emily_durrance` — so the new
+IMMUTABLE `silo_handle_name_key(handle)` strips a URL prefix, separators and digits out of a handle, the result has to
+pass the same `silo_looks_like_person_name` test the profile name faces, and it is matched against
+`company_customer_profiles.name_lc` through the index already there. 0.75 when the profile name carries one of those
+words too, 0.65 for the handle alone, with the same namesake discount, recency weakening and short-history cap. It
+runs only when the email and profile-name passes found nothing, so it can never weaken a stronger match, and it does
+override a `not_matchable` profile name, because a person's name in the handle is evidence about a person whatever the
+channel is called. Function-only: no table, column, policy or index change, and no deploy.
+
 ### Affiliate same-company keys — 2026-11-17
 
 `20261117090000_affiliate_same_company_twins.sql` adds the two-column
@@ -4002,6 +4042,282 @@ ledger line (unique `bonus_ledger_id`) and needs
 `can_approve_affiliate_commissions()` when a bonus is set. Apply before
 deploying affiliate-portal.
 
+### Affiliate access: per-program staff, per-creator shares — 2026-11-21
+
+`20261121210000_affiliate_program_scoped_access.sql` closes two access gaps, both
+additive and both meaning "everything" when left null, so applying it changes
+nobody's access until somebody deliberately narrows it.
+
+`affiliate_program_managers.program_id` (nullable) names the one program a grant
+covers; NULL is every program, which is what every grant made before this means.
+The old `affiliate_program_managers_identity` unique index (one row per person
+per company) is replaced by two partial ones, so a person can hold several
+program grants. `affiliate_manager_scoped()` is true only when every grant a
+person holds names a program and they are not exec or owner;
+`affiliate_visible_program(program)` is true for everyone who is not scoped, and
+`can_manage_affiliate_program(program)` is `can_manage_affiliate_programs()`
+narrowed by it. Fourteen select policies and twelve write policies on the tables
+that carry a `program_id` now go through those; the money reads keep their
+`can_approve_affiliate_commissions()` gate as well. Tables with no program to
+point at (`affiliate_payout_accounts`, `_items`, `_sends`,
+`affiliate_prospect_observations`) are unchanged.
+
+`affiliate_feed_audience` (feed item, affiliate) names who a share is for. NO
+rows for a share means everyone in its program, which is what every share made
+before this means, so an unapplied audience or a failed read shows the share
+rather than hiding it. `affiliate_portal_feed` filters both the feed and the
+products under a launch through `affiliate_feed_item_for()`.
+
+Two things the policies alone could not do (found reviewing #1350). A policy is
+not the boundary for a SECURITY DEFINER function -- thirteen of those are
+callable by `authenticated` on `can_manage_affiliate_programs()` alone -- so
+`affiliate_program_scope_guard()` is attached, by
+`attach_affiliate_program_scope_triggers()`, to every affiliate table that
+carries a `program_id`: a STATEMENT trigger over the transition table, so a
+bulk write pays one check, and a caller with no `auth.uid()` (service role,
+cron, a sync) is never scoped and never checked. Call that function from a new
+affiliate migration, the way `attach_affiliate_same_company_twins()` is called.
+And `affiliate_feed_set_audience(item, affiliates[], scope[])` replaces a
+share's audience in ONE transaction with the share locked, because no audience
+rows means everyone: a delete followed by an insert leaves the share open to the
+whole program in between, and open for good if the insert never lands. `scope`
+is the creators the caller offered; rows outside it are left as they are, so a
+recipient the dialog could not show (one past a truncated page, one who has left
+the program) is not dropped by a save of the boxes it did show. Null scope
+replaces the whole audience.
+
+Two more the trigger cannot see (review cycle 2 of #1350).
+`affiliate_add_to_program()` is re-created here to require
+`can_manage_affiliate_program()` for the program the person is being copied OUT
+of as well as the one they go into: it reads their contact details, their
+carried terms acceptance and their PayPal address from the source, while every
+row it writes belongs to the destination, which the caller does hold -- so the
+trigger passes and the scope leaks sideways. The same shape applies to anything
+that reads one program and writes another: gate the read, not just the write.
+And `supabase/functions/affiliate-invite` calls
+`can_manage_affiliate_program()` through the caller's own client before it mints
+a portal or sign-up link, creates Shopify codes or ends them, failing open only
+when the function is absent (before this migration).
+
+Apply, AND deploy `affiliate-invite` (`affiliate_portal_feed` is replaced in the
+same migration, so nothing else needs one).
+
+### Affiliate access: one person, one PayPal, one email — 2026-11-21
+
+`20261121230000_affiliate_one_person_one_paypal.sql`, the third of the three
+gaps, answered by Blake's own rule: a creator has ONE payout address for the
+company, not one per program.
+
+A program membership stays an `affiliates` row per program (Blake 2026-11-17,
+`20261118010000`): the rate, the codes, the ledger, the payouts and the portal
+are all program-scoped through `affiliates.program_id`, and that does not
+change. What moved is what belongs to the PERSON rather than to the membership,
+and both are held by TRIGGERS rather than by rewriting readers, because several
+deployed functions write these tables and the money path reads the stored row
+directly:
+
+- `affiliate_payout_account_mirror()` on `affiliate_payout_accounts`: a PayPal
+  address written for one membership follows the same person's other
+  memberships in that company. PayPal only -- a Stripe Express account is per
+  affiliate row by construction, so an email copied onto a sibling's stripe row
+  would describe an account that does not exist, including into a program that had no row at all,
+  so a person who gave an address once is payable everywhere. Recursion stops
+  on the `is distinct from` guard: the mirrored rows fire the trigger again,
+  find nothing to change and write nothing. The migration also converges what
+  is already stored onto the newest address each person gave.
+- `affiliate_person_email_follows()` on `affiliates`: a creator's address is
+  their identity, so changing it on one membership moves their other
+  memberships in the same company (or `affiliate_portal_brands()`, which finds
+  them by `affiliate_contact_key(contact_email)`, splits one person into two who
+  each see half their brands), and revokes the portal links mailed to the old
+  address. Those links already stopped working the moment the address changed —
+  the token check requires the mailed address to STILL be that affiliate's, and
+  that check is the authorization, so it is untouched. This records the
+  revocation instead of leaving a link that silently fails.
+- `affiliate_person_programs(affiliate)` lists the programs one person is in,
+  SECURITY INVOKER so RLS answers: a manager given one program sees only the
+  membership they were given, which is the isolation and not an omission.
+  Studio's **Add to program** dialog uses it to say "Also in …" and to stop
+  offering a program they are already in.
+
+Apply only; no deploy.
+`20261123210000_plaid_multiple_feeds_per_qbo_account.sql` lets SEVERAL Plaid
+feeds share one QuickBooks balancing account (two company cards, one account in
+the chart of accounts). `plaid_guard_source_authority` no longer refuses a
+second `ingest_mode='plaid'` source on the same (company, QuickBooks
+connection, QuickBooks account); the authoritative cutover and the CSV-overlap
+checks already read `min(authoritative_from)` across every Plaid source on that
+account, so the earliest feed still governs what CSV may cover, and dedupe stays
+per Plaid account. The same card arriving twice (a relink: same institution,
+type and mask) is still refused, now by `configure_plaid_account` through the
+service-only `plaid_duplicate_card_feed()` — the `card_sources` trigger fires
+before `plaid_accounts.source_id` is set, so it cannot judge card identity. Only
+one thing counts as proof of a second account -- both masks known and
+different. An unknown mask on either side is refused as indistinguishable
+(Plaid may send none, and `plaid_apply_sync` writes what it sends over a mask
+already held), and the institution LABEL is not consulted at all, because
+`plaid-finance` stores `Bank connection` when Link sends none, so one bank can
+sit under two labels. No
+backfill, no edge deploy; the browser calls the RPC directly.
+
+### Shopify customers — marketing consent — 2026-11-24
+
+`20261124020000_shopify_customer_marketing_consent.sql` is where "does SILO pull the accepts-marketing column?"
+gets its answer. It did not, and `accepts_marketing` no longer exists in Shopify either: consent is now
+`emailMarketingConsent` / `smsMarketingConsent`, each a STATE (`subscribed`, `not_subscribed`, `pending`,
+`unsubscribed`, `redacted`, `invalid`) plus an opt-in level and the moment it last changed.
+
+* `shopify_customers` — one row per customer per store per company (unique on all three from the start, the
+  20261013220000 lesson), with email, phone, name, Shopify account state, order count and lifetime spend, the
+  email and SMS consent triplets, and city/province/country. `email_lc`, `email_subscribed` and `sms_subscribed`
+  are generated, so they cannot drift from their sources; a NULL state stays NULL, because not measured is not
+  "not subscribed". Reads are scoped to the active company and no client role may write it.
+* `shopify_customer_consent_v` — the cleaned read surface: one row per person per company, naming the store that
+  recorded the consent shown. It picks one real consent EVENT: a MEASURED consent outranks a store that has none
+  but was edited later, and the state, its level, its date and its store all come from that one record (ranking on
+  `coalesce(consent_updated_at, shopify_updated_at)` let a NULL replace another store's explicit unsubscribe).
+  `security_invoker`.
+* Consent on the past-customer lookup — `company_customer_profiles` gains `email_consent_state`,
+  `sms_consent_state`, `consent_updated_at` and `consent_checked_at`, filled by
+  `refresh_company_customer_consent(company, since)`. A SEPARATE function from
+  `refresh_company_customer_profiles()` on purpose: consent cannot be derived from orders, matching is by email
+  only, and a store without `read_customers` must leave the orders side completely alone. Called with no
+  `since` (a FULL refresh) it also clears consent whose email no longer has a customer record behind it —
+  a person who changes or removes their email leaves an old-address profile row the join can never reach
+  again, which would otherwise carry "subscribed" for ever. Order totals are never touched.
+* `sync_jobs.job_type` gains `customers_sync`.
+
+Fed by the `customers_sync` stage of `scripts/shopify-sync.mjs`, which needs the `read_customers` scope and is
+deliberately NOT in `REQUIRED_FOR_SYNC`: a store that has not granted it keeps syncing everything else and only
+this stage records a skip. The scope lives in `CUSTOMERS_SCOPES` in the customers module rather than in
+`JOB_SCOPES`, because `shopify-scopes.mjs` ships byte-identical inside two edge functions that never sync
+customers and would each owe a redeploy for a map entry they do not read. The walk lives in `scripts/lib/shopify-customers-core.mjs`, deliberately NOT in `shopify-sync-core.mjs`, which
+ships byte-identical inside `ad-platform-sync-run` and would have owed that function a redeploy. It is GraphQL
+(consent is not on the legacy REST surface), sorted by `updated_at`, asks only for customers changed since the
+last COMPLETED walk, and is budgeted per run — so a large first pull spreads over several nights instead of
+dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_walk`), reusing the walk's own
+filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
+watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
+budget covers.
+### `20261124210000_affiliate_customer_social_company.sql` — the customer scan belongs to the company
+
+Blake, 2026-11-24: "I feel like people come before program in n hierarchy of studio", then "Yes" to moving the
+scan to company level. `affiliate_customer_social` is now keyed `(company_entity_id, customer_key)`: one answer per
+customer per company, the same whichever program is open, and a customer scanned under any program is never searched
+again. Where a company had the same customer under two programs, one row survives (a "Not them" first, then a find, then
+the newest check). One running scan per company (`affiliate_customer_scans_one_running_company`; extra running rows are
+closed as stopped first). `program_id` is no longer a key, is nullable and NULL on new rows, and its foreign key is
+`ON DELETE SET NULL`, so deleting a program never deletes what SILO learned about the company's customers. Reads are
+scoped to the active company only, like `company_customer_profiles`; "Not them" is gated on
+`can_manage_affiliate_programs()`. The follower bar is company data, `entities.meta.affiliate_customer_scan_min_followers`
+(750 when unset); `affiliate_programs.customer_scan_min_followers` stays and is no longer read. The affiliate-research
+function searches every platform for this action and needs no program; the program is chosen only at Add to outreach.
+Apply first, then deploy affiliate-research.
+
+### `20261124190000_affiliate_customer_social_trust.sql` — social finds you can trust
+
+Blake, on the first pilot (283 checked, 9 "found"): "How to trust finds I know a few are wrong like the Jenny one is an
+employee". A first-and-last-name match is what a namesake has too. `affiliate_customer_social.match_basis` records why a
+profile is believed to be the customer: `email_handle` (the handle is their email username, found by the name search or
+by a second search for that username alone, never the full address), `city` (their city is in the result), or
+`name_only`. The page shows **Likely** only for the first two and **Name match** otherwise. Status `rejected` and
+`affiliate_customer_social_reject(id)` (definer, checks the active company and `can_manage_affiliate_program`) are the
+**Not them** button; the row keeps the customer's place, so they are never searched again. The function also never scans
+the company's own people (members' addresses and their non-free-mail domains), drops Instagram's `/popular/` directory and
+post shortcodes, counts only the program's own platforms, strips name suffixes, and labels customers by number in the
+model prompt. On the apply that adds the column, the pilot's chosen, ambiguous and failed rows are deleted (judged by the
+old rules) so the next press re-checks them; `none` and `pending` rows and the scan rows are kept.
+
+### `20261124170000_affiliate_customer_social_scan.sql` — finding your customers' social accounts
+
+Blake, 2026-11-24: "how do we now scan their social pull and presence scan without doing too many", then "Build it,
+pilot 500". The Your Customers tab gains **Find their social accounts**: one press checks up to 500 (max 1,000)
+customers from the slice on screen, top-ranked first, with ONE web search each ("First Last" City, pinned to the
+program's platforms) through the provider Discovery already uses. A profile counts only when its result carries the
+customer's first AND last name; a follower count is kept only when the result's own text states it (NULL is not
+zero). A model is asked only when two or more profiles carry the name, 20 customers per request, no web tools, and it
+may only choose a profile that row was shown — the count is then re-read from that profile's text.
+
+Two tables and one column. `affiliate_customer_scans` is one row per press: its live counts are the progress line,
+and a partial unique index allows one running scan per program, so a second press joins rather than paying twice.
+`cost_usd` is recorded for SILO and is not granted to browsers (no cost in the UI). `affiliate_customer_social` is one
+row per customer per program: rows are written `pending` before any search, so a run that runs out of time leaves a
+queue the next press finishes, and the unique key means nobody is searched twice. `affiliate_programs.
+customer_scan_min_followers` (default 750) is the bar, per program. Both tables are written only by the
+`affiliate-research` function; browsers read them under the same RLS as `affiliate_prospects`. A customer who
+unsubscribed is never queued; one whose consent was never checked is. Results never enter Discovery or the prospect
+list on their own: Add to outreach carries a find as `evidence.social` only, never as the prospect's `profile_url`.
+
+### `20261124030000_affiliate_customer_outreach.sql` — recruiting your own customers
+
+Blake, 2026-11-24, once the customer consent sync was in: "if the data is there, literally what are we waiting for
+ha?" The repeat buyers to recruit from are now a **Your Customers** sub-tab under People in Affiliate Studio, not a
+report of its own, and picking somebody there puts them into the outreach flow Discovery already uses — "no matter
+where they lead from discovery or customer routes". So this migration adds no pipeline and no new table; it only
+makes room for a customer in the one that exists.
+
+Four changes. `affiliate_prospects.source` accepts `'customer'`, so where they came from is recorded rather than
+disguised as a search hit (the queues, the counts and the badge all read `source` already).
+`affiliate_prospects_identifiable` accepts a `contact_email` as a third way to be identifiable: it demanded a
+profile URL or a handle, which is right for a creator found on the web and impossible for somebody who has only
+ever bought something — they have no channel until the social scan finds one, and an email is a stronger
+identifier than either. Without this the tab's **Add to outreach** would fail on every press. And
+`affiliate_programs` gains `customer_outreach_subject` / `customer_outreach_body`: the creator template opens by
+saying SILO found their channel in a search, which read by a four-year customer is worse than no message, so
+customers get their own per-brand template with the same `{token}` filling and SILO's own default when a program
+has not written one. `{orders_line}` is empty when the order count is unknown rather than guessing.
+
+The fourth change is the duplicate guard, and it is a correction from review on #1362.
+`affiliate_prospects_identity` cannot do this job: its key is
+`coalesce(nullif(btrim(profile_url),''), platform || ':' || btrim(handle))`, and a customer has neither until the
+social scan finds one, so the expression is NULL and a unique index permits NULLs without limit. Two adds of the
+same customer therefore made two prospects and two drafts, which is two signup links to one person. The browser
+cannot be the guard either: the page's duplicate check reads only the newest 500 prospects it loaded, so an older
+customer or a second tab slips past it. `affiliate_prospects_customer_identity` is a unique index on
+`(company_entity_id, program_id, lower(btrim(contact_email)))`, partial on `source = 'customer'` so a creator's
+row is untouched and no existing row can collide — the source did not exist before this migration. The page now
+treats its refusal (23505) as a row to ADOPT: the press finishes the message against the prospect that already
+exists, so one person still ends up with one prospect and one draft. `verify_v2_schema.sql` block 8c asserts the
+index structurally.
+
+Do-not-contact is deliberately NOT re-implemented here. Blake asked for suppressed customers to be skipped, and
+the database already makes that absolute (`affiliate_outreach_can_contact()` and the trigger that refuses to
+approve a draft for a suppressed value). The tab filters them out before inserting so they never appear on a list
+to be picked — convenience — and a suppressed domain covers its subdomains there exactly as
+`affiliate_normalize_contact` reads it. The database stays the boundary; a second enforcement path would be two
+rules to keep in step. The ranking on that tab (most orders, then lifetime spend, then recency, every one a named
+ordering rather than a blended score) is UI only and needs no SQL.
+
+### `20261124140000_affiliate_outreach_close_when_joined.sql` — outreach stops when somebody joins
+
+A creator DM'd outside SILO, never marked sent, then invited and signed up, still had their recruiting draft open in
+another program's **To approve** — one press from being sent to an existing affiliate (Blake, 2026-11-24). Signing up
+closed only some of those rows: `affiliate_portal_accept_terms` (20261110086000) moved `exported`, `sent` and
+`replied` to `signed_up` when the affiliate row carried `from_prospect_id`, which left `draft` and `approved`
+untouched, closed nothing at invite time, and matched nobody who was added by email or from another program's
+prospect row.
+
+`affiliate_outreach_close_when_joined()` moves the rule off the signup path and onto the membership: while a person
+holds a live membership (`invited`, `pending_terms`, `active`, `paused`) in this company, their open drafts
+(`draft`, `approved`, `exported`) are closed as `signed_up` with an `outcome_note`, matched by the prospect the
+membership came from, by the draft's own recipient address and by the prospect's address (all through
+`affiliate_contact_key`, so case and spacing do not matter). It is an AFTER trigger on `affiliates` (insert, and
+updates of `status`, `contact_email`, `from_prospect_id`), so every write path reaches it, including the deployed
+functions with no source in this repository. Company-wide on purpose: a cold recruiting message to somebody who is
+already an affiliate of this brand is wrong whichever program drafted it, while bringing an existing affiliate into a
+second program is an invite, which this does not touch. The one exception is a program-scoped manager
+(20261121210000): the scope guard is a statement trigger on the drafts table and still sees their `auth.uid()` through
+this SECURITY DEFINER function, so an out-of-scope close would be refused with 42501 and roll back the invite they
+were entitled to make — a scoped caller therefore closes the drafts in their own programs and leaves the rest exactly
+as they were. Nobody is scoped until somebody is given a program-only grant, so for every ordinary admin, owner, exec,
+sync and edge function this closes everything.
+
+`affiliate_outreach_drafts_guard()` is re-created to drop `signed_up` from the suppression check, for the reason
+20261124000000 dropped the outcomes: recording that somebody joined is not a decision to contact them — and the close
+runs inside the transaction that creates the membership, so leaving it in would make inviting a suppressed person
+fail at the invite. The migration ends by closing the drafts already open, which is idempotent (a second run matches
+nothing, because those rows are no longer live). No table, column, policy or grant change, and no deploy.
+
 ### Amazon Ads connection — 2026-11-20
 
 `20261120050000_amazon_ads_connection.sql` makes Amazon Ads the fourth ad
@@ -4011,8 +4327,13 @@ there, and Amazon's figures are the same campaign-per-day grain as Google,
 Meta and TikTok. What it does add is `amazon_ads` to the platform CHECK on
 both `ad_platform_connections` and `ad_platform_oauth_states`, the pair
 `amazon_profile_id` / `amazon_region` on the connection, a CHECK restricting
-the region to `NA` / `EU` / `FE`, and `amazon_ads_kpis` to `sync_jobs.job_type`
-(extended by reading the live constraint, never by re-typing the list).
+the region to `NA` / `EU` / `FE`, `amazon_ads_kpis` to `sync_jobs.job_type`, and
+`amazon_ads` to `integration_bootstrap_jobs.integration` (both extended by
+reading the live constraint, never by re-typing the list).
+
+Without that last one the account picker saves the profile and then cannot
+queue the first import, leaving a connection that tests fine and syncs nothing
+until the nightly.
 
 **Why the region is a column.** Amazon Ads has three independent API hosts
 (`advertising-api{,-eu,-fe}.amazon.com`) and a profile exists behind exactly
@@ -4031,4 +4352,6 @@ check in `verify_v2_schema.sql`. Run `refresh_chat_schema_catalog()` after
 applying (the migration does). Rollback: drop `amazon_ads` from the two
 platform CHECKs, `alter table public.ad_platform_connections drop column
 amazon_profile_id, drop column amazon_region;`, and remove `amazon_ads_kpis`
-from the `sync_jobs` job_type list.
+from the `sync_jobs` job_type list, and remove it from
+`integration_bootstrap_jobs.integration`.
+

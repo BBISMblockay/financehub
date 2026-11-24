@@ -1764,12 +1764,20 @@
       const historyNote = granted.length && !granted.includes('read_all_orders')
         ? `<div class="int-scope-warn" style="margin:10px 16px 0;">Order history is limited to the last 60 days: this store's app does not have <code>read_all_orders</code>, so imports cannot reach further back. ${escHtml(remedy.text)} Do this before importing history. <button type="button" class="ig-open-btn" data-guide="${escHtml(remedy.guide)}">How to fix</button></div>`
         : '';
-      if (!missing?.length) return historyNote;
+      // Marketing consent is customer-level, so it needs read_customers.
+      // ADVISORY, not a missing-scope error: a store without it keeps syncing
+      // orders, inventory, products and payouts exactly as before, and only
+      // the customers stage stands down (scripts/lib/shopify-scopes.mjs keeps
+      // it out of REQUIRED_FOR_SYNC for that reason).
+      const consentNote = granted.length && !granted.includes('read_customers')
+        ? `<div class="int-scope-warn" style="margin:10px 16px 0;">Customer marketing consent is not synced for this store: its app does not have <code>read_customers</code>. ${(!row?.auth_method || row?.auth_method === 'oauth') ? 'Use Reconnect on this row to grant it' : 'Add it to the store\'s custom app'}, then Re-test. Everything else this store syncs is unaffected.</div>`
+        : '';
+      if (!missing?.length) return historyNote + consentNote;
       if (!granted?.length && missing.length >= 4) {
         return `<div class="int-scope-warn" style="margin:10px 16px 0;">Scope check returned empty — click Re-test. If this persists, reinstall the custom app token in Shopify.</div>`;
       }
       const labels = window.SiloShopifyScopes?.formatScopeList?.(missing) || missing.join(', ');
-      return `<div class="int-scope-warn" style="margin:10px 16px 0;">Missing scopes: ${escHtml(labels)}. Update your Shopify app, then Re-test.</div>` + historyNote;
+      return `<div class="int-scope-warn" style="margin:10px 16px 0;">Missing scopes: ${escHtml(labels)}. Update your Shopify app, then Re-test.</div>` + historyNote + consentNote;
     }
 
     function renderConnections(rows) {

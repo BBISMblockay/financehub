@@ -470,6 +470,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     // appear in Shopify sooner), or every company with a service key.
     if (peek?.action === 'create_shopify_codes') {
       const codeId = UUID_RE.test(String(peek.code_id || '')) ? String(peek.code_id) : null;
+      // One PRODUCT code by id, on the same terms as code_id above: the
+      // portal asks right after a shared product was claimed, which the
+      // database already approved (20261120030000). The claim decides what is
+      // made; the id only brings it forward from tonight's sweep.
+      const seedId = UUID_RE.test(String(peek.seed_id || '')) ? String(peek.seed_id) : null;
+      if (seedId && !codeId) {
+        try { return reply({ results: await createSeedCodes({ claimIds: [seedId] }) }); }
+        catch (err) { console.error('[affiliate-invite] seed code by id', err?.message); return reply({ error: 'Could not make codes' }, 500); }
+      }
       let sweep = false;
       if (!codeId) {
         sweep = Boolean(serviceKey) && safeEqual(authHeader, `Bearer ${serviceKey}`);
@@ -527,6 +536,25 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
     const { data: who } = await service.auth.getUser(jwt);
     const actor = who?.user?.id ?? null;
 
+    // 1b. WHICH programs. affiliate_managed_company() answers "manages at
+    //     least one program of this company", and since 20261121210000 a
+    //     grant may name ONE program -- so the company is no longer the whole
+    //     answer for an action that takes a row id from the request. The
+    //     database trigger cannot help here: it sees the service client, not
+    //     the staff caller behind it. So every such action asks the caller's
+    //     own session whether that program is theirs, before the service role
+    //     reads or mints anything for it (review of #1350).
+    const allowProgram = async (programId) => {
+      if (!programId) return true;
+      const { data, error } = await caller.rpc('can_manage_affiliate_program', { p_program: programId });
+      // Before that migration is applied the function does not exist, and
+      // nobody is scoped: the company gate above is then the whole answer,
+      // exactly as it was. Any other error refuses.
+      if (error) return error.code === '42883' || /could not find the function|does not exist/i.test(String(error.message || ''));
+      return data === true;
+    };
+    const refuseProgram = () => reply({ error: 'That belongs to a program you were not given access to.' }, 403);
+
     let body;
     try { body = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
     const action = body?.action;
@@ -535,6 +563,15 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
       if (action === 'create_shopify_codes') {
         const ids = Array.isArray(body.code_ids) ? body.code_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : null;
         const seedIds = Array.isArray(body.seed_ids) ? body.seed_ids.filter((x) => UUID_RE.test(String(x))).slice(0, 25) : null;
+        // Asked by id, the ids decide which programs are touched, so they are
+        // checked before Shopify is called for any of them. Asked for none,
+        // the sweep reads only what this caller can already see.
+        for (const [tbl, want] of [['affiliate_codes', ids], ['affiliate_seed_claims', seedIds]]) {
+          if (!want?.length) continue;
+          const { data: rows } = await service.from(tbl).select('program_id')
+            .eq('company_entity_id', company).in('id', want);
+          for (const r of rows || []) if (!await allowProgram(r.program_id)) return refuseProgram();
+        }
         // Product codes only when asked by id (Studio, right after approving).
         if (seedIds?.length && !ids?.length) return reply({ results: await createSeedCodes({ company, claimIds: seedIds, actor }) });
         const results = await createShopifyCodes({ company, codeIds: ids?.length ? ids : null, actor });
@@ -561,6 +598,12 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
         const results = [];
         for (const c of codes || []) {
           const out = { code_id: c.id, code: c.code };
+          // Every id asked for gets an outcome, including this one: a code of
+          // a program this caller was not given is left exactly as it is.
+          if (!await allowProgram(c.program_id)) {
+            results.push({ ...out, status: 'not_yours', reason: 'a program you were not given access to, so it was left as it is' });
+            continue;
+          }
           if (c.shopify_ended_at) { results.push({ ...out, status: 'ended' }); continue; }
           if (!c.shopify_discount_id) { results.push({ ...out, status: 'manual', reason: 'SILO did not make this code. Turn it off in Shopify yourself.' }); continue; }
           let status; let reason = null;
@@ -586,6 +629,7 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           .select('id, program_id, display_name, platform, handle, profile_url, contact_email, status, source')
           .eq('id', body.prospect_id).eq('company_entity_id', company).maybeSingle();
         if (!p) return reply({ error: 'No such prospect in this company' }, 404);
+        if (!await allowProgram(p.program_id)) return refuseProgram();
         if (!['approved', 'invited'].includes(p.status)) {
           return reply({ error: `Approve this prospect first (it is ${p.status}).` }, 409);
         }
@@ -658,6 +702,9 @@ export function createInviteHandler({ service, userClientFor, siteUrl, resendKey
           .select('id, program_id, display_name, contact_email, status')
           .eq('id', body.affiliate_id).eq('company_entity_id', company).maybeSingle();
         if (!a) return reply({ error: 'No such affiliate in this company' }, 404);
+        // Before anything is minted or mailed: a portal token is that rep's
+        // session, so a manager of another program must not be handed one.
+        if (!await allowProgram(a.program_id)) return refuseProgram();
         if (!['active', 'paused'].includes(a.status)) return reply({ error: `This affiliate is ${a.status}.` }, 409);
         const { data: co } = await service.from('entities').select('title').eq('id', company).maybeSingle();
         const brand = co?.title || 'Affiliate program';

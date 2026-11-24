@@ -15,6 +15,19 @@
 //   AFFILIATE_CORE_MUTATION=imgshrink  a card asks the CDN for a SMALLER image than it already had
 //   AFFILIATE_CORE_MUTATION=imganyhost a width parameter is forced onto any host's address
 //   AFFILIATE_CORE_MUTATION=codeclash  a suggested code repeats one already taken
+//   AFFILIATE_CORE_MUTATION=badgeall   a prospect with no match still gets a past-customer badge
+//   AFFILIATE_CORE_MUTATION=consentgate  an unmeasured consent state is treated as a state comparison
+//   AFFILIATE_CORE_MUTATION=consentblank a blank consent state reads as not subscribed
+//   AFFILIATE_CORE_MUTATION=windowend    the last-order window ends ON the chosen day, dropping that day
+//   AFFILIATE_CORE_MUTATION=minfree      the minimum-orders box is trusted as typed
+//   AFFILIATE_CORE_MUTATION=supdomain    a suppressed domain stops covering its subdomains
+//   AFFILIATE_CORE_MUTATION=supcase      a do-not-contact address is matched with case
+//   AFFILIATE_CORE_MUTATION=custnolink   a customer message without {signup_link} is accepted
+//   AFFILIATE_CORE_MUTATION=custpin      SILO's own customer message is saved as the program's
+//   AFFILIATE_CORE_MUTATION=socialzero   a social row with no stated count shows 0 followers
+//   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
+//   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
+//   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,9 +45,23 @@ const MUTS = {
   nolinkok: ["    if (row.outreach_body && !row.outreach_body.includes('{signup_link}')) errors.push(", "    if (false) errors.push("],
   imgshrink: ["  if (!Number.isFinite(w) || w <= 0 || w >= px) return url;", '  if (!Number.isFinite(w) || w <= 0) return url;'],
   imganyhost: ["  if (!WIDTH_PARAM_HOSTS.has(u.hostname)) return url;", ''],
+  badgeall: ["  if (!['possible', 'likely', 'confirmed'].includes(st)) return null;", '  if (false) return null;'],
   codeclash: ["  if (!used.has(base)) return base;", '  return base;'],
   pindefault: ["row.outreach_body = body === '' || body === DEFAULT_OUTREACH.body ? null : body;", "row.outreach_body = body === '' ? null : body;"],
   rounding: ["const re = units === 1 ? /^-?\\d+$/ : /^-?\\d+(\\.\\d{1,2})?$/;", 'const re = /^-?\\d+(\\.\\d+)?$/;'],
+  consentgate: ["    consentIsNull: consent === 'unmeasured',\n    consentState: consent === 'any' || consent === 'unmeasured' ? null : consent,",
+    "    consentIsNull: false,\n    consentState: consent === 'any' ? null : consent,"],
+  consentblank: ["    return { label: 'not checked yet', tone: '', measured: false };", "    return { label: 'not subscribed', tone: '', measured: true };"],
+  windowend: ['toExclusive: to ? dayShift(to, -1) : null,', 'toExclusive: to || null,'],
+  minfree: ["  const minOrders = Number.isFinite(minRaw)\n    ? Math.max(1, Math.min(CUSTOMER_MIN_ORDERS_MAX, Math.trunc(minRaw)))\n    : 1;", '  const minOrders = minRaw;'],
+  supdomain: ['if (d && (domain === d || domain.endsWith(`.${d}`))) return true;', 'if (d && domain === d) return true;'],
+  supcase: ["  const e = String(email || '').trim().toLowerCase();", "  const e = String(email || '').trim();"],
+  custnolink: ["  if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');", '  if (false) errors.push();'],
+  socialzero: ["  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;", "  const count = `${compactCount(row.followers || 0) || '0'}`;"],
+  socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
+  basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
+  socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
+  custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
 let src = await readFile(new URL('../../v2/affiliates/studio-core.js', import.meta.url), 'utf8');
@@ -298,6 +325,236 @@ await t('the import template is a file the import reads back: one creator, every
   assert.equal(r.stats.kept, 1, 'its example row imports');
   assert.equal(r.stats.followers_kept, 1, 'followers column is read');
   assert.equal(r.stats.emails_kept, 1, 'email column is read');
+});
+
+await t('the past-customer badge is one label, with the detail only on hover', () => {
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'none' }), null, 'no match, no badge');
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'not_matchable' }), null, 'a brand name shows nothing');
+  assert.equal(C.pastCustomerBadge({}), null);
+  const likely = C.pastCustomerBadge({
+    customer_match_status: 'likely', customer_order_count: 2,
+    customer_last_order_at: '2026-07-20T18:00:00Z', customer_lifetime_spend: '321',
+    customer_match_basis: 'exact name match on one customer, name only',
+  });
+  assert.equal(likely.label, 'Past customer');
+  assert.match(likely.title, /2 orders/);
+  assert.match(likely.title, /last 2026-07-20/);
+  assert.match(likely.title, /\$321/);
+  assert.match(likely.title, /Check before you write to them/);
+  assert.equal(C.pastCustomerBadge({ customer_match_status: 'possible', customer_order_count: 1 }).label,
+    'Possible customer', 'a weaker match says so rather than claiming it');
+});
+
+await t('Your Customers: consent narrows the list, it never gates it, and blank is not an opt-out', () => {
+  // The default reads EVERY customer: no consent predicate at all. This is
+  // Blake's rule (2026-11-24) -- one-to-one recruiting is not a marketing
+  // send, so opt-in is a filtering tactic, not a barrier.
+  const none = C.customerQuerySpec({});
+  assert.equal(none.consent, 'any');
+  assert.equal(none.consentIsNull, false, 'any applies no IS NULL');
+  assert.equal(none.consentState, null, 'any applies no state comparison');
+
+  // "Not checked yet" is a different question from every other value: it is
+  // an IS NULL, never a comparison against the text 'unmeasured' (no row
+  // holds that, so the list would come back empty and read as "nobody").
+  const un = C.customerQuerySpec({ consent: 'unmeasured' });
+  assert.equal(un.consentIsNull, true);
+  assert.equal(un.consentState, null, 'unmeasured must not also be compared as a state');
+
+  const sub = C.customerQuerySpec({ consent: 'subscribed' });
+  assert.equal(sub.consentIsNull, false);
+  assert.equal(sub.consentState, 'subscribed');
+
+  // A value nobody offered falls back to showing everyone, never to a
+  // comparison that silently empties the list.
+  assert.equal(C.customerQuerySpec({ consent: 'opted_in' }).consent, 'any');
+
+  // And a blank state says it was not measured. Showing it as unsubscribed
+  // would invent an opt-out for every customer the sync has not reached.
+  const blank = C.customerConsentView(null);
+  assert.equal(blank.measured, false);
+  assert.match(blank.label, /not checked/);
+  assert.equal(C.customerConsentView('').measured, false, 'empty text is also not measured');
+  assert.equal(C.customerConsentView('unsubscribed').measured, true);
+  assert.equal(C.customerConsentView('unsubscribed').tone, 'neg');
+  assert.equal(C.customerConsentView('subscribed').tone, 'pos');
+  assert.equal(C.customerConsentView('not_subscribed').label, 'not subscribed', 'read as words, not a column name');
+});
+
+await t('Your Customers: the window is on the last order and includes the day you chose', () => {
+  // last_order_at is a TIMESTAMP. An end bound of the chosen day itself drops
+  // everyone who ordered that day after midnight -- today's buyers, every
+  // time somebody looks at today.
+  assert.equal(C.customerQuerySpec({ to: '2026-11-23' }).toExclusive, '2026-11-24');
+  assert.equal(C.customerQuerySpec({ to: '2026-02-28' }).toExclusive, '2026-03-01', 'month rolls over');
+  assert.equal(C.customerQuerySpec({ to: '2026-12-31' }).toExclusive, '2027-01-01', 'year rolls over');
+  assert.equal(C.customerQuerySpec({ from: '2025-01-01' }).from, '2025-01-01', 'the start is inclusive as given');
+  // No date means no bound, not a bound of "null" that reads as zero rows.
+  assert.equal(C.customerQuerySpec({}).from, null);
+  assert.equal(C.customerQuerySpec({}).toExclusive, null);
+  assert.equal(C.customerQuerySpec({ from: 'last month', to: '11/23/2026' }).from, null, 'anything but an ISO day is no bound');
+  assert.equal(C.customerQuerySpec({ from: 'last month', to: '11/23/2026' }).toExclusive, null);
+});
+
+await t('Your Customers: ranking is named orderings with full tie-breaks, and the box values are clamped', () => {
+  // Every sort ends on customer_key, or two customers with the same order
+  // count come back in storage order and one row shows up on two pages.
+  for (const [name, chain] of Object.entries(C.CUSTOMER_SORTS)) {
+    assert.equal(chain.at(-1)[0], 'customer_key', `${name} breaks its last tie on a unique column`);
+  }
+  const d = C.customerQuerySpec({});
+  assert.equal(d.sort, 'orders', 'most orders first by default');
+  assert.deepEqual(d.order.map((o) => o.column), ['order_count', 'lifetime_spend', 'last_order_at', 'customer_key']);
+  assert.equal(d.order[0].ascending, false);
+  assert.equal(C.customerQuerySpec({ sort: 'spend' }).order[0].column, 'lifetime_spend');
+  assert.equal(C.customerQuerySpec({ sort: 'recent' }).order[0].column, 'last_order_at');
+  assert.equal(C.customerQuerySpec({ sort: 'oldest' }).order[0].ascending, true, 'longest-standing reads forwards');
+  assert.equal(C.customerQuerySpec({ sort: 'whatever' }).sort, 'orders', 'an unknown sort falls back, never passes through to an ORDER BY');
+
+  // The number box is typed by a person, so it is clamped here and not at the
+  // call site: 0 or -5 would widen the list past what the label promises.
+  assert.equal(C.customerQuerySpec({ minOrders: '3' }).minOrders, 3, 'text from an input is read as a number');
+  assert.equal(C.customerQuerySpec({ minOrders: 0 }).minOrders, 1);
+  assert.equal(C.customerQuerySpec({ minOrders: -5 }).minOrders, 1);
+  assert.equal(C.customerQuerySpec({ minOrders: 999 }).minOrders, C.CUSTOMER_MIN_ORDERS_MAX);
+  assert.equal(C.customerQuerySpec({ minOrders: 2.7 }).minOrders, 2, 'no fractional order count');
+  assert.equal(C.customerQuerySpec({ minOrders: 'lots' }).minOrders, 1);
+
+  // Paging is zero-based and never asks for a negative range.
+  assert.deepEqual(C.customerQuerySpec({ page: 0 }).range, [0, C.CUSTOMER_PAGE_SIZE - 1]);
+  assert.deepEqual(C.customerQuerySpec({ page: 2 }).range, [2 * C.CUSTOMER_PAGE_SIZE, 3 * C.CUSTOMER_PAGE_SIZE - 1]);
+  assert.deepEqual(C.customerQuerySpec({ page: -3 }).range, [0, C.CUSTOMER_PAGE_SIZE - 1]);
+});
+
+await t('Your Customers: do-not-contact is read the way the database reads it', () => {
+  // Blake 2026-11-24: "skip do not contacts yes as they don't want contact."
+  // The address is normalised exactly as affiliate_normalize_contact does, or
+  // a capitalised address walks straight past its own suppression.
+  const sup = [
+    { kind: 'email', value_normalized: 'pat@x.com' },
+    { kind: 'domain', value_normalized: 'https://www.blocked.com/' },
+    { kind: 'handle', value_normalized: 'pat' },
+  ];
+  assert.equal(C.customerSuppressed('pat@x.com', sup), true);
+  assert.equal(C.customerSuppressed('  PAT@X.COM ', sup), true, 'case and spaces do not get somebody contacted');
+  assert.equal(C.customerSuppressed('sam@x.com', sup), false, 'one suppressed address is not the whole domain');
+  assert.equal(C.customerSuppressed('sam@blocked.com', sup), true, 'a suppressed domain covers its addresses');
+  assert.equal(C.customerSuppressed('sam@mail.blocked.com', sup), true, 'and its subdomains');
+  assert.equal(C.customerSuppressed('sam@notblocked.com', sup), false, 'a domain that merely ends the same way is not it');
+  assert.equal(C.customerSuppressed('pat@other.com', sup), false, 'a handle entry cannot match an address');
+  assert.equal(C.customerSuppressed('', sup), false);
+  assert.equal(C.customerSuppressed(null, sup), false);
+  assert.equal(C.customerSuppressed('a@b.com', []), false, 'an empty list suppresses nobody');
+  assert.equal(C.customerSuppressed('a@b.com', [{ kind: 'email', value_normalized: '  ' }]), false, 'a blank entry matches nothing');
+});
+
+await t('Your Customers: a picked customer becomes an ordinary prospect, identified by email', () => {
+  const row = C.customerProspectRow({
+    customer: {
+      customer_key: 'emily@x.com', name_lc: 'emily durrance', email_lc: ' Emily@X.com ',
+      order_count: 2, lifetime_spend: '320.58', first_order_at: '2024-02-01T00:00:00Z',
+      last_order_at: '2025-04-22T18:00:00Z', email_consent_state: null,
+    },
+    collectedAt: '2026-11-24T00:00:00Z',
+  });
+  assert.equal(row.source, 'customer', 'where they came from is recorded, not disguised as a search hit');
+  assert.equal(row.status, 'approved', 'lined up for outreach, which is what approved means here');
+  assert.equal(row.platform, 'other', 'they have no channel yet; claiming one would say we looked');
+  assert.equal(row.contact_email, 'emily@x.com', 'the email is normalised before it is stored');
+  assert.equal(row.display_name, 'Emily Durrance', 'the stored lowercase name is cased back for a person to read');
+  assert.equal(row.handle, null);
+  assert.equal(row.profile_url, null);
+  // The database's identifiable constraint now accepts the email as the third
+  // way to be identifiable (20261124030000); without one this row could not
+  // be inserted at all, so it must never be blank here.
+  assert.ok(row.contact_email, 'a customer row is identified by its email');
+  assert.equal(row.evidence.order_count, 2);
+  assert.equal(row.evidence.lifetime_spend, 320.58, 'spend is a number, not the text from the row');
+  assert.equal(row.evidence.email_consent_state, null, 'an unmeasured consent stays null, it does not become a state');
+  assert.match(row.evidence.note, /2 orders/);
+  assert.match(row.evidence.note, /last 2025-04-22/);
+  assert.equal(row.collected_at, '2026-11-24T00:00:00Z');
+
+  // A customer with nothing measured still produces a usable row.
+  const bare = C.customerProspectRow({ customer: { email_lc: 'x@y.com' } });
+  assert.equal(bare.display_name, 'x@y.com', 'no name falls back to the address, never to blank');
+  assert.equal(bare.evidence.order_count, null, 'unknown is null, not 0');
+  assert.equal(bare.evidence.note, 'Your customer.');
+  assert.equal(C.customerOrdersLine({ order_count: 1 }), ' once');
+  assert.equal(C.customerOrdersLine({ order_count: 9 }), ' 9 times');
+  assert.equal(C.customerOrdersLine({}), '', 'an unknown count writes nothing rather than a guess');
+  assert.equal(C.customerOrdersLine({ order_count: 0 }), '');
+});
+
+await t('Your Customers: the customer template is its own, and still has to be joinable', () => {
+  // The creator default opens by saying we found their channel in a search,
+  // which read by a four-year customer is worse than no message at all.
+  assert.notEqual(C.DEFAULT_CUSTOMER_OUTREACH.body, C.DEFAULT_OUTREACH.body);
+  assert.ok(C.DEFAULT_CUSTOMER_OUTREACH.body.includes('{signup_link}'), 'the default is itself usable');
+  assert.ok(!C.DEFAULT_CUSTOMER_OUTREACH.body.includes('{source}'), 'a customer was not found by a search');
+
+  assert.equal(C.customerOutreachTemplate(null).subject, C.DEFAULT_CUSTOMER_OUTREACH.subject);
+  assert.equal(C.customerOutreachTemplate({ customer_outreach_subject: '  ' }).subject, C.DEFAULT_CUSTOMER_OUTREACH.subject, 'blank is not a template');
+  assert.equal(C.customerOutreachTemplate({ customer_outreach_subject: 'Join us' }).subject, 'Join us');
+  assert.equal(C.customerOutreachTemplate({ customer_outreach_body: 'no link here' }).body, C.DEFAULT_CUSTOMER_OUTREACH.body,
+    'a saved body with no signup link is not used: there would be no way to join');
+  // It is a SEPARATE pair of columns: the creator template is untouched.
+  const t2 = C.customerOutreachTemplate({ outreach_subject: 'Creator subject', outreach_body: 'x {signup_link}' });
+  assert.equal(t2.subject, C.DEFAULT_CUSTOMER_OUTREACH.subject, 'the creator template is not reused for customers');
+
+  const saved = C.customerTemplateRow('Join us', 'Hi {name} {signup_link}');
+  assert.deepEqual(saved.errors, []);
+  assert.equal(saved.row.customer_outreach_subject, 'Join us');
+  assert.equal(saved.row.customer_outreach_body, 'Hi {name} {signup_link}');
+  // Saving SILO's own default stores null, so the program keeps following the
+  // default instead of pinning a frozen copy of it.
+  const asDefault = C.customerTemplateRow(C.DEFAULT_CUSTOMER_OUTREACH.subject, C.DEFAULT_CUSTOMER_OUTREACH.body);
+  assert.equal(asDefault.row.customer_outreach_subject, null);
+  assert.equal(asDefault.row.customer_outreach_body, null);
+  assert.equal(C.customerTemplateRow('', '').row.customer_outreach_body, null);
+  const bad = C.customerTemplateRow('Join us', 'Hi {name}, no way to join');
+  assert.equal(bad.errors.length, 1);
+  assert.match(bad.errors[0], /signup_link/);
+  assert.ok(C.customerTemplateRow('x'.repeat(201), 'a {signup_link}').errors.some((e) => /subject/.test(e)));
+  assert.ok(C.customerTemplateRow('x', `${'a'.repeat(5001)} {signup_link}`).errors.some((e) => /5,000/.test(e)));
+});
+
+await t('Your Customers social: a blank count stays blank, only http(s) links, never the prospect\'s identity, never a cost', () => {
+  assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
+  const found = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  assert.equal(found.trust, 'likely', 'a second signal makes it likely');
+  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
+  assert.equal(nameOnly.trust, 'name'); assert.equal(nameOnly.tone, 'warn', 'a name alone is a match to check, never shown as found');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'no basis recorded is never promoted');
+  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'an unknown basis is never promoted');
+  assert.equal(C.customerSocialView({ status: 'rejected', handle: '@em', profile_url: 'https://www.instagram.com/em' }).label, 'Not them');
+  assert.equal(C.customerSocialView({ status: 'rejected', profile_url: 'https://www.instagram.com/em' }).url, null, 'a rejected find links nowhere');
+  assert.equal(found.label, '@em · 12K'); assert.equal(found.tone, 'pos'); assert.equal(found.url, 'https://www.instagram.com/em');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://x.test/em', followers: 10000, followers_approx: true }).label, '@em · 10K+');
+  const nc = C.customerSocialView({ status: 'no_count', handle: '@em', profile_url: 'https://x.test/em', followers: null });
+  assert.equal(nc.label, '@em · count not shown');
+  assert.ok(!/\b0\b/.test(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://x.test/em', followers: null }).label), 'NULL followers is not zero');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@x', profile_url: 'javascript:alert(1)', followers: 900 }).url, null, 'only http(s) is a link');
+  assert.equal(C.customerSocialView({ status: 'ambiguous' }).label, 'Several possible');
+  assert.equal(C.customerSocialView({ status: 'none' }).label, 'None found');
+  assert.equal(C.customerSocialView({ status: 'pending' }).label, 'Queued');
+  assert.equal(C.compactCount(1204), '1.2K'); assert.equal(C.compactCount(840), '840'); assert.equal(C.compactCount(2500000), '2.5M'); assert.equal(C.compactCount(null), '');
+
+  assert.equal(C.customerScanLine({ status: 'running', requested: 500, checked: 240, found: 6 }), 'Scanning… 240 of 500 checked · 6 found');
+  assert.match(C.customerScanLine({ status: 'stopped', requested: 500, checked: 300, found: 9 }), /Stopped early, more to check\.$/);
+  assert.equal(C.customerScanLine({ status: 'done', requested: 500, checked: 500, found: 12, cost_usd: 1.23 }), 'Last scan: 500 of 500 checked · 12 found.');
+  assert.ok(!/\$|cost|spend|budget|credit/i.test(C.customerScanLine({ status: 'done', requested: 1, checked: 1, found: 0, cost_usd: 9 })), 'no cost in the UI');
+
+  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };
+  const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
+  assert.equal(row.profile_url, null, 'the identity column stays empty: a Discovery prospect with the same profile would refuse the row');
+  assert.equal(row.handle, null);
+  assert.equal(row.evidence.social.profile_url, 'https://www.instagram.com/em');
+  assert.equal(row.evidence.social.followers, 1204);
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'ambiguous', candidates: [] } }).evidence.social, undefined, 'only a named profile is evidence');
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'rejected', profile_url: 'https://x.test/a' } }).evidence.social, undefined, 'a find marked "Not them" never travels');
+  assert.equal(row.evidence.social.match_basis, 'name_only', 'the evidence says how far to trust it');
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);
