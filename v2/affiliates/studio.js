@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1006,6 +1006,24 @@ function huntTier(q, tier) {
 const HUNT_LIMIT = 200;
 const HUNT_NEVER = ['unsubscribed', 'redacted'];
 const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
+// The over-the-bar answers whose customer the list hides (opted out since
+// their search). Bounded: a company's matched accounts are hundreds.
+async function huntHidden() {
+  const { data: over, error } = await db.from('affiliate_customer_social').select('customer_key, status, match_score')
+    .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']).limit(5000);
+  if (error) throw error;
+  const rows = over || [];
+  const out = [];
+  for (let i = 0; i < rows.length; i += 150) {
+    const part = rows.slice(i, i + 150);
+    const { data: p, error: pErr } = await db.from('company_customer_profiles').select('customer_key')
+      .eq('company_entity_id', CO).in('customer_key', part.map((r) => r.customer_key)).in('email_consent_state', HUNT_NEVER);
+    if (pErr) throw pErr;
+    const gone = new Set((p || []).map((r) => r.customer_key));
+    for (const r of part) if (gone.has(r.customer_key)) out.push(r);
+  }
+  return out;
+}
 // Reads only; returns null when the scan tables are not there yet (a
 // database before the migration), so the caller falls back to the full list.
 async function readHunt(tier) {
@@ -1042,11 +1060,15 @@ async function readHunt(tier) {
     const at = new Map(keys.map((k, i) => [k, i]));
     rows = (p.data || []).sort((a, b) => at.get(a.customer_key) - at.get(b.customer_key));
   }
+  // The list never shows a customer who opted out since their search, so
+  // neither do the tab counts. A failed read leaves the stored counts.
+  let hidden = [];
+  try { hidden = await huntHidden(); } catch (_) { hidden = []; }
   return {
     scan: sc, rows, recent,
     social: Object.fromEntries((hits.data || []).map((r) => [r.customer_key, r])),
     // NULL means the count did not come back, never zero.
-    counts: { top: top.count ?? null, check: check.count ?? null, more: more.count ?? null },
+    counts: huntCounts({ top: top.count ?? null, check: check.count ?? null, more: more.count ?? null }, hidden),
   };
 }
 function applyHunt(c, h) {

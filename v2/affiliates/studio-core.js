@@ -960,6 +960,25 @@ export function socialTrust(row) {
   const s = socialScore(row);
   return s !== null && s >= LIKELY_SCORE ? 'likely' : 'name';
 }
+// Which Find tab a stored answer sits under (the same split the page's
+// queries make): 'top' (Likely), 'check', 'more' (under the bar), or null.
+export function huntTierOf(row) {
+  if (!row) return null;
+  if (row.status === 'below' || row.status === 'no_count') return 'more';
+  if (row.status !== 'found') return null;
+  return socialTrust(row) === 'likely' ? 'top' : 'check';
+}
+// The tab counts the list agrees with: the stored count less the customers
+// the list never shows (an opt-out since their search, Blake 2026-11-24: "check
+// says 76 then shows 67"). A count that did not come back stays null.
+export function huntCounts(raw, hiddenRows = []) {
+  const out = { top: raw?.top ?? null, check: raw?.check ?? null, more: raw?.more ?? null };
+  for (const r of hiddenRows || []) {
+    const t = huntTierOf(r);
+    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);
+  }
+  return out;
+}
 export function customerSocialEvidence(s) {
   if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
   return {

@@ -29,6 +29,7 @@
 //   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
 //   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
 //   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
+//   AFFILIATE_CORE_MUTATION=counthidden  the Find tab counts include customers the list hides
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -65,6 +66,7 @@ const MUTS = {
   scorepromote: ['  return s !== null && s >= LIKELY_SCORE ? \'likely\' : \'name\';', "  return s !== null || row?.match_basis === 'city' ? 'likely' : 'name';"],
   deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
   termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
+  counthidden: ["    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);", "    if (false) out[t] = 0;"],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -578,6 +580,10 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.scanTermsFromRead({ data: { meta: {} }, error: null }), '', 'read fine, no words: an empty box');
   assert.equal(C.scanTermsFromRead({ data: null, error: { message: 'timeout' } }), null, 'a failed read is not an empty box, so a press never clears saved words');
   assert.equal(C.scanTermsFromRead(null), null);
+  // The tab counts agree with the list: opted-out customers come off their tab.
+  const hid = [{ status: 'found', match_score: 35 }, { status: 'found', match_score: 82 }, { status: 'below' }, { status: 'none' }];
+  assert.deepEqual(C.huntCounts({ top: 10, check: 76, more: 5 }, hid), { top: 9, check: 75, more: 4 });
+  assert.deepEqual(C.huntCounts({ top: null, check: 2, more: 0 }, [{ status: 'below' }]), { top: null, check: 2, more: 0 }, 'a missing count stays missing, never below zero');
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
