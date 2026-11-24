@@ -696,6 +696,17 @@
     .af-cust-filters .bcn-field-group { margin: 0; }
     .af-cust-kpis { margin: 10px 0 6px; }
     .af-cust-pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+    /* Your Customers > Hunt: the live module while a hunt runs. */
+    .af-hunt-live { border: 1px solid var(--bcn-border); border-radius: 10px; padding: 12px 14px; margin: 10px 0 14px; background: var(--bcn-bg); }
+    .af-hunt-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+    .af-hunt-meter { margin-top: 10px; }
+    .af-hunt-meter i { transition: width .6s ease; background: linear-gradient(90deg, var(--bcn-accent), var(--bcn-pos)); background-size: 200% 100%; animation: af-hunt-sweep 1.6s linear infinite; }
+    @keyframes af-hunt-sweep { from { background-position: 0 0; } to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .af-hunt-meter i { animation: none; transition: none; } }
+    .af-hunt-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+    .af-hunt-tiles .bcn-kpi { padding: 8px 10px; }
+    @media (max-width: 620px) { .af-hunt-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .af-hunt-recent { margin-top: 8px; font-size: 12px; }
 
     /* Adding or editing in the middle of the screen. */
     dialog.af-dialog {
