@@ -868,6 +868,44 @@ export function customerSuppressed(email, suppressions = []) {
   return false;
 }
 
+// How a customer may be reached (Blake 2026-11-24: "want all prospect
+// available and then comms path decided by status tag"). Everyone found is
+// listed; the consent tag picks the path:
+//   email  their email consent allows it (anything but unsubscribed / erased)
+//   dm     they unsubscribed, so never email -- a DM by hand to the social
+//          account Find matched, which SILO never sends
+//   null   no way to reach them: unsubscribed with no account found, no
+//          email on file (their identity), or on the do-not-contact list (email, domain or the
+//          matched handle)
+export const NO_EMAIL_CONSENT = ['unsubscribed', 'redacted'];
+const bareHandle = (h) => String(h || '').trim().toLowerCase().replace(/^@/, '');
+export function customerContactPath(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  if (c.email_consent_state === 'redacted') return null;
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  // No email, no path: a customer prospect's identity is their address
+  // (affiliate_prospects_customer_identity), so two email-less customers
+  // would collapse onto one prospect.
+  if (!email) return null;
+  if (customerSuppressed(email, suppressions)) return null;
+  if (!NO_EMAIL_CONSENT.includes(c.email_consent_state)) return { channel: 'email', email, handle: null };
+  const ev = customerSocialEvidence(social);
+  if (!ev) return null;
+  const h = bareHandle(ev.handle);
+  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;
+  return { channel: 'dm', email: null, handle: ev.profile_url, platform: ev.platform };
+}
+// Why a listed customer has no tick box, in the words the row shows.
+export function customerNoPathReason(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  if (customerContactPath(c, social, suppressions)) return '';
+  if (c.email_consent_state === 'redacted') return 'data erased';
+  if (email && customerSuppressed(email, suppressions)) return 'on your do-not-contact list';
+  if (c.email_consent_state === 'unsubscribed') return customerSocialEvidence(social) ? 'on your do-not-contact list' : 'unsubscribed, no account to message';
+  return 'no email on file';
+}
+
 // What a picked customer becomes: an ordinary prospect row. `platform` is
 // 'other' because they have no channel yet -- finding one is the social
 // scan's job, and claiming 'web' would say we looked.
@@ -959,6 +997,25 @@ export function socialScore(row) {
 export function socialTrust(row) {
   const s = socialScore(row);
   return s !== null && s >= LIKELY_SCORE ? 'likely' : 'name';
+}
+// Which Find tab a stored answer sits under (the same split the page's
+// queries make): 'top' (Likely), 'check', 'more' (under the bar), or null.
+export function huntTierOf(row) {
+  if (!row) return null;
+  if (row.status === 'below' || row.status === 'no_count') return 'more';
+  if (row.status !== 'found') return null;
+  return socialTrust(row) === 'likely' ? 'top' : 'check';
+}
+// The tab counts the list agrees with: the stored count less the customers
+// the list never shows (an opt-out since their search, Blake 2026-11-24: "check
+// says 76 then shows 67"). A count that did not come back stays null.
+export function huntCounts(raw, hiddenRows = []) {
+  const out = { top: raw?.top ?? null, check: raw?.check ?? null, more: raw?.more ?? null };
+  for (const r of hiddenRows || []) {
+    const t = huntTierOf(r);
+    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);
+  }
+  return out;
 }
 export function customerSocialEvidence(s) {
   if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;

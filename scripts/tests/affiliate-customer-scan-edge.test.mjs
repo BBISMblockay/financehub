@@ -3,9 +3,10 @@
 // Supabase, a fake search provider and a fake model.
 //
 // Properties:
-//   * a customer who UNSUBSCRIBED is never queued, searched or researched,
-//     while one whose consent was never checked (NULL) IS scanned -- consent
-//     is a filter, never a gate, and a plain NOT IN would drop every NULL;
+//   * an ERASED (redacted) customer is never queued, searched or researched,
+//     while one who unsubscribed, or whose consent was never checked (NULL),
+//     IS scanned -- consent decides how somebody is reached, never whether
+//     they are found, and a plain NOT IN would drop every NULL;
 //   * a follower count is kept only when a result's own text states it, and
 //     the model never supplies one: its choice must be a profile that row was
 //     shown, and the count is re-read from that profile's text;
@@ -28,7 +29,7 @@
 //
 // Mutations (CI runs each and requires a failure):
 //   AFFILIATE_SCAN_MUTATION=nullconsent  the opt-out filter is a plain NOT IN, dropping unmeasured customers
-//   AFFILIATE_SCAN_MUTATION=optoutscan   unsubscribed customers are scanned
+//   AFFILIATE_SCAN_MUTATION=optoutscan   erased (redacted) customers are scanned
 //   AFFILIATE_SCAN_MUTATION=aicount      the model's chosen profile keeps a count its text does not state
 //   AFFILIATE_SCAN_MUTATION=aianyurl     the model may choose a profile the row was never shown
 //   AFFILIATE_SCAN_MUTATION=firstonly    a profile with only the first name counts as theirs
@@ -38,7 +39,7 @@
 //   AFFILIATE_SCAN_MUTATION=programbar   the follower bar is read from the program, not the company
 //   AFFILIATE_SCAN_MUTATION=nojoin       a second press starts a second scan while one runs
 //   AFFILIATE_SCAN_MUTATION=noresume     rows a stopped scan left pending are not finished by the next press
-//   AFFILIATE_SCAN_MUTATION=resumeoptout a queued customer who unsubscribed since is still searched on resume
+//   AFFILIATE_SCAN_MUTATION=resumeoptout a queued customer erased since is still searched on resume
 //   AFFILIATE_SCAN_MUTATION=teamskip     the company's own people are scanned as customers
 //   AFFILIATE_SCAN_MUTATION=teamdomain   a colleague on the company domain who is not a SILO user is scanned
 //   AFFILIATE_SCAN_MUTATION=suffix       "Ricardo Solano Jr" is searched as "Ricardo Jr"
@@ -51,7 +52,7 @@
 //   AFFILIATE_SCAN_MUTATION=handleloose  a handle merely CONTAINING the username counts as theirs
 //   AFFILIATE_SCAN_MUTATION=forcedtool   the model request forces the tool, which the production model refuses
 //   AFFILIATE_SCAN_MUTATION=nocarry      a search an earlier scan left ambiguous is never judged
-//   AFFILIATE_SCAN_MUTATION=carryoptout  a carried ambiguous customer who has since unsubscribed is sent to the model
+//   AFFILIATE_SCAN_MUTATION=carryoptout  a carried ambiguous customer since erased is sent to the model
 //   AFFILIATE_SCAN_MUTATION=nochain      a run out of time ends the scan instead of continuing it
 //   AFFILIATE_SCAN_MUTATION=nohandoff    any continue call runs a second worker over the queue
 //   AFFILIATE_SCAN_MUTATION=nolegcap     a scan can continue for ever
@@ -70,6 +71,7 @@
 //   AFFILIATE_SCAN_MUTATION=countother   the count lookup reads another account's count from the results
 //   AFFILIATE_SCAN_MUTATION=nocountask   a profile matched with no count never gets its count looked up
 //   AFFILIATE_SCAN_MUTATION=pinx         the company scan searches Pinterest and X again
+//   AFFILIATE_SCAN_MUTATION=unsubpool    unsubscribed customers are left out of the pool again
 //   AFFILIATE_SCAN_MUTATION=legcpu       a leg reads every result due, however many (killed for CPU in production)
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -121,6 +123,7 @@ const MUTS = {
   noretry: ['handler.mjs', "        if (res.state === 'error' && RETRYABLE_SERP_CODES.has(res.code) && person && r.status === 'pending' && !r.checked_at) {", "        if (false) {"],
   termsreplace: [LIB, '  return [...new Set([...own, ...prog])].slice(0, 40);', '  return [...new Set(list ? own : prog)].slice(0, 40);'],
   nicheloose: [LIB, "  if ((terms || []).some((t) => t && text.includes(` ${t} `))) out.add('niche');", "  if ((terms || []).some((t) => t && text.includes(t))) out.add('niche');"],
+  unsubpool: [LIB, "export const NEVER_SCAN_CONSENT = ['redacted'];", "export const NEVER_SCAN_CONSENT = ['unsubscribed', 'redacted'];"],
   countother: [LIB, '  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));', '  const hit = candidates.find((c) => c.platform === pick.platform);'],
   nocountask: ['handler.mjs', "        const ct = j.status === 'no_count' ? buildCountTask(j.pick) : null;", '        const ct = null;'],
   pinx: [LIB, "export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze(['instagram', 'tiktok', 'youtube']) });", 'export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze([]) });'],
@@ -255,7 +258,7 @@ await test('trust: suffixes, junk pages, off-platform profiles and the second si
   assert.ok(team('owner@gmail.com') && !team('someone@gmail.com'), 'a free mail member is matched by address only');
 });
 
-await test('the bar is the company\'s own; the slice is clamped and never includes unsubscribed', () => {
+await test('the bar is the company\'s own; the slice is clamped, and unsubscribed is a slice (erased never is)', () => {
   assert.equal(L.minFollowersFor({ customer_scan_min_followers: 2000 }), 2000);
   assert.equal(L.minFollowersFor({ customer_scan_min_followers: 0 }), 0);
   assert.equal(L.minFollowersFor({}), 750);
@@ -265,8 +268,10 @@ await test('the bar is the company\'s own; the slice is clamped and never includ
   assert.equal(L.companyMinFollowers(null), 750, 'unset is the default');
   assert.deepEqual([...L.COMPANY_SCAN_SCOPE.platforms], ['instagram', 'tiktok', 'youtube'], 'the platforms whose results state a count; no program narrows it, and never Pinterest or X');
   assert.equal(L.clampScanCount(5000), 1000); assert.equal(L.clampScanCount(0), 500); assert.equal(L.clampScanCount('x'), 500);
-  const f = L.scanFilters({ consent: 'unsubscribed', minOrders: 99, to: '2026-12-31', sort: 'drop table' });
-  assert.equal(f.consent, 'any', 'unsubscribed cannot be chosen as a slice');
+  const f = L.scanFilters({ consent: 'redacted', minOrders: 99, to: '2026-12-31', sort: 'drop table' });
+  assert.equal(f.consent, 'any', 'an erased customer cannot be chosen as a slice');
+  assert.equal(L.scanFilters({ consent: 'unsubscribed' }).consentState, 'unsubscribed', 'unsubscribed customers are found too; they are reached by DM, never email');
+  assert.deepEqual(L.NEVER_SCAN_CONSENT, ['redacted'], 'only an erasure is never searched');
   assert.equal(f.minOrders, 50); assert.equal(f.toExclusive, '2027-01-01'); assert.equal(f.sort, 'orders');
 });
 
@@ -376,7 +381,7 @@ const seed = (extra = {}) => ({
   company_customer_profiles: [
     cust('emily', 'emily durrance', { order_count: 9 }),
     cust('nobody', 'quiet person', { order_count: 8 }),
-    cust('optout', 'olive out', { order_count: 7, email_consent_state: 'unsubscribed' }),
+    cust('optout', 'olive out', { order_count: 7, email_consent_state: 'redacted' }),
     cust('twins', 'sam twin', { order_count: 6, email_consent_state: 'subscribed' }),
     cust('biz', 'team store', { order_count: 6 }),
     cust('otherco', 'emily durrance', { order_count: 99, company_entity_id: OTHER }),
@@ -476,8 +481,8 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   assert.equal(r.status, 202);
   await s.settle();
   const keys = s.service.tables.affiliate_customer_social.map((x) => x.customer_key).sort();
-  assert.deepEqual(keys, ['emily', 'nobody', 'twins'], 'unsubscribed, a business and another company\'s customer are never queued');
-  assert.ok(!s.searches.some((t) => /Olive Out/.test(t.keyword)), 'an opt-out is never searched');
+  assert.deepEqual(keys, ['emily', 'nobody', 'twins'], 'an erased customer, a business and another company\'s customer are never queued');
+  assert.ok(!s.searches.some((t) => /Olive Out/.test(t.keyword)), 'an erased customer is never searched');
   assert.ok(row(s, 'nobody'), 'a customer whose consent was never checked IS scanned');
   // One name search each, plus one username search for each email whose
   // username is not just their name: emily@ is her first name, so 3 + 2.
@@ -587,13 +592,23 @@ await test('a search an earlier scan left ambiguous is judged from its stored pr
   assert.ok(scan.ambiguous >= 0 && scan.found === 0 && scan.filters.to_check === 1, 'this scan counts only what it searched (Emily, name only: to check), never the carried row');
 });
 
+await test('an unsubscribed customer IS found: consent decides the contact path, not the pool', async () => {
+  const data = seed();
+  data.company_customer_profiles.find((c) => c.customer_key === 'optout').email_consent_state = 'unsubscribed';
+  const s = setup({ data });
+  await s.call({ count: 500, filters: { minOrders: 2, consent: 'any', sort: 'orders' } });
+  await s.settle();
+  assert.ok(row(s, 'optout'), 'queued and searched');
+  assert.ok(s.searches.some((t) => /Olive Out/.test(t.keyword)), 'their name is searched');
+});
+
 await test('a carried ambiguous customer who has since opted out is never sent to the model, and is cleared', async () => {
   const cands = [
     { platform: 'instagram', handle: '@samtwin', profile_url: 'https://www.instagram.com/samtwin', title: 'Sam Twin (@samtwin)', snippet: '5,000 Followers' },
     { platform: 'instagram', handle: '@samtwin_az', profile_url: 'https://www.instagram.com/samtwin_az', title: 'Sam Twin (@samtwin_az)', snippet: 'Phoenix' },
   ];
   const data = seed({ affiliate_customer_social: [{ id: 'amb', company_entity_id: CO, program_id: null, scan_id: 'old', customer_key: 'twins', email_lc: 'twins@buyer.invalid', display_name: 'Sam Twin', status: 'ambiguous', decided_by: 'search', candidates: cands, created_at: '2026-11-24T03:00:00Z' }] });
-  data.company_customer_profiles.find((c) => c.customer_key === 'twins').email_consent_state = 'unsubscribed';
+  data.company_customer_profiles.find((c) => c.customer_key === 'twins').email_consent_state = 'redacted';
   const s = setup({ data });
   await s.call({ filters: { minOrders: 2 } });
   await s.settle();
@@ -681,7 +696,7 @@ await test('a queued customer who unsubscribes before the next press is dropped,
   const pending = s.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending');
   assert.ok(pending.length >= 1, 'the stopped scan left a queue');
   const data = structuredClone(s.service.tables);
-  for (const c of data.company_customer_profiles) if (pending.some((p) => p.customer_key === c.customer_key)) c.email_consent_state = 'unsubscribed';
+  for (const c of data.company_customer_profiles) if (pending.some((p) => p.customer_key === c.customer_key)) c.email_consent_state = 'redacted';
   const next = setup({ data });
   // Later, as the next press is: what the first run posted has had time to come back.
   next.tick(60 * 60_000);

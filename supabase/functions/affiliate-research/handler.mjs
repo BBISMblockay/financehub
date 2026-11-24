@@ -467,7 +467,7 @@ export function createResearchHandler({
   async function recheck(company, left, { suppressed, isTeam }) {
     // A queued customer is re-checked before it is resumed: consent can
     // change between the press that queued them and the one that finishes
-    // them, and somebody who has since unsubscribed (or been added to
+    // them, and somebody whose data has since been erased (or been added to
     // do-not-contact) is dropped from the queue rather than searched. Their
     // row is deleted, not marked, so nothing records a search that never ran
     // and the slice can pick them up again only if they become eligible.
@@ -518,7 +518,7 @@ export function createResearchHandler({
       let q = service.from('company_customer_profiles')
         .select('customer_key, email_lc, name_lc, first_name_lc, last_name_lc, order_count, last_order_at, lifetime_spend, email_consent_state')
         .eq('company_entity_id', company).gte('order_count', filters.minOrders)
-        // An explicit opt-out is never researched. NULL (not checked yet) IS
+        // An erased customer is never researched. NULL (not checked yet) IS
         // scanned: a plain NOT IN would drop every unmeasured customer, which
         // is most of them, because NULL NOT IN (...) is not true.
         .or(`email_consent_state.is.null,email_consent_state.not.in.(${NEVER_SCAN_CONSENT.join(',')})`);

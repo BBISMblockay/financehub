@@ -22,7 +22,7 @@
 //      it can be read out of a result's own text, which the code re-checks.
 //
 // WHAT IT NEVER DOES: fetch a profile page, guess a handle, estimate a count,
-// research somebody who unsubscribed from marketing, or contact anyone. A
+// research somebody whose data was erased, or contact anyone. A
 // person found here is only a row on the Your Customers list until somebody
 // ticks them.
 //
@@ -57,13 +57,15 @@ export const MATCH_BASES = ['email_handle', 'city', 'niche', 'name_only'];
 export const FREE_MAIL = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com', 'outlook.com',
   'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com',
   'comcast.net', 'att.net', 'sbcglobal.net', 'verizon.net', 'bellsouth.net', 'cox.net', 'charter.net']);
-// Never researched at all: somebody who said no to marketing, and a privacy
-// erasure (a redacted row has no name left to look for anyway). Every other
-// consent state, including "never asked" and "not checked yet", is scanned --
-// consent is a filter, never a gate (Blake, 2026-11-24), and an explicit
-// opt-out is out of the pool entirely ("if they physically opted out, we
-// don't want them in pool").
-export const NEVER_SCAN_CONSENT = ['unsubscribed', 'redacted'];
+// Never researched at all: a privacy erasure (a redacted row has no name left
+// to look for anyway). Every other consent state is scanned, unsubscribed
+// included -- consent decides HOW somebody is reached, never whether they are
+// found (Blake, 2026-11-24: "want all prospect available and then comms path
+// decided by status tag"). An unsubscribed customer is never emailed: Add to
+// outreach gives them a DM draft instead (customerContactPath in
+// v2/affiliates/studio-core.js). The do-not-contact list still keeps anyone
+// on it out of the pool entirely.
+export const NEVER_SCAN_CONSENT = ['redacted'];
 
 const BUSINESS_WORDS = new Set(['llc', 'inc', 'co', 'corp', 'company', 'store', 'shop', 'team', 'club', 'league',
   'school', 'academy', 'association', 'church', 'llp', 'ltd', 'group', 'sports', 'athletics', 'baseball', 'softball',
@@ -619,14 +621,14 @@ export const SCAN_SORTS = {
   oldest: [['first_order_at', true], ['order_count', false], ['customer_key', true]],
   name: [['name_lc', true], ['customer_key', true]],
 };
-const SCAN_CONSENTS = ['any', 'subscribed', 'not_subscribed', 'pending', 'unmeasured'];
+const SCAN_CONSENTS = ['any', 'subscribed', 'not_subscribed', 'unsubscribed', 'pending', 'unmeasured'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const nextDay = (iso) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 
 /**
- * The slice a press scans, from what the page sent, every field clamped. An
- * explicit opt-out is NOT a choice here: 'unsubscribed' is refused, because
- * those customers are never scanned whatever the filter says.
+ * The slice a press scans, from what the page sent, every field clamped.
+ * 'unsubscribed' is a slice like any other (they are found, then reached by
+ * DM, never email); an erased ('redacted') customer is never one.
  */
 export function scanFilters(f = {}) {
   const sort = Object.prototype.hasOwnProperty.call(SCAN_SORTS, f?.sort) ? f.sort : 'orders';
