@@ -169,7 +169,11 @@
       prefill, adjustmentId, onPosted, onStaged,
     } = opts;
     // Only a stored entry can be reviewed without an edit step.
-    const reviewOnly = !!(opts.reviewOnly && adjustmentId);
+    let reviewOnly = !!(opts.reviewOnly && adjustmentId);
+    // What the database says this entry IS. An entry that is no longer a draft
+    // cannot be edited -- RLS refuses its lines -- so the composer must not
+    // offer an edit step for one, whoever opened it and with what options.
+    let storedStatus = null;
     injectStyles();
 
     const state = {
@@ -470,6 +474,16 @@
         return new Error(`An entry${period} already exists as a draft, approved, or posted entry. `
           + 'Open the existing entry under Adjustments. It has not been changed.');
       }
+      // An entry leaves draft while a composer is open on it -- approved in
+      // another tab, or opened from a list that still called it staged. The
+      // write is refused by RLS, and 'violates row-level security policy for
+      // table "journal_adjustment_lines"' says nothing a reader can act on.
+      // Matched on the refusal's own wording, not on 42501, which also covers
+      // "permission denied for table" -- a different fault with its own cause.
+      if (/row-level security/i.test(error.message || '')) {
+        return new Error('This entry is no longer a draft — it has been approved or posted, so its '
+          + 'lines cannot be changed. Reopen the approval under Adjustments to edit it, or post it as it stands.');
+      }
       return new Error(error.message);
     }
 
@@ -506,6 +520,10 @@
     }
 
     async function stage() {
+      if (storedStatus && storedStatus !== 'draft') {
+        throw new Error(`This entry is ${storedStatus}, not a draft, so it cannot be restaged. `
+          + 'Reopen the approval under Adjustments to edit it, or post it as it stands.');
+      }
       const payload = {
         entry_date: $('jeDate').value,
         memo: $('jeMemo').value.trim(),
@@ -554,7 +572,7 @@
       });
 
       const { error: lErr } = await db.from('journal_adjustment_lines').insert(rows);
-      if (lErr) throw new Error(lErr.message);
+      if (lErr) throw stageError(lErr);
 
       if (onStaged) onStaged(state.id);
       return state.id;
@@ -579,13 +597,17 @@
         .reduce((n, r) => n + Number(r.amount), 0);
       const balanced = Math.abs(dr - cr) < 0.005;
 
+      // The review step is also how an entry that is no longer a draft is read,
+      // so the banner reports the entry's actual state rather than assuming the
+      // reader has just staged it.
+      storedStatus = adj.status || storedStatus;
+      const banner = storedStatus === 'posted'
+        ? '<b>Already posted to QuickBooks.</b><br />This is the entry as the books hold it. Nothing here changes it; a correction is a new entry, or a void once it has been deleted in QuickBooks.'
+        : storedStatus === 'approved'
+          ? '<b>Approved and waiting to post — nothing has been sent to QuickBooks yet.</b><br />This is the entry read back from the database, which is exactly what gets rebuilt and posted. To change it, reopen its approval under Adjustments.'
+          : '<b>Staged as a draft — nothing has been sent to QuickBooks.</b><br />This is the entry read back from the database, which is exactly what gets rebuilt and posted. Close this window and it stays a draft you can reopen; only <b>Approve &amp; post</b> writes to the books.';
       $('jeReview').innerHTML = `
-        <div class="je-banner">
-          <b>Staged as a draft — nothing has been sent to QuickBooks.</b><br />
-          This is the entry read back from the database, which is exactly what
-          gets rebuilt and posted. Close this window and it stays a draft you can
-          reopen; only <b>Approve &amp; post</b> writes to the books.
-        </div>
+        <div class="je-banner">${banner}</div>
         <div class="je-meta">
           <div><span>Entry date</span><strong>${esc(adj.entry_date)}</strong></div>
           <div><span>Memo</span><strong>${esc(adj.memo)}</strong></div>
@@ -620,9 +642,13 @@
       // Belt and braces: the form already refuses to stage an unbalanced entry,
       // but this screen reports what the database holds, so it checks that too
       // rather than trusting the check that ran a moment ago.
-      $('jePost').disabled = !balanced || rows.length < 2;
-      setMsg(balanced ? 'Review the entry, then approve to post.'
-        : 'The staged entry does not balance — go back and fix it.',
+      $('jePost').disabled = !balanced || rows.length < 2 || storedStatus === 'posted';
+      setMsg(storedStatus === 'posted'
+        ? 'This entry has already been posted to QuickBooks.'
+        : !balanced ? 'The staged entry does not balance — go back and fix it.'
+          : storedStatus === 'approved'
+            ? 'This entry is already approved. Approve & post sends it to QuickBooks as it stands.'
+            : 'Review the entry, then approve to post.',
       balanced ? null : 'bad');
     }
 
@@ -793,6 +819,12 @@
             .eq('adjustment_id', adjustmentId).order('line_no'),
         ]);
         if (adj) {
+          // RLS allows the lines of a DRAFT to be rewritten and nothing else,
+          // so an approved or posted entry opened in the form could only fail
+          // at the write, with a policy message. It opens on the read-back
+          // instead, where its real state and the way out are both stated.
+          storedStatus = adj.status || null;
+          if (storedStatus && storedStatus !== 'draft') reviewOnly = true;
           state.entryDate = adj.entry_date;
           state.memo = adj.memo || '';
           $('jeDate').value = state.entryDate;
