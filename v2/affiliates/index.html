@@ -688,8 +688,14 @@
       .af-ctile-media { width: 84px; height: 84px; }
     }
 
-    /* People: Affiliates / Discovery. */
+    /* People: Affiliates / Discovery / Your Customers. */
     .af-subtabs { margin: 0 0 14px; }
+    /* Your Customers: the filter row wraps rather than scrolls, so every
+       control is reachable at phone width. */
+    .af-cust-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    .af-cust-filters .bcn-field-group { margin: 0; }
+    .af-cust-kpis { margin: 10px 0 6px; }
+    .af-cust-pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
 
     /* Adding or editing in the middle of the screen. */
     dialog.af-dialog {
@@ -881,9 +887,15 @@
       <nav class="bcn-tabs af-subtabs" id="peopleSubtabs" role="tablist" aria-label="People">
         <button type="button" class="bcn-tab bcn-tab--active" role="tab" aria-selected="true" data-act="people-sub" data-k="discovery">Discovery</button>
         <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="affiliates">Affiliates</button>
+        <!-- Your Customers (Blake 2026-11-24): the people who already buy
+             from you, which is where the next affiliates come from. Third
+             sub-tab rather than a report of its own, and its read only
+             happens when it is opened. -->
+        <button type="button" class="bcn-tab" role="tab" aria-selected="false" data-act="people-sub" data-k="customers">Your Customers</button>
       </nav>
       <div class="af-stack" id="affiliatesBody"></div>
       <div class="af-stack af-stack--pinched" id="prospectsBody"></div>
+      <div class="af-stack" id="customersBody" hidden></div>
     </section>
     <!-- Comms: every message to a creator or an affiliate, prepped and
          approved in queues, plus the template they start from. -->

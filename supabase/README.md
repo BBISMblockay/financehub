@@ -4199,6 +4199,46 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124030000_affiliate_customer_outreach.sql` — recruiting your own customers
+
+Blake, 2026-11-24, once the customer consent sync was in: "if the data is there, literally what are we waiting for
+ha?" The repeat buyers to recruit from are now a **Your Customers** sub-tab under People in Affiliate Studio, not a
+report of its own, and picking somebody there puts them into the outreach flow Discovery already uses — "no matter
+where they lead from discovery or customer routes". So this migration adds no pipeline and no new table; it only
+makes room for a customer in the one that exists.
+
+Four changes. `affiliate_prospects.source` accepts `'customer'`, so where they came from is recorded rather than
+disguised as a search hit (the queues, the counts and the badge all read `source` already).
+`affiliate_prospects_identifiable` accepts a `contact_email` as a third way to be identifiable: it demanded a
+profile URL or a handle, which is right for a creator found on the web and impossible for somebody who has only
+ever bought something — they have no channel until the social scan finds one, and an email is a stronger
+identifier than either. Without this the tab's **Add to outreach** would fail on every press. And
+`affiliate_programs` gains `customer_outreach_subject` / `customer_outreach_body`: the creator template opens by
+saying SILO found their channel in a search, which read by a four-year customer is worse than no message, so
+customers get their own per-brand template with the same `{token}` filling and SILO's own default when a program
+has not written one. `{orders_line}` is empty when the order count is unknown rather than guessing.
+
+The fourth change is the duplicate guard, and it is a correction from review on #1362.
+`affiliate_prospects_identity` cannot do this job: its key is
+`coalesce(nullif(btrim(profile_url),''), platform || ':' || btrim(handle))`, and a customer has neither until the
+social scan finds one, so the expression is NULL and a unique index permits NULLs without limit. Two adds of the
+same customer therefore made two prospects and two drafts, which is two signup links to one person. The browser
+cannot be the guard either: the page's duplicate check reads only the newest 500 prospects it loaded, so an older
+customer or a second tab slips past it. `affiliate_prospects_customer_identity` is a unique index on
+`(company_entity_id, program_id, lower(btrim(contact_email)))`, partial on `source = 'customer'` so a creator's
+row is untouched and no existing row can collide — the source did not exist before this migration. The page now
+treats its refusal (23505) as a row to ADOPT: the press finishes the message against the prospect that already
+exists, so one person still ends up with one prospect and one draft. `verify_v2_schema.sql` block 8c asserts the
+index structurally.
+
+Do-not-contact is deliberately NOT re-implemented here. Blake asked for suppressed customers to be skipped, and
+the database already makes that absolute (`affiliate_outreach_can_contact()` and the trigger that refuses to
+approve a draft for a suppressed value). The tab filters them out before inserting so they never appear on a list
+to be picked — convenience — and a suppressed domain covers its subdomains there exactly as
+`affiliate_normalize_contact` reads it. The database stays the boundary; a second enforcement path would be two
+rules to keep in step. The ranking on that tab (most orders, then lifetime spend, then recency, every one a named
+ordering rather than a blended score) is UI only and needs no SQL.
+
 ### `20261124140000_affiliate_outreach_close_when_joined.sql` — outreach stops when somebody joins
 
 A creator DM'd outside SILO, never marked sent, then invited and signed up, still had their recruiting draft open in

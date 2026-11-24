@@ -11,6 +11,8 @@ import {
   dayShift, dayDiff, ovWindow, ovOtherCurrencyOrders, ovLedgerTotal, ovWeekly, ovUnpaid,
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
+  customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
+  customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -357,7 +359,7 @@ const PROSPECT_LIST_CAP = 20;
 // Declared before S, because S.view calls readView() as it is built: a const
 // read before its own initializer throws, and the choice silently reverted.
 const VIEW_KEY = 'silo.affiliates.view';
-const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -875,7 +877,7 @@ const PANEL_OF = {
 const FIRST_BODY = { overview: 'overviewBody', people: 'affiliatesBody', comms: 'outreachBody', share: 'shareBody', payouts: 'payoutsBody', program: 'programBody', records: 'recordsBody' };
 const PANEL_RENDERERS = {
   overview: [renderOverview],
-  people: [renderAffiliates, renderProspects],
+  people: [renderAffiliates, renderProspects, renderCustomers],
   comms: [renderOutreach],
   // What reps see in their portal has its own tab (Blake 2026-11-18: "bring
   // back the share tab").
@@ -918,7 +920,7 @@ function render() {
 function renderPeopleSubtabs() {
   const bar = $('peopleSubtabs');
   if (!bar) return;
-  const sub = S.peopleSub === 'discovery' ? 'discovery' : 'affiliates';
+  const sub = ['discovery', 'customers'].includes(S.peopleSub) ? S.peopleSub : 'affiliates';
   // "All programs" reads across every programme and has no discovery list.
   bar.hidden = isAll();
   for (const b of bar.querySelectorAll('[data-k]')) {
@@ -926,9 +928,214 @@ function renderPeopleSubtabs() {
     b.classList.toggle('bcn-tab--active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
-  const aff = $('affiliatesBody'); const pros = $('prospectsBody');
+  const aff = $('affiliatesBody'); const pros = $('prospectsBody'); const cust = $('customersBody');
   if (aff) aff.hidden = !isAll() && sub !== 'affiliates';
   if (pros) pros.hidden = isAll() || sub !== 'discovery';
+  if (cust) cust.hidden = isAll() || sub !== 'customers';
+}
+
+
+// ── Your Customers ────────────────────────────────────────────────────────
+// Blake, 2026-11-24: the repeat buyers to recruit from, as the third People
+// sub-tab rather than a report of its own ("if the data is there, literally
+// what are we waiting for ha?").
+//
+// LAZY, and that is the point: the read only happens once somebody opens the
+// sub-tab, so People stays exactly as fast as it was for everybody who never
+// looks at it. `S.cust` is null until then.
+//
+// FAIL SOFT. A company whose stores have no `read_customers` scope, or whose
+// customer sync has not run, still has order history -- so the list and the
+// counts work and only the consent column is blank. If the read itself fails
+// (an older database without the consent columns, say) the tab says so and
+// nothing else on People is affected.
+const CUST_DEFAULTS = () => ({
+  from: dayShift(today(), 365), to: today(), minOrders: 3, consent: 'any',
+  sort: 'orders', page: 0,
+  rows: [], total: null, kpi: null, loading: false, error: '', loaded: false,
+  // Ticks are kept by customer_key, and a tick on a row that left the view is
+  // dropped when the view reloads -- the same stance as the prospect list.
+  sel: new Set(),
+});
+const custState = () => (S.cust ||= CUST_DEFAULTS());
+const CUST_COLS = 'customer_key, name_lc, email_lc, order_count, first_order_at, last_order_at, lifetime_spend, email_consent_state, sms_consent_state, consent_checked_at';
+const custMoney = (v) => (v === null || v === undefined
+  ? '—'
+  : Number(v).toLocaleString('en-US', { style: 'currency', currency: prog()?.currency || 'USD', maximumFractionDigits: 0 }));
+
+// The headline counts. Separate head-only counts rather than one aggregate,
+// because PostgREST cannot aggregate and a count is an index-free scan either
+// way; they run together, so the tab waits for one round trip, not four.
+async function custCounts(spec) {
+  const base = () => {
+    let q = db.from('company_customer_profiles').select('customer_key', { count: 'exact', head: true })
+      .eq('company_entity_id', CO);
+    if (spec.from) q = q.gte('last_order_at', spec.from);
+    if (spec.toExclusive) q = q.lt('last_order_at', spec.toExclusive);
+    return q;
+  };
+  const [all, two, three, subbed] = await Promise.all([
+    base().gte('order_count', 1),
+    base().gte('order_count', 2),
+    base().gte('order_count', 3),
+    base().gte('order_count', 1).eq('email_consent_state', 'subscribed'),
+  ]);
+  return {
+    customers: all.count ?? null,
+    repeat: two.count ?? null,
+    loyal: three.count ?? null,
+    // NULL means the count did not come back, never zero subscribers.
+    subscribed: subbed.count ?? null,
+  };
+}
+
+// Which read owns the view. A filter change while a read is in flight must
+// NOT be dropped: dropping it leaves the old rows on screen under the new
+// filter, so customers outside the chosen segment stay tickable. And an older
+// read must not land on top of a newer one. So every read takes a ticket, a
+// newer read supersedes it, and a superseded read discards its own results
+// and leaves the view to the read that now owns it.
+let custSeq = 0;
+async function loadCustomers(force = false) {
+  const c = custState();
+  if (c.loaded && !force) return;
+  // The lazy first read never stacks; a filter or page change always counts.
+  if (c.loading && !force) return;
+  const seq = ++custSeq;
+  const mine = () => seq === custSeq;
+  c.loading = true; c.error = ''; renderCustomers();
+  const spec = customerQuerySpec(c);
+  try {
+    let q = db.from('company_customer_profiles').select(CUST_COLS, { count: 'exact' })
+      .eq('company_entity_id', CO)
+      .gte('order_count', spec.minOrders);
+    if (spec.from) q = q.gte('last_order_at', spec.from);
+    if (spec.toExclusive) q = q.lt('last_order_at', spec.toExclusive);
+    if (spec.consentIsNull) q = q.is('email_consent_state', null);
+    else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);
+    for (const o of spec.order) q = q.order(o.column, { ascending: o.ascending, nullsFirst: false });
+    const { data, error, count } = await q.range(spec.range[0], spec.range[1]);
+    if (error) throw error;
+    if (!mine()) return;
+    c.rows = data || [];
+    c.total = count ?? null;
+    {
+      const inView = new Set(c.rows.map((x) => x.customer_key));
+      for (const k of [...c.sel]) if (!inView.has(k)) c.sel.delete(k);
+    }
+    // The counts describe the date window, not the current filters, so the
+    // "2+ orders" tile does not change when you filter TO 2+ orders.
+    const kpi = await custCounts(spec).catch(() => null);
+    if (!mine()) return;
+    c.kpi = kpi;
+    c.loaded = true;
+  } catch (e) {
+    if (!mine()) return;
+    c.rows = []; c.total = null; c.kpi = null; c.loaded = true;
+    c.error = friendly(e);
+  } finally {
+    if (mine()) {
+      c.loading = false;
+      renderCustomers();
+    }
+  }
+}
+
+function renderCustomers() {
+  const body = $('customersBody');
+  if (!body) return;
+  const c = custState();
+  // Opening the sub-tab is what triggers the first read -- from here rather
+  // than from the sub-tab button, so arriving by any route loads it once.
+  if (S.peopleSub === 'customers' && !isAll() && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());
+  const spec = customerQuerySpec(c);
+  const sorts = [['orders', 'Most orders'], ['spend', 'Highest spend'], ['recent', 'Ordered most recently'], ['oldest', 'Longest-standing'], ['name', 'Name']];
+  const consentLabel = { any: 'Any', subscribed: 'Subscribed', not_subscribed: 'Not subscribed', unsubscribed: 'Unsubscribed', pending: 'Pending', unmeasured: 'Not checked yet' };
+  const k = c.kpi;
+  const kpis = [
+    ['Customers', num(k?.customers)],
+    ['2+ orders', num(k?.repeat)],
+    ['3+ orders', num(k?.loyal)],
+    ['Email subscribed', num(k?.subscribed)],
+  ];
+  const filters = `<div class="af-filter-bar af-cust-filters">
+    ${field('Last order from', input('custFrom', `type="date" value="${esc(c.from)}"`))}
+    ${field('Through', input('custTo', `type="date" value="${esc(c.to)}"`))}
+    ${field('Minimum orders', input('custMin', `type="number" min="1" max="50" value="${esc(String(spec.minOrders))}" style="max-width:5.5rem"`))}
+    ${field('Email consent', `<select class="bcn-field" id="custConsent">${CUSTOMER_CONSENTS.map((x) => `<option value="${x}"${x === spec.consent ? ' selected' : ''}>${esc(consentLabel[x] || x)}</option>`).join('')}</select>`)}
+    ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
+  </div>`;
+  const consentCell = (row) => {
+    const v = customerConsentView(row.email_consent_state);
+    const s = customerConsentView(row.sms_consent_state);
+    return `${pill(v.label, v.tone)}${s.measured ? ` <span class="af-muted">SMS ${esc(s.label)}</span>` : ''}`;
+  };
+  // A customer with no email on file cannot be written to, so there is
+  // nothing to tick: the row still shows (they are a real customer and count
+  // towards the totals) and says why instead of offering an action that
+  // would fail.
+  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);
+  const rows = table([
+    ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
+      ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
+      : '')}] : []),
+    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${x.email_lc ? `<div class="af-muted">${esc(x.email_lc)}${customerSuppressed(x.email_lc, S.d?.suppressions || []) ? ' · on your do-not-contact list' : ''}</div>` : '<div class="af-muted">no email on file</div>'}` },
+    { num: true, h: 'Orders', f: (x) => num(x.order_count) },
+    { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
+    { h: 'First order', f: (x) => fmtDate(x.first_order_at) },
+    { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
+    { left: true, h: 'Email consent', f: consentCell },
+  ], c.rows, c.loading ? 'Loading…' : 'Nobody matches these filters.');
+  // Add to outreach: one press writes a prospect and a draft for each ticked
+  // customer, and the drafts wait on Outreach exactly like a creator's would
+  // (Blake 2026-11-24: "no matter where they lead from discovery or customer
+  // routes").
+  const onPage = c.rows.filter((x) => pickable(x));
+  const bulk = MANAGE && onPage.length
+    ? `<div class="af-row af-bulk">
+        ${btn(`Select all ${onPage.length} on this page`, 'cust-select-all')}
+        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${btn('Add to outreach', 'cust-add', {}, 'primary')}${btn('Clear', 'cust-select-none')}` : ''}
+      </div>`
+    : '';
+  const pages = c.total === null ? null : Math.max(1, Math.ceil(c.total / CUSTOMER_PAGE_SIZE));
+  const foot = pages && pages > 1
+    ? `<div class="af-list-foot af-cust-pager">
+        ${btn('Previous', 'cust-page', { p: String(spec.page - 1) }, 'surface', { disabled: spec.page <= 0 })}
+        <span class="af-mono">Page ${num(spec.page + 1)} of ${num(pages)}</span>
+        ${btn('Next', 'cust-page', { p: String(spec.page + 1) }, 'surface', { disabled: spec.page + 1 >= pages })}
+      </div>`
+    : '';
+  // Consent arrives from the Shopify customer sync and lands per store, so a
+  // company part-way through its first pull sees real counts and blank
+  // consent. Saying so beats a column of blanks that reads as opted out.
+  const notChecked = c.rows.length && c.rows.every((x) => x.email_consent_state === null)
+    ? `<p class="af-muted">Email consent has not been checked for anyone in this view yet. It fills in from the Shopify customer sync, and a blank never means unsubscribed.</p>`
+    : '';
+  // Re-rendering replaces the filter row, which would drop the caret out of
+  // whichever box was just used. The focus (and the caret inside a text box)
+  // is put back on the same control afterwards.
+  const act = document.activeElement;
+  const keepId = act && body.contains(act) ? act.id : '';
+  const keepAt = keepId && typeof act.selectionStart === 'number' ? act.selectionStart : null;
+  body.innerHTML = surface('Your customers',
+    `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
+     <p class="af-muted">Everyone who has bought from you, ranked so the people worth recruiting are at the top. The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
+     ${filters}
+     <div class="af-kv-line af-cust-kpis">${kpis.map(([label, v]) => `<span><span class="bcn-num">${v}</span> ${esc(label)}</span>`).join(' · ')}</div>
+     ${notChecked}
+     ${bulk}
+     ${rows}
+     ${foot}`,
+    c.total === null ? '' : `${num(c.total)} match these filters`, 'afCustomers');
+  if (keepId) {
+    const back = $(keepId);
+    if (back) {
+      back.focus();
+      // A date or number box refuses a caret position; its value is already
+      // restored by the render, so there is nothing else to put back.
+      if (keepAt !== null) { try { back.setSelectionRange(keepAt, keepAt); } catch { /* not a text box */ } }
+    }
+  }
 }
 
 // ── Dialogs ──────────────────────────────────────────────────────────────
@@ -1423,6 +1630,23 @@ document.addEventListener('click', (ev) => {
 // another program's form or land on another program. Switching programs
 // saves what is pending first.
 let saveTimer = null; let saving = Promise.resolve(); let pendingSave = null;
+// The Your Customers filters. Every one of them is a new read, so the change
+// is debounced: typing in a date field fires on each keystroke in some
+// browsers, and four reads per keystroke would be four scans of the table.
+let custTimer = null;
+document.addEventListener('change', (ev) => {
+  const id = ev.target?.id;
+  if (!['custFrom', 'custTo', 'custMin', 'custConsent', 'custSort'].includes(id)) return;
+  const c = custState();
+  if (id === 'custFrom') c.from = ev.target.value;
+  else if (id === 'custTo') c.to = ev.target.value;
+  else if (id === 'custMin') c.minOrders = ev.target.value;
+  else if (id === 'custConsent') c.consent = ev.target.value;
+  else if (id === 'custSort') c.sort = ev.target.value;
+  c.page = 0;
+  clearTimeout(custTimer);
+  custTimer = setTimeout(() => loadCustomers(true), 250);
+});
 // "From search" picks out one search's results on the prospect list.
 document.addEventListener('change', (ev) => {
   if (ev.target.id !== 'pQuery') return;
@@ -1688,7 +1912,12 @@ function renderOutreach() {
   // template form only exists on its own chip, so switching away would
   // otherwise rebuild it from the saved row and lose the edit.
   const tpl = { ...outreachTemplate(p), ...(S.tplDraft || {}) };
+  // The customer template, same buffer stance. Two templates rather than one
+  // (Blake 2026-11-24): a creator is a stranger being pitched, a customer
+  // already buys from you, and one message cannot be both.
+  const custTpl = { ...customerOutreachTemplate(p), ...(S.custTplDraft || {}) };
   const TAGS = ['{name}', '{brand}', '{platform}', '{source}', '{commission}', '{sender}', '{signup_link}'];
+  const CUST_TAGS = ['{name}', '{brand}', '{orders_line}', '{commission}', '{sender}', '{signup_link}'];
   // The emails SILO sent affiliates on its own (invites, codes, payouts).
   const NOTE_KIND = { signup_invite: 'Invite', signup_confirmation: 'Welcome', portal_link: 'Portal link', link_renewal: 'New portal link', codes_and_links: 'Codes and links', payout_status: 'Payout' };
   const noteRow = (n) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' '))} · ${esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—')} ${statusPill(n.status)}</div><div class="af-muted">${fmtTime(n.created_at)}${n.status !== 'sent' && n.reason ? ` · ${esc(n.reason)}` : ''}</div></div></article>`;
@@ -1710,7 +1939,12 @@ function renderOutreach() {
     ['template', 'Template', 0, () => card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
       ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
       <div class="af-set-tags">${TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
-      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save template', 'tpl-save', {}, 'primary')}${drafts.length ? btn(`Redraft ${num(drafts.length)} waiting`, 'tpl-redraft', {}, 'surface', { confirm: true }) : ''}</div>` : ''}`, 'New drafts start from this'), !hasOutreachMessage()],
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save template', 'tpl-save', {}, 'primary')}${drafts.length ? btn(`Redraft ${num(drafts.length)} waiting`, 'tpl-redraft', {}, 'surface', { confirm: true }) : ''}</div>` : ''}`, 'New drafts start from this')
+      + card('Message to your own customers', `<p class="af-muted">Used when you add somebody from People &gt; Your Customers. They already buy from you, so this one does not pitch them like a stranger.</p>
+      ${field('Subject', input('custTplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(custTpl.subject)}"`))}
+      ${field('Message', `<textarea class="bcn-field" id="custTplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(custTpl.body)}</textarea>`)}
+      <div class="af-set-tags">${CUST_TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
+      ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save customer template', 'cust-tpl-save', {}, 'primary')}</div>` : ''}`, 'Your Customers drafts start from this'), !hasOutreachMessage()],
     ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
   ].filter(([, , , , hide]) => !hide);
   // Open on what is waiting, so the first thing seen is the first thing to do.
@@ -2657,6 +2891,26 @@ function payoutPayHtml() {
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────
+// A customer prospect's own variables. The creator set would fill {source}
+// with "a search", which is a lie to somebody who has been buying from the
+// brand for years, and has no {orders_line} at all. The order facts come off
+// the prospect's evidence, which is where cust-add put them.
+const customerVars = (x) => {
+  const p = prog();
+  const owner = S.profiles.find((u) => u.id === p.owner_user_id);
+  return {
+    name: x.display_name || 'there', brand: S.brand || p.name, program: p.name,
+    orders_line: customerOrdersLine({ order_count: x.evidence?.order_count ?? null }),
+    commission: describeCommission({ kind: p.commission_kind, percent: p.commission_percent, fixed_cents: p.commission_fixed_cents, currency: p.currency }),
+    sender: owner?.name || '',
+  };
+};
+// Which template and which variables a prospect's draft is written from.
+// Source decides it, everywhere a draft is written or rewritten, so no caller
+// can pitch a customer as a stranger.
+const draftFor = (x) => (x?.source === 'customer'
+  ? { tpl: customerOutreachTemplate(prog()), vars: customerVars(x) }
+  : { tpl: outreachTemplate(prog()), vars: outreachVars(x) });
 const outreachVars = (x) => {
   const p = prog();
   const owner = S.profiles.find((u) => u.id === p.owner_user_id);
@@ -3051,6 +3305,7 @@ const A = {
   'comms-tab': ({ k }) => {
     if (k === S.commsTab) return null;
     if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };
+    if ($('custTplBody')) S.custTplDraft = { subject: val('custTplSubject'), body: $('custTplBody').value };
     S.commsTab = k;
     keepFields('outreachBody', renderOutreach);
     return null;
@@ -3147,13 +3402,23 @@ const A = {
     S.tplDraft = null;
     return 'Template saved. New drafts start from it.';
   },
+  'cust-tpl-save': async () => {
+    const { row, errors } = customerTemplateRow(val('custTplSubject'), $('custTplBody').value);
+    if (errors.length) throw new Error(errors.join(' '));
+    await updateRows('affiliate_programs', { ...row, changed_by: me.id }, { id: S.programId });
+    S.custTplDraft = null;
+    return 'Customer template saved. Drafts from Your Customers start from it.';
+  },
   // Waiting drafts re-filled from the saved template; approved ones are left alone.
   'tpl-redraft': async () => {
-    const tpl = outreachTemplate(prog());
     const drafts = S.d.drafts.filter((x) => x.state === 'draft' && S.d.prospectById[x.prospect_id]);
     let n = 0;
     for (const x of drafts) {
-      const vars = outreachVars(S.d.prospectById[x.prospect_id]);
+      // By SOURCE, not by which Redraft button was pressed: a mixed queue
+      // rewrites each draft from its own template, so redrafting after a
+      // creator-template edit cannot replace a customer's message with the
+      // creator pitch.
+      const { tpl, vars } = draftFor(S.d.prospectById[x.prospect_id]);
       try {
         const rows = await updateRows('affiliate_outreach_drafts', { subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), changed_by: me.id, updated_at: new Date().toISOString() }, { id: x.id, state: 'draft' });
         n += rows.length;
@@ -3254,12 +3519,116 @@ const A = {
   },
   // From the all-programs view into one program, on the tab asked for.
   'pick-program': async ({ id, t }) => {
-    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
+    await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
   'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
   'prospect-more': ({ id }) => { S.moreProspect = id; render(); return null; },
-  'people-sub': ({ k }) => { S.peopleSub = k === 'discovery' ? 'discovery' : 'affiliates'; S.tab = 'people'; render(); return null; },
+  'people-sub': ({ k }) => { S.peopleSub = ['discovery', 'customers'].includes(k) ? k : 'affiliates'; S.tab = 'people'; render(); return null; },
+  // Re-ranking and paging are reads, so they return null: no status line, no
+  // reload() of the whole program.
+  'cust-sort': ({ k }) => { const c = custState(); c.sort = k; c.page = 0; loadCustomers(true); return null; },
+  'cust-pick': ({ k }) => { const c = custState(); if (c.sel.has(k)) c.sel.delete(k); else c.sel.add(k); renderCustomers(); return null; },
+  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
+  'cust-select-none': () => { custState().sel.clear(); renderCustomers(); return null; },
+  // Picked customers enter the SAME outreach flow a creator does: a prospect
+  // row and a draft, and nothing else differs after this point. The draft is
+  // written straight away (Blake 2026-11-24: "draft right away"), from the
+  // program's customer template.
+  //
+  // Each customer is its own insert pair rather than one bulk insert, so one
+  // row the database refuses -- a suppressed address, a constraint -- does not
+  // discard the rest, and the count reported is what actually landed.
+  'cust-add': async () => {
+    const c = custState();
+    const p = prog();
+    if (!p) throw new Error('Pick a program first.');
+    if (!c.sel.size) return 'Tick at least one customer.';
+    const sup = S.d?.suppressions || [];
+    // The prospects this page has loaded are the NEWEST 500, so this map
+    // spares a round trip and is not the duplicate guard: a customer added
+    // longer ago, or from a second tab, is not in it. The guard is
+    // `affiliate_prospects_customer_identity`, and a row it refuses is
+    // adopted below rather than reported as a failure.
+    const pid = new Map();
+    for (const x of (S.d?.prospects || [])) {
+      const e = String(x.contact_email || '').toLowerCase();
+      if (e && x.source === 'customer' && !pid.has(e)) pid.set(e, x.id);
+    }
+    // A prospect whose draft is missing -- the second write of the pair
+    // failed last time -- must be FINISHED on a retry, not reported as
+    // already in the program. There is no transaction from the browser, so
+    // resuming is what makes the pair safe to retry.
+    const drafted = new Set((S.d?.drafts || []).map((x) => x.prospect_id));
+    const picked = c.rows.filter((x) => c.sel.has(x.customer_key) && x.email_lc);
+    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0;
+    for (const x of picked) {
+      if (customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
+      try {
+        const row = customerProspectRow({ customer: x });
+        let id = pid.get(x.email_lc) || null;
+        let fresh = false;
+        if (!id) {
+          try {
+            id = must(await db.from('affiliate_prospects').insert({
+              ...row, company_entity_id: CO, program_id: p.id,
+              reviewed_by: me.id, reviewed_at: new Date().toISOString(), created_by: me.id, changed_by: me.id,
+            }).select('id').single()).id;
+            fresh = true;
+          } catch (e) {
+            // 23505: the identity index already holds this customer, from
+            // before the loaded window or from another tab. Adopt that row,
+            // so one person still ends up with one prospect and one draft.
+            if (e?.code !== '23505') throw e;
+            id = must(await db.from('affiliate_prospects').select('id')
+              // eq, not ilike: an underscore is a LIKE wildcard and is
+              // ordinary in an email address, so ilike could adopt somebody
+              // else's prospect row. The column holds what this tab wrote,
+              // which is already the lowercased address.
+              .eq('company_entity_id', CO).eq('program_id', p.id).eq('source', 'customer')
+              .eq('contact_email', x.email_lc).limit(1).maybeSingle())?.id || null;
+            if (!id) throw e;
+          }
+        }
+        pid.set(x.email_lc, id);
+        if (!fresh) {
+          // This customer was already a prospect. They get a message only if
+          // they have none AT ALL -- not a live one, not one already sent --
+          // so finishing an interrupted attempt can never be a second
+          // approach to somebody who has had one. The loaded drafts answer
+          // this for the common case; beyond that window, the database does.
+          const has = drafted.has(id) || (must(await db.from('affiliate_outreach_drafts').select('id')
+            .eq('company_entity_id', CO).eq('prospect_id', id).limit(1)) || []).length > 0;
+          if (has) { drafted.add(id); skippedDupe += 1; continue; }
+        }
+        const { tpl, vars } = draftFor({ ...row, id });
+        try {
+          must(await db.from('affiliate_outreach_drafts').insert({
+            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: 'email',
+            recipient_email: x.email_lc, recipient_handle: null,
+            subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
+          }));
+        } catch (e) {
+          // One live draft per prospect is the database's rule. Hitting it
+          // means the message this press would have written is already
+          // waiting, which is not a failure to report.
+          if (e?.code !== '23505') throw e;
+          drafted.add(id); skippedDupe += 1; continue;
+        }
+        drafted.add(id);
+        if (fresh) added += 1; else resumed += 1;
+      } catch (_) { failed += 1; }
+    }
+    c.sel.clear();
+    loadCustomers(true);
+    const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created`];
+    if (resumed) bits.push(`${num(resumed)} message${resumed === 1 ? '' : 's'} finished from an earlier attempt`);
+    if (skippedDupe) bits.push(`${num(skippedDupe)} already in the program`);
+    if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
+    if (failed) bits.push(`${num(failed)} could not be added`);
+    return `${bits.join(' · ')}. Approve them on Outreach.`;
+  },
+  'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-status': async ({ id, s }) => {
@@ -3423,7 +3792,9 @@ const A = {
     return 'Marked contacted.';
   },
   'draft-create': async ({ id }) => {
-    const x = S.d.prospectById[id]; const vars = outreachVars(x); const tpl = outreachTemplate(prog());
+    // A customer prospect appears on the creators list too, so this path
+    // picks its template by source as well.
+    const x = S.d.prospectById[id]; const { tpl, vars } = draftFor(x);
     must(await db.from('affiliate_outreach_drafts').insert({
       company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
@@ -3912,7 +4283,7 @@ document.addEventListener('click', async (ev) => {
 // nothing is open any more, so the state that opened it is cleared too.
 $('afDialog')?.addEventListener('close', () => { if (S.dlgKey) { closeDialogState(); S.dlgKey = null; render(); } });
 $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog')) $('afDialog').close(); });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; await loadProgramData(); render(); });
+$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); });
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {

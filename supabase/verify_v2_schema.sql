@@ -743,6 +743,39 @@ select
     else 'MISSING — run 20261124020000_shopify_customer_marketing_consent.sql'
   end as shopify_customers_consent;
 
+-- 8c. Recruiting an existing customer (migration 20261124030000). The
+-- identifiable constraint is checked for the EMAIL branch specifically: a
+-- customer has no channel yet, so without it their prospect row cannot be
+-- inserted at all and the Your Customers tab's Add to outreach fails on every
+-- press.
+select
+  case
+    when exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_prospects_source_check'
+        and pg_get_constraintdef(oid) ilike '%customer%'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_prospects_identifiable'
+        and pg_get_constraintdef(oid) ilike '%contact_email%'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_programs'
+        and column_name = 'customer_outreach_body'
+    ) and exists (
+      -- The duplicate guard, checked structurally: a customer has no handle
+      -- and no profile URL, so affiliate_prospects_identity keys every one of
+      -- them as NULL and a unique index permits NULLs without limit. Without
+      -- this index two adds of one customer make two prospects and two
+      -- signup links, and no browser-side check can prevent it.
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_prospects_customer_identity'
+        and indexdef ilike '%unique%' and indexdef ilike '%contact_email%'
+        and indexdef ilike '%company_entity_id%' and indexdef ilike '%program_id%'
+    ) then 'ok'
+    else 'MISSING — run 20261124030000_affiliate_customer_outreach.sql'
+  end as affiliate_customer_outreach;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,

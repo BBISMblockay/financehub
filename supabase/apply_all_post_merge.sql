@@ -19912,4 +19912,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261124140000: a live membership closes that person's open outreach, so a
 -- recruiting message cannot sit waiting for somebody who already joined.
 \i migrations/20261124140000_affiliate_outreach_close_when_joined.sql
+-- 20261124030000: recruiting an existing customer -- source 'customer', an
+-- email as a third way to be identifiable, and the program's own customer
+-- outreach template. Same outreach flow after that, nothing forked.
+\i migrations/20261124030000_affiliate_customer_outreach.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
