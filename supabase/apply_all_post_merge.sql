@@ -19934,4 +19934,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261124235000: Find match score -- 0-100 on every find, a niche-word
 -- signal, and one count search for a profile matched without a count.
 \i migrations/20261124235000_affiliate_customer_social_score.sql
+-- 20261125010000: customer consent rollup in resumable batches (the one-
+-- statement rollup timed out for large companies).
+\i migrations/20261125010000_customer_consent_batched_rollup.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
