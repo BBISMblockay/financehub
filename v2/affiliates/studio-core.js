@@ -1161,28 +1161,62 @@ export function personKey(x) {
   return e ? `e:${e}` : `id:${x?.id ?? ''}`;
 }
 
+/** Every identity a row carries: profile, platform handle, email. */
+export function identityKeys(x) {
+  const out = [];
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  if (url) out.push(`u:${url}`);
+  const h = String(x?.handle || '').trim().toLowerCase();
+  if (h) out.push(`h:${String(x?.platform || '').toLowerCase()}:${h}`);
+  const e = String(x?.contact_email || '').trim().toLowerCase();
+  if (e) out.push(`e:${e}`);
+  return out;
+}
+
+// Is this row on the company's do-not-contact list, by any of its
+// identities? The list is company-wide, so it is checked apart from any
+// grouping: two rows of one person that share no field are still caught.
+export function prospectSuppressed(x, suppressions = []) {
+  if (x?.status === 'suppressed') return true;
+  if (customerSuppressed(x?.contact_email, suppressions)) return true;
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  const h = bareHandle(x?.handle);
+  return (suppressions || []).some((s) => {
+    const v = String(s?.value_normalized || '').trim().toLowerCase();
+    return v && ((s.kind === 'profile_url' && url && v === url) || (s.kind === 'handle' && h && bareHandle(v) === h));
+  });
+}
+
 /**
- * The People list for one program: its own rows, then everybody the company
- * has in OTHER programs and not yet in this one, once each, marked
- * `foreign` with the programs they are in. Somebody marked do not contact
- * anywhere is not offered again.
+ * People belong to the company, not a program (Blake 2026-11-24): every
+ * prospect row the company has, one entry per PERSON, with a row for each
+ * program they are in. Two rows are one person when they share ANY identity
+ * (profile, handle or email), so a row with only an email and a row with a
+ * profile and the same email join up. Rows arrive newest first, so the first
+ * row is the face of the card. Do not contact is company-wide: one row on the
+ * list (by status or by any identity) marks the whole person.
  */
-export function companyPeople(own, all, programId) {
-  const ownRows = own || [];
-  const mine = new Set(ownRows.map(personKey));
-  const others = new Map();
-  const blocked = new Set();
-  for (const x of all || []) {
-    if (!x || x.program_id === programId) continue;
-    const k = personKey(x);
-    if (x.status === 'suppressed') { blocked.add(k); continue; }
-    if (mine.has(k)) continue;
-    const cur = others.get(k);
-    if (!cur) others.set(k, { ...x, foreign: true, otherPrograms: [x.program_id] });
-    else if (!cur.otherPrograms.includes(x.program_id)) cur.otherPrograms.push(x.program_id);
-  }
-  for (const k of blocked) others.delete(k);
-  return [...ownRows, ...others.values()];
+export function groupPeople(rows, suppressions = []) {
+  const list = (rows || []).filter(Boolean);
+  const parent = list.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const owner = new Map();
+  list.forEach((x, i) => {
+    for (const k of identityKeys(x)) {
+      if (!owner.has(k)) owner.set(k, i);
+      else { const a = find(owner.get(k)); const b = find(i); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); }
+    }
+  });
+  const by = new Map();
+  list.forEach((x, i) => {
+    const r = find(i);
+    let g = by.get(r);
+    if (!g) { g = { key: personKey(list[r]), x: list[r], rows: [], programIds: [], suppressed: false }; by.set(r, g); }
+    g.rows.push(x);
+    if (!g.programIds.includes(x.program_id)) g.programIds.push(x.program_id);
+    if (prospectSuppressed(x, suppressions)) g.suppressed = true;
+  });
+  return [...by.values()];
 }
 
 /**
