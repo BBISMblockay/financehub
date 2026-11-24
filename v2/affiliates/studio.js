@@ -1009,15 +1009,20 @@ const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
 // The over-the-bar answers whose customer the list hides (opted out since
 // their search). Every page of them, as the tab counts count every row.
 async function huntHidden() {
-  const rows = [];
-  for (let from = 0; ; from += 1000) {
-    const { data: page, error } = await db.from('affiliate_customer_social').select('id, customer_key, status, match_score')
-      .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']).order('id', { ascending: true })
-      .range(from, from + 999);
+  // Keyset pages (id after the last one seen), so an answer a running scan
+  // writes between two reads never repeats one; de-duplicated all the same.
+  const byId = new Map();
+  for (let after = null; ;) {
+    let q = db.from('affiliate_customer_social').select('id, customer_key, status, match_score')
+      .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']);
+    if (after !== null) q = q.gt('id', after);
+    const { data: page, error } = await q.order('id', { ascending: true }).limit(1000);
     if (error) throw error;
-    rows.push(...(page || []));
+    for (const r of page || []) byId.set(r.id, r);
     if (!page || page.length < 1000) break;
+    after = page[page.length - 1].id;
   }
+  const rows = [...byId.values()];
   const out = [];
   for (let i = 0; i < rows.length; i += 150) {
     const part = rows.slice(i, i + 150);
