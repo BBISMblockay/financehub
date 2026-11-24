@@ -102,7 +102,16 @@ export const CARRY_AMBIGUOUS = 200;
 // function (Blake 2026-11-24: "Stopped early. Doesn't seem great user
 // experience"). At most this many runs per press, so a scan whose searches
 // keep failing cannot chain for ever.
-export const SCAN_MAX_LEGS = 40;
+// Legs end on WORK, not only on time (production 2026-11-24, scan c005d734:
+// a leg that collected ~370 queued searches in its last two minutes was
+// killed for "CPU Time exceeded" (2,000 ms) before it could hand off, and the
+// scan sat "running" with 909 searches in flight). Reading and judging a
+// search result is the CPU cost, so a leg looks at no more than
+// SCAN_LEG_GETS of them and then hands the same scan to a fresh run -- well
+// under the limit at the ~5 ms each that leg measured. More legs per press as
+// a result, so the cap on legs is higher.
+export const SCAN_LEG_GETS = 150;
+export const SCAN_MAX_LEGS = 150;
 // The hunt's queue: customers in flight at once, collected this many at a
 // time; a search is first looked for this long after it was posted (the
 // provider answered in 106-139s when measured), looked for again every
@@ -682,7 +691,9 @@ export function createResearchHandler({
     async function collect(rows) {
       const handles = [];
       await each(rows, SCAN_GET_CONCURRENCY, async (r) => {
-        if (left() < SCAN_TAIL_MS / 2) return;
+        if (left() < SCAN_TAIL_MS / 2 || gets >= SCAN_LEG_GETS) return;
+        // Counted before the call, so concurrent workers respect the cap.
+        gets += 1;
         let res;
         try { res = await serpQueue.get(r.serp_task_id); } catch (err) {
           console.warn(`customer_scan: collecting a search failed ${String(err?.message || err).slice(0, 200)}`);
@@ -751,6 +762,8 @@ export function createResearchHandler({
     }
 
     let status = 'done'; let error = null; let aiOwed = false; let complete = false;
+    // Search results looked at in this leg (see SCAN_LEG_GETS).
+    let gets = 0;
     try {
       const guards = await scanGuards(company);
       const goalMet = () => t.found >= want;
@@ -809,6 +822,8 @@ export function createResearchHandler({
         }
         await beat();
         if (!open.length && !more) { complete = true; break; }
+        // This leg has done its share of work: the next leg carries on.
+        if (gets >= SCAN_LEG_GETS) break;
         // The queue answers in a minute or two: wait, then look again.
         await sleep(Math.max(0, Math.min(SCAN_POLL_MS, left() - SCAN_TAIL_MS)));
       }

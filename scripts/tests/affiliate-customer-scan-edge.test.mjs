@@ -67,6 +67,7 @@
 //   AFFILIATE_SCAN_MUTATION=countother   the count lookup reads another account's count from the results
 //   AFFILIATE_SCAN_MUTATION=nocountask   a profile matched with no count never gets its count looked up
 //   AFFILIATE_SCAN_MUTATION=pinx         the company scan searches Pinterest and X again
+//   AFFILIATE_SCAN_MUTATION=legcpu       a leg reads every result due, however many (killed for CPU in production)
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -117,6 +118,7 @@ const MUTS = {
   countother: [LIB, '  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));', '  const hit = candidates.find((c) => c.platform === pick.platform);'],
   nocountask: ['handler.mjs', "        const ct = j.status === 'no_count' ? buildCountTask(j.pick) : null;", '        const ct = null;'],
   pinx: [LIB, "export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze(['instagram', 'tiktok', 'youtube']) });", 'export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze([]) });'],
+  legcpu: ['handler.mjs', '        if (left() < SCAN_TAIL_MS / 2 || gets >= SCAN_LEG_GETS) return;', '        if (left() < SCAN_TAIL_MS / 2) return;'],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -404,7 +406,7 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
   handler = createResearchHandler({
     // The next leg is this same handler, called as the same person.
     selfInvoke: chain ? async (auth, body) => {
-      legs.push({ auth, body });
+      legs.push({ auth, body, gets: gets.length });
       return handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
     } : null,
     service,
@@ -646,7 +648,7 @@ await test('a press runs to the end on its own: a run out of time continues the 
 
 await test('a scan whose runs keep running out stops after the run cap, saying so', async () => {
   const data = seed();
-  for (let i = 0; i < 40; i += 1) data.company_customer_profiles.push(cust(`c${i}`, `cara num${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`, { order_count: 4 }));
+  for (let i = 0; i < 400; i += 1) data.company_customer_profiles.push(cust(`c${i}`, `cara num${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`, { order_count: 4 }));
   const s = setup({ data, budgetHit: true, chain: true });
   await s.call({ filters: { minOrders: 2 } });
   await s.settle();
@@ -874,6 +876,21 @@ await test('a profile matched with no count gets one search for its own handle, 
   assert.equal(L.judgeCount({ items: [ig('kimlowe', 'Kim Lowe', 'Baseball mom')], pick: { platform: 'instagram', handle: '@kimlowe', profile_url: 'https://www.instagram.com/kimlowe' } }), null);
   assert.equal(L.buildCountTask({ platform: 'pinterest', handle: '@x' }), null, 'only platforms that state a count');
   assert.equal(L.buildCountTask({ platform: 'youtube', handle: 'UCabc123' }), null, 'a channel id is not searchable');
+});
+
+await test('a leg reads at most SCAN_LEG_GETS results, then the same scan carries on in a fresh run', async () => {
+  // Production 2026-11-24: a leg that read ~370 results was killed for CPU
+  // before it could hand off, leaving the scan "running" with nobody on it.
+  const s = setup({ data: bigSlice(700, { hitEvery: 0, prefix: 'l' }), chain: true });
+  await s.call({ finds: 5, filters: { minOrders: 2 } });
+  await s.settle();
+  const marks = [0, ...s.legs.map((l) => l.gets), s.gets.length];
+  for (let i = 1; i < marks.length; i += 1) assert.ok(marks[i] - marks[i - 1] <= H.SCAN_LEG_GETS, `leg ${i} read ${marks[i] - marks[i - 1]} results`);
+  assert.ok(s.legs.length >= 4, `the work is spread over several runs (${s.legs.length})`);
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.status, 'done', 'and the scan still finishes');
+  assert.equal(scan.filters.end, 'pool');
+  assert.ok(H.SCAN_LEG_GETS <= 200, 'well under the ~370 that hit the CPU limit');
 });
 
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);
