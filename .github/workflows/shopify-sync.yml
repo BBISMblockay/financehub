@@ -55,6 +55,12 @@ on:
           while skip_sessions is true is treated as contradictory and FAILS a
           manual run -- that exact pair silently did nothing on 2026-09-09.
         required: false
+      skip_customers:
+        description: >-
+          Skip the customers sync (marketing consent). It already runs on the
+          08:30 nightly only; set true to skip it there too.
+        required: false
+        default: 'false'
       skip_catalog:
         description: Set true to skip products_master catalog sync
         required: false
@@ -169,6 +175,12 @@ jobs:
       SHOPIFY_SKIP_LANDING_PAGES: ${{ github.event.inputs.skip_landing_pages || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       SHOPIFY_LANDING_PAGES_DAYS: ${{ github.event.inputs.landing_pages_days || '' }}
       SHOPIFY_SKIP_DISCOUNT_CODES: ${{ github.event.inputs.skip_discount_codes || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
+      # Customers (marketing consent): the 08:30 nightly ONLY, like the
+      # collections registry. Consent changes are not sub-daily news, the walk
+      # asks Shopify only for customers changed since the last run, and keeping
+      # it off the 14:30 catch-up and the 2-hourly refresh is what keeps those
+      # runs the cheap sales-only path they exist to be.
+      SHOPIFY_SKIP_CUSTOMERS: ${{ github.event.inputs.skip_customers || ((github.event.schedule == '30 14 * * *' || github.event.schedule == '0 */2 * * *') && 'true') || 'false' }}
       # Collections registry: ON for the 08:30 nightly ONLY, off on the
       # 14:30 catch-up and the 2-hourly refresh.
       #

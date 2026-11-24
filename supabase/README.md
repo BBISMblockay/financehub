@@ -4159,3 +4159,30 @@ already held), and the institution LABEL is not consulted at all, because
 `plaid-finance` stores `Bank connection` when Link sends none, so one bank can
 sit under two labels. No
 backfill, no edge deploy; the browser calls the RPC directly.
+
+### Shopify customers — marketing consent — 2026-11-24
+
+`20261124020000_shopify_customer_marketing_consent.sql` is where "does SILO pull the accepts-marketing column?"
+gets its answer. It did not, and `accepts_marketing` no longer exists in Shopify either: consent is now
+`emailMarketingConsent` / `smsMarketingConsent`, each a STATE (`subscribed`, `not_subscribed`, `pending`,
+`unsubscribed`, `redacted`, `invalid`) plus an opt-in level and the moment it last changed.
+
+* `shopify_customers` — one row per customer per store per company (unique on all three from the start, the
+  20261013220000 lesson), with email, phone, name, Shopify account state, order count and lifetime spend, the
+  email and SMS consent triplets, and city/province/country. `email_lc`, `email_subscribed` and `sms_subscribed`
+  are generated, so they cannot drift from their sources; a NULL state stays NULL, because not measured is not
+  "not subscribed". Reads are scoped to the active company and no client role may write it.
+* `shopify_customer_consent_v` — the cleaned read surface: one row per person per company, newest consent across
+  that company's stores, naming the store that recorded it. `security_invoker`.
+* Consent on the past-customer lookup — `company_customer_profiles` gains `email_consent_state`,
+  `sms_consent_state`, `consent_updated_at` and `consent_checked_at`, filled by
+  `refresh_company_customer_consent(company, since)`. A SEPARATE function from
+  `refresh_company_customer_profiles()` on purpose: consent cannot be derived from orders, matching is by email
+  only, and a store without `read_customers` must leave the orders side completely alone.
+* `sync_jobs.job_type` gains `customers_sync`.
+
+Fed by the `customers_sync` stage of `scripts/shopify-sync.mjs`, which needs the `read_customers` scope and is
+deliberately NOT in `REQUIRED_FOR_SYNC`: a store that has not granted it keeps syncing everything else and only
+this stage records a skip. The walk is GraphQL (consent is not on the legacy REST surface), sorted by
+`updated_at`, asks only for customers changed since the stored watermark, and is budgeted per run — so a large
+first pull spreads over several nights instead of dragging one out.

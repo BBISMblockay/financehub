@@ -19905,4 +19905,8 @@ $c$select (select count(*) from v_po_header_summary
 -- HANDLE against customer names ("@emily_durrance"), since a discovered
 -- creator's profile name is usually a channel name. Function-only.
 \i migrations/20261124010000_affiliate_handle_name_match.sql
+-- 20261124010000: Shopify customers -- marketing consent as it stands now,
+-- its own sync job and scope, plus the consent columns it carries onto the
+-- past-customer lookup. A store without read_customers is unaffected.
+\i migrations/20261124020000_shopify_customer_marketing_consent.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

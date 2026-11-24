@@ -13,6 +13,7 @@ import { landingPagesProgress, landingPagesCoverage } from './lib/sync-reporting
 import {
   DEFAULT_CHUNK_DAYS,
   runCatalogSync,
+  runCustomersSync,
   runDraftOrdersSync,
   runIncrementalSales,
   runInventorySnapshot,
@@ -509,6 +510,57 @@ async function syncConnection(connection) {
     }
   }
 
+  // Customers: marketing consent as it stands NOW (see
+  // 20261124020000_shopify_customer_marketing_consent.sql for why this cannot
+  // be read off the orders).
+  //
+  // Three ways it declines to run, and all three are a RECORDED skip rather
+  // than a failure: the store has not granted read_customers, the migration
+  // has not been applied yet (code merges, SQL is applied by hand), or
+  // sync_jobs' job_type CHECK does not know this job type yet -- which is the
+  // same migration. None of them may turn a store's nightly red, because none
+  // of them is a fault of this run.
+  if (stageEnabled('customers_sync')) {
+    let jobId = null;
+    try {
+      jobId = await startJob(connection, 'customers_sync');
+    } catch (err) {
+      const message = err.message || String(err);
+      if (/job_type_check|violates check constraint/i.test(message)) {
+        record(connection, 'customers_sync', 'scope_skipped', 'sync_jobs job_type CHECK has no customers_sync yet (migration 20261124020000 not applied)');
+        console.log(`[skip] ${connection.shop_domain} customers_sync: migration 20261124020000 not applied yet`);
+      } else {
+        throw err;
+      }
+    }
+    if (jobId) {
+      try {
+        const result = await runCustomersSync(supabase, connection, { batchId: BATCH_ID });
+        results.jobs.push(result);
+        if (result.skipped) {
+          await finishScopeSkipped(jobId, connection, 'customers_sync', result);
+        } else {
+          if (result.last_customer_sync_at) {
+            const meta = { ...(connection.meta || {}), last_customer_sync_at: result.last_customer_sync_at };
+            const { error: metaErr } = await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
+            if (metaErr) throw new Error(`meta update failed: ${metaErr.message}`);
+            connection.meta = meta;
+          }
+          await finishJob(jobId, 'success', result);
+          record(connection, 'customers_sync', 'success');
+          console.log(`[ok] ${connection.shop_domain} customers_sync: ${result.customers_upserted} customers in ${result.pages_fetched} page(s)${result.more_available ? ' (page budget reached — the next run continues from the watermark)' : ''}`);
+        }
+      } catch (err) {
+        // A warning, not an exit code. Consent is additive: a store whose
+        // customer walk failed still has every order, product and payout this
+        // run imported, and the next run resumes from the stored watermark.
+        await finishJob(jobId, 'error', { error: err.message || String(err) });
+        record(connection, 'customers_sync', 'error', err.message || String(err));
+        console.log(`::warning title=Shopify customers sync failed::${connection.shop_domain}: ${err.message || err}`);
+      }
+    }
+  }
+
   if (stageEnabled('inventory_snapshot')) {
     const jobId = await startJob(connection, 'inventory_snapshot');
     try {
@@ -654,6 +706,28 @@ async function main() {
       }
     } catch (err) {
       console.log(`::warning title=Affiliate commissions lagging::${err.message || err}`);
+    }
+  }
+
+  // Carry the consent just pulled onto the past-customer lookup, so anything
+  // reading company_customer_profiles (the Affiliate Studio badge, reports)
+  // sees the same consent as shopify_customers rather than its own copy.
+  //
+  // A warning, not an error, and only for companies whose customers_sync
+  // actually succeeded in this run: the function is additive, the table it
+  // reads is the source of truth either way, and the next run repeats it.
+  {
+    const consentCompanyIds = [...new Set(OUTCOMES
+      .filter((o) => o.jobType === 'customers_sync' && o.state === 'success')
+      .map((o) => connections.find((c) => c.shop_domain === o.shopDomain)?.company_entity_id)
+      .filter(Boolean))];
+    for (const companyId of consentCompanyIds) {
+      const { data, error } = await supabase.rpc('refresh_company_customer_consent', { p_company: companyId });
+      if (error) {
+        console.log(`::warning title=Customer consent rollup lagging::${companyId}: ${error.message}`);
+      } else if (data) {
+        console.log(`[shopify-sync] customer consent rollup ${companyId}: ${JSON.stringify(data)}`);
+      }
     }
   }
 

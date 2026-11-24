@@ -4077,3 +4077,230 @@ export async function runCollectionsSync(supabase, connection, {
     throw err;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Customers: marketing consent, as it stands now
+-------------------------------------------------------------------------- */
+
+const CUSTOMERS_PAGE_SIZE = 100;
+// A nightly run must not turn into a full re-walk of the customer base, so a
+// run has a page budget and stops cleanly when it runs out. The watermark is
+// persisted as it goes, so the next run resumes where this one stopped
+// instead of starting over -- a first pull of a large store spreads across a
+// few nights rather than dragging one night out.
+const CUSTOMERS_MAX_PAGES_PER_RUN = 250;
+// Shopify revises nothing about a customer retroactively, but clock skew and
+// a page boundary landing inside the same second both cost rows. Re-asking
+// for a small overlap is cheap and the upsert is idempotent.
+const CUSTOMERS_WATERMARK_OVERLAP_MINUTES = 10;
+
+/** Shopify's consent states arrive SCREAMING_CASE. Stored lowercase, which is
+ *  how the table's comment, the generated `email_subscribed` column and every
+ *  report read them. An empty string is not a state. */
+export function normalizeConsentValue(value) {
+  const s = String(value ?? '').trim().toLowerCase();
+  return s || null;
+}
+
+/** One page of customers, newest-changed last. `updatedAtMin` null means "the
+ *  whole customer base", which is what a first run asks for. */
+function customersQueryFilter(updatedAtMin) {
+  if (!updatedAtMin) return null;
+  return `updated_at:>='${updatedAtMin}'`;
+}
+
+export function customerConsentRow(node, { connection, syncedAt, batchId }) {
+  const email = node?.email || null;
+  const emailConsent = node?.emailMarketingConsent || {};
+  const smsConsent = node?.smsMarketingConsent || {};
+  const addr = node?.defaultAddress || {};
+  const name = [node?.firstName, node?.lastName].filter(Boolean).join(' ')
+    || node?.displayName || null;
+
+  return {
+    company_entity_id: connection.company_entity_id,
+    connection_id: connection.id,
+    shop_domain: connection.shop_domain,
+    customer_id: shopifyNumericId(node?.legacyResourceId ?? node?.id),
+    email,
+    phone: node?.phone || null,
+    first_name: node?.firstName || null,
+    last_name: node?.lastName || null,
+    customer_name: name,
+    state: normalizeConsentValue(node?.state),
+    verified_email: typeof node?.verifiedEmail === 'boolean' ? node.verifiedEmail : null,
+    tags: Array.isArray(node?.tags) ? (node.tags.join(', ') || null) : (node?.tags || null),
+    // numberOfOrders is an UnsignedInt64, which GraphQL hands over as a
+    // string. Number() on null would be 0 -- a measurement we do not have.
+    orders_count: node?.numberOfOrders == null ? null : Number(node.numberOfOrders),
+    total_spent: node?.amountSpent?.amount == null ? null : Number(node.amountSpent.amount),
+    currency: node?.amountSpent?.currencyCode || null,
+    email_consent_state: normalizeConsentValue(emailConsent.marketingState),
+    email_consent_opt_in_level: normalizeConsentValue(emailConsent.marketingOptInLevel),
+    email_consent_updated_at: emailConsent.consentUpdatedAt || null,
+    sms_consent_state: normalizeConsentValue(smsConsent.marketingState),
+    sms_consent_opt_in_level: normalizeConsentValue(smsConsent.marketingOptInLevel),
+    sms_consent_collected_from: normalizeConsentValue(smsConsent.consentCollectedFrom),
+    sms_consent_updated_at: smsConsent.consentUpdatedAt || null,
+    city: addr.city || null,
+    province_code: addr.provinceCode || null,
+    country_code: addr.countryCodeV2 || null,
+    shopify_created_at: node?.createdAt || null,
+    shopify_updated_at: node?.updatedAt || null,
+    synced_at: syncedAt,
+    sync_batch_id: batchId || null,
+  };
+}
+
+const CUSTOMERS_QUERY = `
+  query SiloCustomers($first: Int!, $cursor: String, $filter: String) {
+    customers(first: $first, after: $cursor, query: $filter, sortKey: UPDATED_AT, reverse: false) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        legacyResourceId
+        email
+        phone
+        firstName
+        lastName
+        displayName
+        state
+        verifiedEmail
+        tags
+        numberOfOrders
+        createdAt
+        updatedAt
+        amountSpent { amount currencyCode }
+        emailMarketingConsent { marketingState marketingOptInLevel consentUpdatedAt }
+        smsMarketingConsent { marketingState marketingOptInLevel consentUpdatedAt consentCollectedFrom }
+        defaultAddress { city provinceCode countryCodeV2 }
+      }
+    }
+  }
+`;
+
+/** A GraphQL call that waits out a throttle instead of failing the stage.
+ *  shopifyGraphql() throws on any `errors` entry; only THROTTLED is worth
+ *  retrying, and the customers walk is long enough to meet one. */
+async function graphqlThrottleAware(connection, query, variables, { gql = shopifyGraphql, tries = THROTTLE_TRIES, onThrottle = null } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await gql(connection, query, variables);
+    } catch (err) {
+      const message = String(err?.message || err);
+      if (!THROTTLE_MESSAGE.test(message) || attempt >= tries - 1) throw err;
+      const waitMs = Math.round(THROTTLE_BASE_WAIT_MS + Math.random()
+        * (Math.min(THROTTLE_MAX_WAIT_MS, THROTTLE_BASE_WAIT_MS * (2 ** attempt)) - THROTTLE_BASE_WAIT_MS));
+      if (onThrottle) onThrottle({ attempt: attempt + 1, waitMs, message });
+      await sleep(waitMs);
+    }
+  }
+}
+
+/** The table and the sync_jobs CHECK value both arrive with
+ *  20261124020000. Code deploys by merge and migrations apply by hand, so
+ *  this file WILL run for a while against a database that has neither. That
+ *  is a skip, not a failure: anything else would turn the nightly red for
+ *  every store until the SQL lands. */
+export function customersNotInstalled(message) {
+  return /shopify_customers/i.test(String(message || ''))
+    && /(does not exist|could not find|schema cache|42P01|PGRST205)/i.test(String(message || ''));
+}
+
+/** Pull customers CHANGED since the last run (everything, on a first run) and
+ *  store their current marketing consent.
+ *
+ *  Why GraphQL and not REST like its siblings in this file: consent lives in
+ *  emailMarketingConsent / smsMarketingConsent, the REST Admin API is the
+ *  legacy surface Shopify has stopped extending, and the GraphQL `customers`
+ *  connection sorts by UPDATED_AT -- which is what makes a budgeted, resumable
+ *  walk possible at all.
+ *
+ *  Resumability: the watermark advances to the newest `updatedAt` actually
+ *  WRITTEN, after each page is upserted. A run that dies mid-walk, or runs out
+ *  of its page budget, leaves a watermark covering exactly what landed.
+ */
+export async function runCustomersSync(supabase, connection, {
+  batchId,
+  maxPages = CUSTOMERS_MAX_PAGES_PER_RUN,
+  pageSize = CUSTOMERS_PAGE_SIZE,
+  gql = shopifyGraphql,
+  onProgress = null,
+} = {}) {
+  const granted = grantedScopes(connection);
+  const missing = scopesMissingForJob(granted, 'customers_sync');
+  if (missing.length) {
+    return { skipped: true, missing };
+  }
+
+  const syncedAt = new Date().toISOString();
+  const meta = readMeta(connection);
+  const stored = meta.last_customer_sync_at || null;
+  const firstRun = !stored;
+  // An overlap on the way in, so a customer updated in the same second as the
+  // last run's final page is not stepped over.
+  const updatedAtMin = stored
+    ? new Date(new Date(stored).getTime() - CUSTOMERS_WATERMARK_OVERLAP_MINUTES * 60_000).toISOString()
+    : null;
+  const filter = customersQueryFilter(updatedAtMin);
+
+  let cursor = null;
+  let pages = 0;
+  let fetched = 0;
+  let upserted = 0;
+  let watermark = stored;
+  let more = false;
+
+  for (;;) {
+    if (pages >= maxPages) { more = true; break; }
+
+    const data = await graphqlThrottleAware(connection, CUSTOMERS_QUERY, {
+      first: pageSize, cursor, filter,
+    }, { gql, onThrottle: onProgress });
+    pages += 1;
+
+    const conn = data?.customers;
+    const nodes = conn?.nodes || [];
+    fetched += nodes.length;
+
+    const rows = nodes
+      .map((node) => customerConsentRow(node, { connection, syncedAt, batchId }))
+      .filter((r) => r.customer_id);
+
+    if (rows.length) {
+      try {
+        upserted += await upsertInChunks(
+          supabase, 'shopify_customers', rows,
+          'company_entity_id,shop_domain,customer_id',
+        );
+      } catch (err) {
+        if (customersNotInstalled(err?.message)) {
+          return { skipped: true, not_installed: true, reason: 'shopify_customers is not in the database yet (migration 20261124020000 not applied)' };
+        }
+        throw err;
+      }
+      // Only what is now STORED moves the watermark.
+      for (const r of rows) watermark = maxIso(watermark, r.shopify_updated_at);
+    }
+
+    if (onProgress) onProgress({ pages, fetched, upserted });
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+    if (!cursor) break;
+  }
+
+  return {
+    job_type: 'customers_sync',
+    first_run: firstRun,
+    window_since: updatedAtMin,
+    pages_fetched: pages,
+    customers_fetched: fetched,
+    customers_upserted: upserted,
+    // True when the page budget ran out: there is more to pull and the next
+    // run picks it up from the watermark. Not an error.
+    more_available: more,
+    // Left unchanged when nothing was written, so a failed or empty run never
+    // skips a window.
+    last_customer_sync_at: watermark || stored || null,
+  };
+}

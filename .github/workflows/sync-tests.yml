@@ -162,6 +162,9 @@ on:
       # only the copy runs no check at all.
       - 'supabase/functions/report-email-deliver/**'
       - 'scripts/shopify-sync.mjs'
+      - 'scripts/lib/shopify-sync-core.mjs'
+      - 'scripts/lib/shopify-scopes.mjs'
+      - 'scripts/lib/sync-plan.mjs'
       - 'scripts/shopify-orders-backfill.mjs'
       - 'scripts/ad-platforms-sync.mjs'
       - 'scripts/search-console-backfill.mjs'
@@ -218,6 +221,9 @@ on:
       - 'v2/shopify-install.html'
       - 'v2/shopify-install.js'
       - 'scripts/tests/shopify-auth.test.mjs'
+      # Shopify customers / marketing consent (shopify-customers-sync.test.mjs).
+      - 'scripts/tests/shopify-customers-sync.test.mjs'
+      - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
@@ -618,6 +624,14 @@ jobs:
       # history actions all refuse a store whose orders another company holds.
       - name: Shopify tenant guard
         run: node scripts/tests/shopify-tenant-guard.test.mjs
+
+      # Shopify customers (marketing consent, 20261124020000): consent is a
+      # STATE and an absent one is NOT "not subscribed"; the walk is
+      # incremental, budgeted and resumable; and a store without
+      # read_customers (or a database without the migration) SKIPS rather than
+      # failing the run or touching the rest of that store's sync.
+      - name: Shopify customers consent sync
+        run: node --test scripts/tests/shopify-customers-sync.test.mjs
 
       # 20261013220000 keys order facts per company: every order-fact upsert
       # goes through upsertOrderFact (per-company key, old key only while the
