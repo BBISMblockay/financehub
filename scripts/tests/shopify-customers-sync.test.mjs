@@ -210,6 +210,52 @@ test('the page budget stops a run and the watermark lets the next one continue',
   assert.equal(run.last_customer_sync_at, '2026-11-02T00:00:00Z');
 });
 
+test('a customer Shopify dated nothing cannot pull the watermark backwards', async () => {
+  const db = createFakeSupabase();
+  const gql = fakeGql([[
+    node({ legacyResourceId: '1', updatedAt: '2026-11-18T00:00:00Z' }),
+    node({ legacyResourceId: '2', updatedAt: null }),
+  ]]);
+
+  const run = await runCustomersSync(
+    db,
+    connection({ meta: { last_customer_sync_at: '2026-11-10T00:00:00Z' } }),
+    { batchId: 'b1', gql },
+  );
+
+  assert.equal(run.customers_upserted, 2);
+  assert.equal(run.last_customer_sync_at, '2026-11-18T00:00:00Z',
+    'an undated row must neither null the watermark nor move it back');
+});
+
+test('the watermark is the NEWEST row written, whatever order the page arrives in', async () => {
+  const db = createFakeSupabase();
+  // The query asks for sortKey UPDATED_AT ascending, so in practice the last
+  // row of a page is the newest. Taking "the last row" instead of "the max"
+  // would make the watermark -- and so every later window -- depend on that
+  // sort staying exactly as it is.
+  const gql = fakeGql([[
+    node({ legacyResourceId: '1', updatedAt: '2026-11-19T00:00:00Z' }),
+    node({ legacyResourceId: '2', updatedAt: '2026-11-12T00:00:00Z' }),
+  ]]);
+
+  const run = await runCustomersSync(db, connection(), { batchId: 'b1', gql });
+  assert.equal(run.last_customer_sync_at, '2026-11-19T00:00:00Z');
+});
+
+test('a run that fetched nothing leaves the stored watermark exactly as it was', async () => {
+  const db = createFakeSupabase();
+  const run = await runCustomersSync(
+    db,
+    connection({ meta: { last_customer_sync_at: '2026-11-10T00:00:00Z' } }),
+    { batchId: 'b1', gql: fakeGql([[]]) },
+  );
+
+  assert.equal(run.customers_upserted, 0);
+  assert.equal(run.last_customer_sync_at, '2026-11-10T00:00:00Z',
+    'an empty night must not re-open a window that was already covered');
+});
+
 test('a walk that dies mid-way leaves a watermark covering only what was written', async () => {
   const db = createFakeSupabase();
   let calls = 0;
