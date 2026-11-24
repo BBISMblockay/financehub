@@ -915,6 +915,13 @@ export function customerProspectRow({ customer, social = null, collectedAt = new
 // A result row is evidence only when it names a profile; 'ambiguous', 'none'
 // and the rest carry nothing a reader could act on.
 export const SOCIAL_KEPT = ['found', 'below', 'no_count'];
+// Why a profile is believed to be the customer (match_basis), and what the
+// page calls it. Anything unknown reads as a name match: never promoted.
+export const SOCIAL_BASIS = {
+  email_handle: { trust: 'likely', pill: 'Likely', why: 'The handle matches their email name' },
+  city: { trust: 'likely', pill: 'Likely', why: 'Their city appears on the profile' },
+  name_only: { trust: 'name', pill: 'Name match', why: 'Only the name matches. Check it is them' },
+};
 export function customerSocialEvidence(s) {
   if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
   return {
@@ -925,6 +932,7 @@ export function customerSocialEvidence(s) {
     // NULL is "no result stated a count", never zero.
     followers: Number.isFinite(Number(s.followers)) && s.followers !== null ? Number(s.followers) : null,
     followers_quote: s.followers_quote || null,
+    match_basis: SOCIAL_BASIS[s.match_basis] ? s.match_basis : 'name_only',
     source_url: s.source_url || null,
     checked_at: s.checked_at || null,
   };
@@ -945,10 +953,15 @@ export function customerSocialView(row) {
   const url = /^https?:\/\//i.test(String(row.profile_url || '')) ? row.profile_url : null;
   const who = row.handle || (url ? url.replace(/^https?:\/\/(www\.)?/i, '') : '');
   const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;
+  // How far to trust it (Blake, 2026-11-24). Only a second signal makes a
+  // find "Likely"; a name alone is what a namesake has too, so it says so.
+  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;
+  const tier = { trust: basis.trust, why: basis.why, rejectable: true };
   switch (row.status) {
-    case 'found': return { label: `${who} · ${count}`, tone: 'pos', url, scanned: true, quote: row.followers_quote || '' };
-    case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar' };
-    case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true };
+    case 'found': return { label: `${who} · ${count}`, tone: basis.trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
+    case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar', ...tier };
+    case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true, ...tier };
+    case 'rejected': return { label: 'Not them', tone: 'muted', url: null, scanned: true };
     case 'ambiguous': return { label: 'Several possible', tone: 'muted', url: null, scanned: true };
     case 'none': return { label: 'None found', tone: 'muted', url: null, scanned: true };
     case 'pending': return { label: 'Queued', tone: 'muted', url: null, scanned: false };

@@ -806,6 +806,24 @@ select
     else 'MISSING — run 20261124170000_affiliate_customer_social_scan.sql'
   end as affiliate_customer_social_scan;
 
+-- 8e. Social finds you can trust (migration 20261124190000): the reason a
+-- profile is believed to be the customer, "Not them" as a status, and the one
+-- function a browser may call to set it -- never by anon.
+select
+  case
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_customer_social' and column_name = 'match_basis'
+    ) and exists (
+      select 1 from pg_constraint
+      where conname = 'affiliate_customer_social_status_check' and pg_get_constraintdef(oid) ilike '%rejected%'
+    ) and to_regprocedure('public.affiliate_customer_social_reject(uuid)') is not null
+      and case when to_regprocedure('public.affiliate_customer_social_reject(uuid)') is null then false
+        else not has_function_privilege('anon', 'public.affiliate_customer_social_reject(uuid)', 'execute') end
+    then 'ok'
+    else 'MISSING — run 20261124190000_affiliate_customer_social_trust.sql'
+  end as affiliate_customer_social_trust;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,
