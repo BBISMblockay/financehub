@@ -3309,7 +3309,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('the full list has no second Hunt button', await pg.evaluate(() => !document.querySelector('#customersBody [data-act="cust-scan"]')));
         await pg.click('#customersBody [data-act="cust-view"][data-k="hunt"]');
         await pg.click('#customersBody [data-act="cust-scan"]');
-        await pg.waitForFunction(() => /Hunting/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        await pg.waitForFunction(() => /Searching/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const call = calls.find((c) => c.action === 'customer_scan');
         R.ok('the press calls the scan', !!call);
         R.eq([call?.finds, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [25, 3, 'any', 'orders'], 'with the finds wanted and the slice the person is looking at');
@@ -3321,7 +3321,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('and so are the finds', await pg.evaluate(progFilter, 'affiliate_customer_social') === false
           && await pg.evaluate((t) => window.__QUERIES__.some((q) => q.table === t), 'affiliate_customer_social'));
         await pg.waitForFunction(() => !!document.getElementById('custHuntLive'), null, { timeout: 5000 }).catch(() => {});
-        R.has(await text(pg, '#custHuntLive'), 'Hunting your customers', 'and the live module shows at once');
+        R.has(await text(pg, '#custHuntLive'), 'Searching your customers', 'and the live module shows at once');
 
         // An opt-out view has nobody to scan.
         await pg.selectOption('#custConsent', 'unsubscribed');

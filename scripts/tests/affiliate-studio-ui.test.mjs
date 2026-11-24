@@ -548,8 +548,8 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.huntLine({ status: 'running', requested: 1000, checked: 240, found: 6, filters: { want: 25 } }), 'Found 6 of 25 · 240 checked');
   assert.equal(C.huntProgress({ found: 6, checked: 240, filters: { want: 25 } }).pct, 24, 'the bar is finds over finds wanted');
   assert.match(C.huntLine({ status: 'done', checked: 300, found: 3, filters: { want: 25, end: 'pool' } }), /checked everyone in this slice: 3 found of 25 asked for/);
-  assert.match(C.huntLine({ status: 'done', checked: 10000, found: 18, filters: { want: 25, end: 'cap' } }), /the most one hunt checks: 18 found\. Press Hunt to keep going\.$/);
-  assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last hunt: found 25 · 2,400 checked.');
+  assert.match(C.huntLine({ status: 'done', checked: 10000, found: 18, filters: { want: 25, end: 'cap' } }), /the most one search checks: 18 found\. Press Find to keep going\.$/);
+  assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last search: found 25 · 2,400 checked.');
   assert.ok(!/\$|cost|spend|budget|credit/i.test(C.huntLine({ status: 'done', checked: 1, found: 0, cost_usd: 9, filters: { end: 'cap' } })), 'no cost in the UI');
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };

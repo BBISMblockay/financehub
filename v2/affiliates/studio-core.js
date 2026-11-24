@@ -1000,9 +1000,9 @@ export function huntLine(scan) {
   const { want, found, checked } = huntProgress(scan);
   if (scan.status === 'running') return want ? `Found ${n(found)} of ${n(want)} · ${n(checked)} checked` : `${n(checked)} checked · ${n(found)} found`;
   const end = scan.filters?.end;
-  if (end === 'goal') return `Last hunt: found ${n(found)} · ${n(checked)} checked.`;
-  if (end === 'pool') return `Last hunt checked everyone in this slice: ${n(found)} found of ${n(want)} asked for. Widen the dates or lower the minimum orders to find more.`;
-  if (end === 'cap') return `Last hunt checked ${n(checked)}, the most one hunt checks: ${n(found)} found. Press Hunt to keep going.`;
+  if (end === 'goal') return `Last search: found ${n(found)} · ${n(checked)} checked.`;
+  if (end === 'pool') return `Last search checked everyone in this slice: ${n(found)} found of ${n(want)} asked for. Widen the dates or lower the minimum orders to find more.`;
+  if (end === 'cap') return `Last search checked ${n(checked)}, the most one search checks: ${n(found)} found. Press Find to keep going.`;
   return customerScanLine(scan);
 }
 // name_lc is stored lowercased; it needs casing back before a person reads it.
