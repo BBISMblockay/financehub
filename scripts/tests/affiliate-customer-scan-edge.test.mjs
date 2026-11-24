@@ -32,6 +32,16 @@
 //   AFFILIATE_SCAN_MUTATION=nojoin       a second press starts a second scan while one runs
 //   AFFILIATE_SCAN_MUTATION=noresume     rows a stopped scan left pending are not finished by the next press
 //   AFFILIATE_SCAN_MUTATION=resumeoptout a queued customer who unsubscribed since is still searched on resume
+//   AFFILIATE_SCAN_MUTATION=teamskip     the company's own people are scanned as customers
+//   AFFILIATE_SCAN_MUTATION=teamdomain   a colleague on the company domain who is not a SILO user is scanned
+//   AFFILIATE_SCAN_MUTATION=suffix       "Ricardo Solano Jr" is searched as "Ricardo Jr"
+//   AFFILIATE_SCAN_MUTATION=popular      Instagram's /popular/ directory page counts as a profile
+//   AFFILIATE_SCAN_MUTATION=offplatform  a Pinterest board counts for a program that recruits on Instagram
+//   AFFILIATE_SCAN_MUTATION=namebasis    an email that is just their name counts as a second signal
+//   AFFILIATE_SCAN_MUTATION=aikeyleak    the model is shown customer keys (their email addresses)
+//   AFFILIATE_SCAN_MUTATION=nohandle     the email username is never searched
+//   AFFILIATE_SCAN_MUTATION=maskedmail   a marketplace's masked relay username is searched
+//   AFFILIATE_SCAN_MUTATION=handleloose  a handle merely CONTAINING the username counts as theirs
 //   AFFILIATE_SCAN_MUTATION=aiall        the model is asked about every customer, not only ambiguous ones
 //   AFFILIATE_SCAN_MUTATION=nobar        the program's follower bar is ignored for the default
 import assert from 'node:assert/strict';
@@ -54,6 +64,16 @@ const MUTS = {
   nojoin: ['handler.mjs', "      if (now().getTime() - beat < STALE_SCAN_MS) return reply({ scan_id: prev.id, joined: true });\n", ''],
   noresume: ['handler.mjs', "    const resumed = (left || []).filter(eligible).map((r) => r.id);", '    const resumed = [];'],
   resumeoptout: ['handler.mjs', "    const eligible = (r) => {\n      const c = now_.get(r.customer_key);", "    const eligible = () => true;\n    const _was = (r) => {\n      const c = now_.get(r.customer_key);"],
+  teamskip: ['handler.mjs', "&& !suppressed(r.email_lc) && !isTeam(r.email_lc));", '&& !suppressed(r.email_lc));'],
+  teamdomain: [LIB, "    if (d && !FREE_MAIL.has(d)) domains.add(d);", ''],
+  suffix: [LIB, "    .filter((w, i, all) => !(i > 0 && i === all.length - 1 && SUFFIXES.has(w.replace(/[^a-z]/g, ''))));", ';'],
+  popular: [LIB, "    if (NOT_A_PROFILE.has(h.toLowerCase())) return false;", ''],
+  offplatform: [LIB, "(!allowed || allowed.has(c.platform))", 'true'],
+  namebasis: [LIB, "&& !nameOnly.has(local)\n", '\n'],
+  aikeyleak: [LIB, "    return `Customer ${n + 1}: ${r.name}", "    return `Customer ${r.key}: ${r.name}"],
+  nohandle: ['handler.mjs', "            if (eh && left() > SCAN_TAIL_MS) {", '            if (false) {'],
+  maskedmail: [LIB, "  if (MASKED_MAIL.some((d) => domain === d || domain.endsWith(`.${d}`))) return null;\n", ''],
+  handleloose: [LIB, "    && coreOf(c.handle) === handle.core);", '    && coreOf(c.handle).includes(handle.core.slice(0, 4)));'],
   aiall: ['handler.mjs', "            if (j.status === 'ambiguous') ambiguous.push(", '            if (true) ambiguous.push('],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
@@ -147,16 +167,42 @@ await test('the model may only choose a profile it was shown, and never supplies
     { key: 'd', candidates: [{ profile_url: 'https://www.instagram.com/five', title: 'Di Ho', snippet: '900 Followers', platform: 'instagram', handle: '@five' }] },
   ];
   const answer = { content: [{ type: 'tool_use', name: 'record_matches', input: { matches: [
-    { key: 'a', profile_url: 'https://www.instagram.com/one' },
-    { key: 'b', profile_url: 'https://www.instagram.com/three', followers: 50000 },
-    { key: 'c', profile_url: 'https://www.instagram.com/not-shown' },
-    { key: 'd', profile_url: null },
+    { key: '1', profile_url: 'https://www.instagram.com/one' },
+    { key: '2', profile_url: 'https://www.instagram.com/three', followers: 50000 },
+    { key: '3', profile_url: 'https://www.instagram.com/not-shown' },
+    { key: '4', profile_url: null },
   ] } }] };
   const out = Object.fromEntries(L.applyAiAnswer({ rows, answer, minFollowers: 750 }).map((o) => [o.key, o]));
   assert.equal(out.a.status, 'found'); assert.equal(out.a.pick.followers, 3100);
   assert.equal(out.b.status, 'no_count', 'a number the model offers is ignored'); assert.equal(out.b.pick.followers, null);
   assert.equal(out.c.status, 'ambiguous', 'a profile the row was never shown is refused');
   assert.equal(out.d.status, 'none');
+});
+
+await test('trust: suffixes, junk pages, off-platform profiles and the second signal', () => {
+  assert.equal(L.personName('ricardo solano jr').display, 'Ricardo Solano', 'a suffix is not a surname');
+  assert.equal(L.scanQuery(L.personName('ricardo solano jr')), '"Ricardo Solano"');
+  assert.equal(L.personName('bob iii'), null, 'a first name and a suffix is one word, not a person to search');
+  const p = L.personName('melissa king');
+  const pop = L.judgeResults({ items: [ig('popular', 'Melissa King | Instagram', 'See photos of Melissa King')], person: p, program: PROGRAM, collectedAt: 'now' });
+  assert.equal(pop.status, 'none', 'instagram.com/popular is a directory of everybody with the name');
+  const code = L.judgeResults({ items: [ig('DXelvKUAJYh', 'Melissa King on Instagram', '1,000 Followers')], person: p, program: PROGRAM, collectedAt: 'now' });
+  assert.equal(code.status, 'none', 'a post shortcode is not a handle');
+  const pin = L.judgeResults({ items: [{ type: 'organic', url: 'https://www.pinterest.com/melissaking/', title: 'Melissa King (melissaking) - Profile | Pinterest', description: '2,000 followers' }], person: p, program: PROGRAM, collectedAt: 'now' });
+  assert.equal(pin.status, 'none', 'Pinterest is not a channel this program recruits on');
+
+  const pick = { handle: '@jsmith88', title: 'J Smith (@jsmith88)', snippet: 'Phoenix, AZ' };
+  const js = L.personName('john smith');
+  assert.equal(L.matchBasis({ pick, person: js, email: 'jsmith88@gmail.com' }), 'email_handle', 'their own email name is the handle');
+  assert.equal(L.matchBasis({ pick: { ...pick, handle: '@johnsmith' }, person: js, email: 'johnsmith@gmail.com' }), 'name_only', 'an email that is only their name is not a second signal');
+  assert.equal(L.matchBasis({ pick, person: js, email: 'other@gmail.com', city: 'Phoenix' }), 'city', 'their city in the result');
+  assert.equal(L.matchBasis({ pick, person: js, email: 'other@gmail.com', city: 'Tulsa' }), 'name_only');
+  assert.equal(L.socialRowPatch({ status: 'found', pick: { profile_url: 'https://x.test/a' }, basis: 'bogus' }).match_basis, 'name_only', 'an unknown basis is never promoted');
+  assert.equal(L.socialRowPatch({ status: 'none', pick: null }).match_basis, null);
+
+  const team = L.teamFilter(['Jen@Brand.invalid', 'owner@gmail.com', 'nope']);
+  assert.ok(team('jen@brand.invalid') && team('cole@brand.invalid') && team('a@shop.brand.invalid'), 'members and their company domain');
+  assert.ok(team('owner@gmail.com') && !team('someone@gmail.com'), 'a free mail member is matched by address only');
 });
 
 await test('the bar is the program\'s own; the slice is clamped and never includes unsubscribed', () => {
@@ -266,8 +312,16 @@ const seed = (extra = {}) => ({
     cust('twins', 'sam twin', { order_count: 6, email_consent_state: 'subscribed' }),
     cust('biz', 'team store', { order_count: 6 }),
     cust('otherco', 'emily durrance', { order_count: 99, company_entity_id: OTHER }),
+    cust('jen', 'jen staffer', { order_count: 9, email_lc: 'jen@brand.invalid' }),
+    cust('colleague', 'cole league', { order_count: 9, email_lc: 'cole@brand.invalid' }),
+    cust('owner', 'oscar owner', { order_count: 9, email_lc: 'owner@gmail.com' }),
   ],
   shopify_customers: [{ company_entity_id: CO, email_lc: 'emily@buyer.invalid', city: 'Phoenix' }],
+  // The company's own people: one SILO member on the company domain, one on
+  // free mail. A colleague on the company domain who never signed in to SILO
+  // is skipped by domain.
+  entity_memberships: [{ entity_id: CO, user_id: 'u-staff' }, { entity_id: CO, user_id: 'u-free' }, { entity_id: OTHER, user_id: 'u-other' }],
+  profiles: [{ id: 'u-staff', email: 'jen@brand.invalid' }, { id: 'u-free', email: 'owner@gmail.com' }, { id: 'u-other', email: 'x@buyer.invalid' }],
   affiliate_suppressions: [],
   affiliate_customer_scans: [],
   affiliate_customer_social: [],
@@ -278,6 +332,8 @@ const RESULTS = {
   'Emily Durrance': [ig('emdurrance', 'Emily Durrance (@emdurrance)', '1,204 Followers, 300 Following')],
   'Quiet Person': [],
   'Sam Twin': [ig('samtwin', 'Sam Twin (@samtwin)', '5,000 Followers'), ig('samtwin_az', 'Sam Twin (@samtwin_az)', 'Phoenix', 2)],
+  // A lookalike first: only the handle that IS the username counts.
+  samtwin_az: [ig('samtwinfans', 'Sam Twin Fans (@samtwinfans)', '50K Followers'), ig('samtwin_az', 'Sam T (@samtwin_az) • Instagram', '1,900 Followers, 210 Following', 2)],
   'Olive Out': [ig('oliveout', 'Olive Out (@oliveout)', '90K Followers')],
 };
 function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false } = {}) {
@@ -328,18 +384,43 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   assert.deepEqual(keys, ['emily', 'nobody', 'twins'], 'unsubscribed, a business and another company\'s customer are never queued');
   assert.ok(!s.searches.some((t) => /Olive Out/.test(t.keyword)), 'an opt-out is never searched');
   assert.ok(row(s, 'nobody'), 'a customer whose consent was never checked IS scanned');
-  assert.equal(s.searches.length, 3, 'one search per customer');
+  // One name search each, plus one username search for each email whose
+  // username is not just their name: emily@ is her first name, so 3 + 2.
+  assert.equal(s.searches.filter((t) => /^"[^"]* [^"]*"/.test(t.keyword)).length, 3, 'one name search per customer');
+  assert.deepEqual(s.searches.filter((t) => /^"[a-z0-9._-]+"/.test(t.keyword)).map((t) => t.keyword.split(' ')[0]).sort(), ['"nobody"', '"twins"'], 'and the email username, where it is not just their name');
+  assert.ok(!s.searches.some((t) => /[a-z0-9]@[a-z]/i.test(t.keyword) || /buyer\.invalid/.test(t.keyword)), 'never a full email address');
   assert.match(s.searches.find((t) => /Emily/.test(t.keyword)).keyword, /^"Emily Durrance" Phoenix \(site:instagram\.com OR site:tiktok\.com\/@\)$/, 'name, city, pinned to the program\'s platforms');
   assert.equal(row(s, 'emily').status, 'found');
   assert.equal(row(s, 'emily').followers, 1204);
   assert.equal(row(s, 'emily').followers_quote, '1,204 Followers');
   assert.equal(row(s, 'emily').decided_by, 'search');
+  assert.equal(row(s, 'emily').match_basis, 'name_only', 'a name alone is recorded as a name match, to check');
+  for (const k of ['jen', 'colleague', 'owner']) assert.equal(row(s, k), undefined, `${k} works for the company and is never scanned`);
   assert.equal(row(s, 'nobody').status, 'none');
   const scan = s.service.tables.affiliate_customer_scans[0];
   assert.equal(scan.company_entity_id, CO);
   assert.equal(scan.status, 'done');
   assert.deepEqual([scan.requested, scan.checked, scan.found], [3, 3, 2]);
-  assert.equal(scan.cost_usd, 0.006, 'spend is recorded for SILO');
+  assert.equal(scan.cost_usd, 0.01, 'spend is recorded for SILO: five searches');
+});
+
+await test('a profile whose handle IS their email username is a likely find, and settles an ambiguous name search', async () => {
+  const data = seed();
+  data.company_customer_profiles.find((c) => c.customer_key === 'twins').email_lc = 'samtwin_az@buyer.invalid';
+  data.company_customer_profiles.push(cust('masked', 'max masked', { order_count: 9, email_lc: 'v4bdlu7k2x@scs.tiktokw.us' }));
+  const s = setup({ data });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  const tw = row(s, 'twins');
+  assert.equal(tw.match_basis, 'email_handle');
+  assert.equal(tw.handle, '@samtwin_az', 'the profile whose handle is their username, not the bigger namesake');
+  assert.equal(tw.decided_by, 'search');
+  assert.equal(s.modelCalls.length, 0, 'the username settled it, so the model is not asked');
+  assert.ok(!s.searches.some((t) => /v4bdlu7k2x/.test(t.keyword)), 'a masked marketplace address is never searched');
+  assert.equal(L.emailHandle('info@shop.invalid', L.personName('ann lee')), null, 'a generic mailbox');
+  assert.equal(L.emailHandle('annlee@gmail.com', L.personName('ann lee')), null, 'a username that is just their name');
+  assert.equal(L.emailHandle('jo1@gmail.com', L.personName('jo ray')), null, 'too short to be distinctive');
+  assert.deepEqual(L.emailHandle('Ann.Lee.88+shop@gmail.com', L.personName('ann lee')), { local: 'ann.lee.88', core: 'annlee88' }, 'a +tag is dropped');
 });
 
 await test('the model is asked about ambiguous searches only, under the research credit hold', async () => {
@@ -347,8 +428,10 @@ await test('the model is asked about ambiguous searches only, under the research
   await s.call({ count: 500, filters: { minOrders: 2 } });
   await s.settle();
   assert.equal(s.modelCalls.length, 1, 'one request for the one ambiguous customer');
-  assert.ok(/Customer twins:/.test(s.modelCalls[0].messages[0].content));
-  assert.ok(!/Customer emily:/.test(s.modelCalls[0].messages[0].content), 'a search that answered it is never sent to the model');
+  const prompt = s.modelCalls[0].messages[0].content;
+  assert.ok(/Customer 1: Sam Twin/.test(prompt), 'customers are labelled by position');
+  assert.ok(!/Emily/.test(prompt), 'a search that answered it is never sent to the model');
+  assert.ok(!/@buyer\.invalid|twins@/.test(JSON.stringify(s.modelCalls[0])), 'no customer email or key ever reaches the model');
   assert.equal(s.modelCalls[0].tools.length, 1, 'no web tools');
   assert.equal(row(s, 'twins').status, 'found');
   assert.equal(row(s, 'twins').decided_by, 'ai');
@@ -371,7 +454,7 @@ await test('a customer this program already scanned is never searched or paid fo
   await s.call({ filters: { minOrders: 2 } });
   await s.settle();
   assert.ok(!s.searches.some((t) => /Emily/.test(t.keyword)), 'Emily was scanned last week');
-  assert.equal(s.searches.length, 2);
+  assert.equal(s.searches.length, 4, 'the other two customers: a name search and a username search each');
 });
 
 await test('a press while a scan runs joins it; a dead worker\'s scan is taken over', async () => {

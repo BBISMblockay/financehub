@@ -41,6 +41,7 @@ import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } f
 import {
   personName, buildScanTask, scanQuery, judgeResults, buildAiRequest, applyAiAnswer, clampScanCount, minFollowersFor,
   socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
+  matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle,
 } from './lib/affiliate-customer-scan-core.mjs';
 
 export const corsHeaders = {
@@ -360,6 +361,18 @@ export function createResearchHandler({
       const host = e.split('@')[1] || '';
       return supDomains.some((d) => host === d || host.endsWith(`.${d}`));
     };
+    // The company's own people are never scanned as customers (Blake,
+    // 2026-11-24: a find was an employee). Members' addresses, and their
+    // company domains, from the membership list -- data, not code.
+    const { data: members, error: mErr } = await service.from('entity_memberships').select('user_id').eq('entity_id', company).limit(5000);
+    if (mErr) throw new Error(`could not read the team: ${mErr.message || mErr}`);
+    const memberEmails = [];
+    for (const ids of chunks((members || []).map((m) => m.user_id).filter(Boolean))) {
+      const { data: ps, error: pErr } = await service.from('profiles').select('email').in('id', ids);
+      if (pErr) throw new Error(`could not read the team: ${pErr.message || pErr}`);
+      for (const x of ps || []) if (x.email) memberEmails.push(x.email);
+    }
+    const isTeam = teamFilter(memberEmails);
     const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
       .eq('company_entity_id', company).eq('program_id', program.id).in('status', ['pending', 'error'])
       .order('created_at', { ascending: true }).limit(want);
@@ -378,7 +391,7 @@ export function createResearchHandler({
     }
     const eligible = (r) => {
       const c = now_.get(r.customer_key);
-      return !!c && !NEVER_SCAN_CONSENT.includes(c.email_consent_state) && !suppressed(c.email_lc);
+      return !!c && !NEVER_SCAN_CONSENT.includes(c.email_consent_state) && !suppressed(c.email_lc) && !isTeam(c.email_lc);
     };
     const dropped = (left || []).filter((r) => !eligible(r)).map((r) => r.id);
     for (const ids of chunks(dropped)) {
@@ -408,7 +421,7 @@ export function createResearchHandler({
       const { data: rows, error } = await q.range(page * SCAN_PAGE, page * SCAN_PAGE + SCAN_PAGE - 1);
       if (error) throw new Error(`could not read customers: ${error.message || error}`);
       if (!rows?.length) break;
-      let pick = rows.filter((r) => personName(r.name_lc, r.first_name_lc, r.last_name_lc) && !suppressed(r.email_lc));
+      let pick = rows.filter((r) => personName(r.name_lc, r.first_name_lc, r.last_name_lc) && !suppressed(r.email_lc) && !isTeam(r.email_lc));
       // Somebody this program already scanned is not searched (or paid for) twice.
       const seen = new Set();
       for (const keys of chunks(pick.map((r) => r.customer_key))) {
@@ -422,9 +435,15 @@ export function createResearchHandler({
       // the store granted read_customers; otherwise the search is name only.
       const city = new Map();
       for (const emails of chunks(pick.map((r) => r.email_lc).filter(Boolean))) {
-        const { data: cs } = await service.from('shopify_customers').select('email_lc, city')
+        const { data: cs } = await service.from('shopify_customers').select('email_lc, city, province_code')
           .eq('company_entity_id', company).in('email_lc', emails);
-        for (const c of cs || []) if (c.city && String(c.city).trim() && !city.has(c.email_lc)) city.set(c.email_lc, String(c.city).trim());
+        // "Phoenix, AZ": the state narrows the search; matchBasis reads the
+        // city part only, since two letters prove nothing on their own.
+        for (const c of cs || []) {
+          if (!c.city || !String(c.city).trim() || city.has(c.email_lc)) continue;
+          const st = /^[A-Za-z]{2}$/.test(String(c.province_code || '').trim()) ? `, ${String(c.province_code).trim().toUpperCase()}` : '';
+          city.set(c.email_lc, `${String(c.city).trim()}${st}`);
+        }
       }
       for (const part of chunks(pick)) {
         const { error: iErr } = await service.from('affiliate_customer_social').insert(part.map((r) => {
@@ -474,15 +493,22 @@ export function createResearchHandler({
           headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify(request),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Logged, never shown: a failing model call left every ambiguous
+          // search unjudged on the first pilot and nothing said why.
+          const why = await res.text().catch(() => '');
+          console.warn(`customer_scan: model call failed ${res.status} ${why.slice(0, 300)}`);
+          return;
+        }
         answer = await res.json();
-      } catch { return; }
+      } catch (err) { console.warn(`customer_scan: model call threw ${String(err?.message || err).slice(0, 200)}`); return; }
       usages.push(answer?.usage || {});
       const at = now().toISOString();
       for (const o of applyAiAnswer({ rows: batch, answer, minFollowers })) {
         if (o.status === 'ambiguous') continue;
         const row = batch.find((b) => b.key === o.key);
-        await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at }));
+        await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at,
+          basis: o.pick ? matchBasis({ pick: o.pick, person: row.person, email: row.email, city: row.city }) : null }));
         t.ambiguous -= 1; t[o.status] += 1; aiDecided += 1;
       }
     }
@@ -492,7 +518,7 @@ export function createResearchHandler({
       const queued = await queueScan({ company, program, scanId, want, filters });
       await beat({ requested: queued });
       const { data: todo, error: tErr } = await service.from('affiliate_customer_social')
-        .select('id, customer_key, display_name, city, query').eq('company_entity_id', company)
+        .select('id, customer_key, email_lc, display_name, city, query').eq('company_entity_id', company)
         .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(queued || 1);
       if (tErr) throw new Error(`could not read the queue: ${tErr.message || tErr}`);
       const ambiguous = [];
@@ -506,10 +532,22 @@ export function createResearchHandler({
           try {
             const res = await search(buildScanTask(person, row.city, program));
             if (Number.isFinite(Number(res?.cost))) cost += Number(res.cost);
-            const j = judgeResults({ items: res?.items || [], person, program, minFollowers, collectedAt: now().toISOString() });
-            await write(row.id, socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: row.query, checkedAt: now().toISOString() }));
+            let j = judgeResults({ items: res?.items || [], person, program, minFollowers, collectedAt: now().toISOString() });
+            let basis = j.pick ? matchBasis({ pick: j.pick, person, email: row.email_lc, city: row.city }) : null;
+            // The email username, as one more search, unless the name search
+            // already tied a profile to it. A profile whose handle IS that
+            // username wins: it is the strongest signal there is, and it
+            // settles an ambiguous name search without asking the model.
+            const eh = basis === 'email_handle' ? null : emailHandle(row.email_lc, person);
+            if (eh && left() > SCAN_TAIL_MS) {
+              const hr = await search(buildHandleTask(eh, program));
+              if (Number.isFinite(Number(hr?.cost))) cost += Number(hr.cost);
+              const h = judgeHandle({ items: hr?.items || [], handle: eh, program, minFollowers, collectedAt: now().toISOString() });
+              if (h.pick) { j = { status: h.status, pick: h.pick, candidates: null }; basis = 'email_handle'; }
+            }
+            await write(row.id, socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: row.query, checkedAt: now().toISOString(), basis }));
             t[j.status] += 1;
-            if (j.status === 'ambiguous') ambiguous.push({ id: row.id, key: row.customer_key, name: person.display, city: row.city, query: row.query, candidates: j.candidates });
+            if (j.status === 'ambiguous') ambiguous.push({ id: row.id, key: row.customer_key, name: person.display, city: row.city, query: row.query, candidates: j.candidates, person, email: row.email_lc });
           } catch {
             await write(row.id, { status: 'error', checked_at: now().toISOString() });
             t.error += 1;

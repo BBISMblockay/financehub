@@ -26,6 +26,7 @@
 //   AFFILIATE_CORE_MUTATION=custpin      SILO's own customer message is saved as the program's
 //   AFFILIATE_CORE_MUTATION=socialzero   a social row with no stated count shows 0 followers
 //   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
+//   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -58,6 +59,7 @@ const MUTS = {
   custnolink: ["  if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');", '  if (false) errors.push();'],
   socialzero: ["  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;", "  const count = `${compactCount(row.followers || 0) || '0'}`;"],
   socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
+  basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -519,7 +521,14 @@ await t('Your Customers: the customer template is its own, and still has to be j
 
 await t('Your Customers social: a blank count stays blank, only http(s) links, never the prospect\'s identity, never a cost', () => {
   assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
-  const found = C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  const found = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  assert.equal(found.trust, 'likely', 'a second signal makes it likely');
+  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
+  assert.equal(nameOnly.trust, 'name'); assert.equal(nameOnly.tone, 'warn', 'a name alone is a match to check, never shown as found');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'no basis recorded is never promoted');
+  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'an unknown basis is never promoted');
+  assert.equal(C.customerSocialView({ status: 'rejected', handle: '@em', profile_url: 'https://www.instagram.com/em' }).label, 'Not them');
+  assert.equal(C.customerSocialView({ status: 'rejected', profile_url: 'https://www.instagram.com/em' }).url, null, 'a rejected find links nowhere');
   assert.equal(found.label, '@em · 12K'); assert.equal(found.tone, 'pos'); assert.equal(found.url, 'https://www.instagram.com/em');
   assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://x.test/em', followers: 10000, followers_approx: true }).label, '@em · 10K+');
   const nc = C.customerSocialView({ status: 'no_count', handle: '@em', profile_url: 'https://x.test/em', followers: null });
@@ -543,6 +552,8 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(row.evidence.social.profile_url, 'https://www.instagram.com/em');
   assert.equal(row.evidence.social.followers, 1204);
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'ambiguous', candidates: [] } }).evidence.social, undefined, 'only a named profile is evidence');
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'rejected', profile_url: 'https://x.test/a' } }).evidence.social, undefined, 'a find marked "Not them" never travels');
+  assert.equal(row.evidence.social.match_basis, 'name_only', 'the evidence says how far to trust it');
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 

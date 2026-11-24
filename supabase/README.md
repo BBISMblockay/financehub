@@ -4199,6 +4199,20 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124190000_affiliate_customer_social_trust.sql` — social finds you can trust
+
+Blake, on the first pilot (283 checked, 9 "found"): "How to trust finds I know a few are wrong like the Jenny one is an
+employee". A first-and-last-name match is what a namesake has too. `affiliate_customer_social.match_basis` records why a
+profile is believed to be the customer: `email_handle` (the handle is their email username, found by the name search or
+by a second search for that username alone, never the full address), `city` (their city is in the result), or
+`name_only`. The page shows **Likely** only for the first two and **Name match** otherwise. Status `rejected` and
+`affiliate_customer_social_reject(id)` (definer, checks the active company and `can_manage_affiliate_program`) are the
+**Not them** button; the row keeps the customer's place, so they are never searched again. The function also never scans
+the company's own people (members' addresses and their non-free-mail domains), drops Instagram's `/popular/` directory and
+post shortcodes, counts only the program's own platforms, strips name suffixes, and labels customers by number in the
+model prompt. On the apply that adds the column, the pilot's chosen, ambiguous and failed rows are deleted (judged by the
+old rules) so the next press re-checks them; `none` and `pending` rows and the scan rows are kept.
+
 ### `20261124170000_affiliate_customer_social_scan.sql` — finding your customers' social accounts
 
 Blake, 2026-11-24: "how do we now scan their social pull and presence scan without doing too many", then "Build it,

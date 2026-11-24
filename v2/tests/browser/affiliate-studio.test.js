@@ -188,6 +188,8 @@ const MUTATIONS = {
   scanoptout: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: running })"],
   scannopoll: ['/affiliates/studio.js', "  if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;", '  return;'],
   scanfilters: ['/affiliates/studio.js', "filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },", 'filters: {},'],
+  nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
+  tierpill: ['/affiliates/studio.js', "pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match',", "pill('Likely',"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
   // A prospect whose message never landed is finished on a retry.
   custnoresume: ['/affiliates/studio.js',
@@ -3247,6 +3249,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         const lou = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.innerHTML).find((h) => /Lou Loyal/.test(h)) || '');
         R.has(lou, '@lou · 1.2K', 'a found account shows its handle and stated followers');
         R.has(lou, 'href="https://www.instagram.com/lou"', 'linked to the profile');
+        R.has(lou, 'Name match', 'a find tied to them by name alone says so, to be checked');
+        R.ok('and is not shown as likely', !/Likely/.test(lou));
+        R.has(lou, 'data-act="cust-social-reject"', 'a manager can mark it "Not them"');
         const quin = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.textContent || '').find((t) => /Quin Quiet/.test(t)) || '');
         R.ok('a customer not yet scanned shows a dash, not "none found"', /—/.test(quin) && !/None found/.test(quin));
         await pg.close();
@@ -3278,6 +3283,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('"Found accounts only" narrows the list to who was found', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('loyal@buyer.invalid') && !(f.vals || []).includes('quiet@buyer.invalid')));
         await pg.selectOption('#custSocial', 'any');
         await pg.waitForFunction(() => /Quin Quiet/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+
+        // "Not them" goes through the database's own gate, by row id.
+        await pg.click('#customersBody [data-act="cust-social-reject"]');
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_customer_social_reject'), null, { timeout: 5000 }).catch(() => {});
+        const rej = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_customer_social_reject').pop());
+        R.eq(rej?.args, { p_id: 'cs1' }, '"Not them" marks that one find, by id');
 
         // Add to outreach carries the find as evidence, not as the identity.
         await pg.click('#customersBody [data-act="cust-pick"][data-k="loyal@buyer.invalid"]');

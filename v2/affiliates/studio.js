@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine,
+  customerSocialView, customerScanLine, SOCIAL_BASIS,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -963,7 +963,7 @@ const CUST_DEFAULTS = () => ({
   social: {}, scan: null, scanReady: false, scanCount: 500, socialOnly: false,
 });
 const custState = () => (S.cust ||= CUST_DEFAULTS());
-const SOCIAL_COLS = 'customer_key, status, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
+const SOCIAL_COLS = 'id, customer_key, status, match_basis, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
 const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, error_message, started_at, heartbeat_at, finished_at';
 // The scan row and the page's result rows, read together. Fail-soft: either
 // read failing leaves the list as it was and hides only the scan bar.
@@ -1134,7 +1134,13 @@ function renderCustomers() {
     const text = v.url
       ? `<a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">${esc(v.label)}</a>`
       : `<span class="af-muted">${esc(v.label)}</span>`;
-    return `${v.tone === 'pos' ? pill('Found', 'pos') + ' ' : ''}<span class="af-mono"${v.quote ? ` title="${esc(v.quote)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}`;
+    const r = c.social[row.customer_key];
+    // The tier and why, on every find a profile was chosen for: "Likely" only
+    // with a second signal, otherwise "Name match" to check by eye.
+    const tierPill = v.trust ? `${pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match', v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
+    const title = [v.why, v.quote].filter(Boolean).join(' · ');
+    const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('Not them', 'cust-social-reject', { id: r.id }, 'ghost')}` : '';
+    return `${tierPill}<span class="af-mono"${title ? ` title="${esc(title)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}${notThem}`;
   };
   const consentCell = (row) => {
     const v = customerConsentView(row.email_consent_state);
@@ -3702,6 +3708,15 @@ const A = {
     if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
     if (failed) bits.push(`${num(failed)} could not be added`);
     return `${bits.join(' · ')}. Approve them on Outreach.`;
+  },
+  // "Not them": a find that is somebody else. The database keeps the row, so
+  // that customer is never searched again for this program.
+  'cust-social-reject': async ({ id }) => {
+    const c = custState();
+    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));
+    await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => {});
+    renderCustomers();
+    return 'Marked as not them. They will not be searched again.';
   },
   // A press while a scan runs joins it (the function answers with the running
   // scan), so pressing twice never pays twice.

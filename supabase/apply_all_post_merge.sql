@@ -19920,4 +19920,8 @@ $c$select (select count(*) from v_po_header_summary
 -- press (progress, one running scan per program) and one per customer per
 -- program (the queue, then the answer). Written only by affiliate-research.
 \i migrations/20261124170000_affiliate_customer_social_scan.sql
+-- 20261124190000: social finds you can trust -- why a profile is believed to
+-- be the customer (match_basis), "Not them", and a one-time clear of the
+-- pilot's results judged by the old rules.
+\i migrations/20261124190000_affiliate_customer_social_trust.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
