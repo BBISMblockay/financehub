@@ -16,13 +16,34 @@
 // in), AB_SAMPLE (default 300, max 800), AB_MIN_ORDERS (default 3).
 
 import fs from 'node:fs';
-import { createClient } from '@supabase/supabase-js';
+import { pathToFileURL } from 'node:url';
 import {
   personName, buildScanTask, judgeResults, scorePick, createSerpQueue, COMPANY_SCAN_SCOPE,
-  companyMinFollowers, companyTerms, LIKELY_SCORE,
+  companyMinFollowers, companyTerms, LIKELY_SCORE, suppressionFilter, teamFilter,
 } from './lib/affiliate-customer-scan-core.mjs';
 
+/**
+ * Who may be searched, the same rule as Find: a name, an email, a city, not
+ * on the do-not-contact list, not one of the company's own people. Pure, so
+ * it is tested (scripts/tests/affiliate-customer-city-ab.test.mjs).
+ */
+export function eligiblePeople(rows, city, { suppressed, isTeam }, limit) {
+  const out = [];
+  for (const r of rows || []) {
+    if (out.length >= limit) break;
+    if (!r?.email_lc || !city.has(r.email_lc) || suppressed(r.email_lc) || isTeam(r.email_lc)) continue;
+    const person = personName(r.name_lc, r.first_name_lc, r.last_name_lc);
+    if (!person) continue;
+    out.push({ key: r.customer_key, email: r.email_lc, city: city.get(r.email_lc), person });
+  }
+  return out;
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 const env = process.env;
+if (isMain) await main();
+
+async function main() {
 const need = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATAFORSEO_LOGIN', 'DATAFORSEO_PASSWORD', 'AB_COMPANY_ENTITY_ID'];
 const missing = need.filter((k) => !env[k]);
 if (missing.length) { console.error(`Missing: ${missing.join(', ')}`); process.exit(1); }
@@ -34,12 +55,28 @@ const NEVER = ['unsubscribed', 'redacted'];
 const RUN_MS = 25 * 60_000;
 const started = Date.now();
 
+const { createClient } = await import('@supabase/supabase-js');
 const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const queue = createSerpQueue({ credentials: { login: env.DATAFORSEO_LOGIN, password: env.DATAFORSEO_PASSWORD } });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const chunks = (a, n = 100) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
+async function guards() {
+  const { data: sup, error: sErr } = await db.from('affiliate_suppressions').select('kind, value_normalized').eq('company_entity_id', COMPANY).limit(5000);
+  if (sErr) throw new Error(`do-not-contact list: ${sErr.message}`);
+  const { data: members, error: mErr } = await db.from('entity_memberships').select('user_id').eq('entity_id', COMPANY).limit(5000);
+  if (mErr) throw new Error(`team: ${mErr.message}`);
+  const emails = [];
+  for (const ids of chunks((members || []).map((m) => m.user_id).filter(Boolean))) {
+    const { data: ps, error: pErr } = await db.from('profiles').select('email').in('id', ids);
+    if (pErr) throw new Error(`team: ${pErr.message}`);
+    for (const x of ps || []) if (x.email) emails.push(x.email);
+  }
+  return { suppressed: suppressionFilter(sup || []), isTeam: teamFilter(emails) };
+}
+
 async function sample() {
+  const g = await guards();
   const { data: ent } = await db.from('entities').select('meta').eq('id', COMPANY).maybeSingle();
   const { data: progs } = await db.from('affiliate_programs').select('niche, audience_notes').eq('company_entity_id', COMPANY).eq('status', 'active').limit(50);
   const out = [];
@@ -64,11 +101,7 @@ async function sample() {
         city.set(c.email_lc, `${String(c.city).trim()}${st}`);
       }
     }
-    for (const r of named) {
-      if (out.length >= SAMPLE) break;
-      if (!city.has(r.email_lc)) continue;
-      out.push({ key: r.customer_key, email: r.email_lc, city: city.get(r.email_lc), person: personName(r.name_lc, r.first_name_lc, r.last_name_lc) });
-    }
+    out.push(...eligiblePeople(named, city, g, SAMPLE - out.length));
   }
   return { people: out, minFollowers: companyMinFollowers(ent?.meta), terms: companyTerms(ent?.meta, progs || []) };
 }
@@ -139,4 +172,5 @@ async function run() {
   if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${md}\n`);
 }
 
-run().catch((e) => { console.error(e?.message || e); process.exit(1); });
+await run().catch((e) => { console.error(e?.message || e); process.exit(1); });
+}

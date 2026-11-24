@@ -504,6 +504,23 @@ export function socialRowPatch({ status, pick, candidates = null, decidedBy, que
  * address, and every member domain that is not a free mail host (so staff who
  * never signed in to SILO are skipped too).
  */
+/**
+ * The company's do-not-contact list (affiliate_suppressions rows: kind
+ * 'email' | 'domain', value_normalized) -> a predicate on an address. A
+ * domain also covers its subdomains. The same rule the scan's guards apply.
+ */
+export function suppressionFilter(rows = []) {
+  const emails = new Set((rows || []).filter((x) => x?.kind === 'email').map((x) => String(x.value_normalized || '').toLowerCase()));
+  const domains = (rows || []).filter((x) => x?.kind === 'domain').map((x) => String(x.value_normalized || '').toLowerCase()).filter(Boolean);
+  return (email) => {
+    const e = String(email || '').toLowerCase().trim();
+    if (!e) return false;
+    if (emails.has(e)) return true;
+    const host = e.split('@')[1] || '';
+    return domains.some((d) => host === d || host.endsWith(`.${d}`));
+  };
+}
+
 export function teamFilter(memberEmails = []) {
   const emails = new Set(); const domains = new Set();
   for (const e of memberEmails) {
