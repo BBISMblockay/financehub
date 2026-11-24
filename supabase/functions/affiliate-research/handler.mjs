@@ -349,16 +349,6 @@ export function createResearchHandler({
   // The customers to scan, written as pending rows. Rows an earlier run left
   // pending (or that failed) come first; then new customers from the slice.
   async function queueScan({ company, program, scanId, want, filters }) {
-    const { data: left } = await service.from('affiliate_customer_social').select('id')
-      .eq('company_entity_id', company).eq('program_id', program.id).in('status', ['pending', 'error'])
-      .order('created_at', { ascending: true }).limit(want);
-    const resumed = (left || []).map((r) => r.id);
-    for (const ids of chunks(resumed)) {
-      await service.from('affiliate_customer_social').update({ scan_id: scanId, status: 'pending' })
-        .eq('company_entity_id', company).in('id', ids);
-    }
-    let need = want - resumed.length;
-    if (need <= 0) return resumed.length;
     const { data: sup } = await service.from('affiliate_suppressions').select('kind, value_normalized')
       .eq('company_entity_id', company).limit(5000);
     const supEmails = new Set((sup || []).filter((x) => x.kind === 'email').map((x) => x.value_normalized));
@@ -370,6 +360,37 @@ export function createResearchHandler({
       const host = e.split('@')[1] || '';
       return supDomains.some((d) => host === d || host.endsWith(`.${d}`));
     };
+    const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
+      .eq('company_entity_id', company).eq('program_id', program.id).in('status', ['pending', 'error'])
+      .order('created_at', { ascending: true }).limit(want);
+    // A queued customer is re-checked before it is resumed: consent can
+    // change between the press that queued them and the one that finishes
+    // them, and somebody who has since unsubscribed (or been added to
+    // do-not-contact) is dropped from the queue rather than searched. Their
+    // row is deleted, not marked, so nothing records a search that never ran
+    // and the slice can pick them up again only if they become eligible.
+    const now_ = new Map();
+    for (const keys of chunks((left || []).map((r) => r.customer_key))) {
+      const { data: cur, error: cErr } = await service.from('company_customer_profiles')
+        .select('customer_key, email_lc, email_consent_state').eq('company_entity_id', company).in('customer_key', keys);
+      if (cErr) throw new Error(`could not re-check queued customers: ${cErr.message || cErr}`);
+      for (const c of cur || []) now_.set(c.customer_key, c);
+    }
+    const eligible = (r) => {
+      const c = now_.get(r.customer_key);
+      return !!c && !NEVER_SCAN_CONSENT.includes(c.email_consent_state) && !suppressed(c.email_lc);
+    };
+    const dropped = (left || []).filter((r) => !eligible(r)).map((r) => r.id);
+    for (const ids of chunks(dropped)) {
+      await service.from('affiliate_customer_social').delete().eq('company_entity_id', company).in('id', ids);
+    }
+    const resumed = (left || []).filter(eligible).map((r) => r.id);
+    for (const ids of chunks(resumed)) {
+      await service.from('affiliate_customer_social').update({ scan_id: scanId, status: 'pending' })
+        .eq('company_entity_id', company).in('id', ids);
+    }
+    let need = want - resumed.length;
+    if (need <= 0) return resumed.length;
     let added = 0;
     for (let page = 0; page < SCAN_MAX_PAGES && need > 0; page += 1) {
       let q = service.from('company_customer_profiles')

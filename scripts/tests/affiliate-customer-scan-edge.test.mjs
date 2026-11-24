@@ -31,6 +31,7 @@
 //   AFFILIATE_SCAN_MUTATION=rescan       a customer already scanned for this program is searched again
 //   AFFILIATE_SCAN_MUTATION=nojoin       a second press starts a second scan while one runs
 //   AFFILIATE_SCAN_MUTATION=noresume     rows a stopped scan left pending are not finished by the next press
+//   AFFILIATE_SCAN_MUTATION=resumeoptout a queued customer who unsubscribed since is still searched on resume
 //   AFFILIATE_SCAN_MUTATION=aiall        the model is asked about every customer, not only ambiguous ones
 //   AFFILIATE_SCAN_MUTATION=nobar        the program's follower bar is ignored for the default
 import assert from 'node:assert/strict';
@@ -51,7 +52,8 @@ const MUTS = {
   firstonly: [LIB, '  return has(person.first) && has(person.last);', '  return has(person.first);'],
   rescan: ['handler.mjs', "      pick = pick.filter((r) => !seen.has(r.customer_key)).slice(0, need);", '      pick = pick.slice(0, need);'],
   nojoin: ['handler.mjs', "      if (now().getTime() - beat < STALE_SCAN_MS) return reply({ scan_id: prev.id, joined: true });\n", ''],
-  noresume: ['handler.mjs', "    const resumed = (left || []).map((r) => r.id);", '    const resumed = [];'],
+  noresume: ['handler.mjs', "    const resumed = (left || []).filter(eligible).map((r) => r.id);", '    const resumed = [];'],
+  resumeoptout: ['handler.mjs', "    const eligible = (r) => {\n      const c = now_.get(r.customer_key);", "    const eligible = () => true;\n    const _was = (r) => {\n      const c = now_.get(r.customer_key);"],
   aiall: ['handler.mjs', "            if (j.status === 'ambiguous') ambiguous.push(", '            if (true) ambiguous.push('],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
@@ -228,10 +230,11 @@ function fakeService(seed) {
         return { data: single ? { id: last.id } : null, error: null };
       }
       if (op === 'update') { rows.filter(match).forEach((r) => Object.assign(r, payload)); return { data: null, error: null }; }
+      if (op === 'delete') { tables[table] = rows.filter((r) => !match(r)); return { data: null, error: null }; }
       throw new Error(op);
     };
     const b = {
-      select() { return b; }, insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
+      select() { return b; }, delete() { op = 'delete'; return b; }, insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
       eq(k, v) { filters.push((r) => cmp('eq', r[k], v)); return b; }, in(k, v) { filters.push((r) => cmp('in', r[k], v)); return b; },
       gte(k, v) { filters.push((r) => cmp('gte', r[k], v)); return b; }, lt(k, v) { filters.push((r) => cmp('lt', r[k], v)); return b; },
       is(k, v) { filters.push((r) => cmp('is', r[k], v)); return b; },
@@ -398,6 +401,24 @@ await test('a run out of time stops early with its queue kept, and the next pres
   await next.settle();
   assert.equal(next.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'the queue is finished');
   assert.ok(next.searches.length >= pending.length && before >= 1);
+});
+
+await test('a queued customer who unsubscribes before the next press is dropped, never searched', async () => {
+  const s = setup({ budgetHit: true });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  const pending = s.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending');
+  assert.ok(pending.length >= 1, 'the stopped scan left a queue');
+  const data = structuredClone(s.service.tables);
+  for (const c of data.company_customer_profiles) if (pending.some((p) => p.customer_key === c.customer_key)) c.email_consent_state = 'unsubscribed';
+  const next = setup({ data });
+  await next.call({ count: pending.length, filters: { minOrders: 2 } });
+  await next.settle();
+  for (const p of pending) {
+    const name = p.display_name;
+    assert.ok(!next.searches.some((t) => t.keyword.includes(`"${name}"`)), `${name} opted out after being queued and must not be searched`);
+    assert.equal(row(next, p.customer_key), undefined, 'and leaves the queue');
+  }
 });
 
 await test('the program\'s own bar decides found and below', async () => {
