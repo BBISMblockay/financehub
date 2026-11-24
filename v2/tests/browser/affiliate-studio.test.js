@@ -3018,7 +3018,9 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const draft = await cu.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.eq([draft?.channel, draft?.recipient_email, draft?.state], ['email', 'loyal@buyer.invalid', undefined],
         'the draft is an ordinary email draft, left in the queue to be approved');
-      R.has(String(draft?.body || ''), '{signup_link}' === '' ? 'x' : 'join', 'the message tells them how to join');
+      // {signup_link} is still a token here, exactly as it is for a creator:
+      // the personal link is minted at send time, not written into the draft.
+      R.has(String(draft?.body || ''), '{signup_link}', 'the message keeps the signup token for the send to fill');
       R.ok('the message is filled in, not left as tokens', !/\{name\}|\{brand\}|\{commission\}|\{orders_line\}/.test(String(draft?.body || '')));
       R.has(String(draft?.body || ''), 'Lou', 'addressed to them by name');
       R.has(String(draft?.body || ''), '9 times', 'and leans on them already being a customer');
