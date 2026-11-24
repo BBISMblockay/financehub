@@ -95,6 +95,12 @@ export const SCAN_PAGE = 1000;
 export const SCAN_MAX_PAGES = 20;
 // Ambiguous rows from earlier scans judged per press, from stored profiles.
 export const CARRY_AMBIGUOUS = 200;
+// A press runs to the end on its own: when one run's time is up with
+// customers still queued, it hands the SAME scan to a fresh run of this
+// function (Blake 2026-11-24: "Stopped early. Doesn't seem great user
+// experience"). At most this many runs per press, so a scan whose searches
+// keep failing cannot chain for ever.
+export const SCAN_MAX_LEGS = 8;
 const CHUNK = 200;
 const chunks = (list, n = CHUNK) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -104,6 +110,9 @@ export function createResearchHandler({
   service, userClientFor, apiKey, model = 'claude-sonnet-5-5', fetchImpl = fetch,
   background = (p) => p, now = () => new Date(), newId = () => crypto.randomUUID(),
   serpCredentials = null, fetchSerp = null, photoFetch = null, youtubeKey = '', youtubeFetch = fetch,
+  // (authHeader, body) => Promise<Response>: calls this function again, as
+  // the same person, to continue a scan. Unset = a scan stops at its budget.
+  selfInvoke = null,
 }) {
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
@@ -324,8 +333,27 @@ export function createResearchHandler({
   // search runs, so a run that hits its time limit leaves a queue the next
   // press finishes -- "stopped early, more to check" -- rather than losing its
   // place. A press while a scan is running joins it.
-  async function customerScan({ company, body, callerId }) {
+  async function customerScan({ company, body, callerId, authHeader }) {
     if (!search) return reply({ error: 'Social lookups are not set up yet.' }, 503);
+    // The next leg of a running scan, started by the previous leg. It must
+    // carry the one-time handoff the previous leg wrote, so a stray or
+    // repeated call can never run a second worker over the same queue.
+    if (body?.continue_scan !== undefined) {
+      const id = String(body.continue_scan || '');
+      const handoff = String(body.handoff || '');
+      if (!UUID_RE.test(id) || !handoff) return reply({ error: 'Unknown scan.' }, 400);
+      const { data: row } = await service.from('affiliate_customer_scans')
+        .select('id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, filters, min_followers, cost_usd, started_at')
+        .eq('id', id).eq('company_entity_id', company).maybeSingle();
+      if (!row || row.status !== 'running' || row.filters?.handoff !== handoff) return reply({ error: 'This scan is not waiting to continue.' }, 409);
+      const { handoff: _used, ...filters } = row.filters || {};
+      await service.from('affiliate_customer_scans').update({ filters, heartbeat_at: now().toISOString() })
+        .eq('id', id).eq('company_entity_id', company);
+      const leg = Math.max(1, Math.min(SCAN_MAX_LEGS, Math.floor(Number(body.leg)) || 1));
+      background(runScan({ company, program: COMPANY_SCAN_SCOPE, scanId: id, want: row.requested, filters, minFollowers: Number(row.min_followers) || 0,
+        callerId, started: now().getTime(), authHeader, leg, resume: row }));
+      return reply({ scan_id: id, continued: true }, 202);
+    }
     // Every platform SILO reads profiles from, not one program's ticks: the
     // answer is about the customer, and it is the same in every program.
     const program = COMPANY_SCAN_SCOPE;
@@ -353,7 +381,7 @@ export function createResearchHandler({
     // The partial unique index refuses a second running scan: two presses at
     // the same instant join one scan rather than paying twice.
     if (sErr) return reply({ error: 'A scan is already running. Its results appear on this list.' }, 429);
-    background(runScan({ company, program, scanId: scan.id, want, filters, minFollowers, callerId, started: startedAt.getTime() }));
+    background(runScan({ company, program, scanId: scan.id, want, filters, minFollowers, callerId, started: startedAt.getTime(), authHeader }));
     return reply({ scan_id: scan.id }, 202);
   }
 
@@ -489,9 +517,13 @@ export function createResearchHandler({
     return resumed.length + added;
   }
 
-  async function runScan({ company, program, scanId, want, filters, minFollowers, callerId, started }) {
+  async function runScan({ company, program, scanId, want, filters, minFollowers, callerId, started, authHeader = null, leg = 0, resume = null }) {
     const left = () => RUN_BUDGET_MS - (now().getTime() - started);
-    const t = { checked: 0, found: 0, below: 0, no_count: 0, ambiguous: 0, none: 0, error: 0 };
+    // A continued scan keeps counting from where the previous leg stopped.
+    const r0 = resume || {};
+    const t = { checked: +r0.checked || 0, found: +r0.found || 0, below: +r0.below || 0, no_count: +r0.no_count || 0,
+      ambiguous: +r0.ambiguous || 0, none: +r0.not_found || 0, error: +r0.failed || 0 };
+    const costBefore = Number(r0.cost_usd) || 0;
     let cost = 0; let usages = []; let aiDecided = 0;
     const meter = createCreditMeter({ db: service, requestId: newId(), companyId: company, userId: callerId, feature: 'affiliate_research', model, sourceRef: scanId });
     let meterOpen = null;
@@ -545,11 +577,13 @@ export function createResearchHandler({
     let status = 'done'; let error = null;
     try {
       const guards = await scanGuards(company);
-      const queued = await queueScan({ company, program, scanId, want, filters, guards });
-      await beat({ requested: queued });
+      // A continued leg finishes the queue the first leg wrote; it never
+      // queues more.
+      const queued = resume ? (+r0.requested || 0) : await queueScan({ company, program, scanId, want, filters, guards });
+      if (!resume) await beat({ requested: queued });
       const { data: todo, error: tErr } = await service.from('affiliate_customer_social')
         .select('id, customer_key, email_lc, display_name, city, query').eq('company_entity_id', company)
-        .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(queued || 1);
+        .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(Math.max(1, queued));
       if (tErr) throw new Error(`could not read the queue: ${tErr.message || tErr}`);
       const ambiguous = [];
       const triedHere = new Set();
@@ -597,7 +631,9 @@ export function createResearchHandler({
       // Searches an EARLIER scan left ambiguous (its model step failed, or
       // there was no time) are judged now from the profiles already stored:
       // no new search, so nothing is paid twice. Only with time to spare.
-      if (apiKey && left() > SCAN_TAIL_MS / 2) {
+      // Once per press: after the queue is finished, so a continued scan
+      // does not ask the model about the same rows on every leg.
+      if (apiKey && status !== 'stopped' && left() > SCAN_TAIL_MS / 2) {
         const { data: old } = await service.from('affiliate_customer_social')
           .select('id, customer_key, email_lc, display_name, city, query, candidates').eq('company_entity_id', company)
           .eq('status', 'ambiguous').order('created_at', { ascending: true }).limit(CARRY_AMBIGUOUS + triedHere.size);
@@ -615,14 +651,35 @@ export function createResearchHandler({
           .map((r) => ({ id: r.id, key: r.customer_key, name: r.person.display, city: r.city, query: r.query, candidates: r.candidates, person: r.person, email: r.email_lc, carried: true }));
         while (carried.length && left() > 15_000) await decide(carried.splice(0, AI_BATCH));
       }
-      if (status !== 'stopped' && t.checked < (todo || []).length) status = 'stopped';
+      if (status !== 'stopped' && t.checked - (+r0.checked || 0) < (todo || []).length) status = 'stopped';
     } catch (err) {
       status = 'error'; error = String(err?.message || err).slice(0, 500);
     } finally {
+      await meter.settle({ usage: addUsage(usages.map(usageFromResponse)), outcome: aiDecided > 0 ? 'succeeded' : 'failed', error: aiDecided > 0 ? null : 'no_ai_decisions' }).catch(() => {});
       // Spend is recorded for SILO, never shown on the page (Blake, 2026-11-24:
       // a rep should not do arithmetic before pressing a button).
-      await beat({ status, error_message: error ?? (status === 'stopped' ? 'Stopped early. More to check.' : null), finished_at: now().toISOString(), cost_usd: Math.round(cost * 10000) / 10000 }).catch(() => {});
-      await meter.settle({ usage: addUsage(usages.map(usageFromResponse)), outcome: aiDecided > 0 ? 'succeeded' : 'failed', error: aiDecided > 0 ? null : 'no_ai_decisions' }).catch(() => {});
+      const spent = Math.round((costBefore + cost) * 10000) / 10000;
+      // Out of time with customers still queued: the same scan carries on in
+      // a fresh run, and the page keeps showing it as running. Anything that
+      // stops the handoff (no caller token, the leg cap, the next run refusing)
+      // ends the scan as "stopped early", exactly as before.
+      let handedOff = false;
+      if (status === 'stopped' && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {
+        try {
+          const { count } = await service.from('affiliate_customer_social').select('id', { count: 'exact', head: true })
+            .eq('company_entity_id', company).eq('scan_id', scanId).eq('status', 'pending');
+          if (count > 0) {
+            const handoff = newId();
+            await beat({ status: 'running', cost_usd: spent, filters: { ...filters, handoff } });
+            const res = await selfInvoke(authHeader, { action: 'customer_scan', continue_scan: scanId, handoff, leg: leg + 1 });
+            handedOff = !!res && res.status === 202;
+            if (!handedOff) console.warn(`customer_scan: continuing refused ${res?.status ?? 'no response'}`);
+          }
+        } catch (err) { console.warn(`customer_scan: continuing failed ${String(err?.message || err).slice(0, 200)}`); }
+      }
+      if (!handedOff) {
+        await beat({ status, filters, error_message: error ?? (status === 'stopped' ? 'Stopped early. More to check.' : null), finished_at: now().toISOString(), cost_usd: spent }).catch(() => {});
+      }
     }
   }
 
@@ -644,7 +701,7 @@ export function createResearchHandler({
     let body;
     try { body = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
     // Company level: no program to load or check.
-    if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null });
+    if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader });
     const programId = String(body?.program_id || '');
     if (!UUID_RE.test(programId)) return reply({ error: 'Choose a program.' }, 400);
 
