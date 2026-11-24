@@ -61,6 +61,12 @@
 //   AFFILIATE_SCAN_MUTATION=nogoal       a hunt keeps checking after it has the finds asked for
 //   AFFILIATE_SCAN_MUTATION=nocap        a hunt ignores the company's cap on customers checked
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
+//   AFFILIATE_SCAN_MUTATION=namefind     a find over the bar counts as found whatever its score
+//   AFFILIATE_SCAN_MUTATION=bigname      a huge account tied by a name alone loses no points
+//   AFFILIATE_SCAN_MUTATION=nicheloose   a niche word matches inside another word ("baseballs")
+//   AFFILIATE_SCAN_MUTATION=countother   the count lookup reads another account's count from the results
+//   AFFILIATE_SCAN_MUTATION=nocountask   a profile matched with no count never gets its count looked up
+//   AFFILIATE_SCAN_MUTATION=pinx         the company scan searches Pinterest and X again
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -105,6 +111,12 @@ const MUTS = {
   noaileg: ['handler.mjs', "|| (status === 'done' && aiOwed)) && !error", ') && !error'],
   nogoal: ['handler.mjs', '      const goalMet = () => t.found >= want;', '      const goalMet = () => false;'],
   nocap: ['handler.mjs', '      const capLeft = () => Math.max(0, maxChecks - requested);', '      const capLeft = () => 1e9;'],
+  namefind: [LIB, "  return status === 'found' && !(Number(score) >= LIKELY_SCORE) ? 'check' : status;", '  return status;'],
+  bigname: [LIB, '    if (off) s += off[1];', '    if (off) s += 0;'],
+  nicheloose: [LIB, "  if ((terms || []).some((t) => t && text.includes(` ${t} `))) out.add('niche');", "  if ((terms || []).some((t) => t && text.includes(t))) out.add('niche');"],
+  countother: [LIB, '  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));', '  const hit = candidates.find((c) => c.platform === pick.platform);'],
+  nocountask: ['handler.mjs', "        const ct = j.status === 'no_count' ? buildCountTask(j.pick) : null;", '        const ct = null;'],
+  pinx: [LIB, "export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze(['instagram', 'tiktok', 'youtube']) });", 'export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze([]) });'],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -243,7 +255,7 @@ await test('the bar is the company\'s own; the slice is clamped and never includ
   assert.equal(L.companyMinFollowers({ affiliate_customer_scan_min_followers: 0 }), 0, 'zero is a real bar');
   assert.equal(L.companyMinFollowers({ affiliate_customer_scan_min_followers: 'abc' }), 750);
   assert.equal(L.companyMinFollowers(null), 750, 'unset is the default');
-  assert.deepEqual([...L.COMPANY_SCAN_SCOPE.platforms], [], 'every platform: no program narrows it');
+  assert.deepEqual([...L.COMPANY_SCAN_SCOPE.platforms], ['instagram', 'tiktok', 'youtube'], 'the platforms whose results state a count; no program narrows it, and never Pinterest or X');
   assert.equal(L.clampScanCount(5000), 1000); assert.equal(L.clampScanCount(0), 500); assert.equal(L.clampScanCount('x'), 500);
   const f = L.scanFilters({ consent: 'unsubscribed', minOrders: 99, to: '2026-12-31', sort: 'drop table' });
   assert.equal(f.consent, 'any', 'unsubscribed cannot be chosen as a slice');
@@ -463,22 +475,26 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   assert.deepEqual(s.searches.filter((t) => /^"[a-z0-9._-]+"/.test(t.keyword)).map((t) => t.keyword.split(' ')[0]).sort(), ['"nobody"', '"twins"'], 'and the email username, where it is not just their name');
   assert.ok(!s.searches.some((t) => /[a-z0-9]@[a-z]/i.test(t.keyword) || /buyer\.invalid/.test(t.keyword)), 'never a full email address');
   assert.equal(s.searches.find((t) => /Emily/.test(t.keyword)).keyword,
-    '"Emily Durrance" Phoenix (site:instagram.com OR site:tiktok.com/@ OR site:youtube.com/@ OR site:twitch.tv OR site:x.com OR site:twitter.com OR site:pinterest.com)',
-    'name and city, on every platform: no program narrows a company-level scan');
+    '"Emily Durrance" Phoenix (site:instagram.com OR site:tiktok.com/@ OR site:youtube.com/@)',
+    'name and city, on the platforms that state a count: no program narrows a company-level scan, and never Pinterest or X');
   assert.equal(row(s, 'emily').status, 'found');
   assert.equal(row(s, 'emily').followers, 1204);
   assert.equal(row(s, 'emily').followers_quote, '1,204 Followers');
   assert.equal(row(s, 'emily').decided_by, 'search');
   assert.equal(row(s, 'emily').match_basis, 'name_only', 'a name alone is recorded as a name match, to check');
+  assert.equal(row(s, 'emily').match_score, 40, 'a name alone scores 40: Check, never Likely');
+  assert.equal(row(s, 'emily').candidates?.[0]?.snippet, '1,204 Followers, 300 Following', 'the words the match was read from are kept on the row');
   for (const k of ['jen', 'colleague', 'owner']) assert.equal(row(s, k), undefined, `${k} works for the company and is never scanned`);
   assert.equal(row(s, 'nobody').status, 'none');
   const scan = s.service.tables.affiliate_customer_scans[0];
   assert.equal(scan.company_entity_id, CO);
   assert.equal(scan.program_id, null, 'no program: the scan is the company\'s');
   assert.ok(s.service.tables.affiliate_customer_social.every((x) => x.program_id === null), 'and so is every answer');
-  assert.ok(!s.service.log.includes('select:affiliate_programs'), 'no program is loaded or needed');
   assert.equal(scan.status, 'done');
-  assert.deepEqual([scan.requested, scan.checked, scan.found], [3, 3, 2]);
+  // Both over the bar matched on the name alone, so neither counts as found:
+  // they wait under Check for a person.
+  assert.deepEqual([scan.requested, scan.checked, scan.found, scan.filters.to_check], [3, 3, 0, 2]);
+  assert.deepEqual(scan.filters.terms, ['baseball'], 'the niche words come from the company\'s active programs when the company sets none');
   assert.equal(scan.cost_usd, 0.01, 'spend is recorded for SILO: five searches');
 });
 
@@ -550,7 +566,7 @@ await test('a search an earlier scan left ambiguous is judged from its stored pr
   assert.equal(r.decided_by, 'ai');
   assert.equal(r.followers, 5000, 'the count re-read from the chosen profile\'s own text');
   const scan = s.service.tables.affiliate_customer_scans[0];
-  assert.ok(scan.ambiguous >= 0 && scan.found === 1, 'this scan counts only what it searched (Emily), never the carried row');
+  assert.ok(scan.ambiguous >= 0 && scan.found === 0 && scan.filters.to_check === 1, 'this scan counts only what it searched (Emily, name only: to check), never the carried row');
 });
 
 await test('a carried ambiguous customer who has since opted out is never sent to the model, and is cleared', async () => {
@@ -748,14 +764,16 @@ await test('ambiguous searches a run had no time to judge are judged by one more
 // A big slice: customers named Cara <letters>, every 100th one with a profile
 // over the bar.
 const letters = (i, p = 'q') => { let x = ''; let v = i; do { x = String.fromCharCode(97 + (v % 26)) + x; v = Math.floor(v / 26); } while (v > 0); return `${p}${x}`; };
-function bigSlice(n, { hitEvery = 100, meta = {}, prefix = 'q' } = {}) {
+// Hits are Likely by default: the profile says "baseball", the company's
+// niche word (its program's), and carries the name in the handle.
+function bigSlice(n, { hitEvery = 100, meta = {}, prefix = 'q', snippet = '2,000 Followers · baseball mom' } = {}) {
   const data = seed();
   data.entities[0].meta = meta;
   for (let i = 0; i < n; i += 1) {
     const last = letters(i, prefix);
     data.company_customer_profiles.push(cust(`k${i}`, `cara ${last}`, { order_count: 4, email_lc: `k${i}@buyer.invalid` }));
     const display = `Cara ${last.charAt(0).toUpperCase()}${last.slice(1)}`;
-    if (hitEvery && i % hitEvery === 0) RESULTS[display] = [ig(`cara${last}`, `${display} (@cara${last})`, '2,000 Followers')];
+    if (hitEvery && i % hitEvery === 0) RESULTS[display] = [ig(`cara${last}`, `${display} (@cara${last})`, snippet)];
   }
   return data;
 }
@@ -780,7 +798,8 @@ await test('a slice that runs out says so; the cap on customers checked per pres
   const scan = s.service.tables.affiliate_customer_scans[0];
   assert.equal(scan.status, 'done');
   assert.equal(scan.filters.end, 'pool', 'everyone in the slice was checked');
-  assert.equal(scan.found, 2);
+  assert.equal(scan.found, 0, 'both over the bar are name-only: to check, not found');
+  assert.equal(scan.filters.to_check, 2);
   // A slice with no hits at all stops at the company's cap, not at the end
   // of the list.
   const c = setup({ data: bigSlice(600, { hitEvery: 0, prefix: 'z', meta: { affiliate_customer_scan_max_checks: 150 } }), chain: true });
@@ -792,6 +811,69 @@ await test('a slice that runs out says so; the cap on customers checked per pres
   assert.equal(L.companyMaxChecks({}), 10_000, '10,000 when the company has not set one');
   assert.equal(L.clampFinds(undefined), 25);
   assert.equal(L.clampFinds(9999), 500);
+});
+
+await test('a find over the bar tied by the name alone is "Check" and never counts toward "Find N"', async () => {
+  const s = setup({ data: bigSlice(400, { hitEvery: 50, prefix: 'n', snippet: '90K Followers' }), chain: true });
+  await s.call({ finds: 2, filters: { minOrders: 2 } });
+  await s.settle();
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.found, 0, 'no name-only find is counted as found');
+  assert.equal(scan.filters.end, 'pool', 'so the press keeps going until the slice runs out');
+  assert.ok(scan.filters.to_check >= 8, `they wait under Check (${scan.filters.to_check})`);
+  const big = s.service.tables.affiliate_customer_social.find((x) => x.status === 'found' && x.followers === 90000);
+  assert.equal(big.match_score, 30, '40 + 10 for the name in the handle, 20 off for 90K followers on a name alone');
+});
+
+await test('the match score: each signal adds, a big name-only account loses, 70 is Likely', async () => {
+  const p = L.personName('john smith');
+  const base = { handle: '@jsmith88', title: 'J Smith (@jsmith88)', snippet: '', followers: 1200 };
+  const sc = (pick, o = {}) => L.scorePick({ pick, person: p, ...o });
+  assert.deepEqual(sc(base), { basis: 'name_only', score: 40 });
+  assert.deepEqual(sc(base, { email: 'jsmith88@gmail.com' }), { basis: 'email_handle', score: 90 });
+  assert.deepEqual(sc({ ...base, snippet: 'Phoenix, AZ' }, { city: 'Phoenix, AZ' }), { basis: 'city', score: 70 });
+  assert.deepEqual(sc({ ...base, snippet: 'Baseball dad' }, { terms: ['baseball'] }), { basis: 'niche', score: 70 });
+  assert.equal(sc({ ...base, snippet: 'Baseballs and balloons' }, { terms: ['baseball'] }).basis, 'name_only', 'a whole word only');
+  assert.equal(sc({ ...base, handle: '@johnsmith' }).score, 50, 'the name in the handle adds 10, never enough alone');
+  assert.equal(sc({ ...base, followers: 324000 }).score, 10, 'a 324K account tied by a name alone is near the floor');
+  assert.equal(sc({ ...base, followers: 324000, snippet: 'baseball' }, { terms: ['baseball'] }).score, 70, 'a second signal keeps a big account Likely');
+  assert.equal(sc(base, { decidedBy: 'ai', email: 'jsmith88@gmail.com' }).score, 85, 'the model choosing between namesakes is a little less sure');
+  assert.equal(L.tallyBucket('found', 69), 'check'); assert.equal(L.tallyBucket('found', 70), 'found');
+  assert.equal(L.tallyBucket('found', null), 'check', 'unscored is never counted as found');
+  assert.equal(L.tallyBucket('below', 10), 'below');
+  assert.equal(L.socialRowPatch({ status: 'found', pick: { profile_url: 'https://x.test/a' }, score: 140 }).match_score, 100);
+  assert.equal(L.socialRowPatch({ status: 'none', pick: null, score: 50 }).match_score, null, 'no profile, no score');
+  const core = await import(new URL('v2/affiliates/studio-core.js', ROOT));
+  assert.equal(core.LIKELY_SCORE, L.LIKELY_SCORE, 'the page and the scan agree on what Likely means');
+  assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: 'Baseball, MLB , x' }), ['baseball', 'mlb'], 'company data wins');
+  assert.deepEqual(L.companyTerms({}, [{ niche: null, audience_notes: 'Baseball' }, { niche: 'softball moms' }]), ['baseball', 'softball', 'moms']);
+});
+
+await test('a profile matched with no count gets one search for its own handle, which can make it a find', async () => {
+  const data = seed();
+  data.company_customer_profiles = [cust('kim', 'kim lowe', { order_count: 9, email_lc: 'kimbo@buyer.invalid' })];
+  RESULTS['Kim Lowe'] = [ig('kimlowe', 'Kim Lowe (@kimlowe)', 'Baseball mom. Phoenix.')];
+  RESULTS['@kimlowe'] = [ig('kimlowefan', 'Kim fan (@kimlowefan)', '99K Followers'), ig('kimlowe', 'Kim Lowe (@kimlowe) • Instagram photos and videos', '3,400 Followers, 120 Following, 88 Posts', 2)];
+  const s = setup({ data });
+  await s.call({ finds: 1, filters: { minOrders: 2 } });
+  await s.settle();
+  const r = row(s, 'kim');
+  const ask = s.searches.find((t) => t.keyword.startsWith('"@kimlowe"'));
+  assert.ok(ask, 'one search for the matched profile\'s own handle');
+  assert.equal(ask.keyword, '"@kimlowe" site:instagram.com', 'pinned to that profile\'s platform');
+  assert.equal(r.status, 'found');
+  assert.equal(r.followers, 3400, 'read from that profile\'s own result, never the bigger account next to it');
+  assert.equal(r.followers_quote, '3,400 Followers');
+  assert.equal(r.match_basis, 'niche');
+  assert.equal(r.match_score, 80);
+  assert.equal(r.serp_task_id, null, 'collected');
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.deepEqual([scan.found, scan.no_count, scan.filters.end], [1, 0, 'goal'], 'it moved from no count to found, and met the goal');
+  // Nothing stated: it stays as it was, never a guess.
+  delete RESULTS['@kimlowe'];
+  assert.equal(L.judgeCount({ items: [ig('kimlowe', 'Kim Lowe', 'Baseball mom')], pick: { platform: 'instagram', handle: '@kimlowe', profile_url: 'https://www.instagram.com/kimlowe' } }), null);
+  assert.equal(L.buildCountTask({ platform: 'pinterest', handle: '@x' }), null, 'only platforms that state a count');
+  assert.equal(L.buildCountTask({ platform: 'youtube', handle: 'UCabc123' }), null, 'a channel id is not searchable');
 });
 
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);

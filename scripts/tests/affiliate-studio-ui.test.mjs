@@ -60,6 +60,7 @@ const MUTS = {
   socialzero: ["  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;", "  const count = `${compactCount(row.followers || 0) || '0'}`;"],
   socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
   basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
+  scorepromote: ['  return s !== null && s >= LIKELY_SCORE ? \'likely\' : \'name\';', "  return s !== null || row?.match_basis === 'city' ? 'likely' : 'name';"],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -521,12 +522,21 @@ await t('Your Customers: the customer template is its own, and still has to be j
 
 await t('Your Customers social: a blank count stays blank, only http(s) links, never the prospect\'s identity, never a cost', () => {
   assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
-  const found = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
-  assert.equal(found.trust, 'likely', 'a second signal makes it likely');
-  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
+  const found = C.customerSocialView({ status: 'found', match_basis: 'city', match_score: 80, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  assert.equal(found.trust, 'likely', 'a Likely score makes it likely');
+  assert.equal(found.pill, 'Likely 80', 'the score shows on the find');
+  assert.equal(found.why, 'Their city appears on the profile', 'and the basis says why');
+  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', match_score: 40, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
   assert.equal(nameOnly.trust, 'name'); assert.equal(nameOnly.tone, 'warn', 'a name alone is a match to check, never shown as found');
+  assert.equal(nameOnly.pill, 'Check 40');
+  assert.equal(C.customerSocialView({ status: 'found', match_score: 69, match_basis: 'city', handle: '@em', profile_url: 'https://x.test/em', followers: 900 }).trust, 'name', 'under 70 is Check, whatever the basis');
+  const old = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 });
+  assert.deepEqual([old.trust, old.pill], ['name', 'Check'], 'a row scored before scores existed is Check, as the scan counts it');
   assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'no basis recorded is never promoted');
-  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'an unknown basis is never promoted');
+  const odd = C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 });
+  assert.equal(odd.trust, 'name', 'an unknown basis is never promoted');
+  assert.equal(odd.why, 'Only the name matches. Check it is them', 'and reads as a name match');
+  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'niche', match_score: 75, handle: '@em', profile_url: 'https://x.test/em', followers: 900 }).why, 'Their profile mentions your niche');
   assert.equal(C.customerSocialView({ status: 'rejected', handle: '@em', profile_url: 'https://www.instagram.com/em' }).label, 'Not them');
   assert.equal(C.customerSocialView({ status: 'rejected', profile_url: 'https://www.instagram.com/em' }).url, null, 'a rejected find links nowhere');
   assert.equal(found.label, '@em · 12K'); assert.equal(found.tone, 'pos'); assert.equal(found.url, 'https://www.instagram.com/em');
@@ -552,7 +562,7 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last hunt: found 25 · 2,400 checked.');
   assert.ok(!/\$|cost|spend|budget|credit/i.test(C.huntLine({ status: 'done', checked: 1, found: 0, cost_usd: 9, filters: { end: 'cap' } })), 'no cost in the UI');
 
-  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };
+  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
   assert.equal(row.profile_url, null, 'the identity column stays empty: a Discovery prospect with the same profile would refuse the row');
   assert.equal(row.handle, null);
@@ -561,6 +571,7 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'ambiguous', candidates: [] } }).evidence.social, undefined, 'only a named profile is evidence');
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'rejected', profile_url: 'https://x.test/a' } }).evidence.social, undefined, 'a find marked "Not them" never travels');
   assert.equal(row.evidence.social.match_basis, 'name_only', 'the evidence says how far to trust it');
+  assert.equal(row.evidence.social.match_score, 45, 'and how sure');
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 

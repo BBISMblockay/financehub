@@ -195,13 +195,16 @@ const MUTATIONS = {
   socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
   pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', finds: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, finds: c.scanCount,"],
   foundbaronly: ['/affiliates/studio.js', ".eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])", ".eq('company_entity_id', CO).eq('status', 'found')"],
-  huntall: ['/affiliates/studio.js', ".in('status', HUNT_TIERS[tier] || HUNT_TIERS.top)", ".in('status', [...HUNT_TIERS.top, ...HUNT_TIERS.more])"],
+  huntall: ['/affiliates/studio.js', "  q = q.in('status', HUNT_TIERS[t]);", "  q = q.in('status', [...HUNT_TIERS.top, ...HUNT_TIERS.more]);"],
+  // Likely is the score's call: a name-only find over the bar must not sit
+  // with the Likely ones.
+  huntnoscore: ['/affiliates/studio.js', "  if (t === 'top') return q.gte('match_score', LIKELY_SCORE);", "  if (t === 'top') return q;"],
   huntoptout: ['/affiliates/studio.js', "      .or(`email_consent_state.is.null,email_consent_state.not.in.(${HUNT_NEVER.join(',')})`);\n    if (p.error) throw p.error;", "      ;\n    if (p.error) throw p.error;"],
   huntnolive: ['/affiliates/studio.js', "  const live = running\n    ? `<div class=\"af-hunt-live\"", "  const live = false\n    ? `<div class=\"af-hunt-live\""],
   huntrecent: ['/affiliates/studio.js', "  if (sc?.status === 'running') {\n    const r = await", "  if (false) {\n    const r = await"],
   huntlanding: ['/affiliates/studio.js', "  view: 'hunt', huntTier: 'top', hunt: null,", "  view: 'all', huntTier: 'top', hunt: null,"],
   nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
-  tierpill: ['/affiliates/studio.js', "pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match',", "pill('Likely',"],
+  tierpill: ['/affiliates/studio.js', "pill(v.pill, v.trust === 'likely' ? 'pos' : 'warn')", "pill('Likely', 'pos')"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
   // A prospect whose message never landed is finished on a retry.
   custnoresume: ['/affiliates/studio.js',
@@ -3234,9 +3237,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const SC = [
         { customer_key: 'loyal@buyer.invalid', company_entity_id: CO, name_lc: 'lou loyal', email_lc: 'loyal@buyer.invalid', order_count: 9, lifetime_spend: '1811.40', first_order_at: '2025-02-02T00:00:00Z', last_order_at: '2026-11-01T00:00:00Z', email_consent_state: 'subscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
         { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
+        { customer_key: 'check@buyer.invalid', company_entity_id: CO, name_lc: 'cy check', email_lc: 'check@buyer.invalid', order_count: 3, lifetime_spend: '190.00', first_order_at: '2025-04-04T00:00:00Z', last_order_at: '2026-09-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
         { customer_key: 'under@buyer.invalid', company_entity_id: CO, name_lc: 'una under', email_lc: 'under@buyer.invalid', order_count: 3, lifetime_spend: '210.00', first_order_at: '2025-04-04T00:00:00Z', last_order_at: '2026-09-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
       ];
-      const SOCIAL = [{ id: 'cs2', company_entity_id: CO, program_id: null, customer_key: 'under@buyer.invalid', status: 'below', platform: 'instagram', handle: '@una', profile_url: 'https://www.instagram.com/una', followers: 312, followers_approx: false, followers_quote: '312 Followers', source_url: 'https://www.instagram.com/una', checked_at: now }, { id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', scan_id: 'scan1', display_name: 'Lou Loyal', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
+      const SOCIAL = [{ id: 'cs2', company_entity_id: CO, program_id: null, customer_key: 'under@buyer.invalid', status: 'below', match_basis: 'name_only', match_score: 40, platform: 'instagram', handle: '@una', profile_url: 'https://www.instagram.com/una', followers: 312, followers_approx: false, followers_quote: '312 Followers', source_url: 'https://www.instagram.com/una', checked_at: now },
+        { id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', scan_id: 'scan1', display_name: 'Lou Loyal', status: 'found', match_basis: 'city', match_score: 82, platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now },
+        // Over the bar, tied by the name alone: Check, never Likely.
+        { id: 'cs3', company_entity_id: CO, program_id: null, customer_key: 'check@buyer.invalid', scan_id: 'scan1', display_name: 'Cy Check', status: 'found', match_basis: 'name_only', match_score: 30, platform: 'instagram', handle: '@cycheck', profile_url: 'https://www.instagram.com/cycheck', followers: 90000, followers_approx: false, followers_quote: '90K Followers', source_url: 'https://www.instagram.com/cycheck', checked_at: now }];
       const scanRow = (o) => ({ id: 'scan1', company_entity_id: CO, program_id: PROG, status: 'running', requested: 500, checked: 240, found: 6, below: 0, no_count: 0, ambiguous: 0, not_found: 0, failed: 0, min_followers: 750, error_message: null, started_at: now, heartbeat_at: now, finished_at: null, ...o });
       const fx = (scan) => ({ ...tables, company_customer_profiles: SC, affiliate_suppressions: [],
         affiliate_customer_scans: [scanRow(scan)], affiliate_customer_social: SOCIAL,
@@ -3272,13 +3279,20 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('never a cost', !/\$|cost|spend|budget|credit/i.test(live));
         R.ok('and no second press while it runs', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
         const shown = await text(pg, '#customersBody table');
-        R.ok('only the finds over the bar come back, never the whole customer list', /Lou Loyal/.test(shown) && !/Quin Quiet/.test(shown) && !/Una Under/.test(shown));
+        R.ok('only the Likely finds over the bar come back, never the whole customer list', /Lou Loyal/.test(shown) && !/Quin Quiet/.test(shown) && !/Una Under/.test(shown));
+        R.ok('a name-only find over the bar is not with the Likely ones', !/Cy Check/.test(shown));
+        R.has(shown, 'Likely 82', 'each find shows its match score');
         const pq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
         R.ok('a find who has since unsubscribed drops out', /unsubscribed/.test(JSON.stringify(pq || {})));
         await pg.click('#customersBody [data-act="cust-hunt-tier"][data-k="more"]');
         await pg.waitForFunction(() => /Una Under/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const more = await text(pg, '#customersBody table');
         R.ok('"Under the bar" holds the smaller accounts', /Una Under/.test(more) && !/Lou Loyal/.test(more));
+        await pg.click('#customersBody [data-act="cust-hunt-tier"][data-k="check"]');
+        await pg.waitForFunction(() => /Cy Check/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        const chk = await text(pg, '#customersBody table');
+        R.ok('"Check" holds the finds over the bar the score is not sure of', /Cy Check/.test(chk) && !/Lou Loyal/.test(chk) && !/Una Under/.test(chk));
+        R.has(chk, 'Check 30', 'with their score');
         await pg.close();
       }
 
@@ -3294,8 +3308,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         const lou = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.innerHTML).find((h) => /Lou Loyal/.test(h)) || '');
         R.has(lou, '@lou · 1.2K', 'a found account shows its handle and stated followers');
         R.has(lou, 'href="https://www.instagram.com/lou"', 'linked to the profile');
-        R.has(lou, 'Name match', 'a find tied to them by name alone says so, to be checked');
-        R.ok('and is not shown as likely', !/Likely/.test(lou));
+        R.has(lou, 'Likely 82', 'a find with a Likely score says so, with the score');
+        const cy = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.innerHTML).find((h) => /Cy Check/.test(h)) || '');
+        R.has(cy, 'Check 30', 'a find tied to them by name alone says Check, to be looked at');
+        R.ok('and is not shown as likely', !/Likely/.test(cy));
         R.has(lou, 'data-act="cust-social-reject"', 'a manager can mark it "Not them"');
         const quin = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.textContent || '').find((t) => /Quin Quiet/.test(t)) || '');
         R.ok('a customer not yet scanned shows a dash, not "none found"', /—/.test(quin) && !/None found/.test(quin));

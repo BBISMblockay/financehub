@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, huntLine, huntProgress, SOCIAL_BASIS,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -967,7 +967,7 @@ const CUST_DEFAULTS = () => ({
   view: 'hunt', huntTier: 'top', hunt: null,
 });
 const custState = () => (S.cust ||= CUST_DEFAULTS());
-const SOCIAL_COLS = 'id, customer_key, status, match_basis, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
+const SOCIAL_COLS = 'id, customer_key, status, match_basis, match_score, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
 const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, filters, error_message, started_at, heartbeat_at, finished_at';
 // The scan row and the page's result rows, read together. Fail-soft: either
 // read failing leaves the list as it was and hides only the scan bar.
@@ -991,22 +991,35 @@ async function loadSocial(c, keys) {
 // show all customers and tag possible"). Every find of the company's, best
 // first: over the bar, or under it / no count stated. A customer who has
 // since unsubscribed drops out, as they would from a scan.
-const HUNT_TIERS = { top: ['found'], more: ['below', 'no_count'] };
+// Over the bar splits by the match score: Likely (LIKELY_SCORE and up, or an
+// unscored older row with a second signal) or Check (everything else over the
+// bar). Only Likely counts toward the finds asked for.
+const HUNT_TIERS = { top: ['found'], check: ['found'], more: ['below', 'no_count'] };
+function huntTier(q, tier) {
+  const t = HUNT_TIERS[tier] ? tier : 'top';
+  q = q.in('status', HUNT_TIERS[t]);
+  if (t === 'top') return q.gte('match_score', LIKELY_SCORE);
+  // Unscored (older) rows are Check too, as the scan counts them.
+  if (t === 'check') return q.or(`match_score.is.null,match_score.lt.${LIKELY_SCORE}`);
+  return q;
+}
 const HUNT_LIMIT = 200;
 const HUNT_NEVER = ['unsubscribed', 'redacted'];
 const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
 // Reads only; returns null when the scan tables are not there yet (a
 // database before the migration), so the caller falls back to the full list.
 async function readHunt(tier) {
-  const finds = (statuses) => db.from('affiliate_customer_social').select('customer_key', { count: 'exact', head: true })
-    .eq('company_entity_id', CO).in('status', statuses);
-  const [scan, top, more, hits] = await Promise.all([
+  const finds = (t) => huntTier(db.from('affiliate_customer_social').select('customer_key', { count: 'exact', head: true })
+    .eq('company_entity_id', CO), t);
+  const [scan, top, check, more, hits] = await Promise.all([
     db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)
       .order('started_at', { ascending: false }).limit(1),
-    finds(HUNT_TIERS.top),
-    finds(HUNT_TIERS.more),
-    db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO)
-      .in('status', HUNT_TIERS[tier] || HUNT_TIERS.top)
+    finds('top'),
+    finds('check'),
+    finds('more'),
+    // Likely finds most-sure first; the rest biggest first.
+    huntTier(db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO), tier)
+      .order(tier === 'top' ? 'match_score' : 'followers', { ascending: false, nullsFirst: false })
       .order('followers', { ascending: false, nullsFirst: false }).order('checked_at', { ascending: false }).limit(HUNT_LIMIT),
   ]);
   if (scan.error || hits.error) return null;
@@ -1033,7 +1046,7 @@ async function readHunt(tier) {
     scan: sc, rows, recent,
     social: Object.fromEntries((hits.data || []).map((r) => [r.customer_key, r])),
     // NULL means the count did not come back, never zero.
-    counts: { top: top.count ?? null, more: more.count ?? null },
+    counts: { top: top.count ?? null, check: check.count ?? null, more: more.count ?? null },
   };
 }
 function applyHunt(c, h) {
@@ -1173,7 +1186,8 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
   const n0 = (v) => Number(v || 0);
   const { want, pct } = huntProgress(s);
   const chk = n0(s?.checked);
-  const matched = n0(s?.found) + n0(s?.below) + n0(s?.no_count);
+  const toCheck = n0(s?.filters?.to_check);
+  const matched = n0(s?.found) + toCheck + n0(s?.below) + n0(s?.no_count);
   const bar = num(s?.min_followers || 750);
   const tile = (label, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(label)}</div><div class="bcn-kpi-value bcn-num">${v}</div></div>`;
   const press = MANAGE
@@ -1188,12 +1202,12 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
     ? `<div class="af-hunt-live" id="custHuntLive" role="status" aria-live="polite">
         <div class="af-hunt-head"><strong>Hunting your customers</strong><span class="af-mono">${s?.requested || chk ? huntLine(s) : 'Lining up customers…'}</span></div>
         <div class="af-pay-meter af-hunt-meter"><i style="width:${pct}%"></i></div>
-        <div class="af-hunt-tiles">${tile(want ? `Found of ${num(want)}` : `${bar}+ followers`, num(s?.found))}${tile('Checked', num(chk))}${tile('Accounts matched', num(matched))}${tile('Being judged', num(s?.ambiguous))}</div>
+        <div class="af-hunt-tiles">${tile(want ? `Found of ${num(want)}` : `${bar}+ followers`, num(s?.found))}${tile('Checked', num(chk))}${tile('Accounts matched', num(matched))}${tile('To check', num(toCheck))}</div>
         ${c.hunt?.recent?.length ? `<div class="af-muted af-hunt-recent">Just checked: ${c.hunt.recent.map((r) => esc(r.display_name || 'a customer')).join(' · ')}</div>` : ''}
       </div>`
     : '';
   const counts = c.hunt?.counts || {};
-  const tiers = subtabs('Finds', [['top', `${bar}+ followers`, counts.top], ['more', 'Under the bar', counts.more]], 'cust-hunt-tier', c.huntTier);
+  const tiers = subtabs('Finds', [['top', `Likely · ${bar}+`, counts.top], ['check', `Check · ${bar}+`, counts.check], ['more', 'Under the bar', counts.more]], 'cust-hunt-tier', c.huntTier);
   const list = table([
     ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
       ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
@@ -1213,7 +1227,7 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
         ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${btn('Add to outreach', 'cust-add', {}, 'primary')}${btn('Clear', 'cust-select-none')}` : ''}
       </div>`
     : '';
-  const more = c.total != null && (c.huntTier === 'top' ? counts.top : counts.more) > c.total
+  const more = c.total != null && (counts[c.huntTier] ?? counts.top) > c.total
     ? `<p class="af-muted">Showing the top ${num(c.total)}.</p>` : '';
   return `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
     <p class="af-muted">Checks your repeat buyers for social accounts, best customers first, and brings back the ones worth a look.</p>
@@ -1269,7 +1283,7 @@ function renderCustomers() {
     const r = c.social[row.customer_key];
     // The tier and why, on every find a profile was chosen for: "Likely" only
     // with a second signal, otherwise "Name match" to check by eye.
-    const tierPill = v.trust ? `${pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match', v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
+    const tierPill = v.trust ? `${pill(v.pill, v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
     const title = [v.why, v.quote].filter(Boolean).join(' · ');
     const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('Not them', 'cust-social-reject', { id: r.id }, 'ghost')}` : '';
     return `${tierPill}<span class="af-mono"${title ? ` title="${esc(title)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}${notThem}`;
@@ -3881,7 +3895,7 @@ const A = {
     return out?.joined ? 'A scan is already running. Its progress is below.' : 'Scanning. Results fill in on this list as they come back.';
   },
   'cust-view': ({ k }) => { const c = custState(); c.view = k === 'all' ? 'all' : 'hunt'; c.sel.clear(); c.page = 0; loadCustomers(true); return null; },
-  'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = k === 'more' ? 'more' : 'top'; c.sel.clear(); loadCustomers(true); return null; },
+  'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = ['check', 'more'].includes(k) ? k : 'top'; c.sel.clear(); loadCustomers(true); return null; },
   'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },

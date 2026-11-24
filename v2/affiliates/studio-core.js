@@ -920,8 +920,22 @@ export const SOCIAL_KEPT = ['found', 'below', 'no_count'];
 export const SOCIAL_BASIS = {
   email_handle: { trust: 'likely', pill: 'Likely', why: 'The handle matches their email name' },
   city: { trust: 'likely', pill: 'Likely', why: 'Their city appears on the profile' },
-  name_only: { trust: 'name', pill: 'Name match', why: 'Only the name matches. Check it is them' },
+  niche: { trust: 'likely', pill: 'Likely', why: 'Their profile mentions your niche' },
+  name_only: { trust: 'name', pill: 'Check', why: 'Only the name matches. Check it is them' },
 };
+// The match score (0-100, match_score) at which a find is "Likely". Equal to
+// LIKELY_SCORE in scripts/lib/affiliate-customer-scan-core.mjs (a test pins
+// the two). Only the score promotes: a row scored before scores existed
+// (NULL) is "Check", exactly as the scan counts it.
+export const LIKELY_SCORE = 70;
+export function socialScore(row) {
+  const s = row?.match_score;
+  return s === null || s === undefined || s === '' || !Number.isFinite(Number(s)) ? null : Math.round(Number(s));
+}
+export function socialTrust(row) {
+  const s = socialScore(row);
+  return s !== null && s >= LIKELY_SCORE ? 'likely' : 'name';
+}
 export function customerSocialEvidence(s) {
   if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
   return {
@@ -933,6 +947,7 @@ export function customerSocialEvidence(s) {
     followers: Number.isFinite(Number(s.followers)) && s.followers !== null ? Number(s.followers) : null,
     followers_quote: s.followers_quote || null,
     match_basis: SOCIAL_BASIS[s.match_basis] ? s.match_basis : 'name_only',
+    match_score: socialScore(s),
     source_url: s.source_url || null,
     checked_at: s.checked_at || null,
   };
@@ -953,12 +968,15 @@ export function customerSocialView(row) {
   const url = /^https?:\/\//i.test(String(row.profile_url || '')) ? row.profile_url : null;
   const who = row.handle || (url ? url.replace(/^https?:\/\/(www\.)?/i, '') : '');
   const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;
-  // How far to trust it (Blake, 2026-11-24). Only a second signal makes a
-  // find "Likely"; a name alone is what a namesake has too, so it says so.
+  // How far to trust it (Blake, 2026-11-24: "need scores"). The score
+  // decides Likely or Check; the basis says why. A name alone is what a
+  // namesake has too, so it never scores Likely on its own.
   const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;
-  const tier = { trust: basis.trust, why: basis.why, rejectable: true };
+  const trust = socialTrust(row);
+  const score = socialScore(row);
+  const tier = { trust, why: basis.why, score, pill: `${trust === 'likely' ? 'Likely' : 'Check'}${score === null ? '' : ` ${score}`}`, rejectable: true };
   switch (row.status) {
-    case 'found': return { label: `${who} · ${count}`, tone: basis.trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
+    case 'found': return { label: `${who} · ${count}`, tone: trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
     case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar', ...tier };
     case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true, ...tier };
     case 'rejected': return { label: 'Not them', tone: 'muted', url: null, scanned: true };
