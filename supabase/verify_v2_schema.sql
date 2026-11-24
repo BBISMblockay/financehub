@@ -9618,6 +9618,36 @@ select 'Affiliate program scope' as check_name,
 -- still an affiliates row per program; what belongs to the PERSON is their
 -- PayPal address and their email, and both are held together by a trigger
 -- because several deployed functions write these tables.
+select 'Affiliate outreach closes on joining' as check_name,
+  case
+    when to_regprocedure('public.affiliate_outreach_close_when_joined()') is null
+      then 'MISSING — run 20261124140000_affiliate_outreach_close_when_joined.sql'
+    when not exists (select 1 from pg_trigger
+                      where tgrelid = 'public.affiliates'::regclass
+                        and tgname = 'affiliate_outreach_close_when_joined_trg' and tgenabled <> 'D')
+      then 'BROKEN — a recruiting draft can sit open for somebody who already joined'
+    when has_function_privilege('authenticated', 'public.affiliate_outreach_close_when_joined()', 'execute')
+      then 'BROKEN — the outreach closer is client-callable'
+    -- Closing a draft because they joined is not a decision to contact them,
+    -- and the close runs inside the transaction that creates the membership:
+    -- leaving 'signed_up' in the suppression check makes inviting a suppressed
+    -- person fail at the invite (20261124140000).
+    when position('''approved'',''exported'',''sent'')' in pg_get_functiondef('public.affiliate_outreach_drafts_guard()'::regprocedure)) = 0
+      then 'BROKEN — the drafts guard no longer separates contacting from recording an outcome'
+    -- Nobody in the program may still have an open recruiting message.
+    when exists (
+      select 1
+        from public.affiliate_outreach_drafts d
+        join public.affiliates a
+          on a.company_entity_id = d.company_entity_id
+         and a.status in ('invited','pending_terms','active','paused')
+         and (a.from_prospect_id = d.prospect_id
+              or public.affiliate_contact_key(a.contact_email) = public.affiliate_contact_key(d.recipient_email))
+       where d.state in ('draft','approved','exported'))
+      then 'BROKEN — an affiliate of this brand still has an open outreach draft'
+    else 'ok'
+  end as status
+union all
 select 'Affiliate one person' as check_name,
   case
     when to_regprocedure('public.affiliate_payout_account_mirror()') is null

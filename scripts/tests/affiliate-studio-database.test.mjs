@@ -110,6 +110,10 @@
 //   AFFILIATE_DB_MUTATION=sandboxpaid a sandbox result marks a real payout paid
 //   AFFILIATE_DB_MUTATION=sandboxblock a sandbox attempt blocks the real payment
 //   AFFILIATE_DB_MUTATION=recordlock  the attempt is judged without being locked
+//   AFFILIATE_DB_MUTATION=joinopen    a recruiting draft stays open for somebody who joined
+//   AFFILIATE_DB_MUTATION=joinemail   only the prospect the membership came from is matched
+//   AFFILIATE_DB_MUTATION=joinended   only a terminated membership closes outreach
+//   AFFILIATE_DB_MUTATION=joinguard   closing a draft is treated as a decision to contact them
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -311,6 +315,8 @@ const files = {
   // cascade asks whether the editor may make it, and recording an outcome is
   // no longer treated as a decision to contact.
   reviewfixes: '20261124000000_affiliate_scope_and_outreach_fixes.sql',
+  // A live membership closes that person's open outreach (20261124140000).
+  closejoin: '20261124140000_affiliate_outreach_close_when_joined.sql',
 };
 const sql = {};
 for (const [k, f] of Object.entries(files)) {
@@ -382,6 +388,16 @@ switch (MUT) {
   // 20261121210000 re-creates affiliate_add_to_program (it has to require the
   // SOURCE program too), so these have to reach the live body as well or they
   // test a function production no longer runs.
+  // ── 20261124140000: joining the program closes the recruiting message ──
+  case 'joinopen': mutate('closejoin', "  update public.affiliate_outreach_drafts d\n     set state = 'signed_up',", "  update public.affiliate_outreach_drafts d\n     set state = d.state,"); break;
+  case 'joinemail': mutate('closejoin', `       or (v_key is not null and public.affiliate_contact_key(d.recipient_email) = v_key)
+       or (v_key is not null and exists (
+             select 1 from public.affiliate_prospects p
+              where p.id = d.prospect_id
+                and p.company_entity_id = d.company_entity_id
+                and public.affiliate_contact_key(p.contact_email) = v_key))`, ''); break;
+  case 'joinended': mutate('closejoin', "  if new.status not in ('invited','pending_terms','active','paused') then", "  if new.status not in ('terminated') then"); break;
+  case 'joinguard': mutate('closejoin', "  if new.state in ('approved','exported','sent')\n     and (tg_op = 'INSERT'", "  if new.state in ('approved','exported','sent','signed_up')\n     and (tg_op = 'INSERT'"); break;
   case 'addproggate': mutateLive(['addprog', 'scope'], "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
   case 'addprogco': mutateLive(['addprog', 'scope'], "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
   case 'rls': mutate('ledger', 'alter table public.affiliate_attributions enable row level security;', ''); break;
@@ -656,7 +672,7 @@ switch (MUT) {
 
 // Each is applied TWICE, which is what pins every migration here as
 // idempotent -- `create index if not exists` included.
-for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope', 'oneperson', 'reviewfixes']) {
+for (const k of ['orders', 'core', 'ledger', 'portal', 'feed', 'brands', 'photo', 'twins', 'matchindex', 'paypal', 'claims', 'autoshare', 'seeding', 'seedsweep', 'content', 'follow', 'addprog', 'termsfile', 'portallinks', 'recheck', 'anyage', 'shopifyend', 'orderstate', 'financereads', 'sharedseed', 'scope', 'oneperson', 'reviewfixes', 'closejoin']) {
   await db.exec(sql[k]);
   await db.exec(sql[k]);
 }
@@ -3100,11 +3116,75 @@ await check('Q3 a person\'s programs are listed only as far as the caller may se
 
 // The verify_v2_schema.sql blocks for this module, run as written. A guard a
 // mutation removes must also turn the production drift check red.
+// ── R: joining the program closes the recruiting message ────────────────
+// Blake, 2026-11-24: a creator was DM'd outside SILO, nobody marked it sent,
+// and after they were invited and joined, the draft still sat in another
+// program's "To approve" one press from being sent to an affiliate.
+await check('R1 a membership closes that person\'s open outreach, whichever program drafted it', async () => {
+  await asSuper();
+  const prog = await seedProgram(U.ownerA, A, 'starter-program');
+  await as(U.mgrA, A);
+  const pros = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Jo Lomas','@jolomas','jo@creator.test','approved',0.9,'test fixture') returning id`, [A, prog])).id;
+  await db.query(`insert into affiliate_outreach_drafts(company_entity_id, program_id, prospect_id, recipient_email, subject, body)
+     values ($1,$2,$3,'jo@creator.test','Join us','Hello')`, [A, prog, pros]);
+  // They are invited into a DIFFERENT program, which is how this happens.
+  const other = await seedProgram(U.ownerA, A, 'starter-second');
+  await asSuper();
+  await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, from_prospect_id)
+     values ($1,$2,'Jo Lomas','jo@creator.test','invited',$3)`, [A, other, pros]);
+  const row = await one('select state, outcome_note from affiliate_outreach_drafts where prospect_id = $1', [pros]);
+  assert.equal(row.state, 'signed_up', 'the draft is closed the moment they are in the program');
+  assert.match(String(row.outcome_note || ''), /already an affiliate/, 'and says why it closed');
+});
+
+await check('R2 the person is matched by their address too, not only by the prospect row', async () => {
+  await asSuper();
+  const prog = (await one(`select id from affiliate_programs where company_entity_id = $1 and slug = 'starter-program'`, [A])).id;
+  await as(U.mgrA, A);
+  const mine = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Kit Rowe','@kitrowe','KIT@creator.test','approved',0.9,'test fixture') returning id`, [A, prog])).id;
+  const other = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Nobody Else','@nobody','else@creator.test','approved',0.9,'test fixture') returning id`, [A, prog])).id;
+  await db.query(`insert into affiliate_outreach_drafts(company_entity_id, program_id, prospect_id, recipient_email, subject, body)
+     values ($1,$2,$3,'kit@creator.test','Join us','Hello'), ($1,$2,$4,'else@creator.test','Join us','Hello')`, [A, prog, mine, other]);
+  await asSuper();
+  // No from_prospect_id at all: added by email, by import, or in another
+  // program entirely. The address is the person.
+  await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Kit Rowe','Kit@Creator.test','active',1,now())`, [A, prog]);
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [mine])).state, 'signed_up',
+    'their draft is closed on the address, however it was cased');
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [other])).state, 'draft',
+    'and nobody else is swept up in it');
+});
+
+await check('R3 inviting somebody on the do-not-contact list still works, and still closes their draft', async () => {
+  await asSuper();
+  const prog = (await one(`select id from affiliate_programs where company_entity_id = $1 and slug = 'starter-program'`, [A])).id;
+  await as(U.mgrA, A);
+  const pros = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Rue Vance','@ruevance','rue@creator.test','approved',0.9,'test fixture') returning id`, [A, prog])).id;
+  await db.query(`insert into affiliate_outreach_drafts(company_entity_id, program_id, prospect_id, recipient_email, subject, body)
+     values ($1,$2,$3,'rue@creator.test','Join us','Hello')`, [A, prog, pros]);
+  await db.query(`insert into affiliate_suppressions(company_entity_id, kind, value_normalized, reason)
+     values ($1,'email','rue@creator.test','opted_out')`, [A]);
+  await asSuper();
+  // Closing a draft because they joined is not a decision to contact them, so
+  // the suppression guard must not refuse it -- the refusal would land on the
+  // INSERT of the membership, inside the same transaction.
+  await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, from_prospect_id)
+     values ($1,$2,'Rue Vance','rue@creator.test','invited',$3)`, [A, prog, pros]);
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [pros])).state, 'signed_up',
+    'the membership lands and the draft closes with it');
+  await db.query(`delete from affiliate_suppressions where company_entity_id = $1 and value_normalized = 'rue@creator.test'`, [A]);
+});
+
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
   const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
-    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope', 'Affiliate one person']) {
+    'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope', 'Affiliate one person', 'Affiliate outreach closes on joining']) {
     const start = verify.indexOf(`select '${name}' as check_name`);
     assert.ok(start > 0, `the ${name} check exists`);
     const end = verify.indexOf(';', verify.indexOf('end as status', start));

@@ -4159,3 +4159,28 @@ already held), and the institution LABEL is not consulted at all, because
 `plaid-finance` stores `Bank connection` when Link sends none, so one bank can
 sit under two labels. No
 backfill, no edge deploy; the browser calls the RPC directly.
+
+### `20261124140000_affiliate_outreach_close_when_joined.sql` — outreach stops when somebody joins
+
+A creator DM'd outside SILO, never marked sent, then invited and signed up, still had their recruiting draft open in
+another program's **To approve** — one press from being sent to an existing affiliate (Blake, 2026-11-24). Signing up
+closed only some of those rows: `affiliate_portal_accept_terms` (20261110086000) moved `exported`, `sent` and
+`replied` to `signed_up` when the affiliate row carried `from_prospect_id`, which left `draft` and `approved`
+untouched, closed nothing at invite time, and matched nobody who was added by email or from another program's
+prospect row.
+
+`affiliate_outreach_close_when_joined()` moves the rule off the signup path and onto the membership: while a person
+holds a live membership (`invited`, `pending_terms`, `active`, `paused`) in this company, their open drafts
+(`draft`, `approved`, `exported`) are closed as `signed_up` with an `outcome_note`, matched by the prospect the
+membership came from, by the draft's own recipient address and by the prospect's address (all through
+`affiliate_contact_key`, so case and spacing do not matter). It is an AFTER trigger on `affiliates` (insert, and
+updates of `status`, `contact_email`, `from_prospect_id`), so every write path reaches it, including the deployed
+functions with no source in this repository. Company-wide on purpose: a cold recruiting message to somebody who is
+already an affiliate of this brand is wrong whichever program drafted it, while bringing an existing affiliate into a
+second program is an invite, which this does not touch.
+
+`affiliate_outreach_drafts_guard()` is re-created to drop `signed_up` from the suppression check, for the reason
+20261124000000 dropped the outcomes: recording that somebody joined is not a decision to contact them — and the close
+runs inside the transaction that creates the membership, so leaving it in would make inviting a suppressed person
+fail at the invite. The migration ends by closing the drafts already open, which is idempotent (a second run matches
+nothing, because those rows are no longer live). No table, column, policy or grant change, and no deploy.
