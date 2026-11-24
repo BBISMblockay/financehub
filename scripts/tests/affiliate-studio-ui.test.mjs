@@ -30,7 +30,7 @@
 //   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
 //   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
 //   AFFILIATE_CORE_MUTATION=unsubmail    an unsubscribed customer is given the email path
-//   AFFILIATE_CORE_MUTATION=poolsupp     somebody do-not-contact in one program is offered to the others
+//   AFFILIATE_CORE_MUTATION=poolsupp     somebody do-not-contact in one program is not marked do-not-contact everywhere
 //   AFFILIATE_CORE_MUTATION=noemaildm    a customer with no email can be given a DM path
 //   AFFILIATE_CORE_MUTATION=dmsupp       a do-not-contact handle can still be DMed
 //   AFFILIATE_CORE_MUTATION=counthidden  the Find tab counts include customers the list hides
@@ -71,7 +71,7 @@ const MUTS = {
   deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
   termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
   unsubmail: ["  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return", "  if (email) return"],
-  poolsupp: ["    if (x.status === 'suppressed') { blocked.add(k); continue; }", ''],
+  poolsupp: ["    if (x.status === 'suppressed') g.suppressed = true;", ''],
   noemaildm: ["  if (!email) return null;\n", ''],
   dmsupp: ["  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;", ""],
   counthidden: ["    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);", "    if (false) out[t] = 0;"],
@@ -606,20 +606,20 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerContactPath(cu('subscribed'), okFind, [{ kind: 'email', value_normalized: 'ola@buyer.invalid' }]), null, 'do-not-contact email: never');
   assert.equal(C.customerContactPath(cu('unsubscribed'), okFind, [{ kind: 'handle', value_normalized: '@OLA' }]), null, 'do-not-contact handle: never DMed');
   assert.equal(C.customerNoPathReason(cu('subscribed', { email_lc: '' }), null), 'no email on file');
-  // People at the company level: one person once, own program first.
+  // People at the company level: one entry per person, a row per program.
   const A_ = 'pa'; const B_ = 'pb'; const C_ = 'pc';
-  const own = [{ id: 1, program_id: A_, profile_url: 'https://x.com/One ' }];
-  const all = [
+  const ppl = C.groupPeople([
+    { id: 1, program_id: A_, profile_url: 'https://x.com/One ' },
     { id: 2, program_id: B_, profile_url: 'https://x.com/one' },
     { id: 3, program_id: B_, platform: 'tiktok', handle: '@Two' },
     { id: 4, program_id: C_, platform: 'tiktok', handle: '@two' },
     { id: 5, program_id: B_, contact_email: 'nope@x.com', status: 'suppressed' },
     { id: 6, program_id: C_, contact_email: 'NOPE@x.com', status: 'new' },
-  ];
-  const ppl = C.companyPeople(own, all, A_);
-  assert.deepEqual(ppl.map((x) => x.id), [1, 3], 'own row first; someone already here and someone do-not-contact anywhere are not offered');
-  assert.deepEqual(ppl[1].otherPrograms, [B_, C_], 'one row per person, naming every program they are in');
-  assert.equal(ppl[1].foreign, true);
+  ]);
+  assert.deepEqual(ppl.map((g) => g.x.id), [1, 3, 5], 'one entry per person, the first row as its face');
+  assert.deepEqual(ppl.map((g) => g.rows.map((x) => x.id)), [[1, 2], [3, 4], [5, 6]], 'every program row they have');
+  assert.deepEqual(ppl[1].programIds, [B_, C_], 'naming every program they are in');
+  assert.deepEqual(ppl.map((g) => g.suppressed), [false, false, true], 'do not contact in one program marks the person everywhere');
   const moved = C.assignedProspectRow({ id: 9, program_id: B_, status: 'signed_up', affiliate_id: 'a', source_id: 's', reviewed_by: 'r', platform: 'youtube', profile_url: 'u', source: 'serp', evidence: { q: 1 } }, A_);
   assert.equal(moved.program_id, A_); assert.equal(moved.status, 'approved');
   for (const k of ['id', 'affiliate_id', 'source_id', 'reviewed_by']) assert.ok(!(k in moved), `${k} stays with the other program`);

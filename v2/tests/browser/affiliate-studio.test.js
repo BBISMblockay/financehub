@@ -80,6 +80,14 @@
  *   AFFILIATE_UI_MUTATION=personprog a program they are already in is offered again
  *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
+ *   AFFILIATE_UI_MUTATION=peoplescope People reads only the program picked
+ *   AFFILIATE_UI_MUTATION=peopletwice somebody in two programs is two Discovery cards
+ *   AFFILIATE_UI_MUTATION=pickershown the program picker still shows on People
+ *   AFFILIATE_UI_MUTATION=ctxprog     a People button works in the picked program, not its row's
+ *   AFFILIATE_UI_MUTATION=draftownprog a drafted message is filed under the picked program
+ *   AFFILIATE_UI_MUTATION=drafttemplate a drafted message uses the picked program's wording
+ *   AFFILIATE_UI_MUTATION=supoffer    somebody on do not contact is offered to another program
+ *   AFFILIATE_UI_MUTATION=afftwice    an affiliate in two programs is two cards
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -159,7 +167,7 @@ const MUTATIONS = {
   // A chip swap rebuilds the body, so it must carry what is typed with it.
   // Your Customers (20261124030000).
   custeager: ['/affiliates/studio.js',
-    "  if (S.peopleSub === 'customers' && !isAll() && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());",
+    "  if (S.peopleSub === 'customers' && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());",
     '  if (!c.loaded && !c.loading) queueMicrotask(() => loadCustomers());'],
   custgate: ['/affiliates/studio.js',
     "    if (spec.consentIsNull) q = q.is('email_consent_state', null);\n    else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);",
@@ -173,13 +181,21 @@ const MUTATIONS = {
     "channel: path.channel,\n            recipient_email: path.email, recipient_handle: path.handle,",
     "channel: 'email',\n            recipient_email: x.email_lc, recipient_handle: null,"],
   consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
-  poolhidden: ['/affiliates/studio.js', "  d.people = companyPeople(d.prospects, d.people || [], p.id);", '  d.people = d.prospects;'],
-  poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, foreign: _f, otherPrograms: _o, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
+  poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
+  // People sit above programs (Blake 2026-11-24).
+  peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData();", "  const company = false;\n  if (isAll()) return loadAllData();"],
+  peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
+  pickershown: ['/affiliates/studio.js', "  const sel = $('programSel'); if (sel) sel.hidden = company;", ''],
+  ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
+  draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
+  drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
+  supoffer: ['/affiliates/studio.js', '  const addTo = (g) => (MANAGE && !g.suppressed', '  const addTo = (g) => (MANAGE'],
+  afftwice: ['/affiliates/studio.js', "(multiProg ? itemList(shownP, personCard, affEmpty, 'grid') : itemList(affShown, affiliateRow, affEmpty, 'grid'))", "itemList(affShown, affiliateRow, affEmpty, 'grid')"],
   unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
   // Source is what picks the template, on every path that writes a draft.
   custcreatorpitch: ['/affiliates/studio.js',
-    "const draftFor = (x) => (x?.source === 'customer'",
-    'const draftFor = (x) => (false'],
+    "  return x?.source === 'customer'\n    ? { tpl: customerOutreachTemplate(p)",
+    "  return false\n    ? { tpl: customerOutreachTemplate(p)"],
   // Redrafting a mixed queue must read each draft's own source.
   custmixedredraft: ['/affiliates/studio.js',
     '      const { tpl, vars } = draftFor(S.d.prospectById[x.prospect_id]);',
@@ -254,7 +270,7 @@ const MUTATIONS = {
   photopng: ['/affiliates/portal.html', "c.toDataURL('image/jpeg', 0.85)", "c.toDataURL('image/png')"],
   photostuck: ['/affiliates/portal.html', "try { showPhoto(await call('photo', { token, remove: true }));", "try { await call('photo', { token, remove: true });"],
   affownphoto: ['/affiliates/studio.js', 'affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence)', 'prospectPhotoUrl(d.prospectById[a.from_prospect_id]?.evidence)'],
-  sillodraft: ['/affiliates/studio.js', ': { tpl: outreachTemplate(prog()), vars: outreachVars(x) });', ': { tpl: outreachTemplate({}), vars: outreachVars(x) });'],
+  sillodraft: ['/affiliates/studio.js', '    : { tpl: outreachTemplate(p), vars: outreachVars(x, p) };', '    : { tpl: outreachTemplate({}), vars: outreachVars(x, p) };'],
   todomoney: ['/affiliates/studio.js', '  add(MONEY && toApprove,', '  add(toApprove,'],
   codestate: ['/affiliates/portal.html', '${codeState(c, t.today)}', '${codeState(c, new Date().toISOString().slice(0, 10))}'],
   resumenomake: ['/affiliates/studio.js', "    return waiting?.length ? `Affiliate active. ${await makeInShopify(waiting.map((r) => r.id))}` : 'Affiliate active.';", "    return 'Affiliate active.';"],
@@ -3446,35 +3462,87 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       }
     }
 
-    // People belong to the company (Blake 2026-11-24: "should not isolate
-    // people by program"): a creator found under another program is offered
-    // here, once, and Add puts them in THIS program as their own row.
+    // People sit above programs (Blake 2026-11-24: "people is above
+    // programs"). Discovery lists everybody found, in any program, once each,
+    // with a line per program; the picker is hidden; a button works in the
+    // program of its own row; Add pushes somebody into another program.
     {
       const PROGB = '66666666-6666-4666-8666-666666666666';
       const other = (id, o) => ({ ...tables.affiliate_prospects[0], id, program_id: PROGB, customer_match_status: 'unknown', customer_match_score: null, customer_match_basis: null, ...o });
       const pool = {
         ...tables,
-        affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROGB, name: 'Beta', slug: 'beta' }],
+        affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROGB, name: 'Beta', slug: 'beta', niche: 'beta niche',
+          outreach_subject: 'Beta pitch for {name}', outreach_body: 'Beta body {signup_link}' }],
         affiliate_prospects: [...tables.affiliate_prospects,
           other('pb1', { display_name: 'Pat Pool', handle: '@patpool', profile_url: 'https://www.youtube.com/@patpool', status: 'signed_up', source_id: 'sB', reviewed_by: 'someone', affiliate_id: 'affB' }),
-          // Already in this program: never offered twice.
+          // The same person as this program's own Sam Runs: one card, two lines.
           other('pb2', { display_name: 'Sam Runs again' }),
-          // Do not contact anywhere: never offered.
-          other('pb3', { display_name: 'Dee Nope', handle: '@nope', profile_url: 'https://www.youtube.com/@nope', status: 'suppressed' })],
+          // Do not contact: listed, never offered to another program.
+          other('pb3', { display_name: 'Dee Nope', handle: '@nope', profile_url: 'https://www.youtube.com/@nope', status: 'suppressed' }),
+          // Found for Beta and waiting for review.
+          other('pb4', { display_name: 'Nia New', handle: '@nianew', profile_url: 'https://www.youtube.com/@nianew', contact_email: 'nia@creator.invalid', status: 'new', source: 'ai_research' })],
+        // The same affiliate in Beta too: one person, two memberships.
+        affiliates: [...tables.affiliates, { ...tables.affiliates[0], id: 'affB2', program_id: PROGB }],
       };
       const pg = await suite.open('/v2/affiliates/index.html', pool, { ready, rpc: { can_manage_affiliate_programs: true } });
       pg.on('pageerror', (e) => errors.push(`people-pool: ${e.message}`));
       await toDiscovery(pg);
+      R.ok('the program picker is hidden on People', await pg.evaluate(() => document.getElementById('programSel')?.hidden === true));
+      await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
       await pg.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const shown = await text(pg, '#prospectsBody');
-      R.ok('a creator from another program is offered here', /Pat Pool/.test(shown) && /In Beta/.test(shown));
-      R.ok('somebody already in this program is listed once, as this program\'s own', !/Sam Runs again/.test(shown));
-      R.ok('do not contact anywhere is never offered', !/Dee Nope/.test(shown));
+      R.ok('Discovery lists creators found for another program', /Pat Pool/.test(shown) && /Nia New/.test(shown));
+      const samCards = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => els.filter((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || '')));
+      R.eq(samCards.length, 1, 'somebody in two programs is one card');
+      const samCard = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => (els.find((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || ''))?.textContent || ''));
+      R.ok('with a line for each program they are in', samCard.includes(tables.affiliate_programs[0].name) && samCard.includes('Beta'));
+      R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await pg.$('#prospectsBody [data-act="prospect-assign"][data-id="pb3"]')));
+      if (process.env.PEOPLE_SHOT) { await pg.setViewportSize({ width: 1280, height: 1100 }); await (await pg.$('#prospectsBody')).screenshot({ path: process.env.PEOPLE_SHOT }); }
+      // Affiliates: one card per person, a block for each program.
+      await pg.click('#peopleSubtabs [data-k="affiliates"]');
+      await pg.waitForSelector('#affiliatesBody .af-item--catalog', { timeout: 5000 }).catch(() => {});
+      const affName = tables.affiliates[0].display_name;
+      const affCards = await pg.$$eval('#affiliatesBody .af-item--catalog', (els, n) => els.filter((e) => (e.querySelector('.af-catalog-name')?.textContent || '').trim() === n).map((e) => e.textContent), affName);
+      R.ok('an affiliate in two programs is one card with both programs', affCards.length === 1 && affCards[0].includes('Beta') && affCards[0].includes(tables.affiliate_programs[0].name));
+      if (process.env.PEOPLE_SHOT) await (await pg.$('#affiliatesBody')).screenshot({ path: process.env.PEOPLE_SHOT.replace('.png', '-aff.png') });
+      await pg.click('#peopleSubtabs [data-k="discovery"]');
+      // Shortlisting a Beta creator in bulk files their message under Beta,
+      // in Beta's own words, whatever program the page last used.
+      await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
+      await pg.waitForSelector('#prospectsBody [data-act="prospect-pick"][data-id="pb4"]', { timeout: 5000 }).catch(() => {});
+      // Two people from two programs, the other program's ticked last.
+      await pg.click('#prospectsBody [data-act="prospect-pick"][data-id="pb4"]').catch(() => {});
+      await pg.click('#prospectsBody [data-act="prospect-pick"][data-id="p-nobuy"]').catch(() => {});
+      await pg.click('#prospectsBody [data-act="prospect-bulk"][data-s="approved"]').catch(() => {});
+      await pg.waitForFunction(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').length >= 2, null, { timeout: 5000 }).catch(() => {});
+      const drs = await pg.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').map((q) => (Array.isArray(q?.rows) ? q.rows[0] : q?.rows)));
+      const dr = drs.find((x) => x?.prospect_id === 'pb4');
+      const drA = drs.find((x) => x?.prospect_id === 'p-nobuy');
+      R.eq(dr?.program_id, PROGB, 'a Beta creator\'s message is filed under Beta');
+      R.ok('and written from Beta\'s own message', /^Beta pitch for Nia New/.test(dr?.subject || ''));
+      R.eq(drA?.program_id, PROG, 'and the other program\'s creator under theirs, in the same press');
+      // Find creators picks its program on the button.
+      await pg.waitForSelector('#prospectsBody [data-act="find-pg"][data-pg="' + PROGB + '"]', { timeout: 5000 }).catch(() => {});
+      await pg.click('#prospectsBody [data-act="find-pg"][data-pg="' + PROGB + '"]').catch(() => {});
+      const nBefore = researchCalls.filter((c) => c.action === 'research').length;
+      await pg.click('#prospectsBody [data-act="research-run"]').catch(() => {});
+      await pg.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const rcB = researchCalls.filter((c) => c.action === 'research').slice(nBefore);
+      R.ok('Find creators runs for the program picked on it', rcB.length === 1 && rcB[0].program_id === PROGB);
+      // Add to: their own row in the other program, shortlisted, without that
+      // program's decisions or search.
+      await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
+      await pg.waitForSelector('#prospectsBody [data-act="prospect-assign"][data-id="pb1"]', { timeout: 5000 }).catch(() => {});
+      const nIns = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length);
       await pg.click('#prospectsBody [data-act="prospect-assign"][data-id="pb1"]').catch(() => {});
-      await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+      await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length > n, nIns, { timeout: 5000 }).catch(() => {});
       const ins = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
-      R.ok('Add makes their own row in this program, shortlisted', ins?.program_id === PROG && ins?.status === 'approved' && ins?.profile_url === 'https://www.youtube.com/@patpool');
+      R.ok('Add makes their own row in that program, shortlisted', ins?.program_id === PROG && ins?.status === 'approved' && ins?.profile_url === 'https://www.youtube.com/@patpool');
       R.ok('without the other program\'s decisions or search', ins && !('affiliate_id' in ins) && !('source_id' in ins) && ins.reviewed_by !== 'someone');
+      // Off People, the picker is back and the tab is one program again.
+      await pg.click('#tabs [data-tab="comms"]').catch(() => {});
+      await pg.waitForFunction(() => document.getElementById('programSel')?.hidden === false, null, { timeout: 5000 }).catch(() => {});
+      R.ok('the picker is back on a program tab', await pg.evaluate(() => document.getElementById('programSel')?.hidden === false));
       await pg.close();
     }
 

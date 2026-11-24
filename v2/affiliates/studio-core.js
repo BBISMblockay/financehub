@@ -1162,27 +1162,24 @@ export function personKey(x) {
 }
 
 /**
- * The People list for one program: its own rows, then everybody the company
- * has in OTHER programs and not yet in this one, once each, marked
- * `foreign` with the programs they are in. Somebody marked do not contact
- * anywhere is not offered again.
+ * People belong to the company, not a program (Blake 2026-11-24): every
+ * prospect row the company has, one entry per PERSON, with a row for each
+ * program they are in. Rows arrive newest first, so the first row is the
+ * face of the card. Do not contact is company-wide: one suppressed row
+ * marks the whole person, and nobody offers them to another program.
  */
-export function companyPeople(own, all, programId) {
-  const ownRows = own || [];
-  const mine = new Set(ownRows.map(personKey));
-  const others = new Map();
-  const blocked = new Set();
-  for (const x of all || []) {
-    if (!x || x.program_id === programId) continue;
+export function groupPeople(rows) {
+  const by = new Map();
+  for (const x of rows || []) {
+    if (!x) continue;
     const k = personKey(x);
-    if (x.status === 'suppressed') { blocked.add(k); continue; }
-    if (mine.has(k)) continue;
-    const cur = others.get(k);
-    if (!cur) others.set(k, { ...x, foreign: true, otherPrograms: [x.program_id] });
-    else if (!cur.otherPrograms.includes(x.program_id)) cur.otherPrograms.push(x.program_id);
+    let g = by.get(k);
+    if (!g) { g = { key: k, x, rows: [], programIds: [], suppressed: false }; by.set(k, g); }
+    g.rows.push(x);
+    if (!g.programIds.includes(x.program_id)) g.programIds.push(x.program_id);
+    if (x.status === 'suppressed') g.suppressed = true;
   }
-  for (const k of blocked) others.delete(k);
-  return [...ownRows, ...others.values()];
+  return [...by.values()];
 }
 
 /**
