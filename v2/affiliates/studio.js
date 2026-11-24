@@ -1007,12 +1007,17 @@ const HUNT_LIMIT = 200;
 const HUNT_NEVER = ['unsubscribed', 'redacted'];
 const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
 // The over-the-bar answers whose customer the list hides (opted out since
-// their search). Bounded: a company's matched accounts are hundreds.
+// their search). Every page of them, as the tab counts count every row.
 async function huntHidden() {
-  const { data: over, error } = await db.from('affiliate_customer_social').select('customer_key, status, match_score')
-    .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']).limit(5000);
-  if (error) throw error;
-  const rows = over || [];
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error } = await db.from('affiliate_customer_social').select('id, customer_key, status, match_score')
+      .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']).order('id', { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    rows.push(...(page || []));
+    if (!page || page.length < 1000) break;
+  }
   const out = [];
   for (let i = 0; i < rows.length; i += 150) {
     const part = rows.slice(i, i + 150);

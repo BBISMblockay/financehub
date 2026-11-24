@@ -193,6 +193,7 @@ const MUTATIONS = {
   // one program's again.
   scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
   socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
+  hiddenpage: ['/affiliates/studio.js', "    if (!page || page.length < 1000) break;", '    break;'],
   termsnotsent: ['/affiliates/studio.js', "      ...(c.scanTerms === null ? {} : { terms: c.scanTerms }),", ''],
   pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', finds: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, finds: c.scanCount,"],
   foundbaronly: ['/affiliates/studio.js', ".eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])", ".eq('company_entity_id', CO).eq('status', 'found')"],
@@ -3266,6 +3267,21 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           && !!document.getElementById('custScanLine'), null, { timeout: 5000 });
         return { pg, calls };
       };
+
+      // The tab counts agree with the list (Blake 2026-11-24: "check says 76
+      // then shows 67"): a find whose customer unsubscribed since is left out
+      // of its count too, even past the first 1,000 stored answers.
+      {
+        const filler = Array.from({ length: 1000 }, (_, i) => ({ id: `cf${String(i).padStart(4, '0')}`, company_entity_id: CO, program_id: null, customer_key: `f${i}@buyer.invalid`, status: 'found', match_basis: 'name_only', match_score: 30, platform: 'instagram', handle: `@f${i}`, profile_url: `https://www.instagram.com/f${i}`, followers: 900, checked_at: now }));
+        const gone = { id: 'cz9999', company_entity_id: CO, program_id: null, customer_key: 'gone@buyer.invalid', status: 'found', match_basis: 'name_only', match_score: 30, platform: 'instagram', handle: '@gone', profile_url: 'https://www.instagram.com/gone', followers: 5000, checked_at: now };
+        const goneProfile = { ...SC[2], customer_key: 'gone@buyer.invalid', email_lc: 'gone@buyer.invalid', name_lc: 'gus gone', email_consent_state: 'unsubscribed' };
+        const pg = await suite.open('/v2/affiliates/index.html', { ...fx({ status: 'done', finished_at: now }), company_customer_profiles: [...SC, goneProfile], affiliate_customer_social: [...SOCIAL, ...filler, gone] }, { ready, rpc: { can_manage_affiliate_programs: true } });
+        pg.on('pageerror', (e) => errors.push(`customer-hunt-counts: ${e.message}`));
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => !!document.querySelector('#customersBody [data-act="cust-hunt-tier"][data-k="check"]'), null, { timeout: 5000 }).catch(() => {});
+        R.has(await text(pg, '#customersBody [data-act="cust-hunt-tier"][data-k="check"]'), '1,001', 'Check counts what its list can show: an unsubscribed customer past the first page is left out');
+        await pg.close();
+      }
 
       // Hunt, the landing view (Blake 2026-11-24): a live module while it
       // runs, then only the people it brought back, never the whole list.
