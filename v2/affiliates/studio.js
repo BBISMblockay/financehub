@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsText,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1126,8 +1126,10 @@ async function loadCustomers(force = false) {
     if (c.view === 'hunt') {
       // The company's own niche words, once, for the box beside Find.
       if (c.scanTerms === null && MANAGE) {
-        const { data: ent } = await db.from('entities').select('meta').eq('id', CO).maybeSingle();
-        if (c.scanTerms === null) c.scanTerms = scanTermsText(ent?.meta);
+        // A failed read stays null: the press then sends no words at all.
+        let got = null;
+        try { got = scanTermsFromRead(await db.from('entities').select('meta').eq('id', CO).maybeSingle()); } catch (_) { got = null; }
+        if (c.scanTerms === null) c.scanTerms = got;
       }
       const h = await readHunt(c.huntTier);
       if (!mine()) return;

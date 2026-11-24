@@ -934,6 +934,13 @@ export const LIKELY_SCORE = 70;
 export const SCAN_STALE_MS = 3 * 60_000;
 // The company's own niche words (entities.meta.affiliate_customer_scan_terms)
 // as the "Niche words" box shows them. Find adds every active program's words.
+// The box's starting value from the page's read of the company row. A read
+// that failed is null, never '': the press then sends no words, so a hiccup
+// never clears the company's saved ones.
+export function scanTermsFromRead(res) {
+  if (!res || res.error || !res.data) return null;
+  return scanTermsText(res.data.meta);
+}
 export function scanTermsText(meta) {
   const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
   const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];

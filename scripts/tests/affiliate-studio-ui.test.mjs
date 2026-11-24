@@ -28,6 +28,7 @@
 //   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
 //   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
 //   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
+//   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -63,6 +64,7 @@ const MUTS = {
   basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
   scorepromote: ['  return s !== null && s >= LIKELY_SCORE ? \'likely\' : \'name\';', "  return s !== null || row?.match_basis === 'city' ? 'likely' : 'name';"],
   deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
+  termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -572,6 +574,10 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.liveScan(undefined), null);
   assert.equal(C.scanTermsText({ affiliate_customer_scan_terms: ['baseball', 'mlb'] }), 'baseball, mlb', 'the Niche words box shows the company\'s own words');
   assert.equal(C.scanTermsText({}), '');
+  assert.equal(C.scanTermsFromRead({ data: { meta: { affiliate_customer_scan_terms: ['mlb'] } }, error: null }), 'mlb');
+  assert.equal(C.scanTermsFromRead({ data: { meta: {} }, error: null }), '', 'read fine, no words: an empty box');
+  assert.equal(C.scanTermsFromRead({ data: null, error: { message: 'timeout' } }), null, 'a failed read is not an empty box, so a press never clears saved words');
+  assert.equal(C.scanTermsFromRead(null), null);
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
