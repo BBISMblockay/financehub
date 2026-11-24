@@ -89,6 +89,9 @@
  *   AFFILIATE_UI_MUTATION=supoffer    somebody on do not contact is offered to another program
  *   AFFILIATE_UI_MUTATION=afftwice    an affiliate in two programs is two cards
  *   AFFILIATE_UI_MUTATION=loadgen     a slower People read lands last and shows every program on a program tab
+ *   AFFILIATE_UI_MUTATION=supignored  the do-not-contact list is not checked when grouping people
+ *   AFFILIATE_UI_MUTATION=supfailopen an unread do-not-contact list still offers people to other programs
+ *   AFFILIATE_UI_MUTATION=suppaged    the do-not-contact list is one capped read
  *   AFFILIATE_UI_MUTATION=prospaged   People reads a capped prospect list instead of every page
  */
 'use strict';
@@ -193,6 +196,9 @@ const MUTATIONS = {
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
   supoffer: ['/affiliates/studio.js', '  const addTo = (g) => (MANAGE && !g.suppressed', '  const addTo = (g) => (MANAGE'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
+  supignored: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = groupPeople(d.prospects);'],
+  supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
+  suppaged: ['/affiliates/studio.js', "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true });"],
   prospaged: ['/affiliates/studio.js', ".order('collected_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", ".order('collected_at', { ascending: false }).limit(2000);"],
   afftwice: ['/affiliates/studio.js', "(multiProg ? itemList(shownP, personCard, affEmpty, 'grid') : itemList(affShown, affiliateRow, affEmpty, 'grid'))", "itemList(affShown, affiliateRow, affEmpty, 'grid')"],
   unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
@@ -3484,9 +3490,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           // Do not contact: listed, never offered to another program.
           other('pb3', { display_name: 'Dee Nope', handle: '@nope', profile_url: 'https://www.youtube.com/@nope', status: 'suppressed' }),
           // Found for Beta and waiting for review.
+          // On the do-not-contact list by address only; their row says new.
+          other('pb5', { display_name: 'Sue Listed', handle: '@suelisted', profile_url: 'https://www.youtube.com/@suelisted', contact_email: 'sue@listed.invalid', status: 'new' }),
           other('pb4', { display_name: 'Nia New', handle: '@nianew', profile_url: 'https://www.youtube.com/@nianew', contact_email: 'nia@creator.invalid', status: 'new', source: 'ai_research' })],
         // The same affiliate in Beta too: one person, two memberships.
         affiliates: [...tables.affiliates, { ...tables.affiliates[0], id: 'affB2', program_id: PROGB }],
+        affiliate_suppressions: [...(tables.affiliate_suppressions || []), { id: 'sup-sue', company_entity_id: CO, kind: 'email', value_normalized: 'sue@listed.invalid', reason: 'opted_out', created_at: now }],
         affiliate_outreach_drafts: [{ id: 'dB', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', channel: 'email', recipient_email: 'sam@only.invalid', subject: 'First program only draft', body: 'x', state: 'draft', created_at: now }],
       };
       const pg = await suite.open('/v2/affiliates/index.html', pool, { ready, rpc: { can_manage_affiliate_programs: true } });
@@ -3502,6 +3511,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const samCard = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => (els.find((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || ''))?.textContent || ''));
       R.ok('with a line for each program they are in', samCard.includes(tables.affiliate_programs[0].name) && samCard.includes('Beta'));
       R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await pg.$('#prospectsBody [data-act="prospect-assign"][data-id="pb3"]')));
+      R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await pg.$('#prospectsBody [data-act="prospect-assign"][data-id="pb5"]')));
+      R.ok('People reads the do-not-contact list in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_suppressions' && q.range)));
       if (process.env.PEOPLE_SHOT) { await pg.setViewportSize({ width: 1280, height: 1100 }); await (await pg.$('#prospectsBody')).screenshot({ path: process.env.PEOPLE_SHOT }); }
       // Affiliates: one card per person, a block for each program.
       await pg.click('#peopleSubtabs [data-k="affiliates"]');
@@ -3568,6 +3579,14 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(await pg.evaluate(() => document.getElementById('programSel')?.value), PROGB, 'Outreach opens on the program last worked in');
       R.ok('a slower People read never lands on a program tab', !/First program only draft|sam@only/.test(await text(pg, '#outreachBody')));
       await pg.close();
+      // A do-not-contact list that could not be read in full offers nobody
+      // to another program.
+      const nosup = await suite.open('/v2/affiliates/index.html', pool, { ready, rpc: { can_manage_affiliate_programs: true }, broken: ['affiliate_suppressions'] });
+      await toDiscovery(nosup);
+      await nosup.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]').catch(() => {});
+      await nosup.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('an unread do-not-contact list offers nobody to another program', !(await nosup.$('#prospectsBody [data-act="prospect-assign"]')));
+      await nosup.close();
     }
 
     R.eq(errors, [], 'no page errors on any affiliate page');

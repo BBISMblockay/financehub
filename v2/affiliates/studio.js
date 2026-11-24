@@ -443,7 +443,6 @@ async function loadProgramData() {
     runs: by('affiliate_discovery_runs').order('started_at', { ascending: false }).limit(25),
     // Company scope reads every prospect, paged (loadCompanyProspects).
     ...(p ? { prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(cap) } : {}),
-    suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
     drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(cap),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
     codes: by('affiliate_codes').order('starts_on', { ascending: false }),
@@ -483,6 +482,9 @@ async function loadProgramData() {
   // (review cycle 2 of #1350).
   const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);
   const prosRead = p ? null : await loadCompanyProspects();
+  // The whole do-not-contact list, paged: a person must never look
+  // contactable because their entry fell off the end of one capped read.
+  const supRead = await loadSuppressions();
   const d = {}; const failed = [];
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
@@ -490,6 +492,11 @@ async function loadProgramData() {
     if (r.error && keys[i] === 'content') { d.content = null; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
+  // Could not read the whole list: nobody is offered to another program
+  // (supUnknown), and the page says so.
+  d.suppressions = supRead || [];
+  d.supUnknown = !supRead;
+  if (!supRead) failed.push('do-not-contact list: could not be read in full');
   // Company scope: one health row per program, added up for the tab badges.
   if (!p) d.health = sumHealth(d.health);
   // Company scope: every person, or -- if a page would not read -- the newest
@@ -638,6 +645,18 @@ async function loadAffiliates(p) {
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
       if (error) return null;
       return data || [];
+    } catch (_) { return null; }
+  });
+}
+
+// The company's do-not-contact list, in pages. Null when it is not whole.
+async function loadSuppressions() {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)
+        .order('created_at', { ascending: false }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
     } catch (_) { return null; }
   });
 }
@@ -2198,7 +2217,7 @@ function renderProspects() {
   };
   // The programs they are not in yet, to push them into. Never somebody on
   // the do-not-contact list.
-  const addTo = (g) => (MANAGE && !g.suppressed
+  const addTo = (g) => (MANAGE && !g.suppressed && !d.supUnknown
     ? openPrograms().filter((y) => !g.programIds.includes(y.id)).map((y) => btn(`Add to ${y.name}`, 'prospect-assign', { id: g.x.id, to: y.id })).join('')
     : '');
   // Do not contact is company-wide, so once any program has them there, no
@@ -2288,7 +2307,7 @@ function renderProspects() {
       ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
         ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
         ${btn(`Select all ${list.length}`, 'prospect-select-all')}
-        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
+        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
@@ -3862,6 +3881,7 @@ const A = {
   'prospect-bulk-assign': async ({ to }) => {
     const p = S.programs.find((x) => x.id === to);
     if (!p) throw new Error('Pick a program first.');
+    if (S.d?.supUnknown) throw new Error('The do-not-contact list could not be read, so nobody was added. Reload and try again.');
     let added = 0; let already = 0; let blocked = 0; let failed = 0;
     for (const id of S.sel) {
       const g = S.viewPeople?.[id];
@@ -4269,6 +4289,7 @@ const A = {
   'add-creators': () => { S.addCreators = !S.addCreators; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'add-creators-close': () => { S.addCreators = false; render(); return null; },
   'prospect-assign': async ({ id, to }) => {
+    if (S.d?.supUnknown) throw new Error('The do-not-contact list could not be read, so nobody was added. Reload and try again.');
     const p = S.programs.find((x) => x.id === to);
     await assignToProgram(id, to, 'approved');
     return `Added to ${p?.name || 'the program'} and shortlisted. Draft their message from Shortlisted.`;
