@@ -364,6 +364,8 @@ on:
       - 'supabase/migrations/*profiles_active_company_scope.sql'
       - 'supabase/migrations/*chat_readonly_query_read_only_txn.sql'
       - 'supabase/migrations/*readonly_query_refuse_identity_switch.sql'
+      - 'supabase/migrations/*product_title_revenue_covering_index.sql'
+      - 'scripts/tests/product-title-revenue-index-database.test.mjs'
       # The same guard's egress half, plus the ar_sync_status_v column
       # allowlist and the integration-credential grants. verify_v2_schema.sql
       # is a trigger because the suite reads its four new checks out of that
@@ -2356,6 +2358,9 @@ jobs:
       # is what the next person will reach for.
       - name: Execute Ask SILO read-only query boundary regressions
         run: node scripts/tests/chat-readonly-query-database.test.mjs
+
+      - name: Execute Top Products scheduled report regression
+        run: node scripts/tests/product-title-revenue-index-database.test.mjs
 
       # set_config inside a read-only query switches auth.uid(), so RLS would
       # judge the query as another user. Refused by name, along with every
