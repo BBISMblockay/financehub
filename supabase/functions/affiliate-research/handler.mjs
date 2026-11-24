@@ -357,9 +357,9 @@ export function createResearchHandler({
     return reply({ scan_id: scan.id }, 202);
   }
 
-  // The customers to scan, written as pending rows. Rows an earlier run left
-  // pending (or that failed) come first; then new customers from the slice.
-  async function queueScan({ company, program, scanId, want, filters }) {
+  // Who may never be scanned: do-not-contact addresses and domains, and the
+  // company's own people. Read fresh for every press.
+  async function scanGuards(company) {
     const { data: sup } = await service.from('affiliate_suppressions').select('kind, value_normalized')
       .eq('company_entity_id', company).limit(5000);
     const supEmails = new Set((sup || []).filter((x) => x.kind === 'email').map((x) => x.value_normalized));
@@ -383,9 +383,13 @@ export function createResearchHandler({
       for (const x of ps || []) if (x.email) memberEmails.push(x.email);
     }
     const isTeam = teamFilter(memberEmails);
-    const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
-      .eq('company_entity_id', company).in('status', ['pending', 'error'])
-      .order('created_at', { ascending: true }).limit(want);
+    return { suppressed, isTeam };
+  }
+
+  // Rows already stored are re-checked against CURRENT consent, suppression
+  // and team before anything more is done with them: searching (the queue)
+  // or sending their name and profiles to the model (carried ambiguous rows).
+  async function recheck(company, left, { suppressed, isTeam }) {
     // A queued customer is re-checked before it is resumed: consent can
     // change between the press that queued them and the one that finishes
     // them, and somebody who has since unsubscribed (or been added to
@@ -403,6 +407,17 @@ export function createResearchHandler({
       const c = now_.get(r.customer_key);
       return !!c && !NEVER_SCAN_CONSENT.includes(c.email_consent_state) && !suppressed(c.email_lc) && !isTeam(c.email_lc);
     };
+    return eligible;
+  }
+
+  // The customers to scan, written as pending rows. Rows an earlier run left
+  // pending (or that failed) come first; then new customers from the slice.
+  async function queueScan({ company, program, scanId, want, filters, guards }) {
+    const { suppressed, isTeam } = guards;
+    const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
+      .eq('company_entity_id', company).in('status', ['pending', 'error'])
+      .order('created_at', { ascending: true }).limit(want);
+    const eligible = await recheck(company, left, guards);
     const dropped = (left || []).filter((r) => !eligible(r)).map((r) => r.id);
     for (const ids of chunks(dropped)) {
       await service.from('affiliate_customer_social').delete().eq('company_entity_id', company).in('id', ids);
@@ -529,7 +544,8 @@ export function createResearchHandler({
 
     let status = 'done'; let error = null;
     try {
-      const queued = await queueScan({ company, program, scanId, want, filters });
+      const guards = await scanGuards(company);
+      const queued = await queueScan({ company, program, scanId, want, filters, guards });
       await beat({ requested: queued });
       const { data: todo, error: tErr } = await service.from('affiliate_customer_social')
         .select('id, customer_key, email_lc, display_name, city, query').eq('company_entity_id', company)
@@ -585,7 +601,16 @@ export function createResearchHandler({
         const { data: old } = await service.from('affiliate_customer_social')
           .select('id, customer_key, email_lc, display_name, city, query, candidates').eq('company_entity_id', company)
           .eq('status', 'ambiguous').order('created_at', { ascending: true }).limit(CARRY_AMBIGUOUS + triedHere.size);
-        const carried = (old || []).filter((r) => !triedHere.has(r.id)).slice(0, CARRY_AMBIGUOUS).map((r) => ({ ...r, person: personName(r.display_name) }))
+        // The same CURRENT consent, do-not-contact and team check as the
+        // queue: somebody who opted out since their search ran is never sent
+        // to the model, and their row is cleared like a dropped queue row.
+        const fresh = (old || []).filter((r) => !triedHere.has(r.id)).slice(0, CARRY_AMBIGUOUS);
+        const okNow = await recheck(company, fresh, guards);
+        const gone = fresh.filter((r) => !okNow(r)).map((r) => r.id);
+        for (const ids of chunks(gone)) {
+          await service.from('affiliate_customer_social').delete().eq('company_entity_id', company).in('id', ids);
+        }
+        const carried = fresh.filter(okNow).map((r) => ({ ...r, person: personName(r.display_name) }))
           .filter((r) => r.person && Array.isArray(r.candidates) && r.candidates.length)
           .map((r) => ({ id: r.id, key: r.customer_key, name: r.person.display, city: r.city, query: r.query, candidates: r.candidates, person: r.person, email: r.email_lc, carried: true }));
         while (carried.length && left() > 15_000) await decide(carried.splice(0, AI_BATCH));
