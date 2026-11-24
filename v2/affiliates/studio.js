@@ -13,6 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
+  customerSocialView, customerScanLine,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -956,8 +957,46 @@ const CUST_DEFAULTS = () => ({
   // Ticks are kept by customer_key, and a tick on a row that left the view is
   // dropped when the view reloads -- the same stance as the prospect list.
   sel: new Set(),
+  // "Find their social accounts": this program's result row per customer on
+  // the page, and the latest scan. scanReady is false until the tables exist
+  // (a database before the migration), which hides the scan bar.
+  social: {}, scan: null, scanReady: false, scanCount: 500, socialOnly: false,
 });
 const custState = () => (S.cust ||= CUST_DEFAULTS());
+const SOCIAL_COLS = 'customer_key, status, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
+const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, error_message, started_at, heartbeat_at, finished_at';
+// The scan row and the page's result rows, read together. Fail-soft: either
+// read failing leaves the list as it was and hides only the scan bar.
+let scanTimer = null;
+async function loadSocial(c, keys) {
+  if (isAll() || !S.programId) { c.social = {}; c.scan = null; c.scanReady = false; return; }
+  const pidNow = S.programId;
+  const [scan, soc] = await Promise.all([
+    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', pidNow)
+      .order('started_at', { ascending: false }).limit(1),
+    keys.length
+      ? db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', pidNow).in('customer_key', keys)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (pidNow !== S.programId) return;
+  if (scan.error || soc.error) { c.scanReady = false; c.scan = null; c.social = {}; return; }
+  c.scanReady = true;
+  c.scan = scan.data?.[0] || null;
+  c.social = Object.fromEntries((soc.data || []).map((r) => [r.customer_key, r]));
+}
+// While a scan runs, its progress and the rows it answers refresh every few
+// seconds, so nobody presses again wondering whether it is working.
+function pollScan() {
+  clearTimeout(scanTimer);
+  const c = custState();
+  if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;
+  scanTimer = setTimeout(async () => {
+    const cc = custState();
+    try { await loadSocial(cc, cc.rows.map((x) => x.customer_key)); } catch (_) { /* next tick tries again */ }
+    renderCustomers();
+    pollScan();
+  }, 4000);
+}
 const CUST_COLS = 'customer_key, name_lc, email_lc, order_count, first_order_at, last_order_at, lifetime_spend, email_consent_state, sms_consent_state, consent_checked_at';
 const custMoney = (v) => (v === null || v === undefined
   ? '—'
@@ -1013,6 +1052,15 @@ async function loadCustomers(force = false) {
     if (spec.toExclusive) q = q.lt('last_order_at', spec.toExclusive);
     if (spec.consentIsNull) q = q.is('email_consent_state', null);
     else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);
+    // "Found accounts only": the customers this program's scans found. A
+    // pilot finds tens, so one bounded list of keys is enough.
+    if (c.socialOnly && !isAll() && S.programId) {
+      const { data: hit, error: hErr } = await db.from('affiliate_customer_social').select('customer_key')
+        .eq('company_entity_id', CO).eq('program_id', S.programId).eq('status', 'found')
+        .order('followers', { ascending: false }).limit(500);
+      if (hErr) throw hErr;
+      q = q.in('customer_key', (hit || []).map((r) => r.customer_key).concat(['~none~']));
+    }
     for (const o of spec.order) q = q.order(o.column, { ascending: o.ascending, nullsFirst: false });
     const { data, error, count } = await q.range(spec.range[0], spec.range[1]);
     if (error) throw error;
@@ -1028,6 +1076,8 @@ async function loadCustomers(force = false) {
     const kpi = await custCounts(spec).catch(() => null);
     if (!mine()) return;
     c.kpi = kpi;
+    await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => { c.scanReady = false; });
+    if (!mine()) return;
     c.loaded = true;
   } catch (e) {
     if (!mine()) return;
@@ -1037,6 +1087,7 @@ async function loadCustomers(force = false) {
     if (mine()) {
       c.loading = false;
       renderCustomers();
+      pollScan();
     }
   }
 }
@@ -1064,7 +1115,27 @@ function renderCustomers() {
     ${field('Minimum orders', input('custMin', `type="number" min="1" max="50" value="${esc(String(spec.minOrders))}" style="max-width:5.5rem"`))}
     ${field('Email consent', `<select class="bcn-field" id="custConsent">${CUSTOMER_CONSENTS.map((x) => `<option value="${x}"${x === spec.consent ? ' selected' : ''}>${esc(consentLabel[x] || x)}</option>`).join('')}</select>`)}
     ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
+    ${c.scanReady ? field('Social', `<select class="bcn-field" id="custSocial"><option value="any"${c.socialOnly ? '' : ' selected'}>Anyone</option><option value="found"${c.socialOnly ? ' selected' : ''}>Found accounts only</option></select>`) : ''}
   </div>`;
+  // Find their social accounts: one search per customer, top of this view
+  // first. A customer who unsubscribed is never looked up, so that view has
+  // nothing to scan. Progress is live counts, never a cost.
+  const running = c.scan?.status === 'running';
+  const optOutView = spec.consent === 'unsubscribed';
+  const scanBar = c.scanReady && (MANAGE || c.scan)
+    ? `<div class="af-row af-cust-scan">
+        ${MANAGE ? `${field('Customers to check', input('custScanCount', `type="number" min="1" max="1000" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
+        ${btn(running ? 'Scanning…' : 'Find their social accounts', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}` : ''}
+        <span class="af-mono" id="custScanLine">${esc(optOutView && MANAGE ? 'People who unsubscribed are never looked up.' : customerScanLine(c.scan))}</span>
+      </div>`
+    : '';
+  const socialCell = (row) => {
+    const v = customerSocialView(c.social[row.customer_key]);
+    const text = v.url
+      ? `<a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">${esc(v.label)}</a>`
+      : `<span class="af-muted">${esc(v.label)}</span>`;
+    return `${v.tone === 'pos' ? pill('Found', 'pos') + ' ' : ''}<span class="af-mono"${v.quote ? ` title="${esc(v.quote)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}`;
+  };
   const consentCell = (row) => {
     const v = customerConsentView(row.email_consent_state);
     const s = customerConsentView(row.sms_consent_state);
@@ -1085,6 +1156,7 @@ function renderCustomers() {
     { h: 'First order', f: (x) => fmtDate(x.first_order_at) },
     { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
     { left: true, h: 'Email consent', f: consentCell },
+    ...(c.scanReady ? [{ left: true, h: 'Social', f: socialCell }] : []),
   ], c.rows, c.loading ? 'Loading…' : 'Nobody matches these filters.');
   // Add to outreach: one press writes a prospect and a draft for each ticked
   // customer, and the drafts wait on Outreach exactly like a creator's would
@@ -1121,6 +1193,7 @@ function renderCustomers() {
     `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
      <p class="af-muted">Everyone who has bought from you, ranked so the people worth recruiting are at the top. The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
      ${filters}
+     ${scanBar}
      <div class="af-kv-line af-cust-kpis">${kpis.map(([label, v]) => `<span><span class="bcn-num">${v}</span> ${esc(label)}</span>`).join(' · ')}</div>
      ${notChecked}
      ${bulk}
@@ -1636,8 +1709,10 @@ let saveTimer = null; let saving = Promise.resolve(); let pendingSave = null;
 let custTimer = null;
 document.addEventListener('change', (ev) => {
   const id = ev.target?.id;
-  if (!['custFrom', 'custTo', 'custMin', 'custConsent', 'custSort'].includes(id)) return;
+  if (id === 'custScanCount') { custState().scanCount = Math.max(1, Math.min(1000, Math.floor(Number(ev.target.value)) || 500)); return; }
+  if (!['custFrom', 'custTo', 'custMin', 'custConsent', 'custSort', 'custSocial'].includes(id)) return;
   const c = custState();
+  if (id === 'custSocial') c.socialOnly = ev.target.value === 'found';
   if (id === 'custFrom') c.from = ev.target.value;
   else if (id === 'custTo') c.to = ev.target.value;
   else if (id === 'custMin') c.minOrders = ev.target.value;
@@ -3565,7 +3640,7 @@ const A = {
     for (const x of picked) {
       if (customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
       try {
-        const row = customerProspectRow({ customer: x });
+        const row = customerProspectRow({ customer: x, social: c.social[x.customer_key] || null });
         let id = pid.get(x.email_lc) || null;
         let fresh = false;
         if (!id) {
@@ -3627,6 +3702,22 @@ const A = {
     if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
     if (failed) bits.push(`${num(failed)} could not be added`);
     return `${bits.join(' · ')}. Approve them on Outreach.`;
+  },
+  // A press while a scan runs joins it (the function answers with the running
+  // scan), so pressing twice never pays twice.
+  'cust-scan': async () => {
+    const c = custState();
+    if (isAll() || !S.programId) throw new Error('Pick a program first.');
+    const spec = customerQuerySpec(c);
+    const out = await invoke('affiliate-research', {
+      action: 'customer_scan', program_id: S.programId, count: c.scanCount,
+      filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },
+    });
+    await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => {});
+    if (!c.scan || c.scan.status !== 'running') c.scan = { status: 'running', requested: 0, checked: 0, found: 0 };
+    renderCustomers();
+    pollScan();
+    return out?.joined ? 'A scan is already running. Its progress is below.' : 'Scanning. Results fill in on this list as they come back.';
   },
   'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },

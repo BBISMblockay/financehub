@@ -183,6 +183,12 @@ const MUTATIONS = {
   custdupeadopt: ['/affiliates/studio.js',
     "            if (e?.code !== '23505') throw e;\n            id = must(await db.from('affiliate_prospects').select('id')",
     "            throw e;\n            id = must(await db.from('affiliate_prospects').select('id')"],
+  // Find their social accounts (20261124170000).
+  scanjoinbtn: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: optOutView })"],
+  scanoptout: ['/affiliates/studio.js', "{ disabled: running || optOutView })", "{ disabled: running })"],
+  scannopoll: ['/affiliates/studio.js', "  if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;", '  return;'],
+  scanfilters: ['/affiliates/studio.js', "filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },", 'filters: {},'],
+  socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
   // A prospect whose message never landed is finished on a retry.
   custnoresume: ['/affiliates/studio.js',
     "          const has = drafted.has(id) || (must(await db.from('affiliate_outreach_drafts').select('id')",
@@ -3195,6 +3201,92 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('a customer in the queue is redrafted from the CUSTOMER template', !!cust && /9 times/.test(cust.body));
         R.ok('and is never told their channel was found in a search', !!cust && !/through a search|found your/i.test(cust.body));
         R.ok('while the creator in the same queue still gets the creator pitch', !!creator && /through a search|found your/i.test(creator.body));
+        await pg.close();
+      }
+    }
+
+    // ── Your Customers: Find their social accounts (20261124170000) ───────
+    // One press scans the slice on screen; progress is live counts and never
+    // a cost; a press while one runs is impossible from the page; results
+    // land in a Social column; and Add to outreach carries what was found
+    // as evidence without claiming the prospect's identity column.
+    {
+      const SC = [
+        { customer_key: 'loyal@buyer.invalid', company_entity_id: CO, name_lc: 'lou loyal', email_lc: 'loyal@buyer.invalid', order_count: 9, lifetime_spend: '1811.40', first_order_at: '2025-02-02T00:00:00Z', last_order_at: '2026-11-01T00:00:00Z', email_consent_state: 'subscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
+        { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
+      ];
+      const SOCIAL = [{ id: 'cs1', company_entity_id: CO, program_id: PROG, customer_key: 'loyal@buyer.invalid', status: 'found', platform: 'instagram', handle: '@lou', profile_url: 'https://www.instagram.com/lou', followers: 1204, followers_approx: false, followers_quote: '1,204 Followers', source_url: 'https://www.instagram.com/lou', checked_at: now }];
+      const scanRow = (o) => ({ id: 'scan1', company_entity_id: CO, program_id: PROG, status: 'running', requested: 500, checked: 240, found: 6, below: 0, no_count: 0, ambiguous: 0, not_found: 0, failed: 0, min_followers: 750, error_message: null, started_at: now, heartbeat_at: now, finished_at: null, ...o });
+      const fx = (scan) => ({ ...tables, company_customer_profiles: SC, affiliate_suppressions: [],
+        affiliate_customer_scans: [scanRow(scan)], affiliate_customer_social: SOCIAL,
+        affiliate_programs: [{ ...tables.affiliate_programs[0], customer_outreach_subject: null, customer_outreach_body: null }] });
+      const openScan = async (scan) => {
+        const pg = await suite.open('/v2/affiliates/index.html', fx(scan), { ready, rpc: { can_manage_affiliate_programs: true } });
+        pg.on('pageerror', (e) => errors.push(`customer-scan: ${e.message}`));
+        const calls = [];
+        await pg.route('**/functions/v1/affiliate-research', (route) => {
+          calls.push(JSON.parse(route.request().postData() || '{}'));
+          return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ scan_id: 'scan2' }) });
+        });
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || '')
+          && !!document.getElementById('custScanLine'), null, { timeout: 5000 });
+        return { pg, calls };
+      };
+
+      // A scan already running: its progress, no second press, and it keeps
+      // refreshing on its own.
+      {
+        const { pg } = await openScan({});
+        R.has(await text(pg, '#custScanLine'), 'Scanning… 240 of 500 checked · 6 found', 'a running scan shows live counts');
+        R.ok('and the button cannot start a second one', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
+        R.ok('the scan bar never shows a cost', !/\$|cost|spend|budget|credit/i.test(await text(pg, '.af-cust-scan')));
+        const reads0 = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_customer_scans').length);
+        await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_customer_scans').length > n, reads0, { timeout: 7000 }).catch(() => {});
+        R.ok('progress refreshes by itself while the scan runs', await pg.evaluate((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_customer_scans').length > n, reads0));
+        const lou = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.innerHTML).find((h) => /Lou Loyal/.test(h)) || '');
+        R.has(lou, '@lou · 1.2K', 'a found account shows its handle and stated followers');
+        R.has(lou, 'href="https://www.instagram.com/lou"', 'linked to the profile');
+        const quin = await pg.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')].map((tr) => tr.textContent || '').find((t) => /Quin Quiet/.test(t)) || '');
+        R.ok('a customer not yet scanned shows a dash, not "none found"', /—/.test(quin) && !/None found/.test(quin));
+        await pg.close();
+      }
+
+      // A finished scan: press again and the function gets the slice on screen.
+      {
+        const { pg, calls } = await openScan({ status: 'done', checked: 500, found: 12, finished_at: now });
+        R.has(await text(pg, '#custScanLine'), 'Last scan: 500 of 500 checked · 12 found.', 'a finished scan says what it found');
+        await pg.click('#customersBody [data-act="cust-scan"]');
+        await pg.waitForFunction(() => /Scanning/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        const call = calls.find((c) => c.action === 'customer_scan');
+        R.ok('the press calls the scan', !!call);
+        R.eq([call?.count, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [500, 3, 'any', 'orders'], 'with the count and the slice the person is looking at');
+        R.ok('never a company id from the page', !('company_entity_id' in (call || {})));
+        R.has(await text(pg, '#custScanLine'), 'Scanning', 'and the line switches to scanning at once');
+
+        // An opt-out view has nobody to scan.
+        await pg.selectOption('#custConsent', 'unsubscribed');
+        await pg.waitForFunction(() => /never looked up/.test(document.getElementById('custScanLine')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        R.ok('people who unsubscribed cannot be scanned', await pg.evaluate(() => document.querySelector('#customersBody [data-act="cust-scan"]')?.disabled === true));
+        await pg.selectOption('#custConsent', 'any');
+        await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+
+        // Found accounts only: a filter on the list, by this program's finds.
+        await pg.selectOption('#custSocial', 'found');
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in' && f.col === 'customer_key')), null, { timeout: 5000 }).catch(() => {});
+        const inq = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && (q.filters || []).some((f) => f.op === 'in')).pop());
+        R.ok('"Found accounts only" narrows the list to who was found', (inq?.filters || []).some((f) => f.op === 'in' && (f.vals || []).includes('loyal@buyer.invalid') && !(f.vals || []).includes('quiet@buyer.invalid')));
+        await pg.selectOption('#custSocial', 'any');
+        await pg.waitForFunction(() => /Quin Quiet/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+
+        // Add to outreach carries the find as evidence, not as the identity.
+        await pg.click('#customersBody [data-act="cust-pick"][data-k="loyal@buyer.invalid"]');
+        await pg.click('#customersBody [data-act="cust-add"]');
+        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+        const pros = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+        R.eq(pros?.evidence?.social?.profile_url, 'https://www.instagram.com/lou', 'the found profile travels with the prospect');
+        R.eq(pros?.evidence?.social?.followers, 1204, 'with the count the result stated');
+        R.eq(pros?.profile_url, null, 'but not as its identity, which a Discovery prospect of the same profile would refuse');
         await pg.close();
       }
     }
