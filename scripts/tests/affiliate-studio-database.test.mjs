@@ -115,12 +115,21 @@
 //   AFFILIATE_DB_MUTATION=joinended   only a terminated membership closes outreach
 //   AFFILIATE_DB_MUTATION=joinguard   closing a draft is treated as a decision to contact them
 //   AFFILIATE_DB_MUTATION=joinscope   the close reaches a program the caller was never given
+//   AFFILIATE_DB_MUTATION=joincast    the drift check throws instead of naming the migration to run
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const MUT = process.env.AFFILIATE_DB_MUTATION || '';
+// A mutation may also break verify_v2_schema.sql itself: readVerify() applies
+// it, so a check that is supposed to diagnose a missing migration can be
+// proved to do that and not to throw.
+let verifyPatch = null;
+const readVerify = async () => {
+  const text = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  return verifyPatch ? text.split(verifyPatch[0]).join(verifyPatch[1]) : text;
+};
 const db = new PGlite();
 let passed = 0;
 async function check(name, fn) {
@@ -403,6 +412,9 @@ switch (MUT) {
                 and p.company_entity_id = d.company_entity_id
                 and public.affiliate_contact_key(p.contact_email) = v_key))`, ''); break;
   case 'joinended': mutate('closejoin', "  if new.status not in ('invited','pending_terms','active','paused') then", "  if new.status not in ('terminated') then"); break;
+  case 'joincast': verifyPatch = [
+    "coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_close_when_joined()')), '')",
+    "pg_get_functiondef('public.affiliate_outreach_close_when_joined()'::regprocedure)"]; break;
   case 'joinscope': mutate('closejoin', "     and (not v_scoped or public.affiliate_visible_program(d.program_id))\n", ''); break;
   case 'joinguard': mutate('closejoin', "  if new.state in ('approved','exported','sent')\n     and (tg_op = 'INSERT'", "  if new.state in ('approved','exported','sent','signed_up')\n     and (tg_op = 'INSERT'"); break;
   case 'addproggate': mutateLive(['addprog', 'scope'], "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
@@ -3219,9 +3231,28 @@ await check('R4 a scoped manager\'s invite is never refused by a draft in a prog
   await db.query('delete from affiliate_program_managers where company_entity_id = $1 and user_id = $2', [A, U.memberA]);
 });
 
+await check('R5 the new drift check says MISSING on a database that has not had the migration, rather than erroring', async () => {
+  // A literal `'f()'::regprocedure` is resolved while the query is planned,
+  // before the CASE can reach its MISSING branch, so it THROWS on exactly the
+  // database this check exists for: merged, not yet applied (review cycle 2).
+  await asSuper();
+  const verify = await readVerify();
+  const start = verify.indexOf("select 'Affiliate outreach closes on joining' as check_name");
+  assert.ok(start > 0, 'the check exists');
+  const block = verify.slice(start, verify.indexOf(';', verify.indexOf('end as status', start)));
+  await db.exec('begin; savepoint before_drop;');
+  await db.exec('drop trigger if exists affiliate_outreach_close_when_joined_trg on public.affiliates;');
+  await db.exec('drop function if exists public.affiliate_outreach_close_when_joined();');
+  const row = await one(block);
+  assert.match(String(row.status), /^MISSING/, 'it reports what to run');
+  await db.exec('rollback to savepoint before_drop; commit;');
+  assert.ok(await one("select to_regprocedure('public.affiliate_outreach_close_when_joined()') is not null as v"),
+    'and the function is back');
+});
+
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {
   await asSuper();
-  const verify = await readFile(new URL('../../supabase/verify_v2_schema.sql', import.meta.url), 'utf8');
+  const verify = await readVerify();
   for (const name of ['Shopify order discount codes', 'Affiliate Studio', 'Affiliate rep photo and outreach message',
     'Affiliate PayPal payouts', 'Affiliate launch claims', 'Affiliate auto-share launches', 'Affiliate product seeding', 'Affiliate add to program', 'Affiliate agreement file', 'Affiliate portal links', 'Affiliate payout refund recheck', 'Affiliate refunds any age', 'Affiliate codes end in Shopify', 'Affiliate portal order state', 'Affiliate finance reads', 'Affiliate program scope', 'Affiliate one person', 'Affiliate outreach closes on joining']) {
     const start = verify.indexOf(`select '${name}' as check_name`);

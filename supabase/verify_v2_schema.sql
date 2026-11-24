@@ -9632,12 +9632,12 @@ select 'Affiliate outreach closes on joining' as check_name,
     -- and the close runs inside the transaction that creates the membership:
     -- leaving 'signed_up' in the suppression check makes inviting a suppressed
     -- person fail at the invite (20261124140000).
-    when position('''approved'',''exported'',''sent'')' in pg_get_functiondef('public.affiliate_outreach_drafts_guard()'::regprocedure)) = 0
+    when position('''approved'',''exported'',''sent'')' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_drafts_guard()')), '')) = 0
       then 'BROKEN — the drafts guard no longer separates contacting from recording an outcome'
     -- A scoped manager's own invite closes only the drafts in their programs,
     -- so a leftover is not by itself a fault; what must not happen is the
     -- closer losing its scope check and refusing their write.
-    when position('affiliate_visible_program' in pg_get_functiondef('public.affiliate_outreach_close_when_joined()'::regprocedure)) = 0
+    when position('affiliate_visible_program' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_close_when_joined()')), '')) = 0
       then 'BROKEN — the outreach closer can refuse a membership write a scoped manager is entitled to make'
     else 'ok'
   end as status
