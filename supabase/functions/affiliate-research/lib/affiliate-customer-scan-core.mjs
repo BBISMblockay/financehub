@@ -236,10 +236,11 @@ export function tallyBucket(status, score) {
 export function companyTerms(meta, programs = []) {
   const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
   const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : null;
-  const words = list
-    ? list.map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').trim()).filter((w) => w.length >= 3)
-    : (programs || []).flatMap((p) => nicheTerms(p)).map((w) => fold(w).replace(/[^a-z0-9]/g, '')).filter((w) => w.length >= 4);
-  return [...new Set(words)].slice(0, 40);
+  // The company's own words first, then every active program's niche words
+  // (Blake 2026-11-24: "fine with combo as source").
+  const own = (list || []).map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').trim()).filter((w) => w.length >= 3);
+  const prog = (programs || []).flatMap((p) => nicheTerms(p)).map((w) => fold(w).replace(/[^a-z0-9]/g, '')).filter((w) => w.length >= 4);
+  return [...new Set([...own, ...prog])].slice(0, 40);
 }
 
 /**

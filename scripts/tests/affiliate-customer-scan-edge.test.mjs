@@ -63,6 +63,7 @@
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 //   AFFILIATE_SCAN_MUTATION=namefind     a find over the bar counts as found whatever its score
 //   AFFILIATE_SCAN_MUTATION=bigname      a huge account tied by a name alone loses no points
+//   AFFILIATE_SCAN_MUTATION=termsreplace company words replace the programs' words instead of joining them
 //   AFFILIATE_SCAN_MUTATION=nicheloose   a niche word matches inside another word ("baseballs")
 //   AFFILIATE_SCAN_MUTATION=countother   the count lookup reads another account's count from the results
 //   AFFILIATE_SCAN_MUTATION=nocountask   a profile matched with no count never gets its count looked up
@@ -114,6 +115,7 @@ const MUTS = {
   nocap: ['handler.mjs', '      const capLeft = () => Math.max(0, maxChecks - requested);', '      const capLeft = () => 1e9;'],
   namefind: [LIB, "  return status === 'found' && !(Number(score) >= LIKELY_SCORE) ? 'check' : status;", '  return status;'],
   bigname: [LIB, '    if (off) s += off[1];', '    if (off) s += 0;'],
+  termsreplace: [LIB, '  return [...new Set([...own, ...prog])].slice(0, 40);', '  return [...new Set(list ? own : prog)].slice(0, 40);'],
   nicheloose: [LIB, "  if ((terms || []).some((t) => t && text.includes(` ${t} `))) out.add('niche');", "  if ((terms || []).some((t) => t && text.includes(t))) out.add('niche');"],
   countother: [LIB, '  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));', '  const hit = candidates.find((c) => c.platform === pick.platform);'],
   nocountask: ['handler.mjs', "        const ct = j.status === 'no_count' ? buildCountTask(j.pick) : null;", '        const ct = null;'],
@@ -847,7 +849,8 @@ await test('the match score: each signal adds, a big name-only account loses, 70
   assert.equal(L.socialRowPatch({ status: 'none', pick: null, score: 50 }).match_score, null, 'no profile, no score');
   const core = await import(new URL('v2/affiliates/studio-core.js', ROOT));
   assert.equal(core.LIKELY_SCORE, L.LIKELY_SCORE, 'the page and the scan agree on what Likely means');
-  assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: 'Baseball, MLB , x' }), ['baseball', 'mlb'], 'company data wins');
+  assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: 'Baseball, MLB , x' }), ['baseball', 'mlb'], 'company words, short ones dropped');
+  assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: ['MLB', 'baseball'] }, [{ niche: 'baseball dads' }]), ['mlb', 'baseball', 'dads'], 'company words combined with the programs\' words');
   assert.deepEqual(L.companyTerms({}, [{ niche: null, audience_notes: 'Baseball' }, { niche: 'softball moms' }]), ['baseball', 'softball', 'moms']);
 });
 
