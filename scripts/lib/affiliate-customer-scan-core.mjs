@@ -289,6 +289,69 @@ export function scanTally(rows) {
 }
 
 /** How many to scan: what was asked for, clamped; default when nothing usable was asked. */
+// "Find 25" (Blake, 2026-11-24): the number a person enters is how many
+// people over the bar come back, not how many are checked.
+export const FINDS_DEFAULT = 25;
+export const FINDS_MAX = 500;
+export function clampFinds(n) {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return FINDS_DEFAULT;
+  return Math.min(FINDS_MAX, v);
+}
+// The safety cap on customers one press may check, so a big ask on a thin
+// slice cannot run on unbounded. Company DATA:
+// entities.meta.affiliate_customer_scan_max_checks, 10,000 when unset (Blake
+// chose 10,000 on 2026-11-24).
+export const MAX_CHECKS_DEFAULT = 10_000;
+export function companyMaxChecks(meta) {
+  const v = Math.floor(Number(meta?.affiliate_customer_scan_max_checks));
+  return Number.isFinite(v) && v >= 1 ? Math.min(100_000, v) : MAX_CHECKS_DEFAULT;
+}
+
+// DataForSEO's standard queue: up to 100 searches per request at about a
+// third of the live price, answered in a minute or two (measured 2026-09-26,
+// see scripts/lib/seo-serp-sync-core.mjs). post() maps answers to the tasks
+// by position, as the provider returns them; get() on a task still in the
+// queue says so and costs nothing.
+export const QUEUE_POST_BATCH = 100;
+export function createSerpQueue({ credentials, fetchImpl = fetch, base = 'https://api.dataforseo.com' }) {
+  const auth = 'Basic ' + btoa(`${credentials.login}:${credentials.password}`);
+  const call = async (method, path, body) => {
+    const res = await fetchImpl(`${base}${path}`, {
+      method, headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json || json.status_code !== 20000) {
+      throw Object.assign(new Error(`SERP queue ${method} HTTP ${res.status} ${json?.status_code ?? ''} ${json?.status_message ?? ''}`.trim()), { code: json?.status_code ?? res.status });
+    }
+    return json;
+  };
+  return {
+    /** [{ task }] -> [{ id, cost, code }] in the same order; id is null when refused. */
+    async post(list) {
+      if (!list.length) return [];
+      const json = await call('POST', '/v3/serp/google/organic/task_post', list.map(({ task }) => ({ ...task, priority: 1 })));
+      const tasks = json.tasks || [];
+      if (tasks.length !== list.length) throw new Error(`SERP queue answered ${tasks.length} tasks for ${list.length} posted`);
+      return tasks.map((t) => ({ id: t.status_code === 20100 && t.id ? String(t.id) : null, cost: Number(t.cost) || 0, code: t.status_code ?? null }));
+    },
+    /** -> { state: 'pending' } | { state: 'ready', items } | { state: 'error', code } */
+    async get(id) {
+      const json = await call('GET', `/v3/serp/google/organic/task_get/advanced/${encodeURIComponent(id)}`);
+      const t = json.tasks?.[0];
+      const code = t?.status_code ?? null;
+      if (code === 40601 || code === 40602) return { state: 'pending' };
+      // "No Search Results": Google had nothing for the name. An answer --
+      // no account -- never a failure (most of the 2026-11-24 pilot's
+      // "failed" rows were this).
+      if (code === 40102) return { state: 'ready', items: [] };
+      if (!t || code !== 20000) return { state: 'error', code };
+      return { state: 'ready', items: (t.result?.[0]?.items || []).filter((i) => i && i.type === 'organic' && i.url) };
+    },
+  };
+}
+
 export function clampScanCount(n) {
   const v = Math.floor(Number(n));
   if (!Number.isFinite(v) || v <= 0) return SCAN_DEFAULT;

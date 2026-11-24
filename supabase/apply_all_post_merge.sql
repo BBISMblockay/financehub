@@ -19928,4 +19928,7 @@ $c$select (select count(*) from v_po_header_summary
 -- one answer per customer per company, one running scan per company, the
 -- follower bar in entities.meta, a deleted program keeps the results.
 \i migrations/20261124210000_affiliate_customer_social_company.sql
+-- 20261124230000: Hunt queue mode -- the queued search's task id on the
+-- customer's row, so a later run of the scan collects it.
+\i migrations/20261124230000_affiliate_customer_social_queue.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

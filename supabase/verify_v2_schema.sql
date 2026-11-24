@@ -862,6 +862,18 @@ select
     else 'MISSING — run 20261124210000_affiliate_customer_social_company.sql'
   end as affiliate_customer_social_company;
 
+-- 8g. Hunt queue mode (migration 20261124230000): the queued search's task id
+-- lives on the customer's row, so a later run collects instead of re-posting.
+select
+  case
+    when (select count(*) from information_schema.columns
+          where table_schema = 'public' and table_name = 'affiliate_customer_social'
+            and column_name in ('serp_task_id', 'serp_task_kind', 'serp_posted_at')) = 3
+     and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_customer_social_inflight_idx')
+    then 'ok'
+    else 'MISSING — run 20261124230000_affiliate_customer_social_queue.sql'
+  end as affiliate_customer_social_queue;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,

@@ -981,6 +981,30 @@ export function customerScanLine(scan) {
   if (scan.status === 'error') return `Last scan: ${tail}. It hit a problem, more to check.`;
   return `Last scan: ${tail}.`;
 }
+// The Hunt's own lines (Blake 2026-11-24: "Find 25" means 25 finds come
+// back). Progress counts finds against what was asked; a finished hunt says
+// plainly why it ended. Never a cost.
+export function huntProgress(scan) {
+  const n0 = (v) => Number(v || 0);
+  const want = n0(scan?.filters?.want);
+  const found = n0(scan?.found);
+  const checked = n0(scan?.checked);
+  // A scan from before "Find N" has no goal: its progress is customers checked.
+  const pct = want ? Math.min(100, Math.round((found / want) * 100))
+    : n0(scan?.requested) ? Math.min(100, Math.round((checked / n0(scan.requested)) * 100)) : 0;
+  return { want, found, checked, pct };
+}
+export function huntLine(scan) {
+  if (!scan) return '';
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const { want, found, checked } = huntProgress(scan);
+  if (scan.status === 'running') return want ? `Found ${n(found)} of ${n(want)} · ${n(checked)} checked` : `${n(checked)} checked · ${n(found)} found`;
+  const end = scan.filters?.end;
+  if (end === 'goal') return `Last hunt: found ${n(found)} · ${n(checked)} checked.`;
+  if (end === 'pool') return `Last hunt checked everyone in this slice: ${n(found)} found of ${n(want)} asked for. Widen the dates or lower the minimum orders to find more.`;
+  if (end === 'cap') return `Last hunt checked ${n(checked)}, the most one hunt checks: ${n(found)} found. Press Hunt to keep going.`;
+  return customerScanLine(scan);
+}
 // name_lc is stored lowercased; it needs casing back before a person reads it.
 export function customerDisplayName(c) {
   return String(c?.name_lc || '').replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1)).trim();

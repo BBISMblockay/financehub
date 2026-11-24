@@ -544,6 +544,13 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.match(C.customerScanLine({ status: 'stopped', requested: 500, checked: 300, found: 9 }), /Stopped early, more to check\.$/);
   assert.equal(C.customerScanLine({ status: 'done', requested: 500, checked: 500, found: 12, cost_usd: 1.23 }), 'Last scan: 500 of 500 checked · 12 found.');
   assert.ok(!/\$|cost|spend|budget|credit/i.test(C.customerScanLine({ status: 'done', requested: 1, checked: 1, found: 0, cost_usd: 9 })), 'no cost in the UI');
+  // The Hunt: finds against what was asked, and why a finished hunt ended.
+  assert.equal(C.huntLine({ status: 'running', requested: 1000, checked: 240, found: 6, filters: { want: 25 } }), 'Found 6 of 25 · 240 checked');
+  assert.equal(C.huntProgress({ found: 6, checked: 240, filters: { want: 25 } }).pct, 24, 'the bar is finds over finds wanted');
+  assert.match(C.huntLine({ status: 'done', checked: 300, found: 3, filters: { want: 25, end: 'pool' } }), /checked everyone in this slice: 3 found of 25 asked for/);
+  assert.match(C.huntLine({ status: 'done', checked: 10000, found: 18, filters: { want: 25, end: 'cap' } }), /the most one hunt checks: 18 found\. Press Hunt to keep going\.$/);
+  assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last hunt: found 25 · 2,400 checked.');
+  assert.ok(!/\$|cost|spend|budget|credit/i.test(C.huntLine({ status: 'done', checked: 1, found: 0, cost_usd: 9, filters: { end: 'cap' } })), 'no cost in the UI');
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });

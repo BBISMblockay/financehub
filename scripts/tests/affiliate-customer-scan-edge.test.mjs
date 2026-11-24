@@ -49,7 +49,6 @@
 //   AFFILIATE_SCAN_MUTATION=nohandle     the email username is never searched
 //   AFFILIATE_SCAN_MUTATION=maskedmail   a marketplace's masked relay username is searched
 //   AFFILIATE_SCAN_MUTATION=handleloose  a handle merely CONTAINING the username counts as theirs
-//   AFFILIATE_SCAN_MUTATION=aiall        the model is asked about every customer, not only ambiguous ones
 //   AFFILIATE_SCAN_MUTATION=forcedtool   the model request forces the tool, which the production model refuses
 //   AFFILIATE_SCAN_MUTATION=nocarry      a search an earlier scan left ambiguous is never judged
 //   AFFILIATE_SCAN_MUTATION=carryoptout  a carried ambiguous customer who has since unsubscribed is sent to the model
@@ -59,6 +58,8 @@
 //   AFFILIATE_SCAN_MUTATION=noresults    Google having nothing for a name counts as a failed search
 //   AFFILIATE_SCAN_MUTATION=handlealways the email username is searched even when the name search settled it
 //   AFFILIATE_SCAN_MUTATION=noaileg      ambiguous searches a run had no time to judge are left unjudged
+//   AFFILIATE_SCAN_MUTATION=nogoal       a hunt keeps checking after it has the finds asked for
+//   AFFILIATE_SCAN_MUTATION=nocap        a hunt ignores the company's cap on customers checked
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -76,7 +77,7 @@ const MUTS = {
   aicount: [LIB, "    const f = parseFollowers(`${c.title} ${c.snippet}`);\n    const pick", "    const f = parseFollowers(`${c.title} ${c.snippet}`) || { count: 5000, approx: false, quote: 'model said' };\n    const pick"],
   aianyurl: [LIB, "    if (!c) return { key: r.key, status: 'ambiguous', pick: null };\n", "    if (!c) return { key: r.key, status: 'found', pick: { profile_url: url, followers: 5000, followers_quote: 'x' } };\n"],
   firstonly: [LIB, '  return has(person.first) && has(person.last);', '  return has(person.first);'],
-  rescan: ['handler.mjs', "      pick = pick.filter((r) => !seen.has(r.customer_key)).slice(0, need);", '      pick = pick.slice(0, need);'],
+  rescan: ['handler.mjs', "      const fresh = pick.filter((r) => !seen.has(r.customer_key));", '      const fresh = pick;'],
   nojoin: ['handler.mjs', "      if (now().getTime() - beat < STALE_SCAN_MS) return reply({ scan_id: prev.id, joined: true });\n", ''],
   noresume: ['handler.mjs', "    const resumed = (left || []).filter(eligible).map((r) => r.id);", '    const resumed = [];'],
   resumeoptout: ['handler.mjs', "    const eligible = (r) => {\n      const c = now_.get(r.customer_key);", "    const eligible = () => true;\n    const _was = (r) => {\n      const c = now_.get(r.customer_key);"],
@@ -87,22 +88,23 @@ const MUTS = {
   offplatform: [LIB, "(!allowed || allowed.has(c.platform))", 'true'],
   namebasis: [LIB, "&& !nameOnly.has(local)\n", '\n'],
   aikeyleak: [LIB, "    return `Customer ${n + 1}: ${r.name}", "    return `Customer ${r.key}: ${r.name}"],
-  nohandle: ['handler.mjs', "            if (eh && left() > SCAN_TAIL_MS) {", '            if (false) {'],
+  nohandle: ['handler.mjs', "        if (eh) handles.push(", '        if (false) handles.push('],
   maskedmail: [LIB, "  if (MASKED_MAIL.some((d) => domain === d || domain.endsWith(`.${d}`))) return null;\n", ''],
   handleloose: [LIB, "    && coreOf(c.handle) === handle.core);", '    && coreOf(c.handle).includes(handle.core.slice(0, 4)));'],
-  aiall: ['handler.mjs', "            if (j.status === 'ambiguous') ambiguous.push(", '            if (true) ambiguous.push('],
   programscope: ['handler.mjs', '    const program = COMPANY_SCAN_SCOPE;', "    const program = { platforms: ['instagram', 'tiktok'] };"],
   programjoin: ['handler.mjs', ".eq('company_entity_id', company)\n      .eq('status', 'running')", ".eq('company_entity_id', company).eq('program_id', body?.program_id ?? null)\n      .eq('status', 'running')"],
   programbar: ['handler.mjs', '    const minFollowers = companyMinFollowers(ent?.meta);', "    const { data: pb } = await service.from('affiliate_programs').select('customer_scan_min_followers').eq('company_entity_id', company).limit(1).maybeSingle();\n    const minFollowers = minFollowersFor(pb);"],
   forcedtool: [LIB, "    tool_choice: { type: 'auto' },", "    tool_choice: { type: 'tool', name: 'record_matches' },"],
-  nocarry: ['handler.mjs', "      if (apiKey && status !== 'stopped' && left() > SCAN_TAIL_MS / 2) {", '      if (false) {'],
+  nocarry: ['handler.mjs', "        if (apiKey && left() > SCAN_TAIL_MS / 2) {", '        if (false) {'],
   carryoptout: ['handler.mjs', '        const carried = fresh.filter(okNow).map(', '        const carried = fresh.map('],
   nochain: ['handler.mjs', "      if ((status === 'stopped' || (status === 'done' && aiOwed)) && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {", '      if (false) {'],
   nohandoff: ['handler.mjs', " || row.filters?.handoff !== handoff) return reply(", ") return reply("],
   nolegcap: ['handler.mjs', '&& authHeader && leg + 1 < SCAN_MAX_LEGS) {', '&& authHeader) {'],
-  noresults: ['handler.mjs', '        if (err?.code === 40102) return { items: [], cost: null };\n', ''],
-  handlealways: ['handler.mjs', "const eh = (j.status === 'none' || j.status === 'ambiguous') ? emailHandle(row.email_lc, person) : null;", "const eh = basis === 'email_handle' ? null : emailHandle(row.email_lc, person);"],
+  noresults: [LIB, "      if (code === 40102) return { state: 'ready', items: [] };\n", ''],
+  handlealways: ['handler.mjs', "const eh = (j.status === 'none' || j.status === 'ambiguous') ? emailHandle(r.email_lc, person) : null;", "const eh = basis === 'email_handle' ? null : emailHandle(r.email_lc, person);"],
   noaileg: ['handler.mjs', "|| (status === 'done' && aiOwed)) && !error", ') && !error'],
+  nogoal: ['handler.mjs', '      const goalMet = () => t.found >= want;', '      const goalMet = () => false;'],
+  nocap: ['handler.mjs', '      const capLeft = () => Math.max(0, maxChecks - requested);', '      const capLeft = () => 1e9;'],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -260,7 +262,9 @@ const PB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function fakeService(seed) {
   const tables = structuredClone(seed);
   const log = []; const rpcs = [];
-  let n = 1;
+  // Ids never repeat ones the seed already holds (a later press over the
+  // same tables must not mint the earlier scan's id again).
+  let n = 1 + Object.values(tables).reduce((a, r) => a + (Array.isArray(r) ? r.length : 0), 0);
   const cmp = (op, v, x) => {
     if (op === 'eq') return v === x;
     if (op === 'is') return x === null ? v === null || v === undefined : v === x;
@@ -268,13 +272,15 @@ function fakeService(seed) {
     if (op === 'gte') return v !== null && v !== undefined && v >= x;
     if (op === 'lt') return v !== null && v !== undefined && v < x;
     if (op === 'notin') return v !== null && v !== undefined && !x.includes(v);
+    if (op === 'neq') return v !== x;
     throw new Error(op);
   };
   const orClause = (expr) => expr.split(/,(?![^(]*\))/).map((c) => {
-    const m = c.match(/^([a-z_]+)\.(is|eq|not\.in)\.(.*)$/);
+    const m = c.match(/^([a-z_]+)\.(is|eq|not\.in|not\.is)\.(.*)$/);
     if (!m) throw new Error(`fake or(): ${c}`);
     const [, col, op, raw] = m;
     if (op === 'is') return (r) => cmp('is', r[col], raw === 'null' ? null : raw);
+    if (op === 'not.is') return (r) => !cmp('is', r[col], raw === 'null' ? null : raw);
     if (op === 'eq') return (r) => cmp('eq', r[col], raw);
     return (r) => cmp('notin', r[col], raw.replace(/^\(|\)$/g, '').split(','));
   });
@@ -319,7 +325,11 @@ function fakeService(seed) {
       eq(k, v) { filters.push((r) => cmp('eq', r[k], v)); return b; }, in(k, v) { filters.push((r) => cmp('in', r[k], v)); return b; },
       gte(k, v) { filters.push((r) => cmp('gte', r[k], v)); return b; }, lt(k, v) { filters.push((r) => cmp('lt', r[k], v)); return b; },
       is(k, v) { filters.push((r) => cmp('is', r[k], v)); return b; },
-      not(k, o, v) { assert.equal(o, 'in'); const list = String(v).replace(/^\(|\)$/g, '').split(','); filters.push((r) => cmp('notin', r[k], list)); return b; },
+      not(k, o, v) {
+        if (o === 'is') { filters.push((r) => !cmp('is', r[k], v)); return b; }
+        assert.equal(o, 'in'); const list = String(v).replace(/^\(|\)$/g, '').split(','); filters.push((r) => cmp('notin', r[k], list)); return b;
+      },
+      neq(k, v) { filters.push((r) => cmp('neq', r[k], v)); return b; },
       or(expr) { const cs = orClause(expr); filters.push((r) => cs.some((c) => c(r))); return b; },
       order(k, o) { ords.push({ k, asc: o?.ascending !== false }); return b; }, limit(x) { lim = x; return b; }, range(a, z) { rng = [a, z]; return b; },
       single() { single = true; return b; }, maybeSingle() { maybe = true; return b; },
@@ -376,7 +386,7 @@ const RESULTS = {
 };
 function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false, searchMs = 0, refuse = {} } = {}) {
   const service = fakeService(data);
-  const searches = []; const modelCalls = []; const bg = []; const legs = [];
+  const searches = []; const gets = []; const modelCalls = []; const bg = []; const legs = [];
   let t = Date.parse('2026-11-24T04:00:00Z');
   let handler = null;
   handler = createResearchHandler({
@@ -392,16 +402,26 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
     }),
     apiKey,
     now: () => new Date(clock ? clock() : t),
-    fetchSerp: async (task) => {
-      searches.push(task);
-      // A run that hits its time limit: the clock jumps after the first search.
-      if (budgetHit) t += 10 * 60_000;
-      t += searchMs;
-      const name = (task.keyword.match(/"([^"]+)"/) || [])[1];
-      // The provider's task-level refusals, as DataForSEO words them.
-      if (refuse[name]) throw Object.assign(new Error(`SERP provider refused the task: ${refuse[name]}`), { code: refuse[name] });
-      return { items: RESULTS[name] || [], cost: 0.002 };
+    // The provider's queue. A task id carries its keyword, so a later setup
+    // over the same tables (the next press) can collect what an earlier one
+    // posted, as the real queue would.
+    serpQueue: {
+      post: async (list) => {
+        // A run that hits its time limit: the clock jumps after the first post.
+        if (budgetHit) t += 10 * 60_000;
+        return list.map(({ task }) => { searches.push(task); return { id: `task:${encodeURIComponent(task.keyword)}`, cost: 0.002, code: 20100 }; });
+      },
+      get: async (id) => {
+        gets.push(id);
+        if (budgetHit) t += 10 * 60_000;
+        t += searchMs;
+        const keyword = decodeURIComponent(id.slice(5));
+        const name = (keyword.match(/"([^"]+)"/) || [])[1];
+        if (refuse[name]) return { state: 'error', code: refuse[name] };
+        return { state: 'ready', items: RESULTS[name] || [] };
+      },
     },
+    sleep: async (ms) => { t += ms; },
     fetchImpl: async (url, init) => {
       const body = JSON.parse(init.body);
       modelCalls.push(body);
@@ -424,7 +444,7 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
   };
   // Legs add background work while earlier legs finish: wait for all of it.
   const settle = async () => { for (let i = 0; i < bg.length; i += 1) await bg[i]; };
-  return { service, searches, modelCalls, bg, legs, call, settle, tick: (ms) => { t += ms; } };
+  return { service, searches, gets, modelCalls, bg, legs, call, settle, tick: (ms) => { t += ms; } };
 }
 const row = (s, key) => s.service.tables.affiliate_customer_social.find((r) => r.customer_key === key);
 
@@ -576,10 +596,14 @@ await test('a run out of time stops early with its queue kept, and the next pres
   const before = s.searches.length;
   // The next press, on a fresh clock.
   const next = setup({ data: { ...s.service.tables } });
+  // Later, as the next press is: what the first run posted has had time to come back.
+  next.tick(60 * 60_000);
   await next.call({ count: pending.length, filters: { minOrders: 2 } });
   await next.settle();
   assert.equal(next.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'the queue is finished');
-  assert.ok(next.searches.length >= pending.length && before >= 1);
+  assert.ok(before >= 1);
+  assert.ok(next.gets.length >= pending.length, 'what the first run posted is collected');
+  assert.ok(!next.searches.some((t) => before && s.searches.some((o) => o.keyword === t.keyword && /^"[^"]* [^"]*"/.test(t.keyword))), 'and never posted (or paid for) again');
 });
 
 await test('a press runs to the end on its own: a run out of time continues the SAME scan, as the same person', async () => {
@@ -625,6 +649,8 @@ await test('a queued customer who unsubscribes before the next press is dropped,
   const data = structuredClone(s.service.tables);
   for (const c of data.company_customer_profiles) if (pending.some((p) => p.customer_key === c.customer_key)) c.email_consent_state = 'unsubscribed';
   const next = setup({ data });
+  // Later, as the next press is: what the first run posted has had time to come back.
+  next.tick(60 * 60_000);
   await next.call({ count: pending.length, filters: { minOrders: 2 } });
   await next.settle();
   for (const p of pending) {
@@ -653,15 +679,26 @@ await test('the company\'s own bar decides found and below; a program\'s old bar
   assert.equal(s2.service.tables.affiliate_customer_scans[0].min_followers, 750);
 });
 
-await test('Google having nothing for a name is an answer (no account), not a failed search', async () => {
-  // DataForSEO's 40102 "No Search Results" was most of the pilot's "failed".
-  const s = setup({ refuse: { 'Quiet Person': 40102, nobody: 40102 } });
-  await s.call({ filters: { minOrders: 2 } });
-  await s.settle();
-  assert.equal(row(s, 'nobody').status, 'none');
-  const scan = s.service.tables.affiliate_customer_scans[0];
-  assert.equal(scan.failed, 0, 'nothing failed');
-  // A real provider fault is still a failure, kept to retry.
+await test('the queue: posts map to tasks by position, "no results" is an answer, a fault is a failure', async () => {
+  const calls = [];
+  const reply = (body) => ({ ok: true, status: 200, json: async () => body });
+  const q = L.createSerpQueue({ credentials: { login: 'l', password: 'p' }, fetchImpl: async (url, init) => {
+    calls.push({ url, init });
+    if (/task_post/.test(url)) return reply({ status_code: 20000, tasks: [{ id: 'a1', status_code: 20100, cost: 0.0006 }, { id: null, status_code: 40501, cost: 0 }] });
+    const id = url.split('/').pop();
+    const code = { none: 40102, wait: 40602, bad: 40101, ok: 20000 }[id];
+    return reply({ status_code: 20000, tasks: [{ status_code: code, result: code === 20000 ? [{ items: [{ type: 'organic', url: 'https://www.instagram.com/x' }, { type: 'people_also_ask' }] }] : null }] });
+  } });
+  const acks = await q.post([{ task: { keyword: 'a' } }, { task: { keyword: 'b' } }]);
+  assert.deepEqual(acks.map((a) => a.id), ['a1', null], 'a refused task has no id');
+  assert.equal(acks[0].cost, 0.0006);
+  assert.equal(JSON.parse(calls[0].init.body)[0].priority, 1, 'the standard (cheaper) queue');
+  assert.ok(/\/v3\/serp\/google\/organic\/task_post$/.test(calls[0].url));
+  assert.deepEqual(await q.get('none'), { state: 'ready', items: [] }, 'Google had nothing for the name: no account, not a failure');
+  assert.deepEqual(await q.get('wait'), { state: 'pending' });
+  assert.equal((await q.get('bad')).state, 'error');
+  assert.equal((await q.get('ok')).items.length, 1, 'organic results only');
+  // A real provider fault on a name search is a failure, kept to retry.
   const f = setup({ refuse: { 'Quiet Person': 40101 } });
   await f.call({ filters: { minOrders: 2 } });
   await f.settle();
@@ -708,4 +745,53 @@ await test('ambiguous searches a run had no time to judge are judged by one more
   await quick.settle();
   assert.equal(quick.legs.length, 0, 'a run that judged everything ends there');
 });
+// A big slice: customers named Cara <letters>, every 100th one with a profile
+// over the bar.
+const letters = (i, p = 'q') => { let x = ''; let v = i; do { x = String.fromCharCode(97 + (v % 26)) + x; v = Math.floor(v / 26); } while (v > 0); return `${p}${x}`; };
+function bigSlice(n, { hitEvery = 100, meta = {}, prefix = 'q' } = {}) {
+  const data = seed();
+  data.entities[0].meta = meta;
+  for (let i = 0; i < n; i += 1) {
+    const last = letters(i, prefix);
+    data.company_customer_profiles.push(cust(`k${i}`, `cara ${last}`, { order_count: 4, email_lc: `k${i}@buyer.invalid` }));
+    const display = `Cara ${last.charAt(0).toUpperCase()}${last.slice(1)}`;
+    if (hitEvery && i % hitEvery === 0) RESULTS[display] = [ig(`cara${last}`, `${display} (@cara${last})`, '2,000 Followers')];
+  }
+  return data;
+}
+
+await test('"Find 2" keeps hunting until 2 people over the bar come back, then stops paying', async () => {
+  const s = setup({ data: bigSlice(1500), chain: true });
+  await s.call({ finds: 2, filters: { minOrders: 2 } });
+  await s.settle();
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.status, 'done');
+  assert.equal(scan.filters.end, 'goal', 'it ended because it found what was asked for');
+  assert.ok(scan.found >= 2, `found ${scan.found}`);
+  assert.ok(scan.checked < 1500, `it did not check the whole slice (${scan.checked})`);
+  assert.equal(scan.requested, scan.checked, 'everything lined up was checked or handed back');
+  assert.equal(s.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'nothing left queued');
+});
+
+await test('a slice that runs out says so; the cap on customers checked per press is company data', async () => {
+  const s = setup();
+  await s.call({ finds: 25, filters: { minOrders: 2 } });
+  await s.settle();
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.equal(scan.status, 'done');
+  assert.equal(scan.filters.end, 'pool', 'everyone in the slice was checked');
+  assert.equal(scan.found, 2);
+  // A slice with no hits at all stops at the company's cap, not at the end
+  // of the list.
+  const c = setup({ data: bigSlice(600, { hitEvery: 0, prefix: 'z', meta: { affiliate_customer_scan_max_checks: 150 } }), chain: true });
+  await c.call({ finds: 5, filters: { minOrders: 2 } });
+  await c.settle();
+  const cs = c.service.tables.affiliate_customer_scans[0];
+  assert.equal(cs.filters.end, 'cap');
+  assert.ok(cs.checked <= 150 && cs.checked >= 100, `checked ${cs.checked}, the cap is 150`);
+  assert.equal(L.companyMaxChecks({}), 10_000, '10,000 when the company has not set one');
+  assert.equal(L.clampFinds(undefined), 25);
+  assert.equal(L.clampFinds(9999), 500);
+});
+
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);
