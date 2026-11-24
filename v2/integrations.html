@@ -3021,6 +3021,24 @@
       tiktok_ads: ['tiktok_ads'],
       amazon_ads: ['amazon_ads'],
     };
+
+    // Built, merged, and NOT launched. A platform listed here is hidden from
+    // a workspace unless that workspace opted in, which is the company's own
+    // data: entities.meta.beta_integrations, an array of platform keys. The
+    // list is emptied from this file when the integration goes live for
+    // everybody -- that is the launch, and it is one line.
+    //
+    // Generic on purpose: no company name, key or id appears here, so any
+    // workspace can be given an unlaunched integration by an update of its
+    // own row, and the next one to be built needs nothing but its key added.
+    const UNLAUNCHED_PLATFORMS = ['amazon_ads'];
+
+    function platformLaunched(platform, co) {
+      if (!UNLAUNCHED_PLATFORMS.includes(platform)) return true;
+      const beta = co?.meta?.beta_integrations;
+      return Array.isArray(beta) && beta.includes(platform);
+    }
+
     const CARDED_PLATFORMS = Object.values(CARD_PLATFORMS).flat();
 
     const SYNC_NOW_TITLE = {
@@ -4275,16 +4293,28 @@
 
     // Is the Amazon Ads card worth showing at all?
     //
-    // Same question probeKlaviyoOauth answers, and the same answer: Amazon
-    // OAuth needs an LwA client registered for THIS deployment
-    // (AMAZON_ADS_CLIENT_ID) and the two functions deployed. Where neither
-    // exists the button could only fail with a raw "Failed to fetch", so the
-    // whole card starts hidden and is revealed when the deployment says it is
-    // configured. renderPlatformCards reveals it regardless once a connection
-    // exists, so failing closed can never hide a live connection.
+    // TWO gates, and the order matters.
+    //
+    // The first is LAUNCH, and it is the one that answers "a customer must
+    // not see this yet". A platform in UNLAUNCHED_PLATFORMS is hidden from
+    // every workspace that has not deliberately opted in, HOWEVER configured
+    // the deployment is -- because setting AMAZON_ADS_CLIENT_ID is exactly
+    // what Blake has to do to test the flow himself, and a card that appeared
+    // the moment that secret existed would appear for every customer at the
+    // same time. Opting in is the company's own data
+    // (entities.meta.beta_integrations), never a name or an id in this file.
+    //
+    // The second is CONFIGURATION, which probeKlaviyoOauth answers the same
+    // way: Amazon OAuth needs an LwA client registered for this deployment
+    // and the two functions deployed, and without them the button could only
+    // fail with a raw "Failed to fetch".
+    //
+    // renderPlatformCards reveals a card regardless once a connection exists,
+    // so failing closed can never hide a live connection.
     async function probeAmazonOauth() {
       const section = document.getElementById('amazon-ads-card');
       if (!section) return;
+      if (!platformLaunched('amazon_ads', _co)) return;
       let configured = false;
       try {
         const { data: { session } } = await db.auth.getSession();
