@@ -525,6 +525,18 @@ export function createResearchHandler({
       ambiguous: +r0.ambiguous || 0, none: +r0.not_found || 0, error: +r0.failed || 0 };
     const costBefore = Number(r0.cost_usd) || 0;
     let cost = 0; let usages = []; let aiDecided = 0;
+    // Rows the model actually answered for (whatever it said), so a run that
+    // ran out of time before asking can hand them to one more run.
+    const asked = new Set();
+    // DataForSEO answers a search Google has nothing for with task error
+    // 40102 "No Search Results". That is an answer -- no account -- not a
+    // failure: on 2026-11-24 it was most of the "failed" rows.
+    const searchOrEmpty = async (task) => {
+      try { return await search(task); } catch (err) {
+        if (err?.code === 40102) return { items: [], cost: null };
+        throw err;
+      }
+    };
     const meter = createCreditMeter({ db: service, requestId: newId(), companyId: company, userId: callerId, feature: 'affiliate_research', model, sourceRef: scanId });
     let meterOpen = null;
     // The scan row's counters. Column names differ from two statuses ('none'
@@ -561,6 +573,7 @@ export function createResearchHandler({
         answer = await res.json();
       } catch (err) { console.warn(`customer_scan: model call threw ${String(err?.message || err).slice(0, 200)}`); return; }
       usages.push(answer?.usage || {});
+      for (const b of batch) asked.add(b.id);
       const at = now().toISOString();
       for (const o of applyAiAnswer({ rows: batch, answer, minFollowers })) {
         if (o.status === 'ambiguous') continue;
@@ -574,7 +587,7 @@ export function createResearchHandler({
       }
     }
 
-    let status = 'done'; let error = null;
+    let status = 'done'; let error = null; let aiOwed = false;
     try {
       const guards = await scanGuards(company);
       // A continued leg finishes the queue the first leg wrote; it never
@@ -595,17 +608,19 @@ export function createResearchHandler({
           const person = personName(row.display_name);
           if (!person) { await write(row.id, { status: 'none', checked_at: now().toISOString(), decided_by: 'search' }); t.checked += 1; t.none += 1; continue; }
           try {
-            const res = await search(buildScanTask(person, row.city, program));
+            const res = await searchOrEmpty(buildScanTask(person, row.city, program));
             if (Number.isFinite(Number(res?.cost))) cost += Number(res.cost);
             let j = judgeResults({ items: res?.items || [], person, program, minFollowers, collectedAt: now().toISOString() });
             let basis = j.pick ? matchBasis({ pick: j.pick, person, email: row.email_lc, city: row.city }) : null;
-            // The email username, as one more search, unless the name search
-            // already tied a profile to it. A profile whose handle IS that
-            // username wins: it is the strongest signal there is, and it
+            // The email username, as one more search, only when the name
+            // search did not settle it (nothing, or several namesakes): a
+            // second paid search on every customer roughly doubled the cost
+            // for little gain (Blake, 2026-11-24). A profile whose handle IS
+            // that username wins: it is the strongest signal there is, and it
             // settles an ambiguous name search without asking the model.
-            const eh = basis === 'email_handle' ? null : emailHandle(row.email_lc, person);
+            const eh = (j.status === 'none' || j.status === 'ambiguous') ? emailHandle(row.email_lc, person) : null;
             if (eh && left() > SCAN_TAIL_MS) {
-              const hr = await search(buildHandleTask(eh, program));
+              const hr = await searchOrEmpty(buildHandleTask(eh, program));
               if (Number.isFinite(Number(hr?.cost))) cost += Number(hr.cost);
               const h = judgeHandle({ items: hr?.items || [], handle: eh, program, minFollowers, collectedAt: now().toISOString() });
               if (h.pick) { j = { status: h.status, pick: h.pick, candidates: null }; basis = 'email_handle'; }
@@ -652,6 +667,12 @@ export function createResearchHandler({
         while (carried.length && left() > 15_000) await decide(carried.splice(0, AI_BATCH));
       }
       if (status !== 'stopped' && t.checked - (+r0.checked || 0) < (todo || []).length) status = 'stopped';
+      // Searched this run, left ambiguous, and never put to the model because
+      // the searches used the time (the 2026-11-24 pilot: 100 checked, 0
+      // judged). One more run does only that, from the stored profiles. Not
+      // when there is no key or the credit hold refused: another run could
+      // not ask either.
+      aiOwed = !!apiKey && meterOpen !== false && [...triedHere].some((id) => !asked.has(id));
     } catch (err) {
       status = 'error'; error = String(err?.message || err).slice(0, 500);
     } finally {
@@ -664,11 +685,11 @@ export function createResearchHandler({
       // stops the handoff (no caller token, the leg cap, the next run refusing)
       // ends the scan as "stopped early", exactly as before.
       let handedOff = false;
-      if (status === 'stopped' && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {
+      if ((status === 'stopped' || (status === 'done' && aiOwed)) && !error && selfInvoke && authHeader && leg + 1 < SCAN_MAX_LEGS) {
         try {
           const { count } = await service.from('affiliate_customer_social').select('id', { count: 'exact', head: true })
             .eq('company_entity_id', company).eq('scan_id', scanId).eq('status', 'pending');
-          if (count > 0) {
+          if (count > 0 || aiOwed) {
             const handoff = newId();
             await beat({ status: 'running', cost_usd: spent, filters: { ...filters, handoff } });
             const res = await selfInvoke(authHeader, { action: 'customer_scan', continue_scan: scanId, handoff, leg: leg + 1 });
