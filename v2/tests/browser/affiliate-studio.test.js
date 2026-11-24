@@ -173,6 +173,8 @@ const MUTATIONS = {
     "channel: path.channel,\n            recipient_email: path.email, recipient_handle: path.handle,",
     "channel: 'email',\n            recipient_email: x.email_lc, recipient_handle: null,"],
   consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
+  poolhidden: ['/affiliates/studio.js', "  d.people = companyPeople(d.prospects, d.people || [], p.id);", '  d.people = d.prospects;'],
+  poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, foreign: _f, otherPrograms: _o, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
   unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
   // Source is what picks the template, on every path that writes a draft.
   custcreatorpitch: ['/affiliates/studio.js',
@@ -3442,6 +3444,38 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.ok('unsubscribed since the list loaded: a DM, never an email', dr2?.channel === 'dm' && !dr2?.recipient_email && dr2?.recipient_handle === 'https://www.instagram.com/lou');
         await pg.close();
       }
+    }
+
+    // People belong to the company (Blake 2026-11-24: "should not isolate
+    // people by program"): a creator found under another program is offered
+    // here, once, and Add puts them in THIS program as their own row.
+    {
+      const PROGB = '66666666-6666-4666-8666-666666666666';
+      const other = (id, o) => ({ ...tables.affiliate_prospects[0], id, program_id: PROGB, customer_match_status: 'unknown', customer_match_score: null, customer_match_basis: null, ...o });
+      const pool = {
+        ...tables,
+        affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROGB, name: 'Beta', slug: 'beta' }],
+        affiliate_prospects: [...tables.affiliate_prospects,
+          other('pb1', { display_name: 'Pat Pool', handle: '@patpool', profile_url: 'https://www.youtube.com/@patpool', status: 'signed_up', source_id: 'sB', reviewed_by: 'someone', affiliate_id: 'affB' }),
+          // Already in this program: never offered twice.
+          other('pb2', { display_name: 'Sam Runs again' }),
+          // Do not contact anywhere: never offered.
+          other('pb3', { display_name: 'Dee Nope', handle: '@nope', profile_url: 'https://www.youtube.com/@nope', status: 'suppressed' })],
+      };
+      const pg = await suite.open('/v2/affiliates/index.html', pool, { ready, rpc: { can_manage_affiliate_programs: true } });
+      pg.on('pageerror', (e) => errors.push(`people-pool: ${e.message}`));
+      await toDiscovery(pg);
+      await pg.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const shown = await text(pg, '#prospectsBody');
+      R.ok('a creator from another program is offered here', /Pat Pool/.test(shown) && /In Beta/.test(shown));
+      R.ok('somebody already in this program is listed once, as this program\'s own', !/Sam Runs again/.test(shown));
+      R.ok('do not contact anywhere is never offered', !/Dee Nope/.test(shown));
+      await pg.click('#prospectsBody [data-act="prospect-assign"][data-id="pb1"]').catch(() => {});
+      await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q._op === 'insert'), null, { timeout: 5000 }).catch(() => {});
+      const ins = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+      R.ok('Add makes their own row in this program, shortlisted', ins?.program_id === PROG && ins?.status === 'approved' && ins?.profile_url === 'https://www.youtube.com/@patpool');
+      R.ok('without the other program\'s decisions or search', ins && !('affiliate_id' in ins) && !('source_id' in ins) && ins.reviewed_by !== 'someone');
+      await pg.close();
     }
 
     R.eq(errors, [], 'no page errors on any affiliate page');

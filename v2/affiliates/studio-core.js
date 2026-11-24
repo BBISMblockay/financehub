@@ -1141,3 +1141,79 @@ export function customerTemplateRow(subject, body) {
   if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');
   return { row, errors };
 }
+
+// ── People at the company level ─────────────────────────────────────────
+// Blake 2026-11-24: "people of all kind should be at entity level and can
+// dish them out to programs as needed ... should not isolate people by
+// program". A creator found, imported or added under one program is visible
+// from every program; adding them to another program makes their row there.
+// Nothing is moved: each program keeps its own row per person (one creator
+// is already signed up in two programs, and a row per program is what keeps
+// each program's status, drafts and invite apart).
+
+/** One person across programs: profile, else platform handle, else email. */
+export function personKey(x) {
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  if (url) return `u:${url}`;
+  const h = String(x?.handle || '').trim().toLowerCase();
+  if (h) return `h:${String(x?.platform || '').toLowerCase()}:${h}`;
+  const e = String(x?.contact_email || '').trim().toLowerCase();
+  return e ? `e:${e}` : `id:${x?.id ?? ''}`;
+}
+
+/**
+ * The People list for one program: its own rows, then everybody the company
+ * has in OTHER programs and not yet in this one, once each, marked
+ * `foreign` with the programs they are in. Somebody marked do not contact
+ * anywhere is not offered again.
+ */
+export function companyPeople(own, all, programId) {
+  const ownRows = own || [];
+  const mine = new Set(ownRows.map(personKey));
+  const others = new Map();
+  const blocked = new Set();
+  for (const x of all || []) {
+    if (!x || x.program_id === programId) continue;
+    const k = personKey(x);
+    if (x.status === 'suppressed') { blocked.add(k); continue; }
+    if (mine.has(k)) continue;
+    const cur = others.get(k);
+    if (!cur) others.set(k, { ...x, foreign: true, otherPrograms: [x.program_id] });
+    else if (!cur.otherPrograms.includes(x.program_id)) cur.otherPrograms.push(x.program_id);
+  }
+  for (const k of blocked) others.delete(k);
+  return [...ownRows, ...others.values()];
+}
+
+/**
+ * The row a person gets in `programId` when they are added to it from
+ * another program: who they are and the evidence, never that program's
+ * decisions (status, review, invite) or its search (source_id).
+ */
+export function assignedProspectRow(x, programId, status = 'approved') {
+  return {
+    program_id: programId,
+    display_name: x.display_name ?? null,
+    platform: x.platform || 'other',
+    handle: x.handle ?? null,
+    profile_url: x.profile_url ?? null,
+    contact_email: x.contact_email ?? null,
+    contact_source_url: x.contact_source_url ?? null,
+    source: x.source,
+    source_url: x.source_url ?? null,
+    collected_at: x.collected_at ?? null,
+    evidence: x.evidence ?? {},
+    confidence: x.confidence ?? null,
+    confidence_basis: x.confidence_basis ?? null,
+    customer_match_status: x.customer_match_status || 'unknown',
+    customer_match_score: x.customer_match_score ?? null,
+    customer_match_basis: x.customer_match_basis ?? null,
+    customer_match_key: x.customer_match_key ?? null,
+    customer_match_customer_id: x.customer_match_customer_id ?? null,
+    customer_order_count: x.customer_order_count ?? null,
+    customer_last_order_at: x.customer_last_order_at ?? null,
+    customer_lifetime_spend: x.customer_lifetime_spend ?? null,
+    customer_matched_at: x.customer_matched_at ?? null,
+    status,
+  };
+}

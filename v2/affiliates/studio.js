@@ -12,6 +12,7 @@ import {
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
+  personKey, companyPeople, assignedProspectRow,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
   customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
@@ -316,7 +317,15 @@ async function sendInvite(id, to = null, where = 'signupOut') {
 }
 // One action on many prospects. Each moves only from a state it may leave,
 // exactly as its single button does; the rest are counted, not forced.
-async function bulkProspects(ids, s) {
+async function bulkProspects(ids0, s) {
+  // Somebody from another program is added to this one first (as "to
+  // review"), then gets the same step as everybody else.
+  const ids = [];
+  let notAdded = 0;
+  for (const id of ids0) {
+    if (!S.d.foreignById?.[id]) { ids.push(id); continue; }
+    try { ids.push(await assignToProgram(id, 'new')); } catch { notAdded += 1; }
+  }
   const by = S.d.prospectById;
   const FROM = { approved: ['new', 'qualified', 'rejected'], rejected: ['new', 'qualified', 'approved'], suppressed: ['new', 'qualified', 'approved', 'invited'] };
   const ok = ids.filter((id) => by[id] && FROM[s]?.includes(by[id].status));
@@ -346,7 +355,39 @@ async function bulkProspects(ids, s) {
   S.sel.clear();
   if (unsent.length) S.flash = { el: 'signupOut', html: notEmailedCard(unsent) };
   const word = { approved: 'Approved', rejected: 'Rejected', suppressed: 'Added to do-not-contact:' }[s];
-  return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${unsent.length ? ` ${num(unsent.length)} invite(s) not emailed: links below.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}`;
+  return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${unsent.length ? ` ${num(unsent.length)} invite(s) not emailed: links below.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}${notAdded ? ` ${num(notAdded)} could not be added to this program.` : ''}`;
+}
+// Adds somebody the company has in another program to THIS one: their own
+// row here, with who they are and the evidence but none of the other
+// program's decisions. Returns the new row's id, and keeps the page's maps
+// current so a step that follows (a bulk Shortlist) finds it. If they are
+// already here (another tab, or a row the page had not loaded), that row is
+// used rather than a second one.
+async function assignToProgram(id, status = 'approved') {
+  const x = S.d.foreignById?.[id];
+  const p = prog();
+  if (!x || !p) throw new Error('Pick a program first.');
+  const row = assignedProspectRow(x, p.id, status);
+  let made;
+  try {
+    made = must(await db.from('affiliate_prospects').insert({
+      ...row, company_entity_id: CO,
+      ...(status === 'new' ? {} : { reviewed_by: me.id, reviewed_at: new Date().toISOString() }),
+      created_by: me.id, changed_by: me.id,
+    }).select('*').single());
+  } catch (e) {
+    if (e?.code !== '23505') throw e;
+    // Already in this program: find that row by the same identity.
+    const key = personKey(x);
+    const { data } = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).eq('program_id', p.id).limit(2000);
+    made = (data || []).find((r) => personKey(r) === key);
+    if (!made) throw e;
+  }
+  S.d.prospects.unshift(made);
+  S.d.prospectById[made.id] = made;
+  delete S.d.foreignById[id];
+  S.d.people = [made, ...(S.d.people || []).filter((r) => r.id !== id)];
+  return made.id;
 }
 function download(name, text, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -389,6 +430,12 @@ async function loadProgramData() {
     health: db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO).eq('program_id', p.id).maybeSingle(),
     runs: by('affiliate_discovery_runs').order('started_at', { ascending: false }).limit(25),
     prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(500),
+    // People belong to the company, not a program (Blake 2026-11-24): every
+    // creator the company has, in any program this person may see (RLS), so
+    // the list offers the ones not yet in this program. Fail-soft: without
+    // it the list is this program's own, as before.
+    people: db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).neq('program_id', p.id)
+      .order('collected_at', { ascending: false }).limit(2000),
     suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
     drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(500),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
@@ -432,6 +479,7 @@ async function loadProgramData() {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
     if (r.error && keys[i] === 'seeds') { d.seeds = null; return; }
     if (r.error && keys[i] === 'content') { d.content = null; return; }
+    if (r.error && keys[i] === 'people') { d.people = []; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
   // affFull says whether that list is the whole program. Null means a page
@@ -476,6 +524,9 @@ async function loadProgramData() {
   d.sendByPayout = {};
   for (const x of d.sends || []) if (!d.sendByPayout[x.payout_id]) d.sendByPayout[x.payout_id] = x;
   d.prospectById = Object.fromEntries(d.prospects.map((x) => [x.id, x]));
+  // This program's people first, then the company's others not in it yet.
+  d.people = companyPeople(d.prospects, d.people || [], p.id);
+  d.foreignById = Object.fromEntries(d.people.filter((x) => x.foreign).map((x) => [x.id, x]));
   // The Overview tab's windows. Both are read paged, because a program with
   // real volume has more rows in 180 days than one PostgREST page returns.
   // Null means "could not read": the tab then leaves those cards out rather
@@ -2040,12 +2091,16 @@ function renderProspects() {
   const filter = S.prospectFilter || 'new';
   const GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
   // Applications wait on Outreach > Inbound (Blake, 2026-11-17), not here.
-  const inGroup = (x, g) => (!GROUPS[g] || GROUPS[g].includes(x.status)) && !(g === 'new' && x.source === 'applied');
+  // Somebody the company has in another program is "to review" here until
+  // they are added to this one.
+  const inGroup = (x, g) => (x.foreign ? (g === 'new' || g === 'all')
+    : (!GROUPS[g] || GROUPS[g].includes(x.status)) && !(g === 'new' && x.source === 'applied'));
+  const people = d.people || d.prospects;
   // The search a prospect came from, so one search's results can be picked out.
   const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();
-  const queries = [...new Set(d.prospects.filter((x) => inGroup(x, filter)).map(fromQuery).filter(Boolean))].slice(0, 30);
+  const queries = [...new Set(people.filter((x) => inGroup(x, filter)).map(fromQuery).filter(Boolean))].slice(0, 30);
   if (S.prospectQuery && !queries.includes(S.prospectQuery)) S.prospectQuery = '';
-  const list = d.prospects.filter((x) => inGroup(x, filter) && (!S.prospectQuery || fromQuery(x) === S.prospectQuery));
+  const list = people.filter((x) => inGroup(x, filter) && (!S.prospectQuery || fromQuery(x) === S.prospectQuery));
   // Bulk selection: only prospects in this view stay selected.
   const inView = new Set(list.map((x) => x.id));
   for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
@@ -2057,6 +2112,8 @@ function renderProspects() {
   // nothing is lost and nothing folds out over the list.
   const actions = (x) => {
     if (!MANAGE) return '';
+    // From another program: the one thing to do here is add them to this one.
+    if (x.foreign) return `<div class="af-actions">${btn(`Add to ${p.name}`, 'prospect-assign', { id: x.id }, 'primary')}</div>`;
     const b = prospectActions(x);
     if (!b.length) return '';
     const shown = b.slice(0, 2);
@@ -2111,7 +2168,7 @@ function renderProspects() {
           <div class="af-catalog-sub">${esc(sub)}</div>
           <div class="af-catalog-meta">${meta}</div>
         </div>
-        ${prospectPill(x.status)}${customerPill(x)}
+        ${x.foreign ? pill(`In ${x.otherPrograms.map(progName).join(', ')}`, '') : prospectPill(x.status)}${customerPill(x)}
       </header>
       <p class="af-catalog-summary-p">${esc(evidenceSummary(x, 120))}</p>
       <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
@@ -2133,7 +2190,7 @@ function renderProspects() {
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}${viewToggle()}</div>
+    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}${viewToggle()}</div>
       ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
         ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
         ${btn(`Select all ${list.length}`, 'prospect-select-all')}
@@ -2146,12 +2203,12 @@ function renderProspects() {
           { h: 'Followers', num: true, f: (x) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
           { h: 'Engagement', num: true, f: (x) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
           { left: true, h: 'Email', f: (x) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', f: (x) => `${prospectPill(x.status)}${customerPill(x)}` },
+          { left: true, h: 'Status', f: (x) => `${x.foreign ? pill(`In ${x.otherPrograms.map(progName).join(', ')}`, '') : prospectPill(x.status)}${customerPill(x)}` },
           { h: '', f: (x) => actions(x) },
         ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
-      <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
+      <div id="signupOut"></div>`, `${list.length} in this view · ${people.length} total`, 'afCreatorsList'),
     more('Recruiting tools', [
     card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run for this program yet.')),
     card('Do-not-contact list', `
@@ -4055,6 +4112,10 @@ const A = {
   },
   'add-creators': () => { S.addCreators = !S.addCreators; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'add-creators-close': () => { S.addCreators = false; render(); return null; },
+  'prospect-assign': async ({ id }) => {
+    await assignToProgram(id, 'approved');
+    return `Added to ${prog()?.name || 'this program'} and shortlisted. Draft their message from Shortlisted.`;
+  },
   'prospect-edit': ({ id }) => { S.editProspect = id; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'prospect-edit-close': () => { S.editProspect = null; render(); return null; },
   'prospect-save': async ({ id }) => {
