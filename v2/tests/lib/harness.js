@@ -75,7 +75,7 @@ window.__QUERIES__ = [];
   // and also chain .gte/.lte/.order/.range, so the builder has to be both a
   // chainable object and a promise.
   function builder(table) {
-    var q = { table: table, columns: null, order: null, range: null, filters: [], _op: 'select' };
+    var q = { table: table, columns: null, order: null, orders: [], range: null, filters: [], _op: 'select' };
 
     function broken() {
       return ((window.__FIXTURE_BROKEN__ || []).indexOf(table) !== -1);
@@ -228,7 +228,12 @@ window.__QUERIES__ = [];
       // stubbed-to-rows select would silently read undefined and render 0 --
       // which is a NUMBER, so it looks like a measurement rather than a gap.
       select: function (cols, opts) { q.columns = cols; q.count = opts && opts.count; q.head = !!(opts && opts.head); window.__QUERIES__.push(q); return api; },
-      order:  function (col, opts) { q.order = { col: col, opts: opts }; return api; },
+      // q.order keeps the LAST order() call, which is what every suite
+      // written before multi-column ordering reads. q.orders keeps them all,
+      // in the order they were made, so a page that breaks ties across
+      // several columns can be asserted on without changing what those
+      // suites see.
+      order:  function (col, opts) { q.order = { col: col, opts: opts }; q.orders.push({ col: col, opts: opts }); return api; },
       eq:     function (col, val) { q.filters.push({ op: 'eq',  col: col, val: val }); return api; },
       // .is(col, null) is how a page asks for "this was never set" -- and a
       // missing method here is a TypeError the page swallows, which reads

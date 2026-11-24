@@ -157,8 +157,22 @@ const MUTATIONS = {
   // The picture has to survive the two lists disagreeing about the handle.
   picnotitle: ['/affiliates/studio.js', '  const bare = out.filter((x) => !x.image_url && x.product_title);\n  if (!bare.length) return out;', '  return out;'],
   // A chip swap rebuilds the body, so it must carry what is typed with it.
+  // Your Customers (20261124030000).
+  custeager: ['/affiliates/studio.js',
+    "  if (S.peopleSub === 'customers' && !isAll() && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());",
+    '  if (!c.loaded && !c.loading) queueMicrotask(() => loadCustomers());'],
+  custgate: ['/affiliates/studio.js',
+    "    if (spec.consentIsNull) q = q.is('email_consent_state', null);\n    else if (spec.consentState) q = q.eq('email_consent_state', spec.consentState);",
+    "    q = q.eq('email_consent_state', spec.consentState || 'subscribed');"],
+  custsuppick: ['/affiliates/studio.js',
+    "  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);",
+    '  const pickable = (x) => MANAGE && !!x.email_lc;'],
+  custcreatorpitch: ['/affiliates/studio.js',
+    '    const tpl = customerOutreachTemplate(p);',
+    '    const tpl = outreachTemplate(p);'],
   chipwipe: ['/affiliates/studio.js', "    if (k === S.commsTab) return null;\n"
     + "    if ($('tplBody')) S.tplDraft = { subject: val('tplSubject'), body: $('tplBody').value };\n"
+    + "    if ($('custTplBody')) S.custTplDraft = { subject: val('custTplSubject'), body: $('custTplBody').value };\n"
     + "    S.commsTab = k;\n    keepFields('outreachBody', renderOutreach);",
     '    S.commsTab = k;\n    renderOutreach();'],
   // Drafts and archived products have no public page, so a share of one is a
@@ -2916,6 +2930,101 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     const closed = await suite.open('/v2/affiliates/apply.html?c=' + PROG + '&p=closed', {}, { ready: () => !!document.getElementById('signin') });
     R.ok('a closed program shows sign-in only, no apply form', !(await closed.$('#form')) && !(await closed.$('#seg button')));
     await closed.close();
+
+
+    // ── People > Your Customers (20261124030000) ───────────────────────────
+    // The repeat buyers to recruit from, and one press into the outreach
+    // queue. Proved here because the whole feature is the integrated path:
+    // the read is lazy, the ticks exclude who cannot be written to, and the
+    // press has to produce a prospect AND a draft the existing queue accepts.
+    {
+      const CUSTS = [
+        { customer_key: 'loyal@buyer.invalid', company_entity_id: CO, name_lc: 'lou loyal', email_lc: 'loyal@buyer.invalid', order_count: 9, lifetime_spend: '1811.40', first_order_at: '2025-02-02T00:00:00Z', last_order_at: '2026-11-01T00:00:00Z', email_consent_state: 'subscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
+        { customer_key: 'quiet@buyer.invalid', company_entity_id: CO, name_lc: 'quin quiet', email_lc: 'quiet@buyer.invalid', order_count: 4, lifetime_spend: '402.00', first_order_at: '2025-03-03T00:00:00Z', last_order_at: '2026-10-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
+        { customer_key: 'nope@buyer.invalid', company_entity_id: CO, name_lc: 'nat nope', email_lc: 'nope@buyer.invalid', order_count: 6, lifetime_spend: '600.00', first_order_at: '2025-04-04T00:00:00Z', last_order_at: '2026-09-01T00:00:00Z', email_consent_state: 'unsubscribed', sms_consent_state: null, consent_checked_at: '2026-11-24T00:00:00Z' },
+        { customer_key: 'cid:5551', company_entity_id: CO, name_lc: 'pos walkin', email_lc: null, order_count: 3, lifetime_spend: '90.00', first_order_at: '2025-05-05T00:00:00Z', last_order_at: '2026-08-01T00:00:00Z', email_consent_state: null, sms_consent_state: null, consent_checked_at: null },
+      ];
+      const custTables = {
+        ...tables,
+        company_customer_profiles: CUSTS,
+        // Somebody who asked not to be contacted, and a whole domain.
+        affiliate_suppressions: [{ id: 's-c1', company_entity_id: CO, kind: 'email', value_normalized: 'nope@buyer.invalid', reason: 'opted_out', created_at: now }],
+        affiliate_programs: [{ ...tables.affiliate_programs[0], customer_outreach_subject: null, customer_outreach_body: null }],
+      };
+      const cu = await suite.open('/v2/affiliates/index.html', custTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      cu.on('pageerror', (e) => errors.push(`customers: ${e.message}`));
+
+      // LAZY: nothing is read until the sub-tab is opened. People must not get
+      // slower for everybody who never looks at this list.
+      const readsBefore = await cu.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles').length);
+      R.eq(readsBefore, 0, 'Your Customers reads nothing until it is opened');
+
+      await cu.click('#peopleSubtabs [data-k="customers"]');
+      await cu.waitForFunction(() => {
+        const el = document.getElementById('customersBody');
+        return !!el && !el.hidden && /Lou Loyal/.test(el.textContent || '');
+      }, null, { timeout: 5000 });
+      const body = await text(cu, '#customersBody');
+      R.has(body, 'Lou Loyal', 'the list renders, with the stored lowercase name cased back');
+      R.has(body, '1,811', 'lifetime spend is shown');
+      R.has(body, 'not checked yet', 'an unmeasured consent says so');
+      // Checked on that customer's OWN row: "unsubscribed" appears elsewhere
+      // on the page for somebody who really did unsubscribe.
+      const quietRow = await cu.evaluate(() => [...document.querySelectorAll('#customersBody tbody tr')]
+        .map((tr) => tr.textContent || '').find((t) => /Quin Quiet/.test(t)) || '');
+      R.has(quietRow, 'not checked yet', 'the unmeasured row says it has not been checked');
+      R.ok('and is never shown as unsubscribed', !/unsubscribed/i.test(quietRow));
+
+      // The default read: ranked by orders, and no consent predicate at all --
+      // consent is a filter, never a gate (Blake 2026-11-24).
+      const firstRead = await cu.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'company_customer_profiles' && !q.head)[0]);
+      R.eq((firstRead?.orders || []).map((o) => o.col),
+        ['order_count', 'lifetime_spend', 'last_order_at', 'customer_key'],
+        'ranked by orders, then spend, then recency, and tie-broken on a unique column so a row cannot appear on two pages');
+      R.eq(firstRead?.orders?.[0]?.opts?.ascending, false, 'most orders first');
+      R.eq((firstRead?.filters || []).filter((f) => f.col === 'email_consent_state').length, 0,
+        'the default applies no consent filter: opt-in narrows the list, it does not gate it');
+      R.ok('and the window is on the last order',
+        (firstRead?.filters || []).some((f) => f.col === 'last_order_at' && f.op === 'gte'));
+
+      // Filtering TO "not checked yet" is an IS NULL, not a comparison with
+      // the word -- no row holds it, so the list would read as "nobody".
+      await cu.selectOption('#custConsent', 'unmeasured');
+      await cu.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles'
+        && (q.filters || []).some((f) => f.col === 'email_consent_state' && f.op === 'is')), null, { timeout: 5000 });
+      R.ok('"not checked yet" reads as IS NULL', true);
+      await cu.selectOption('#custConsent', 'any');
+      await cu.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+
+      // Who can be ticked: not the customer with no email (nothing to write
+      // to) and not the one who asked not to be contacted.
+      const picks = await cu.evaluate(() => [...document.querySelectorAll('#customersBody [data-act="cust-pick"]')].map((el) => el.dataset.k));
+      R.ok('a customer with no email cannot be ticked', !picks.includes('cid:5551'));
+      R.ok('nor can somebody on the do-not-contact list', !picks.includes('nope@buyer.invalid'));
+      R.ok('the rest can', picks.includes('loyal@buyer.invalid') && picks.includes('quiet@buyer.invalid'));
+      R.has(body, 'on your do-not-contact list', 'and the row says why rather than silently losing its tick box');
+
+      // One press: a prospect and a draft, into the queue that already exists.
+      await cu.click('#customersBody [data-act="cust-pick"][data-k="loyal@buyer.invalid"]');
+      await cu.waitForSelector('#customersBody [data-act="cust-add"]', { timeout: 5000 });
+      await cu.click('#customersBody [data-act="cust-add"]');
+      await cu.waitForFunction(() => /draft/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const pros = await cu.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+      R.eq([pros?.source, pros?.status, pros?.platform], ['customer', 'approved', 'other'],
+        'a picked customer becomes an ordinary prospect, recorded as coming from your customers');
+      R.eq(pros?.contact_email, 'loyal@buyer.invalid', 'identified by email, which is what the relaxed constraint allows');
+      R.eq([pros?.handle, pros?.profile_url], [null, null], 'and claims no channel it has not found');
+      R.eq(pros?.evidence?.order_count, 9, 'carrying the order facts for whoever reads the row');
+      const draft = await cu.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+      R.eq([draft?.channel, draft?.recipient_email, draft?.state], ['email', 'loyal@buyer.invalid', undefined],
+        'the draft is an ordinary email draft, left in the queue to be approved');
+      R.has(String(draft?.body || ''), '{signup_link}' === '' ? 'x' : 'join', 'the message tells them how to join');
+      R.ok('the message is filled in, not left as tokens', !/\{name\}|\{brand\}|\{commission\}|\{orders_line\}/.test(String(draft?.body || '')));
+      R.has(String(draft?.body || ''), 'Lou', 'addressed to them by name');
+      R.has(String(draft?.body || ''), '9 times', 'and leans on them already being a customer');
+      R.ok('the creator pitch is not reused on a customer', !/through a search|found your/i.test(String(draft?.body || '')));
+      await cu.close();
+    }
 
     R.eq(errors, [], 'no page errors on any affiliate page');
     R.ok('the whole flow ran to the end', true);
