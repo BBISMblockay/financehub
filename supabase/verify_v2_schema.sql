@@ -776,6 +776,36 @@ select
     else 'MISSING — run 20261124030000_affiliate_customer_outreach.sql'
   end as affiliate_customer_outreach;
 
+-- 8d. Your Customers "Find their social accounts" (migration 20261124170000).
+-- Checked structurally: the one-running-scan index (without it two presses
+-- pay twice), the per-program customer key (without it a customer is searched
+-- and paid for again on every press), and that browsers cannot read spend.
+select
+  case
+    when exists (
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'affiliate_customer_scans_one_running'
+        and indexdef ilike '%unique%' and indexdef ilike '%running%'
+    ) and exists (
+      select 1 from pg_constraint
+      where conrelid = to_regclass('public.affiliate_customer_social') and contype = 'u'
+        and pg_get_constraintdef(oid) ilike '%company_entity_id, program_id, customer_key%'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'affiliate_programs' and column_name = 'customer_scan_min_followers'
+    ) and exists (
+      -- Browsers read progress, never spend, and write nothing. A CASE so the
+      -- privilege checks run only once both tables exist.
+      select 1 from pg_class c
+      where c.oid = to_regclass('public.affiliate_customer_scans') and c.relrowsecurity
+        and (select relrowsecurity from pg_class where oid = to_regclass('public.affiliate_customer_social'))
+        and case when to_regclass('public.affiliate_customer_social') is null then false
+          else not has_column_privilege('authenticated', 'public.affiliate_customer_scans', 'cost_usd', 'select')
+           and not has_table_privilege('authenticated', 'public.affiliate_customer_social', 'insert') end
+    ) then 'ok'
+    else 'MISSING — run 20261124170000_affiliate_customer_social_scan.sql'
+  end as affiliate_customer_social_scan;
+
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
   col.column_name,

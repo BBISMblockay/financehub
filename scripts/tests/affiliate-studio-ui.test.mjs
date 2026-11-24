@@ -24,6 +24,9 @@
 //   AFFILIATE_CORE_MUTATION=supcase      a do-not-contact address is matched with case
 //   AFFILIATE_CORE_MUTATION=custnolink   a customer message without {signup_link} is accepted
 //   AFFILIATE_CORE_MUTATION=custpin      SILO's own customer message is saved as the program's
+//   AFFILIATE_CORE_MUTATION=socialzero   a social row with no stated count shows 0 followers
+//   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
+//   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,6 +56,9 @@ const MUTS = {
   supdomain: ['if (d && (domain === d || domain.endsWith(`.${d}`))) return true;', 'if (d && domain === d) return true;'],
   supcase: ["  const e = String(email || '').trim().toLowerCase();", "  const e = String(email || '').trim();"],
   custnolink: ["  if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');", '  if (false) errors.push();'],
+  socialzero: ["  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;", "  const count = `${compactCount(row.followers || 0) || '0'}`;"],
+  socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
+  socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -509,6 +515,35 @@ await t('Your Customers: the customer template is its own, and still has to be j
   assert.match(bad.errors[0], /signup_link/);
   assert.ok(C.customerTemplateRow('x'.repeat(201), 'a {signup_link}').errors.some((e) => /subject/.test(e)));
   assert.ok(C.customerTemplateRow('x', `${'a'.repeat(5001)} {signup_link}`).errors.some((e) => /5,000/.test(e)));
+});
+
+await t('Your Customers social: a blank count stays blank, only http(s) links, never the prospect\'s identity, never a cost', () => {
+  assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
+  const found = C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  assert.equal(found.label, '@em · 12K'); assert.equal(found.tone, 'pos'); assert.equal(found.url, 'https://www.instagram.com/em');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://x.test/em', followers: 10000, followers_approx: true }).label, '@em · 10K+');
+  const nc = C.customerSocialView({ status: 'no_count', handle: '@em', profile_url: 'https://x.test/em', followers: null });
+  assert.equal(nc.label, '@em · count not shown');
+  assert.ok(!/\b0\b/.test(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://x.test/em', followers: null }).label), 'NULL followers is not zero');
+  assert.equal(C.customerSocialView({ status: 'found', handle: '@x', profile_url: 'javascript:alert(1)', followers: 900 }).url, null, 'only http(s) is a link');
+  assert.equal(C.customerSocialView({ status: 'ambiguous' }).label, 'Several possible');
+  assert.equal(C.customerSocialView({ status: 'none' }).label, 'None found');
+  assert.equal(C.customerSocialView({ status: 'pending' }).label, 'Queued');
+  assert.equal(C.compactCount(1204), '1.2K'); assert.equal(C.compactCount(840), '840'); assert.equal(C.compactCount(2500000), '2.5M'); assert.equal(C.compactCount(null), '');
+
+  assert.equal(C.customerScanLine({ status: 'running', requested: 500, checked: 240, found: 6 }), 'Scanning… 240 of 500 checked · 6 found');
+  assert.match(C.customerScanLine({ status: 'stopped', requested: 500, checked: 300, found: 9 }), /Stopped early, more to check\.$/);
+  assert.equal(C.customerScanLine({ status: 'done', requested: 500, checked: 500, found: 12, cost_usd: 1.23 }), 'Last scan: 500 of 500 checked · 12 found.');
+  assert.ok(!/\$|cost|spend|budget|credit/i.test(C.customerScanLine({ status: 'done', requested: 1, checked: 1, found: 0, cost_usd: 9 })), 'no cost in the UI');
+
+  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };
+  const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
+  assert.equal(row.profile_url, null, 'the identity column stays empty: a Discovery prospect with the same profile would refuse the row');
+  assert.equal(row.handle, null);
+  assert.equal(row.evidence.social.profile_url, 'https://www.instagram.com/em');
+  assert.equal(row.evidence.social.followers, 1204);
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'ambiguous', candidates: [] } }).evidence.social, undefined, 'only a named profile is evidence');
+  assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 
 console.log(`\naffiliate-studio-ui: ${n} passed`);

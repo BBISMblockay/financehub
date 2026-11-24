@@ -875,7 +875,7 @@ export function customerSuppressed(email, suppressions = []) {
 // The order facts go in `evidence`, which is what the rest of the studio
 // already reads for provenance, so the row explains itself on screen without
 // any new column.
-export function customerProspectRow({ customer, collectedAt = new Date().toISOString() }) {
+export function customerProspectRow({ customer, social = null, collectedAt = new Date().toISOString() }) {
   const c = customer || {};
   const email = String(c.email_lc || '').trim().toLowerCase();
   const orders = Number(c.order_count);
@@ -902,8 +902,71 @@ export function customerProspectRow({ customer, collectedAt = new Date().toISOSt
       // Carried so a reader can see it was a filter, never a gate, and so a
       // blank stays blank rather than becoming "not subscribed".
       email_consent_state: c.email_consent_state ?? null,
+      // What "Find their social accounts" found, carried as evidence only.
+      // Never the prospect's own profile_url: that column feeds the identity
+      // index, and the same profile already on the list from Discovery would
+      // refuse this customer's row outright.
+      ...(customerSocialEvidence(social) ? { social: customerSocialEvidence(social) } : {}),
     },
   };
+}
+
+// ── Find their social accounts ──────────────────────────────────────────
+// A result row is evidence only when it names a profile; 'ambiguous', 'none'
+// and the rest carry nothing a reader could act on.
+export const SOCIAL_KEPT = ['found', 'below', 'no_count'];
+export function customerSocialEvidence(s) {
+  if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
+  return {
+    status: s.status,
+    platform: s.platform || null,
+    handle: s.handle || null,
+    profile_url: s.profile_url,
+    // NULL is "no result stated a count", never zero.
+    followers: Number.isFinite(Number(s.followers)) && s.followers !== null ? Number(s.followers) : null,
+    followers_quote: s.followers_quote || null,
+    source_url: s.source_url || null,
+    checked_at: s.checked_at || null,
+  };
+}
+export function compactCount(n) {
+  const v = Number(n);
+  if (n === null || n === undefined || !Number.isFinite(v)) return '';
+  if (v >= 1e6) return `${(Math.floor(v / 1e5) / 10).toString()}M`;
+  if (v >= 1e4) return `${Math.floor(v / 1e3)}K`;
+  if (v >= 1e3) return `${(Math.floor(v / 100) / 10).toString()}K`;
+  return String(Math.floor(v));
+}
+// What the Social column says for one customer. `row` is their
+// affiliate_customer_social row for this program, or undefined if never
+// scanned. Only http(s) links are ever handed back as `url`.
+export function customerSocialView(row) {
+  if (!row) return { label: '—', tone: 'muted', url: null, scanned: false };
+  const url = /^https?:\/\//i.test(String(row.profile_url || '')) ? row.profile_url : null;
+  const who = row.handle || (url ? url.replace(/^https?:\/\/(www\.)?/i, '') : '');
+  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;
+  switch (row.status) {
+    case 'found': return { label: `${who} · ${count}`, tone: 'pos', url, scanned: true, quote: row.followers_quote || '' };
+    case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar' };
+    case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true };
+    case 'ambiguous': return { label: 'Several possible', tone: 'muted', url: null, scanned: true };
+    case 'none': return { label: 'None found', tone: 'muted', url: null, scanned: true };
+    case 'pending': return { label: 'Queued', tone: 'muted', url: null, scanned: false };
+    case 'error': return { label: 'Not checked', tone: 'muted', url: null, scanned: false };
+    default: return { label: '—', tone: 'muted', url: null, scanned: false };
+  }
+}
+// The progress line. Live counts only: never a cost, a spend or a budget
+// (Blake 2026-11-24).
+export function customerScanLine(scan) {
+  if (!scan) return '';
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const found = Number(scan.found || 0);
+  const tail = `${n(scan.checked)} of ${n(scan.requested)} checked · ${n(found)} found`;
+  if (scan.status === 'running') return Number(scan.requested || 0) ? `Scanning… ${tail}` : 'Scanning… lining up customers';
+  if (scan.status === 'stopped') return `Last scan: ${tail}. Stopped early, more to check.`;
+  if (scan.status === 'error') return `Last scan: ${tail}. It hit a problem, more to check.`;
+  return `Last scan: ${tail}.`;
 }
 // name_lc is stored lowercased; it needs casing back before a person reads it.
 export function customerDisplayName(c) {

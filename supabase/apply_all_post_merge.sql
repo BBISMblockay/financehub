@@ -19916,4 +19916,8 @@ $c$select (select count(*) from v_po_header_summary
 -- email as a third way to be identifiable, and the program's own customer
 -- outreach template. Same outreach flow after that, nothing forked.
 \i migrations/20261124030000_affiliate_customer_outreach.sql
+-- 20261124170000: Your Customers "Find their social accounts" -- one row per
+-- press (progress, one running scan per program) and one per customer per
+-- program (the queue, then the answer). Written only by affiliate-research.
+\i migrations/20261124170000_affiliate_customer_social_scan.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

@@ -20,6 +20,12 @@
 // Request: POST { action: 'import', program_id, rows: [...] }  (<= 500 rows)
 //   -> { kept, prospects_new, prospects_updated, skipped_minors, skipped_not_profile, suppressed_skipped }
 //
+// Request: POST { action: 'customer_scan', program_id, count?, filters? }
+//   -> 202 { scan_id } (or 200 { scan_id, joined: true } while one runs).
+//      "Find their social accounts" on Your Customers: one search per customer
+//      through the same provider, the model only for ambiguous searches
+//      (lib/affiliate-customer-scan-core.mjs). The page watches the scan row.
+//
 // AI credit (docs/ops/ai-credits.md): one hold per run, opened before the
 // first model call, grown before each later call; charged only when at least
 // one creator survived the checks, free otherwise.
@@ -32,6 +38,10 @@ import {
   knownCreators, isKnown, leanRun, LEAN_MAX_CALLS, MAX_MODEL_CALLS,
 } from './lib/affiliate-research-core.mjs';
 import { createCreditMeter, estimateInputTokens, usageFromResponse, addUsage } from './ai-credit-lib.mjs';
+import {
+  personName, buildScanTask, scanQuery, judgeResults, buildAiRequest, applyAiAnswer, clampScanCount, minFollowersFor,
+  socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
+} from './lib/affiliate-customer-scan-core.mjs';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -65,6 +75,20 @@ const PROSPECT_COLS = 'id, platform, handle, display_name, profile_url, contact_
 // it from the API lookup that follows, so a run never replaces a profile that
 // carries engagement with one that does not.
 const withProfile = (cands) => cands.map((c) => (channelRef(c.profile_url) ? c : { ...c, evidence: { ...c.evidence, creator_profile: buildCreatorProfile(c) } }));
+// "Find their social accounts" (lib/affiliate-customer-scan-core.mjs). A scan
+// whose worker has not written for this long is a dead worker, not a running
+// scan, so the next press takes over instead of joining it.
+export const STALE_SCAN_MS = 3 * 60_000;
+// Searches stop starting with this much of the run left, so the ambiguous
+// customers already searched still get their model pass and the counts land.
+export const SCAN_TAIL_MS = 40_000;
+// How far down the customer list a press looks to fill its count: a slice
+// full of names a search cannot use (businesses, initials) must not walk the
+// whole table.
+export const SCAN_PAGE = 1000;
+export const SCAN_MAX_PAGES = 20;
+const CHUNK = 200;
+const chunks = (list, n = CHUNK) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 
@@ -286,6 +310,207 @@ export function createResearchHandler({
     }
   }
 
+  // ── Find their social accounts ────────────────────────────────────────
+  // One press scans up to `count` customers from the slice the person is
+  // looking at, top-ranked first. The rows are written as 'pending' before any
+  // search runs, so a run that hits its time limit leaves a queue the next
+  // press finishes -- "stopped early, more to check" -- rather than losing its
+  // place. A press while a scan is running joins it.
+  async function customerScan({ company, program, body, callerId }) {
+    if (!search) return reply({ error: 'Social lookups are not set up yet.' }, 503);
+    const { data: live, error: lErr } = await service.from('affiliate_customer_scans')
+      .select('id, heartbeat_at, started_at').eq('company_entity_id', company).eq('program_id', program.id)
+      .eq('status', 'running').order('started_at', { ascending: false }).limit(1);
+    if (lErr) return reply({ error: 'Social lookups need a database update first.' }, 503);
+    const prev = live?.[0];
+    if (prev) {
+      const beat = new Date(prev.heartbeat_at || prev.started_at).getTime();
+      if (now().getTime() - beat < STALE_SCAN_MS) return reply({ scan_id: prev.id, joined: true });
+      await service.from('affiliate_customer_scans').update({ status: 'stopped', finished_at: now().toISOString(), error_message: 'The scan stopped before it finished.' })
+        .eq('id', prev.id).eq('company_entity_id', company);
+    }
+    const { data: bar } = await service.from('affiliate_programs').select('customer_scan_min_followers')
+      .eq('id', program.id).eq('company_entity_id', company).maybeSingle();
+    const minFollowers = minFollowersFor(bar);
+    const want = clampScanCount(body?.count);
+    const filters = scanFilters(body?.filters);
+    const startedAt = now();
+    const { data: scan, error: sErr } = await service.from('affiliate_customer_scans').insert({
+      company_entity_id: company, program_id: program.id, created_by: callerId, status: 'running',
+      requested: 0, started_at: startedAt.toISOString(), heartbeat_at: startedAt.toISOString(), filters, min_followers: minFollowers,
+    }).select('id').single();
+    // The partial unique index refuses a second running scan: two presses at
+    // the same instant join one scan rather than paying twice.
+    if (sErr) return reply({ error: 'A scan is already running. Its results appear on this list.' }, 429);
+    background(runScan({ company, program, scanId: scan.id, want, filters, minFollowers, callerId, started: startedAt.getTime() }));
+    return reply({ scan_id: scan.id }, 202);
+  }
+
+  // The customers to scan, written as pending rows. Rows an earlier run left
+  // pending (or that failed) come first; then new customers from the slice.
+  async function queueScan({ company, program, scanId, want, filters }) {
+    const { data: left } = await service.from('affiliate_customer_social').select('id')
+      .eq('company_entity_id', company).eq('program_id', program.id).in('status', ['pending', 'error'])
+      .order('created_at', { ascending: true }).limit(want);
+    const resumed = (left || []).map((r) => r.id);
+    for (const ids of chunks(resumed)) {
+      await service.from('affiliate_customer_social').update({ scan_id: scanId, status: 'pending' })
+        .eq('company_entity_id', company).in('id', ids);
+    }
+    let need = want - resumed.length;
+    if (need <= 0) return resumed.length;
+    const { data: sup } = await service.from('affiliate_suppressions').select('kind, value_normalized')
+      .eq('company_entity_id', company).limit(5000);
+    const supEmails = new Set((sup || []).filter((x) => x.kind === 'email').map((x) => x.value_normalized));
+    const supDomains = (sup || []).filter((x) => x.kind === 'domain').map((x) => x.value_normalized);
+    const suppressed = (email) => {
+      const e = String(email || '').toLowerCase().trim();
+      if (!e) return false;
+      if (supEmails.has(e)) return true;
+      const host = e.split('@')[1] || '';
+      return supDomains.some((d) => host === d || host.endsWith(`.${d}`));
+    };
+    let added = 0;
+    for (let page = 0; page < SCAN_MAX_PAGES && need > 0; page += 1) {
+      let q = service.from('company_customer_profiles')
+        .select('customer_key, email_lc, name_lc, first_name_lc, last_name_lc, order_count, last_order_at, lifetime_spend, email_consent_state')
+        .eq('company_entity_id', company).gte('order_count', filters.minOrders)
+        // An explicit opt-out is never researched. NULL (not checked yet) IS
+        // scanned: a plain NOT IN would drop every unmeasured customer, which
+        // is most of them, because NULL NOT IN (...) is not true.
+        .or(`email_consent_state.is.null,email_consent_state.not.in.(${NEVER_SCAN_CONSENT.join(',')})`);
+      if (filters.from) q = q.gte('last_order_at', filters.from);
+      if (filters.toExclusive) q = q.lt('last_order_at', filters.toExclusive);
+      if (filters.consentIsNull) q = q.is('email_consent_state', null);
+      else if (filters.consentState) q = q.eq('email_consent_state', filters.consentState);
+      for (const [col, asc] of SCAN_SORTS[filters.sort]) q = q.order(col, { ascending: asc, nullsFirst: false });
+      const { data: rows, error } = await q.range(page * SCAN_PAGE, page * SCAN_PAGE + SCAN_PAGE - 1);
+      if (error) throw new Error(`could not read customers: ${error.message || error}`);
+      if (!rows?.length) break;
+      let pick = rows.filter((r) => personName(r.name_lc, r.first_name_lc, r.last_name_lc) && !suppressed(r.email_lc));
+      // Somebody this program already scanned is not searched (or paid for) twice.
+      const seen = new Set();
+      for (const keys of chunks(pick.map((r) => r.customer_key))) {
+        const { data: had } = await service.from('affiliate_customer_social').select('customer_key')
+          .eq('company_entity_id', company).eq('program_id', program.id).in('customer_key', keys);
+        for (const h of had || []) seen.add(h.customer_key);
+      }
+      pick = pick.filter((r) => !seen.has(r.customer_key)).slice(0, need);
+      // The city is the biggest hit-rate lever there is: "Emily Durrance"
+      // Phoenix finds the right Emily. From the customer's own record, where
+      // the store granted read_customers; otherwise the search is name only.
+      const city = new Map();
+      for (const emails of chunks(pick.map((r) => r.email_lc).filter(Boolean))) {
+        const { data: cs } = await service.from('shopify_customers').select('email_lc, city')
+          .eq('company_entity_id', company).in('email_lc', emails);
+        for (const c of cs || []) if (c.city && String(c.city).trim() && !city.has(c.email_lc)) city.set(c.email_lc, String(c.city).trim());
+      }
+      for (const part of chunks(pick)) {
+        const { error: iErr } = await service.from('affiliate_customer_social').insert(part.map((r) => {
+          const person = personName(r.name_lc, r.first_name_lc, r.last_name_lc);
+          return {
+            company_entity_id: company, program_id: program.id, scan_id: scanId, customer_key: r.customer_key,
+            email_lc: r.email_lc, display_name: person.display, city: city.get(r.email_lc) || null,
+            status: 'pending', query: scanQuery(person, city.get(r.email_lc) || null),
+          };
+        }));
+        if (iErr) throw new Error(`could not queue customers: ${iErr.message || iErr}`);
+        added += part.length;
+      }
+      need -= pick.length;
+      if (rows.length < SCAN_PAGE) break;
+    }
+    return resumed.length + added;
+  }
+
+  async function runScan({ company, program, scanId, want, filters, minFollowers, callerId, started }) {
+    const left = () => RUN_BUDGET_MS - (now().getTime() - started);
+    const t = { checked: 0, found: 0, below: 0, no_count: 0, ambiguous: 0, none: 0, error: 0 };
+    let cost = 0; let usages = []; let aiDecided = 0;
+    const meter = createCreditMeter({ db: service, requestId: newId(), companyId: company, userId: callerId, feature: 'affiliate_research', model, sourceRef: scanId });
+    let meterOpen = null;
+    // The scan row's counters. Column names differ from two statuses ('none'
+    // and 'error' read badly as columns, and the row has its own error text).
+    const counts = () => ({ checked: t.checked, found: t.found, below: t.below, no_count: t.no_count, ambiguous: t.ambiguous, not_found: t.none, failed: t.error });
+    // Builders are thenables, not Promises: wrap so .catch() exists.
+    const beat = (patch = {}) => Promise.resolve(service.from('affiliate_customer_scans').update({ ...counts(), heartbeat_at: now().toISOString(), ...patch })
+      .eq('id', scanId).eq('company_entity_id', company));
+    const write = (id, patch) => service.from('affiliate_customer_social').update(patch).eq('id', id).eq('company_entity_id', company);
+
+    // The model, for searches that showed two or more profiles carrying the
+    // name. Fail-soft: no key, no credit or an error leaves them 'ambiguous'
+    // with their candidates listed, never 'none'.
+    async function decide(batch) {
+      if (!apiKey || !batch.length) return;
+      const request = buildAiRequest({ rows: batch, model });
+      if (meterOpen === null) meterOpen = (await meter.open({ estInput: estimateInputTokens(request), maxOutput: AI_MAX_OUTPUT_TOKENS, calls: 1 }).catch(() => ({ ok: false }))).ok === true;
+      else if (meterOpen) meterOpen = (await meter.step({ usage: addUsage(usages.map(usageFromResponse)), estInput: estimateInputTokens(request), maxOutput: AI_MAX_OUTPUT_TOKENS }).catch(() => ({ ok: false }))).ok !== false;
+      if (!meterOpen || left() < 10_000) return;
+      let answer;
+      try {
+        const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: AbortSignal.timeout(Math.max(5_000, left() - 5_000)),
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify(request),
+        });
+        if (!res.ok) return;
+        answer = await res.json();
+      } catch { return; }
+      usages.push(answer?.usage || {});
+      const at = now().toISOString();
+      for (const o of applyAiAnswer({ rows: batch, answer, minFollowers })) {
+        if (o.status === 'ambiguous') continue;
+        const row = batch.find((b) => b.key === o.key);
+        await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at }));
+        t.ambiguous -= 1; t[o.status] += 1; aiDecided += 1;
+      }
+    }
+
+    let status = 'done'; let error = null;
+    try {
+      const queued = await queueScan({ company, program, scanId, want, filters });
+      await beat({ requested: queued });
+      const { data: todo, error: tErr } = await service.from('affiliate_customer_social')
+        .select('id, customer_key, display_name, city, query').eq('company_entity_id', company)
+        .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(queued || 1);
+      if (tErr) throw new Error(`could not read the queue: ${tErr.message || tErr}`);
+      const ambiguous = [];
+      let next = 0; let sinceBeat = 0;
+      const worker = async () => {
+        while (next < (todo || []).length) {
+          if (left() < SCAN_TAIL_MS) { status = 'stopped'; return; }
+          const row = todo[next++];
+          const person = personName(row.display_name);
+          if (!person) { await write(row.id, { status: 'none', checked_at: now().toISOString(), decided_by: 'search' }); t.checked += 1; t.none += 1; continue; }
+          try {
+            const res = await search(buildScanTask(person, row.city, program));
+            if (Number.isFinite(Number(res?.cost))) cost += Number(res.cost);
+            const j = judgeResults({ items: res?.items || [], person, program, minFollowers, collectedAt: now().toISOString() });
+            await write(row.id, socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: row.query, checkedAt: now().toISOString() }));
+            t[j.status] += 1;
+            if (j.status === 'ambiguous') ambiguous.push({ id: row.id, key: row.customer_key, name: person.display, city: row.city, query: row.query, candidates: j.candidates });
+          } catch {
+            await write(row.id, { status: 'error', checked_at: now().toISOString() });
+            t.error += 1;
+          }
+          t.checked += 1;
+          if (++sinceBeat >= 10) { sinceBeat = 0; await beat(); }
+          if (ambiguous.length >= AI_BATCH) await decide(ambiguous.splice(0, AI_BATCH));
+        }
+      };
+      await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, worker));
+      while (ambiguous.length) await decide(ambiguous.splice(0, AI_BATCH));
+      if (status !== 'stopped' && t.checked < (todo || []).length) status = 'stopped';
+    } catch (err) {
+      status = 'error'; error = String(err?.message || err).slice(0, 500);
+    } finally {
+      // Spend is recorded for SILO, never shown on the page (Blake, 2026-11-24:
+      // a rep should not do arithmetic before pressing a button).
+      await beat({ status, error_message: error ?? (status === 'stopped' ? 'Stopped early. More to check.' : null), finished_at: now().toISOString(), cost_usd: Math.round(cost * 10000) / 10000 }).catch(() => {});
+      await meter.settle({ usage: addUsage(usages.map(usageFromResponse)), outcome: aiDecided > 0 ? 'succeeded' : 'failed', error: aiDecided > 0 ? null : 'no_ai_decisions' }).catch(() => {});
+    }
+  }
+
   return async function handle(req) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
     if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
@@ -317,6 +542,7 @@ export function createResearchHandler({
     if (body?.action === 'refresh_stats') return refreshStats({ company, program });
     if (body?.action === 'research') return research({ company, program, body, callerId: who?.user?.id ?? null });
     if (body?.action === 'import') return importRows({ company, program, body });
+    if (body?.action === 'customer_scan') return customerScan({ company, program, body, callerId: who?.user?.id ?? null });
     return reply({ error: 'Unknown action.' }, 400);
   };
 }

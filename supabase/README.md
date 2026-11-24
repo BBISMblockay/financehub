@@ -4199,6 +4199,26 @@ dragging one out. Resuming is a CURSOR stored on the connection (`meta.customer_
 filter, and the incremental window (`meta.last_customer_sync_at`) only moves once a walk finishes: a timestamp
 watermark alone would re-walk the same pages for ever if more customers shared one `updated_at` than a run's
 budget covers.
+### `20261124170000_affiliate_customer_social_scan.sql` — finding your customers' social accounts
+
+Blake, 2026-11-24: "how do we now scan their social pull and presence scan without doing too many", then "Build it,
+pilot 500". The Your Customers tab gains **Find their social accounts**: one press checks up to 500 (max 1,000)
+customers from the slice on screen, top-ranked first, with ONE web search each ("First Last" City, pinned to the
+program's platforms) through the provider Discovery already uses. A profile counts only when its result carries the
+customer's first AND last name; a follower count is kept only when the result's own text states it (NULL is not
+zero). A model is asked only when two or more profiles carry the name, 20 customers per request, no web tools, and it
+may only choose a profile that row was shown — the count is then re-read from that profile's text.
+
+Two tables and one column. `affiliate_customer_scans` is one row per press: its live counts are the progress line,
+and a partial unique index allows one running scan per program, so a second press joins rather than paying twice.
+`cost_usd` is recorded for SILO and is not granted to browsers (no cost in the UI). `affiliate_customer_social` is one
+row per customer per program: rows are written `pending` before any search, so a run that runs out of time leaves a
+queue the next press finishes, and the unique key means nobody is searched twice. `affiliate_programs.
+customer_scan_min_followers` (default 750) is the bar, per program. Both tables are written only by the
+`affiliate-research` function; browsers read them under the same RLS as `affiliate_prospects`. A customer who
+unsubscribed is never queued; one whose consent was never checked is. Results never enter Discovery or the prospect
+list on their own: Add to outreach carries a find as `evidence.social` only, never as the prospect's `profile_url`.
+
 ### `20261124030000_affiliate_customer_outreach.sql` — recruiting your own customers
 
 Blake, 2026-11-24, once the customer consent sync was in: "if the data is there, literally what are we waiting for
