@@ -9634,17 +9634,11 @@ select 'Affiliate outreach closes on joining' as check_name,
     -- person fail at the invite (20261124140000).
     when position('''approved'',''exported'',''sent'')' in pg_get_functiondef('public.affiliate_outreach_drafts_guard()'::regprocedure)) = 0
       then 'BROKEN — the drafts guard no longer separates contacting from recording an outcome'
-    -- Nobody in the program may still have an open recruiting message.
-    when exists (
-      select 1
-        from public.affiliate_outreach_drafts d
-        join public.affiliates a
-          on a.company_entity_id = d.company_entity_id
-         and a.status in ('invited','pending_terms','active','paused')
-         and (a.from_prospect_id = d.prospect_id
-              or public.affiliate_contact_key(a.contact_email) = public.affiliate_contact_key(d.recipient_email))
-       where d.state in ('draft','approved','exported'))
-      then 'BROKEN — an affiliate of this brand still has an open outreach draft'
+    -- A scoped manager's own invite closes only the drafts in their programs,
+    -- so a leftover is not by itself a fault; what must not happen is the
+    -- closer losing its scope check and refusing their write.
+    when position('affiliate_visible_program' in pg_get_functiondef('public.affiliate_outreach_close_when_joined()'::regprocedure)) = 0
+      then 'BROKEN — the outreach closer can refuse a membership write a scoped manager is entitled to make'
     else 'ok'
   end as status
 union all

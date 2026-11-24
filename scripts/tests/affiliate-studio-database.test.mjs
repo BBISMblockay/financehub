@@ -114,6 +114,7 @@
 //   AFFILIATE_DB_MUTATION=joinemail   only the prospect the membership came from is matched
 //   AFFILIATE_DB_MUTATION=joinended   only a terminated membership closes outreach
 //   AFFILIATE_DB_MUTATION=joinguard   closing a draft is treated as a decision to contact them
+//   AFFILIATE_DB_MUTATION=joinscope   the close reaches a program the caller was never given
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -351,7 +352,12 @@ switch (MUT) {
   case 'emailscope': mutate('reviewfixes', "  if auth.uid() is not null and public.affiliate_manager_scoped() then", '  if false then'); break;
   // Recording "they asked to stop" is not a decision to contact anyone, and
   // the first half of that action is what puts them on the list.
-  case 'stopblocked': mutate('reviewfixes', "  if new.state in ('approved','exported','sent','signed_up')", "  if new.state in ('approved','exported','sent','signed_up','declined','bounced','replied')"); break;
+  // 20261124140000 re-creates this guard, so the mutation has to reach the
+  // LAST definition too or it tests a body production never runs.
+  case 'stopblocked':
+    mutate('reviewfixes', "  if new.state in ('approved','exported','sent','signed_up')", "  if new.state in ('approved','exported','sent','signed_up','declined','bounced','replied')");
+    mutate('closejoin', "  if new.state in ('approved','exported','sent')", "  if new.state in ('approved','exported','sent','declined','bounced','replied')");
+    break;
   case 'scoperpc': mutate('scope', "  if v_any then\n    raise exception 'affiliate_program_scope: % on %.% touches a program this user was not given',\n      tg_op, tg_table_schema, tg_table_name using errcode = '42501';\n  end if;", ''); break;
   case 'scopeattach': mutate('scope', "       and (c.relname = 'affiliates' or c.relname like 'affiliate\\_%')\n       and exists (select 1 from pg_attribute a\n                    where a.attrelid = c.oid and a.attname = 'program_id' and not a.attisdropped)\n     order by 1", '       and false\n     order by 1'); break;
   // Replacing an audience is one transaction, gated, and validated.
@@ -397,6 +403,7 @@ switch (MUT) {
                 and p.company_entity_id = d.company_entity_id
                 and public.affiliate_contact_key(p.contact_email) = v_key))`, ''); break;
   case 'joinended': mutate('closejoin', "  if new.status not in ('invited','pending_terms','active','paused') then", "  if new.status not in ('terminated') then"); break;
+  case 'joinscope': mutate('closejoin', "     and (not v_scoped or public.affiliate_visible_program(d.program_id))\n", ''); break;
   case 'joinguard': mutate('closejoin', "  if new.state in ('approved','exported','sent')\n     and (tg_op = 'INSERT'", "  if new.state in ('approved','exported','sent','signed_up')\n     and (tg_op = 'INSERT'"); break;
   case 'addproggate': mutateLive(['addprog', 'scope'], "if v_company is null or not public.can_manage_affiliate_programs() then", "if v_company is null then"); break;
   case 'addprogco': mutateLive(['addprog', 'scope'], "   where id = p_affiliate and company_entity_id = v_company;", "   where id = p_affiliate;"); break;
@@ -3178,6 +3185,38 @@ await check('R3 inviting somebody on the do-not-contact list still works, and st
   assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [pros])).state, 'signed_up',
     'the membership lands and the draft closes with it');
   await db.query(`delete from affiliate_suppressions where company_entity_id = $1 and value_normalized = 'rue@creator.test'`, [A]);
+});
+
+await check('R4 a scoped manager\'s invite is never refused by a draft in a program they were not given', async () => {
+  // The close is a SECURITY DEFINER trigger, but auth.uid() is still theirs
+  // inside it, so the scope guard would refuse the second write and roll back
+  // the invite the manager WAS entitled to make.
+  await asSuper();
+  const progs = await all(`select id, slug from affiliate_programs where company_entity_id = $1 and slug in ('creators','scope-side')`, [A]);
+  const mineProg = progs.find((r) => r.slug === 'creators').id;
+  const theirsNot = progs.find((r) => r.slug === 'scope-side').id;
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where company_entity_id = $1 and user_id = $2', [A, U.memberA]);
+  await db.query('insert into affiliate_program_managers(company_entity_id, user_id, program_id) values ($1,$2,$3)', [A, U.memberA, mineProg]);
+  await asSuper();
+  const far = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Wen Alder','@wenalder','wen@creator.test','approved',0.9,'test fixture') returning id`, [A, theirsNot])).id;
+  const near = (await one(`insert into affiliate_prospects(company_entity_id, program_id, display_name, handle, contact_email, status, confidence, confidence_basis)
+     values ($1,$2,'Wen Alder','@wenalder2','wen@creator.test','approved',0.9,'test fixture') returning id`, [A, mineProg])).id;
+  await db.query(`insert into affiliate_outreach_drafts(company_entity_id, program_id, prospect_id, recipient_email, subject, body)
+     values ($1,$2,$3,'wen@creator.test','Join us','Hello'), ($1,$4,$5,'wen@creator.test','Join us','Hello')`,
+  [A, theirsNot, far, mineProg, near]);
+  await as(U.memberA, A);
+  const made = await db.query(`insert into affiliates(company_entity_id, program_id, display_name, contact_email, status, terms_version_accepted, terms_accepted_at)
+     values ($1,$2,'Wen Alder','wen@creator.test','active',1,now()) returning id`, [A, mineProg]);
+  assert.equal(made.rows.length, 1, 'the invite they were entitled to make goes through');
+  await asSuper();
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [near])).state, 'signed_up',
+    'the draft in their own program closes');
+  assert.equal((await one('select state from affiliate_outreach_drafts where prospect_id = $1', [far])).state, 'draft',
+    'and the one they may not touch is left exactly as it was');
+  await as(U.ownerA, A);
+  await db.query('delete from affiliate_program_managers where company_entity_id = $1 and user_id = $2', [A, U.memberA]);
 });
 
 await check('N1 verify_v2_schema.sql reads ok for order codes and Affiliate Studio', async () => {

@@ -86,6 +86,19 @@ set search_path = public, pg_temp
 as $$
 declare
   v_key text := public.affiliate_contact_key(new.contact_email);
+  -- A program-scoped manager (20261121210000) may write a membership in their
+  -- own program for somebody who also has an open draft in a program they
+  -- were never given. The scope guard is a STATEMENT trigger on the drafts
+  -- table and still sees their auth.uid() through this SECURITY DEFINER
+  -- function, so it would refuse that second write with 42501 -- and since
+  -- this close runs inside the membership's own transaction, the refusal
+  -- would roll back an invite the manager was entitled to make. So a scoped
+  -- caller closes the drafts in their own programs and leaves the rest
+  -- exactly as they were, rather than failing or quietly widening what they
+  -- may write. Nobody is scoped until somebody is given a program-only grant,
+  -- so for every ordinary admin, owner, exec, sync and edge function this
+  -- closes everything.
+  v_scoped boolean := auth.uid() is not null and public.affiliate_manager_scoped();
 begin
   -- 'terminated' and a membership that never started are not a reason to stop
   -- recruiting somebody; every live one is.
@@ -103,6 +116,7 @@ begin
          updated_at = now()
    where d.company_entity_id = new.company_entity_id
      and d.state in ('draft','approved','exported')
+     and (not v_scoped or public.affiliate_visible_program(d.program_id))
      and (
        (new.from_prospect_id is not null and d.prospect_id = new.from_prospect_id)
        or (v_key is not null and public.affiliate_contact_key(d.recipient_email) = v_key)
