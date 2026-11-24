@@ -31,6 +31,8 @@
 //   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
 //   AFFILIATE_CORE_MUTATION=unsubmail    an unsubscribed customer is given the email path
 //   AFFILIATE_CORE_MUTATION=poolsupp     somebody do-not-contact in one program is not marked do-not-contact everywhere
+//   AFFILIATE_CORE_MUTATION=aliasjoin    two rows of one person that share only an email are two people
+//   AFFILIATE_CORE_MUTATION=suplist      an email on the do-not-contact list does not mark the person
 //   AFFILIATE_CORE_MUTATION=noemaildm    a customer with no email can be given a DM path
 //   AFFILIATE_CORE_MUTATION=dmsupp       a do-not-contact handle can still be DMed
 //   AFFILIATE_CORE_MUTATION=counthidden  the Find tab counts include customers the list hides
@@ -71,7 +73,9 @@ const MUTS = {
   deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
   termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
   unsubmail: ["  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return", "  if (email) return"],
-  poolsupp: ["    if (x.status === 'suppressed') g.suppressed = true;", ''],
+  poolsupp: ["    if (prospectSuppressed(x, suppressions)) g.suppressed = true;", ''],
+  aliasjoin: ['    for (const k of identityKeys(x)) {\n      if (!owner.has(k))', '    for (const k of identityKeys(x).slice(0, 1)) {\n      if (!owner.has(k))'],
+  suplist: ["  if (customerSuppressed(x?.contact_email, suppressions)) return true;", ''],
   noemaildm: ["  if (!email) return null;\n", ''],
   dmsupp: ["  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;", ""],
   counthidden: ["    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);", "    if (false) out[t] = 0;"],
@@ -620,6 +624,15 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.deepEqual(ppl.map((g) => g.rows.map((x) => x.id)), [[1, 2], [3, 4], [5, 6]], 'every program row they have');
   assert.deepEqual(ppl[1].programIds, [B_, C_], 'naming every program they are in');
   assert.deepEqual(ppl.map((g) => g.suppressed), [false, false, true], 'do not contact in one program marks the person everywhere');
+  // One row with a profile and an email, another with only the email: one person.
+  const alias = C.groupPeople([
+    { id: 7, program_id: A_, profile_url: 'https://x.com/ali', contact_email: 'ali@x.com' },
+    { id: 8, program_id: B_, contact_email: 'ALI@x.com' },
+  ]);
+  assert.deepEqual(alias.map((g) => g.rows.map((x) => x.id)), [[7, 8]], 'rows sharing any identity are one person');
+  // On the company list by address, whatever their rows' status.
+  const listed = C.groupPeople([{ id: 9, program_id: B_, contact_email: 'ali@x.com', status: 'new' }], [{ kind: 'email', value_normalized: 'ali@x.com' }]);
+  assert.equal(listed[0].suppressed, true, 'the do-not-contact list marks the person, not only a suppressed status');
   const moved = C.assignedProspectRow({ id: 9, program_id: B_, status: 'signed_up', affiliate_id: 'a', source_id: 's', reviewed_by: 'r', platform: 'youtube', profile_url: 'u', source: 'serp', evidence: { q: 1 } }, A_);
   assert.equal(moved.program_id, A_); assert.equal(moved.status, 'approved');
   for (const k of ['id', 'affiliate_id', 'source_id', 'reviewed_by']) assert.ok(!(k in moved), `${k} stays with the other program`);

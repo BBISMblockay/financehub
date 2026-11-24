@@ -12,7 +12,7 @@ import {
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
-  personKey, groupPeople, assignedProspectRow,
+  identityKeys, groupPeople, assignedProspectRow,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
   customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
@@ -359,8 +359,9 @@ async function assignToProgram(id, programId, status = 'approved') {
   const x = S.d?.prospectById?.[id];
   const p = S.programs.find((y) => y.id === programId);
   if (!x || !p) throw new Error('Pick a program first.');
-  const key = personKey(x);
-  const there = (S.d.prospects || []).find((r) => r.program_id === p.id && personKey(r) === key);
+  const keys = new Set(identityKeys(x));
+  const same = (r) => identityKeys(r).some((k) => keys.has(k));
+  const there = (S.d.prospects || []).find((r) => r.program_id === p.id && same(r));
   if (there) return there.id;
   const row = assignedProspectRow(x, p.id, status);
   try {
@@ -373,7 +374,7 @@ async function assignToProgram(id, programId, status = 'approved') {
     if (e?.code !== '23505') throw e;
     // Already in that program: find that row by the same identity.
     const { data } = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).eq('program_id', p.id).limit(2000);
-    const made = (data || []).find((r) => personKey(r) === key);
+    const made = (data || []).find(same);
     if (!made) throw e;
     return made.id;
   }
@@ -421,10 +422,16 @@ async function loadPrograms() {
   $('btnNewProgram').hidden = !MANAGE;
 }
 
+// Every read is numbered, and only the newest may become what the page shows:
+// two tab changes in a row (People, then Outreach) start two reads of
+// different scope, and the slower one must not land last and put every
+// program's drafts on a one-program tab.
+let loadGen = 0;
 async function loadProgramData() {
+  const gen = ++loadGen;
   // People first: it is company-wide in every mode, "All programs" included.
   const company = peopleScope();
-  if (!company && isAll()) return loadAllData();
+  if (!company && isAll()) return loadAllData(gen);
   const p = company ? null : prog();
   if (!p && !company) { S.d = null; return; }
   // Company scope reads every program at once (RLS still decides which ones).
@@ -434,7 +441,8 @@ async function loadProgramData() {
     health: p ? db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO).eq('program_id', p.id).maybeSingle()
       : db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO),
     runs: by('affiliate_discovery_runs').order('started_at', { ascending: false }).limit(25),
-    prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(cap),
+    // Company scope reads every prospect, paged (loadCompanyProspects).
+    ...(p ? { prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(cap) } : {}),
     suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
     drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(cap),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
@@ -474,6 +482,7 @@ async function loadProgramData() {
   // first 1,000, and the share audience dialog saves over what it shows
   // (review cycle 2 of #1350).
   const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);
+  const prosRead = p ? null : await loadCompanyProspects();
   const d = {}; const failed = [];
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
@@ -483,6 +492,16 @@ async function loadProgramData() {
   });
   // Company scope: one health row per program, added up for the tab badges.
   if (!p) d.health = sumHealth(d.health);
+  // Company scope: every person, or -- if a page would not read -- the newest
+  // 2,000 and a plain warning, never a short list presented as everybody.
+  if (!p) {
+    if (prosRead) d.prospects = prosRead;
+    else {
+      const r = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).order('collected_at', { ascending: false }).limit(cap);
+      d.prospects = r.data || [];
+      failed.push(r.error ? `prospects: ${r.error.message}` : `prospects: only the newest ${num(cap)} loaded`);
+    }
+  }
   d.company = !p;
   // affFull says whether that list is the whole program. Null means a page
   // errored or the list ran past the page cap; the page still works off one
@@ -536,6 +555,7 @@ async function loadProgramData() {
   S.ovLoadedFrom = ovFloor();
   d.aiApps = await loadAiApps();
   d.stores = await loadStores();
+  if (gen !== loadGen) return;
   S.d = d;
   // A research run started earlier (another tab, a reload) is still watched.
   const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
@@ -556,7 +576,7 @@ function sumHealth(rows) {
 
 // Every program at once: who is in what, and the company's totals. Read only
 // what the two all-program views draw; null means "could not read".
-async function loadAllData() {
+async function loadAllData(gen = ++loadGen) {
   const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO);
   const keys = ['affiliates', 'codes', 'performance', 'balances'];
   const res = await Promise.all([
@@ -568,6 +588,7 @@ async function loadAllData() {
   const d = { all: true };
   const failed = [];
   res.forEach((r, i) => { d[keys[i]] = r.error ? null : (r.data || []); if (r.error) failed.push(`${keys[i]}: ${r.error.message}`); });
+  if (gen !== loadGen) return;
   S.d = d;
   if (failed.length) setStatus(`Some data did not load: ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
@@ -617,6 +638,19 @@ async function loadAffiliates(p) {
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
       if (error) return null;
       return data || [];
+    } catch (_) { return null; }
+  });
+}
+
+// Every prospect the company has, newest first, in pages with id breaking
+// ties. Null means a page errored or it ran past the page cap.
+async function loadCompanyProspects() {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO)
+        .order('collected_at', { ascending: false }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
     } catch (_) { return null; }
   });
 }
@@ -2136,7 +2170,7 @@ function renderProspects() {
   // Everybody found, in any program, once each (Blake 2026-11-24: "Discovery
   // should show all discovered no matter the program"). A card is in a
   // filter when any of their programs has them there.
-  const people = groupPeople(d.prospects);
+  const people = groupPeople(d.prospects, d.suppressions);
   const inGroup = (g, f) => g.rows.some((x) => prospectInGroup(x, f));
   // The search a prospect came from, so one search's results can be picked out.
   const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();

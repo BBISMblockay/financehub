@@ -88,6 +88,8 @@
  *   AFFILIATE_UI_MUTATION=drafttemplate a drafted message uses the picked program's wording
  *   AFFILIATE_UI_MUTATION=supoffer    somebody on do not contact is offered to another program
  *   AFFILIATE_UI_MUTATION=afftwice    an affiliate in two programs is two cards
+ *   AFFILIATE_UI_MUTATION=loadgen     a slower People read lands last and shows every program on a program tab
+ *   AFFILIATE_UI_MUTATION=prospaged   People reads a capped prospect list instead of every page
  */
 'use strict';
 const { startSuite } = require('../lib/harness');
@@ -183,13 +185,15 @@ const MUTATIONS = {
   consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
   poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
   // People sit above programs (Blake 2026-11-24).
-  peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData();", "  const company = false;\n  if (isAll()) return loadAllData();"],
-  peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
+  peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
+  peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
   pickershown: ['/affiliates/studio.js', "  const sel = $('programSel'); if (sel) sel.hidden = company;", ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
   supoffer: ['/affiliates/studio.js', '  const addTo = (g) => (MANAGE && !g.suppressed', '  const addTo = (g) => (MANAGE'],
+  loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
+  prospaged: ['/affiliates/studio.js', ".order('collected_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", ".order('collected_at', { ascending: false }).limit(2000);"],
   afftwice: ['/affiliates/studio.js', "(multiProg ? itemList(shownP, personCard, affEmpty, 'grid') : itemList(affShown, affiliateRow, affEmpty, 'grid'))", "itemList(affShown, affiliateRow, affEmpty, 'grid')"],
   unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
   // Source is what picks the template, on every path that writes a draft.
@@ -3483,6 +3487,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
           other('pb4', { display_name: 'Nia New', handle: '@nianew', profile_url: 'https://www.youtube.com/@nianew', contact_email: 'nia@creator.invalid', status: 'new', source: 'ai_research' })],
         // The same affiliate in Beta too: one person, two memberships.
         affiliates: [...tables.affiliates, { ...tables.affiliates[0], id: 'affB2', program_id: PROGB }],
+        affiliate_outreach_drafts: [{ id: 'dB', company_entity_id: CO, program_id: PROG, prospect_id: 'p1', channel: 'email', recipient_email: 'sam@only.invalid', subject: 'First program only draft', body: 'x', state: 'draft', created_at: now }],
       };
       const pg = await suite.open('/v2/affiliates/index.html', pool, { ready, rpc: { can_manage_affiliate_programs: true } });
       pg.on('pageerror', (e) => errors.push(`people-pool: ${e.message}`));
@@ -3543,6 +3548,25 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await pg.click('#tabs [data-tab="comms"]').catch(() => {});
       await pg.waitForFunction(() => document.getElementById('programSel')?.hidden === false, null, { timeout: 5000 }).catch(() => {});
       R.ok('the picker is back on a program tab', await pg.evaluate(() => document.getElementById('programSel')?.hidden === false));
+      // People read every page of prospects, not one capped read.
+      R.ok('People reads the prospects in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q.range && !q.filters.some((f) => f.col === 'program_id'))));
+      // Two tab changes in a row: the slow company-wide People read must not
+      // land after the Outreach read and put Beta's draft on this program's tab.
+      await pg.evaluate(() => {
+        window.__RELEASE_PEOPLE__ = null;
+        const held = new Promise((r) => { window.__RELEASE_PEOPLE__ = r; });
+        window.__HOLD_READ__ = (q) => (q.table === 'affiliate_outreach_drafts' && !q.filters.some((f) => f.col === 'program_id') ? held : null);
+      });
+      await pg.click('#tabs [data-tab="people"]').catch(() => {});
+      await pg.waitForTimeout(200);
+      await pg.click('#tabs [data-tab="comms"]').catch(() => {});
+      await pg.waitForTimeout(800);
+      await pg.evaluate(() => { window.__HOLD_READ__ = null; window.__RELEASE_PEOPLE__(); });
+      await pg.waitForTimeout(1500);
+      await pg.click('#tabs [data-tab="comms"]').catch(() => {});
+      // The last button pressed on People was in Beta, so Outreach is Beta's.
+      R.eq(await pg.evaluate(() => document.getElementById('programSel')?.value), PROGB, 'Outreach opens on the program last worked in');
+      R.ok('a slower People read never lands on a program tab', !/First program only draft|sam@only/.test(await text(pg, '#outreachBody')));
       await pg.close();
     }
 
