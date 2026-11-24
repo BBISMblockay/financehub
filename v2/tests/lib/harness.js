@@ -23,6 +23,9 @@
  *   gateTables       ['table'] -- every list read of those tables waits until
  *                    the page calls window.__RELEASE_TABLE__(table), so a
  *                    suite can act on the page while a read is in flight
+ *   (in page)        window.__HOLD_READ__ = (q) => promise|null holds one
+ *                    read until that promise settles, so an older read can be
+ *                    made to land after a newer one
  *   (in page)        window.__FAIL_WRITES__ = [{ table, code, times }] makes
  *                    the next `times` inserts into that table fail with that
  *                    PostgREST code, so a partial failure and the retry after
@@ -384,7 +387,14 @@ window.__QUERIES__ = [];
         var out = { data: q.head ? null : got, error: null };
         if (q.count) out.count = got.length;
         var gate = window.__FIXTURE_TABLE_GATES__ && window.__FIXTURE_TABLE_GATES__[table];
-        return (gate ? gate.then(function () { return out; }) : Promise.resolve(out)).then(res, rej);
+        // Per-read hold. gateTables releases every waiting read of a table at
+        // once, in the order they were issued, so it cannot reproduce an OLDER
+        // read landing after a NEWER one -- the case a superseded-read guard
+        // exists for. A suite sets window.__HOLD_READ__ = (q) => promise|null
+        // and a read it returns a promise for waits on that promise alone.
+        var hold = typeof window.__HOLD_READ__ === 'function' ? window.__HOLD_READ__(q) : null;
+        var wait = hold || gate;
+        return (wait ? wait.then(function () { return out; }) : Promise.resolve(out)).then(res, rej);
       }
     };
     return api;

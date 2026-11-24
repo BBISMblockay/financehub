@@ -3128,28 +3128,37 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         await pg2.close();
       }
 
-      // 3 ── A filter changed while the read was in flight. Dropping that
-      // change leaves the OLD rows under the NEW filter, so a customer
-      // outside the chosen segment stays tickable -- a message to somebody
-      // the operator had just filtered out.
+      // 3 ── A filter changed while the read was in flight, and the OLD read
+      // lands last. Dropping the change leaves the old rows under the new
+      // filter, so a customer outside the chosen segment stays tickable; and
+      // letting the late read land puts them back after the right rows were
+      // shown. The first read is held on its own so it resolves AFTER the
+      // second, which is the order a slow network really produces.
       {
-        const pg = await suite.open('/v2/affiliates/index.html', base,
-          { ready, rpc: { can_manage_affiliate_programs: true }, gateTables: ['company_customer_profiles'] });
-        pg.on('pageerror', (e) => errors.push(`customer-stale: ${e.message}`));
+        const pg = await openCust(base);
+        await pg.evaluate(() => {
+          window.__releaseFirst = null;
+          let held = false;
+          window.__HOLD_READ__ = (q) => {
+            if (held || q.table !== 'company_customer_profiles' || q.head) return null;
+            held = true;
+            return new Promise((r) => { window.__releaseFirst = r; });
+          };
+        });
         await pg.click('#peopleSubtabs [data-k="customers"]');
-        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles' && !q.head), null, { timeout: 5000 });
+        await pg.waitForFunction(() => typeof window.__releaseFirst === 'function', null, { timeout: 5000 });
         await pg.selectOption('#custConsent', 'subscribed');
-        // The filter's own read is issued (and still gated) before anything
-        // is released: that is the in-flight overlap being tested.
-        await pg.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'company_customer_profiles'
-          && (q.filters || []).some((f) => f.col === 'email_consent_state' && f.op === 'eq' && f.val === 'subscribed')), null, { timeout: 5000 });
-        await pg.evaluate(() => window.__RELEASE_TABLE__('company_customer_profiles'));
-        await pg.waitForFunction(() => {
-          const el = document.getElementById('customersBody');
-          return !!el && /Lou Loyal/.test(el.textContent || '') && !/Loading|…/.test(el.textContent || '');
-        }, null, { timeout: 5000 });
+        // The newer read lands first and draws the subscribed list.
+        await pg.waitForFunction(() => /Lou Loyal/.test(document.getElementById('customersBody')?.textContent || ''), null, { timeout: 5000 });
+        // Now the older, unfiltered read lands.
+        await pg.evaluate(() => window.__releaseFirst());
+        await pg.waitForTimeout(300);
+        // Any redraw reads what is held, so force one: the old rows, if they
+        // were kept, would reappear here.
+        await pg.click('#peopleSubtabs [data-k="customers"]');
+        await pg.waitForTimeout(100);
         const shown = await text(pg, '#customersBody');
-        R.ok('the subscribed filter is what is on screen once both reads land', !/Quin Quiet/.test(shown));
+        R.ok('the late, unfiltered read does not replace the subscribed list', !/Quin Quiet/.test(shown));
         const picks = await pg.evaluate(() => [...document.querySelectorAll('#customersBody [data-act="cust-pick"]')].map((el) => el.dataset.k));
         R.eq(picks, ['loyal@buyer.invalid'], 'and nobody outside the chosen segment is tickable');
         await pg.close();
