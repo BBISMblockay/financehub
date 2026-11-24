@@ -229,10 +229,21 @@ export function tallyBucket(status, score) {
 }
 
 /**
- * The company's niche words, for the niche signal. Company data first
+ * The company's niche words, for the niche signal: its own words
  * (entities.meta.affiliate_customer_scan_terms: a list or comma-separated
- * text), else the words of its active programs' niche and audience notes.
+ * text) plus the words of its active programs' niche and audience notes.
  */
+/**
+ * The "Niche words" box as typed -> the list stored on the company
+ * (entities.meta.affiliate_customer_scan_terms). Comma separated; each entry
+ * folded, 3 to 40 characters; at most 20. Empty -> [] (the company has none).
+ */
+export function termsInput(text) {
+  return [...new Set(String(text ?? '').slice(0, 1000).split(',')
+    .map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((w) => w.length >= 3 && w.length <= 40))].slice(0, 20);
+}
+
 export function companyTerms(meta, programs = []) {
   const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
   const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : null;
@@ -493,6 +504,23 @@ export function socialRowPatch({ status, pick, candidates = null, decidedBy, que
  * address, and every member domain that is not a free mail host (so staff who
  * never signed in to SILO are skipped too).
  */
+/**
+ * The company's do-not-contact list (affiliate_suppressions rows: kind
+ * 'email' | 'domain', value_normalized) -> a predicate on an address. A
+ * domain also covers its subdomains. The same rule the scan's guards apply.
+ */
+export function suppressionFilter(rows = []) {
+  const emails = new Set((rows || []).filter((x) => x?.kind === 'email').map((x) => String(x.value_normalized || '').toLowerCase()));
+  const domains = (rows || []).filter((x) => x?.kind === 'domain').map((x) => String(x.value_normalized || '').toLowerCase()).filter(Boolean);
+  return (email) => {
+    const e = String(email || '').toLowerCase().trim();
+    if (!e) return false;
+    if (emails.has(e)) return true;
+    const host = e.split('@')[1] || '';
+    return domains.some((d) => host === d || host.endsWith(`.${d}`));
+  };
+}
+
 export function teamFilter(memberEmails = []) {
   const emails = new Set(); const domains = new Set();
   for (const e of memberEmails) {

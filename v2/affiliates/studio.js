@@ -13,7 +13,7 @@ import {
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -961,7 +961,7 @@ const CUST_DEFAULTS = () => ({
   // the page (the same in every program -- Blake 2026-11-24, people come
   // before program), and the company's latest scan. scanReady is false until the tables exist
   // (a database before the migration), which hides the scan bar.
-  social: {}, scan: null, scanReady: false, scanCount: 25, socialOnly: false,
+  social: {}, scan: null, scanReady: false, scanCount: 25, scanTerms: null, socialOnly: false,
   // Which view: 'hunt' (the scan and the finds it brought back, the landing
   // view) or 'all' (every customer, tagged). huntTier picks which finds.
   view: 'hunt', huntTier: 'top', hunt: null,
@@ -1124,6 +1124,13 @@ async function loadCustomers(force = false) {
   const spec = customerQuerySpec(c);
   try {
     if (c.view === 'hunt') {
+      // The company's own niche words, once, for the box beside Find.
+      if (c.scanTerms === null && MANAGE) {
+        // A failed read stays null: the press then sends no words at all.
+        let got = null;
+        try { got = scanTermsFromRead(await db.from('entities').select('meta').eq('id', CO).maybeSingle()); } catch (_) { got = null; }
+        if (c.scanTerms === null) c.scanTerms = got;
+      }
       const h = await readHunt(c.huntTier);
       if (!mine()) return;
       if (h) { applyHunt(c, h); c.loaded = true; return; }
@@ -1193,6 +1200,7 @@ function huntBody({ c, spec, filters, running, optOutView, socialCell, pickable 
   const press = MANAGE
     ? `<div class="af-row af-cust-scan">
         ${field(`Finds wanted (${bar}+ followers)`, input('custScanCount', `type="number" min="1" max="500" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
+        ${field('Niche words', input('custScanTerms', `type="text" maxlength="500" placeholder="baseball, softball" value="${esc(c.scanTerms || '')}" style="max-width:16rem"`))}
         ${btn(running ? 'Finding…' : 'Find', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}
         <span class="af-mono" id="custScanLine">${esc(optOutView ? 'People who unsubscribed are never looked up.' : running ? '' : huntLine(s))}</span>
       </div>`
@@ -1871,6 +1879,7 @@ let custTimer = null;
 document.addEventListener('change', (ev) => {
   const id = ev.target?.id;
   if (id === 'custScanCount') { custState().scanCount = Math.max(1, Math.min(500, Math.floor(Number(ev.target.value)) || 25)); return; }
+  if (id === 'custScanTerms') { custState().scanTerms = String(ev.target.value || ''); return; }
   if (!['custFrom', 'custTo', 'custMin', 'custConsent', 'custSort', 'custSocial'].includes(id)) return;
   const c = custState();
   if (id === 'custSocial') c.socialOnly = ev.target.value === 'found';
@@ -3882,6 +3891,9 @@ const A = {
     const spec = customerQuerySpec(c);
     const out = await invoke('affiliate-research', {
       action: 'customer_scan', finds: c.scanCount,
+      // Saved as the company's own niche words with the press (not sent
+      // until the box has been read, so an unread box never clears them).
+      ...(c.scanTerms === null ? {} : { terms: c.scanTerms }),
       filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },
     });
     if (c.view === 'hunt') {
