@@ -1919,7 +1919,7 @@ jobs:
       - name: Execute card payment match regressions
         run: |
           node scripts/tests/card-payment-match-database.test.mjs
-          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount; do
+          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount allow-include stale-candidate; do
             if CARD_MATCH_MUTATION="$mutation" node scripts/tests/card-payment-match-database.test.mjs > /tmp/card-match-mutation.log 2>&1; then
               cat /tmp/card-match-mutation.log; echo "Survived card payment match mutation: $mutation"; exit 1
             fi

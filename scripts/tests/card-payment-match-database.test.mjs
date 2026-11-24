@@ -29,6 +29,8 @@
 //   CARD_MATCH_MUTATION=ignore-rowcount  an RLS-refused update is reported as a match
 //   CARD_MATCH_MUTATION=insert-any-source   the record accepts any account as the payer
 //   CARD_MATCH_MUTATION=insert-skip-amount  the record accepts two sides that do not offset
+//   CARD_MATCH_MUTATION=allow-include       a matched row may be put back in the entry
+//   CARD_MATCH_MUTATION=stale-candidate     the paying row's eligibility is not rechecked at link
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -44,7 +46,17 @@ const MUTATIONS = {
   // trigger is what a mutation must be able to see, because the trigger is
   // what holds a write that never went through the RPC.
   'insert-any-source': ["  if coalesce(v_bank_src.source_type, '') <> 'bank' then raise exception 'The paying side must be a bank account'; end if;", ''],
-  'insert-skip-amount': ["  if coalesce(v_card.amount, 0) = 0 or round(v_bank.amount, 2) <> round(-v_card.amount, 2) then\n    raise exception 'The two amounts do not offset';\n  end if;", ''],
+  'insert-skip-amount': ["  if round(v_bank.amount, 2) <> round(-v_card.amount, 2) then\n    raise exception 'The two amounts do not offset';\n  end if;", ''],
+  // Nothing stops an Include putting a matched row back beside the bank payment.
+  'allow-include': ["  if new.status is distinct from 'excluded'\n     and exists (select 1 from public.card_payment_matches m where m.card_transaction_id = new.id) then\n    raise exception 'This transaction is matched to a bank payment. Undo the match before putting it back in the entry';\n  end if;", ''],
+  // The candidate list is trusted at link time, so a payment excluded in the
+  // meantime still "settles" a card row -- and then neither side posts.
+  // Both layers at once: each alone is caught by the other, which is the point
+  // of having two, so only removing both shows what they are for.
+  'stale-candidate': [
+    ["  if v_bank.status = 'excluded' then\n    raise exception 'That bank payment has been excluded from its own entry — search again and pick the payment that posts';\n  end if;", ''],
+    ["  if v_bank.status = 'excluded' then\n    raise exception 'That bank payment is excluded from its own entry, so it does not post this paydown';\n  end if;", ''],
+  ],
 };
 const mutation = process.env.CARD_MATCH_MUTATION || '';
 assert.ok(!mutation || MUTATIONS[mutation], 'Unknown mutation');
@@ -77,7 +89,7 @@ async function refused(fn, re, why) {
 const co = randomUUID();
 const finance = randomUUID(), reader = randomUUID();
 const conn = randomUUID();
-const bankSource = randomUUID(), cardSource = randomUUID(), secondCard = randomUUID();
+const bankSource = randomUUID(), cardSource = randomUUID(), secondCard = randomUUID(), secondBank = randomUUID();
 let rowNo = 0;
 
 async function newBatch(source, { status = 'draft', company = co } = {}) {
@@ -109,9 +121,11 @@ try {
 
   let sql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
   if (mutation) {
-    const [from, to] = MUTATIONS[mutation];
-    assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
-    sql = sql.replace(from, to);
+    const edits = Array.isArray(MUTATIONS[mutation][0]) ? MUTATIONS[mutation] : [MUTATIONS[mutation]];
+    for (const [from, to] of edits) {
+      assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
+      sql = sql.replace(from, to);
+    }
   }
   await db.exec(sql);
   // Applied twice: apply_all_post_merge.sql re-runs every migration.
@@ -129,8 +143,9 @@ try {
   await q(`insert into card_sources(id,company_entity_id,source_key,display_name,source_type,qbo_connection_id,credit_qbo_account_id,credit_qbo_account_name,is_active) values
            ($1,$4,'bank','Operating checking','bank',$5,'checking','Checking',true),
            ($2,$4,'card','Company card','card',$5,'card','Company card',true),
-           ($3,$4,'card2','Second card','card',$5,'card','Company card',true)`,
-  [bankSource, cardSource, secondCard, co, conn]);
+           ($3,$4,'card2','Second card','card',$5,'card','Company card',true),
+           ($6,$4,'bank2','Savings','bank',$5,'checking','Checking',true)`,
+  [bankSource, cardSource, secondCard, co, conn, secondBank]);
 
   // The paydown as the two feeds see it: the card gains 5,412.01, the bank
   // loses it. SILO's sign convention is money out positive.
@@ -234,6 +249,45 @@ try {
     const held = await unlink(paydown);
     assert.equal(held.r.status, 'excluded');
     assert.match(held.r.exclude_reason, /Pending/);
+  });
+
+  await test('a matched row cannot be put back in the entry while the match stands', async () => {
+    const paid = await newTxn(cardBatch, -410, { date: '2026-10-14', account: 'clearing', description: 'MATCHED AND INCLUDED' });
+    const pays = await newTxn(bankBatch, 410, { date: '2026-10-14', description: 'PAYS IT' });
+    await link(paid, pays);
+    // Every path that could include it -- the row save Transactions uses, and a
+    // direct write -- not only the button, because the browser's own knowledge
+    // of the match is a read that can fail.
+    await refused(() => as(finance, () => q(
+      "update card_transactions set status='coded' where id=$1", [paid])),
+    /matched to a bank payment/, 'a direct include of a matched row');
+    await refused(() => as(finance, () => q(
+      'select apply_card_coding($1::jsonb)',
+      [JSON.stringify([{ id: paid, status: 'coded', qbo_account_id: 'clearing', qbo_account_name: 'Clearing' }])])),
+    /matched to a bank payment/, 'the save path Transactions uses');
+    assert.equal((await row(paid)).status, 'excluded');
+    // And undoing the match still works, which is the one way through.
+    await unlink(paid);
+    assert.equal((await row(paid)).status, 'coded');
+  });
+
+  await test('a payment excluded between the search and the match is refused', async () => {
+    const paid = await newTxn(cardBatch, -615, { date: '2026-10-15', account: 'clearing', description: 'STALE CANDIDATE' });
+    const pays = await newTxn(bankBatch, 615, { date: '2026-10-15', description: 'PAYS IT THEN LEAVES' });
+    assert.deepEqual((await candidates(paid)).map((r) => r.transaction_id), [pays]);
+    await q("update card_transactions set status='excluded', exclude_reason='handled elsewhere' where id=$1", [pays]);
+    await refused(() => link(paid, pays), /excluded from its own entry/,
+      'otherwise neither side posts the paydown');
+    assert.equal((await row(paid)).status, 'coded', 'and the card row is left where it was');
+  });
+
+  await test('only a card paydown can be matched: not a purchase, not a bank row', async () => {
+    const purchase = await newTxn(cardBatch, 42, { date: '2026-10-16', account: 'supplies', description: 'AN ORDINARY PURCHASE' });
+    const refund = await newTxn(bankBatch, -42, { date: '2026-10-16', description: 'MONEY IN ON THE BANK' });
+    await refused(() => link(purchase, refund), /money arriving on the card/, 'a purchase is not a paydown');
+    const bankIn = await newTxn(bankBatch, -300, { date: '2026-10-17', description: 'A DEPOSIT' });
+    const bankOut = await newTxn(await newBatch(secondBank), 300, { date: '2026-10-17', description: 'ANOTHER BANK ROW' });
+    await refused(() => link(bankIn, bankOut), /card account/, 'two bank rows are not a card paydown');
   });
 
   await test('the browser role reads the record but cannot reach it as anon', async () => {

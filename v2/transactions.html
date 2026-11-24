@@ -2360,6 +2360,10 @@
   const matchLoading = new Set();
   let matchSearch = null;         // { id, days, rows, busy, error }
   const matchFor = (t) => (matchCache.has(t.id) ? matchCache.get(t.id) : undefined);
+  // Unknown is not "no match": the read is asynchronous and can fail, and
+  // including a matched row would put the paydown back in the entry beside
+  // the bank payment. Anything that would include a row waits for the answer.
+  const matchUnknown = (t) => paydownCandidate(t) && matchFor(t) === undefined;
 
   /* Read for every paydown on screen, not only the one open: the bulk actions
      and the row list must know a matched row before anybody clicks it. */
@@ -3440,11 +3444,12 @@
     // A row matched to a bank payment is excluded because that payment posts
     // it. Bulk include leaves those alone and says so, rather than quietly
     // putting the paydown back into the entry a second time.
-    const matched = selectedTxns().filter((t) => matchFor(t));
+    const matched = selectedTxns().filter((t) => matchFor(t) || matchUnknown(t));
     if (matched.length) {
-      setStatus(`${matched.length} selected row${matched.length === 1 ? ' is' : 's are'} matched to a bank payment and stay excluded. Unmatch ${matched.length === 1 ? 'it' : 'them'} in Card paydown to include ${matched.length === 1 ? 'it' : 'them'}.`, 'info', 9000);
+      ensureMatches(matched);
+      setStatus(`${matched.length} selected row${matched.length === 1 ? ' is' : 's are'} matched to a bank payment, or still being checked, and stay excluded. Unmatch in Card paydown to include ${matched.length === 1 ? 'it' : 'them'}.`, 'info', 9000);
     }
-    for (const t of selectedTxns().filter((t) => !matchFor(t))) {
+    for (const t of selectedTxns().filter((t) => !matchFor(t) && !matchUnknown(t))) {
       t.status = t.qbo_account_id ? 'coded' : 'uncoded';
       t.exclude_reason = null;
       state.dirty.add(t.id);
@@ -3614,6 +3619,10 @@
       // A matched row is excluded BECAUSE of the bank payment it is paired
       // with. Including it by hand would leave the pairing claiming otherwise.
       if (matchFor(t)) return setStatus('This row is matched to a bank payment. Use Unmatch in Card paydown to bring it back.', 'neg', 8000);
+      if (matchUnknown(t)) {
+        ensureMatches([t]);
+        return setStatus('Still checking whether this row is matched to a bank payment — try again in a moment.', 'info', 6000);
+      }
       // A split row has no qbo_account_id of its own and is still coded.
       t.status = (t.qbo_account_id || isSplit(t)) ? 'coded' : 'uncoded';
       t.exclude_reason = null;

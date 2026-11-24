@@ -74,11 +74,20 @@ begin
   if v_card_src.id is null or v_bank_src.id is null then raise exception 'An account for these transactions is missing'; end if;
   if v_card_src.id = v_bank_src.id then raise exception 'A payment must come from a different account'; end if;
   if coalesce(v_bank_src.source_type, '') <> 'bank' then raise exception 'The paying side must be a bank account'; end if;
-  if coalesce(v_card.amount, 0) = 0 or round(v_bank.amount, 2) <> round(-v_card.amount, 2) then
+  if coalesce(v_card_src.source_type, '') <> 'card' then raise exception 'The paid side must be a card account'; end if;
+  -- Money arriving on the card. SILO's sign convention is money out positive,
+  -- so a paydown is negative; without this the pair could be read backwards.
+  if coalesce(v_card.amount, 0) >= 0 then raise exception 'Only money arriving on the card is a paydown'; end if;
+  if round(v_bank.amount, 2) <> round(-v_card.amount, 2) then
     raise exception 'The two amounts do not offset';
   end if;
   if v_card.status <> 'excluded' then
     raise exception 'The card side must be excluded from its entry before it is matched';
+  end if;
+  -- The paying side must still be IN its entry. A bank row excluded between the
+  -- search and the match would leave neither side posting the paydown.
+  if v_bank.status = 'excluded' then
+    raise exception 'That bank payment is excluded from its own entry, so it does not post this paydown';
   end if;
   return new;
 end $cpm$;
@@ -86,6 +95,28 @@ end $cpm$;
 drop trigger if exists card_payment_match_integrity on public.card_payment_matches;
 create trigger card_payment_match_integrity before insert or update on public.card_payment_matches
   for each row execute function public.card_payment_match_integrity();
+
+-- A match keeps the card row out of the entry, and nothing else may put it
+-- back: an Include, a bulk Include or any other save that moves a matched row
+-- off 'excluded' while the link stands would let BOTH sides post the paydown.
+-- The record's own trigger cannot see that -- it runs when the record changes,
+-- not when the transaction does -- so the rule is enforced here, on the row.
+-- unlink_card_payment_match removes the record first, which is what makes
+-- undoing a match the one way through.
+create or replace function public.card_payment_match_holds_exclusion()
+returns trigger language plpgsql security invoker set search_path = 'public', 'pg_temp' as $hex$
+begin
+  if new.status is distinct from 'excluded'
+     and exists (select 1 from public.card_payment_matches m where m.card_transaction_id = new.id) then
+    raise exception 'This transaction is matched to a bank payment. Undo the match before putting it back in the entry';
+  end if;
+  return new;
+end $hex$;
+
+drop trigger if exists card_payment_match_holds_exclusion on public.card_transactions;
+create trigger card_payment_match_holds_exclusion before update of status on public.card_transactions
+  for each row when (new.status is distinct from old.status)
+  execute function public.card_payment_match_holds_exclusion();
 
 -- Candidates: the bank rows that could be this paydown. Amount to the cent and
 -- a date window, nothing cleverer -- a description match would be a guess, and
@@ -129,8 +160,23 @@ declare v_card public.card_transactions%rowtype; v_bank public.card_transactions
 begin
   select * into v_card from public.card_transactions where id = p_card_transaction_id;
   if not found then raise exception 'That transaction is not available'; end if;
+  -- Re-read, NOT locked: PostgreSQL applies a table's UPDATE policies to
+  -- SELECT ... FOR SHARE, and card_transactions' write policy covers only a
+  -- draft or categorized import -- so locking the paying row would hide an
+  -- approved or posted payment, which is the case this whole feature exists
+  -- for. The re-read closes the window the candidate list opens (it is a
+  -- moment old by the time it is used); a payment excluded in the same instant
+  -- as the match is left to the record, which keeps the card row excluded and
+  -- names the payment, so the pairing is visible rather than silent.
   select * into v_bank from public.card_transactions where id = p_bank_transaction_id;
   if not found then raise exception 'That bank transaction is not available'; end if;
+  if v_bank.status = 'excluded' then
+    raise exception 'That bank payment has been excluded from its own entry — search again and pick the payment that posts';
+  end if;
+  if exists (select 1 from public.card_payment_matches m where m.bank_transaction_id = v_bank.id
+             and m.card_transaction_id <> p_card_transaction_id) then
+    raise exception 'That bank payment is already matched to another card transaction';
+  end if;
   select s.* into v_bank_src from public.card_sources s
     join public.card_import_batches b on b.source_id = s.id where b.id = v_bank.batch_id;
   v_reason := 'Paid by ' || coalesce(nullif(v_bank_src.display_name, ''), 'the bank account')
@@ -173,6 +219,12 @@ begin
     v_status := 'uncoded'; v_reason := null;
   end if;
 
+  -- The record goes first: while it stands, card_payment_match_holds_exclusion
+  -- refuses to move the row out of 'excluded', and that is the point of it.
+  -- Both statements are in one transaction, so a refused UPDATE below takes
+  -- the delete back with it.
+  delete from public.card_payment_matches m where m.card_transaction_id = v_card.id;
+
   update public.card_transactions t
      set status = v_status, exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()
    where t.id = v_card.id;
@@ -181,7 +233,6 @@ begin
     raise exception 'This transaction cannot be changed — its import is approved or posted, or you do not have finance access';
   end if;
 
-  delete from public.card_payment_matches m where m.card_transaction_id = v_card.id;
   return jsonb_build_object('status', v_status, 'exclude_reason', v_reason);
 end $ucm$;
 
@@ -192,6 +243,7 @@ revoke all on function public.card_payment_match_candidates(uuid, integer) from 
 revoke all on function public.link_card_payment_match(uuid, uuid) from public, anon;
 revoke all on function public.unlink_card_payment_match(uuid) from public, anon;
 revoke all on function public.card_payment_match_integrity() from public, anon, authenticated;
+revoke all on function public.card_payment_match_holds_exclusion() from public, anon, authenticated;
 grant execute on function public.card_payment_match_candidates(uuid, integer) to authenticated;
 grant execute on function public.link_card_payment_match(uuid, uuid) to authenticated;
 grant execute on function public.unlink_card_payment_match(uuid) to authenticated;

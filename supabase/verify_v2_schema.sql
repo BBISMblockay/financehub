@@ -6996,6 +6996,9 @@ select 'Card paydown match' as check_name,
   when not exists (select 1 from pg_trigger where tgname = 'card_payment_match_integrity'
                    and tgrelid = 'public.card_payment_matches'::regclass)
    then 'CRITICAL: the match integrity trigger is not attached; a record could claim a pairing the transactions do not support'
+  when not exists (select 1 from pg_trigger where tgname = 'card_payment_match_holds_exclusion'
+                   and tgrelid = 'public.card_transactions'::regclass)
+   then 'CRITICAL: a matched card row can be put back in the entry; both sides of the paydown could post'
   when has_function_privilege('anon', 'public.link_card_payment_match(uuid,uuid)', 'execute')
     or has_function_privilege('anon', 'public.card_payment_match_candidates(uuid,integer)', 'execute')
     or has_table_privilege('anon', 'public.card_payment_matches', 'SELECT')
