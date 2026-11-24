@@ -4089,10 +4089,15 @@ const CUSTOMERS_PAGE_SIZE = 100;
 // instead of starting over -- a first pull of a large store spreads across a
 // few nights rather than dragging one night out.
 const CUSTOMERS_MAX_PAGES_PER_RUN = 250;
-// Shopify revises nothing about a customer retroactively, but clock skew and
-// a page boundary landing inside the same second both cost rows. Re-asking
-// for a small overlap is cheap and the upsert is idempotent.
-const CUSTOMERS_WATERMARK_OVERLAP_MINUTES = 10;
+// A FULL DAY of overlap, not minutes. Shopify's own search-syntax docs
+// (checked against the 2025-01 `customers` query on 2026-11-24) describe
+// `updated_at` as matching "a whole day" and give only day-granular examples,
+// and they are silent on whether the sub-second part of a timestamp is
+// honoured or truncated. A day's overlap is correct under either reading,
+// costs one extra page or two on a nightly, and the upsert is idempotent --
+// whereas a ten-minute overlap would silently depend on a precision the docs
+// do not promise.
+const CUSTOMERS_WATERMARK_OVERLAP_MINUTES = 24 * 60;
 
 /** Shopify's consent states arrive SCREAMING_CASE. Stored lowercase, which is
  *  how the table's comment, the generated `email_subscribed` column and every
@@ -4107,6 +4112,18 @@ export function normalizeConsentValue(value) {
 function customersQueryFilter(updatedAtMin) {
   if (!updatedAtMin) return null;
   return `updated_at:>='${updatedAtMin}'`;
+}
+
+/** Shopify answers a partially-approved app with the data it will disclose
+ *  AND an error for every field it redacted, so this is not a transport
+ *  failure to retry -- it is a standing fact about the app's protected
+ *  customer data approval that will be true again tomorrow night. Recorded as
+ *  a skip with the reason, like a missing scope. (Protected customer data is a
+ *  separate approval from the read_customers scope: name, email, phone and
+ *  address are each approved individually.) */
+export function customersAccessRefused(message) {
+  return /access denied|not approved|protected customer data|redacted|insufficient permission/i
+    .test(String(message || ''));
 }
 
 export function customerConsentRow(node, { connection, syncedAt, batchId }) {
@@ -4152,6 +4169,18 @@ export function customerConsentRow(node, { connection, syncedAt, batchId }) {
   };
 }
 
+// Checked field by field against the Admin GraphQL 2025-01 reference on
+// 2026-11-24. Two things to know when this is next touched:
+//
+//   * `email`, `phone`, `emailMarketingConsent` and `smsMarketingConsent` are
+//     marked deprecated in 2025-01 and still the only read path -- Shopify's
+//     own pages name no replacement for READING consent (the named successors
+//     are the write mutations). So re-check this selection on an API version
+//     bump rather than guessing a mapping now.
+//   * `numberOfOrders` and `legacyResourceId` are UnsignedInt64 and
+//     `amountSpent.amount` is Decimal, all three serialised as STRINGS. They
+//     are cast where they are read, and `null` must stay null rather than
+//     becoming 0.
 const CUSTOMERS_QUERY = `
   query SiloCustomers($first: Int!, $cursor: String, $filter: String) {
     customers(first: $first, after: $cursor, query: $filter, sortKey: UPDATED_AT, reverse: false) {
@@ -4254,9 +4283,30 @@ export async function runCustomersSync(supabase, connection, {
   for (;;) {
     if (pages >= maxPages) { more = true; break; }
 
-    const data = await graphqlThrottleAware(connection, CUSTOMERS_QUERY, {
-      first: pageSize, cursor, filter,
-    }, { gql, onThrottle: onProgress });
+    let data;
+    try {
+      data = await graphqlThrottleAware(connection, CUSTOMERS_QUERY, {
+        first: pageSize, cursor, filter,
+      }, { gql, onThrottle: onProgress });
+    } catch (err) {
+      // Protected customer data the app was not approved for. Nothing this
+      // run can do differently, and nothing the next one can either, so it is
+      // a skip with the reason -- not a nightly that goes red for ever.
+      // Anything written before the refusal stays written.
+      if (!customersAccessRefused(err?.message)) throw err;
+      return {
+        job_type: 'customers_sync',
+        skipped: true,
+        access_refused: true,
+        reason: `Shopify refused customer fields: ${String(err?.message || err).slice(0, 300)}`,
+        pages_fetched: pages,
+        customers_fetched: fetched,
+        customers_upserted: upserted,
+        // Whatever landed before the refusal is stored, so the watermark it
+        // earned stands.
+        last_customer_sync_at: watermark || stored || null,
+      };
+    }
     pages += 1;
 
     const conn = data?.customers;

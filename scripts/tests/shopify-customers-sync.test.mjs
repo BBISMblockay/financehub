@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import { createFakeSupabase } from './lib/fake-supabase.mjs';
 import {
   customerConsentRow,
+  customersAccessRefused,
   customersNotInstalled,
   normalizeConsentValue,
   runCustomersSync,
@@ -171,8 +172,11 @@ test('a first run asks for every customer; the next run asks only for changes', 
     { batchId: 'b2', gql: gql2 },
   );
   assert.equal(second.first_run, false);
-  assert.match(gql2.seen[0].filter, /^updated_at:>='2026-11-20T09:50:00.000Z'$/,
-    'the incremental window is the watermark less a small overlap');
+  // A FULL DAY of overlap: Shopify's search syntax documents updated_at as
+  // matching "a whole day" and says nothing about sub-second precision, so the
+  // window must be correct whether or not the time part survives.
+  assert.match(gql2.seen[0].filter, /^updated_at:>='2026-11-19T10:00:00\.000Z'$/,
+    'the incremental window is the watermark less a day');
   assert.equal(second.last_customer_sync_at, '2026-11-22T10:00:00Z');
 });
 
@@ -316,6 +320,31 @@ test('a database without the migration is a skip, not a failure', async () => {
   const db = createFakeSupabase();
   const run = await runCustomersSync(db, connection(), { batchId: 'b1', gql: fakeGql([[node()]]) });
   assert.equal(run.skipped, undefined);
+});
+
+test('protected customer data Shopify will not disclose is a skip, with the reason', async () => {
+  // A partially-approved app gets data AND an error naming each redacted
+  // field. That is a standing fact about the app's approval, true again
+  // tomorrow night, so it must not be a permanently red nightly.
+  assert.equal(customersAccessRefused('Access denied for customers field'), true);
+  assert.equal(customersAccessRefused('This app is not approved to access the Customer.email field'), true);
+  assert.equal(customersAccessRefused('Shopify GraphQL: internal server error'), false);
+  assert.equal(customersAccessRefused('Throttled'), false);
+
+  const db = createFakeSupabase();
+  const gql = async () => { throw new Error('Shopify GraphQL: Access denied for customers field'); };
+  const run = await runCustomersSync(db, connection(), { batchId: 'b1', gql });
+
+  assert.equal(run.skipped, true);
+  assert.equal(run.access_refused, true);
+  assert.match(run.reason, /refused customer fields/);
+  assert.equal(db.rows('shopify_customers').length, 0);
+});
+
+test('a transport failure still throws, so it is recorded as a failure', async () => {
+  const db = createFakeSupabase();
+  const gql = async () => { throw new Error('Shopify GraphQL: internal server error'); };
+  await assert.rejects(() => runCustomersSync(db, connection(), { batchId: 'b1', gql }), /internal server error/);
 });
 
 // ── the migration says the same things ──────────────────────────────────────
