@@ -9639,10 +9639,9 @@ select 'Affiliate program scope' as check_name,
     else 'ok'
   end as status;
 
--- One person, one payout address, one email (20261121230000). A membership is
--- still an affiliates row per program; what belongs to the PERSON is their
--- PayPal address and their email, and both are held together by a trigger
--- because several deployed functions write these tables.
+-- Outreach stops when somebody joins (20261124140000): a live membership
+-- closes that person's open recruiting drafts, so one cannot sit waiting for
+-- an affiliate of this brand.
 select 'Affiliate outreach closes on joining' as check_name,
   case
     when to_regprocedure('public.affiliate_outreach_close_when_joined()') is null
@@ -9665,8 +9664,12 @@ select 'Affiliate outreach closes on joining' as check_name,
     when position('affiliate_visible_program' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_outreach_close_when_joined()')), '')) = 0
       then 'BROKEN — the outreach closer can refuse a membership write a scoped manager is entitled to make'
     else 'ok'
-  end as status
-union all
+  end as status;
+
+-- One person, one payout address, one email (20261121230000). A membership is
+-- still an affiliates row per program; what belongs to the PERSON is their
+-- PayPal address and their email, and both are held together by a trigger
+-- because several deployed functions write these tables.
 select 'Affiliate one person' as check_name,
   case
     when to_regprocedure('public.affiliate_payout_account_mirror()') is null
