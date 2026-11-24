@@ -407,9 +407,11 @@ const peopleScope = () => S.tab === 'people' && S.programs.length > 0;
 const progOf = (x) => S.programs.find((p) => p.id === x?.program_id) || null;
 // Programs a person can be added to or searched for: anything not closed.
 const openPrograms = () => S.programs.filter((x) => x.status !== 'closed');
-// Which program Find creators and Add creators work in. Picked on the button.
-const findProgram = () => openPrograms().find((x) => x.id === S.findPg)
-  || openPrograms().find((x) => x.id === S.programId) || openPrograms()[0] || null;
+// Where Find creators and Add creators save what they find. There is no
+// picker (Blake 2026-11-24: "SHOW ONE LIST"): everybody found shows on the
+// one company list whichever program holds the row, and "Add to <program>"
+// puts them in any other.
+const findProgram = () => openPrograms().find((x) => x.id === S.programId) || openPrograms()[0] || null;
 
 async function loadPrograms() {
   S.programs = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).order('created_at'));
@@ -1651,7 +1653,7 @@ function dialogSpec() {
   if (!MANAGE || !d) return null;
   const ed = S.editProspect ? d.prospectById[S.editProspect] : null;
   if (ed) return { key: `prospect:${ed.id}`, title: `Edit ${ed.display_name || ed.handle || 'creator'}`, body: prospectEditBody(ed) };
-  if (S.addCreators) return { key: 'add-creators', title: S.programs.length > 1 && prog() ? `Add creators to ${prog().name}` : 'Add creators', body: addCreatorsBody() };
+  if (S.addCreators) return { key: 'add-creators', title: 'Add creators', body: addCreatorsBody() };
   const mp = S.moreProspect ? d.prospectById[S.moreProspect] : null;
   // Keyed by the buttons themselves. Status is not enough: Mark contacted and
   // Draft message change a draft, not the creator, and a key that did not move
@@ -2183,7 +2185,7 @@ function prospectActions(x) {
 }
 function renderProspects() {
   const d = S.d;
-  // Find creators and Add creators work in one program, picked on the row.
+  // Where Find creators and Add creators save (see findProgram).
   const fp = findProgram();
   const filter = S.prospectFilter || 'new';
   // Everybody found, in any program, once each (Blake 2026-11-24: "Discovery
@@ -2289,15 +2291,8 @@ function renderProspects() {
       ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
       : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
     : '';
-  // A search runs for one program, because it reads that program's niche
-  // words and its finds are saved there. Everything it finds still shows
-  // here, company-wide. Picked with buttons, not a fold-out.
-  const fps = openPrograms();
-  const forPick = fps.length > 1
-    ? field('For', `<div class="af-seg" role="radiogroup" aria-label="Find for">${fps.map((y) => `<button type="button" class="af-seg-btn${y.id === fp?.id ? ' is-on' : ''}" role="radio" aria-checked="${y.id === fp?.id}" data-act="find-pg" data-pg="${esc(y.id)}">${esc(y.name)}</button>`).join('')}</div>`)
-    : '';
   const findRow = MANAGE && fp
-    ? `<div class="af-find-inline">${forPick}${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators', { pg: fp.id })}</div>`
+    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators', { pg: fp.id })}</div>`
     : '';
   // Editing a creator, adding creators and the code/link forms all open in
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
@@ -3893,7 +3888,6 @@ const A = {
     S.sel.clear();
     return `Added ${num(added)} to ${p.name}, shortlisted.${already ? ` ${num(already)} already there.` : ''}${blocked ? ` ${num(blocked)} on do not contact.` : ''}${failed ? ` ${num(failed)} could not be added.` : ''}`;
   },
-  'find-pg': ({ pg }) => { S.findFocus = $('rsFocus')?.value || ''; S.findCount = Number(val('rsCount')) || 25; S.findPg = pg; render(); return null; },
   // Queues: tick one, tick all, then act on the ticked rows.
   'q-pick': ({ q, id }) => { const sel = qsel(q); if (sel.has(id)) sel.delete(id); else sel.add(id); render(); return null; },
   'q-all': ({ q }) => { const sel = qsel(q); const ids = QROWS[q] || []; if (ids.length && ids.every((id) => sel.has(id))) sel.clear(); else ids.forEach((id) => sel.add(id)); render(); return null; },
