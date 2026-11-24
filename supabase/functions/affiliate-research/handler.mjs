@@ -93,6 +93,8 @@ export const SCAN_TAIL_MS = 40_000;
 // whole table.
 export const SCAN_PAGE = 1000;
 export const SCAN_MAX_PAGES = 20;
+// Ambiguous rows from earlier scans judged per press, from stored profiles.
+export const CARRY_AMBIGUOUS = 200;
 const CHUNK = 200;
 const chunks = (list, n = CHUNK) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -355,9 +357,9 @@ export function createResearchHandler({
     return reply({ scan_id: scan.id }, 202);
   }
 
-  // The customers to scan, written as pending rows. Rows an earlier run left
-  // pending (or that failed) come first; then new customers from the slice.
-  async function queueScan({ company, program, scanId, want, filters }) {
+  // Who may never be scanned: do-not-contact addresses and domains, and the
+  // company's own people. Read fresh for every press.
+  async function scanGuards(company) {
     const { data: sup } = await service.from('affiliate_suppressions').select('kind, value_normalized')
       .eq('company_entity_id', company).limit(5000);
     const supEmails = new Set((sup || []).filter((x) => x.kind === 'email').map((x) => x.value_normalized));
@@ -381,9 +383,13 @@ export function createResearchHandler({
       for (const x of ps || []) if (x.email) memberEmails.push(x.email);
     }
     const isTeam = teamFilter(memberEmails);
-    const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
-      .eq('company_entity_id', company).in('status', ['pending', 'error'])
-      .order('created_at', { ascending: true }).limit(want);
+    return { suppressed, isTeam };
+  }
+
+  // Rows already stored are re-checked against CURRENT consent, suppression
+  // and team before anything more is done with them: searching (the queue)
+  // or sending their name and profiles to the model (carried ambiguous rows).
+  async function recheck(company, left, { suppressed, isTeam }) {
     // A queued customer is re-checked before it is resumed: consent can
     // change between the press that queued them and the one that finishes
     // them, and somebody who has since unsubscribed (or been added to
@@ -401,6 +407,17 @@ export function createResearchHandler({
       const c = now_.get(r.customer_key);
       return !!c && !NEVER_SCAN_CONSENT.includes(c.email_consent_state) && !suppressed(c.email_lc) && !isTeam(c.email_lc);
     };
+    return eligible;
+  }
+
+  // The customers to scan, written as pending rows. Rows an earlier run left
+  // pending (or that failed) come first; then new customers from the slice.
+  async function queueScan({ company, program, scanId, want, filters, guards }) {
+    const { suppressed, isTeam } = guards;
+    const { data: left } = await service.from('affiliate_customer_social').select('id, customer_key')
+      .eq('company_entity_id', company).in('status', ['pending', 'error'])
+      .order('created_at', { ascending: true }).limit(want);
+    const eligible = await recheck(company, left, guards);
     const dropped = (left || []).filter((r) => !eligible(r)).map((r) => r.id);
     for (const ids of chunks(dropped)) {
       await service.from('affiliate_customer_social').delete().eq('company_entity_id', company).in('id', ids);
@@ -518,19 +535,24 @@ export function createResearchHandler({
         const row = batch.find((b) => b.key === o.key);
         await write(row.id, socialRowPatch({ status: o.status, pick: o.pick, candidates: row.candidates, decidedBy: 'ai', query: row.query, checkedAt: at,
           basis: o.pick ? matchBasis({ pick: o.pick, person: row.person, email: row.email, city: row.city }) : null }));
-        t.ambiguous -= 1; t[o.status] += 1; aiDecided += 1;
+        // A row carried over from an earlier scan was never counted in this
+        // one, so this scan's counters are left alone.
+        if (!row.carried) { t.ambiguous -= 1; t[o.status] += 1; }
+        aiDecided += 1;
       }
     }
 
     let status = 'done'; let error = null;
     try {
-      const queued = await queueScan({ company, program, scanId, want, filters });
+      const guards = await scanGuards(company);
+      const queued = await queueScan({ company, program, scanId, want, filters, guards });
       await beat({ requested: queued });
       const { data: todo, error: tErr } = await service.from('affiliate_customer_social')
         .select('id, customer_key, email_lc, display_name, city, query').eq('company_entity_id', company)
         .eq('scan_id', scanId).eq('status', 'pending').order('created_at', { ascending: true }).limit(queued || 1);
       if (tErr) throw new Error(`could not read the queue: ${tErr.message || tErr}`);
       const ambiguous = [];
+      const triedHere = new Set();
       let next = 0; let sinceBeat = 0;
       const worker = async () => {
         while (next < (todo || []).length) {
@@ -556,8 +578,12 @@ export function createResearchHandler({
             }
             await write(row.id, socialRowPatch({ status: j.status, pick: j.pick, candidates: j.candidates, decidedBy: 'search', query: row.query, checkedAt: now().toISOString(), basis }));
             t[j.status] += 1;
+            if (j.status === 'ambiguous') triedHere.add(row.id);
             if (j.status === 'ambiguous') ambiguous.push({ id: row.id, key: row.customer_key, name: person.display, city: row.city, query: row.query, candidates: j.candidates, person, email: row.email_lc });
-          } catch {
+          } catch (err) {
+            // Logged without the customer: a run with a third of its searches
+            // failing (2026-11-24) said nothing about why.
+            console.warn(`customer_scan: search failed ${String(err?.message || err).slice(0, 200)}`);
             await write(row.id, { status: 'error', checked_at: now().toISOString() });
             t.error += 1;
           }
@@ -568,6 +594,27 @@ export function createResearchHandler({
       };
       await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, worker));
       while (ambiguous.length) await decide(ambiguous.splice(0, AI_BATCH));
+      // Searches an EARLIER scan left ambiguous (its model step failed, or
+      // there was no time) are judged now from the profiles already stored:
+      // no new search, so nothing is paid twice. Only with time to spare.
+      if (apiKey && left() > SCAN_TAIL_MS / 2) {
+        const { data: old } = await service.from('affiliate_customer_social')
+          .select('id, customer_key, email_lc, display_name, city, query, candidates').eq('company_entity_id', company)
+          .eq('status', 'ambiguous').order('created_at', { ascending: true }).limit(CARRY_AMBIGUOUS + triedHere.size);
+        // The same CURRENT consent, do-not-contact and team check as the
+        // queue: somebody who opted out since their search ran is never sent
+        // to the model, and their row is cleared like a dropped queue row.
+        const fresh = (old || []).filter((r) => !triedHere.has(r.id)).slice(0, CARRY_AMBIGUOUS);
+        const okNow = await recheck(company, fresh, guards);
+        const gone = fresh.filter((r) => !okNow(r)).map((r) => r.id);
+        for (const ids of chunks(gone)) {
+          await service.from('affiliate_customer_social').delete().eq('company_entity_id', company).in('id', ids);
+        }
+        const carried = fresh.filter(okNow).map((r) => ({ ...r, person: personName(r.display_name) }))
+          .filter((r) => r.person && Array.isArray(r.candidates) && r.candidates.length)
+          .map((r) => ({ id: r.id, key: r.customer_key, name: r.person.display, city: r.city, query: r.query, candidates: r.candidates, person: r.person, email: r.email_lc, carried: true }));
+        while (carried.length && left() > 15_000) await decide(carried.splice(0, AI_BATCH));
+      }
       if (status !== 'stopped' && t.checked < (todo || []).length) status = 'stopped';
     } catch (err) {
       status = 'error'; error = String(err?.message || err).slice(0, 500);

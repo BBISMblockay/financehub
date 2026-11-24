@@ -50,6 +50,9 @@
 //   AFFILIATE_SCAN_MUTATION=maskedmail   a marketplace's masked relay username is searched
 //   AFFILIATE_SCAN_MUTATION=handleloose  a handle merely CONTAINING the username counts as theirs
 //   AFFILIATE_SCAN_MUTATION=aiall        the model is asked about every customer, not only ambiguous ones
+//   AFFILIATE_SCAN_MUTATION=forcedtool   the model request forces the tool, which the production model refuses
+//   AFFILIATE_SCAN_MUTATION=nocarry      a search an earlier scan left ambiguous is never judged
+//   AFFILIATE_SCAN_MUTATION=carryoptout  a carried ambiguous customer who has since unsubscribed is sent to the model
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
@@ -85,6 +88,9 @@ const MUTS = {
   programscope: ['handler.mjs', '    const program = COMPANY_SCAN_SCOPE;', "    const program = { platforms: ['instagram', 'tiktok'] };"],
   programjoin: ['handler.mjs', ".eq('company_entity_id', company)\n      .eq('status', 'running')", ".eq('company_entity_id', company).eq('program_id', body?.program_id ?? null)\n      .eq('status', 'running')"],
   programbar: ['handler.mjs', '    const minFollowers = companyMinFollowers(ent?.meta);', "    const { data: pb } = await service.from('affiliate_programs').select('customer_scan_min_followers').eq('company_entity_id', company).limit(1).maybeSingle();\n    const minFollowers = minFollowersFor(pb);"],
+  forcedtool: [LIB, "    tool_choice: { type: 'auto' },", "    tool_choice: { type: 'tool', name: 'record_matches' },"],
+  nocarry: ['handler.mjs', '      if (apiKey && left() > SCAN_TAIL_MS / 2) {', '      if (false) {'],
+  carryoptout: ['handler.mjs', '        const carried = fresh.filter(okNow).map(', '        const carried = fresh.map('],
   nobar: [LIB, '  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : DEFAULT_MIN_FOLLOWERS;', '  return DEFAULT_MIN_FOLLOWERS;'],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -377,6 +383,10 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false } 
     fetchImpl: async (url, init) => {
       const body = JSON.parse(init.body);
       modelCalls.push(body);
+      // As production answered on 2026-11-24: a forced tool is refused.
+      if (['tool', 'any'].includes(body.tool_choice?.type)) {
+        return { ok: false, status: 400, text: async () => '{"type":"error","error":{"type":"invalid_request_error","message":"tool_choice: type \\"tool\\" and \\"any\\" are not supported for this model."}}' };
+      }
       const lines = body.messages[0].content;
       const keys = [...lines.matchAll(/Customer (\S+):/g)].map((m) => m[1]);
       return { ok: true, json: async () => ({
@@ -457,6 +467,7 @@ await test('the model is asked about ambiguous searches only, under the research
   assert.ok(!/Emily/.test(prompt), 'a search that answered it is never sent to the model');
   assert.ok(!/@buyer\.invalid|twins@/.test(JSON.stringify(s.modelCalls[0])), 'no customer email or key ever reaches the model');
   assert.equal(s.modelCalls[0].tools.length, 1, 'no web tools');
+  assert.deepEqual(s.modelCalls[0].tool_choice, { type: 'auto' }, 'never a forced tool: the production model refuses one with a 400');
   assert.equal(row(s, 'twins').status, 'found');
   assert.equal(row(s, 'twins').decided_by, 'ai');
   assert.equal(row(s, 'twins').followers, 5000, 'read from the chosen profile\'s own text');
@@ -479,6 +490,37 @@ await test('a customer the company already scanned, under any program, is never 
   await s.settle();
   assert.ok(!s.searches.some((t) => /Emily/.test(t.keyword)), 'Emily was scanned last week');
   assert.equal(s.searches.length, 4, 'the other two customers: a name search and a username search each');
+});
+
+await test('a search an earlier scan left ambiguous is judged from its stored profiles, with no new search', async () => {
+  const cands = [
+    { platform: 'instagram', handle: '@samtwin', profile_url: 'https://www.instagram.com/samtwin', title: 'Sam Twin (@samtwin)', snippet: '5,000 Followers' },
+    { platform: 'instagram', handle: '@samtwin_az', profile_url: 'https://www.instagram.com/samtwin_az', title: 'Sam Twin (@samtwin_az)', snippet: 'Phoenix' },
+  ];
+  const s = setup({ data: seed({ affiliate_customer_social: [{ id: 'amb', company_entity_id: CO, program_id: null, scan_id: 'old', customer_key: 'twins', email_lc: 'twins@buyer.invalid', display_name: 'Sam Twin', status: 'ambiguous', decided_by: 'search', candidates: cands, created_at: '2026-11-24T03:00:00Z' }] }) });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  assert.ok(!s.searches.some((t) => /Sam Twin|"twins"/.test(t.keyword)), 'no new search for a customer already searched');
+  const r = row(s, 'twins');
+  assert.equal(r.status, 'found', 'the model judged the stored profiles');
+  assert.equal(r.decided_by, 'ai');
+  assert.equal(r.followers, 5000, 'the count re-read from the chosen profile\'s own text');
+  const scan = s.service.tables.affiliate_customer_scans[0];
+  assert.ok(scan.ambiguous >= 0 && scan.found === 1, 'this scan counts only what it searched (Emily), never the carried row');
+});
+
+await test('a carried ambiguous customer who has since opted out is never sent to the model, and is cleared', async () => {
+  const cands = [
+    { platform: 'instagram', handle: '@samtwin', profile_url: 'https://www.instagram.com/samtwin', title: 'Sam Twin (@samtwin)', snippet: '5,000 Followers' },
+    { platform: 'instagram', handle: '@samtwin_az', profile_url: 'https://www.instagram.com/samtwin_az', title: 'Sam Twin (@samtwin_az)', snippet: 'Phoenix' },
+  ];
+  const data = seed({ affiliate_customer_social: [{ id: 'amb', company_entity_id: CO, program_id: null, scan_id: 'old', customer_key: 'twins', email_lc: 'twins@buyer.invalid', display_name: 'Sam Twin', status: 'ambiguous', decided_by: 'search', candidates: cands, created_at: '2026-11-24T03:00:00Z' }] });
+  data.company_customer_profiles.find((c) => c.customer_key === 'twins').email_consent_state = 'unsubscribed';
+  const s = setup({ data });
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  assert.ok(!s.modelCalls.some((b) => /Sam Twin/.test(JSON.stringify(b))), 'their name and profiles never reach the model');
+  assert.equal(row(s, 'twins'), undefined, 'and their stored search is cleared');
 });
 
 await test('a press while a scan runs joins it; a dead worker\'s scan is taken over', async () => {

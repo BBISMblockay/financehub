@@ -245,9 +245,13 @@ export function buildAiRequest({ rows, model }) {
   return {
     model,
     max_tokens: AI_MAX_OUTPUT_TOKENS,
-    system: 'You match a shop\'s customers to their own public social profiles. For each customer you are shown the profiles a Google search returned that carry their name. Choose the one profile that is most plausibly that same person (the city, region or anything in the text can tell you), or null when you cannot tell. Never choose a brand, a fan page, a team or a celebrity who merely shares the name. Answer only with the record_matches tool.',
+    system: 'You match a shop\'s customers to their own public social profiles. For each customer you are shown the profiles a Google search returned that carry their name. Choose the one profile that is most plausibly that same person (the city, region or anything in the text can tell you), or null when you cannot tell. Never choose a brand, a fan page, a team or a celebrity who merely shares the name. Always answer by calling the record_matches tool exactly once, covering every customer.',
     tools: [AI_TOOL],
-    tool_choice: { type: 'tool', name: 'record_matches' },
+    // 'auto', never a forced tool: the production model refuses
+    // tool_choice 'tool' and 'any' outright (400 on 2026-11-24, which left
+    // every ambiguous search unjudged). No tool call in the answer leaves
+    // the rows ambiguous, never 'none'.
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: lines }],
   };
 }
