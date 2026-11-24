@@ -35,6 +35,10 @@
 --    750 when unset, read by the affiliate-research function.
 --    affiliate_programs.customer_scan_min_followers stays (additive only) and
 --    is no longer read.
+-- 7. Once, on the apply that drops the per-program key: results judged by the
+--    pre-trust code (a chosen profile with no match_basis), and every
+--    ambiguous or failed row, are cleared so the next press re-checks them
+--    under the current rules. See the comment at the delete.
 --
 -- Writes stay service-role only (the affiliate-research function, after its
 -- caller-token gate). Idempotent: every step checks before it changes.
@@ -63,6 +67,18 @@ begin
           = array['company_entity_id', 'customer_key', 'program_id']
   loop
     execute format('alter table public.affiliate_customer_social drop constraint %I', c.conname);
+    -- ONE time, on the apply that drops the old key: rows the pre-trust code
+    -- judged are cleared so the next press re-checks them. On production the
+    -- second pilot press (2026-11-24 05:03Z) started two minutes BEFORE the
+    -- trust deploy (05:05Z), so its whole run used the old rules: no team
+    -- exclusion, no username search, no model step (all 59 ambiguous rows
+    -- left unjudged). Its chosen profiles carry no match_basis, which the
+    -- current code always writes; its ambiguous and failed rows are cleared
+    -- with them. 'none' and 'pending' rows, a person's 'rejected', and the
+    -- scan rows are kept.
+    delete from public.affiliate_customer_social
+      where (status in ('found', 'below', 'no_count') and match_basis is null)
+         or status in ('ambiguous', 'error');
   end loop;
 end $$;
 

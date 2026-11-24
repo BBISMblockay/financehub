@@ -4212,7 +4212,10 @@ scoped to the active company only, like `company_customer_profiles`; "Not them" 
 `can_manage_affiliate_programs()`. The follower bar is company data, `entities.meta.affiliate_customer_scan_min_followers`
 (750 when unset); `affiliate_programs.customer_scan_min_followers` stays and is no longer read. The affiliate-research
 function searches every platform for this action and needs no program; the program is chosen only at Add to outreach.
-Apply first, then deploy affiliate-research.
+Once, on the apply that drops the per-program key, results judged by the pre-trust code (a chosen profile with no
+`match_basis`) and every ambiguous or failed row are cleared, so the next press re-checks them: on production the second
+pilot press started two minutes before the trust deploy and ran entirely on the old rules. Apply first, then deploy
+affiliate-research.
 
 ### `20261124190000_affiliate_customer_social_trust.sql` — social finds you can trust
 
