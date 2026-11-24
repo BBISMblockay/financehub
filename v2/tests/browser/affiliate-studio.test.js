@@ -193,6 +193,7 @@ const MUTATIONS = {
   // one program's again.
   scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
   socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
+  termsnotsent: ['/affiliates/studio.js', "      ...(c.scanTerms === null ? {} : { terms: c.scanTerms }),", ''],
   pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', finds: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, finds: c.scanCount,"],
   foundbaronly: ['/affiliates/studio.js', ".eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count'])", ".eq('company_entity_id', CO).eq('status', 'found')"],
   huntall: ['/affiliates/studio.js', "  q = q.in('status', HUNT_TIERS[t]);", "  q = q.in('status', [...HUNT_TIERS.top, ...HUNT_TIERS.more]);"],
@@ -3324,9 +3325,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.has(await text(pg, '#custScanLine'), 'Last scan: 500 of 500 checked · 12 found.', 'a finished scan says what it found');
         R.ok('the full list has no second Hunt button', await pg.evaluate(() => !document.querySelector('#customersBody [data-act="cust-scan"]')));
         await pg.click('#customersBody [data-act="cust-view"][data-k="hunt"]');
+        await pg.waitForSelector('#custScanTerms', { timeout: 5000 }).catch(() => {});
+        await pg.fill('#custScanTerms', 'MLB, baseball').catch(() => {});
         await pg.click('#customersBody [data-act="cust-scan"]');
         await pg.waitForFunction(() => /Searching/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
         const call = calls.find((c) => c.action === 'customer_scan');
+        R.eq(call?.terms, 'MLB, baseball', 'the Niche words box rides on the press, to be saved as the company\'s words');
         R.ok('the press calls the scan', !!call);
         R.eq([call?.finds, call?.filters?.minOrders, call?.filters?.consent, call?.filters?.sort], [25, 3, 'any', 'orders'], 'with the finds wanted and the slice the person is looking at');
         R.ok('never a company id from the page', !('company_entity_id' in (call || {})));

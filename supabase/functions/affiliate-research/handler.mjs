@@ -34,7 +34,7 @@
 // AI credit (docs/ops/ai-credits.md): one hold per run, opened before the
 // first model call, grown before each later call; charged only when at least
 // one creator survived the checks, free otherwise.
-import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults } from './lib/affiliate-discovery-core.mjs';
+import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults, RETRYABLE_SERP_CODES } from './lib/affiliate-discovery-core.mjs';
 import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
 import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef, searchYouTubeChannels } from './lib/affiliate-youtube-core.mjs';
 import {
@@ -48,7 +48,7 @@ import {
   socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
   matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle, COMPANY_SCAN_SCOPE, companyMinFollowers,
   clampFinds, companyMaxChecks, createSerpQueue, QUEUE_POST_BATCH,
-  scorePick, tallyBucket, companyTerms, buildCountTask, judgeCount,
+  scorePick, tallyBucket, companyTerms, termsInput, buildCountTask, judgeCount,
 } from './lib/affiliate-customer-scan-core.mjs';
 
 export const corsHeaders = {
@@ -403,9 +403,23 @@ export function createResearchHandler({
     // The company's niche words, for the niche signal in the match score:
     // company data, else its active programs' own niche text. Kept on the
     // scan row so every leg of the press scores the same way.
+    // The page's "Niche words" box rides on the press: what was typed is
+    // saved as the company's own words before this press uses them.
+    let meta = ent?.meta && typeof ent.meta === 'object' ? ent.meta : {};
+    if (typeof body?.terms === 'string') {
+      const words = termsInput(body.terms);
+      const had = Array.isArray(meta.affiliate_customer_scan_terms) ? meta.affiliate_customer_scan_terms : null;
+      if (JSON.stringify(had || []) !== JSON.stringify(words)) {
+        const next = { ...meta };
+        if (words.length) next.affiliate_customer_scan_terms = words; else delete next.affiliate_customer_scan_terms;
+        const { error: tErr } = await service.from('entities').update({ meta: next }).eq('id', company);
+        if (tErr) return reply({ error: 'Could not save the niche words. Try again.' }, 500);
+        meta = next;
+      }
+    }
     const { data: progs } = await service.from('affiliate_programs').select('niche, audience_notes')
       .eq('company_entity_id', company).eq('status', 'active').limit(50);
-    const filters = { ...scanFilters(body?.filters), terms: companyTerms(ent?.meta, progs || []) };
+    const filters = { ...scanFilters(body?.filters), terms: companyTerms(meta, progs || []) };
     const startedAt = now();
     const { data: scan, error: sErr } = await service.from('affiliate_customer_scans').insert({
       company_entity_id: company, program_id: null, created_by: callerId, status: 'running',
@@ -734,6 +748,15 @@ export function createResearchHandler({
           } else await write(r.id, clear);
           return;
         }
+        // A provider fault (40101 and the like, ~1 in 5 checks on
+        // 2026-11-24) is searched once more in this press. A pending row's
+        // checked_at marks that it already had its retry: it is null until a
+        // row is first answered, and a failed row resumed by a later press
+        // keeps its own.
+        if (res.state === 'error' && RETRYABLE_SERP_CODES.has(res.code) && person && r.status === 'pending' && !r.checked_at) {
+          await write(r.id, { checked_at: at, ...clear });
+          return;
+        }
         if (res.state !== 'ready' || !person) {
           console.warn(`customer_scan: search failed ${res.state === 'pending' ? 'never answered' : `code ${res.code ?? '?'}`}`);
           await write(r.id, { status: 'error', checked_at: at, ...clear });
@@ -781,7 +804,7 @@ export function createResearchHandler({
         if (e) throw new Error(`could not read the scan: ${e.message || e}`);
         return data || [];
       };
-      const ROW_COLS = 'id, customer_key, email_lc, display_name, city, query, status, decided_by, candidates, platform, handle, profile_url, match_basis, serp_task_id, serp_task_kind, serp_posted_at';
+      const ROW_COLS = 'id, customer_key, email_lc, display_name, city, query, status, checked_at, decided_by, candidates, platform, handle, profile_url, match_basis, serp_task_id, serp_task_kind, serp_posted_at';
       while (left() > SCAN_TAIL_MS) {
         let inflight = await readScanRows(ROW_COLS, (q) => q.not('serp_task_id', 'is', null).limit(SCAN_MAX_INFLIGHT * 2));
         let waiting = await readScanRows(ROW_COLS, (q) => q.eq('status', 'pending').is('serp_task_id', null).order('created_at', { ascending: true }).limit(SCAN_MAX_INFLIGHT));

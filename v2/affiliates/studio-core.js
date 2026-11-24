@@ -932,6 +932,13 @@ export const LIKELY_SCORE = 70;
 // (STALE_SCAN_MS, 3 minutes) died partway. The page reads it as stopped, so a
 // dead run never locks Find; the next press clears it on the server too.
 export const SCAN_STALE_MS = 3 * 60_000;
+// The company's own niche words (entities.meta.affiliate_customer_scan_terms)
+// as the "Niche words" box shows them. Find adds every active program's words.
+export function scanTermsText(meta) {
+  const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((w) => String(w ?? '').trim()).filter(Boolean).join(', ');
+}
 export function liveScan(scan, nowMs = Date.now()) {
   if (!scan || scan.status !== 'running') return scan || null;
   const beat = new Date(scan.heartbeat_at || scan.started_at || 0).getTime();

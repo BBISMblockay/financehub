@@ -229,10 +229,21 @@ export function tallyBucket(status, score) {
 }
 
 /**
- * The company's niche words, for the niche signal. Company data first
+ * The company's niche words, for the niche signal: its own words
  * (entities.meta.affiliate_customer_scan_terms: a list or comma-separated
- * text), else the words of its active programs' niche and audience notes.
+ * text) plus the words of its active programs' niche and audience notes.
  */
+/**
+ * The "Niche words" box as typed -> the list stored on the company
+ * (entities.meta.affiliate_customer_scan_terms). Comma separated; each entry
+ * folded, 3 to 40 characters; at most 20. Empty -> [] (the company has none).
+ */
+export function termsInput(text) {
+  return [...new Set(String(text ?? '').slice(0, 1000).split(',')
+    .map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((w) => w.length >= 3 && w.length <= 40))].slice(0, 20);
+}
+
 export function companyTerms(meta, programs = []) {
   const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
   const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : null;

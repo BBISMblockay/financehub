@@ -63,6 +63,8 @@
 //   AFFILIATE_SCAN_MUTATION=nobar        the company's follower bar is ignored for the default
 //   AFFILIATE_SCAN_MUTATION=namefind     a find over the bar counts as found whatever its score
 //   AFFILIATE_SCAN_MUTATION=bigname      a huge account tied by a name alone loses no points
+//   AFFILIATE_SCAN_MUTATION=termsunsaved the Niche words box is used once but never saved
+//   AFFILIATE_SCAN_MUTATION=noretry      a provider fault is a failure at once, never searched again
 //   AFFILIATE_SCAN_MUTATION=termsreplace company words replace the programs' words instead of joining them
 //   AFFILIATE_SCAN_MUTATION=nicheloose   a niche word matches inside another word ("baseballs")
 //   AFFILIATE_SCAN_MUTATION=countother   the count lookup reads another account's count from the results
@@ -115,6 +117,8 @@ const MUTS = {
   nocap: ['handler.mjs', '      const capLeft = () => Math.max(0, maxChecks - requested);', '      const capLeft = () => 1e9;'],
   namefind: [LIB, "  return status === 'found' && !(Number(score) >= LIKELY_SCORE) ? 'check' : status;", '  return status;'],
   bigname: [LIB, '    if (off) s += off[1];', '    if (off) s += 0;'],
+  termsunsaved: ['handler.mjs', "        const { error: tErr } = await service.from('entities').update({ meta: next }).eq('id', company);", "        const tErr = null;"],
+  noretry: ['handler.mjs', "        if (res.state === 'error' && RETRYABLE_SERP_CODES.has(res.code) && person && r.status === 'pending' && !r.checked_at) {", "        if (false) {"],
   termsreplace: [LIB, '  return [...new Set([...own, ...prog])].slice(0, 40);', '  return [...new Set(list ? own : prog)].slice(0, 40);'],
   nicheloose: [LIB, "  if ((terms || []).some((t) => t && text.includes(` ${t} `))) out.add('niche');", "  if ((terms || []).some((t) => t && text.includes(t))) out.add('niche');"],
   countother: [LIB, '  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));', '  const hit = candidates.find((c) => c.platform === pick.platform);'],
@@ -400,7 +404,7 @@ const RESULTS = {
   samtwin_az: [ig('samtwinfans', 'Sam Twin Fans (@samtwinfans)', '50K Followers'), ig('samtwin_az', 'Sam T (@samtwin_az) • Instagram', '1,900 Followers, 210 Following', 2)],
   'Olive Out': [ig('oliveout', 'Olive Out (@oliveout)', '90K Followers')],
 };
-function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false, searchMs = 0, refuse = {} } = {}) {
+function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, chain = false, searchMs = 0, refuse = {}, flaky = {} } = {}) {
   const service = fakeService(data);
   const searches = []; const gets = []; const modelCalls = []; const bg = []; const legs = [];
   let t = Date.parse('2026-11-24T04:00:00Z');
@@ -434,6 +438,8 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
         const keyword = decodeURIComponent(id.slice(5));
         const name = (keyword.match(/"([^"]+)"/) || [])[1];
         if (refuse[name]) return { state: 'error', code: refuse[name] };
+        // Fails the first time only, as a provider hiccup does.
+        if (flaky[name]) { const code = flaky[name]; delete flaky[name]; return { state: 'error', code }; }
         return { state: 'ready', items: RESULTS[name] || [] };
       },
     },
@@ -499,6 +505,14 @@ await test('a press scans the slice: one search each, opt-outs and businesses ne
   // they wait under Check for a person.
   assert.deepEqual([scan.requested, scan.checked, scan.found, scan.filters.to_check], [3, 3, 0, 2]);
   assert.deepEqual(scan.filters.terms, ['baseball'], 'the niche words come from the company\'s active programs when the company sets none');
+  // The Niche words box rides on a press: saved as the company's own words,
+  // and used with the programs' words by that same press.
+  const w = setup();
+  await w.call({ filters: { minOrders: 2 }, terms: 'MLB, Softball' });
+  await w.settle();
+  assert.deepEqual(w.service.tables.entities.find((e) => e.id === CO).meta.affiliate_customer_scan_terms, ['mlb', 'softball']);
+  assert.deepEqual(w.service.tables.affiliate_customer_scans[0].filters.terms, ['mlb', 'softball', 'baseball']);
+  assert.equal(w.service.tables.entities.find((e) => e.id === OTHER).meta.affiliate_customer_scan_terms, undefined, 'another company is untouched');
   assert.equal(scan.cost_usd, 0.01, 'spend is recorded for SILO: five searches');
 });
 
@@ -724,6 +738,13 @@ await test('the queue: posts map to tasks by position, "no results" is an answer
   await f.settle();
   assert.equal(row(f, 'nobody').status, 'error');
   assert.equal(f.service.tables.affiliate_customer_scans[0].failed, 1);
+  assert.equal(f.searches.filter((x) => /Quiet Person/.test(x.keyword)).length, 2, 'searched once more, then left as failed');
+  // A hiccup: the one retry answers it.
+  const g = setup({ flaky: { 'Quiet Person': 40101 } });
+  await g.call({ filters: { minOrders: 2 } });
+  await g.settle();
+  assert.notEqual(row(g, 'nobody').status, 'error', 'the retry answered it');
+  assert.equal(g.service.tables.affiliate_customer_scans[0].failed, 0);
 });
 
 await test('the email username is searched only when the name search did not settle it', async () => {
@@ -852,6 +873,8 @@ await test('the match score: each signal adds, a big name-only account loses, 70
   assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: 'Baseball, MLB , x' }), ['baseball', 'mlb'], 'company words, short ones dropped');
   assert.deepEqual(L.companyTerms({ affiliate_customer_scan_terms: ['MLB', 'baseball'] }, [{ niche: 'baseball dads' }]), ['mlb', 'baseball', 'dads'], 'company words combined with the programs\' words');
   assert.deepEqual(L.companyTerms({}, [{ niche: null, audience_notes: 'Baseball' }, { niche: 'softball moms' }]), ['baseball', 'softball', 'moms']);
+  assert.deepEqual(L.termsInput(' MLB, Baseball ,, x, baseball'), ['mlb', 'baseball'], 'the box as typed: folded, short and repeated words dropped');
+  assert.deepEqual(L.termsInput(''), []);
 });
 
 await test('a profile matched with no count gets one search for its own handle, which can make it a find', async () => {

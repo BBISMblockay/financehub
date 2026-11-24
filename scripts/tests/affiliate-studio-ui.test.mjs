@@ -570,6 +570,8 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.liveScan({ status: 'running' }, t0).status, 'running', 'the page\'s own just-pressed run has no heartbeat yet');
   assert.equal(C.liveScan({ status: 'done', heartbeat_at: '2026-11-24T07:00:00Z' }, t0).status, 'done');
   assert.equal(C.liveScan(undefined), null);
+  assert.equal(C.scanTermsText({ affiliate_customer_scan_terms: ['baseball', 'mlb'] }), 'baseball, mlb', 'the Niche words box shows the company\'s own words');
+  assert.equal(C.scanTermsText({}), '');
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
