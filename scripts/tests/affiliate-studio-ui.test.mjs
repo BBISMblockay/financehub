@@ -30,6 +30,7 @@
 //   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
 //   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
 //   AFFILIATE_CORE_MUTATION=unsubmail    an unsubscribed customer is given the email path
+//   AFFILIATE_CORE_MUTATION=noemaildm    a customer with no email can be given a DM path
 //   AFFILIATE_CORE_MUTATION=dmsupp       a do-not-contact handle can still be DMed
 //   AFFILIATE_CORE_MUTATION=counthidden  the Find tab counts include customers the list hides
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
@@ -69,6 +70,7 @@ const MUTS = {
   deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
   termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
   unsubmail: ["  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return", "  if (email) return"],
+  noemaildm: ["  if (!email) return null;\n", ''],
   dmsupp: ["  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;", ""],
   counthidden: ["    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);", "    if (false) out[t] = 0;"],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
@@ -602,6 +604,7 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerContactPath(cu('subscribed'), okFind, [{ kind: 'email', value_normalized: 'ola@buyer.invalid' }]), null, 'do-not-contact email: never');
   assert.equal(C.customerContactPath(cu('unsubscribed'), okFind, [{ kind: 'handle', value_normalized: '@OLA' }]), null, 'do-not-contact handle: never DMed');
   assert.equal(C.customerNoPathReason(cu('subscribed', { email_lc: '' }), null), 'no email on file');
+  assert.equal(C.customerContactPath(cu('unsubscribed', { email_lc: '' }), okFind), null, 'no email, no path: their address is the prospect identity, so two email-less customers would collapse into one');
 
   const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });

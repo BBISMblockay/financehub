@@ -172,6 +172,7 @@ const MUTATIONS = {
   unsubemail: ['/affiliates/studio.js',
     "channel: path.channel,\n            recipient_email: path.email, recipient_handle: path.handle,",
     "channel: 'email',\n            recipient_email: x.email_lc, recipient_handle: null,"],
+  consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
   unsubhidden: ['/affiliates/studio.js', "const HUNT_NEVER = ['redacted'];", "const HUNT_NEVER = ['unsubscribed', 'redacted'];"],
   // Source is what picks the template, on every path that writes a draft.
   custcreatorpitch: ['/affiliates/studio.js',
@@ -3423,6 +3424,22 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         R.eq(dr?.channel, 'dm', 'their message is a DM to send by hand');
         R.eq(dr?.recipient_email ?? null, null, 'and never an email');
         R.eq(dr?.recipient_handle, 'https://www.instagram.com/ola', 'to the account Find matched');
+        // Consent is re-read at the press: somebody a sync turned
+        // unsubscribed after the list loaded still gets a DM, never email.
+        // Let the reload after the first Add land first, so the list holds
+        // the OLD consent when it flips.
+        await pg.waitForFunction(() => /Approve them on Outreach/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+        await pg.waitForTimeout(800);
+        // A NEW row object: the fake may hand the page the same objects, and
+        // editing one in place would change the page's snapshot too.
+        await pg.evaluate(() => { const t = window.__FIXTURE_TABLES__.company_customer_profiles; const i = t.findIndex((r) => r.customer_key === 'loyal@buyer.invalid'); t[i] = { ...t[i], email_consent_state: 'unsubscribed' }; });
+        const before = await pg.evaluate(() => window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').length);
+        await pg.waitForSelector('#customersBody [data-act="cust-pick"][data-k="loyal@buyer.invalid"]', { timeout: 5000 }).catch(() => {});
+        await pg.click('#customersBody [data-act="cust-pick"][data-k="loyal@buyer.invalid"]').catch(() => {});
+        await pg.click('#customersBody [data-act="cust-add"]').catch(() => {});
+        await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_outreach_drafts' && q._op === 'insert').length > n, before, { timeout: 5000 }).catch(() => {});
+        const dr2 = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_outreach_drafts' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
+        R.ok('unsubscribed since the list loaded: a DM, never an email', dr2?.channel === 'dm' && !dr2?.recipient_email && dr2?.recipient_handle === 'https://www.instagram.com/lou');
         await pg.close();
       }
     }

@@ -875,7 +875,7 @@ export function customerSuppressed(email, suppressions = []) {
 //   dm     they unsubscribed, so never email -- a DM by hand to the social
 //          account Find matched, which SILO never sends
 //   null   no way to reach them: unsubscribed with no account found, no
-//          email at all, or on the do-not-contact list (email, domain or the
+//          email on file (their identity), or on the do-not-contact list (email, domain or the
 //          matched handle)
 export const NO_EMAIL_CONSENT = ['unsubscribed', 'redacted'];
 const bareHandle = (h) => String(h || '').trim().toLowerCase().replace(/^@/, '');
@@ -883,8 +883,12 @@ export function customerContactPath(customer, social = null, suppressions = []) 
   const c = customer || {};
   if (c.email_consent_state === 'redacted') return null;
   const email = String(c.email_lc || '').trim().toLowerCase();
-  if (email && customerSuppressed(email, suppressions)) return null;
-  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return { channel: 'email', email, handle: null };
+  // No email, no path: a customer prospect's identity is their address
+  // (affiliate_prospects_customer_identity), so two email-less customers
+  // would collapse onto one prospect.
+  if (!email) return null;
+  if (customerSuppressed(email, suppressions)) return null;
+  if (!NO_EMAIL_CONSENT.includes(c.email_consent_state)) return { channel: 'email', email, handle: null };
   const ev = customerSocialEvidence(social);
   if (!ev) return null;
   const h = bareHandle(ev.handle);

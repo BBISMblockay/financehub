@@ -3867,8 +3867,22 @@ const A = {
     // already in the program. There is no transaction from the browser, so
     // resuming is what makes the pair safe to retry.
     const drafted = new Set((S.d?.drafts || []).map((x) => x.prospect_id));
-    const picked = c.rows.filter((x) => c.sel.has(x.customer_key));
-    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0; let noWay = 0; let dms = 0;
+    // Consent as it is NOW, not as it was when the list loaded: a sync can
+    // turn somebody unsubscribed while the page is open, and they must never
+    // get an email draft. A failed read stops the press (fails closed).
+    const picked0 = c.rows.filter((x) => c.sel.has(x.customer_key));
+    const nowConsent = new Map();
+    for (let i = 0; i < picked0.length; i += 150) {
+      const part = picked0.slice(i, i + 150).map((x) => x.customer_key);
+      const r = await db.from('company_customer_profiles').select('customer_key, email_consent_state')
+        .eq('company_entity_id', CO).in('customer_key', part);
+      if (r.error) throw new Error('Could not re-check their email consent, so nothing was added. Try again.');
+      for (const row of r.data || []) nowConsent.set(row.customer_key, row.email_consent_state ?? null);
+    }
+    // Somebody no longer on file is not added.
+    const picked = picked0.filter((x) => nowConsent.has(x.customer_key))
+      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));
+    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0; let noWay = picked0.length - picked.length; let dms = 0;
     for (const x of picked) {
       if (x.email_lc && customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
       // The consent tag decides the path: email where it allows, otherwise a
