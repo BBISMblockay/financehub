@@ -13,7 +13,7 @@ klaviyo-oauth-start, test-klaviyo-connection and card-categorize. Each calls `ch
 the caller and fails closed (403 `mfa_required`, 503 when it cannot tell). The other user-facing functions
 make a caller-token PostgREST call whose error aborts before acting, so the hook covers them (audit
 2026-10-13). Pinned by `scripts/tests/mfa-gate.test.mjs`; rule in `supabase/functions/CLAUDE.md`.
-Sources live in `supabase/functions/`; merging a PR does NOT deploy. **Deploys go through the "Deploy Edge Function" workflow from `main` and only with Blake's explicit approval in the session** (corrected 2026-10-07: this line used to say deploys were done by hand through the Supabase MCP/CLI).
+Sources live in `supabase/functions/`. Since 2026-11-25 merging to `main` deploys the functions THAT MERGE CHANGED, through `auto-apply-migrations.yml` calling the workflow below; nothing else is redeployed. **Every deploy still goes through the "Deploy Edge Function" workflow from `main`, and an agent deploying by hand still needs Blake's explicit approval in the session** (corrected 2026-10-07: this line used to say deploys were done by hand through the Supabase MCP/CLI).
 ```
 org-invite-send   -- emails an org invite link; caller must be admin of the invite's entity and present the raw token (JWT-auth)
 platform-invite-send -- emails a FOUNDING invite link (create_platform_invite); caller must pass is_platform_admin() as themselves and present the raw token (JWT-auth, MFA-gated)

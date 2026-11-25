@@ -3,8 +3,11 @@
 Per-function behaviour, secrets and history: [`docs/agents/edge-functions.md`](../../docs/agents/edge-functions.md).
 
 ## Deploying
-- **Merging does not deploy, and agents do not deploy without Blake's explicit approval in the
-  session.** The approved route is the "Deploy Edge Function" workflow from `main`. Never paste
+- **Merging to `main` deploys the functions that merge changed** (`auto-apply-migrations.yml`, which
+  calls the "Deploy Edge Function" workflow per changed slug after that merge's migrations applied).
+  A function the merge did not touch is never redeployed. **Agents still do not deploy by hand
+  without Blake's explicit approval in the session**, and the only route either way is the "Deploy
+  Edge Function" workflow from `main`, still dispatchable for a redeploy or for `all`. Never paste
   source through an API client (it truncated two `silo-chat` deploys).
 - A NEW function whose caller has no Supabase JWT (webhook, OIDC, public form) must be added to
   `NO_JWT_FUNCTIONS` in `deploy-edge-function.yml`, or it rejects its callers before the handler runs.

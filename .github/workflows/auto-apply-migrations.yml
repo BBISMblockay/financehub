@@ -1,0 +1,224 @@
+name: Auto-apply migrations
+
+# Why this exists.
+#
+# Applying a migration and deploying the functions that need it used to be a
+# hand step after every merge: copy the file into the SQL editor, run it, add
+# the schema_migrations row, then dispatch "Deploy Edge Function". The window
+# between the merge and that step is the one where main claims a table that
+# production does not have, and the person holding the window is the only one
+# who knows it is open.
+#
+# This workflow closes it. On a push to main it applies ONLY the migration
+# files that push ADDED, in version order, each in its own transaction, and
+# then deploys ONLY the edge functions that push changed.
+#
+# What it deliberately does not do:
+#   * It never scans supabase/migrations for "what is missing from
+#     schema_migrations". That is what `supabase db push` does, and this repo
+#     has 500+ migration files whose early history was applied before anything
+#     recorded a version -- a scan would re-run them. The set of files comes
+#     from the push's own diff and nothing else, so a file this push did not
+#     add can never be touched, and nothing is ever backfilled.
+#   * It never re-runs a version already in schema_migrations, so a migration
+#     applied by hand before the merge is reported as skipped and left alone.
+#   * It never deploys a function this push did not change.
+#
+# Failure is a full stop, not a partial apply: each file runs with
+# --single-transaction and ON_ERROR_STOP, the failing file rolls back whole,
+# later files do not run, and no function is deployed (the deploy job needs
+# this one). Re-running the run after fixing production by hand is safe --
+# whatever got recorded is skipped on the second pass.
+#
+# Needs the SUPABASE_DB_URL repository secret (Supabase -> Connect -> Session
+# pooler URI, password included). The runner is IPv4-only, which is why this is
+# the pooler host and not db.<ref>.supabase.co.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+
+permissions:
+  contents: read
+
+# Two merges landing together must not apply migrations side by side: version
+# order is the whole contract. cancel-in-progress is false because a cancelled
+# run here is a migration nobody applied.
+concurrency:
+  group: auto-apply-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    outputs:
+      functions: ${{ steps.changed.outputs.functions }}
+      have_functions: ${{ steps.changed.outputs.have_functions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out what this push added and changed
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The empty tree, for the (theoretical) case of a first commit.
+          EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+          base="${BEFORE:-}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            # Force-pushed or otherwise unreachable: compare against the merge
+            # commit's first parent, which is the main this push replaced.
+            base="$(git rev-parse HEAD^ 2>/dev/null || echo "$EMPTY_TREE")"
+            echo "::warning::push payload base was unusable; comparing against $base"
+          fi
+          echo "Comparing $base..$HEAD_SHA"
+
+          # Added migration files only. Renames and edits of an already-applied
+          # migration are NOT applied -- rewriting history in production is not
+          # something a merge should do silently.
+          git diff --name-only --diff-filter=A "$base" "$HEAD_SHA" -- supabase/migrations/ \
+            | grep -E '^supabase/migrations/[^/]+\.sql$' | sort > new-migrations.txt || true
+
+          # Changed function directories. A file sitting directly in
+          # supabase/functions (CLAUDE.md) belongs to no function, and a slug
+          # starting with _ or . is shared code, not a deployable function.
+          git diff --name-only --diff-filter=ACMR "$base" "$HEAD_SHA" -- supabase/functions/ \
+            | awk -F/ 'NF >= 4 { print $3 }' | sort -u > touched-dirs.txt || true
+          : > deploy-functions.txt
+          while read -r slug; do
+            [ -n "$slug" ] || continue
+            case "$slug" in _*|.*) echo "note: shared directory $slug changed; deploying nothing for it" ; continue ;; esac
+            if [[ ! "$slug" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; then
+              echo "::warning::skipping $slug -- not a function slug"
+              continue
+            fi
+            # A function deleted in this push has nothing to deploy.
+            if [ ! -f "supabase/functions/$slug/index.ts" ]; then
+              echo "note: $slug has no index.ts at this commit; skipping"
+              continue
+            fi
+            echo "$slug" >> deploy-functions.txt
+          done < touched-dirs.txt
+
+          echo "New migrations:"; cat new-migrations.txt || true
+          echo "Functions to deploy:"; cat deploy-functions.txt || true
+
+          fns="$(jq -R -s -c 'split("\n") | map(select(length > 0))' < deploy-functions.txt)"
+          echo "functions=$fns" >> "$GITHUB_OUTPUT"
+          if [ -s deploy-functions.txt ]; then
+            echo "have_functions=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_functions=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply the new migrations
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          summary() { echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+
+          if [ ! -s new-migrations.txt ]; then
+            echo "This push added no migration files."
+            summary "### Migrations"
+            summary ""
+            summary "No new migration files in this push."
+            exit 0
+          fi
+
+          if [ -z "${DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set. Copy the Session pooler URI (password included) from Supabase -> Connect and add it under Settings -> Secrets and variables -> Actions. Until then these migrations must be applied by hand:"
+            cat new-migrations.txt
+            exit 1
+          fi
+
+          # Fail here, before any file runs, if the database is unreachable.
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -Atc 'select 1' < /dev/null > /dev/null
+
+          summary "### Migrations"
+          summary ""
+
+          while read -r f; do
+            [ -n "$f" ] || continue
+            file_name="$(basename "$f")"
+            version="${file_name%%_*}"; version="${version%.sql}"
+            name="${file_name#*_}"; name="${name%.sql}"
+
+            if [[ ! "$version" =~ ^[0-9]{6,20}$ ]]; then
+              echo "::error::$f does not start with a version timestamp"
+              summary "- \`$file_name\` — **stopped**: no version timestamp in the filename"
+              exit 1
+            fi
+            # Filenames reach SQL as literals, so keep them to characters that
+            # cannot end a string literal.
+            if [[ ! "$name" =~ ^[A-Za-z0-9_.-]*$ ]]; then
+              echo "::error::$f has characters in its name that this workflow will not put in SQL"
+              summary "- \`$file_name\` — **stopped**: unsupported characters in the filename"
+              exit 1
+            fi
+
+            if ! recorded="$(psql "$DB_URL" -Atc "select 1 from supabase_migrations.schema_migrations where version = '$version'" < /dev/null)"; then
+              echo "::error::could not read supabase_migrations.schema_migrations"
+              summary "- \`$file_name\` — **stopped**: could not read schema_migrations"
+              exit 1
+            fi
+            if [ "$recorded" = "1" ]; then
+              echo "skip    $file_name (version $version already recorded)"
+              summary "- \`$file_name\` — skipped, already applied"
+              continue
+            fi
+
+            # CREATE INDEX CONCURRENTLY (and VACUUM) cannot run inside a
+            # transaction, and this workflow will not run a migration without
+            # one. Those stay a hand step.
+            if sed 's/--.*$//' "$f" | grep -qiE '(^|[^[:alnum:]_])(concurrently|vacuum)([^[:alnum:]_]|$)'; then
+              echo "::error::$file_name uses CONCURRENTLY or VACUUM, which cannot run in a transaction. Apply it by hand, then re-run this workflow run to continue with the rest."
+              summary "- \`$file_name\` — **stopped**: needs a hand apply (CONCURRENTLY / VACUUM cannot run in a transaction)"
+              exit 1
+            fi
+
+            echo "apply   $file_name"
+            if ! psql "$DB_URL" -v ON_ERROR_STOP=1 --single-transaction \
+                   -f "$f" \
+                   -c "insert into supabase_migrations.schema_migrations (version, name) values ('$version', '$name') on conflict (version) do nothing" \
+                   < /dev/null; then
+              echo "::error::$file_name failed. It was rolled back whole and nothing after it ran."
+              summary "- \`$file_name\` — **FAILED, rolled back**. Nothing after it ran and no function was deployed."
+              exit 1
+            fi
+            summary "- \`$file_name\` — applied"
+          done < new-migrations.txt
+
+      - name: Note the functions to deploy
+        if: always()
+        run: |
+          set -euo pipefail
+          { echo ""; echo "### Edge functions"; echo ""; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s deploy-functions.txt ]; then
+            sed 's/^/- /' deploy-functions.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No function changed in this push." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Deploys through the existing workflow so the --no-verify-jwt list stays in
+  # one place. One function at a time, in case two of them share a file.
+  deploy-functions:
+    needs: migrate
+    if: needs.migrate.outputs.have_functions == 'true'
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        function: ${{ fromJSON(needs.migrate.outputs.functions) }}
+    uses: ./.github/workflows/deploy-edge-function.yml
+    with:
+      function_name: ${{ matrix.function }}
+    secrets: inherit
