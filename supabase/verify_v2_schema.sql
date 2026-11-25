@@ -7117,10 +7117,10 @@ select 'Affiliate content offers' as check_name,
         or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_content_submissions' and column_name = 'view_count')
         or to_regprocedure('public.affiliate_content_offer(uuid,bigint)') is null
         or to_regprocedure('public.affiliate_portal_content_answer(text,uuid,boolean,bigint)') is null
-   then 'MISSING — run 20261125234500_affiliate_content_offers_stats.sql'
+   then 'MISSING — run 20261125230000_affiliate_content_offers_stats.sql'
   when not exists (select 1 from pg_constraint where conname = 'affiliate_content_offer_shape')
         or not exists (select 1 from pg_constraint where conname = 'affiliate_content_stats_shape')
-   then 'STALE — re-run 20261125234500_affiliate_content_offers_stats.sql: a check is missing'
+   then 'STALE — re-run 20261125230000_affiliate_content_offers_stats.sql: a check is missing'
   when has_function_privilege('anon', 'public.affiliate_content_offer(uuid,bigint)', 'execute')
    then 'CRITICAL: anon can make content offers'
   when has_function_privilege('anon', 'public.affiliate_portal_content_answer(text,uuid,boolean,bigint)', 'execute')
@@ -7129,7 +7129,7 @@ select 'Affiliate content offers' as check_name,
   when position('can_approve_affiliate_commissions' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_content_offer(uuid,bigint)')), '')) = 0
    then 'CRITICAL: a content offer does not need payout approval'
   when position('offer_state' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_portal_content(text)')), '')) = 0
-   then 'STALE — re-run 20261125234500_affiliate_content_offers_stats.sql: the portal does not show offers'
+   then 'STALE — re-run 20261125230000_affiliate_content_offers_stats.sql: the portal does not show offers'
   else 'ok' end as status;
 -- End affiliate content offer checks.
 
