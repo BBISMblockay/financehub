@@ -33,6 +33,7 @@
 //   CARD_MATCH_MUTATION=restore-changed     undoing restores a paying row somebody has since recoded
 //   CARD_MATCH_MUTATION=relink-resnapshots  linking the same pair twice snapshots the match's own coding
 //   CARD_MATCH_MUTATION=restore-unstamped   the undo trusts the values alone, not that it wrote them
+//   CARD_MATCH_MUTATION=settle-frozen-import the bank side is offered a paydown its confirm could not change
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -44,6 +45,7 @@ import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/co
 // undo in the relink one that redefines them. Mutating a definition something
 // later overwrites would prove nothing, so each mutation names its file.
 const RELINK = new Set(['no-exclude', 'ignore-rowcount', 'relink-resnapshots', 'restore-unstamped', 'restore-changed']);
+const EITHER_SIDE = new Set(['settle-frozen-import']);
 const MUTATIONS = {
   'no-exclude': ["     set status = 'excluded', exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()",
     '     set exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()'],
@@ -60,6 +62,10 @@ const MUTATIONS = {
   'payer-any-treatment': ['    else null end;', "    else 'card_payment' end;"],
   'relink-resnapshots': ["  select * into v_match from public.card_payment_matches where card_transaction_id = v_card.id;\n  if v_match.card_transaction_id is not null then", '  if false then'],
   'restore-unstamped': ['         and t.updated_at is not distinct from v_match.payer_coded_at\n', ''],
+  // From the bank side the row that must change is the OTHER one, so an
+  // import that cannot be edited is not a candidate at all.
+  'settle-frozen-import': ["  join public.card_import_batches b on b.id = t.batch_id and b.status in ('draft', 'categorized')",
+    '  join public.card_import_batches b on b.id = t.batch_id'],
   'restore-changed': ["       where t.id = v_bank.id\n         and t.status = 'coded'\n         and t.updated_at is not distinct from v_match.payer_coded_at\n         and t.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n         and t.accounting_treatment is not distinct from v_treatment;",
     '       where t.id = v_bank.id;'],
 };
@@ -120,7 +126,7 @@ const row = (id) => one('select status, exclude_reason from card_transactions wh
 const coding = (id) => one(`select status, qbo_account_id, qbo_account_name, accounting_treatment, coding_source
                             from card_transactions where id=$1`, [id]);
 const proposals = (ids, days = 7, user = finance) =>
-  as(user, () => q('select * from card_payment_match_proposals($1,$2)', [ids, days]));
+  as(user, () => q('select * from card_payment_match_offers($1,$2)', [ids, days]));
 const postedLines = (id) => q('select * from card_coding_effective_lines where transaction_id=$1', [id]);
 
 try {
@@ -131,11 +137,14 @@ try {
 
   const pairSql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
   await db.exec(pairSql);
-  const files = ['20261125060000_card_payment_match_both_sides.sql', '20261125070000_card_payment_match_relink.sql'];
+  const files = ['20261125060000_card_payment_match_both_sides.sql', '20261125070000_card_payment_match_relink.sql',
+    '20261125080000_card_payment_match_either_side.sql'];
   const sources = [];
   for (const name of files) {
     let text = await readFile(new URL('supabase/migrations/' + name, root), 'utf8');
-    const mine = mutation && (RELINK.has(mutation) === name.includes('relink'));
+    const mine = mutation && (EITHER_SIDE.has(mutation)
+      ? name.includes('either_side')
+      : !name.includes('either_side') && RELINK.has(mutation) === name.includes('relink'));
     if (mine) {
       const [from, to] = MUTATIONS[mutation];
       assert.ok(text.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
@@ -372,16 +381,51 @@ try {
     const got = await proposals([single, ambiguous, payer]);
     const bySingle = got.find((r) => r.transaction_id === single);
     assert.equal(Number(bySingle.candidate_count), 1);
-    assert.equal(bySingle.bank_transaction_id, singlePays, 'one candidate is offered by name, ready to confirm');
-    assert.equal(bySingle.bank_source_name, 'Operating checking');
+    assert.equal(bySingle.other_transaction_id, singlePays, 'one candidate is offered by name, ready to confirm');
+    assert.equal(bySingle.other_source_name, 'Operating checking');
+    assert.equal(bySingle.side, 'paydown');
     const byAmbiguous = got.find((r) => r.transaction_id === ambiguous);
     assert.equal(Number(byAmbiguous.candidate_count), 2);
-    assert.equal(byAmbiguous.bank_transaction_id, null, 'choosing between two payments of the same amount stays a person\'s call');
-    assert.equal(got.find((r) => r.transaction_id === payer), undefined, 'a bank row is not something to settle');
+    assert.equal(byAmbiguous.other_transaction_id, null, 'choosing between two payments of the same amount stays a person\'s call');
+    const byPayer = got.find((r) => r.transaction_id === payer);
+    assert.equal(byPayer, undefined, 'a bank row with nothing to settle is not proposed');
 
     await link(single, singlePays);
     assert.equal((await proposals([single])).length, 0, 'a settled row is no longer proposed');
     await unlink(single);
+  });
+
+
+  await test('the same pair is offered from the bank side, and only where the confirm could land', async () => {
+    const owed = await newTxn(cardBatch, -777, { date: '2026-10-24', account: 'clearing', description: 'AUTOPAY 777' });
+    const pays = await newTxn(bankBatch, 777, { date: '2026-10-24', status: 'uncoded', description: 'PAYS 777' });
+    const fromBank = await as(finance, () => q('select * from card_payment_settlement_candidates($1,$2)', [pays, 7]));
+    assert.deepEqual(fromBank.map((r) => r.transaction_id), [owed], 'the paydown this payment would settle');
+
+    const got = await proposals([pays]);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].side, 'payment', 'the answer says which side was asked about');
+    assert.equal(got[0].other_transaction_id, owed);
+    assert.equal(got[0].other_source_name, 'Company card');
+
+    // Confirming from there is the same call with the sides the right way round.
+    await link(owed, pays);
+    assert.equal((await row(owed)).status, 'excluded');
+    assert.equal((await coding(pays)).qbo_account_id, 'card');
+    await unlink(owed);
+
+    // A paydown whose import is frozen is not offered here: the confirm would
+    // have to change THAT row, and an approved import refuses it.
+    const frozenBatch = await newBatch(cardSource);
+    const frozen = await newTxn(frozenBatch, -888, { date: '2026-10-25', account: 'clearing', description: 'FROZEN 888' });
+    const paysFrozen = await newTxn(bankBatch, 888, { date: '2026-10-25', status: 'uncoded', description: 'PAYS 888' });
+    assert.equal((await as(finance, () => q('select * from card_payment_settlement_candidates($1,$2)', [paysFrozen, 7]))).length, 1,
+      'offered while its import is open');
+    await q("update card_import_batches set status='approved' where id=$1", [frozenBatch]);
+    assert.equal((await as(finance, () => q('select * from card_payment_settlement_candidates($1,$2)', [paysFrozen, 7]))).length, 0,
+      'and not once it is frozen, because the confirm could not change it');
+    assert.equal((await proposals([paysFrozen])).length, 0);
+    assert.ok(frozen);
   });
 
   await test('the browser role reads the record but cannot reach it as anon', async () => {
