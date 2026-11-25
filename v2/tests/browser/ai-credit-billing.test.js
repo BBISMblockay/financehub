@@ -186,7 +186,7 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
     page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc(studio), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
     await check('Affiliate Studio: one usage line for Find and Discovery, in customer dollars', async () => {
       const usage = (await page.locator('#usage').textContent()).replace(/\s+/g, ' ');
-      assert.match(usage, /Affiliate Studio\s*Find creators and Discovery \$4\.25/);
+      assert.match(usage, /Affiliate Studio\s*Find creators, Discovery and Ask SILO in Studio \$4\.25/);
       assert.equal((usage.match(/Affiliate Studio/g) || []).length, 1, 'never split into Find and Discovery');
       const card = (await page.locator('#studio').textContent()).replace(/\s+/g, ' ');
       assert.match(card, /Used this month\s*\$4\.25 of a \$20\.00 cap/);

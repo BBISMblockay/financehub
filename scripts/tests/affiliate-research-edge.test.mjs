@@ -126,6 +126,9 @@ const MUTS = {
   leanoff: [CORE, '(leads?.length || 0) >= clampCount(wanted);', 'false;'],
   leanalways: [CORE, '(leads?.length || 0) >= clampCount(wanted);', 'true;'],
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
+  postco: ['lib/affiliate-youtube-core.mjs', ".select('id, link_url, stats_at').eq('company_entity_id', company).eq('kind', 'link')", ".select('id, link_url, stats_at').eq('kind', 'link')"],
+  postthumb: ['lib/affiliate-youtube-core.mjs', "thumbnail_url: thumb && YT_THUMB_RE.test(thumb) ? thumb : null,", "thumbnail_url: thumb || null,"],
+  postzero: ['lib/affiliate-youtube-core.mjs', "    like_count: intOrNull(st.likeCount),", "    like_count: intOrNull(st.likeCount) ?? 0,"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
 let LIVE = FN; // the folder under test: the mutated copy when a mutation runs
@@ -166,7 +169,9 @@ function fakeService(seed, log, rpcs) {
     const run = () => {
       log.push(`service:${op}:${table}`);
       const rows = (tables[table] ||= []);
-      const match = (r) => filters.every(([k, v, kind]) => (kind === 'in' ? v.includes(r[k]) : r[k] === v));
+      const one = (r, [k, v, kind]) => (kind === 'in' ? v.includes(r[k]) : kind === 'neq' ? r[k] !== v
+        : kind === 'or' ? v.some((f) => one(r, f)) : kind === 'isnull' ? r[k] == null : kind === 'lt' ? r[k] != null && r[k] < v : r[k] === v);
+      const match = (r) => filters.every((f) => one(r, f));
       if (op === 'select') {
         let out = rows.filter(match).map((r) => ({ ...r }));
         if (ord) out.sort((a, b) => (a[ord.k] < b[ord.k] ? 1 : -1) * (ord.asc ? -1 : 1));
@@ -186,6 +191,9 @@ function fakeService(seed, log, rpcs) {
     const b = {
       select() { return b; }, insert(p) { op = 'insert'; payload = p; return b; }, update(p) { op = 'update'; payload = p; return b; },
       eq(k, v) { filters.push([k, v, 'eq']); return b; }, in(k, v) { filters.push([k, v, 'in']); return b; },
+      neq(k, v) { filters.push([k, v, 'neq']); return b; },
+      // PostgREST or=(a.is.null,a.lt.X): the two shapes the handler sends.
+      or(expr) { filters.push([null, expr.split(',').map((t) => { const [k, o, ...v] = t.split('.'); return [k, v.join('.'), o === 'is' ? 'isnull' : o]; }), 'or']); return b; },
       order(k, o) { ord = { k, asc: o?.ascending !== false }; return b; }, limit(x) { lim = x; return b; },
       single() { single = true; return b; }, maybeSingle() { maybe = true; return b; },
       then(res, rej) { try { res(run()); } catch (e) { rej(e); } },
@@ -730,6 +738,42 @@ await test('YouTube: a quota error stops the batch and changes nothing', async (
   assert.equal(out.quota, true);
   assert.equal(out.updated, 0);
   assert.ok(out.checked <= 4, `the batch stops at the quota (checked ${out.checked})`);
+});
+
+await test('Post numbers: a YouTube link gets its own video numbers, other links stay blank, this company only', async () => {
+  const asked = [];
+  const api = async (url) => {
+    const u = new URL(url); asked.push(u);
+    return { ok: true, status: 200, json: async () => ({ items: [
+      { id: 'dQw4w9WgXcQ', snippet: { thumbnails: { medium: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' } } }, statistics: { viewCount: '12400', likeCount: '600', commentCount: '45' }, contentDetails: { duration: 'PT1M12S' } },
+      { id: 'hiddenLikes', snippet: { thumbnails: { medium: { url: 'https://evil.example/x.jpg' } } }, statistics: { viewCount: '900', commentCount: '3' }, contentDetails: { duration: 'PT45S' } },
+    ] }) };
+  };
+  const s = setup({ youtubeKey: 'yt-key', youtubeFetch: api });
+  const t = (s.service.tables.affiliate_content_submissions = []);
+  const base = { company_entity_id: CO_A, kind: 'link', state: 'submitted', submitted_at: '2026-11-09', stats_at: null };
+  t.push({ id: 'c1', ...base, link_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+    { id: 'c2', ...base, link_url: 'https://youtube.com/shorts/hiddenLikes' },
+    { id: 'c3', ...base, link_url: 'https://www.tiktok.com/@a/video/123' },
+    { id: 'c4', ...base, link_url: 'https://youtu.be/goneVideo00' },
+    { id: 'c5', ...base, link_url: 'https://www.youtube.com/watch?v=freshVideo0', stats_at: '2026-11-10T11:00:00Z', view_count: 5 },
+    { id: 'cb', ...base, company_entity_id: CO_B, link_url: 'https://www.youtube.com/watch?v=otherCoVid0' });
+  const out = await (await s.call({ action: 'content_stats' })).json();
+  assert.equal(out.checked, 3, 'three stale YouTube links of this company');
+  assert.equal(asked.length, 1, 'one videos.list call for all of them');
+  assert.equal(asked[0].searchParams.get('id').split(',').sort().join(','), 'dQw4w9WgXcQ,goneVideo00,hiddenLikes');
+  const by = Object.fromEntries(t.map((r) => [r.id, r]));
+  assert.deepEqual([by.c1.view_count, by.c1.like_count, by.c1.comment_count, by.c1.duration_seconds], [12400, 600, 45, 72]);
+  assert.equal(by.c1.thumbnail_url, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg');
+  assert.equal(by.c1.stats_source, 'youtube_api');
+  assert.equal(by.c2.like_count, null, 'hidden likes stay null, never 0');
+  assert.equal(by.c2.thumbnail_url, null, 'a thumbnail from any other host is dropped');
+  assert.equal(by.c3.stats_at, null, 'a TikTok link is not asked about');
+  assert.ok(by.c4.stats_at && by.c4.view_count == null, 'a video the API does not know is stamped with no numbers');
+  assert.equal(by.c5.view_count, 5, 'a fresh one is left alone');
+  assert.equal(by.cb.stats_at, null, 'another company is untouched');
+  const off = setup({});
+  assert.equal((await (await off.call({ action: 'content_stats' })).json()).unavailable, true, 'no key: says so, changes nothing');
 });
 
 await test('photo and stats jobs running at once keep each other\'s results', async () => {

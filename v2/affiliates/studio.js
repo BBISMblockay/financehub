@@ -15,6 +15,7 @@ import {
   identityKeys, groupPeople, dropClosedRows, assignedProspectRow,
   customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
   customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
+  postPlatform, postStats, compactCount, clockDuration, POST_SORTS, sortPosts, offerOpen, postNeedsStats, parseSiloPeople, askSources,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -935,6 +936,15 @@ document.addEventListener('error', (ev) => {
   if (!box) return;
   box.classList.add('af-ctile-media--none');
   box.textContent = t.tagName === 'VIDEO' ? 'Video' : 'Photo';
+}, true);
+// An uploaded video's length comes from the file itself once the browser has
+// read its header; until then (or if it cannot) the badge stays hidden.
+document.addEventListener('loadedmetadata', (ev) => {
+  const t = ev.target;
+  if (t?.tagName !== 'VIDEO' || !t.classList?.contains('af-content-media')) return;
+  const badge = t.closest('.af-ctile-media')?.querySelector('.af-ctile-dur');
+  if (!badge || !Number.isFinite(t.duration) || t.duration <= 0) return;
+  badge.textContent = clockDuration(t.duration); badge.hidden = false;
 }, true);
 // Tiles or a list (table with the same photos). Remembered per viewer.
 // Lists by default: tiles take three times the height for the same rows
@@ -1970,7 +1980,7 @@ function dialogSpec() {
   // one again.
   if (S.contentOpen) {
     const x = (d.content || []).find((y) => y.id === S.contentOpen);
-    if (x) return { key: `post:${x.id}:${x.state}`, title: 'Post', body: contentOpenBody(x) };
+    if (x) return { key: `post:${x.id}:${x.state}:${x.offer_state || ''}:${x.offer_cents || ''}:${x.stats_at || ''}`, title: 'Post', body: contentOpenBody(x) };
   }
   const a = S.affTool ? d.affById[S.affTool.id] : null;
   if (a) {
@@ -2413,6 +2423,11 @@ document.addEventListener('change', (ev) => {
   c.page = 0;
   clearTimeout(custTimer);
   custTimer = setTimeout(() => loadCustomers(true), 250);
+});
+// Posts from affiliates: sort by newest, views or engagement.
+document.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'contentSort') return;
+  S.contentSort = ev.target.value; render();
 });
 // "From search" picks out one search's results on the prospect list.
 document.addEventListener('change', (ev) => {
@@ -3056,63 +3071,139 @@ async function contentDecide(ids, decision) {
   if (error) throw new Error(error.message.replace(/^affiliate_content_\w+:\s*/, ''));
   qsel('content').clear();
   const n = Number(data?.decided || 0); const skipped = Number(data?.skipped || 0); const paid = Number(data?.bonus_cents || 0);
-  const word = { approve: 'kept', use: 'paid', decline: 'marked not used' }[decision];
+  const word = { approve: 'kept', use: 'bought', decline: 'marked not used' }[decision];
   return `${num(n)} ${word}.${paid ? ` ${money(paid)} in bonuses added; it pays with the next payout.` : ''}${skipped ? ` ${num(skipped)} skipped (already decided).` : ''}`;
 }
 // "Submitted / approved / used" read as three decisions about the same post
 // (Blake 2026-11-20: "approved pending picked is a bit odd"). The states are
 // unchanged in the database; on screen they say what has happened to it.
-const CONTENT_PILL = { submitted: ['New', 'accent'], approved: ['Kept', 'accent'], used: ['Paid', 'pos'], declined: ['Not used', ''] };
-const CONTENT_FILTERS = [['new', 'New', ['submitted']], ['kept', 'Kept', ['approved']], ['paid', 'Paid', ['used']], ['no', 'Not used', ['declined']], ['all', 'All', null]];
+// A used post is one the brand bought (Blake 2026-11-25 mockup: "Purchased").
+const CONTENT_PILL = { submitted: ['New', 'accent'], approved: ['Kept', 'accent'], used: ['Purchased', 'pos'], declined: ['Not used', ''] };
+const CONTENT_FILTERS = [['new', 'New', ['submitted']], ['kept', 'Kept', ['approved']], ['paid', 'Purchased', ['used']], ['no', 'Not used', ['declined']], ['all', 'All', null]];
+const CONTENT_VIEW_KEY = 'silo_af_content_view';
+function readContentView() { try { return localStorage.getItem(CONTENT_VIEW_KEY) === 'list' ? 'list' : 'tiles'; } catch { return 'tiles'; } }
+// What one post is, for the tile: the file, the platform's own thumbnail for
+// a YouTube link, else the platform's name.
+function postMedia(x, big = false) {
+  const d = S.d;
+  const open = big ? '' : `data-act="content-open" data-id="${esc(x.id)}"`;
+  const tag = big ? 'div' : 'button';
+  const attrs = big ? '' : `type="button" ${open}`;
+  const st = postStats(x);
+  const dur = `<span class="af-ctile-dur af-mono"${st.seconds === null ? ' hidden' : ''}>${esc(clockDuration(st.seconds))}</span>`;
+  if (x.kind === 'link') {
+    const plat = postPlatform(x.link_url) || 'Link';
+    if (x.thumbnail_url) return `<${tag} class="af-ctile-media" ${attrs} aria-label="Open this post"><img class="af-content-media" src="${esc(x.thumbnail_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" /><span class="af-ctile-play" aria-hidden="true">▶</span>${dur}</${tag}>`;
+    return `<${tag} class="af-ctile-media af-ctile-media--none" ${attrs} aria-label="Open this post">${esc(plat)}</${tag}>`;
+  }
+  const u = d.contentUrl?.[x.storage_path];
+  const video = /^video\//.test(x.file_type || '');
+  if (!u) return `<${tag} class="af-ctile-media af-ctile-media--none" ${attrs} aria-label="Open this post">${video ? 'Video' : 'Photo'}</${tag}>`;
+  return `<${tag} class="af-ctile-media" ${attrs} aria-label="Open this ${video ? 'video' : 'photo'}">${video
+    ? `<video class="af-content-media" src="${esc(u)}#t=0.1" muted playsinline preload="metadata"></video><span class="af-ctile-play" aria-hidden="true">▶</span>${dur}`
+    : `<img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" />`}</${tag}>`;
+}
+// Views and engagement only where SILO measured them; blank otherwise.
+function postNumbers(x) {
+  const st = postStats(x);
+  const parts = [st.views !== null ? `${compactCount(st.views)} views` : '', st.eng !== null ? `${(st.eng * 100).toFixed(1)}% eng.` : ''].filter(Boolean);
+  return parts.join(' · ');
+}
+const postWho = (x) => S.d.affById[x.affiliate_id];
+const postHandle = (a) => (a?.handle ? `@${String(a.handle).replace(/^@/, '')}` : '');
+// What the post can still have done to it, by the server's own rules.
+function postMoney(x) {
+  const p = prog(); const bonus = Number(p.content_bonus_cents || 0);
+  const live = ['submitted', 'approved'].includes(x.state);
+  return { bonus, live, canBuy: MANAGE && live && (!bonus || MONEY), canOffer: MANAGE && MONEY && live, open: offerOpen(x) };
+}
+function postStatePill(x) {
+  if (x.state === 'used' && x.bonus_cents) return pill(`✓ Purchased ${formatMoney(x.bonus_cents, x.currency)}`, 'pos');
+  if (offerOpen(x)) return pill(`Offered ${formatMoney(x.offer_cents, x.offer_currency)}`, 'warn');
+  const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
+  return pill(label, tone);
+}
+function postButtons(x) {
+  const m = postMoney(x);
+  return [
+    m.canBuy && m.bonus ? btn(`Buy ${money(m.bonus)}`, 'content-decide', { id: x.id, k: 'use' }, 'primary', { confirm: true }) : '',
+    m.canOffer ? btn(m.open ? 'Change offer' : 'Offer', 'content-offer-open', { id: x.id }, 'ghost') : '',
+  ].join('');
+}
+// Numbers for the YouTube posts on screen, once per page load: the video's
+// own public counts, read by SILO with the official API. Fail-soft: no key,
+// no quota, no numbers.
+async function ensureContentStats() {
+  if (S.contentStatsAsked || !S.d?.content?.some((x) => postNeedsStats(x))) return;
+  S.contentStatsAsked = true;
+  try {
+    const out = await invoke('affiliate-research', { action: 'content_stats' });
+    if (!Number(out?.updated)) return;
+    const ids = S.d.content.map((x) => x.id);
+    const { data } = await db.from('affiliate_content_submissions').select('id, view_count, like_count, comment_count, duration_seconds, thumbnail_url, stats_at')
+      .eq('company_entity_id', CO).in('id', ids.slice(0, 200));
+    const byId = new Map((data || []).map((r) => [r.id, r]));
+    S.d.content = S.d.content.map((x) => ({ ...x, ...(byId.get(x.id) || {}) }));
+    if (S.tab === 'share' && S.shareTab === 'content') render();
+  } catch { /* numbers are extra; the posts are the point */ }
+}
 function contentCard() {
   const d = S.d; const p = prog();
   if (!d.content) return '';
   const bonus = Number(p.content_bonus_cents || 0);
-  // The tile OPENS the post rather than leaving for a new tab: a hundred of
-  // these are reviewed in one sitting, and a tab per post is not a review
-  // (Blake 2026-11-23). The file itself is still one click away, inside.
-  const media = (x) => {
-    const open = `data-act="content-open" data-id="${esc(x.id)}"`;
-    if (x.kind === 'link') return `<button type="button" class="af-ctile-media af-ctile-media--none" ${open} aria-label="Open this post">Link</button>`;
-    const u = d.contentUrl?.[x.storage_path];
-    const video = /^video\//.test(x.file_type || '');
-    if (!u) return `<button type="button" class="af-ctile-media af-ctile-media--none" ${open} aria-label="Open this post">${video ? 'Video' : 'Photo'}</button>`;
-    return `<button type="button" class="af-ctile-media" ${open} aria-label="Open this ${video ? 'video' : 'photo'}">${video
-      ? `<video class="af-content-media" src="${esc(u)}#t=0.1" muted playsinline preload="metadata"></video>`
-      : `<img class="af-content-media" src="${esc(u)}" alt="" loading="lazy" />`}</button>`;
-  };
-  // One tile: the post, who sent it, where it stands. The caption and the link
-  // are in the opened view -- on a wall of a hundred they are noise.
+  // One tile: the post, who sent it, its numbers, where it stands. The
+  // caption and the link are in the opened view (Blake 2026-11-23); the tile
+  // OPENS the post rather than leaving for a new tab.
   const row = (x) => {
-    const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
-    const a = d.affById[x.affiliate_id];
-    const paid = x.state === 'used' && x.bonus_cents ? `+${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
-    return `<article class="af-ctile" role="listitem">${media(x)}
-      <div class="af-ctile-txt"><div class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">${esc(a?.display_name || '—')}</span></div>
-      <div class="af-ctile-foot">${pill(label, tone)}<span class="af-muted">${fmtDate(x.submitted_at)}${paid ? ` · ${paid}` : ''}</span></div></div></article>`;
+    const a = postWho(x);
+    const nums = postNumbers(x);
+    return `<article class="af-ctile" role="listitem">${postMedia(x)}
+      <div class="af-ctile-txt"><div class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">${esc(postHandle(a) || a?.display_name || '—')}</span></div>
+      <div class="af-ctile-nums af-mono">${nums ? esc(nums) : '&nbsp;'}</div>
+      <div class="af-ctile-foot">${postStatePill(x)}<span class="af-muted">${fmtDate(x.submitted_at)}</span></div>
+      ${(() => { const b = postButtons(x); return b ? `<div class="af-ctile-acts">${b}</div>` : ''; })()}</div></article>`;
   };
   const counts = Object.fromEntries(CONTENT_FILTERS.map(([k, , states]) => [k, states ? d.content.filter((x) => states.includes(x.state)).length : d.content.length]));
   // Open on whichever list has something waiting, so the first thing on
   // screen is the thing to do.
   const want = S.contentFilter || (counts.new ? 'new' : 'all');
   const states = (CONTENT_FILTERS.find(([k]) => k === want) || [])[2];
-  const list = states ? d.content.filter((x) => states.includes(x.state)) : d.content;
+  const sortK = S.contentSort || 'new';
+  const list = sortPosts(states ? d.content.filter((x) => states.includes(x.state)) : d.content, sortK);
   const chips = CONTENT_FILTERS.filter(([k]) => k === 'all' || counts[k])
     .map(([k, label]) => `<button type="button" class="bcn-btn af-filter-chip${k === want ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="content-filter" data-f="${k}">${esc(label)} <span class="af-mono">${num(counts[k])}</span></button>`).join('');
+  const sortSel = `<select class="bcn-field af-content-sort" id="contentSort" aria-label="Sort posts">${POST_SORTS.map(([k, l]) => `<option value="${k}"${k === sortK ? ' selected' : ''}>Sort: ${esc(l)}</option>`).join('')}</select>`;
+  const view = S.contentView || readContentView();
+  const viewTog = `<div class="af-view-toggle" role="group" aria-label="View">${[['tiles', 'Tiles'], ['list', 'List']].map(([v, label]) => `<button type="button" class="bcn-btn${view === v ? ' bcn-btn--primary' : ' bcn-btn--ghost'}" data-act="content-view" data-v="${v}" aria-pressed="${view === v}">${label}</button>`).join('')}</div>`;
   // Paying the bonus is a money decision: only payout approvers.
   const canUse = MANAGE && (!bonus || MONEY);
-  const payLabel = bonus ? `Pay ${money(bonus)} each` : 'Mark as used';
+  const payLabel = bonus ? `Buy ${money(bonus)} each` : 'Mark as used';
   // The same rule as one post's own buttons: on a list of declined posts the
-  // only thing the server will do is keep them, and a paid post is final.
+  // only thing the server will do is keep them, and a bought post is final.
   const acts = !MANAGE ? [] : [
     ...(canUse && !['paid', 'no'].includes(want) ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),
     ...(['new', 'all', 'no'].includes(want) ? [[want === 'no' ? 'Keep after all' : 'Keep', 'q-content-ok']] : []),
     ...(!['paid', 'no'].includes(want) ? [['Not used', 'q-content-no']] : []),
   ];
-  const meta = bonus ? `A post you pay for earns ${money(bonus)}` : 'No bonus set for posts';
+  const emptyText = want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.';
+  const cols = [
+    { h: 'Post', f: (x) => `<span class="af-ctile af-ctile--row">${postMedia(x)}</span>` },
+    { h: 'Creator', left: true, f: (x) => { const a = postWho(x); return `<span class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span>${esc(a?.display_name || '—')}${postHandle(a) ? ` <span class="af-muted">${esc(postHandle(a))}</span>` : ''}</span></span>`; } },
+    { h: 'Views', num: true, f: (x) => { const v = postStats(x).views; return v === null ? '' : esc(compactCount(v)); } },
+    { h: 'Eng.', num: true, f: (x) => { const e = postStats(x).eng; return e === null ? '' : `${(e * 100).toFixed(1)}%`; } },
+    { h: 'Length', num: true, f: (x) => esc(clockDuration(postStats(x).seconds)) },
+    { h: 'Sent', f: (x) => fmtDate(x.submitted_at) },
+    { h: 'Status', f: (x) => postStatePill(x) },
+    { h: '', f: (x) => `<span class="af-row-acts">${postButtons(x)}${btn('Open', 'content-open', { id: x.id }, 'ghost')}</span>` },
+  ];
+  const body = view === 'list'
+    ? queueTable('content', shareCap(list), cols, acts, emptyText)
+    : queue('content', shareCap(list), row, acts, emptyText, { grid: true });
+  const meta = bonus ? `A post you buy earns ${money(bonus)}` : 'No set price for posts';
+  queueMicrotask(() => { ensureContentStats(); });
   return surface('Posts from affiliates', [
-    `<div class="af-filter-bar">${chips}${info('Affiliates share posts from their own portal. Keep the ones you like; paying one adds the bonus to their next payout.')}</div>`,
-    queue('content', shareCap(list), row, acts, want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.', { grid: true }),
+    `<div class="af-filter-bar">${chips}<span class="af-filter-gap"></span>${sortSel}${viewTog}${info('Affiliates share posts from their own portal. Buy one at the program price, or offer a price for one post: they accept in their portal and it pays with their next payout. Views come from YouTube for YouTube links; other posts have no numbers SILO can read, so they stay blank.')}</div>`,
+    body,
     shareMore(list.length),
   ].join(''), meta);
 }
@@ -3120,39 +3211,172 @@ function contentCard() {
 // that one post. The wall is for picking which one to open; this is where a
 // post is judged (Blake 2026-11-23).
 function contentOpenBody(x) {
-  const d = S.d; const p = prog();
-  const a = d.affById[x.affiliate_id];
-  const [label, tone] = CONTENT_PILL[x.state] || [x.state, ''];
-  const bonus = Number(p.content_bonus_cents || 0);
-  const canUse = MANAGE && (!bonus || MONEY);
+  const d = S.d;
+  const a = postWho(x);
+  const m = postMoney(x);
   const u = x.kind === 'link' ? null : d.contentUrl?.[x.storage_path];
   const video = /^video\//.test(x.file_type || '');
   const big = x.kind === 'link'
-    ? `<p>${ext(x.link_url, x.link_url)}</p>`
+    ? `${x.thumbnail_url ? `<div class="af-copen-media">${postMedia(x, true)}</div>` : ''}<p>${ext(x.link_url, x.link_url)}</p>`
     : u
       ? `<div class="af-copen-media">${video
           ? `<video src="${esc(u)}" controls playsinline preload="metadata"></video>`
           : `<img src="${esc(u)}" alt="" />`}</div>`
       : `<p class="af-muted">The ${video ? 'video' : 'photo'} could not be loaded. It is still on file.</p>`;
-  const paid = x.state === 'used' && x.bonus_cents ? ` · +${esc(formatMoney(x.bonus_cents, x.currency))}` : '';
   const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: x.id, k }, kind, opts);
   // Only what the server will actually do to a post in THIS state
   // (affiliate_content_decide, 20261117050000): a declined post can only be
-  // kept, a paid one is final, and one still uploading is nobody's decision
-  // yet. Offering the rest made the button do nothing and say "1 skipped".
-  const live = ['submitted', 'approved'].includes(x.state);
+  // kept, a bought one is final, and one still uploading is nobody's
+  // decision yet. Offering the rest made the button do nothing.
   const acts = !MANAGE ? '' : [
-    ...(canUse && live ? [act(bonus ? `Pay ${money(bonus)}` : 'Mark as used', 'use', 'primary', { confirm: bonus > 0 })] : []),
+    ...(m.canBuy ? [act(m.bonus ? `Buy ${money(m.bonus)}` : 'Mark as used', 'use', 'primary', { confirm: m.bonus > 0 })] : []),
     ...(['submitted', 'declined'].includes(x.state) ? [act(x.state === 'declined' ? 'Keep after all' : 'Keep', 'approve')] : []),
-    ...(live ? [act('Not used', 'decline')] : []),
+    ...(m.live ? [act('Not used', 'decline')] : []),
   ].join('');
+  const cur = prog().currency || 'USD';
+  // An offer is a payment once accepted, so only payout approvers make one.
+  const offerBox = !m.canOffer ? '' : `<div class="af-offer-box" id="offerBox">
+      <div class="af-row">${field(m.open ? `Offer sent: ${formatMoney(x.offer_cents, x.offer_currency)}. Change it` : 'Offer a price for this post', `<div class="af-set-unit">${input('offerAmt', `inputmode="decimal" placeholder="350" value="${m.open ? esc(String(Number(x.offer_cents) / minorUnits(x.offer_currency))) : ''}"`)}<span>${esc(cur)}</span></div>`)}
+      ${btn(m.open ? 'Update offer' : 'Send offer', 'content-offer', { id: x.id }, 'primary')}${m.open ? btn('Withdraw', 'content-offer-withdraw', { id: x.id }, 'ghost') : ''}</div>
+      <p class="af-muted">${esc(a?.display_name || 'They')} accept${a?.display_name ? 's' : ''} or decline${a?.display_name ? 's' : ''} it in their portal. Nothing is owed until they accept; then it pays with their next payout. Keep, Not used or Buy on this post withdraws an open offer.</p></div>`;
+  const offerNote = x.offer_state === 'declined' ? `<p class="af-muted">They declined the ${esc(formatMoney(x.offer_cents, x.offer_currency))} offer.</p>`
+    : x.offer_state === 'accepted' ? `<p class="af-muted">They accepted the ${esc(formatMoney(x.offer_cents, x.offer_currency))} offer.</p>` : '';
+  const nums = postNumbers(x);
+  const st = postStats(x);
   return `${big}
-    <div class="af-ctile-who" style="margin-top:10px;">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<strong>${esc(a?.display_name || '—')}</strong>${pill(label, tone)}</div>
-    <div class="af-muted">${fmtDate(x.submitted_at)}${paid}</div>
+    <div class="af-ctile-who" style="margin-top:10px;">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<strong>${esc(a?.display_name || '—')}</strong>${postHandle(a) ? `<span class="af-muted">${esc(postHandle(a))}</span>` : ''}${postStatePill(x)}</div>
+    <div class="af-muted">${fmtDate(x.submitted_at)}${nums ? ` · <span class="af-mono">${esc(nums)}</span>` : ''}${st.seconds !== null ? ` · ${esc(clockDuration(st.seconds))}` : ''}${x.stats_source === 'youtube_api' && x.stats_at ? ` · from YouTube, ${fmtDate(x.stats_at)}` : ''}</div>
     ${x.caption ? `<p>${esc(x.caption)}</p>` : ''}
+    ${offerNote}${offerBox}
     ${u ? `<p class="af-muted">${ext(u, video ? 'Open the video on its own' : 'Open the photo on its own')}</p>` : ''}
     ${dlgFoot(`${acts}${btn('Close', 'dialog-close')}`)}`;
 }
+async function contentOffer(id, cents) {
+  const { data, error } = await db.rpc('affiliate_content_offer', { p_id: id, p_cents: cents });
+  if (error) throw new Error(error.message.replace(/^affiliate_content_\w+:\s*/, ''));
+  return data;
+}
+
+// ── Ask SILO, from Affiliate Studio (20261125230000) ──────────────────────
+// The same Ask SILO, asked with workflow 'affiliate_studio': it knows it is on
+// affiliates, reads this company's data under the asker's own RLS, and its
+// usage is billed on the Affiliate Studio line. The answer names people in a
+// silo-people block; each is looked up in what THIS page holds and shown as a
+// row with the page's own buttons. An id the page does not hold is dropped.
+// SILO suggests; every Shortlist / Not a fit / Do not contact is a press.
+const ASK = { history: [], busy: false, answer: null, people: [], sources: [], error: null, customers: {} };
+const ASK_WAIT_MS = 240000;
+async function askSilo(question) {
+  const { data: fresh } = await db.auth.getSession();
+  const token = fresh?.session?.access_token;
+  if (!token) throw new Error('Your sign-in has expired. Reload the page and sign in again.');
+  const requestId = crypto.randomUUID ? crypto.randomUUID() : null;
+  const history = [...ASK.history, { role: 'user', content: question }].slice(-8);
+  const started = Date.now();
+  const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/silo-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: cfg.SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ history, workflow: 'affiliate_studio', company_entity_id: CO, ...(requestId ? { request_id: requestId, async: true } : {}) }),
+  });
+  let body = await res.json().catch(() => ({}));
+  let status = Number(body?.http_status) || res.status;
+  // A long answer is committed to silo_chat_responses and collected by id
+  // (the asker's own row under RLS), as Ask SILO itself does.
+  if (res.status === 202 && body?.pending && requestId) {
+    let polls = 0; let got = null;
+    while (Date.now() - started < ASK_WAIT_MS) {
+      await new Promise((r) => setTimeout(r, polls < 10 ? 2000 : 4000));
+      polls += 1;
+      const { data, error } = await db.from('silo_chat_responses').select('http_status, response').eq('request_id', requestId).maybeSingle();
+      if (error) break;
+      if (data?.response) { got = data; break; }
+    }
+    if (!got) throw new Error('This is taking longer than expected. It may still finish; ask again in a minute.');
+    body = got.response; status = Number(got.http_status) || 200;
+  }
+  if (status < 200 || status >= 300 || body?.error) throw new Error(body?.error || `Ask SILO could not answer (${status}).`);
+  if (!body?.answer) throw new Error('No answer came back. Try again.');
+  return { history, body };
+}
+async function askRun() {
+  const q = val('askQ');
+  if (!q || ASK.busy) return;
+  ASK.busy = true; ASK.error = null; renderAsk();
+  try {
+    const { history, body } = await askSilo(q);
+    const parsed = parseSiloPeople(body.answer);
+    ASK.history = [...history, { role: 'assistant', content: body.answer }];
+    ASK.question = q; ASK.answer = parsed.text; ASK.people = parsed.people;
+    ASK.sources = askSources(body.queries_run);
+    // Customer finds are not all on the page: read just the ones named, as
+    // the asker, in the active company.
+    const keys = parsed.people.filter((x) => x.kind === 'customer').map((x) => x.id);
+    ASK.customers = {};
+    if (keys.length) {
+      const { data } = await db.from('affiliate_customer_social').select('customer_key, display_name, city, platform, handle, profile_url, followers, match_score, status, review')
+        .eq('company_entity_id', CO).in('customer_key', keys);
+      for (const r of data || []) ASK.customers[r.customer_key] = r;
+    }
+    const q2 = $('askQ'); if (q2) q2.value = '';
+  } catch (e) { ASK.error = friendly(e); }
+  finally { ASK.busy = false; renderAsk(); }
+}
+// One named person, from the page's own data, or null when it holds none.
+function askPerson(x) {
+  const d = S.d || {};
+  if (x.kind === 'affiliate') {
+    const a = d.affById?.[x.id]; if (!a) return null;
+    return { name: a.display_name || a.contact_email || 'Affiliate', sub: [postHandle(a), progName(a.program_id)].filter(Boolean).join(' · '), photo: affiliatePhotoUrl(a), email: a.contact_email,
+      tag: pill(a.status === 'active' ? 'Affiliate' : a.status, a.status === 'active' ? 'pos' : ''), acts: btn('···', 'aff-more', { id: a.id }, 'ghost', { title: 'More' }) };
+  }
+  if (x.kind === 'prospect') {
+    const p = d.prospectById?.[x.id]; if (!p) return null;
+    const open = ['new', 'qualified'].includes(p.status);
+    const off = p.status === 'suppressed';
+    return { name: p.display_name || p.handle || p.contact_email || 'Creator', sub: [p.handle, p.platform, p.followers ? `${compactCount(p.followers)} followers` : ''].filter(Boolean).join(' · '),
+      photo: prospectPhotoUrl(p.evidence), email: p.contact_email,
+      tag: pill(off ? 'Do not contact' : p.status === 'approved' || p.status === 'invited' ? 'Shortlisted' : open ? 'To review' : p.status, off ? 'neg' : open ? 'accent' : ''),
+      acts: !MANAGE || off ? '' : `${open ? `${btn('Shortlist', 'prospect-status', { id: p.id, s: 'approved', pg: p.program_id }, 'primary')}${btn('Not a fit', 'prospect-status', { id: p.id, s: 'rejected', pg: p.program_id }, 'ghost')}` : ''}${btn('···', 'prospect-more', { id: p.id }, 'ghost', { title: 'More' })}` };
+  }
+  const c = ASK.customers[x.id]; if (!c || c.status === 'rejected') return null;
+  const off = c.review === 'suppressed';
+  return { name: c.display_name || c.handle || 'Customer', sub: [c.handle, c.platform, c.followers ? `${compactCount(c.followers)} followers` : '', c.city].filter(Boolean).join(' · '), photo: null, email: null,
+    tag: pill(off ? 'Do not contact' : c.review === 'shortlisted' ? 'Shortlisted' : c.review === 'not_fit' ? 'Not a fit' : 'Customer', off ? 'neg' : 'accent'),
+    acts: !MANAGE || off ? '' : `${!c.review ? btn('Not a fit', 'ask-cust-notfit', { k: c.customer_key }, 'ghost') : ''}${btn('Open', 'ask-cust-open', { q: c.display_name || c.handle || '' }, 'ghost')}` };
+}
+// Light formatting for the answer: paragraphs, bullets and **bold**, all
+// escaped first. The answer is text from the model, never markup.
+function askText(t) {
+  const lines = esc(t).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').split('\n');
+  let html = ''; let inList = false;
+  for (const l of lines) {
+    const li = /^\s*[-*•]\s+(.*)$/.exec(l);
+    if (li) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${li[1]}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    if (l.trim()) html += `<p>${l}</p>`;
+  }
+  return inList ? `${html}</ul>` : html;
+}
+function renderAsk() {
+  const el = $('askBody'); if (!el) return;
+  const rows = ASK.people.map((x) => ({ x, v: askPerson(x) })).filter((r) => r.v);
+  const dropped = ASK.people.length - rows.length;
+  const list = rows.length ? `<div class="af-ask-rows" role="list">${rows.map(({ x, v }) => `<div class="af-ask-row" role="listitem">
+      ${listThumb({ name: v.name, email: v.email }, v.photo)}
+      <div class="af-ask-who"><strong>${esc(v.name)}</strong>${v.sub ? `<span class="af-muted">${esc(v.sub)}</span>` : ''}${x.why ? `<span class="af-ask-why">${esc(x.why)}</span>` : ''}</div>
+      ${v.tag}<span class="af-row-acts">${v.acts}</span></div>`).join('')}</div>` : '';
+  el.innerHTML = [
+    ASK.busy ? '<p class="af-muted af-ask-busy">SILO is reading your data…</p>' : '',
+    ASK.error ? `<p class="bcn-status bcn-status--neg">${esc(ASK.error)}</p>` : '',
+    !ASK.busy && ASK.answer ? `<div class="af-ask-answer">${ASK.question ? `<p class="af-muted">${esc(ASK.question)}</p>` : ''}${askText(ASK.answer)}</div>${list}${
+      dropped ? `<p class="af-muted">${num(dropped)} named ${dropped === 1 ? 'person is' : 'people are'} not on this page, so ${dropped === 1 ? 'is' : 'are'} not shown.</p>` : ''}${
+      ASK.sources.length ? `<div class="af-ask-src"><span class="af-muted">Read</span>${ASK.sources.map((x) => pill(x)).join('')}</div>` : ''}
+      <div class="af-ask-foot"><span class="af-muted">SILO suggests; nothing is changed until you press a button.</span>${btn('Clear', 'ask-clear', {}, 'ghost')}</div>` : '',
+  ].join('');
+  el.hidden = !(ASK.busy || ASK.error || ASK.answer);
+  const go = $('askGo'); if (go) { go.disabled = ASK.busy; go.textContent = ASK.busy ? 'Asking…' : 'Ask'; }
+}
+$('askForm')?.addEventListener('submit', (ev) => { ev.preventDefault(); askRun(); });
 
 // The one store this program sells through: its own pick, else the company's
 // only store. Null means the company has several and the program has not said
@@ -4574,6 +4798,23 @@ const A = {
   'q-seed-no': async () => { const ids = picked('seeds'); if (!ids.length) return 'Tick at least one.'; const m = await seedDecide(ids, false); qsel('seeds').clear(); return m; },
   'content-filter': ({ f }) => { S.contentFilter = f; qsel('content').clear(); render(); return null; },
   'content-open': ({ id }) => { S.contentOpen = id; render(); return null; },
+  'ask-clear': () => { ASK.history = []; ASK.answer = null; ASK.people = []; ASK.sources = []; ASK.error = null; renderAsk(); return null; },
+  'ask-cust-notfit': async ({ k }) => { await markCustomers([k], 'not_fit'); if (ASK.customers[k]) ASK.customers[k].review = 'not_fit'; renderAsk(); return 'Marked not a fit. It is in Archive on Your customers.'; },
+  'ask-cust-open': async ({ q }) => {
+    S.peopleSub = 'customers'; await goTab('people');
+    const box = $('studioQ'); if (box) box.value = q || ''; S.find = q || ''; render(); return null;
+  },
+  'content-view': ({ v }) => { S.contentView = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(CONTENT_VIEW_KEY, S.contentView); } catch { /* per viewer only */ } render(); return null; },
+  'content-offer-open': ({ id }) => { S.contentOpen = id; render(); setTimeout(() => $('offerAmt')?.focus(), 0); return null; },
+  'content-offer': async ({ id }) => {
+    const x = (S.d.content || []).find((y) => y.id === id);
+    const cur = prog().currency || 'USD';
+    const cents = parseMajorToMinor(val('offerAmt'), cur);
+    if (!Number.isFinite(cents) || cents === null || cents < 1) throw new Error('Enter the amount to offer.');
+    await contentOffer(id, cents);
+    return `Offer of ${formatMoney(cents, cur)} sent. ${postWho(x || {})?.display_name || 'They'} can accept it in their portal.`;
+  },
+  'content-offer-withdraw': async ({ id }) => { await contentOffer(id, null); return 'Offer withdrawn.'; },
   // One post's own decision. Clearing what is open first means the reload the
   // dispatcher runs draws the wall, not a dialog over a post that just moved.
   'content-decide': async ({ id, k }) => { const m = await contentDecide([id], k); S.contentOpen = null; return m; },

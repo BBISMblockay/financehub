@@ -1289,3 +1289,110 @@ export function assignedProspectRow(x, programId, status = 'approved') {
     status,
   };
 }
+
+// ── Posts from affiliates: numbers, sort, offers (20261125230000) ─────────
+// Views and engagement exist only where SILO can read them (a YouTube link,
+// from the official API). Everything else is null: shown blank, sorted last,
+// never 0.
+export function postPlatform(link) {
+  let h = ''; try { h = new URL(String(link || '')).hostname.toLowerCase().replace(/^(www|m)\./, ''); } catch { return null; }
+  if (h === 'youtu.be' || h === 'youtube.com' || h.endsWith('.youtube.com')) return 'YouTube';
+  if (h === 'tiktok.com' || h.endsWith('.tiktok.com')) return 'TikTok';
+  if (h === 'instagram.com') return 'Instagram';
+  if (h === 'facebook.com' || h === 'fb.watch') return 'Facebook';
+  if (h === 'x.com' || h === 'twitter.com') return 'X';
+  return null;
+}
+const nn = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+/** { views, eng, seconds } for one post. eng is pooled from its parts and
+ *  null unless views, likes and comments are all measured. */
+export function postStats(x) {
+  const views = nn(x?.view_count); const likes = nn(x?.like_count); const comments = nn(x?.comment_count);
+  const eng = views && views > 0 && likes !== null && comments !== null ? (likes + comments) / views : null;
+  return { views, eng, seconds: nn(x?.duration_seconds) };
+}
+/** 72 -> "1:12", 3725 -> "1:02:05". */
+export function clockDuration(s) {
+  if (s === null || s === undefined || !Number.isFinite(Number(s)) || Number(s) < 0) return '';
+  const t = Math.round(Number(s)); const h = Math.floor(t / 3600); const m = Math.floor((t % 3600) / 60); const sec = String(t % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+export const POST_SORTS = [['new', 'Newest'], ['views', 'Most viewed'], ['eng', 'Most engaged']];
+/** A sorted copy. Unmeasured posts go last, newest first among themselves. */
+export function sortPosts(rows, k) {
+  const key = k === 'views' ? (x) => postStats(x).views : k === 'eng' ? (x) => postStats(x).eng : null;
+  const t = (x) => Date.parse(x?.submitted_at || '') || 0;
+  return [...(rows || [])].sort((a, b) => {
+    if (key) {
+      const va = key(a); const vb = key(b);
+      if (va === null && vb !== null) return 1;
+      if (vb === null && va !== null) return -1;
+      if (va !== null && vb !== null && va !== vb) return vb - va;
+    }
+    return t(b) - t(a);
+  });
+}
+/** Is this post's offer still one the affiliate can accept? The database rule
+ *  (affiliate_portal_content_answer): open, the post undecided since. */
+export function offerOpen(x) {
+  if (x?.offer_state !== 'open' || !['submitted', 'approved'].includes(x?.state)) return false;
+  const dec = Date.parse(x?.decided_at || ''); const off = Date.parse(x?.offered_at || '');
+  return !(Number.isFinite(dec) && Number.isFinite(off) && dec > off);
+}
+/** A YouTube link whose numbers are missing or older than `hours`. */
+export function postNeedsStats(x, now = Date.now(), hours = 12) {
+  if (x?.kind !== 'link' || postPlatform(x?.link_url) !== 'YouTube' || x?.state === 'declined') return false;
+  const at = Date.parse(x?.stats_at || '');
+  return !Number.isFinite(at) || now - at > hours * 3600e3;
+}
+
+// ── Ask SILO in Affiliate Studio (20261125230000) ─────────────────────────
+// The answer ends with a ```silo-people block naming people by id. This only
+// READS that block: the page looks each id up in its own data and drops any
+// it does not hold, so a line can point at a real person but never make one.
+const ASK_KINDS = new Set(['affiliate', 'prospect', 'customer']);
+const UUID_RE_ASK = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const ASK_MAX_PEOPLE = 25;
+/** { text, people: [{ kind, id, why }] }. text is the answer without the block. */
+export function parseSiloPeople(answer) {
+  const src = String(answer ?? '');
+  const re = /```silo-people[^\n]*\n([\s\S]*?)(?:```|$)/i;
+  const m = re.exec(src);
+  if (!m) return { text: src.trim(), people: [] };
+  const people = []; const seen = new Set();
+  for (const raw of m[1].split('\n')) {
+    const line = raw.trim().replace(/^[-*]\s*/, '');
+    if (!line) continue;
+    const [head, ...rest] = line.split('|');
+    const [kindRaw, idRaw] = head.trim().split(/\s+/);
+    const kind = String(kindRaw || '').toLowerCase(); const id = String(idRaw || '').trim();
+    if (!ASK_KINDS.has(kind) || !id) continue;
+    if (kind !== 'customer' && !UUID_RE_ASK.test(id)) continue;
+    if (kind === 'customer' && !/^[\w:.@+-]{1,200}$/.test(id)) continue;
+    const key = `${kind}:${id.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    people.push({ kind, id: kind === 'customer' ? id : id.toLowerCase(), why: rest.join('|').trim().slice(0, 140) });
+    if (people.length >= ASK_MAX_PEOPLE) break;
+  }
+  return { text: (src.slice(0, m.index) + src.slice(m.index + m[0].length)).trim(), people };
+}
+// Where an answer's figures came from, by the relations its queries read,
+// named the way SILO's UI names them. Only sources actually read.
+const ASK_SOURCES = [
+  [/^affiliate_/, 'Affiliate Studio'], [/^(shopify_|sales_|orders?\b|order_|customers?\b|customer_)/, 'Shopify'],
+  [/^klaviyo_/, 'Klaviyo'], [/^(meta_|marketing_|ad_|ads_|tiktok_|google_ads)/, 'Ads'], [/^(search_console|seo_|serp_)/, 'Search'],
+  [/^launch/, 'Launch calendar'],
+];
+export function askSources(queries) {
+  const out = [];
+  for (const q of Array.isArray(queries) ? queries : []) {
+    const sql = typeof q === 'string' ? q : String(q?.sql || q?.query || '');
+    for (const mm of sql.matchAll(/\b(?:from|join)\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi)) {
+      const rel = mm[1].toLowerCase();
+      const hit = ASK_SOURCES.find(([r]) => r.test(rel));
+      if (hit && !out.includes(hit[1])) out.push(hit[1]);
+    }
+  }
+  return out;
+}

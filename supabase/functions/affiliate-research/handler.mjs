@@ -37,7 +37,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults, RETRYABLE_SERP_CODES } from './lib/affiliate-discovery-core.mjs';
 import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
-import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef, searchYouTubeChannels } from './lib/affiliate-youtube-core.mjs';
+import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef, searchYouTubeChannels, refreshContentStats } from './lib/affiliate-youtube-core.mjs';
 import {
   buildResearchRequest, runResearchConversation, validateResearchCreators, importRowsToCandidates, clampCount,
   RESEARCH_PROVIDER, IMPORT_PROVIDER, MAX_IMPORT_ROWS, MAX_OUTPUT_TOKENS, WEB_SEARCH_USES, MAX_LEADS, leadSearches, interleaveLeads,
@@ -1100,6 +1100,13 @@ export function createResearchHandler({
     try { body = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
     // Company level: no program to load or check.
     if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader });
+    // Numbers for the YouTube posts affiliates linked (20261125230000): the
+    // video's own public counts from the official API, for this company's
+    // posts only. Nothing here costs money (API quota only).
+    if (body?.action === 'content_stats') {
+      if (!youtubeKey) return reply({ checked: 0, updated: 0, unavailable: true });
+      return reply(await refreshContentStats({ service, company, apiKey: youtubeKey, fetchImpl: youtubeFetch, now }));
+    }
     const programId = String(body?.program_id || '');
     if (!UUID_RE.test(programId)) return reply({ error: 'Choose a program.' }, 400);
 

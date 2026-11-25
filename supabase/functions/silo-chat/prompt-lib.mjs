@@ -139,6 +139,16 @@ export const MARKETING_GUIDANCE = `MARKETING, ADVERTISING AND LAUNCHES -- guidan
 - PLATFORM-CLAIMED IS NOT ACTUAL. Attributed purchases and conversion value are what an ad platform claims; orders and sales are what happened. Keep them apart, never add one platform's claim to another's, and never label a claim as sales.
 - Google Ads data in marketing_kpis_daily is CAMPAIGN grain only. There are no search terms, keywords, negatives or ad assets. Never derive search-term, keyword or RSA conclusions from campaign totals.`;
 
+/** Asked from Affiliate Studio's own Ask SILO box (workflow 'affiliate_studio',
+ *  20261125230000). The page turns the silo-people block into rows of real
+ *  people from its own data, with its own buttons; an id the page does not
+ *  hold is dropped, so the block can only point at people, never create them. */
+export const AFFILIATE_GUIDANCE = `AFFILIATE STUDIO -- this question was asked from Affiliate Studio, the page where this company finds creators, runs its affiliate programs and pays affiliates. It adds to every rule above and relaxes none of them.
+- WHO IS WHO. affiliates are people in a program (one row per person per program; status active, paused or ended). affiliate_prospects are people found but not yet in a program (status new, qualified, approved, invited, rejected, suppressed, signed_up). affiliate_customer_social holds social accounts found for the company's own customers (match_score 0-100; review shortlisted, not_fit or suppressed; status rejected means "not them"). affiliate_performance_v, affiliate_codes and affiliate_commission_ledger say what affiliates sold and earned. Use describe_relations before relying on a column.
+- YOU SUGGEST, A PERSON DECIDES. You cannot shortlist, add, contact, approve or pay anyone, and must never say you did. The page shows buttons beside each person you name.
+- RESPECT DO NOT CONTACT. Never suggest contacting anyone whose prospect status is suppressed, whose find review is suppressed, or whose email or handle is in affiliate_suppressions. Customers whose email consent is unsubscribed can be messaged by hand only, never emailed.
+- NAMING PEOPLE. When your answer names specific people, end it with ONE fenced code block whose language is silo-people. One line per person, best first, at most 25: the kind (affiliate, prospect or customer), a space, the id (the row's id column for affiliate and prospect, customer_key for customer), then " | " and why, in at most 12 words. Use only ids that came back in query results in this conversation, copied exactly; never invent, shorten or guess one. Do not mention the block in your prose. Leave it out when no specific person is named.`;
+
 export const SEO_GUIDANCE = `SEO, SEARCH AND SITE TRAFFIC -- guidance for this conversation. It adds to every rule above and relaxes none of them.
 
 Google Search Console performance data is in SILO, in three tables that are NEVER joined into one figure -- search_console_site_daily (daily site totals: the DENOMINATOR), search_console_page_daily (per URL per day) and search_console_query_daily (per search query per day). Read their cards before using them (describe_relations reports their measured coverage for this company), and hold these rules, none of which may be dropped when simplifying:
@@ -302,7 +312,11 @@ export const GUIDANCE_SIGNALS = {
 
 /** Order the modules render in. Concept is not here: it is never selected by
  *  text, only by the handler's authorization decision. */
-export const GUIDANCE_ORDER = ['marketing', 'seo'];
+export const GUIDANCE_ORDER = ['marketing', 'seo', 'affiliates'];
+
+/** Modules chosen by where the question was asked (the request's workflow),
+ *  never by its wording. Text only: no workflow adds a tool. */
+export const WORKFLOW_GUIDANCE = { affiliate_studio: 'affiliates' };
 
 /** How much of the conversation the signals read. The current question, the
  *  two user turns before it (so "simplify that" or "and last year?" keeps the
@@ -329,17 +343,18 @@ export function recentConversationText(history) {
  *  can turn concept mode on.
  *  @param {{ history?: Array<{ role?: string, content?: unknown }>, conceptsEnabled?: boolean }} [opts]
  *  @returns {string[]} */
-export function selectGuidance({ history = [], conceptsEnabled = false } = {}) {
+export function selectGuidance({ history = [], conceptsEnabled = false, workflow = null } = {}) {
   const texts = recentConversationText(history);
   const picked = new Set();
   for (const key of GUIDANCE_ORDER) {
-    if (texts.some((t) => GUIDANCE_SIGNALS[key].test(t))) picked.add(key);
+    if (GUIDANCE_SIGNALS[key] && texts.some((t) => GUIDANCE_SIGNALS[key].test(t))) picked.add(key);
   }
   if (conceptsEnabled === true) picked.add('marketing');
+  if (typeof workflow === 'string' && Object.prototype.hasOwnProperty.call(WORKFLOW_GUIDANCE, workflow)) picked.add(WORKFLOW_GUIDANCE[workflow]);
   return GUIDANCE_ORDER.filter((k) => picked.has(k));
 }
 
-const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE };
+const MODULE_TEXT = { marketing: MARKETING_GUIDANCE, seo: SEO_GUIDANCE, affiliates: AFFILIATE_GUIDANCE };
 
 // ── assembly ───────────────────────────────────────────────────────────────
 

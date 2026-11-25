@@ -317,3 +317,90 @@ export function needsYouTubeRefresh(prospect, now = new Date()) {
   if (!at) return true;
   return now.getTime() - new Date(`${at}T00:00:00Z`).getTime() >= YT_STALE_DAYS * 86400000;
 }
+
+// ── Numbers for one POST (affiliate content, 20261125230000) ─────────────
+// An affiliate shares a link to a post they made. For a YouTube video SILO
+// reads that video's own public numbers from the same official API; any
+// other link (Instagram, TikTok, ...) has none SILO can read and stays NULL.
+// One videos.list call takes up to 50 ids for 1 unit of quota.
+export const VIDEO_BATCH = 50;
+// A post checked this recently is not checked again.
+export const VIDEO_STALE_HOURS = 12;
+
+/** The video id in a YouTube watch / short / youtu.be / embed / live link, or null. Pure. */
+export function youtubeVideoId(link) {
+  let u; try { u = new URL(String(link || '')); } catch { return null; }
+  if (u.protocol !== 'https:') return null;
+  const host = u.hostname.toLowerCase().replace(/^(www|m|music)\./, '');
+  const ok = (id) => (/^[A-Za-z0-9_-]{11}$/.test(id || '') ? id : null);
+  if (host === 'youtu.be') return ok(u.pathname.split('/').filter(Boolean)[0]);
+  if (host !== 'youtube.com') return null;
+  const seg = u.pathname.split('/').filter(Boolean);
+  if (seg[0] === 'watch') return ok(u.searchParams.get('v'));
+  if (['shorts', 'embed', 'live', 'v'].includes(seg[0])) return ok(seg[1]);
+  return null;
+}
+
+/** ISO 8601 duration (PT1H2M3S) to seconds, or null. Pure. */
+export function isoDurationSeconds(iso) {
+  const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(String(iso || ''));
+  if (!m || iso === 'P' || iso === 'PT') return null;
+  const s = Number(m[1] || 0) * 86400 + Number(m[2] || 0) * 3600 + Number(m[3] || 0) * 60 + Number(m[4] || 0);
+  return s <= 86400 ? s : null;
+}
+
+const YT_THUMB_RE = /^https:\/\/i[0-9]?\.ytimg\.com\/[A-Za-z0-9_./-]{1,200}$/;
+/** The stored numbers for one videos.list item. A hidden count stays null. Pure. */
+export function videoStatsRow(item) {
+  const st = item?.statistics || {};
+  const th = item?.snippet?.thumbnails || {};
+  const thumb = (th.medium || th.high || th.default || {}).url || null;
+  return {
+    view_count: intOrNull(st.viewCount),
+    like_count: intOrNull(st.likeCount),
+    comment_count: intOrNull(st.commentCount),
+    duration_seconds: isoDurationSeconds(item?.contentDetails?.duration),
+    thumbnail_url: thumb && YT_THUMB_RE.test(thumb) ? thumb : null,
+  };
+}
+
+/** Refresh the numbers of this company's YouTube post links. Never throws:
+ *  a quota error or no key leaves the rows as they were. A video the API does
+ *  not know (deleted, private) is stamped with no numbers, so it is not asked
+ *  about again for VIDEO_STALE_HOURS.
+ *  @returns {Promise<{ checked: number, updated: number, error?: string }>} */
+export async function refreshContentStats({ service, company, apiKey, fetchImpl = fetch, now = () => new Date(), limit = VIDEO_BATCH }) {
+  if (!apiKey) return { checked: 0, updated: 0, error: 'not_configured' };
+  const stale = new Date(now().getTime() - VIDEO_STALE_HOURS * 3600e3).toISOString();
+  const { data, error } = await service.from('affiliate_content_submissions')
+    .select('id, link_url, stats_at').eq('company_entity_id', company).eq('kind', 'link')
+    .neq('state', 'declined').or(`stats_at.is.null,stats_at.lt.${stale}`)
+    .order('submitted_at', { ascending: false }).limit(500);
+  if (error) return { checked: 0, updated: 0, error: 'read_failed' };
+  const want = [];
+  for (const r of data || []) {
+    const vid = youtubeVideoId(r.link_url);
+    if (vid) want.push({ id: r.id, vid });
+    if (want.length >= Math.min(limit, VIDEO_BATCH)) break;
+  }
+  if (!want.length) return { checked: 0, updated: 0 };
+  let items;
+  try {
+    const body = await ytGet({ path: 'videos', params: { part: 'snippet,statistics,contentDetails', id: [...new Set(want.map((w) => w.vid))].join(','), maxResults: VIDEO_BATCH }, apiKey, fetchImpl });
+    items = new Map((body?.items || []).map((it) => [it.id, it]));
+  } catch (e) {
+    return { checked: want.length, updated: 0, error: e?.reason || 'youtube_failed' };
+  }
+  let updated = 0;
+  const at = now().toISOString();
+  for (const w of want) {
+    const it = items.get(w.vid);
+    const patch = it
+      ? { ...videoStatsRow(it), stats_source: 'youtube_api', stats_at: at }
+      : { view_count: null, like_count: null, comment_count: null, duration_seconds: null, thumbnail_url: null, stats_source: null, stats_at: at };
+    const { error: uErr } = await service.from('affiliate_content_submissions').update(patch)
+      .eq('id', w.id).eq('company_entity_id', company);
+    if (!uErr) updated += 1;
+  }
+  return { checked: want.length, updated };
+}

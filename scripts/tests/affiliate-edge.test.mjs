@@ -55,6 +55,7 @@
 //   AFFILIATE_EDGE_MUTATION=photoshared   every upload overwrites one object, so a racing Remove deletes the new photo
 //   AFFILIATE_EDGE_MUTATION=contentpath   the upload is signed for a path the request names, not the database's
 //   AFFILIATE_EDGE_MUTATION=contentsignup a signup link (not yet joined) may share content
+//   AFFILIATE_EDGE_MUTATION=offersignup   a signup link (not yet joined) may answer an offer
 //   AFFILIATE_EDGE_MUTATION=previewwrite  a View-as-rep preview link may change the rep's portal
 //   AFFILIATE_EDGE_MUTATION=previewread   a View-as-rep preview link cannot read the rep's portal
 import assert from 'node:assert/strict';
@@ -113,6 +114,7 @@ async function load(fn, file) {
     photonotjpeg: ['affiliate-portal', "if (!bytes || !isJpeg(bytes))", 'if (!bytes)'],
     photoshared: ['affiliate-portal', "const path = `${folder}-${now().getTime()}-${makeToken().slice(0, 8)}.jpg`;", "const path = `${folder}-a.jpg`;"],
     contentpath: ['affiliate-portal', "const path = String(data?.path || '');", "const path = String(body?.path || data?.path || '');"],
+    offersignup: ['affiliate-portal', "    if (action === 'content_answer') {\n      if (t.purpose !== 'portal' || !t.affiliate_id) return", "    if (action === 'content_answer') {\n      if (!t.affiliate_id) return"],
     contentsignup: ['affiliate-portal', "    if (action === 'content_start') {\n      if (t.purpose !== 'portal' || !t.affiliate_id) return", "    if (action === 'content_start') {\n      if (!t.affiliate_id) return"],
     photohidden: ['affiliate-portal', "if (error || !a || a.photo_hidden === true) return", 'if (error || !a) return'],
     previewwrite: ['affiliate-portal', "    if (preview && !PREVIEW_READS.has(action)) return reply({ error: 'This is a read-only preview.', code: 'read_only' }, 403);\n", ''],
@@ -125,11 +127,14 @@ async function load(fn, file) {
   await cp(dir, tmp, { recursive: true });
   const path = join(tmp, m[3] || file);
   let code = await readFile(path, 'utf8');
+  // A handler mutation must not trip its pattern check when a test loads
+  // another file of the same function (affiliate-mail.mjs) on its own.
+  if (!m[3] && file !== 'handler.mjs' && !code.includes(m[1])) return import(new URL(file, dir));
   assert.ok(code.includes(m[1]), `mutation ${MUT}: pattern not found`);
   await writeFile(path, code.split(m[1]).join(m[2]));
   return import(pathToFileURL(join(tmp, file)).href);
 }
-if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup', 'anyprogram', 'scopefailopen', 'previewwrite', 'previewread'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
+if (MUT && !['seedsignup', 'seedtitle', 'byprospectonly', 'rawtoken', 'bodyaddress', 'gateorder', 'bodycompany', 'prospectmail', 'invitekind', 'paidtwice', 'paidnoretry', 'paidretryall', 'paidstuck', 'paidlogignored', 'draftnews', 'anylogo', 'nocodelink', 'offsitelink', 'oldplatform', 'anyhostlink', 'pendingcode', 'plainmaillink', 'linkquery', 'utcday', 'signinleak', 'switchany', 'mailedmint', 'handbackmailed', 'unboundmail', 'noticesweep', 'noticepaused', 'probeopen', 'probethrow', 'kickreplay', 'kickgrant', 'photobodyid', 'photosignup', 'photonotjpeg', 'photohidden', 'photoshared', 'contentpath', 'contentsignup', 'offersignup', 'anyprogram', 'scopefailopen', 'previewwrite', 'previewread'].includes(MUT)) throw new Error(`unknown mutation ${MUT}`);
 
 const { createPortalHandler, affiliateLink, PLATFORM_TERMS_VERSION } = await load('affiliate-portal', 'handler.mjs');
 const { createInviteHandler } = await load('affiliate-invite', 'handler.mjs');
@@ -245,6 +250,7 @@ await test('portal: a View-as-rep preview reads the rep\'s portal and changes no
   const before = svc.log.length;
   for (const body of [{ action: 'photo', remove: true }, { action: 'payout_email', email: 'x@y.invalid' }, { action: 'claim', item_id: AFF2 },
     { action: 'seed_request', item_id: AFF2 }, { action: 'content_start', kind: 'link', link_url: 'https://x.invalid/p' }, { action: 'content_finish', id: AFF2 },
+    { action: 'content_answer', id: AFF2, accept: true },
     { action: 'switch', affiliate_id: AFF2 }, { action: 'accept', signed_name: 'Pat', terms_version: 2 }]) {
     const res = await h(post({ ...body, token: TOKEN }));
     assert.equal(res.status, 403, `${body.action} is refused for a preview`);
@@ -1320,6 +1326,7 @@ function contentSvc({ purpose = 'portal' } = {}) {
         : { data: { id: CID, state: 'uploading', path: `${CID}/content.mp4` }, error: null }),
       affiliate_portal_content_finish: { data: { id: CID, state: 'submitted' }, error: null },
       affiliate_portal_content: { data: { bonus_cents: 2500, currency: 'USD', items: [] }, error: null },
+      affiliate_portal_content_answer: (args) => ({ data: { id: args.p_id, offer_state: args.p_accept ? 'accepted' : 'declined', state: args.p_accept ? 'used' : 'submitted' }, error: null }),
     },
   });
 }
@@ -1345,6 +1352,20 @@ await test('portal content: a link needs no upload; finish and list go to the da
   assert.equal(fin.body.state, 'submitted');
   const list = await portalCall(svc, { action: 'content' });
   assert.equal(list.body.bonus_cents, 2500);
+});
+
+await test('portal content: an offer is answered by token, with a real yes or no only', async () => {
+  const svc = contentSvc();
+  const yes = await portalCall(svc, { action: 'content_answer', id: CID, accept: true, affiliate_id: AFF2 });
+  assert.equal(yes.status, 200); assert.equal(yes.body.offer_state, 'accepted');
+  const call = svc.log.find((x) => x.name === 'affiliate_portal_content_answer');
+  assert.deepEqual(Object.keys(call.args).sort(), ['p_accept', 'p_id', 'p_token_hash'], 'nothing in the request names whose post it is');
+  assert.equal(call.args.p_accept, true);
+  assert.equal((await portalCall(svc, { action: 'content_answer', id: CID, accept: 'yes' })).status, 400, 'a non-boolean answer is refused');
+  assert.equal((await portalCall(svc, { action: 'content_answer', id: 'x', accept: false })).status, 400);
+  const signup = contentSvc({ purpose: 'signup' });
+  assert.equal((await portalCall(signup, { action: 'content_answer', id: CID, accept: true })).status, 400, 'a signup link cannot answer');
+  assert.ok(!signup.log.some((x) => x.name === 'affiliate_portal_content_answer'));
 });
 
 await test('portal content: a signup link (not yet joined) cannot share content', async () => {

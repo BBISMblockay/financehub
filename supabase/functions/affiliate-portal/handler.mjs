@@ -42,6 +42,7 @@
 //                                             -> shares content; a file gets a one-object signed upload URL
 //   content_finish { token, id }              -> the upload landed: the brand can now see it
 //   content        { token }                  -> the rep's own pieces and what a picked one earns
+//   content_answer { token, id, accept }      -> accept or decline the brand's offer for one post
 import { sha256hex, randomToken, sendAffiliateMail, renderMail, escapeHtml, formatMoney, affiliateLink, storeLinkFor, STORE_RE } from './affiliate-mail.mjs';
 
 export const corsHeaders = {
@@ -587,6 +588,19 @@ export function createPortalHandler({ service, siteUrl, resendKey, fetchImpl = f
       const { data, error } = await service.rpc('affiliate_portal_content_finish', { p_token_hash: hash, p_id: id });
       if (error) return dbError(error);
       return reply({ id, state: data?.state ?? 'submitted' });
+    }
+
+    // A price the brand offered for one post (20261125230000). The database
+    // checks the offer is still open and writes the payment once on accept;
+    // a replay answers the same.
+    if (action === 'content_answer') {
+      if (t.purpose !== 'portal' || !t.affiliate_id) return reply({ error: 'Finish signing up first.' }, 400);
+      const id = String(body?.id ?? '');
+      if (!UUID_RE.test(id)) return reply({ error: 'Unknown post.' }, 400);
+      if (typeof body?.accept !== 'boolean') return reply({ error: 'Accept or decline the offer.' }, 400);
+      const { data, error } = await service.rpc('affiliate_portal_content_answer', { p_token_hash: hash, p_id: id, p_accept: body.accept });
+      if (error) return dbError(error);
+      return reply({ id, offer_state: data?.offer_state ?? null, state: data?.state ?? null });
     }
 
     if (action === 'content') {
