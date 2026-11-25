@@ -3133,20 +3133,27 @@ function postButtons(x) {
 // Numbers for the YouTube posts on screen, once per page load: the video's
 // own public counts, read by SILO with the official API. Fail-soft: no key,
 // no quota, no numbers.
-// Asked once per program per page load, for that program's own posts, so a
-// busy program cannot use up another's turn.
+// Each post is asked about once per page load, by its own id, in batches of
+// 50 (the API's limit), so every unmeasured post the page holds gets a turn,
+// however many a program has, and no program can use up another's.
+const STATS_BATCH = 50;
 async function ensureContentStats() {
-  const want = (S.d?.content || []).filter((x) => postNeedsStats(x)).map((x) => x.id).slice(0, 50);
   S.contentStatsAsked ||= new Set();
-  const key = S.programId || 'all';
-  if (!want.length || S.contentStatsAsked.has(key)) return;
-  S.contentStatsAsked.add(key);
+  const want = (S.d?.content || []).filter((x) => postNeedsStats(x) && !S.contentStatsAsked.has(x.id)).map((x) => x.id);
+  if (!want.length) return;
+  want.forEach((id) => S.contentStatsAsked.add(id));
+  let updated = 0;
   try {
-    const out = await invoke('affiliate-research', { action: 'content_stats', ids: want });
-    if (!Number(out?.updated)) return;
-    const ids = S.d.content.map((x) => x.id);
+    for (let i = 0; i < want.length; i += STATS_BATCH) {
+      const out = await invoke('affiliate-research', { action: 'content_stats', ids: want.slice(i, i + STATS_BATCH) });
+      if (out?.unavailable) break;
+      updated += Number(out?.updated) || 0;
+    }
+  } catch { /* numbers are extra; the posts are the point */ }
+  if (!updated) return;
+  try {
     const { data } = await db.from('affiliate_content_submissions').select('id, view_count, like_count, comment_count, duration_seconds, thumbnail_url, stats_at')
-      .eq('company_entity_id', CO).in('id', ids.slice(0, 200));
+      .eq('company_entity_id', CO).in('id', want);
     const byId = new Map((data || []).map((r) => [r.id, r]));
     S.d.content = S.d.content.map((x) => ({ ...x, ...(byId.get(x.id) || {}) }));
     if (S.tab === 'share' && S.shareTab === 'content') render();

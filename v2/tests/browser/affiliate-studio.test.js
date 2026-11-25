@@ -183,8 +183,9 @@ const MUTATIONS = {
   // The content view (20261125230000).
   offermoney: ['/affiliates/studio.js', 'canOffer: MANAGE && MONEY && live,', 'canOffer: MANAGE && live,'],
   postzero: ['/affiliates/studio.js', "  const parts = [st.views !== null ? `${compactCount(st.views)} views` : '',", "  const parts = [`${compactCount(st.views || 0)} views`,"],
-  statsevery: ['/affiliates/studio.js', '  if (!want.length || S.contentStatsAsked.has(key)) return;', '  if (!want.length) return;'],
-  statsall: ['/affiliates/studio.js', "invoke('affiliate-research', { action: 'content_stats', ids: want });", "invoke('affiliate-research', { action: 'content_stats' });"],
+  statsevery: ['/affiliates/studio.js', 'postNeedsStats(x) && !S.contentStatsAsked.has(x.id)', 'postNeedsStats(x)'],
+  statsall: ['/affiliates/studio.js', "{ action: 'content_stats', ids: want.slice(i, i + STATS_BATCH) }", "{ action: 'content_stats' }"],
+  stats50: ['/affiliates/studio.js', 'for (let i = 0; i < want.length; i += STATS_BATCH)', 'for (let i = 0; i < 1; i += STATS_BATCH)'],
   askworkflow: ['/affiliates/studio.js', "body: JSON.stringify({ history, workflow: 'affiliate_studio',", 'body: JSON.stringify({ history,'],
   askanyid: ['/affiliates/studio.js', "    const p = d.prospectById?.[x.id]; if (!p) return null;", "    const p = d.prospectById?.[x.id] || { id: x.id, status: 'new', display_name: 'Unknown' };"],
   // A file the browser cannot play must say so, not sit there as a blank box.
@@ -2767,6 +2768,26 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('a bought post offers no Buy or Offer', !(await vp.$('#shareBody .af-q-row:has(.bcn-pill--pos) [data-act="content-offer-open"]')));
       R.eq(statsAsked.filter((b) => b.action === 'content_stats').length, 1, 'the YouTube post without numbers is asked about once');
       R.eq((statsAsked.find((b) => b.action === 'content_stats')?.ids || []).slice().sort(), ['y3', 'y4'], 'for the posts on this screen only, so another program cannot use up its turn');
+      // A program with more unmeasured posts than one request holds: every one gets a turn.
+      {
+        const many = Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link',
+          link_url: `https://youtu.be/m${String(i).padStart(10, '0')}`, state: 'submitted', submitted_at: `2026-11-${String(1 + (i % 28)).padStart(2, '0')}T00:00:00Z` }));
+        const mp = await suite.open('/v2/affiliates/index.html', { ...vTables, affiliate_content_submissions: many }, { ready, rpc: vRpc });
+        mp.on('pageerror', (e) => errors.push(e.message));
+        const mAsked = [];
+        await mp.route('**/functions/v1/affiliate-research', (route) => { mAsked.push(JSON.parse(route.request().postData() || '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 50, updated: 0 }) }); });
+        await closeDialog(mp);
+        await mp.click('#tabs [data-tab="share"]');
+        await mp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+        await mp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+        await mp.click('#shareBody [data-act="content-filter"][data-f="all"]');
+        await mp.waitForFunction(() => document.querySelectorAll('#shareBody .af-ctile').length > 0, null, { timeout: 5000 });
+        await mp.waitForTimeout(400);
+        const calls = mAsked.filter((b) => b.action === 'content_stats').map((b) => b.ids || []);
+        R.eq(calls.map((c) => c.length), [50, 10], 'sixty unmeasured posts are asked about in two batches, at most 50 each');
+        R.eq(new Set(calls.flat()).size, 60, 'and every one of them gets a turn, once');
+        await mp.close();
+      }
       await vp.selectOption('#contentSort', 'views');
       await vp.waitForFunction(() => /12K views/.test(document.querySelector('#shareBody .af-q-row')?.textContent || ''), null, { timeout: 5000 });
       R.ok('Most viewed puts the measured post first and the unmeasured ones after it', true);
