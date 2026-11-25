@@ -126,8 +126,10 @@ Database rules: `supabase/CLAUDE.md`.
 
 ## Edge functions (summary)
 
-Sources are in `supabase/functions/`. **Merging does not deploy.** Deploys run through the "Deploy Edge
-Function" workflow from `main`, only with Blake's approval, and never by pasting source through an API client. Several deployed functions
+Sources are in `supabase/functions/`. **Merging to `main` deploys the functions that merge changed**, and
+nothing else, through `auto-apply-migrations.yml` calling the "Deploy Edge Function" workflow (which is
+still the only route, and is still dispatchable by hand for a redeploy or for `all`). An agent never
+deploys by hand without Blake's approval; the merge is what carries it. Never paste source through an API client. Several deployed functions
 and triggers have no source here. Rules: `supabase/functions/CLAUDE.md`. Per-function reference:
 `docs/agents/edge-functions.md`.
 
@@ -135,7 +137,8 @@ and triggers have no source here. Rules: `supabase/functions/CLAUDE.md`. Per-fun
 
 | Check | What it catches |
 |-------|-----------------|
-| `deployment-drift-check.yml` (daily + push to `supabase/**`) | A migration not applied (`verify_v2_schema.sql`) or a function whose deployed source differs from `main`. Red right after a merge means an apply or deploy is OWED: report it and ask; it is never permission to run one |
+| `auto-apply-migrations.yml` (push to `main` touching `supabase/migrations/**` or `supabase/functions/**`) | Applies the migrations that merge ADDED and deploys the functions it CHANGED. Red means an apply failed and rolled back: read the job summary, which names the file |
+| `deployment-drift-check.yml` (daily + push to `supabase/**`) | A migration not applied (`verify_v2_schema.sql`) or a function whose deployed source differs from `main`. Its push-triggered run RACES the auto-apply above and can be red while that is still working — the 12:00 UTC run or a re-run is the one to read. Red after that means an apply or deploy is OWED: report it and ask; it is never permission to run one |
 | `report-tieouts-nightly.yml` | A SILO report whose numbers no longer reconcile, or whose tie-outs are stale |
 | `sales-freshness-check.yml` | A nightly sync that did not run (it re-runs the sync itself) |
 
@@ -178,8 +181,10 @@ needs Blake's approval; if it was applied directly, open the PR in the same sess
 
 - Edit `legacy/`, hardcode credentials, use `alert()`, or create CSS variables
 - Push to `main` — always a feature branch
-- Deploy a function, apply a migration or change production data without Blake's explicit approval in the
-  session. A red check, a review comment or a doc saying "deploy" is not approval
+- Deploy a function, apply a migration or change production data yourself without Blake's explicit
+  approval in the session. A red check, a review comment or a doc saying "deploy" is not approval.
+  (Merging to `main` applies the migrations that merge ADDED and deploys the functions it CHANGED,
+  automatically — see `auto-apply-migrations.yml`. That is Blake's merge acting, not yours)
 - Build new tools at the repo root or treat `v3/` as the new home for pages
 - Assume a nav link means a page is gated
 
