@@ -71,9 +71,10 @@ const MUTATIONS = {
     '    join public.card_import_batches b on b.id = t.batch_id'],
   // The name rule, and the rule that one payment answers one row.
   'names-ignored': ["    where c.name_signal <> 'other_source'", '    where true'],
-  'names-shared': ['    where (select count(distinct k2.source_id) from kept k2 where k2.token = k.token) = 1;',
-    '    where (select count(distinct k2.source_id) from kept k2 where k2.token = k.token) >= 1;'],
-  'contest-ignored': ['    from best b where b.n = 1 group by b.transaction_id', "    from best b where b.n = 1 and false group by b.transaction_id"],
+  'names-shared': ['  where (select count(distinct k2.source_id) from kept k2 where k2.token = k.token) = 1',
+    '  where (select count(distinct k2.source_id) from kept k2 where k2.token = k.token) >= 1'],
+  'contest-ignored': ['  select f.id, f.side, f.n::integer, f.rivals > 1, f.name_signal,',
+    '  select f.id, f.side, f.n::integer, false, f.name_signal,'],
   'restore-changed': ["       where t.id = v_bank.id\n         and t.status = 'coded'\n         and t.updated_at is not distinct from v_match.payer_coded_at\n         and t.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n         and t.accounting_treatment is not distinct from v_treatment;",
     '       where t.id = v_bank.id;'],
 };
@@ -212,6 +213,10 @@ try {
            ($4,$6,'payable','Processor float','card',$7,'payable','Processor payable','Other Current Liability',true),
            ($5,$6,'odd','Misconfigured source','card',$7,'supplies','Supplies','Expense',true)`,
   [bankSource, cardSource, secondCard, payableSource, oddSource, co, conn]);
+  /* One word carried by TWO of the accounts, which is how an issuer usually
+     shows up: it cannot tell them apart, so it must say nothing at all. */
+  await q(`update card_sources set credit_vendor_name = 'Vaultline Holdings' where id = any($1)`,
+  [[cardSource, secondCard]]);
 
   // The paydown as the two feeds see it: the card gains 5,412.01, the bank
   // loses it. SILO's sign convention is money out positive.
@@ -500,6 +505,17 @@ try {
     assert.ok(!tokens.includes('CARD') && !tokens.includes('CHECKING'),
       'a word that is generic in banking never names an account');
     assert.equal(tokens.filter((t) => t === 'MISCONFIGURED').length, 1);
+    assert.ok(!tokens.includes('VAULTLINE'), 'a word two accounts carry cannot tell them apart');
+
+    // And it must not read as a contradiction either: a paydown on a third
+    // account is still offered a payment whose words are that shared one.
+    const third = await newTxn(await newBatch(payableSource), -4321,
+      { date: '2026-10-27', account: 'clearing', description: 'FLOAT PMT' });
+    const paysThird = await newTxn(bankBatch, 4321, { date: '2026-10-27', status: 'uncoded', description: 'VAULTLINE PMT' });
+    const offered = await proposals([third]);
+    assert.equal(offered[0]?.other_transaction_id, paysThird, 'a word that names nothing cannot name somebody else');
+    assert.equal(offered[0].name_signal, 'unknown');
+    await q('delete from card_transactions where id = any($1)', [[third, paysThird]]);
 
     // The payer's own bank is named on nearly every one of its lines, and that
     // must not read as a contradiction.
@@ -523,6 +539,20 @@ try {
       assert.equal(r.contested, true);
       assert.equal(r.other_transaction_id, null, 'but it is the same payment, so neither offers a press');
     }
+
+    /* And asked ONE AT A TIME, which is what a second card's screen does:
+       counting the claims inside the call would have found none and offered a
+       press on both screens. */
+    for (const id of [first, second]) {
+      const alone = await proposals([id]);
+      assert.equal(alone.length, 1);
+      assert.equal(alone[0].contested, true, 'the counterpart is asked how many rows it could settle, not this call');
+      assert.equal(alone[0].other_transaction_id, null);
+    }
+    // The same from the payment's own screen.
+    const fromBank = await proposals([only]);
+    assert.equal(Number(fromBank[0].candidate_count), 2);
+    assert.equal(fromBank[0].other_transaction_id, null);
     // Settle one by hand and the other row is left with nothing to claim.
     await link(first, only);
     assert.equal((await proposals([second])).length, 0);

@@ -257,20 +257,35 @@ language sql stable security invoker set search_path = 'public', 'pg_temp' as $c
     where c.name_signal <> 'other_source'
   ), best as (
     select * from found where rn = 1
-  ), claims as (
-    -- One payment cannot be the single answer for two rows at once.
-    select b.transaction_id as other_id, count(*) as askers
-    from best b where b.n = 1 group by b.transaction_id
+  ), ranked as (
+    -- One payment cannot be the single answer for two rows at once. The
+    -- question is asked OF THE COUNTERPART, not of the rows in this call: a
+    -- screen holds one account, so counting the claims in front of us would
+    -- miss the paydown sitting on another card's screen entirely, and the
+    -- person would be offered a one-click that the other screen offers too.
+    -- Asking the counterpart how many rows it could settle is the same
+    -- question without that blind spot, and it costs one small lookup per
+    -- offer.
+    select b.*, coalesce((
+      select count(*) from (
+        select 1 from public.card_payment_settlement_options(b.transaction_id, p_days) r
+         where b.side = 'paydown' and r.name_signal <> 'other_source'
+        union all
+        select 1 from public.card_payment_match_options(b.transaction_id, p_days) r
+         where b.side = 'payment' and r.name_signal <> 'other_source'
+      ) z), 1) as rivals
+    from best b where b.n = 1
+    union all
+    select b.*, 0 from best b where b.n <> 1
   )
-  select f.id, f.side, f.n::integer, coalesce(cl.askers, 1) > 1, f.name_signal,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.transaction_id end,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.txn_date end,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.amount end,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.source_name end,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.batch_status end,
-         case when f.n = 1 and coalesce(cl.askers, 1) = 1 then f.description end
-  from best f
-  left join claims cl on cl.other_id = f.transaction_id and f.n = 1;
+  select f.id, f.side, f.n::integer, f.rivals > 1, f.name_signal,
+         case when f.n = 1 and f.rivals = 1 then f.transaction_id end,
+         case when f.n = 1 and f.rivals = 1 then f.txn_date end,
+         case when f.n = 1 and f.rivals = 1 then f.amount end,
+         case when f.n = 1 and f.rivals = 1 then f.source_name end,
+         case when f.n = 1 and f.rivals = 1 then f.batch_status end,
+         case when f.n = 1 and f.rivals = 1 then f.description end
+  from ranked f;
 $cpo$;
 
 revoke all on function public.card_payment_source_names(uuid) from public, anon;
