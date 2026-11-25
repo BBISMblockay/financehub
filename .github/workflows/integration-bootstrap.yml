@@ -72,6 +72,12 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+      # Amazon, for the same reason as Google: the first-connect stage runs
+      # scripts/ad-platforms-sync.mjs, which redeems the connection's
+      # Login-with-Amazon refresh token with this shared client. Unset, an
+      # amazon_ads connection is skipped rather than failed.
+      AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
+      AMAZON_ADS_CLIENT_SECRET: ${{ secrets.AMAZON_ADS_CLIENT_SECRET }}
       BOOTSTRAP_ONLY_JOB_ID: ${{ github.event.inputs.job_id || '' }}
       BOOTSTRAP_MAX_JOBS: ${{ github.event.inputs.max_jobs || '' }}
       BOOTSTRAP_MAX_ATTEMPTS: ${{ github.event.inputs.max_attempts || '' }}

@@ -31,6 +31,7 @@
     ga4: [['kpis', 'daily traffic']],
     meta_ads: [['recent_data', 'recent campaign and ad performance'], ['history', '365-day history']],
     tiktok_ads: [['kpis', 'daily performance']],
+    amazon_ads: [['kpis', 'daily performance']],
     search_console: [['backfill', 'search history']],
     redo: [
       ['returns_backfill', 'past returns'],
@@ -45,6 +46,7 @@
     ga4: 'GA4',
     meta_ads: 'Meta',
     tiktok_ads: 'TikTok',
+    amazon_ads: 'Amazon Ads',
     search_console: 'Search Console',
     redo: 'Redo',
     klaviyo: 'Klaviyo',

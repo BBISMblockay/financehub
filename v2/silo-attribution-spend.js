@@ -12,6 +12,14 @@ export const SPEND_SOURCES=[
   {channel:'Meta Ads',table:'marketing_kpis_daily',rows:'kpi',connections:'ads',column:'platform',key:'meta_ads',job:'meta_ads_kpis',kind:'Ad spend',spendColumn:'spend',currencyColumn:null},
   {channel:'Google Ads',table:'marketing_kpis_daily',rows:'kpi',connections:'ads',column:'platform',key:'google_ads',job:'google_ads_kpis',kind:'Ad spend',spendColumn:'spend',currencyColumn:null},
   {channel:'TikTok Ads',table:'marketing_kpis_daily',rows:'kpi',connections:'ads',column:'platform',key:'tiktok_ads',job:'tiktok_ads_kpis',kind:'Ad spend',spendColumn:'spend',currencyColumn:null},
+  // Amazon Ads is DELIBERATELY ABSENT, and that is not an oversight to fill in.
+  // This panel sets spend beside SILO's attributed revenue, which is modelled
+  // from the Shopify storefront's own sessions and orders. Amazon ad spend
+  // buys placements on Amazon's storefront, so dividing it into
+  // Shopify-attributed revenue would compute an efficiency figure whose
+  // numerator and denominator are different shops. Amazon spend is reported on
+  // Marketing Overview and in Explorer, where it stands beside what Amazon
+  // itself claims, and that comparison is the honest one.
   {channel:'Redo Email',table:'redo_marketing_daily',rows:'redo',connections:'redo',column:'channel',key:'EMAIL',job:'redo_marketing',kind:'Sending cost',spendColumn:'spend',currencyColumn:'spend_currency'},
   {channel:'Redo SMS',table:'redo_marketing_daily',rows:'redo',connections:'redo',column:'channel',key:'SMS',job:'redo_marketing',kind:'Sending cost',spendColumn:'spend',currencyColumn:'spend_currency'},
   // Klaviyo's SMS sending cost for FLOWS, by day. Klaviyo charges for email by

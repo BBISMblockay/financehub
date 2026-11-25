@@ -36,6 +36,8 @@ const INLINE = [
   'quickbooks-accounts-sync', 'quickbooks-oauth-start', 'quickbooks-report', 'review-finish', 'review-send',
   'shopify-connect-dev-app', 'shopify-oauth-start', 'tiktok-oauth-start',
   'klaviyo-oauth-start', 'test-klaviyo-connection',
+  // Amazon Ads (2026-11-20): service-role only after getUser, same as TikTok's.
+  'amazon-oauth-start',
 ];
 const HANDLERS = {
   'meta-oauth-start': 'handler.mjs',

@@ -120,6 +120,9 @@ const INLINE = [
   'review-finish', 'review-send', 'shopify-connect-dev-app', 'shopify-oauth-start', 'tiktok-oauth-start',
   // Klaviyo: both work only with the service role after getUser.
   'klaviyo-oauth-start', 'test-klaviyo-connection',
+  // Amazon Ads: the start function inserts the CSRF state row with the
+  // service role, so its caller token never reaches PostgREST on its own.
+  'amazon-oauth-start',
 ];
 // Injected rather than imported, so a test can drive the handler without
 // minting a token. index.ts wires the real module.

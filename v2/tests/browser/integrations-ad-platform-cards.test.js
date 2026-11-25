@@ -109,6 +109,7 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
       last_tested_at: null, last_test_success: null, last_test_error: null,
       google_customer_id: null, meta_ad_account_id: null, tiktok_advertiser_id: null,
       ga4_property_id: null, search_console_site_url: null,
+      amazon_profile_id: null, amazon_region: null,
       facebook_page_id: null, instagram_business_account_id: null, meta: null, ...over,
     });
     // One connection per platform, each with a name no other row shares, so
@@ -337,6 +338,63 @@ const CARD_OF = Object.fromEntries(Object.entries(CARDS).flatMap(([c, ps]) => ps
       'the nightly toggle reads its stored state',
     );
     await live.close();
+
+    // ── An UNLAUNCHED integration stays hidden, however configured ────────
+    // The launch gate is not the configuration probe. Setting
+    // AMAZON_ADS_CLIENT_ID is exactly what shipping the feature requires, so
+    // a card revealed by the probe alone would appear for every customer the
+    // moment the secret existed. A workspace sees it only after opting in
+    // through its own data.
+    const amazonConfigured = { 'amazon-oauth-start': { status: 200, body: { configured: true } } };
+    const noAmazon = { ad_platform_connections: [adRow({ id: 't1', platform: 'tiktok_ads', display_name: 'Acme Supply Co' })] };
+
+    const hidden = await suite.open('/v2/integrations.html', noAmazon, {
+      ready, rpc: { is_admin_user: true }, edge: amazonConfigured,
+      serverCompany: { id: 'test-company', meta: {} },
+    });
+    await hidden.waitForTimeout(600);
+    R.eq(
+      await hidden.evaluate(() => document.getElementById('amazon-ads-card')?.hidden),
+      true,
+      'a configured deployment alone must NOT show an unlaunched integration to a workspace',
+    );
+    await hidden.close();
+
+    const optedIn = await suite.open('/v2/integrations.html', noAmazon, {
+      ready, rpc: { is_admin_user: true }, edge: amazonConfigured,
+      serverCompany: { id: 'test-company', meta: { beta_integrations: ['amazon_ads'] } },
+    });
+    await optedIn.waitForFunction(
+      () => document.getElementById('amazon-ads-card')?.hidden === false,
+      null, { timeout: 8000 },
+    ).catch(() => {});
+    R.eq(
+      await optedIn.evaluate(() => document.getElementById('amazon-ads-card')?.hidden),
+      false,
+      'a workspace that opted in sees it',
+    );
+    await optedIn.close();
+
+    // A connection that exists outranks both gates: a live connection must
+    // never be invisible on the page that manages it.
+    const connected = {
+      ad_platform_connections: [adRow({
+        id: 'am1', platform: 'amazon_ads', display_name: 'Baseballism US',
+        amazon_profile_id: '3819238412', amazon_region: 'NA', sync_enabled: true,
+      })],
+    };
+    const live2 = await suite.open('/v2/integrations.html', connected, {
+      ready: () => !!document.querySelector('#amazon_ads-connections-list tr'),
+      rpc: { is_admin_user: true },
+      serverCompany: { id: 'test-company', meta: {} },
+    });
+    R.eq(
+      await live2.evaluate(() => document.getElementById('amazon-ads-card')?.hidden),
+      false,
+      'an existing connection reveals the card even without the opt-in',
+    );
+    R.has(await live2.evaluate(htmlOf, 'amazon_ads'), 'Baseballism US');
+    await live2.close();
   } finally {
     await suite.close();
     if (R.summary().fail) process.exitCode = 1;

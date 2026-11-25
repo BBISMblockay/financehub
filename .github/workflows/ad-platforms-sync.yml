@@ -7,7 +7,7 @@ on:
         description: Optional company UUID (limit to one entity)
         required: false
       platform:
-        description: Optional single platform (google_ads | meta_ads | tiktok_ads | ga4 | search_console)
+        description: Optional single platform (google_ads | meta_ads | tiktok_ads | amazon_ads | ga4 | search_console)
         required: false
       connection_id:
         description: Optional ad_platform_connections.id
@@ -84,6 +84,13 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_ADS_DEVELOPER_TOKEN: ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+      # Amazon's Login-with-Amazon client, which redeems the per-connection
+      # refresh token for the hour-long access token every Ads API call needs.
+      # Same safety as Google's above: amazon_ads connections are SKIPPED, not
+      # failed, while these are unset, so this can ship before the Amazon Ads
+      # API application is approved.
+      AMAZON_ADS_CLIENT_ID: ${{ secrets.AMAZON_ADS_CLIENT_ID }}
+      AMAZON_ADS_CLIENT_SECRET: ${{ secrets.AMAZON_ADS_CLIENT_SECRET }}
       ADS_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
       ADS_ONLY_PLATFORM: ${{ github.event.inputs.platform || '' }}
       ADS_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
@@ -110,5 +117,12 @@ jobs:
       # Meta/TikTok tokens live on ad_platform_connections rows (set via the
       # Integrations UI), so the orchestrator needs no per-platform secret
       # for them; with zero sync-enabled connections it simply no-ops.
+      #
+      # Amazon is the slowest platform here by a wide margin and it is not a
+      # fault: its reporting is asynchronous, so each run requests every
+      # report, waits for Amazon to build them (minutes), then downloads them.
+      # The reports are created before any is polled, so a run costs about one
+      # build time rather than one per report -- which is what keeps a 95-day
+      # first import inside this job's ceiling.
       - name: Run ad platforms sync orchestrator
         run: node scripts/ad-platforms-sync.mjs

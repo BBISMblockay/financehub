@@ -61,6 +61,15 @@ const CONNECTION_SOURCES = {
     table: 'ad_platform_connections', by: 'id', platform: 'search_console', syncFlag: true,
     select: 'id, is_active, sync_enabled, company_entity_id, platform',
   },
+  // Amazon reads the same row shape as the other ad platforms. It needs an
+  // entry here for the same reason each of them does: an integration absent
+  // from this table reads as a connection that does not exist, and the job is
+  // CANCELLED -- a plan and a queue CHECK alone get a valid connection as far
+  // as "no longer exists or belongs elsewhere".
+  amazon_ads: {
+    table: 'ad_platform_connections', by: 'id', platform: 'amazon_ads', syncFlag: true,
+    select: 'id, is_active, sync_enabled, company_entity_id, platform',
+  },
   redo: {
     table: 'redo_connections', by: 'company_entity_id', syncFlag: false,
     select: 'id, is_active, company_entity_id, api_secret',

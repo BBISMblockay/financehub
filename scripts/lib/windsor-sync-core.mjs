@@ -869,6 +869,11 @@ export const NATIVE_CONNECTION_TABLES = Object.freeze({
   // selects it. `match` is generic: any future native source states the
   // columns that identify its row, and nothing here is per-source logic.
   tiktok: { table: 'ad_platform_connections', match: { platform: 'tiktok_ads' } },
+  // Amazon Ads' native connector (2026-11-20). The key is WINDSOR's connector
+  // slug, which for this source happens to match SILO's platform name --
+  // verified against connectors.windsor.ai/amazon_ads/fields, since
+  // `amazon` is not a connector Windsor has.
+  amazon_ads: { table: 'ad_platform_connections', match: { platform: 'amazon_ads' } },
 });
 
 /** Does this company sync this source natively? Throws on a read failure

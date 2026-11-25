@@ -103,7 +103,9 @@ jobs:
           #     Shopify's HMAC signature is checked before anything is written.
           #   meta-oauth-callback -- Meta redirects the browser here; the state row
           #     a signed-in admin created is the authorization.
-          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest tiktok-oauth-callback shopify-app-install meta-oauth-callback klaviyo-oauth-callback mcp"
+          #   amazon-oauth-callback -- Login with Amazon redirects the browser
+          #     here; same single-use state nonce as the others above.
+          NO_JWT_FUNCTIONS="shopify-compliance-webhook plaid-scheduled-sync card-coding-prepare-scheduled onboarding-interest tiktok-oauth-callback shopify-app-install meta-oauth-callback klaviyo-oauth-callback amazon-oauth-callback mcp"
           if [ "$FN" = "all" ]; then
             supabase functions deploy --project-ref "$PROJECT_REF" --yes
             # A plain deploy applies the default verify_jwt, which would leave

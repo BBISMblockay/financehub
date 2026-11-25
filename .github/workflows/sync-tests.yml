@@ -98,6 +98,7 @@ on:
       - 'supabase/functions/shopify-connect-dev-app/**'
       - 'supabase/functions/shopify-oauth-start/**'
       - 'supabase/functions/tiktok-oauth-start/**'
+      - 'supabase/functions/amazon-oauth-start/**'
       - 'supabase/functions/meta-oauth-start/**'
       - 'supabase/functions/meta-oauth-review/**'
       - 'supabase/functions/shopify-install-claim/**'
@@ -234,7 +235,9 @@ on:
       - 'supabase/functions/google-oauth-start/**'
       - 'supabase/functions/google-oauth-callback/**'
       - 'supabase/functions/tiktok-oauth-start/**'
+      - 'supabase/functions/amazon-oauth-start/**'
       - 'supabase/functions/tiktok-oauth-callback/**'
+      - 'supabase/functions/amazon-oauth-callback/**'
       # Meta Ads OAuth (meta-oauth.test.mjs).
       - 'scripts/lib/meta-oauth-lib.mjs'
       - 'supabase/functions/meta-oauth-start/**'
@@ -1299,6 +1302,20 @@ jobs:
           node --test scripts/tests/tiktok-ads-sync.test.mjs
           for m in chunk gap paging valuemetric; do
             if TIKTOK_SYNC_MUTATION="$m" node --test scripts/tests/tiktok-ads-sync.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
+            fi
+          done
+
+      # Amazon reporting is ASYNCHRONOUS -- create, poll, download -- keeps 95
+      # days and errors beyond that, and its purchase columns differ per ad
+      # product (purchases7d for Sponsored Products, bare purchases for Brands
+      # and Display).
+      - name: Amazon ads reporting fetch
+        run: |
+          set -u
+          node --test scripts/tests/amazon-ads-sync.test.mjs
+          for m in lookback chunk serial valuemetric duplicate allfail pending; do
+            if AMAZON_SYNC_MUTATION="$m" node --test scripts/tests/amazon-ads-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"; exit 1
             fi
           done

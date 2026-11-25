@@ -19879,6 +19879,10 @@ $c$select (select count(*) from v_po_header_summary
 -- often" and "what time" are two controls. Needs the generic computeNextRunAt
 -- (three copies) deployed with it.
 \i migrations/20261120040000_report_email_cadence_matrix.sql
+-- 20261120050000: Amazon Ads as the fourth ad platform -- the two platform
+-- CHECKs, the profile/region pair on the connection, and the nightly's
+-- job_type. Apply BEFORE deploying amazon-oauth-start / amazon-oauth-callback.
+\i migrations/20261120050000_amazon_ads_connection.sql
 -- 20261121210000: per-program staff scope and a per-creator audience on a
 -- share. Both mean "everything" when null, so applying it changes nobody's
 -- access until somebody narrows it deliberately.

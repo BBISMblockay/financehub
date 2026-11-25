@@ -237,6 +237,12 @@ export const BOOTSTRAP_PLANS = {
   ga4: adStages('ga4'),
   meta_ads: META_STAGES,
   tiktok_ads: adStages('tiktok_ads'),
+  // Amazon's own 95-day retention is the limit, not this plan's: adsDaysBack
+  // asks for two years and fetchAmazonAdsRows clamps the window, because
+  // Amazon ERRORS on a start date beyond its lookback rather than answering
+  // with the days it has. So a first Amazon import is about three months
+  // deep, and no number here can widen it.
+  amazon_ads: adStages('amazon_ads'),
   search_console: SEARCH_CONSOLE_STAGES,
   redo: REDO_STAGES,
   klaviyo: KLAVIYO_STAGES,
