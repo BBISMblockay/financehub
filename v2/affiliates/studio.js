@@ -4783,7 +4783,10 @@ const A = {
     const keys = [...c.sel];
     if (!keys.length) return 'Tick at least one customer.';
     const byKey = new Map(c.rows.map((x) => [x.customer_key, x]));
-    let done = 0; let failed = 0;
+    // Only a find whose do-not-contact entries all landed (or were already
+    // there) is archived: one with nothing to list, or a refused insert,
+    // stays on the working list, so the list and the archive never disagree.
+    const listed = []; let failed = 0;
     for (const k of keys) {
       const x = byKey.get(k); const r = c.social[k];
       const rows = [];
@@ -4795,10 +4798,11 @@ const A = {
           const { error } = await db.from('affiliate_suppressions').insert({ ...row, company_entity_id: CO, reason: 'do_not_contact', source: 'affiliate_studio', created_by: me.id });
           if (error && error.code !== '23505') throw error;
         }
-        done += 1;
+        listed.push(k);
       } catch (_) { failed += 1; }
     }
-    if (custReview) await markCustomers(keys, 'suppressed').catch(() => {});
+    const done = listed.length;
+    if (custReview && listed.length) await markCustomers(listed, 'suppressed').catch(() => {});
     c.sel.clear();
     loadCustomers(true);
     return `${num(done)} added to the do-not-contact list and moved to Archive.${failed ? ` ${num(failed)} could not be added.` : ''}`;
