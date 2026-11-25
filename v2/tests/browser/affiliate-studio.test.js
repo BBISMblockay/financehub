@@ -216,7 +216,7 @@ const MUTATIONS = {
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
-  supoffer: ['/affiliates/studio.js', '  if (!MANAGE || !g || g.suppressed || d?.supUnknown) return \'\';', '  if (!MANAGE || !g || d?.supUnknown) return \'\';'],
+  supoffer: ['/affiliates/studio.js', "  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));", '  const actions = (g) => rowActions(shownRow(g), g);'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
   supignored: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = groupPeople(d.prospects);'],
   supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
@@ -3777,6 +3777,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await addToIn('pb3')));
       R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await addToIn('pb5')));
       R.ok('somebody who may be added is offered the menu in More', await addToIn('pb4'));
+      // Somebody on the do-not-contact list is listed, and that is all: no
+      // button on the row, so no menu and no way to add them anywhere.
+      const supRowBtns = await pg.evaluate(() => {
+        const el = [...document.querySelectorAll('#prospectsBody tr, #prospectsBody article')].find((e) => /Sue Listed/.test(e.textContent || ''));
+        return [...(el?.querySelectorAll('button') || [])].map((b) => b.textContent.trim());
+      });
+      R.eq(supRowBtns, [], 'a do-not-contact row offers no buttons at all');
       R.ok('People reads the do-not-contact list in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_suppressions' && q.range)));
       if (process.env.PEOPLE_SHOT) { await pg.setViewportSize({ width: 1280, height: 1100 }); await (await pg.$('#prospectsBody')).screenshot({ path: process.env.PEOPLE_SHOT }); }
       // Affiliates: one card per person, a block for each program.
