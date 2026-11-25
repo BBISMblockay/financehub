@@ -7012,7 +7012,11 @@ select 'Card paydown match' as check_name,
     or public.card_payment_posting_treatment('Expense') is not null
    then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
   when has_function_privilege('anon', 'public.card_payment_match_proposals(uuid[],integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_match_offers(uuid[],integer)', 'execute')
    then 'CRITICAL: anon can reach the card paydown proposals'
+  when to_regprocedure('public.card_payment_match_offers(uuid[],integer)') is null
+    or to_regprocedure('public.card_payment_settlement_candidates(uuid,integer)') is null
+   then 'MISSING — run 20261125080000_card_payment_match_either_side.sql: a match could not be confirmed from the bank side'
   when position('payer_coded_at' in coalesce(pg_get_functiondef(to_regprocedure('public.unlink_card_payment_match(uuid)')), '')) = 0
    then 'STALE — run 20261125070000_card_payment_match_relink.sql: without the stamp an undo can overwrite coding somebody did themselves'
   else 'ok' end as status;
