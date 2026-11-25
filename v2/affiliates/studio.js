@@ -1021,14 +1021,27 @@ const PANEL_RENDERERS = {
   records: [renderRecords],
 };
 
+function renderProgramPick(company) {
+  const el = $('progPick'); if (!el) return;
+  const list = S.programs;
+  el.hidden = company || list.length < 2 || S.creating;
+  if (el.hidden) { el.innerHTML = ''; return; }
+  const opts = [...(S.tab === 'overview' ? [{ id: ALL, name: 'All programs' }] : []), ...list];
+  const on = (id) => (id === ALL ? isAll() : S.programId === id);
+  el.innerHTML = `<span class="af-muted">Program</span><div class="af-seg" role="radiogroup" aria-label="Program">${opts.map((y) => `<button type="button" class="af-seg-btn${on(y.id) ? ' is-on' : ''}" role="radio" aria-checked="${on(y.id)}" data-act="pick-prog" data-id="${esc(y.id)}">${esc(y.name)}</button>`).join('')}</div>`;
+}
+
 function render() {
   const p = prog();
   const company = peopleScope();
   const main = document.querySelector('.silo-main.af-studio');
   main?.classList.toggle('af-studio--ready', !!p || isAll() || company);
   main?.classList.toggle('af-studio--workflow', (!!p || company) && !['overview', 'program', 'records'].includes(S.tab));
-  // The picker is about programs; People is above them, so it is not shown there.
-  const sel = $('programSel'); if (sel) sel.hidden = company;
+  // No program filter at the top of the page (Blake 2026-11-24: "remove
+  // that"). People is one company list. A tab that is about one program's
+  // settings, numbers or money picks it inside the tab, with buttons.
+  const sel = $('programSel'); if (sel) sel.hidden = true;
+  renderProgramPick(company);
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
   renderDialog();
@@ -1659,8 +1672,14 @@ function dialogSpec() {
   // Draft message change a draft, not the creator, and a key that did not move
   // left the pressed button sitting there to be pressed again.
   if (mp) {
-    const acts = prospectActions(mp).join('');
-    return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
+    // Every program this person is in, each with its own status and buttons
+    // (one row per person on the list, so the programs live here).
+    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];
+    const blocks = rows.map((r) => {
+      const acts = prospectActions(r).join('');
+      return { acts, html: `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${prospectPill(r.status)}</div>` : ''}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>` };
+    });
+    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
   // Who a share is for. Nobody ticked means the whole program, which is what
   // every share has meant until now, so the dialog opens on that honestly
@@ -2203,30 +2222,38 @@ function renderProspects() {
   for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
   S.viewIds = list.map((g) => g.x.id);
   S.viewPeople = Object.fromEntries(list.map((g) => [g.x.id, g]));
-  // One program in the company: the card reads as it always did. More than
-  // one: a line per program they are in, each with its own buttons.
-  const multi = (g) => S.programs.length > 1 || g.rows.length > 1;
+  // One row per person (Blake 2026-11-24, his sheet: Creator, Followers,
+  // Email, Status, Program, More): the programs they are in are a column, not
+  // a line each, and adding them to another program is one menu on the row.
   // Two buttons on the row, the rest behind More (Blake 2026-11-20: "there is
   // a lot there"). More opens the same buttons in the centre pop-up, so
   // nothing is lost and nothing folds out over the list.
-  const rowActions = (x) => {
+  // Somebody in several programs has a row in each, with its own status. The
+  // row shown is the one that puts them in this filter (Shortlisted shows
+  // their shortlisted program), and More lists every program's own buttons.
+  const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;
+  const rowActions = (x, g) => {
     if (!MANAGE) return '';
     const b = prospectActions(x);
-    if (!b.length) return '';
+    const many = (g?.rows.length || 1) > 1;
+    if (!b.length && !many) return '';
     const shown = b.slice(0, 2);
-    if (b.length > 2) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
+    if (b.length > 2 || many) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
     return `<div class="af-actions">${shown.join('')}</div>`;
   };
-  // The programs they are not in yet, to push them into. Never somebody on
-  // the do-not-contact list.
-  const addTo = (g) => (MANAGE && !g.suppressed && !d.supUnknown
-    ? openPrograms().filter((y) => !g.programIds.includes(y.id)).map((y) => btn(`Add to ${y.name}`, 'prospect-assign', { id: g.x.id, to: y.id })).join('')
-    : '');
-  // Do not contact is company-wide, so once any program has them there, no
-  // line offers a step towards contacting them.
-  const programLines = (g) => `<div class="af-allprog">${g.rows.map((x) => `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(x.program_id))}</div>${prospectPill(x.status)}${g.suppressed ? '' : rowActions(x)}</div>`).join('')}</div>${addTo(g) ? `<div class="af-actions">${addTo(g)}</div>` : ''}`;
-  const actions = (g) => (multi(g) ? programLines(g) : rowActions(g.x));
-  const headPill = (g) => (multi(g) ? (g.suppressed ? prospectPill('suppressed') : '') : prospectPill(g.x.status));
+  // The programs they are not in yet, to push them into: one menu. Never
+  // somebody on the do-not-contact list (company-wide, so no step towards
+  // contacting them is offered at all).
+  const addTo = (g) => {
+    if (!MANAGE || g.suppressed || d.supUnknown) return '';
+    const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
+    return missing.length
+      ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
+      : '';
+  };
+  const actions = (g) => `<div class="af-actions">${g.suppressed ? '' : rowActions(shownRow(g), g)}${addTo(g)}</div>`;
+  const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
+  const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
     return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
@@ -2282,6 +2309,7 @@ function renderProspects() {
       <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
       ${facts.length ? `<div class="af-muted af-catalog-facts">${facts.join(' · ')}</div>` : ''}
       <div class="af-muted">${sourceLine(x)}</div>
+      ${S.programs.length > 1 ? `<div class="af-kv-line"><span class="af-muted">Program</span> ${esc(programsOf(g))}</div>` : ''}
       <footer class="af-item-foot af-catalog-foot">${actions(g)}</footer>
     </article>`;
   };
@@ -2312,6 +2340,7 @@ function renderProspects() {
           { h: 'Engagement', num: true, f: ({ x }) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
           { left: true, h: 'Email', f: ({ x }) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
           { left: true, h: 'Status', f: (g) => `${headPill(g)}${customerPill(g.x)}` },
+          ...(S.programs.length > 1 ? [{ left: true, h: 'Program', f: (g) => esc(programsOf(g)) }] : []),
           { h: '', f: (g) => actions(g) },
         ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
@@ -4050,6 +4079,7 @@ const A = {
     return on === '1' ? 'Payouts go out every Friday.' : 'Each payout waits for approval again.';
   },
   // From the all-programs view into one program, on the tab asked for.
+  'pick-prog': async ({ id }) => { await setProgram(id); return null; },
   'pick-program': async ({ id, t }) => {
     await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
@@ -4888,11 +4918,31 @@ document.addEventListener('click', async (ev) => {
     renderDialog();
   }
 });
+// "Add to program…" on a person's row: picking a program adds them to it,
+// exactly as the Add to button did.
+document.addEventListener('change', async (ev) => {
+  const sel = ev.target.closest?.('select.af-addto');
+  if (!sel || !sel.value) return;
+  const to = sel.value;
+  // Like any People button, it works in the program of the row it sits on.
+  const pg = ctxProgram({ id: sel.dataset.id });
+  if (pg && pg !== S.programId) { S.programId = pg; if ($('programSel')) $('programSel').value = pg; }
+  sel.disabled = true;
+  try {
+    const msg = await A['prospect-assign']({ id: sel.dataset.id, to });
+    if (typeof msg === 'string') { setStatus(msg, 'pos', 5000); await reload(); }
+  } catch (e) {
+    setStatus(friendly(e), 'neg');
+  } finally {
+    sel.disabled = false; sel.value = '';
+  }
+});
 // Escape, the backdrop and the browser's own close all mean the same thing:
 // nothing is open any more, so the state that opened it is cleared too.
 $('afDialog')?.addEventListener('close', () => { if (S.dlgKey) { closeDialogState(); S.dlgKey = null; render(); } });
 $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog')) $('afDialog').close(); });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); });
+async function setProgram(id) { await flushProgramSave(); S.programId = id; if ($('programSel')) $('programSel').value = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); }
+$('programSel').addEventListener('change', (e) => setProgram(e.target.value));
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
 
 try {
