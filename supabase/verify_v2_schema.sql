@@ -11127,6 +11127,9 @@ select 'PO step set by AI' as check_name,
       then 'CRITICAL: the PO step tables are readable by anon or by an AI connection directly'
     when has_table_privilege('authenticated', 'public.po_status_changes', 'insert,update,delete')
       then 'CRITICAL: a browser can write the record of what a connection changed'
+    when has_table_privilege('authenticated', 'public.po_status_options', 'truncate')
+      or has_table_privilege('authenticated', 'public.po_status_changes', 'truncate')
+      then 'CRITICAL: a signed-in role could empty a PO step table -- RLS does not cover TRUNCATE'
     when not has_table_privilege('authenticated', 'public.po_status_options', 'select')
       then 'BROKEN — PO Builder cannot read this company''s steps'
     when exists (select 1 from public.po_headers h

@@ -25,13 +25,19 @@
 revoke all on public.po_status_options from anon, silo_integration, silo_revoked;
 revoke all on public.po_status_changes from anon, silo_integration, silo_revoked;
 
+-- `authenticated` keeps TRUNCATE, REFERENCES and TRIGGER on both tables too,
+-- and TRUNCATE is the one that matters: PostgreSQL does not apply RLS to it,
+-- so a signed-in role holding it could empty every company's step list in one
+-- statement, policies or not. PostgREST cannot issue a TRUNCATE, but the grant
+-- should not be there to rely on that. Revoke the lot and re-grant only what
+-- each table needs, so this file alone describes the end state.
+revoke all on public.po_status_options from authenticated;
+revoke all on public.po_status_changes from authenticated;
+
+-- PO Builder and Workspace Settings read the steps; the admin policy decides
+-- who may change them.
+grant select, insert, update, delete on public.po_status_options to authenticated;
+
 -- The record of what a connection changed is the person's to READ. It is
 -- written by silo_api_set_po_status() as the definer, never by a browser.
-revoke insert, update, delete, truncate, references, trigger
-  on public.po_status_changes from authenticated;
-
--- Restate what each role is meant to have, so this file alone describes the
--- end state.
-grant select on public.po_status_options to authenticated;
-grant insert, update, delete on public.po_status_options to authenticated;
 grant select on public.po_status_changes to authenticated;

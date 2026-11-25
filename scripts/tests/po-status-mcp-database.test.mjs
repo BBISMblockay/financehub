@@ -460,6 +460,12 @@ await check('no client role may call the tools or the internal helpers', async (
     ['authenticated', 'po_status_changes', 'insert'],
     ['authenticated', 'po_status_changes', 'update'],
     ['authenticated', 'po_status_changes', 'delete'],
+    // TRUNCATE is the one RLS does NOT cover: a signed-in role holding it
+    // could empty every company's step list in one statement.
+    ['authenticated', 'po_status_options', 'truncate'],
+    ['authenticated', 'po_status_changes', 'truncate'],
+    ['anon', 'po_status_options', 'truncate'],
+    ['anon', 'po_status_changes', 'truncate'],
   ]) {
     const r = await one(`select has_table_privilege($1, $2, $3) ok`, [role, 'public.' + table, priv]);
     assert.equal(r.ok, false, `${role} must not ${priv} ${table}`);
