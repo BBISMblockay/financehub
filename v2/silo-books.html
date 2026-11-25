@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Books</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* Same shell as /v2/qbo-reports.html on purpose: the two pages are meant
+       to read alike. This one is built from SILO's ledger instead. */
+    .silo-main { min-width: 0; overflow: hidden; }
+    .bcn-header { position: sticky; top: 0; z-index: 30;
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+    .sb-page { flex: 1; min-height: 0; overflow: auto; background: var(--bcn-bg); padding: 16px 20px 64px; }
+    .sb-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+    .sb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      gap: 8px; margin-bottom: 10px; }
+    .sb-tile { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;
+      background: var(--bcn-surface); color: var(--bcn-ink); border: 1px solid var(--bcn-border);
+      border-radius: 10px; padding: 10px 12px; font: inherit; }
+    .sb-tile:hover { border-color: var(--bcn-accent); }
+    .sb-tile[aria-pressed="true"] { border-color: var(--bcn-accent);
+      box-shadow: inset 0 0 0 1px var(--bcn-accent); background: var(--bcn-accent-soft, #eaf1fb); }
+    .sb-tile-name { font-weight: 650; font-size: 13px; }
+    .sb-tile-desc { font-size: 11px; line-height: 1.35; color: var(--bcn-ink-3); }
+    .sb-field { display: flex; flex-direction: column; gap: 4px; }
+    /* An author display rule beats the [hidden] default, so say it. */
+    .sb-field[hidden] { display: none; }
+    .sb-field > label { font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3); }
+    .sb-field > input { font-size: 12px; min-width: 150px; }
+    .sb-check { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+    .sb-check label { font-size: 12px; color: var(--bcn-ink-2); user-select: none; cursor: pointer; }
+
+    .sb-card { background: var(--bcn-surface); border: 1px solid var(--bcn-border);
+      border-radius: 12px; overflow: hidden; }
+    .sb-card-head { padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .sb-title { font-weight: 650; font-size: 14px; }
+    .sb-sub { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .sb-scroll { overflow: auto; max-height: 68vh; }
+    table.sb-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.sb-table th { position: sticky; top: 0; background: var(--bcn-sunken); text-align: left;
+      font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--bcn-ink-3);
+      padding: 7px 10px; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
+    table.sb-table td { padding: 5px 10px; border-bottom: 1px solid var(--bcn-border); vertical-align: top; }
+    table.sb-table tr:hover td { background: var(--bcn-sunken); }
+    table.sb-table .sb-num { text-align: right; font-family: var(--bcn-mono); white-space: nowrap; }
+    .sb-neg { color: var(--bcn-neg); }
+    .sb-header > td { font-weight: 650; }
+    .sb-total td { font-weight: 650; background: var(--bcn-sunken); }
+    .sb-account > td:first-child { padding-left: 24px; }
+    .sb-clickable { cursor: pointer; }
+    .sb-clickable td:first-child { text-decoration: underline;
+      text-decoration-color: var(--bcn-border-strong, #c3cdc8); text-underline-offset: 2px; }
+    .sb-clickable:hover td { background: var(--bcn-accent-soft, #eaf1fb); }
+    .sb-empty { padding: 28px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .sb-quiet { color: var(--bcn-ink-3); font-size: 11px; white-space: nowrap; }
+
+    .sb-scrim { position: fixed; inset: 0; z-index: 95; background: rgba(15,23,42,.72);
+      backdrop-filter: blur(2px); display: flex; align-items: flex-start; justify-content: center;
+      padding: 32px 16px; overflow: auto; }
+    /* An author display rule beats the [hidden] default, so say it. */
+    .sb-scrim[hidden] { display: none; }
+    .sb-modal { background: var(--bcn-surface); color: var(--bcn-ink);
+      border: 1px solid var(--bcn-border); border-radius: 12px;
+      width: min(1180px, 96vw); box-shadow: 0 18px 48px rgba(15,23,42,.35);
+      display: flex; flex-direction: column; max-height: calc(100vh - 64px);
+      min-height: min(360px, 60vh); }
+    .sb-modal-head { flex: none; display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--bcn-border); }
+    .sb-modal-body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+    .sb-modal-foot { flex: none; display: flex; gap: 8px; align-items: center;
+      padding: 11px 14px; border-top: 1px solid var(--bcn-border); background: var(--bcn-sunken); }
+  </style>
+  <link rel="stylesheet" href="accounting-suite.css?v=1fd0aab8e88a" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="nav-config.js"></script>
+  <script src="avatar.js"></script>
+  <script src="accounting-suite.js?v=83806c8e4ae1"></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <script src="silo-books.js"></script>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main accounting-workspace">
+      <header class="bcn-header">
+        <div class="bcn-header-title">
+          <div>SILO books</div>
+          <div class="bcn-header-sub">Run financial reports from your connected books.</div>
+        </div>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn" id="btnCsv">CSV</button>
+        </div>
+      </header>
+
+      <div class="sb-page">
+        <div class="bcn-status" id="status" hidden></div>
+
+        <div class="sb-tiles" id="reportTiles" aria-label="Report">
+          <button type="button" class="sb-tile" data-report="pl" aria-pressed="true"><span class="sb-tile-name">Profit &amp; Loss</span><span class="sb-tile-desc">Income and expenses for the period</span></button>
+          <button type="button" class="sb-tile" data-report="bs" aria-pressed="false"><span class="sb-tile-name">Balance Sheet</span><span class="sb-tile-desc">Assets, liabilities and equity at the end date</span></button>
+          <button type="button" class="sb-tile" data-report="tb" aria-pressed="false"><span class="sb-tile-name">Trial Balance</span><span class="sb-tile-desc">Every account's debit or credit balance</span></button>
+          <button type="button" class="sb-tile" data-report="gl" aria-pressed="false"><span class="sb-tile-name">General Ledger</span><span class="sb-tile-desc">Transaction detail by account</span></button>
+        </div>
+        <div class="sb-filters">
+          <div class="sb-field" id="fromField">
+            <label for="from">From</label>
+            <input class="bcn-field" id="from" type="date" />
+          </div>
+          <div class="sb-field">
+            <label for="to" id="toLabel">To</label>
+            <input class="bcn-field" id="to" type="date" />
+          </div>
+          <div class="sb-field" id="byMonthField">
+            <label>&nbsp;</label>
+            <div class="sb-check">
+              <input type="checkbox" id="byMonth" />
+              <label for="byMonth">By month</label>
+            </div>
+          </div>
+          <button class="bcn-btn bcn-btn--primary" id="btnRun">Run report</button>
+        </div>
+
+        <div class="sb-card">
+          <div class="sb-card-head">
+            <div>
+              <div class="sb-title" id="cardTitle">No report run yet</div>
+              <div class="sb-sub" id="cardSub">Pick a report above to run it</div>
+            </div>
+            <div class="sb-sub" id="rowCount"></div>
+          </div>
+          <div class="sb-scroll" tabindex="0" role="region" aria-label="Financial report results">
+            <table class="sb-table" id="tbl">
+              <tbody><tr><td class="sb-empty">Nothing loaded.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="sb-scrim" id="drillScrim" hidden>
+    <div class="sb-modal" role="dialog" aria-modal="true" aria-label="Account detail">
+      <div class="sb-modal-head">
+        <div>
+          <div class="sb-title" id="drillTitle">Account detail</div>
+          <div class="sb-sub" id="drillSub"></div>
+        </div>
+        <button class="bcn-btn" id="drillClose">Close</button>
+      </div>
+      <div class="sb-modal-body" id="drillBody"></div>
+      <div class="sb-modal-foot">
+        <button class="bcn-btn" id="drillMore" hidden>Load next 1,000 lines</button>
+        <span class="sb-sub" id="drillCount"></span>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      '<div style="padding:48px;text-align:center;font-weight:700">Missing Supabase config</div>';
+    return;
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const Books = window.SiloBooks;
+  const PAGE = 1000;                      // the report engine's page size
+  const NAMES = { pl: 'Profit & Loss', bs: 'Balance Sheet', tb: 'Trial Balance', gl: 'General Ledger' };
+
+  let _co = null;
+  let fiscalStartMonth = 1;
+  let report = 'pl';
+  let last = null;                        // { columns, lines } of what is on screen
+  let runToken = 0;
+  const drill = { account: null, label: '', offset: 0, rows: [], from: '', to: '' };
+
+  const el = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function fmtNum(num) {
+    const s = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return num < 0 ? `(${s})` : s;
+  }
+  const numCell = (n) => `<td class="sb-num${n < 0 ? ' sb-neg' : ''}">${fmtNum(n)}</td>`;
+
+  function setStatus(msg, type = 'info', ms = 0) {
+    const s = el('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
+  }
+
+  // One page from the shared report engine. It runs as the signed-in person,
+  // so row security decides what comes back.
+  async function page(sql, offset) {
+    const { data, error } = await sb.rpc('chat_run_readonly_query', { query: sql, p_offset: offset || 0 });
+    if (error) throw new Error(error.message || 'The report could not be read');
+    if (!Array.isArray(data)) throw new Error('The report could not be read');
+    return data;
+  }
+  // Every page of a result. A total built from a cut-off list is a wrong
+  // total, so this reads until a short page or refuses.
+  async function all(sql) {
+    const out = [];
+    for (let offset = 0; offset < 40 * PAGE; offset += PAGE) {
+      const rows = await page(sql, offset);
+      out.push(...rows);
+      if (rows.length < PAGE) return out;
+    }
+    throw new Error('Too many rows to total. Pick a shorter period.');
+  }
+
+  function monthLabel(key) {
+    if (!/^\d{4}-\d{2}$/.test(key)) return key === 'total' ? 'Total' : key;
+    return new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function render(statement) {
+    last = statement;
+    const tbl = el('tbl');
+    const accounts = statement.lines.filter((l) => l.kind === 'account');
+    if (!accounts.length) {
+      tbl.innerHTML = '<tbody><tr><td class="sb-empty">Nothing in the books for that period.</td></tr></tbody>';
+      el('rowCount').textContent = '';
+      return;
+    }
+    const thead = `<thead><tr><th>Account</th>${statement.columns.map((c) =>
+      `<th class="sb-num">${esc(monthLabel(c))}</th>`).join('')}</tr></thead>`;
+    const body = statement.lines.map((l) => {
+      if (l.kind === 'header') {
+        return `<tr class="sb-header"><td colspan="${statement.columns.length + 1}">${esc(l.label)}</td></tr>`;
+      }
+      const cls = l.kind === 'total' ? 'sb-total' : `sb-account${l.accountId ? ' sb-clickable' : ''}`;
+      const attrs = l.kind === 'account' && l.accountId
+        ? ` data-acct="${esc(l.accountId)}" data-label="${esc(l.label)}" title="Open this account's transactions"` : '';
+      // A debit / credit pair leaves the empty side blank, as a ledger does.
+      const sided = statement.columns[0] === 'Debit' && l.kind === 'account';
+      const cells = l.values.map((v) => (sided && v === 0 ? '<td class="sb-num"></td>' : numCell(v))).join('');
+      return `<tr class="${cls}"${attrs}><td>${esc(l.label)}</td>${cells}</tr>`;
+    }).join('');
+    tbl.innerHTML = thead + `<tbody>${body}</tbody>`;
+    el('rowCount').textContent = `${accounts.length} accounts`;
+  }
+
+  async function freshness() {
+    try {
+      const rows = await page(Books.freshnessSql({ companyId: _co.id }), 0);
+      const r = rows[0];
+      if (!r || !r.read_through) return '';
+      return ` · read from QuickBooks through ${String(r.read_through).slice(0, 10)}`;
+    } catch { return ''; }
+  }
+
+  async function run() {
+    if (!_co?.id) { setStatus('No active company. Sign in again.', 'neg', 8000); return; }
+    const from = el('from').value;
+    const to = el('to').value;
+    const byMonth = report === 'pl' && el('byMonth').checked;
+    const mine = ++runToken;
+    el('btnRun').disabled = true;
+    setStatus('Reading the books…', 'info');
+    try {
+      let statement;
+      let period;
+      if (report === 'pl' || report === 'gl') {
+        if (!from || !to || from > to) throw new Error('Pick a From date on or before the To date.');
+        const rows = await all(Books.activitySql({
+          companyId: _co.id, from, to, byMonth, types: report === 'pl' ? Books.PL_TYPES : null,
+        }));
+        statement = report === 'pl'
+          ? Books.profitAndLoss(rows, byMonth ? Books.monthsBetween(from, to) : null)
+          : Books.accountActivity(rows);
+        period = `${from} → ${to}`;
+        drill.from = from; drill.to = to;
+      } else {
+        if (!to) throw new Error('Pick a date.');
+        const fiscalStart = Books.fiscalYearStart(to, fiscalStartMonth);
+        const [rows, unplaced] = await Promise.all([
+          all(Books.positionsSql({ companyId: _co.id, to, fiscalStart })),
+          page(Books.unplacedSql({ companyId: _co.id, to }), 0),
+        ]);
+        statement = report === 'bs' ? Books.balanceSheet(rows) : Books.trialBalance(rows);
+        period = `As of ${to}`;
+        // Clicking an account on a position shows this fiscal year's lines.
+        drill.from = fiscalStart; drill.to = to;
+        const skipped = Number(unplaced[0]?.line_count || 0);
+        if (mine !== runToken) return;
+        if (Math.abs(statement.outOfBalance) >= 0.005 || skipped > 0) {
+          render(statement);
+          setStatus(
+            (Math.abs(statement.outOfBalance) >= 0.005
+              ? `This does not balance: it is off by ${fmtNum(statement.outOfBalance)}. ` : '')
+            + (skipped > 0 ? `${skipped} line(s) have an account type SILO cannot place and are left out.` : ''),
+            'neg');
+          el('cardTitle').textContent = NAMES[report];
+          el('cardSub').textContent = period + await freshness();
+          return;
+        }
+      }
+      if (mine !== runToken) return;
+      render(statement);
+      el('cardTitle').textContent = NAMES[report];
+      el('cardSub').textContent = period + await freshness();
+      el('status').hidden = true;
+    } catch (e) {
+      if (mine === runToken) setStatus(e?.message || String(e), 'neg', 12000);
+    } finally {
+      if (mine === runToken) el('btnRun').disabled = false;
+    }
+  }
+
+  // ---- account detail: the lines behind a number, 1,000 at a time ----
+  function renderDrill() {
+    const rows = drill.rows;
+    if (!rows.length) {
+      el('drillBody').innerHTML = '<div class="sb-empty">No transactions in this account for the period.</div>';
+      el('drillCount').textContent = '';
+      return;
+    }
+    const body = rows.map((r) => {
+      const amt = Number(r.signed_amount);
+      const known = r.signed_amount !== null && Number.isFinite(amt);
+      return `<tr>
+        <td class="bcn-mono">${esc(String(r.entry_date || '').slice(0, 10))}</td>
+        <td>${esc(r.transaction_type || '')}</td>
+        <td>${esc(r.document_number || '')}</td>
+        <td>${esc(r.counterparty || '')}</td>
+        <td>${esc(r.memo || '')}</td>
+        <td>${esc(r.description || '')}</td>
+        <td class="sb-num">${known && amt > 0 ? fmtNum(amt) : ''}</td>
+        <td class="sb-num">${known && amt < 0 ? fmtNum(-amt) : ''}</td>
+        <td class="sb-quiet">${esc(Books.SOURCE_LABEL[r.source] || '')}</td>
+      </tr>`;
+    }).join('');
+    el('drillBody').innerHTML = `<table class="sb-table">
+      <thead><tr><th>Date</th><th>Type</th><th>No.</th><th>Name</th><th>Memo</th><th>Split</th>
+        <th class="sb-num">Debit</th><th class="sb-num">Credit</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table>`;
+    el('drillCount').textContent = `${rows.length.toLocaleString('en-US')} lines shown`;
+  }
+
+  async function loadDrill() {
+    el('drillMore').disabled = true;
+    try {
+      const rows = await page(Books.accountLinesSql({
+        companyId: _co.id, account: drill.account, from: drill.from, to: drill.to,
+      }), drill.offset);
+      drill.rows.push(...rows);
+      drill.offset += rows.length;
+      el('drillMore').hidden = rows.length < PAGE;
+      renderDrill();
+    } catch (e) {
+      el('drillBody').innerHTML = `<div class="sb-empty">Could not load transactions. ${esc(e?.message || e)}</div>`;
+    } finally {
+      el('drillMore').disabled = false;
+    }
+  }
+
+  function openDrill(account, label) {
+    Object.assign(drill, { account, label, offset: 0, rows: [] });
+    el('drillScrim').hidden = false;
+    el('drillTitle').textContent = label || 'Account detail';
+    el('drillSub').textContent = `${drill.from} → ${drill.to}`;
+    el('drillBody').innerHTML = '<div class="sb-empty">Loading transactions…</div>';
+    el('drillMore').hidden = true;
+    el('drillCount').textContent = '';
+    loadDrill();
+  }
+
+  function csv() {
+    if (!last) { setStatus('Run a report first.', 'info', 3000); return; }
+    const q = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [['Account', ...last.columns.map(monthLabel)].map(q).join(',')];
+    for (const l of last.lines) {
+      lines.push([l.label, ...(l.values || []).map((v) => v.toFixed(2))].map(q).join(','));
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    a.download = `silo-books-${report}-${el('to').value || 'all'}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function pick(next) {
+    report = next;
+    const position = report === 'bs' || report === 'tb';
+    el('fromField').hidden = position;
+    el('toLabel').textContent = position ? 'As of' : 'To';
+    el('byMonthField').hidden = report !== 'pl';
+    document.querySelectorAll('#reportTiles [data-report]').forEach((t) =>
+      t.setAttribute('aria-pressed', String(t.dataset.report === report)));
+  }
+
+  (async function boot() {
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next='
+        + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    const user = sess.data.session.user;
+    _co = await cfg.ensureActiveCompany?.(sb) || null;
+
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'finance/qbo-reports',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'SILO books'],
+        supabaseClient: sb,
+      });
+    }
+
+    // The fiscal year decides what "this year" means on a balance sheet. An
+    // unread setting falls back to a calendar year.
+    if (_co?.id) {
+      const { data } = await sb.from('accounting_settings')
+        .select('fiscal_year_start_month').eq('company_entity_id', _co.id).maybeSingle();
+      const m = Number(data?.fiscal_year_start_month);
+      if (Number.isInteger(m) && m >= 1 && m <= 12) fiscalStartMonth = m;
+    }
+
+    const now = new Date();
+    el('from').value = `${now.getUTCFullYear()}-01-01`;
+    el('to').value = now.toISOString().slice(0, 10);
+
+    el('btnRun').addEventListener('click', run);
+    el('btnCsv').addEventListener('click', csv);
+    el('reportTiles').addEventListener('click', (e) => {
+      const tile = e.target.closest('[data-report]');
+      if (!tile) return;
+      pick(tile.dataset.report);
+      run();
+    });
+    el('tbl').addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-acct]');
+      if (tr) openDrill(tr.dataset.acct, tr.dataset.label);
+    });
+    el('drillMore').addEventListener('click', loadDrill);
+    el('drillClose').addEventListener('click', () => { el('drillScrim').hidden = true; });
+    el('drillScrim').addEventListener('mousedown', (e) => {
+      if (e.target === el('drillScrim')) el('drillScrim').hidden = true;
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !el('drillScrim').hidden) el('drillScrim').hidden = true;
+    });
+    pick('pl');
+  })().catch((e) => {
+    console.error(e);
+    setStatus(`Unexpected error: ${e?.message || e}`, 'neg');
+  });
+})();
+</script>
+</body>
+</html>

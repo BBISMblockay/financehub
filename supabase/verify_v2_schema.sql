@@ -10959,6 +10959,25 @@ select 'Saved rules auto-apply and entered by hand' as check_name,
     else 'ok'
   end as status;
 
+-- 20261125160000: the imported-history read policy must ask who the reader is
+-- once per query. With the calls bare it asks once per row, and a read of the
+-- whole books runs past the browser's 8s limit.
+select 'History read policy runs once per query' as check_name,
+  case
+    when to_regclass('public.qbo_history_lines') is null then 'MISSING: QBO history migration'
+    when exists (
+      select 1 from (values ('qbo_history_imports'), ('qbo_history_lines')) t(name)
+       where not exists (
+         select 1 from pg_policy p
+          where p.polrelid = to_regclass('public.' || t.name) and p.polname = 'history_finance_read'
+            and p.polcmd = 'r'
+            and pg_get_expr(p.polqual, p.polrelid) ilike '%select%active_company_id()%'
+            and pg_get_expr(p.polqual, p.polrelid) ilike '%select%can_manage_journal_entries()%'
+            and pg_get_expr(p.polqual, p.polrelid) ilike '%select%is_exec_or_owner()%'))
+      then 'BROKEN: history_finance_read calls its gates per row -- run 20261125160000_history_read_policy_once_per_query.sql'
+    else 'ok'
+  end as status;
+
 -- QuickBooks ledger mirror (20261125150000): SILO's books read QuickBooks back each night.
 -- The mirror is written by one function that keeps the last good read whenever it refuses a
 -- report, so that function must be the scheduler's alone and must keep its three checks

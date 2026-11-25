@@ -19964,4 +19964,8 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125150000: SILO's books read QuickBooks back each night -- a replaceable
 -- mirror of QuickBooks' ledger per month, and silo_books_ledger_v on top of it.
 \i migrations/20261125150000_quickbooks_ledger_mirror.sql
+
+-- 20261125160000: the imported-history read policy asks who the reader is once
+-- per query instead of once per row (same predicate, hoisted).
+\i migrations/20261125160000_history_read_policy_once_per_query.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
