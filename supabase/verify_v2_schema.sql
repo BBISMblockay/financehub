@@ -7090,6 +7090,25 @@ select 'Affiliate Studio spend' as check_name,
   else 'ok' end as status;
 -- End Affiliate Studio spend checks.
 
+-- Customer finds carry a decision (20261125210000): Shortlisted / Not a fit /
+-- Do not contact move a find off the working lists; only a Studio manager
+-- writes it, never anon.
+select 'Affiliate customer review' as check_name,
+ case when not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'affiliate_customer_social' and column_name = 'review')
+        or to_regprocedure('public.affiliate_customer_social_review(text[],text)') is null
+   then 'MISSING — run 20261125210000_affiliate_customer_review.sql'
+  when not exists (select 1 from pg_constraint where conname = 'affiliate_customer_social_review_check')
+   then 'STALE — re-run 20261125210000_affiliate_customer_review.sql: review has no check'
+  when has_function_privilege('anon', 'public.affiliate_customer_social_review(text[],text)', 'execute')
+   then 'CRITICAL: anon can change customer find decisions'
+  when position('can_manage_affiliate_programs' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_customer_social_review(text[],text)')), '')) = 0
+        or position('active_company_id' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_customer_social_review(text[],text)')), '')) = 0
+   then 'CRITICAL: customer find decisions are not limited to Studio managers of the active company'
+  when exists (select 1 from pg_policy where polrelid = 'public.affiliate_customer_social'::regclass and polcmd <> 'r')
+   then 'CRITICAL: affiliate_customer_social is writable from the browser'
+  else 'ok' end as status;
+-- End affiliate customer review checks.
+
 -- SILO ledger mirrors journal adjustments (20261014040000): every posted
 -- adjustment is a ledger entry, recorded by trigger, internals not client-callable.
 select 'SILO ledger mirrors journal adjustments' as check_name,

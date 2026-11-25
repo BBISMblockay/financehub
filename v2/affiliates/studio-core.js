@@ -1002,6 +1002,9 @@ export function socialTrust(row) {
 // queries make): 'top' (Likely), 'check', 'more' (under the bar), or null.
 export function huntTierOf(row) {
   if (!row) return null;
+  // A decided find sits under Shortlisted or Archive, never a working tab.
+  if (row.status === 'rejected' || row.review === 'not_fit' || row.review === 'suppressed') return 'archive';
+  if (row.review === 'shortlisted') return 'shortlisted';
   if (row.status === 'below' || row.status === 'no_count') return 'more';
   if (row.status !== 'found') return null;
   return socialTrust(row) === 'likely' ? 'top' : 'check';
@@ -1010,7 +1013,7 @@ export function huntTierOf(row) {
 // the list never shows (an opt-out since their search, Blake 2026-11-24: "check
 // says 76 then shows 67"). A count that did not come back stays null.
 export function huntCounts(raw, hiddenRows = []) {
-  const out = { top: raw?.top ?? null, check: raw?.check ?? null, more: raw?.more ?? null };
+  const out = { top: raw?.top ?? null, check: raw?.check ?? null, more: raw?.more ?? null, shortlisted: raw?.shortlisted ?? null, archive: raw?.archive ?? null };
   for (const r of hiddenRows || []) {
     const t = huntTierOf(r);
     if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);
@@ -1041,6 +1044,20 @@ export function compactCount(n) {
   if (v >= 1e3) return `${(Math.floor(v / 100) / 10).toString()}K`;
   return String(Math.floor(v));
 }
+// The hover on a Likely / Check tag: how sure, and why (Blake 2026-11-25:
+// "when hover, explain why on confidence level"). Built from what is stored:
+// the score and the strongest signal (match_basis).
+export function socialScoreTip(row) {
+  const basis = SOCIAL_BASIS[row?.match_basis] || SOCIAL_BASIS.name_only;
+  const score = socialScore(row);
+  const head = score === null
+    ? 'Found before match scores existed, so it needs a check.'
+    : `${score}% sure this account is your customer.`;
+  const rule = score !== null && score >= LIKELY_SCORE
+    ? `${LIKELY_SCORE}% and up is Likely: the name matches and a second signal backs it up.`
+    : `Under ${LIKELY_SCORE}% is Check: look at the profile before you reach out.`;
+  return `${head} ${basis.why}. ${rule}`;
+}
 // What the Social column says for one customer. `row` is their
 // affiliate_customer_social row for this program, or undefined if never
 // scanned. Only http(s) links are ever handed back as `url`.
@@ -1055,7 +1072,7 @@ export function customerSocialView(row) {
   const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;
   const trust = socialTrust(row);
   const score = socialScore(row);
-  const tier = { trust, why: basis.why, score, pill: `${trust === 'likely' ? 'Likely' : 'Check'}${score === null ? '' : ` ${score}`}`, rejectable: true };
+  const tier = { trust, why: basis.why, score, pill: `${trust === 'likely' ? 'Likely' : 'Check'}${score === null ? '' : ` ${score}%`}`, tip: socialScoreTip(row), rejectable: true };
   switch (row.status) {
     case 'found': return { label: `${who} · ${count}`, tone: trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
     case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar', ...tier };
@@ -1217,6 +1234,27 @@ export function groupPeople(rows, suppressions = []) {
     if (prospectSuppressed(x, suppressions)) g.suppressed = true;
   });
   return [...by.values()];
+}
+
+/**
+ * A closed program leaves nothing behind on the people lists (Blake
+ * 2026-11-25: "remove remnants of test program ... but keep people found
+ * from it"). A person who also has a row in an open program shows only
+ * their open rows; somebody only ever in closed programs still shows, so
+ * nobody found is lost. Do not contact stays judged on every row.
+ */
+export function dropClosedRows(groups, closedIds) {
+  const closed = closedIds instanceof Set ? closedIds : new Set(closedIds || []);
+  if (!closed.size) return groups;
+  for (const g of groups || []) {
+    const open = g.rows.filter((x) => !closed.has(x.program_id));
+    if (open.length && open.length < g.rows.length) {
+      g.rows = open;
+      g.x = open[0];
+      g.programIds = [...new Set(open.map((x) => x.program_id))];
+    }
+  }
+  return groups;
 }
 
 /**

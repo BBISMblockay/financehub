@@ -573,7 +573,11 @@
   function renderStudio() {
     const card = el('studioCard');
     if (!_studio) { card.hidden = true; return; }
+    const first = card.hidden;
     card.hidden = false;
+    // Setup's "Open Billing settings" lands here (#studioCard); the card is
+    // hidden until it loads, so the browser could not scroll to it itself.
+    if (first && location.hash === '#studioCard') requestAnimationFrame(() => card.scrollIntoView({ block: 'start' }));
     const s = _studio;
     const cap = s.month_cap_micros == null ? null : Number(s.month_cap_micros);
     const used = Number(s.month_micros || 0);
