@@ -211,14 +211,14 @@ const MUTATIONS = {
   moneyprog: ['/affiliates/studio.js', "const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);", "const COMPANY_TABS = new Set(['people', 'records', 'overview']);"],
   exportoneprog: ['/affiliates/studio.js', '    const jobs = companyMulti()\n', '    const jobs = false\n'],
   peoplescope: ['/affiliates/studio.js', "  const company = companyScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
-  peopletwice: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
+  peopletwice: ['/affiliates/studio.js', "  const allPeople = dropClosedRows(groupPeople(d.prospects, d.suppressions), S.programs.filter((y) => y.status === 'closed').map((y) => y.id));", '  const allPeople = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
   pickershown: ['/affiliates/index.html', '    #programSel[hidden] { display: none; }\n', ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
   supoffer: ['/affiliates/studio.js', "  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));", '  const actions = (g) => rowActions(shownRow(g), g);'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
-  supignored: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = groupPeople(d.prospects);'],
+  supignored: ['/affiliates/studio.js', '  const allPeople = dropClosedRows(groupPeople(d.prospects, d.suppressions), ', '  const allPeople = dropClosedRows(groupPeople(d.prospects), '],
   supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
   suppaged: ['/affiliates/studio.js', "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", "      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)\n        .order('created_at', { ascending: false }).order('id', { ascending: true });"],
   prospaged: ['/affiliates/studio.js', ".order('collected_at', { ascending: false }).order('id', { ascending: true })\n        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);", ".order('collected_at', { ascending: false }).limit(2000);"],
@@ -248,7 +248,7 @@ const MUTATIONS = {
   // when the person switches program, and a program in the press makes it
   // one program's again.
   scanprogram: ['/affiliates/studio.js', "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)\n", "    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO).eq('program_id', S.programId)\n"],
-  socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
+  socialprogram: ['/affiliates/studio.js', "db.from('affiliate_customer_social').select(socialCols()).eq('company_entity_id', CO).in('customer_key', keys)", "db.from('affiliate_customer_social').select(socialCols()).eq('company_entity_id', CO).eq('program_id', S.programId).in('customer_key', keys)"],
   hiddenpage: ['/affiliates/studio.js', "    if (!page || page.length < 1000) break;\n    after = page[page.length - 1].id;", '    break;'],
   termsnotsent: ['/affiliates/studio.js', "      ...(c.scanTerms === null ? {} : { terms: c.scanTerms }),", ''],
   pressprogram: ['/affiliates/studio.js', "      action: 'customer_scan', finds: c.scanCount,", "      action: 'customer_scan', program_id: S.programId, finds: c.scanCount,"],
@@ -262,7 +262,7 @@ const MUTATIONS = {
   huntrecent: ['/affiliates/studio.js', "  if (sc?.status === 'running') {\n    const r = await", "  if (false) {\n    const r = await"],
   huntlanding: ['/affiliates/studio.js', "  view: 'hunt', huntTier: 'top', hunt: null,", "  view: 'all', huntTier: 'top', hunt: null,"],
   nothemrpc: ['/affiliates/studio.js', "    must(await db.rpc('affiliate_customer_social_reject', { p_id: id }));\n", ''],
-  tierpill: ['/affiliates/studio.js', "pill(v.pill, v.trust === 'likely' ? 'pos' : 'warn')", "pill('Likely', 'pos')"],
+  tierpill: ['/affiliates/studio.js', "bcn-pill--${v.trust === 'likely' ? 'pos' : 'warn'} af-score-pill\" title=\"${esc(v.tip || v.why || '')}\">${esc(v.pill)}", "bcn-pill--pos af-score-pill\" title=\"\">Likely"],
   socialevidence: ['/affiliates/studio.js', "customerProspectRow({ customer: x, social: c.social[x.customer_key] || null })", 'customerProspectRow({ customer: x })'],
   // A prospect whose message never landed is finished on a retry.
   custnoresume: ['/affiliates/studio.js',
@@ -376,7 +376,7 @@ const MUTATIONS = {
   dmexport: ['/affiliates/studio.js', "const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);", 'const ready = readyAll; const readyDm = [];'],
   nocontacted: ['/affiliates/studio.js', "  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted'", "  if (false) b.push(btn('Mark contacted'"],
   noinbound: ['/affiliates/studio.js', "  const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));", '  const applied = [];'],
-  showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '') => (false ? ''"],
+  showempty: ['/affiliates/studio.js', "const card = (title, body, meta = '', extraClass = '', icon = '') => (EMPTY_ONLY.test(body) ? ''", "const card = (title, body, meta = '', extraClass = '', icon = '') => (false ? ''"],
   moneyplain: ['/affiliates/studio.js', "  moneyTop(),\n  connChip,", "  connChip,"],
   editnomove: ['/affiliates/studio.js', "    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {", '    if (false) {'],
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
@@ -3809,7 +3809,10 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROGB, name: 'Beta', slug: 'beta', niche: 'beta niche',
           outreach_subject: 'Beta pitch for {name}', outreach_body: 'Beta body {signup_link}' }],
         affiliate_prospects: [...tables.affiliate_prospects,
-          other('pb1', { display_name: 'Pat Pool', handle: '@patpool', profile_url: 'https://www.youtube.com/@patpool', status: 'signed_up', source_id: 'sB', reviewed_by: 'someone', affiliate_id: 'affB' }),
+          // Invited, not signed up: somebody who signed up is an affiliate and
+          // is not in Discovery at all (Blake 2026-11-25).
+          other('pb1', { display_name: 'Pat Pool', handle: '@patpool', profile_url: 'https://www.youtube.com/@patpool', status: 'invited', source_id: 'sB', reviewed_by: 'someone', affiliate_id: 'affB' }),
+          other('pb6', { display_name: 'Sid Signed', handle: '@sidsigned', profile_url: 'https://www.youtube.com/@sidsigned', status: 'signed_up' }),
           // The same person as this program's own Sam Runs: one card, two lines.
           other('pb2', { display_name: 'Sam Runs again', status: 'approved' }),
           // Do not contact: listed, never offered to another program.
@@ -3831,6 +3834,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await pg.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const shown = await text(pg, '#prospectsBody');
       R.ok('Discovery lists creators found for another program', /Pat Pool/.test(shown) && /Nia New/.test(shown));
+      R.ok('somebody who signed up is not in Discovery, even under All', !/Sid Signed/.test(shown));
       const samCards = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => els.filter((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || '')));
       R.eq(samCards.length, 1, 'somebody in two programs is one card');
       const samCard = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => (els.find((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || ''))?.textContent || ''));

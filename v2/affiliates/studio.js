@@ -1582,6 +1582,17 @@ function customerProgramsPill(x) {
   const ids = open.length ? open : all;
   return ids.length ? ` ${pill(`In ${ids.map(progName).join(', ')}`, '')}` : '';
 }
+// One bulk bar for every customer list (Blake 2026-11-25: "shouldn't all
+// customers bulk actions be same as find creators, or discovery"): Shortlist,
+// Add to program, Not a fit, Not them, Do not contact. Archive offers Restore.
+function custBulkBar(c, tier) {
+  const n = c.sel.size;
+  if (!MANAGE || !n) return '';
+  const acts = tier === 'archive'
+    ? `${btn('Restore', 'cust-review', { s: '' }, 'primary', { title: 'Back to the working lists. Only Not a fit can be restored here; Do not contact is undone on the do-not-contact list.' })}`
+    : `${tier === 'shortlisted' ? custAddButtons('add') : custAddButtons()}${custReview ? btn('Not a fit', 'cust-review', { s: 'not_fit' }) : ''}${btn('Not them', 'cust-bulk-notthem', {}, 'surface', { title: 'The account found is somebody else. They are not searched again.' })}${btn('Do not contact', 'cust-dnc', {}, 'surface', { confirm: true })}`;
+  return `<div class="af-row af-bulk"><span class="af-mono">${num(n)} selected</span>${acts}${btn('Clear', 'cust-select-none')}</div>`;
+}
 // Shortlist puts the ticked finds into a program's outreach (a prospect row
 // and a drafted message), as Shortlist does on Discovery. With several open
 // programs it is Shortlist into the first and Add to each of the others.
@@ -1658,15 +1669,7 @@ function huntBody({ c, spec, filters, running, socialCell, consentCell, pickable
     ? (running ? 'Nobody over the bar yet. Finds appear here as they come back.' : 'Nobody over the bar yet. Press Find to check more customers.')
     : c.huntTier === 'archive' ? 'Nothing archived. Not a fit, Not them and Do not contact land here.'
       : c.huntTier === 'shortlisted' ? 'Nobody shortlisted yet. Tick finds and press Shortlist.' : 'Nobody here yet.'), { act: 'cust-hsort', k: hs?.k || '', dir: hs?.dir || -1 });
-  // The same bar as Discovery (Blake 2026-11-25): Shortlist, Not a fit, Add
-  // to program, Do not contact. Archive offers Restore instead.
-  const n = c.sel.size;
-  const acts = c.huntTier === 'archive'
-    ? `${btn('Restore', 'cust-review', { s: '' }, 'primary', { title: 'Back to the working lists. Only Not a fit can be restored here; Do not contact is undone on the do-not-contact list.' })}`
-    : `${c.huntTier === 'shortlisted' ? custAddButtons('add') : custAddButtons()}${btn('Not a fit', 'cust-review', { s: 'not_fit' })}${btn('Not them', 'cust-bulk-notthem', {}, 'surface', { title: 'The account found is somebody else. They are not searched again.' })}${btn('Do not contact', 'cust-dnc', {}, 'surface', { confirm: true })}`;
-  const bulk = MANAGE && n
-    ? `<div class="af-row af-bulk"><span class="af-mono">${num(n)} selected</span>${acts}${btn('Clear', 'cust-select-none')}</div>`
-    : '';
+  const bulk = custBulkBar(c, c.huntTier);
   const more = c.total != null && (counts[c.huntTier] ?? counts.top) > c.total
     ? `<p class="af-muted">Showing the top ${num(c.total)}.</p>` : '';
   return `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
@@ -1741,10 +1744,18 @@ function renderCustomers() {
   // instead of offering an action that would fail.
   const pickable = (x) => MANAGE && !!customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || []);
   const noPath = (x) => customerNoPathReason(x, c.social[x.customer_key], S.d?.suppressions || []);
+  // As on Find creators: Select all is the header box and the bar is the
+  // same. Here somebody SILO cannot reach (no email and no account found, or
+  // on the do-not-contact list) still has no tick box, and the row says why.
+  const onPage = c.rows.filter((x) => pickable(x));
+  const allTicked = MANAGE && !!onPage.length && onPage.every((x) => c.sel.has(x.customer_key));
   const rows = table([
-    ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
+    ...(MANAGE ? [{ hHtml: !onPage.length ? '' : allTicked
+      ? '<input type="checkbox" class="af-pick" data-act="cust-select-none" aria-label="Clear selection" checked />'
+      : `<input type="checkbox" class="af-pick" data-act="cust-select-all" aria-label="Select all ${num(onPage.length)} on this page" />`,
+    h: '', f: (x) => (pickable(x)
       ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
-      : '')}] : []),
+      : '') }] : []),
     { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${customerProgramsPill(x)}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
     { num: true, h: 'Orders', f: (x) => num(x.order_count) },
     { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
@@ -1757,13 +1768,7 @@ function renderCustomers() {
   // customer, and the drafts wait on Outreach exactly like a creator's would
   // (Blake 2026-11-24: "no matter where they lead from discovery or customer
   // routes").
-  const onPage = c.rows.filter((x) => pickable(x));
-  const bulk = MANAGE && onPage.length
-    ? `<div class="af-row af-bulk">
-        ${btn(`Select all ${onPage.length} on this page`, 'cust-select-all')}
-        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${custAddButtons()}${btn('Clear', 'cust-select-none')}` : ''}
-      </div>`
-    : '';
+  const bulk = custBulkBar(c, 'all');
   const pages = c.total === null ? null : Math.max(1, Math.ceil(c.total / CUSTOMER_PAGE_SIZE));
   const foot = pages && pages > 1
     ? `<div class="af-list-foot af-cust-pager">
@@ -4764,7 +4769,9 @@ const A = {
     c.sel.clear();
     loadCustomers(true);
     if (!to) return `${num(n)} restored to the working lists.${n < keys.length ? ` ${num(keys.length - n)} were not Not a fit, so they stay.` : ''}`;
-    return `${num(n)} marked Not a fit and moved to Archive.`;
+    // On All customers a ticked customer may never have been searched: there
+    // is no find to mark, and the message says so rather than counting them.
+    return `${num(n)} marked Not a fit and moved to Archive.${n < keys.length ? ` ${num(keys.length - n)} had no find to mark (not searched yet, or already decided).` : ''}`;
   },
   // "Not them" on every ticked find that has an account matched.
   'cust-bulk-notthem': async () => {
