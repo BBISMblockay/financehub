@@ -216,7 +216,7 @@ const MUTATIONS = {
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
-  supoffer: ['/affiliates/studio.js', '    if (!MANAGE || g.suppressed || d.supUnknown) return \'\';', '    if (!MANAGE || d.supUnknown) return \'\';'],
+  supoffer: ['/affiliates/studio.js', "  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));", '  const actions = (g) => rowActions(shownRow(g), g);'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
   supignored: ['/affiliates/studio.js', '  const allPeople = groupPeople(d.prospects, d.suppressions);', '  const allPeople = groupPeople(d.prospects);'],
   supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
@@ -382,7 +382,7 @@ const MUTATIONS = {
   tplsetup: ['/affiliates/studio.js', "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}),", "    ...($('pBonus') ? { content_bonus: val('pBonus') } : {}), outreach_subject: '', outreach_body: '',"],
   autopayearly: ['/affiliates/studio.js', "  const hasAutoPay = Object.prototype.hasOwnProperty.call(p, 'payout_mode');", '  const hasAutoPay = true;'],
   onerowstatus: ["/affiliates/studio.js", "  const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;", "  const shownRow = (g) => g.x;"],
-  moreall: ["/affiliates/studio.js", "    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];", "    const rows = [mp];"],
+  moreall: ["/affiliates/studio.js", "    const rows = group?.rows || [mp];", "    const rows = [mp];"],
   previewlock: ["/affiliates/portal.html", "    $('previewBar').hidden = false;\n    lockPage();\n", "    $('previewBar').hidden = false;\n"],
   previewkey: ["/affiliates/portal.html", "takeToken(PREVIEW ? 'silo_affiliate_portal_preview' : 'silo_affiliate_portal')", "takeToken('silo_affiliate_portal')"],
   previewmatch: ["/affiliates/portal.html", "  if (PREVIEW !== (r.preview === true)) {", "  if (false) {"],
@@ -486,7 +486,14 @@ const peopleSubVisible = (page) => page.evaluate(() => ({
   aff: !!document.getElementById('affiliatesBody')?.offsetParent,
   pros: !!document.getElementById('prospectsBody')?.offsetParent,
 }));
-// A creator row shows two buttons; the rest are behind More, in the pop-up.
+// Find creators opens its fields under the control row (2026-11-25).
+const openFind = async (page) => {
+  await toDiscovery(page);
+  if (await page.$('#prospectsBody #rsFocus')) return;
+  await page.click('#prospectsBody [data-act="d-find-open"]');
+  await page.waitForSelector('#prospectsBody #rsFocus', { timeout: 5000 });
+};
+// A creator row shows one button; the rest are behind More, in the pop-up.
 const openProspectMore = async (page, id) => {
   await toDiscovery(page);
   if (await page.$(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`)) {
@@ -743,6 +750,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
     R.not(pr, 'Saved Google searches', 'there are no saved searches to manage: a run searches what was typed');
     R.ok('no saved-search form', !(await page.$('#srcQuery')) && !(await page.$('[data-act="source-add"]')));
+    await openFind(page);
     R.ok('there is one search button, not two', !(await page.$('#prospectsBody [data-act="discovery-run"]')) && !!(await page.$('#prospectsBody [data-act="research-run"]')));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
@@ -755,6 +763,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('other profiles the channel links are links', !!(await page.$('#prospectsBody a[href="https://www.instagram.com/samruns"]')));
     // Find creators with AI: starts a background run and says so; the company is never sent.
     await toDiscovery(page);
+    await openFind(page);
     await page.fill('#rsFocus', 'trail running moms');
     await page.click('#prospectsBody [data-act="research-run"]');
     await page.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
@@ -908,6 +917,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         { id: 'p-app2', company_entity_id: CO, program_id: PROG, display_name: 'Bo Bounce', platform: 'instagram', handle: '@bo', profile_url: 'https://www.instagram.com/bo', contact_email: 'bo@creator.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'rejected' },
         { id: 'p-srch', company_entity_id: CO, program_id: PROG, display_name: 'Sky Search', platform: 'tiktok', handle: '@sky', profile_url: 'https://www.tiktok.com/@sky', contact_email: null, source: 'serp', collected_at: now, evidence: {}, status: 'new' },
         { id: 'p-man', company_entity_id: CO, program_id: PROG, display_name: 'Quin Hand', platform: 'tiktok', handle: '@quin', profile_url: 'https://www.tiktok.com/@quin', contact_email: 'quin@creator.invalid', source: 'manual', collected_at: now, evidence: {}, status: 'invited' },
+        { id: 'p-appr', company_entity_id: CO, program_id: PROG, display_name: 'Ray Ready', platform: 'tiktok', handle: '@ray', profile_url: 'https://www.tiktok.com/@ray', contact_email: 'ray@creator.invalid', source: 'serp', collected_at: now, evidence: {}, status: 'approved' },
       ] };
       const inv = await suite.open('/v2/affiliates/index.html', inviteTables, { ready, rpc: { can_manage_affiliate_programs: true } });
       inv.on('pageerror', (e) => errors.push(e.message));
@@ -938,6 +948,23 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await inv.waitForFunction(() => !!document.querySelector('[data-act="invite-send"][data-id="p-man"]'), null, { timeout: 5000 }).catch(() => {});
       R.has(await text(inv, '[data-act="invite-send"][data-id="p-man"]'), 'Resend invite', 'an invited person added by hand can be sent the invite again');
       await closeDialog(inv);
+      // One button and one Signal cell must still tell a shortlisted person
+      // apart from one already invited, and must offer the next step rather
+      // than the rejection (review of #1395).
+      await toDiscovery(inv);
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="approved"]');
+      await inv.click('#prospectsBody [data-act="view-set"][data-v="list"]');
+      await inv.waitForFunction(() => document.querySelector('#prospectsBody [data-act="prospect-filter"][data-f="approved"]')?.getAttribute('aria-checked') === 'true'
+        && !!document.querySelector('#prospectsBody [data-act="prospect-more"][data-id="p-appr"]'), null, { timeout: 5000 });
+      const shortRows = await inv.evaluate(() => ['p-appr', 'p-man'].map((id) => {
+        const el = document.querySelector(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`)?.closest('tr, article');
+        return { id, pills: [...(el?.querySelectorAll('.bcn-pill') || [])].map((b) => b.textContent.trim()), btns: [...(el?.querySelectorAll('button') || [])].map((b) => b.textContent.trim()) };
+      }));
+      const [apprRow, invRow] = shortRows;
+      R.ok('Shortlisted still says who has already been invited', invRow.pills.includes('invited'));
+      R.ok('and does not repeat the state everybody in the group shares', !apprRow.pills.includes('approved'));
+      R.ok('a shortlisted row offers the next step, not the rejection', !apprRow.btns.includes('Not a fit') && apprRow.btns.some((t) => /invite|Draft message|Signup link/i.test(t)));
+      await inv.click('#prospectsBody [data-act="prospect-filter"][data-f="new"]');
       await openProspectMore(inv, 'p1');
       R.ok('a creator a search found keeps the link to send yourself', !(await inv.$('[data-act="invite-send"][data-id="p1"]')));
       await closeDialog(inv);
@@ -1326,6 +1353,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // An inline field, not the dialog: a dialog keeps what is in it across a
     // redraw, so only a field in the page itself can show the recheck working.
     await toDiscovery(typing2);
+    await openFind(typing2);
     // Hold the redraw's reads, let the photos land on a clean form, then type.
     await typing2.evaluate(() => { let open; window.__FIXTURE_TABLE_GATES__ = { affiliate_programs: new Promise((r) => { open = r; }) }; window.__openGate = open; });
     release2();
@@ -1569,7 +1597,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await closeDialog(member);
     await member.click('#tabs [data-tab="people"]');
     R.ok('a member is not offered approve/reject', !(await member.$('#prospectsBody [data-act="prospect-status"]')))
-    R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
+    R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="d-find-open"]')) && !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
     await closeDialog(member);
     await member.click('#tabs [data-tab="payouts"]');
     R.ok('a member is not offered payouts', !(await member.$('#payoutsBody [data-act="payout-build"]')))
@@ -2870,11 +2898,21 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(await names(), ['Bo Big', 'Cy Mid', 'Ava Small'], 'a header sorts: Followers, biggest first');
       await st.click('#prospectsBody [data-act="d-sort"][data-k="followers"]');
       R.eq(await names(), ['Ava Small', 'Cy Mid', 'Bo Big'], 'and a second press flips it');
+      // The Signal cell shows an "email" chip, not the address, so the
+      // address has to stay in the row's text for the search box.
+      await st.fill('#studioQ', 'bo@x.invalid');
+      await st.waitForTimeout(400);
+      R.eq(await names(), ['Bo Big'], 'searching an address still finds the row in list view');
+      await st.fill('#studioQ', '');
+      await st.waitForTimeout(400);
+      // Filters live in a panel the Filter button opens (2026-11-25).
+      await st.click('#prospectsBody [data-act="d-filter-open"]');
+      await st.waitForSelector('#prospectsBody [data-act="d-filter"][data-key="email"]', { timeout: 5000 });
       await st.click('#prospectsBody [data-act="d-filter"][data-key="email"][data-v="true"]');
       R.eq((await names()).sort(), ['Bo Big', 'Cy Mid'], 'Has email keeps only creators with an email');
       await st.click('#prospectsBody [data-act="d-filter"][data-key="plat"][data-v="tiktok"]');
       R.eq(await names(), ['Cy Mid'], 'and a platform narrows it further');
-      R.has(await text(st, '#prospectsBody .af-filter-bar'), 'To review 1', 'the status chips count what the filters leave');
+      R.has(await text(st, '#prospectsBody .af-ctl'), 'To review 1', 'the status chips count what the filters leave');
       await st.click('#prospectsBody [data-act="d-filter-clear"]');
       await st.click('#prospectsBody [data-act="d-filter"][data-key="minF"][data-v="10000"]');
       R.eq((await names()).sort(), ['Bo Big', 'Cy Mid'], 'a follower floor drops smaller creators');
@@ -3728,8 +3766,24 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
         && await pg.evaluate(() => !!document.querySelector('#afDialog [data-id="p1"]') && !!document.querySelector('#afDialog [data-id="pb2"]')));
       await closeDialog(pg);
       await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
-      R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await pg.$('#prospectsBody select.af-addto[data-id="pb3"]')));
-      R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await pg.$('#prospectsBody select.af-addto[data-id="pb5"]')));
+      // Add to program moved off the row and into More (2026-11-25), so the
+      // do-not-contact rule is checked where the menu now is.
+      const addToIn = async (id) => {
+        await openProspectMore(pg, id);
+        const has = !!(await pg.$(`#afDialogBody select.af-addto[data-id="${id}"]`));
+        await closeDialog(pg);
+        return has;
+      };
+      R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await addToIn('pb3')));
+      R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await addToIn('pb5')));
+      R.ok('somebody who may be added is offered the menu in More', await addToIn('pb4'));
+      // Somebody on the do-not-contact list is listed, and that is all: no
+      // button on the row, so no menu and no way to add them anywhere.
+      const supRowBtns = await pg.evaluate(() => {
+        const el = [...document.querySelectorAll('#prospectsBody tr, #prospectsBody article')].find((e) => /Sue Listed/.test(e.textContent || ''));
+        return [...(el?.querySelectorAll('button') || [])].map((b) => b.textContent.trim());
+      });
+      R.eq(supRowBtns, [], 'a do-not-contact row offers no buttons at all');
       R.ok('People reads the do-not-contact list in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_suppressions' && q.range)));
       if (process.env.PEOPLE_SHOT) { await pg.setViewportSize({ width: 1280, height: 1100 }); await (await pg.$('#prospectsBody')).screenshot({ path: process.env.PEOPLE_SHOT }); }
       // Affiliates: one card per person, a block for each program.
@@ -3756,7 +3810,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('and written from Beta\'s own message', /^Beta pitch for Nia New/.test(dr?.subject || ''));
       R.eq(drA?.program_id, PROG, 'and the other program\'s creator under theirs, in the same press');
       // Find creators has no program picker: one list (Blake 2026-11-24).
-      await pg.waitForSelector('#prospectsBody [data-act="research-run"]', { timeout: 5000 }).catch(() => {});
+      await openFind(pg).catch(() => {});
       R.ok('Find creators shows no program picker', !(await pg.$('#prospectsBody [aria-label="Find for"]')) && !(await pg.$('#prospectsBody [data-act="find-pg"]')));
       const nBefore = researchCalls.filter((c) => c.action === 'research').length;
       await pg.click('#prospectsBody [data-act="research-run"]').catch(() => {});
@@ -3766,13 +3820,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // Add to: their own row in the other program, shortlisted, without that
       // program's decisions or search.
       await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
-      await pg.waitForSelector('#prospectsBody select.af-addto[data-id="pb1"]', { timeout: 5000 }).catch(() => {});
+      // The menu is in More now (2026-11-25), one per person, not one open on
+      // every row.
+      await openProspectMore(pg, 'pb1');
+      await pg.waitForSelector('#afDialogBody select.af-addto[data-id="pb1"]', { timeout: 5000 }).catch(() => {});
       const nIns = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length);
-      await pg.selectOption('#prospectsBody select.af-addto[data-id="pb1"]', PROG).catch(() => {});
+      await pg.selectOption('#afDialogBody select.af-addto[data-id="pb1"]', PROG).catch(() => {});
       await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length > n, nIns, { timeout: 5000 }).catch(() => {});
       const ins = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.ok('Add makes their own row in that program, shortlisted', ins?.program_id === PROG && ins?.status === 'approved' && ins?.profile_url === 'https://www.youtube.com/@patpool');
       R.ok('without the other program\'s decisions or search', ins && !('affiliate_id' in ins) && !('source_id' in ins) && ins.reviewed_by !== 'someone');
+      await closeDialog(pg);
       // Off People, the picker is back and the tab is one program again.
       await pg.click('#tabs [data-tab="comms"]').catch(() => {});
       await pg.waitForFunction(() => document.getElementById('progPick')?.hidden === false, null, { timeout: 5000 }).catch(() => {});
@@ -3803,7 +3861,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await toDiscovery(nosup);
       await nosup.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]').catch(() => {});
       await nosup.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-      R.ok('an unread do-not-contact list offers nobody to another program', !(await nosup.$('#prospectsBody select.af-addto')));
+      // Add to program lives in the More menu now, so that is where the
+      // unread-list rule has to hold.
+      await openProspectMore(nosup, 'pb1');
+      R.ok('an unread do-not-contact list offers nobody to another program',
+        !(await nosup.$('#prospectsBody select.af-addto')) && !(await nosup.$('#afDialogBody select.af-addto')));
+      await closeDialog(nosup);
       await nosup.close();
     }
 
