@@ -227,6 +227,8 @@ on:
       - 'scripts/tests/shopify-customers-consent-database.test.mjs'
       - 'scripts/lib/shopify-customers-core.mjs'
       - 'supabase/migrations/*shopify_customer_marketing_consent.sql'
+      - 'scripts/tests/customer-consent-step-database.test.mjs'
+      - 'supabase/migrations/*customer_consent_batched_rollup.sql'
       - 'scripts/tests/shopify-credentials-database.test.mjs'
       - 'v2/integrations.html'
       - '.github/workflows/deploy-edge-function.yml'
@@ -336,6 +338,12 @@ on:
       - 'scripts/tests/card-posting-start-database.test.mjs'
       - 'v2/accounting-mode.js'
       - 'scripts/tests/bookkeeping-mode-database.test.mjs'
+      - 'scripts/tests/card-payment-match-database.test.mjs'
+      - 'scripts/tests/card-payment-match-ui.test.mjs'
+      - 'supabase/migrations/*card_payment_match.sql'
+      - 'supabase/migrations/*card_payment_match_both_sides.sql'
+      - 'supabase/migrations/*card_payment_match_relink.sql'
+      - 'supabase/migrations/*card_payment_match_either_side.sql'
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -1426,6 +1434,8 @@ jobs:
           node scripts/tests/affiliate-discovery-run-edge.test.mjs
           node scripts/tests/affiliate-research-edge.test.mjs
           node scripts/tests/affiliate-customer-scan-edge.test.mjs
+          node scripts/tests/affiliate-customer-city-ab.test.mjs
+          node scripts/tests/affiliate-nightly-find.test.mjs
           node scripts/tests/affiliate-studio-ui.test.mjs
           node scripts/tests/affiliate-overview.test.mjs
           node scripts/tests/affiliate-payouts.test.mjs
@@ -1444,13 +1454,15 @@ jobs:
           }
           run ORDER_CODES_MUTATION scripts/tests/shopify-order-discount-codes.test.mjs nullcodes nullrefund fold taxrefund pair
           run AFFILIATE_DISCOVERY_MUTATION scripts/tests/affiliate-discovery.test.mjs watch reviewed contact suppress cap dryrun ceiling noretry unpinned goto crumbcut blank
-          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup anyprogram scopefailopen
+          run AFFILIATE_EDGE_MUTATION scripts/tests/affiliate-edge.test.mjs seedsignup seedtitle rawtoken bodyaddress gateorder bodycompany prospectmail invitekind paidtwice paidnoretry paidretryall paidstuck paidlogignored draftnews byprospectonly anylogo nocodelink offsitelink oldplatform anyhostlink pendingcode plainmaillink linkquery utcday signinleak switchany mailedmint handbackmailed unboundmail noticesweep noticepaused probeopen probethrow kickreplay kickgrant photobodyid photosignup photonotjpeg photohidden photoshared photoshared contentpath contentsignup previewwrite previewread anyprogram scopefailopen
           run MUT scripts/tests/affiliate-shopify-codes.test.mjs scnoadopt scnoscope scnotpending scguess scsweepopen scanyco scendday scnoremint scfirstpage scnonext scwrongstore scadoptany scnorename scendanyco scendfailok scendcut scendmissing scseednear scseedstate scseedpages scearnagain scearnanon
           run AFFILIATE_COMMISSIONS_MUTATION scripts/tests/affiliate-commissions.test.mjs noresolve stopfirst nojob nosweep allcompanies nocompanyfilter longchain syncfatal noseed seedsilent norefresh refreshsilent nomatch matchfatal matchchained matchrebuild nosplit oldestfirst
           run AFFILIATE_SEARCH_MUTATION scripts/tests/affiliate-discovery-run-edge.test.mjs gateorder bodycompany cooldown inactive sourcescope
-          run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge ytcompany ytavgrate ythiddenzero ytoverwrite ytblank ytstale nocache knownkept knownbrief knownallco photoclobber ytclobber rpcfallback ytthumb ytnoleads ytanyplat leanoff leanalways
-          run AFFILIATE_SCAN_MUTATION scripts/tests/affiliate-customer-scan-edge.test.mjs nullconsent optoutscan aicount aianyurl firstonly rescan nojoin noresume resumeoptout aiall forcedtool nocarry carryoptout nochain nohandoff nolegcap nobar programscope programjoin programbar teamskip teamdomain suffix popular offplatform namebasis aikeyleak nohandle maskedmail handleloose noresults handlealways noaileg
-          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash badgeall consentgate consentblank windowend minfree supdomain supcase custnolink custpin socialzero socialhref socialident basispromote
+          run AFFILIATE_RESEARCH_MUTATION scripts/tests/affiliate-research-edge.test.mjs gateorder bodycompany unverified minors importminor followers imageseen imagehttps imagehost doublerun oneround partial onesource notopup topupfirst onesearch sitesplit noshare photoredirect photomagic photostored leadevidence nobrief freecharge ytcompany ytavgrate ythiddenzero ytoverwrite ytblank ytstale nocache knownkept knownbrief knownallco photoclobber ytclobber rpcfallback ytthumb ytnoleads ytanyplat leanoff leanalways leadsunmetered researchnocap
+          run AB_MUTATION scripts/tests/affiliate-customer-city-ab.test.mjs nosup noteam
+          run AFFILIATE_SCAN_MUTATION scripts/tests/affiliate-customer-scan-edge.test.mjs nullconsent optoutscan aicount aianyurl firstonly nickquery nonick nickword rescan nojoin noresume resumeoptout forcedtool nocarry carryoptout nochain nohandoff nolegcap nobar programscope programjoin programbar teamskip teamdomain suffix popular offplatform namebasis aikeyleak nohandle maskedmail handleloose noresults handlealways noaileg nogoal nocap namefind bigname nicheloose termsreplace noretry termsunsaved countother nocountask pinx legcpu unsubpool searchnometer nolimitcheck creditignored nomonthcap nonightcap nightlyanyone nightlyoff nightcust pressnightly
+          run NIGHTLY_FIND_MUTATION scripts/tests/affiliate-nightly-find.test.mjs allcos capred quietfail
+          run AFFILIATE_CORE_MUTATION scripts/tests/affiliate-studio-ui.test.mjs formula zerodec rounding href unhide nolinkok pindefault runstatus retiredlive imgshrink imganyhost codeclash badgeall consentgate consentblank windowend minfree supdomain supcase custnolink custpin socialzero socialhref socialident basispromote scorepromote deadlock termsreaderr counthidden unsubmail dmsupp noemaildm poolsupp aliasjoin suplist
           run AFFILIATE_OVERVIEW_MUTATION scripts/tests/affiliate-overview.test.mjs curmix weekcur refused orderdupe undated quietnow stucknow codefresh capok pageerr unclaimed
           run AFFILIATE_PAYOUTS_MUTATION scripts/tests/affiliate-payouts.test.mjs gateorder managergate bodycompany noidem noclaim unknownpaid timeoutrefused secretout zerodecimal dupebatch envmix wrongbatch wrongitem stalereplay connver noconnver fpcounter noauthflag
       # Both suites below sat in this contract check's KNOWN_UNWIRED list until
@@ -1920,6 +1932,26 @@ jobs:
             # A mutation whose target text is gone exits non-zero too, and would pass as killed.
             if grep -q "is stale" /tmp/bookkeeping-mode-mutation.log; then
               cat /tmp/bookkeeping-mode-mutation.log; echo "Stale bookkeeping mode mutation (target text gone): $mutation"; exit 1
+            fi
+          done
+
+      # A card paydown matched to the bank payment that made it: the match
+      # settles BOTH sides (the settled row leaves the entry, the paying row is
+      # coded to the account it must hit), a payment already in the books is
+      # read and never written, the record cannot claim a pairing the
+      # transactions do not support, and a payment is only offered where the
+      # words in it do not name a DIFFERENT account of the same company.
+      - name: Execute card payment match regressions
+        run: |
+          node scripts/tests/card-payment-match-database.test.mjs
+          node scripts/tests/card-payment-match-ui.test.mjs
+          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount payer-any-treatment restore-changed relink-resnapshots restore-unstamped settle-frozen-import names-ignored names-shared contest-ignored; do
+            if CARD_MATCH_MUTATION="$mutation" node scripts/tests/card-payment-match-database.test.mjs > /tmp/card-match-mutation.log 2>&1; then
+              cat /tmp/card-match-mutation.log; echo "Survived card payment match mutation: $mutation"; exit 1
+            fi
+            # A mutation whose target text is gone exits non-zero too, and would pass as killed.
+            if grep -q "is stale" /tmp/card-match-mutation.log; then
+              cat /tmp/card-match-mutation.log; echo "Stale card payment match mutation (target text gone): $mutation"; exit 1
             fi
           done
 
@@ -2883,6 +2915,35 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      # View as rep (20261125030000) on real PostgreSQL: a one-hour 'preview'
+      # portal link only a program manager of the active company can mint, for
+      # a signed-up affiliate; the portal reads accept it, the writes refuse it.
+      - name: Affiliate Studio spend database (real PostgreSQL)
+        run: node scripts/tests/affiliate-studio-spend-database.test.mjs
+      - name: The Affiliate Studio spend guards, removed, must break it
+        run: |
+          set -u
+          for m in anongrant noowner allfeature provider authspend norls; do
+            if STUDIO_SPEND_DB_MUTATION="$m" node scripts/tests/affiliate-studio-spend-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      - name: Affiliate view as rep database (real PostgreSQL)
+        run: node scripts/tests/affiliate-view-as-rep-database.test.mjs
+      - name: The view-as-rep guards, removed, must break it
+        run: |
+          set -u
+          for m in anongrant nomanage anyco unsigned noread; do
+            if PREVIEW_DB_MUTATION="$m" node scripts/tests/affiliate-view-as-rep-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       # Shopify customer marketing consent (20261124020000) on real
       # PostgreSQL: a consent STATE kept verbatim with derived booleans and
       # NULL meaning not measured, a cross-store view that picks one real
@@ -2895,6 +2956,19 @@ jobs:
           set -u
           for m in rls company funcgrant clientwrite coalesce noclear boolean; do
             if CONSENT_MUTATION="$m" node scripts/tests/shopify-customers-consent-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+      # The consent rollup in resumable batches (20261125010000).
+      - name: Customer consent rollup in batches (real PostgreSQL)
+        run: node scripts/tests/customer-consent-step-database.test.mjs
+      - name: The batched rollup guards, removed, must break it
+        run: |
+          set -u
+          for m in nocursor noclear grant nocompany; do
+            if STEP_MUTATION="$m" node scripts/tests/customer-consent-step-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi

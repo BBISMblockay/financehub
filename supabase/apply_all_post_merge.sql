@@ -19932,4 +19932,27 @@ $c$select (select count(*) from v_po_header_summary
 -- one answer per customer per company, one running scan per company, the
 -- follower bar in entities.meta, a deleted program keeps the results.
 \i migrations/20261124210000_affiliate_customer_social_company.sql
+-- 20261124230000: Hunt queue mode -- the queued search's task id on the
+-- customer's row, so a later run of the scan collects it.
+\i migrations/20261124230000_affiliate_customer_social_queue.sql
+-- 20261124235000: Find match score -- 0-100 on every find, a niche-word
+-- signal, and one count search for a profile matched without a count.
+\i migrations/20261124235000_affiliate_customer_social_score.sql
+-- 20261125010000: customer consent rollup in resumable batches (the one-
+-- statement rollup timed out for large companies).
+\i migrations/20261125010000_customer_consent_batched_rollup.sql
+-- 20261125020000: a card paydown matched to the bank payment that made it --
+-- the bank side posts it, so the card row is excluded with that payment named.
+-- The bank row is read, never written, so one already posted still settles it.
+\i migrations/20261125020000_card_payment_match.sql
+\i migrations/20261125060000_card_payment_match_both_sides.sql
+\i migrations/20261125070000_card_payment_match_relink.sql
+\i migrations/20261125080000_card_payment_match_either_side.sql
+\i migrations/20261125090000_card_payment_match_names.sql
+-- 20261125030000: View as rep -- a one-hour, read-only 'preview' portal link
+-- staff mint for one affiliate; portal writes refuse it by construction.
+\i migrations/20261125030000_affiliate_view_as_rep.sql
+-- 20261125040000: Affiliate Studio spend -- one bill line (Find + Discovery),
+-- each company's own nightly Find switch and limits, owner/admin-only edits.
+\i migrations/20261125040000_affiliate_studio_spend.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

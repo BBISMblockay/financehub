@@ -868,6 +868,44 @@ export function customerSuppressed(email, suppressions = []) {
   return false;
 }
 
+// How a customer may be reached (Blake 2026-11-24: "want all prospect
+// available and then comms path decided by status tag"). Everyone found is
+// listed; the consent tag picks the path:
+//   email  their email consent allows it (anything but unsubscribed / erased)
+//   dm     they unsubscribed, so never email -- a DM by hand to the social
+//          account Find matched, which SILO never sends
+//   null   no way to reach them: unsubscribed with no account found, no
+//          email on file (their identity), or on the do-not-contact list (email, domain or the
+//          matched handle)
+export const NO_EMAIL_CONSENT = ['unsubscribed', 'redacted'];
+const bareHandle = (h) => String(h || '').trim().toLowerCase().replace(/^@/, '');
+export function customerContactPath(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  if (c.email_consent_state === 'redacted') return null;
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  // No email, no path: a customer prospect's identity is their address
+  // (affiliate_prospects_customer_identity), so two email-less customers
+  // would collapse onto one prospect.
+  if (!email) return null;
+  if (customerSuppressed(email, suppressions)) return null;
+  if (!NO_EMAIL_CONSENT.includes(c.email_consent_state)) return { channel: 'email', email, handle: null };
+  const ev = customerSocialEvidence(social);
+  if (!ev) return null;
+  const h = bareHandle(ev.handle);
+  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;
+  return { channel: 'dm', email: null, handle: ev.profile_url, platform: ev.platform };
+}
+// Why a listed customer has no tick box, in the words the row shows.
+export function customerNoPathReason(customer, social = null, suppressions = []) {
+  const c = customer || {};
+  const email = String(c.email_lc || '').trim().toLowerCase();
+  if (customerContactPath(c, social, suppressions)) return '';
+  if (c.email_consent_state === 'redacted') return 'data erased';
+  if (email && customerSuppressed(email, suppressions)) return 'on your do-not-contact list';
+  if (c.email_consent_state === 'unsubscribed') return customerSocialEvidence(social) ? 'on your do-not-contact list' : 'unsubscribed, no account to message';
+  return 'no email on file';
+}
+
 // What a picked customer becomes: an ordinary prospect row. `platform` is
 // 'other' because they have no channel yet -- finding one is the social
 // scan's job, and claiming 'web' would say we looked.
@@ -920,8 +958,65 @@ export const SOCIAL_KEPT = ['found', 'below', 'no_count'];
 export const SOCIAL_BASIS = {
   email_handle: { trust: 'likely', pill: 'Likely', why: 'The handle matches their email name' },
   city: { trust: 'likely', pill: 'Likely', why: 'Their city appears on the profile' },
-  name_only: { trust: 'name', pill: 'Name match', why: 'Only the name matches. Check it is them' },
+  niche: { trust: 'likely', pill: 'Likely', why: 'Their profile mentions your niche' },
+  name_only: { trust: 'name', pill: 'Check', why: 'Only the name matches. Check it is them' },
 };
+// The match score (0-100, match_score) at which a find is "Likely". Equal to
+// LIKELY_SCORE in scripts/lib/affiliate-customer-scan-core.mjs (a test pins
+// the two). Only the score promotes: a row scored before scores existed
+// (NULL) is "Check", exactly as the scan counts it.
+export const LIKELY_SCORE = 70;
+// A run whose last heartbeat is older than the server's own stale window
+// (STALE_SCAN_MS, 3 minutes) died partway. The page reads it as stopped, so a
+// dead run never locks Find; the next press clears it on the server too.
+export const SCAN_STALE_MS = 3 * 60_000;
+// The company's own niche words (entities.meta.affiliate_customer_scan_terms)
+// as the "Niche words" box shows them. Find adds every active program's words.
+// The box's starting value from the page's read of the company row. A read
+// that failed is null, never '': the press then sends no words, so a hiccup
+// never clears the company's saved ones.
+export function scanTermsFromRead(res) {
+  if (!res || res.error || !res.data) return null;
+  return scanTermsText(res.data.meta);
+}
+export function scanTermsText(meta) {
+  const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((w) => String(w ?? '').trim()).filter(Boolean).join(', ');
+}
+export function liveScan(scan, nowMs = Date.now()) {
+  if (!scan || scan.status !== 'running') return scan || null;
+  const beat = new Date(scan.heartbeat_at || scan.started_at || 0).getTime();
+  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;
+  return { ...scan, status: 'stopped' };
+}
+export function socialScore(row) {
+  const s = row?.match_score;
+  return s === null || s === undefined || s === '' || !Number.isFinite(Number(s)) ? null : Math.round(Number(s));
+}
+export function socialTrust(row) {
+  const s = socialScore(row);
+  return s !== null && s >= LIKELY_SCORE ? 'likely' : 'name';
+}
+// Which Find tab a stored answer sits under (the same split the page's
+// queries make): 'top' (Likely), 'check', 'more' (under the bar), or null.
+export function huntTierOf(row) {
+  if (!row) return null;
+  if (row.status === 'below' || row.status === 'no_count') return 'more';
+  if (row.status !== 'found') return null;
+  return socialTrust(row) === 'likely' ? 'top' : 'check';
+}
+// The tab counts the list agrees with: the stored count less the customers
+// the list never shows (an opt-out since their search, Blake 2026-11-24: "check
+// says 76 then shows 67"). A count that did not come back stays null.
+export function huntCounts(raw, hiddenRows = []) {
+  const out = { top: raw?.top ?? null, check: raw?.check ?? null, more: raw?.more ?? null };
+  for (const r of hiddenRows || []) {
+    const t = huntTierOf(r);
+    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);
+  }
+  return out;
+}
 export function customerSocialEvidence(s) {
   if (!s || !SOCIAL_KEPT.includes(s.status) || !s.profile_url) return null;
   return {
@@ -933,6 +1028,7 @@ export function customerSocialEvidence(s) {
     followers: Number.isFinite(Number(s.followers)) && s.followers !== null ? Number(s.followers) : null,
     followers_quote: s.followers_quote || null,
     match_basis: SOCIAL_BASIS[s.match_basis] ? s.match_basis : 'name_only',
+    match_score: socialScore(s),
     source_url: s.source_url || null,
     checked_at: s.checked_at || null,
   };
@@ -953,12 +1049,15 @@ export function customerSocialView(row) {
   const url = /^https?:\/\//i.test(String(row.profile_url || '')) ? row.profile_url : null;
   const who = row.handle || (url ? url.replace(/^https?:\/\/(www\.)?/i, '') : '');
   const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;
-  // How far to trust it (Blake, 2026-11-24). Only a second signal makes a
-  // find "Likely"; a name alone is what a namesake has too, so it says so.
+  // How far to trust it (Blake, 2026-11-24: "need scores"). The score
+  // decides Likely or Check; the basis says why. A name alone is what a
+  // namesake has too, so it never scores Likely on its own.
   const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;
-  const tier = { trust: basis.trust, why: basis.why, rejectable: true };
+  const trust = socialTrust(row);
+  const score = socialScore(row);
+  const tier = { trust, why: basis.why, score, pill: `${trust === 'likely' ? 'Likely' : 'Check'}${score === null ? '' : ` ${score}`}`, rejectable: true };
   switch (row.status) {
-    case 'found': return { label: `${who} · ${count}`, tone: basis.trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
+    case 'found': return { label: `${who} · ${count}`, tone: trust === 'likely' ? 'pos' : 'warn', url, scanned: true, quote: row.followers_quote || '', ...tier };
     case 'below': return { label: `${who} · ${count}`, tone: 'muted', url, scanned: true, quote: row.followers_quote || '', note: 'under your bar', ...tier };
     case 'no_count': return { label: `${who} · count not shown`, tone: 'muted', url, scanned: true, ...tier };
     case 'rejected': return { label: 'Not them', tone: 'muted', url: null, scanned: true };
@@ -980,6 +1079,30 @@ export function customerScanLine(scan) {
   if (scan.status === 'stopped') return `Last scan: ${tail}. Stopped early, more to check.`;
   if (scan.status === 'error') return `Last scan: ${tail}. It hit a problem, more to check.`;
   return `Last scan: ${tail}.`;
+}
+// The Hunt's own lines (Blake 2026-11-24: "Find 25" means 25 finds come
+// back). Progress counts finds against what was asked; a finished hunt says
+// plainly why it ended. Never a cost.
+export function huntProgress(scan) {
+  const n0 = (v) => Number(v || 0);
+  const want = n0(scan?.filters?.want);
+  const found = n0(scan?.found);
+  const checked = n0(scan?.checked);
+  // A scan from before "Find N" has no goal: its progress is customers checked.
+  const pct = want ? Math.min(100, Math.round((found / want) * 100))
+    : n0(scan?.requested) ? Math.min(100, Math.round((checked / n0(scan.requested)) * 100)) : 0;
+  return { want, found, checked, pct };
+}
+export function huntLine(scan) {
+  if (!scan) return '';
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const { want, found, checked } = huntProgress(scan);
+  if (scan.status === 'running') return want ? `Found ${n(found)} of ${n(want)} · ${n(checked)} checked` : `${n(checked)} checked · ${n(found)} found`;
+  const end = scan.filters?.end;
+  if (end === 'goal') return `Last search: found ${n(found)} · ${n(checked)} checked.`;
+  if (end === 'pool') return `Last search checked everyone in this slice: ${n(found)} found of ${n(want)} asked for. Widen the dates or lower the minimum orders to find more.`;
+  if (end === 'cap') return `Last search checked ${n(checked)}, the most one search checks: ${n(found)} found. Press Find to keep going.`;
+  return customerScanLine(scan);
 }
 // name_lc is stored lowercased; it needs casing back before a person reads it.
 export function customerDisplayName(c) {
@@ -1017,4 +1140,114 @@ export function customerTemplateRow(subject, body) {
   if (row.customer_outreach_body && row.customer_outreach_body.length > 5000) errors.push('Keep the customer message under 5,000 characters.');
   if (row.customer_outreach_body && !row.customer_outreach_body.includes('{signup_link}')) errors.push('Keep {signup_link} in the customer message: it is how they join.');
   return { row, errors };
+}
+
+// ── People at the company level ─────────────────────────────────────────
+// Blake 2026-11-24: "people of all kind should be at entity level and can
+// dish them out to programs as needed ... should not isolate people by
+// program". A creator found, imported or added under one program is visible
+// from every program; adding them to another program makes their row there.
+// Nothing is moved: each program keeps its own row per person (one creator
+// is already signed up in two programs, and a row per program is what keeps
+// each program's status, drafts and invite apart).
+
+/** One person across programs: profile, else platform handle, else email. */
+export function personKey(x) {
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  if (url) return `u:${url}`;
+  const h = String(x?.handle || '').trim().toLowerCase();
+  if (h) return `h:${String(x?.platform || '').toLowerCase()}:${h}`;
+  const e = String(x?.contact_email || '').trim().toLowerCase();
+  return e ? `e:${e}` : `id:${x?.id ?? ''}`;
+}
+
+/** Every identity a row carries: profile, platform handle, email. */
+export function identityKeys(x) {
+  const out = [];
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  if (url) out.push(`u:${url}`);
+  const h = String(x?.handle || '').trim().toLowerCase();
+  if (h) out.push(`h:${String(x?.platform || '').toLowerCase()}:${h}`);
+  const e = String(x?.contact_email || '').trim().toLowerCase();
+  if (e) out.push(`e:${e}`);
+  return out;
+}
+
+// Is this row on the company's do-not-contact list, by any of its
+// identities? The list is company-wide, so it is checked apart from any
+// grouping: two rows of one person that share no field are still caught.
+export function prospectSuppressed(x, suppressions = []) {
+  if (x?.status === 'suppressed') return true;
+  if (customerSuppressed(x?.contact_email, suppressions)) return true;
+  const url = String(x?.profile_url || '').trim().toLowerCase();
+  const h = bareHandle(x?.handle);
+  return (suppressions || []).some((s) => {
+    const v = String(s?.value_normalized || '').trim().toLowerCase();
+    return v && ((s.kind === 'profile_url' && url && v === url) || (s.kind === 'handle' && h && bareHandle(v) === h));
+  });
+}
+
+/**
+ * People belong to the company, not a program (Blake 2026-11-24): every
+ * prospect row the company has, one entry per PERSON, with a row for each
+ * program they are in. Two rows are one person when they share ANY identity
+ * (profile, handle or email), so a row with only an email and a row with a
+ * profile and the same email join up. Rows arrive newest first, so the first
+ * row is the face of the card. Do not contact is company-wide: one row on the
+ * list (by status or by any identity) marks the whole person.
+ */
+export function groupPeople(rows, suppressions = []) {
+  const list = (rows || []).filter(Boolean);
+  const parent = list.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const owner = new Map();
+  list.forEach((x, i) => {
+    for (const k of identityKeys(x)) {
+      if (!owner.has(k)) owner.set(k, i);
+      else { const a = find(owner.get(k)); const b = find(i); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); }
+    }
+  });
+  const by = new Map();
+  list.forEach((x, i) => {
+    const r = find(i);
+    let g = by.get(r);
+    if (!g) { g = { key: personKey(list[r]), x: list[r], rows: [], programIds: [], suppressed: false }; by.set(r, g); }
+    g.rows.push(x);
+    if (!g.programIds.includes(x.program_id)) g.programIds.push(x.program_id);
+    if (prospectSuppressed(x, suppressions)) g.suppressed = true;
+  });
+  return [...by.values()];
+}
+
+/**
+ * The row a person gets in `programId` when they are added to it from
+ * another program: who they are and the evidence, never that program's
+ * decisions (status, review, invite) or its search (source_id).
+ */
+export function assignedProspectRow(x, programId, status = 'approved') {
+  return {
+    program_id: programId,
+    display_name: x.display_name ?? null,
+    platform: x.platform || 'other',
+    handle: x.handle ?? null,
+    profile_url: x.profile_url ?? null,
+    contact_email: x.contact_email ?? null,
+    contact_source_url: x.contact_source_url ?? null,
+    source: x.source,
+    source_url: x.source_url ?? null,
+    collected_at: x.collected_at ?? null,
+    evidence: x.evidence ?? {},
+    confidence: x.confidence ?? null,
+    confidence_basis: x.confidence_basis ?? null,
+    customer_match_status: x.customer_match_status || 'unknown',
+    customer_match_score: x.customer_match_score ?? null,
+    customer_match_basis: x.customer_match_basis ?? null,
+    customer_match_key: x.customer_match_key ?? null,
+    customer_match_customer_id: x.customer_match_customer_id ?? null,
+    customer_order_count: x.customer_order_count ?? null,
+    customer_last_order_at: x.customer_last_order_at ?? null,
+    customer_lifetime_spend: x.customer_lifetime_spend ?? null,
+    customer_matched_at: x.customer_matched_at ?? null,
+    status,
+  };
 }

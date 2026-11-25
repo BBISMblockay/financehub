@@ -37,6 +37,8 @@
 //   AFFILIATE_RESEARCH_MUTATION=photostored  Refresh photos re-fetches creators that already have a stored copy
 //   AFFILIATE_RESEARCH_MUTATION=sitesplit    a typed site: filter is paid for once per ticked platform
 //   AFFILIATE_RESEARCH_MUTATION=onesearch    the typed words are searched once for all platforms together
+//   AFFILIATE_RESEARCH_MUTATION=leadsunmetereda refused hold still runs the Google lead searches
+//   AFFILIATE_RESEARCH_MUTATION=researchnocapDiscovery ignores the monthly cap
 //   AFFILIATE_RESEARCH_MUTATION=noshare      leads from the platform searches are not merged by profile
 //   AFFILIATE_RESEARCH_MUTATION=notopup      a short run is not topped up from creators the per-source limit held back
 //   AFFILIATE_RESEARCH_MUTATION=topupfirst   the top-up counts while searching, so the AI stops looking for variety
@@ -87,6 +89,8 @@ const MUTS = {
   photostored: ['handler.mjs', '(urls || !p.evidence?.profile_image_stored)', '(urls || true)'],
   sitesplit: [CORE, '  if (/\\bsite:/i.test(q)) return [{ ...base, platform_hint: null }];\n', ''],
   onesearch: [CORE, '  return per.length > 1 ? per.map', '  return false ? per.map'],
+  leadsunmetered: ['handler.mjs', "        if (!ranMetered) g = await gatherLeads(program, focus, { google: false })", "        if (!ranMetered) g = await gatherLeads(program, focus)"],
+  researchnocap: ['handler.mjs', "    // The company's own monthly Affiliate Studio cap, over Find and Discovery.\n    if (studioLimitHit(await studioSpend(company)) === 'month') {\n      return reply({ error: \"This month's Affiliate Studio limit is reached. A workspace owner can change it in Workspace Settings \u2192 Billing.\", limit_reached: true }, 402);\n    }\n    const focus", "    const focus"],
   noshare: ['handler.mjs', 'leads: interleaveLeads(lists, MAX_LEADS)', 'leads: lists.flat().slice(0, MAX_LEADS)'],
   notopup: ['handler.mjs', 'collectedAt: now().toISOString(), fillTo: wanted });', 'collectedAt: now().toISOString() });'],
   topupfirst: ['handler.mjs', 'evidence: ev, program, focus, collectedAt }).stats.kept;', 'evidence: ev, program, focus, collectedAt, fillTo: wanted }).stats.kept;'],
@@ -187,6 +191,10 @@ function fakeService(seed, log, rpcs) {
       return { data: true, error: null };
     }
     if (name === 'affiliate_outreach_can_contact') return { data: args.p_handle !== '@donotcontact', error: null };
+    // Affiliate Studio spend (20261125040000): what the database says this month
+    // and this scan cost, and the company's limits. Tests set spend.* to drive it.
+    if (name === 'affiliate_studio_spend') return { data: { month_micros: 0, scan_micros: args.p_scan ? 0 : null, nightly_enabled: false, night_max_customers: 300, night_max_micros: 3000000, month_cap_micros: null, ...(globalThis.__studioSpend?.(args) || {}) }, error: null };
+    if (name === 'ai_credit_open' && globalThis.__creditRefuse?.(args)) return { data: { ok: false, mode: 'enforce', reason: 'insufficient_credit' }, error: null };
     if (name === 'ai_credit_open') return { data: { ok: true, mode: 'enforce', held_micros: 1000 }, error: null };
     if (name === 'ai_credit_step') return { data: { ok: true, held_micros: 2000 }, error: null };
     if (name === 'ai_credit_settle') return { data: { ok: true, outcome: args.p_outcome, enforced: true, charged_micros: 0 }, error: null };
@@ -817,6 +825,34 @@ await test('the shipped libs are byte-identical to scripts/lib', async () => {
     const b = await readFile(new URL(`lib/${f}`, FN), 'utf8');
     assert.equal(b, a, `${f} copy drifted: re-copy it`);
   }
+});
+
+// ── Affiliate Studio spend (20261125040000) ──────────────────────────────
+await test('Discovery is the same Affiliate Studio usage: its Google searches are metered, and the monthly cap refuses a run', async () => {
+  const done = msg([{ type: 'tool_use', id: 't', name: 'record_creators', input: { creators: [] } }], 'tool_use');
+  const s = setup({ serp: [], script: [done] });
+  await s.call({ action: 'research', program_id: PA, focus: 'baseball moms', count: 5 });
+  const open = s.rpcs.find((x) => x.name === 'ai_credit_open' && x.args.p_model === 'dataforseo-serp');
+  assert.ok(open, 'the lead searches open a hold');
+  assert.equal(open.args.p_feature, 'affiliate_research', 'one Affiliate Studio line with Find');
+  const settle = s.rpcs.find((x) => x.name === 'ai_credit_settle' && x.args.p_request === open.args.p_request);
+  assert.equal(settle.args.p_usage.web_search, s.searches.length, 'billed for the searches that ran');
+  // Out of credit for searches: the run goes on without Google leads.
+  globalThis.__creditRefuse = (a) => a.p_model === 'dataforseo-serp';
+  try {
+    const r = setup({ serp: [], script: [done] });
+    await r.call({ action: 'research', program_id: PA, focus: 'baseball moms', count: 5 });
+    assert.equal(r.searches.length, 0, 'no unmetered search');
+  } finally { delete globalThis.__creditRefuse; }
+  // The month's cap is reached: refused before anything is spent.
+  globalThis.__studioSpend = () => ({ month_micros: 2_000_000, month_cap_micros: 2_000_000 });
+  try {
+    const c = setup({ serp: [], script: [done] });
+    const res = await c.call({ action: 'research', program_id: PA, focus: 'baseball moms', count: 5 });
+    assert.equal(res.status, 402);
+    assert.equal((await res.json()).limit_reached, true);
+    assert.equal(c.searches.length + c.calls.length, 0, 'nothing searched, no model call');
+  } finally { delete globalThis.__studioSpend; }
 });
 
 console.log(`\naffiliate-research-edge: ${passed} passed`);

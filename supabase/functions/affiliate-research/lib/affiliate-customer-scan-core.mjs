@@ -22,14 +22,14 @@
 //      it can be read out of a result's own text, which the code re-checks.
 //
 // WHAT IT NEVER DOES: fetch a profile page, guess a handle, estimate a count,
-// research somebody who unsubscribed from marketing, or contact anyone. A
+// research somebody whose data was erased, or contact anyone. A
 // person found here is only a row on the Your Customers list until somebody
 // ticks them.
 //
 // Pure, apart from the imports. Verbatim copy shipped in
 // supabase/functions/affiliate-research/lib/, pinned by
 // scripts/tests/affiliate-customer-scan-edge.test.mjs.
-import { buildSerpTask, candidatesFromResults } from './affiliate-discovery-core.mjs';
+import { buildSerpTask, candidatesFromResults, nicheTerms } from './affiliate-discovery-core.mjs';
 
 export const SCAN_PROVIDER = 'dataforseo';
 export const SCAN_DEFAULT = 500;
@@ -49,20 +49,23 @@ export const SCAN_STATUSES = ['found', 'below', 'no_count', 'ambiguous', 'none',
 // has, so it is shown as a name match to check, never as a likely find.
 //   email_handle  the handle is the customer's own email name (jsmith@ -> @jsmith)
 //   city          the customer's city appears in the result's own text
+//   niche         the profile's own text uses one of the company's niche words
 //   name_only     nothing but the name ties the profile to them
-export const MATCH_BASES = ['email_handle', 'city', 'name_only'];
+export const MATCH_BASES = ['email_handle', 'city', 'niche', 'name_only'];
 // Free mail hosts. A member's address on any OTHER domain marks that domain as
 // the company's own, so its staff are never scanned as customers.
 export const FREE_MAIL = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com', 'outlook.com',
   'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com',
   'comcast.net', 'att.net', 'sbcglobal.net', 'verizon.net', 'bellsouth.net', 'cox.net', 'charter.net']);
-// Never researched at all: somebody who said no to marketing, and a privacy
-// erasure (a redacted row has no name left to look for anyway). Every other
-// consent state, including "never asked" and "not checked yet", is scanned --
-// consent is a filter, never a gate (Blake, 2026-11-24), and an explicit
-// opt-out is out of the pool entirely ("if they physically opted out, we
-// don't want them in pool").
-export const NEVER_SCAN_CONSENT = ['unsubscribed', 'redacted'];
+// Never researched at all: a privacy erasure (a redacted row has no name left
+// to look for anyway). Every other consent state is scanned, unsubscribed
+// included -- consent decides HOW somebody is reached, never whether they are
+// found (Blake, 2026-11-24: "want all prospect available and then comms path
+// decided by status tag"). An unsubscribed customer is never emailed: Add to
+// outreach gives them a DM draft instead (customerContactPath in
+// v2/affiliates/studio-core.js). The do-not-contact list still keeps anyone
+// on it out of the pool entirely.
+export const NEVER_SCAN_CONSENT = ['redacted'];
 
 const BUSINESS_WORDS = new Set(['llc', 'inc', 'co', 'corp', 'company', 'store', 'shop', 'team', 'club', 'league',
   'school', 'academy', 'association', 'church', 'llp', 'ltd', 'group', 'sports', 'athletics', 'baseball', 'softball',
@@ -95,10 +98,17 @@ export function personName(nameLc, firstLc = null, lastLc = null) {
   return { first, last, display: words.map(titleCase).join(' ') };
 }
 
-/** The words searched for one customer: their name in quotes, then the city. */
+/**
+ * The words searched for one customer: their name in quotes, then the city.
+ * A first name with nicknames is searched as EVERY spelling the matcher accepts,
+ * in ONE request ("Mike Sorensen" OR "Michael Sorensen" ... Phoenix), because a
+ * quoted phrase never returns the other spelling and the matcher can only judge
+ * what the search brought back. Their own spelling always comes first.
+ */
 export function scanQuery(person, city = null) {
   const c = String(city || '').replace(/["\s]+/g, ' ').replace(/\s+,/g, ',').trim().slice(0, 60);
-  return `"${titleCase(person.first)} ${titleCase(person.last)}"${c ? ` ${c}` : ''}`;
+  const names = firstNames(person.first).map((f) => `"${titleCase(f)} ${titleCase(person.last)}"`);
+  return `${names.join(' OR ')}${c ? ` ${c}` : ''}`;
 }
 
 /** The provider task: the shallowest page the provider sells, pinned to the program's platforms. */
@@ -126,12 +136,51 @@ export function parseFollowers(text) {
   return { count: Math.round(n), approx: !!unit || !!m[3], quote: m[0].trim() };
 }
 
-/** Does this profile carry the customer's own name? First AND last, in the title or the handle. */
+// ── Nicknames ────────────────────────────────────────────────────────────
+// A customer stored as "Mike Smith" may call themselves "Michael Smith" on
+// their profile, and the other way round (audit fix 6, 2026-11-24). Each group
+// is one first name; any spelling in it stands for the others. Only the FIRST
+// name widens -- the surname must still be theirs -- and a nickname alone adds
+// no score: it lets a profile be considered, never makes it Likely.
+// Shorter than 3 letters is left out ("al", "ed" sit inside other words).
+export const NICKNAMES = [
+  ['michael', 'mike', 'mikey', 'mick', 'mickey'], ['william', 'will', 'bill', 'billy', 'liam'], ['robert', 'rob', 'bob', 'bobby', 'robbie'],
+  ['richard', 'rich', 'rick', 'ricky', 'dick'], ['james', 'jim', 'jimmy', 'jamie'], ['john', 'jack', 'johnny'], ['jonathan', 'jon', 'jonny'],
+  ['joseph', 'joe', 'joey'], ['thomas', 'tom', 'tommy'], ['christopher', 'chris', 'topher'], ['daniel', 'dan', 'danny'],
+  ['matthew', 'matt', 'matty'], ['anthony', 'tony'], ['andrew', 'andy', 'drew'], ['joshua', 'josh'], ['nicholas', 'nick', 'nicky'],
+  ['benjamin', 'ben', 'benny'], ['samuel', 'sam', 'sammy'], ['alexander', 'alex', 'xander'], ['zachary', 'zach', 'zack'],
+  ['nathaniel', 'nathan', 'nate'], ['timothy', 'tim', 'timmy'], ['steven', 'steve', 'stevie'], ['stephen', 'steve', 'stevie'],
+  ['edward', 'eddie', 'ted', 'ned'], ['charles', 'charlie', 'chuck'], ['gregory', 'greg'], ['jeffrey', 'jeff'], ['kenneth', 'ken', 'kenny'],
+  ['patrick', 'pat', 'paddy'], ['peter', 'pete'], ['ronald', 'ron', 'ronnie'], ['donald', 'don', 'donnie'], ['douglas', 'doug'],
+  ['raymond', 'ray'], ['gerald', 'gerry', 'jerry'], ['lawrence', 'larry'], ['frederick', 'fred', 'freddie'], ['jacob', 'jake'],
+  ['elizabeth', 'liz', 'lizzie', 'beth', 'betsy', 'eliza'], ['katherine', 'kate', 'katie', 'kathy', 'kat'], ['catherine', 'cathy', 'cat', 'kate', 'katie'],
+  ['margaret', 'maggie', 'meg', 'peggy'], ['jennifer', 'jen', 'jenn', 'jenny'], ['jessica', 'jess', 'jessie'], ['rebecca', 'becca', 'becky'],
+  ['samantha', 'sam', 'sammy'], ['alexandra', 'alex', 'lexi', 'sasha'], ['victoria', 'vicky', 'tori'], ['patricia', 'pat', 'patty', 'trish'],
+  ['deborah', 'deb', 'debbie'], ['susan', 'sue', 'suzy'], ['kimberly', 'kim'], ['christina', 'chris', 'tina'], ['christine', 'chris', 'tina'],
+  ['abigail', 'abby'], ['madeline', 'maddie'], ['madison', 'maddie'], ['stephanie', 'steph'], ['nicole', 'nikki'], ['amanda', 'mandy'],
+  ['natalie', 'nat'], ['gabriella', 'gabby', 'ella'], ['gabrielle', 'gabby'], ['olivia', 'liv', 'livvy'], ['isabella', 'bella', 'izzy'],
+].map((g) => g.filter((w) => w.length >= 3));
+const NICK_OF = new Map();
+for (const g of NICKNAMES) for (const w of g) NICK_OF.set(w, [...new Set([...(NICK_OF.get(w) || []), ...g])]);
+/** Every first name that stands for this one (itself first). Pure. */
+export function firstNames(first) {
+  const f = fold(first).replace(/[^a-z'-]/g, '');
+  return [f, ...(NICK_OF.get(f) || []).filter((w) => w !== f)];
+}
+
+/**
+ * Does this profile carry the customer's own name? First AND last, in the
+ * title or the handle. The first name may be any of its nicknames; a nickname
+ * has to be a whole word of the title, or 4+ letters of the handle, so "tom"
+ * never matches "tomato".
+ */
 export function nameOnProfile(candidate, person) {
   const title = fold(`${candidate.display_name || ''} ${candidate.evidence?.title || ''}`);
   const handle = fold(candidate.handle || '').replace(/[^a-z]/g, '');
   const has = (w) => title.includes(w) || handle.includes(w.replace(/[^a-z]/g, ''));
-  return has(person.first) && has(person.last);
+  const words = ` ${title.replace(/[^a-z]+/g, ' ')} `;
+  const nick = (w) => words.includes(` ${w} `) || (w.length >= 4 && handle.includes(w));
+  return (has(person.first) || firstNames(person.first).slice(1).some(nick)) && has(person.last);
 }
 
 const textOf = (c) => `${c.evidence?.title || ''} ${c.evidence?.snippet || ''}`;
@@ -151,21 +200,106 @@ export function realProfile(c) {
 }
 
 /**
- * Why this profile is believed to be this customer: their email name as the
- * handle, their city in the result, or only their name. An email name that is
- * just their first name, last name or both is not a second signal -- a
- * namesake has those too.
+ * Every reason this profile is believed to be this customer: their email name
+ * as the handle, their city in the result, one of the company's niche words in
+ * the result, their name in the handle itself. An email name that is just
+ * their first name, last name or both is not a signal -- a namesake has those
+ * too. Pure.
  */
-export function matchBasis({ pick, person, email = null, city = null }) {
+export function matchSignals({ pick, person, email = null, city = null, terms = [] }) {
   const core = (v) => fold(v).replace(/[^a-z]/g, '');
   const local = core(String(email || '').split('@')[0]);
   const handle = core(pick?.handle);
   const nameOnly = new Set([person.first, person.last, person.first + person.last, person.last + person.first].map(core));
+  const text = ` ${fold(`${pick?.title || ''} ${pick?.snippet || ''}`).replace(/[^a-z0-9]+/g, ' ')} `;
+  const out = new Set();
   if (local.length >= 4 && handle.length >= 4 && !nameOnly.has(local)
-    && (handle === local || (local.length >= 6 && handle.includes(local)))) return 'email_handle';
+    && (handle === local || (local.length >= 6 && handle.includes(local)))) out.add('email_handle');
   const where = fold(String(city || '').split(',')[0]).replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (where.length >= 3 && fold(`${pick?.title || ''} ${pick?.snippet || ''}`).includes(where)) return 'city';
-  return 'name_only';
+  if (where.length >= 3 && text.includes(` ${where} `)) out.add('city');
+  // A whole word, so "ball" never matches "balloon".
+  if ((terms || []).some((t) => t && text.includes(` ${t} `))) out.add('niche');
+  if (handle.includes(core(person.first)) && handle.includes(core(person.last))) out.add('handle_name');
+  return out;
+}
+
+/** The strongest reason, as stored in match_basis. */
+export function matchBasis(args) {
+  const sig = matchSignals(args);
+  return MATCH_BASES.find((b) => sig.has(b)) || 'name_only';
+}
+
+// ── How sure: a 0-100 match score ────────────────────────────────────────
+// Blake 2026-11-24: "need scores". Every point is a reason a person can read
+// back. A name alone starts at 40; each independent signal adds; a big account
+// tied to them by nothing but a name loses points, because the most-followed
+// namesake is exactly what Google ranks first (the 2026-11-24 audit: every
+// find over 750 was name-only, and the 324K, 223K and 107K ones were
+// strangers). A choice the model made between namesakes is a little less sure
+// than a search that showed one profile.
+//
+// LIKELY_SCORE and up is "Likely" and counts toward the finds asked for;
+// below it is "Check" -- shown, never counted, until a person looks.
+export const LIKELY_SCORE = 70;
+export const SCORE_POINTS = { base: 40, email_handle: 50, city: 30, niche: 30, handle_name: 10, ai_choice: -5 };
+// Followers -> points off, for a profile tied to them by the name alone.
+export const NAME_ONLY_BIG = [[100_000, -30], [20_000, -20], [5_000, -10]];
+const STRONG = ['email_handle', 'city', 'niche'];
+export function matchScore({ signals, followers = null, decidedBy = 'search' }) {
+  const sig = signals instanceof Set ? signals : new Set(signals || []);
+  let s = SCORE_POINTS.base;
+  for (const k of ['email_handle', 'city', 'niche', 'handle_name']) if (sig.has(k)) s += SCORE_POINTS[k];
+  if (decidedBy === 'ai') s += SCORE_POINTS.ai_choice;
+  const f = Number(followers);
+  if (!STRONG.some((k) => sig.has(k)) && followers !== null && Number.isFinite(f)) {
+    const off = NAME_ONLY_BIG.find(([at]) => f >= at);
+    if (off) s += off[1];
+  }
+  return Math.max(5, Math.min(99, Math.round(s)));
+}
+/** Score and basis together, for one chosen profile. */
+export function scorePick({ pick, person, email = null, city = null, terms = [], decidedBy = 'search', also = [] }) {
+  const signals = matchSignals({ pick, person, email, city, terms });
+  // A signal the caller already proved another way (the username search's
+  // exact handle match is email_handle by construction).
+  for (const x of also) signals.add(x);
+  return {
+    basis: MATCH_BASES.find((b) => signals.has(b)) || 'name_only',
+    score: matchScore({ signals, followers: pick?.followers ?? null, decidedBy }),
+  };
+}
+/**
+ * The counter a judged row lands in. Over the bar but not sure enough is
+ * 'check', never 'found': "Find 25" brings back 25 people the score trusts.
+ */
+export function tallyBucket(status, score) {
+  return status === 'found' && !(Number(score) >= LIKELY_SCORE) ? 'check' : status;
+}
+
+/**
+ * The company's niche words, for the niche signal: its own words
+ * (entities.meta.affiliate_customer_scan_terms: a list or comma-separated
+ * text) plus the words of its active programs' niche and audience notes.
+ */
+/**
+ * The "Niche words" box as typed -> the list stored on the company
+ * (entities.meta.affiliate_customer_scan_terms). Comma separated; each entry
+ * folded, 3 to 40 characters; at most 20. Empty -> [] (the company has none).
+ */
+export function termsInput(text) {
+  return [...new Set(String(text ?? '').slice(0, 1000).split(',')
+    .map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((w) => w.length >= 3 && w.length <= 40))].slice(0, 20);
+}
+
+export function companyTerms(meta, programs = []) {
+  const raw = meta && typeof meta === 'object' ? meta.affiliate_customer_scan_terms : null;
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : null;
+  // The company's own words first, then every active program's niche words
+  // (Blake 2026-11-24: "fine with combo as source").
+  const own = (list || []).map((w) => fold(w).replace(/[^a-z0-9 ]/g, ' ').trim()).filter((w) => w.length >= 3);
+  const prog = (programs || []).flatMap((p) => nicheTerms(p)).map((w) => fold(w).replace(/[^a-z0-9]/g, '')).filter((w) => w.length >= 4);
+  return [...new Set([...own, ...prog])].slice(0, 40);
 }
 
 /**
@@ -289,6 +423,69 @@ export function scanTally(rows) {
 }
 
 /** How many to scan: what was asked for, clamped; default when nothing usable was asked. */
+// "Find 25" (Blake, 2026-11-24): the number a person enters is how many
+// people over the bar come back, not how many are checked.
+export const FINDS_DEFAULT = 25;
+export const FINDS_MAX = 500;
+export function clampFinds(n) {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return FINDS_DEFAULT;
+  return Math.min(FINDS_MAX, v);
+}
+// The safety cap on customers one press may check, so a big ask on a thin
+// slice cannot run on unbounded. Company DATA:
+// entities.meta.affiliate_customer_scan_max_checks, 10,000 when unset (Blake
+// chose 10,000 on 2026-11-24).
+export const MAX_CHECKS_DEFAULT = 10_000;
+export function companyMaxChecks(meta) {
+  const v = Math.floor(Number(meta?.affiliate_customer_scan_max_checks));
+  return Number.isFinite(v) && v >= 1 ? Math.min(100_000, v) : MAX_CHECKS_DEFAULT;
+}
+
+// DataForSEO's standard queue: up to 100 searches per request at about a
+// third of the live price, answered in a minute or two (measured 2026-09-26,
+// see scripts/lib/seo-serp-sync-core.mjs). post() maps answers to the tasks
+// by position, as the provider returns them; get() on a task still in the
+// queue says so and costs nothing.
+export const QUEUE_POST_BATCH = 100;
+export function createSerpQueue({ credentials, fetchImpl = fetch, base = 'https://api.dataforseo.com' }) {
+  const auth = 'Basic ' + btoa(`${credentials.login}:${credentials.password}`);
+  const call = async (method, path, body) => {
+    const res = await fetchImpl(`${base}${path}`, {
+      method, headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json || json.status_code !== 20000) {
+      throw Object.assign(new Error(`SERP queue ${method} HTTP ${res.status} ${json?.status_code ?? ''} ${json?.status_message ?? ''}`.trim()), { code: json?.status_code ?? res.status });
+    }
+    return json;
+  };
+  return {
+    /** [{ task }] -> [{ id, cost, code }] in the same order; id is null when refused. */
+    async post(list) {
+      if (!list.length) return [];
+      const json = await call('POST', '/v3/serp/google/organic/task_post', list.map(({ task }) => ({ ...task, priority: 1 })));
+      const tasks = json.tasks || [];
+      if (tasks.length !== list.length) throw new Error(`SERP queue answered ${tasks.length} tasks for ${list.length} posted`);
+      return tasks.map((t) => ({ id: t.status_code === 20100 && t.id ? String(t.id) : null, cost: Number(t.cost) || 0, code: t.status_code ?? null }));
+    },
+    /** -> { state: 'pending' } | { state: 'ready', items } | { state: 'error', code } */
+    async get(id) {
+      const json = await call('GET', `/v3/serp/google/organic/task_get/advanced/${encodeURIComponent(id)}`);
+      const t = json.tasks?.[0];
+      const code = t?.status_code ?? null;
+      if (code === 40601 || code === 40602) return { state: 'pending' };
+      // "No Search Results": Google had nothing for the name. An answer --
+      // no account -- never a failure (most of the 2026-11-24 pilot's
+      // "failed" rows were this).
+      if (code === 40102) return { state: 'ready', items: [] };
+      if (!t || code !== 20000) return { state: 'error', code };
+      return { state: 'ready', items: (t.result?.[0]?.items || []).filter((i) => i && i.type === 'organic' && i.url) };
+    },
+  };
+}
+
 export function clampScanCount(n) {
   const v = Math.floor(Number(n));
   if (!Number.isFinite(v) || v <= 0) return SCAN_DEFAULT;
@@ -316,17 +513,21 @@ export function companyMinFollowers(meta) {
 }
 
 /**
- * What a company-level scan searches: every platform SILO reads a profile
- * from. Empty platforms means "all of them" to the search builder and to the
- * judges, so no program's ticks narrow an answer that every program shares.
+ * What a company-level scan searches: the platforms whose profiles state a
+ * follower count in a search result. Not Pinterest or X: on 2026-11-24 they
+ * were 58 of 140 matched accounts, NEVER carried a count, and made 49 of the
+ * 83 "several possible" rows (a namesake's board next to the real profile).
+ * Not a program's ticks, so no program narrows an answer every program shares.
  */
-export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze([]) });
+export const COMPANY_SCAN_SCOPE = Object.freeze({ platforms: Object.freeze(['instagram', 'tiktok', 'youtube']) });
+
 
 /** One row of the result table, from a judgement. Columns match affiliate_customer_social. */
-export function socialRowPatch({ status, pick, candidates = null, decidedBy, query, checkedAt, basis = null }) {
+export function socialRowPatch({ status, pick, candidates = null, decidedBy, query, checkedAt, basis = null, score = null }) {
   return {
     status,
     match_basis: pick?.profile_url ? (MATCH_BASES.includes(basis) ? basis : 'name_only') : null,
+    match_score: pick?.profile_url && Number.isFinite(Number(score)) && score !== null ? Math.max(0, Math.min(100, Math.round(Number(score)))) : null,
     decided_by: decidedBy,
     query,
     checked_at: checkedAt,
@@ -337,7 +538,12 @@ export function socialRowPatch({ status, pick, candidates = null, decidedBy, que
     followers_approx: pick?.followers_approx ?? null,
     followers_quote: pick?.followers_quote ?? null,
     source_url: pick?.source_url ?? null,
-    candidates: status === 'ambiguous' ? (candidates || []) : (candidates && candidates.length > 1 ? candidates : null),
+    // Ambiguous: the profiles the model chooses from. Otherwise the chosen
+    // profile's own title and text are kept too, so a find can be checked
+    // from its row (the 2026-11-24 audit could not re-check single finds).
+    candidates: status === 'ambiguous' ? (candidates || [])
+      : candidates && candidates.length > 1 ? candidates
+        : pick?.profile_url ? [pick] : null,
   };
 }
 
@@ -346,6 +552,23 @@ export function socialRowPatch({ status, pick, candidates = null, decidedBy, que
  * address, and every member domain that is not a free mail host (so staff who
  * never signed in to SILO are skipped too).
  */
+/**
+ * The company's do-not-contact list (affiliate_suppressions rows: kind
+ * 'email' | 'domain', value_normalized) -> a predicate on an address. A
+ * domain also covers its subdomains. The same rule the scan's guards apply.
+ */
+export function suppressionFilter(rows = []) {
+  const emails = new Set((rows || []).filter((x) => x?.kind === 'email').map((x) => String(x.value_normalized || '').toLowerCase()));
+  const domains = (rows || []).filter((x) => x?.kind === 'domain').map((x) => String(x.value_normalized || '').toLowerCase()).filter(Boolean);
+  return (email) => {
+    const e = String(email || '').toLowerCase().trim();
+    if (!e) return false;
+    if (emails.has(e)) return true;
+    const host = e.split('@')[1] || '';
+    return domains.some((d) => host === d || host.endsWith(`.${d}`));
+  };
+}
+
 export function teamFilter(memberEmails = []) {
   const emails = new Set(); const domains = new Set();
   for (const e of memberEmails) {
@@ -410,6 +633,29 @@ export function judgeHandle({ items, handle, program, minFollowers = DEFAULT_MIN
   return outcome({ ...hit, followers: parseFollowers(textOf(hit)) }, minFollowers);
 }
 
+// ── The follower count, when the match did not show one ──────────────────
+// A profile found with no count in its result gets ONE more search for its
+// own handle, pinned to its platform: the profile page's own result usually
+// states "1,204 Followers". The count is read from that profile's result
+// only, never from another account's text, and never estimated.
+export const COUNT_PLATFORMS = ['instagram', 'tiktok', 'youtube'];
+export function buildCountTask(pick) {
+  // Only an @handle is searchable; a YouTube /channel/UC... id is not.
+  const h = String(pick?.handle || '');
+  if (!/^@[A-Za-z0-9._-]{2,64}$/.test(h) || !COUNT_PLATFORMS.includes(pick?.platform)) return null;
+  return buildSerpTask({ query: `"${h}"`, platform_hint: pick.platform, max_results: 10 }, { platforms: [pick.platform] });
+}
+/** The count search's results -> the count stated on THAT profile's own result, or null. */
+export function judgeCount({ items, pick, collectedAt }) {
+  const { candidates } = candidatesFromResults({ items, program: { platforms: [pick.platform] }, source: { query: String(pick.handle || '') }, collectedAt });
+  const want = String(pick.profile_url || '').toLowerCase();
+  const hit = candidates.find((c) => c.platform === pick.platform && (c.profile_url.toLowerCase() === want || coreOf(c.handle) === coreOf(pick.handle)));
+  const f = hit ? parseFollowers(textOf(hit)) : null;
+  if (!f) return null;
+  return { followers: f.count, followers_approx: f.approx, followers_quote: f.quote, source_url: hit.source_url || hit.profile_url,
+    title: String(hit.evidence?.title || '').slice(0, 200), snippet: String(hit.evidence?.snippet || '').slice(0, 400) };
+}
+
 // ── Which customers a press scans ────────────────────────────────────────
 // The same orderings the Your Customers list offers (v2/affiliates/
 // studio-core.js CUSTOMER_SORTS), so "scan 500" scans the top 500 the person
@@ -421,14 +667,14 @@ export const SCAN_SORTS = {
   oldest: [['first_order_at', true], ['order_count', false], ['customer_key', true]],
   name: [['name_lc', true], ['customer_key', true]],
 };
-const SCAN_CONSENTS = ['any', 'subscribed', 'not_subscribed', 'pending', 'unmeasured'];
+const SCAN_CONSENTS = ['any', 'subscribed', 'not_subscribed', 'unsubscribed', 'pending', 'unmeasured'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const nextDay = (iso) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 
 /**
- * The slice a press scans, from what the page sent, every field clamped. An
- * explicit opt-out is NOT a choice here: 'unsubscribed' is refused, because
- * those customers are never scanned whatever the filter says.
+ * The slice a press scans, from what the page sent, every field clamped.
+ * 'unsubscribed' is a slice like any other (they are found, then reached by
+ * DM, never email); an erased ('redacted') customer is never one.
  */
 export function scanFilters(f = {}) {
   const sort = Object.prototype.hasOwnProperty.call(SCAN_SORTS, f?.sort) ? f.sort : 'orders';

@@ -12,8 +12,9 @@ import {
   pagedCollect, OV_PAGE_SIZE,
   ovWeeklySellers, ovPerAffiliate, ovReachOut, ovMessage, OV_REASONS, OV_EARNING_BASES, displayImage, suggestCode, seedView,
   customerQuerySpec, customerConsentView, CUSTOMER_CONSENTS, CUSTOMER_PAGE_SIZE, CUSTOMER_SORTS,
-  customerOutreachTemplate, customerSuppressed, customerProspectRow, customerDisplayName, customerOrdersLine, customerTemplateRow,
-  customerSocialView, customerScanLine, SOCIAL_BASIS,
+  identityKeys, groupPeople, assignedProspectRow,
+  customerOutreachTemplate, customerSuppressed, customerProspectRow, customerContactPath, customerNoPathReason, customerDisplayName, customerOrdersLine, customerTemplateRow,
+  customerSocialView, customerScanLine, huntLine, huntProgress, LIKELY_SCORE, liveScan, scanTermsFromRead, huntCounts,
 } from './studio-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -181,7 +182,9 @@ function formDirty() {
 }
 async function autoRefreshCreators(id) {
   if (!MANAGE || !id || autoRefreshing === id || !autoRefreshDue(id)) return;
-  const pros = S.d?.prospects || [];
+  // On People the page holds every program's creators; this program's only.
+  const company = !!S.d?.company;
+  const pros = (S.d?.prospects || []).filter((x) => !company || x.program_id === id);
   const wantPhotos = pros.some((x) => !prospectPhotoUrl(x.evidence));
   const wantStats = pros.some((x) => x.platform === 'youtube');
   if (!wantPhotos && !wantStats) return;
@@ -195,7 +198,7 @@ async function autoRefreshCreators(id) {
     // Never under someone's typing: a half-filled form (a payment reference,
     // a prospect by hand) would be redrawn empty. The new photos then show on
     // the next redraw instead.
-    const quiet = () => S.programId === id && !S.creating && S.tab !== 'program' && !formDirty();
+    const quiet = () => (company ? companyScope() : S.programId === id) && !S.creating && S.tab !== 'program' && !formDirty();
     if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && quiet()) {
       await loadPrograms(); await loadProgramData();
       // Checked again AFTER the reads: someone may have started typing while
@@ -291,6 +294,11 @@ function shopifyCodesMessage(results) {
   return parts.join(' ') || 'Nothing was waiting.';
 }
 
+// A preview link: 32 random bytes, URL-safe, the shape the portal accepts.
+function previewToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 async function invoke(fn, body) {
   const { data: { session: s } } = await db.auth.getSession();
   const res = await fetch(`${cfg.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/${fn}`, {
@@ -348,6 +356,34 @@ async function bulkProspects(ids, s) {
   const word = { approved: 'Approved', rejected: 'Rejected', suppressed: 'Added to do-not-contact:' }[s];
   return `${word} ${num(done)}.${invited ? ` ${num(invited)} invite(s) emailed.` : ''}${unsent.length ? ` ${num(unsent.length)} invite(s) not emailed: links below.` : ''}${drafted ? ` ${num(drafted)} message(s) drafted.` : ''}${skipped ? ` ${num(skipped)} skipped (already ${s === 'approved' ? 'approved or further' : 'past that step'}).` : ''}${failed ? ` ${num(failed)} could not be finished.` : ''}`;
 }
+// Adds a person to another program: their own row there, with who they are
+// and the evidence but none of the first program's decisions. Returns that
+// row's id. If they are already there (another tab, or a row the page had not
+// loaded), that row is used rather than a second one.
+async function assignToProgram(id, programId, status = 'approved') {
+  const x = S.d?.prospectById?.[id];
+  const p = S.programs.find((y) => y.id === programId);
+  if (!x || !p) throw new Error('Pick a program first.');
+  const keys = new Set(identityKeys(x));
+  const same = (r) => identityKeys(r).some((k) => keys.has(k));
+  const there = (S.d.prospects || []).find((r) => r.program_id === p.id && same(r));
+  if (there) return there.id;
+  const row = assignedProspectRow(x, p.id, status);
+  try {
+    return must(await db.from('affiliate_prospects').insert({
+      ...row, company_entity_id: CO,
+      ...(status === 'new' ? {} : { reviewed_by: me.id, reviewed_at: new Date().toISOString() }),
+      created_by: me.id, changed_by: me.id,
+    }).select('id').single()).id;
+  } catch (e) {
+    if (e?.code !== '23505') throw e;
+    // Already in that program: find that row by the same identity.
+    const { data } = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).eq('program_id', p.id).limit(2000);
+    const made = (data || []).find(same);
+    if (!made) throw e;
+    return made.id;
+  }
+}
 function download(name, text, type = 'text/csv') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
@@ -360,7 +396,7 @@ const PROSPECT_LIST_CAP = 20;
 // Declared before S, because S.view calls readView() as it is built: a const
 // read before its own initializer throws, and the choice silently reverted.
 const VIEW_KEY = 'silo.affiliates.view';
-const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', find: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -368,6 +404,33 @@ const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 const ALL = '*';
 const isAll = () => S.programId === ALL && S.programs.length > 1;
 const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
+// People sit above programs (Blake 2026-11-24: "people is above programs"),
+// and so do Money, Records and the Program numbers (Blake 2026-11-25: "money
+// - should not be tabbed at program level...all entity level. same with
+// records"). Those tabs always read every program the person may see and
+// show no program picker; only Outreach, Share and Setup work one program at
+// a time. A button on a company tab works in the program of the row it sits
+// on (see ctxProgram).
+const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);
+const companyScope = () => COMPANY_TABS.has(S.tab) && S.programs.length > 0;
+// A company tab holding more than one program: no single program describes
+// the page, so its money, rail and currency come from each row's own program.
+const companyMulti = () => !!S.d?.company && S.programs.length > 1;
+// The currency most programs use, for company-wide totals (summed per
+// currency, never across).
+const mainCurrency = () => {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || 'USD';
+};
+const progOf = (x) => S.programs.find((p) => p.id === x?.program_id) || null;
+// Programs a person can be added to or searched for: anything not closed.
+const openPrograms = () => S.programs.filter((x) => x.status !== 'closed');
+// Where Find creators and Add creators save what they find. There is no
+// picker (Blake 2026-11-24: "SHOW ONE LIST"): everybody found shows on the
+// one company list whichever program holds the row, and "Add to <program>"
+// puts them in any other.
+const findProgram = () => openPrograms().find((x) => x.id === S.programId) || openPrograms()[0] || null;
 
 async function loadPrograms() {
   S.programs = must(await db.from('affiliate_programs').select('*').eq('company_entity_id', CO).order('created_at'));
@@ -380,17 +443,28 @@ async function loadPrograms() {
   $('btnNewProgram').hidden = !MANAGE;
 }
 
+// Every read is numbered, and only the newest may become what the page shows:
+// two tab changes in a row (People, then Outreach) start two reads of
+// different scope, and the slower one must not land last and put every
+// program's drafts on a one-program tab.
+let loadGen = 0;
 async function loadProgramData() {
-  if (isAll()) return loadAllData();
-  const p = prog();
-  if (!p) { S.d = null; return; }
-  const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO).eq('program_id', p.id);
+  const gen = ++loadGen;
+  // People first: it is company-wide in every mode, "All programs" included.
+  const company = companyScope();
+  if (!company && isAll()) return loadAllData(gen);
+  const p = company ? null : prog();
+  if (!p && !company) { S.d = null; return; }
+  // Company scope reads every program at once (RLS still decides which ones).
+  const by = (t, cols = '*') => (p ? db.from(t).select(cols).eq('company_entity_id', CO).eq('program_id', p.id) : db.from(t).select(cols).eq('company_entity_id', CO));
+  const cap = p ? 500 : 2000;
   const q = {
-    health: db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO).eq('program_id', p.id).maybeSingle(),
+    health: p ? db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO).eq('program_id', p.id).maybeSingle()
+      : db.from('affiliate_program_health_v').select('*').eq('company_entity_id', CO),
     runs: by('affiliate_discovery_runs').order('started_at', { ascending: false }).limit(25),
-    prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(500),
-    suppressions: db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO).order('created_at', { ascending: false }).limit(500),
-    drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(500),
+    // Company scope reads every prospect, paged (loadCompanyProspects).
+    ...(p ? { prospects: by('affiliate_prospects').order('collected_at', { ascending: false }).limit(cap) } : {}),
+    drafts: by('affiliate_outreach_drafts').order('created_at', { ascending: false }).limit(cap),
     batches: by('affiliate_outreach_batches').order('created_at', { ascending: false }).limit(50),
     codes: by('affiliate_codes').order('starts_on', { ascending: false }),
     links: by('affiliate_links').order('starts_on', { ascending: false }),
@@ -398,7 +472,8 @@ async function loadProgramData() {
     performance: by('affiliate_performance_v'),
     periods: by('affiliate_commission_periods').order('period_start', { ascending: false }),
     ledger: by('affiliate_commission_ledger').order('created_at', { ascending: false }).limit(300),
-    ledgerCount: db.from('affiliate_commission_ledger').select('id', { count: 'exact', head: true }).eq('company_entity_id', CO).eq('program_id', p.id),
+    ledgerCount: p ? db.from('affiliate_commission_ledger').select('id', { count: 'exact', head: true }).eq('company_entity_id', CO).eq('program_id', p.id)
+      : db.from('affiliate_commission_ledger').select('id', { count: 'exact', head: true }).eq('company_entity_id', CO),
     balances: by('affiliate_balances_v'),
     periodTotals: by('affiliate_period_totals_v'),
     payouts: by('affiliate_payouts').order('created_at', { ascending: false }).limit(200),
@@ -427,6 +502,10 @@ async function loadProgramData() {
   // first 1,000, and the share audience dialog saves over what it shows
   // (review cycle 2 of #1350).
   const [res, affRead] = await Promise.all([Promise.all(Object.values(q)), loadAffiliates(p)]);
+  const prosRead = p ? null : await loadCompanyProspects();
+  // The whole do-not-contact list, paged: a person must never look
+  // contactable because their entry fell off the end of one capped read.
+  const supRead = await loadSuppressions();
   const d = {}; const failed = [];
   res.forEach((r, i) => {
     d[keys[i]] = r.data ?? (keys[i] === 'health' ? null : []);
@@ -434,13 +513,31 @@ async function loadProgramData() {
     if (r.error && keys[i] === 'content') { d.content = null; return; }
     if (r.error) failed.push(`${keys[i]}: ${r.error.message}`);
   });
+  // Could not read the whole list: nobody is offered to another program
+  // (supUnknown), and the page says so.
+  d.suppressions = supRead || [];
+  d.supUnknown = !supRead;
+  if (!supRead) failed.push('do-not-contact list: could not be read in full');
+  // Company scope: one health row per program, added up for the tab badges.
+  if (!p) d.health = sumHealth(d.health);
+  // Company scope: every person, or -- if a page would not read -- the newest
+  // 2,000 and a plain warning, never a short list presented as everybody.
+  if (!p) {
+    if (prosRead) d.prospects = prosRead;
+    else {
+      const r = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO).order('collected_at', { ascending: false }).limit(cap);
+      d.prospects = r.data || [];
+      failed.push(r.error ? `prospects: ${r.error.message}` : `prospects: only the newest ${num(cap)} loaded`);
+    }
+  }
+  d.company = !p;
   // affFull says whether that list is the whole program. Null means a page
   // errored or the list ran past the page cap; the page still works off one
   // plain read, and affFull being false is what stops a save from treating
   // the names it showed as the entire audience.
   if (affRead) { d.affiliates = affRead; d.affFull = true; }
   else {
-    const r = await db.from('affiliates').select('*').eq('company_entity_id', CO).eq('program_id', p.id).order('created_at');
+    const r = await (p ? db.from('affiliates').select('*').eq('company_entity_id', CO).eq('program_id', p.id) : db.from('affiliates').select('*').eq('company_entity_id', CO)).order('created_at');
     d.affiliates = r.data || [];
     d.affFull = false;
     if (r.error) failed.push(`affiliates: ${r.error.message}`);
@@ -486,18 +583,28 @@ async function loadProgramData() {
   S.ovLoadedFrom = ovFloor();
   d.aiApps = await loadAiApps();
   d.stores = await loadStores();
+  if (gen !== loadGen) return;
   S.d = d;
   // A research run started earlier (another tab, a reload) is still watched.
   const live = d.runs?.find((r) => r.provider === 'anthropic' && r.status === 'running' && Date.now() - new Date(r.started_at).getTime() < RESEARCH_STALE_MS);
   if (live && S.watching !== live.id) watchResearch(live.id);
-  autoRefreshCreators(p.id);
+  if (p) autoRefreshCreators(p.id);
+  else (async () => { for (const x of openPrograms()) await autoRefreshCreators(x.id); })();
   announcePaidPayouts();
   if (failed.length) setStatus(`Some data did not load (has the Affiliate Studio migration been applied?): ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
 
+// The company's health: every program's row added up. Null when unread.
+function sumHealth(rows) {
+  if (!Array.isArray(rows)) return rows || null;
+  const out = {};
+  for (const r of rows) for (const [k, v] of Object.entries(r || {})) if (typeof v === 'number') out[k] = (out[k] || 0) + v;
+  return out;
+}
+
 // Every program at once: who is in what, and the company's totals. Read only
 // what the two all-program views draw; null means "could not read".
-async function loadAllData() {
+async function loadAllData(gen = ++loadGen) {
   const by = (t, cols = '*') => db.from(t).select(cols).eq('company_entity_id', CO);
   const keys = ['affiliates', 'codes', 'performance', 'balances'];
   const res = await Promise.all([
@@ -509,6 +616,7 @@ async function loadAllData() {
   const d = { all: true };
   const failed = [];
   res.forEach((r, i) => { d[keys[i]] = r.error ? null : (r.data || []); if (r.error) failed.push(`${keys[i]}: ${r.error.message}`); });
+  if (gen !== loadGen) return;
   S.d = d;
   if (failed.length) setStatus(`Some data did not load: ${failed.slice(0, 3).join('; ')}`, 'neg');
 }
@@ -552,12 +660,37 @@ async function loadStores() {
 async function loadAffiliates(p) {
   return pagedCollect(async (i) => {
     try {
-      const { data, error } = await db.from('affiliates').select('*')
-        .eq('company_entity_id', CO).eq('program_id', p.id)
+      const base = db.from('affiliates').select('*').eq('company_entity_id', CO);
+      const { data, error } = await (p ? base.eq('program_id', p.id) : base)
         .order('created_at', { ascending: true }).order('id', { ascending: true })
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
       if (error) return null;
       return data || [];
+    } catch (_) { return null; }
+  });
+}
+
+// The company's do-not-contact list, in pages. Null when it is not whole.
+async function loadSuppressions() {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_suppressions').select('*').eq('company_entity_id', CO)
+        .order('created_at', { ascending: false }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
+    } catch (_) { return null; }
+  });
+}
+
+// Every prospect the company has, newest first, in pages with id breaking
+// ties. Null means a page errored or it ran past the page cap.
+async function loadCompanyProspects() {
+  return pagedCollect(async (i) => {
+    try {
+      const { data, error } = await db.from('affiliate_prospects').select('*').eq('company_entity_id', CO)
+        .order('collected_at', { ascending: false }).order('id', { ascending: true })
+        .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
+      return error ? null : (data || []);
     } catch (_) { return null; }
   });
 }
@@ -597,8 +730,11 @@ const OV_DAYS_BACK = 180;
 function loadPaged(table, cols, since, programId) {
   return pagedCollect(async (i) => {
     try {
-      const { data, error } = await db.from(table).select(cols)
-        .eq('company_entity_id', CO).eq('program_id', programId)
+      // No program: the company's rows (a company tab), RLS still deciding
+      // which programs this person may read.
+      let q = db.from(table).select(cols).eq('company_entity_id', CO);
+      if (programId) q = q.eq('program_id', programId);
+      const { data, error } = await q
         .gte('order_day', since)
         .order('order_day', { ascending: false }).order('id', { ascending: true })
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
@@ -618,16 +754,16 @@ function ovFloor() {
   const from = w.custom ? String(w.prevFrom || '') : '';
   return ISO_DAY.test(from) && from < base ? from : base;
 }
-const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
+const loadOvAttributions = (p) => loadPaged('affiliate_attributions',
   'id, affiliate_id, order_id, order_day, basis, gross_subtotal_cents, commissionable_cents, order_currency',
-  ovFloor(), p.id) : null);
-const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
-  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p.id) : null);
+  ovFloor(), p?.id || null);
+const loadOvLedger = (p) => loadPaged('affiliate_commission_ledger',
+  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p?.id || null);
 // A custom range that reaches past what is loaded re-reads those two, and
 // only those two.
 async function reloadOvWindow() {
-  const p = prog();
-  if (!p || !S.d) return;
+  const p = S.d?.company ? null : prog();
+  if ((!p && !S.d?.company) || !S.d) return;
   const [a, l] = await Promise.all([loadOvAttributions(p), loadOvLedger(p)]);
   S.d.ovAttributions = a; S.d.ovLedger = l; S.ovLoadedFrom = ovFloor();
 }
@@ -655,22 +791,74 @@ async function reload() {
   await loadProgramData();
   render();
 }
+// Moving onto or off People changes what the page reads (every program, or
+// the one picked), so crossing that line reads again.
+async function goTab(t) {
+  const was = companyScope();
+  S.tab = t;
+  if (was !== companyScope()) { S.sel.clear(); await loadProgramData(); }
+}
+// The program a People button acts in: the one it names, else the one of the
+// row its id belongs to. Ids are unique across tables.
+function ctxProgram(ds) {
+  if (ds.pg && S.programs.some((x) => x.id === ds.pg)) return ds.pg;
+  const id = ds.id; const d = S.d;
+  if (!id || !d) return null;
+  const hit = d.prospectById?.[id] || d.affById?.[id]
+    || [d.codes, d.links, d.drafts, d.seeds, d.payouts].map((list) => (list || []).find((x) => x.id === id)).find(Boolean);
+  return hit?.program_id || null;
+}
 
 // ── Rendering helpers ────────────────────────────────────────────────────
 // A box with nothing in it is not drawn (Blake, 2026-11-17: "a lot of shit
 // to look at"). A tab left with nothing says so once (see render()).
 const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
 const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
-const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
-function table(cols, rows, emptyText = 'Nothing here yet.') {
-  if (!rows.length) return empty(emptyText);
-  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
+// An empty box can carry the one button that fills it (audit finding 12,
+// 2026-11-25). `go` is that button; a box with one is never dropped as empty,
+// which is the point of it.
+const empty = (t, go = '') => `<div class="bcn-empty">${esc(t)}${go ? `<div class="af-empty-go">${go}</div>` : ''}</div>`;
+// ── Search ───────────────────────────────────────────────────────────────
+// One box at the top of every tab (Blake 2026-11-24: "ALL tabs should and
+// need to be searchable"; he chose filter-in-place plus jump links). Every
+// list the page draws goes through table / itemList / queue / shareList, and
+// each keeps only the rows whose visible text holds every word typed.
+// Button and menu labels are not part of a row's text, so "short" never
+// matches a Shortlist button.
+const findWords = () => String(S.find || '').toLowerCase().split(/\s+/).filter(Boolean);
+const plainText = (html) => String(html || '')
+  .replace(/<(button|select)\b[\s\S]*?<\/\1>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .toLowerCase();
+const textHits = (text, words = findWords()) => words.every((w) => text.includes(w));
+// `emptyText` is the line, or { text, go } when there is a button that fills it.
+const findEmpty = (e) => (findWords().length
+  ? empty(`No matches for "${S.find.trim()}" here.`)
+  : empty(typeof e === 'string' ? e : (e?.text || ''), typeof e === 'string' ? '' : (e?.go || '')));
+// A column with `sort` gets a header button; `sort` on the table says which
+// action it fires and which key and direction are on now.
+function table(cols, rows, emptyText = 'Nothing here yet.', sort = null) {
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
+  if (!rows.length) return findEmpty(emptyText);
+  const head = (c) => {
+    // A column may draw its own heading (the select-all box); everything else
+    // is text, escaped.
+    if (c.hHtml) return c.hHtml;
+    if (!sort || !c.sort) return esc(c.h);
+    const on = sort.k === c.sort;
+    const arrow = on ? (sort.dir > 0 ? '↑' : '↓') : '↕';
+    return `<button type="button" class="af-th-sort${on ? ' is-on' : ''}" data-act="${sort.act}" data-k="${c.sort}" aria-label="Sort by ${esc(c.h)}">${esc(c.h)}<span aria-hidden="true">${arrow}</span></button>`;
+  };
+  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}${sort && c.sort === sort.k ? ` aria-sort="${sort.dir > 0 ? 'ascending' : 'descending'}"` : ''}>${head(c)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
-  if (!rows.length) return empty(emptyText);
+  let html = rows.map(renderRow);
+  if (findWords().length) html = html.filter((h) => textHits(plainText(h)));
+  if (!html.length) return findEmpty(emptyText);
   const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
-  return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
+  return `<div class="${cls}" role="list">${html.join('')}</div>`;
 }
 // ── Queues ───────────────────────────────────────────────────────────────
 // Blake, 2026-11-17: "selection boxes or approved queues". Tick rows, then
@@ -680,15 +868,39 @@ const QSEL = {}; const QROWS = {};
 const qsel = (k) => (QSEL[k] ||= new Set());
 const subtabs = (label, items, act, current) => `<nav class="bcn-tabs af-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([k, title, n]) => `<button type="button" class="bcn-tab${k === current ? ' bcn-tab--active' : ''}" role="tab" aria-selected="${k === current}" data-act="${act}" data-k="${esc(k)}">${esc(title)}${n ? ` <span class="af-tab-count">${num(n)}</span>` : ''}</button>`).join('')}</nav>`;
 function queue(k, rows, renderRow, actions, emptyText, opts = {}) {
+  // A search narrows what Select all can tick, too.
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));
   const sel = qsel(k);
   const ids = rows.map((r) => r.id); QROWS[k] = ids;
   for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
-  if (!rows.length) return empty(emptyText);
+  if (!rows.length) return findEmpty(emptyText);
   const can = actions.length > 0;
   const all = ids.every((id) => sel.has(id));
   const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
   const pick = (r) => (can ? `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />` : '');
   return `${bar}<div class="af-q${opts.grid ? ' af-q--grid' : ''}" role="list">${rows.map((r) => `<div class="af-q-row${sel.has(r.id) ? ' is-selected' : ''}" role="listitem">${pick(r)}<div class="af-q-body">${renderRow(r)}</div></div>`).join('')}</div>`;
+}
+// The same queue as a dense table: one row per line, the ticks in the first
+// column and Select all in its header (audit finding 7, 2026-11-25). The
+// selection bookkeeping is `queue`'s, so the bulk actions are unchanged.
+function queueTable(k, rows, cols, actions, emptyText) {
+  const sel = qsel(k);
+  const txt = (r) => plainText(cols.map((c) => c.f(r)).join(' '));
+  if (findWords().length) rows = rows.filter((r) => textHits(txt(r)));
+  const ids = rows.map((r) => r.id); QROWS[k] = ids;
+  for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
+  if (!rows.length) return findEmpty(emptyText);
+  const can = actions.length > 0;
+  const all = ids.length > 0 && ids.every((id) => sel.has(id));
+  const bar = can && sel.size
+    ? `<div class="af-row af-bulk af-q-bar"><span class="af-mono">${num(sel.size)} selected</span>${
+      actions.map(([label, act, kind = 'surface', o = {}]) => btn(label, act, { q: k }, kind, o)).join('')}</div>`
+    : '';
+  const pickCol = can ? [{
+    hHtml: `<input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} aria-label="Select all ${num(rows.length)}" />`,
+    f: (r) => `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />`,
+  }] : [];
+  return `${bar}${table([...pickCol, ...cols], rows, emptyText)}`;
 }
 const picked = (k) => [...qsel(k)];
 
@@ -739,7 +951,10 @@ function catalogStatBar(pct) {
 }
 const btn = (label, act, data = {}, kind = 'surface', opts = {}) => {
   const mod = kind === 'surface' ? '' : ` bcn-btn--${kind}`;
-  return `<button class="bcn-btn${mod}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+  // `title` is for a button whose label is a glyph: the sentence a screen
+  // reader and a hover both get.
+  const extra = `${opts.cls ? ` ${opts.cls}` : ''}`;
+  return `<button class="bcn-btn${mod}${extra}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}${opts.title ? ` title="${esc(opts.title)}" aria-label="${esc(opts.title)}"` : ''}>${esc(label)}</button>`;
 };
 const field = (label, inner) => `<div class="bcn-field-group"><label class="bcn-label">${esc(label)}</label>${inner}</div>`;
 // The same, with the sentence that used to sit under the field on hover
@@ -761,7 +976,7 @@ const prospectPill = (s) => pill(PROSPECT_LABEL[s] || s, STATUS_TONE[s] || '');
 // Already bought from this company. The badge is the whole feature: no queue,
 // no hold on an outreach draft (Blake 2026-11-23).
 const customerPill = (x) => {
-  const b = pastCustomerBadge(x, prog()?.currency);
+  const b = pastCustomerBadge(x, (progOf(x) || prog())?.currency);
   return b ? `<span class="bcn-pill${b.tone ? ` bcn-pill--${b.tone}` : ''}" title="${esc(b.title)}">${esc(b.label)}</span>` : '';
 };
 // Secondary tools stay one click away, closed by default, so each tab shows
@@ -791,7 +1006,9 @@ function renderRecords() {
   // The screens these come from draw into their own (hidden) panels, which
   // fills RECORDS; the records themselves are drawn only here.
   renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
-  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d ? stageCard() : '']);
+  // Who runs Studio is the company's; a program's status belongs to one
+  // program, so it shows only when one program is on the page.
+  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d && !companyMulti() ? stageCard() : '']);
   const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
   if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
   const g = groups.find((x) => x.key === S.recTab);
@@ -804,14 +1021,32 @@ function renderRecords() {
   }
   renderManagers();
 }
-const surface = (title, body, meta = '', id = '') => {
-  if (EMPTY_ONLY.test(body)) return '';
+// Records tables sort in place: the header says which column and which way,
+// and the rows are ordered here (table() only draws the header).
+const recSortSpec = () => ({ act: 'rec-sort', k: S.recSort?.k || '', dir: S.recSort?.dir || -1 });
+const recSortRows = (rows, getters) => {
+  const sp = S.recSort;
+  if (!sp?.k || !getters[sp.k]) return rows;
+  const g = getters[sp.k];
+  return [...rows].sort((a, b) => {
+    const x = g(a); const y = g(b);
+    if (x === y) return 0;
+    if (x === null || x === undefined || x === '') return 1;
+    if (y === null || y === undefined || y === '') return -1;
+    return (x > y ? 1 : -1) * sp.dir;
+  });
+};
+// `actions` are buttons that belong to the whole list and stay in its header,
+// so a control like Export never hides at the bottom of a card (audit
+// finding 5).
+const surface = (title, body, meta = '', id = '', actions = '') => {
+  if (EMPTY_ONLY.test(body) && !actions) return '';
   const idAttr = id ? ` id="${esc(id)}"` : '';
-  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
+  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}${actions ? `<div class="af-surface-acts">${actions}</div>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
-const money = (c) => formatMoney(c, prog()?.currency);
+const money = (c, currency = null) => formatMoney(c, currency || ovCur());
 
 function scrollWorkflowTo(id) {
   requestAnimationFrame(() => {
@@ -837,10 +1072,12 @@ function workflowFocusTab(t) {
   else scrollWorkflowTo(`${t}Body`);
 }
 function renderWorkflowTabCounts() {
-  const p = prog(); const d = S.d; const h = d?.health;
-  if (!p || !h) return;
+  const d = S.d; const h = d?.health;
+  // Company scope (People) has no one program; its counts are every program's.
+  const p = d?.company ? null : prog();
+  if ((!p && !d?.company) || !h) return;
   const msgN = Number(h.outreach_approved || 0) + Number(h.outreach_exported || 0) + d.drafts.filter((x) => x.state === 'draft').length;
-  const payN = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const payN = (d.balances || []).filter((b) => (!p || b.currency === p.currency) && Number(b.unclaimed_cents) > 0).length;
   const onboardN = Number(h.codes_never_seen || 0) + d.codes.filter((c) => c.status === 'pending').length;
   const contentN = (d.content || []).filter((x) => x.state === 'submitted').length;
   const appliedN = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status)).length;
@@ -888,11 +1125,60 @@ const PANEL_RENDERERS = {
   records: [renderRecords],
 };
 
+// What the search matches beyond this tab, read from what the page holds,
+// so a person is never left thinking a name is nowhere. Only who somebody is
+// counts here -- name, handle, email, code -- never a message body or a link.
+const whoText = (...xs) => xs.filter((v) => v !== null && v !== undefined && v !== '').join(' ').toLowerCase();
+// How many rows the open tab shows after the search.
+const HIT_ROWS = '.af-q-row, .af-items > *, table.bcn-table tbody tr, .af-slist > .af-srow';
+function renderFindHits() {
+  const el = $('studioHits'); if (!el) return;
+  const words = findWords(); const d = S.d;
+  const x = $('studioQx'); if (x) x.hidden = !words.length;
+  if (!words.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const codesOf = {};
+  for (const c of d?.codes || []) (codesOf[c.affiliate_id] ||= []).push(c.code);
+  const affWho = (a) => (a ? whoText(a.display_name, a.contact_email, a.handle, ...(codesOf[a.id] || [])) : '');
+  const prosWho = (y) => (y ? whoText(y.display_name, y.handle, y.contact_email) : '');
+  const n = {
+    people: (d?.affiliates || []).filter((a) => textHits(affWho(a), words)).length + (d?.prospects || []).filter((y) => textHits(prosWho(y), words)).length,
+    comms: (d?.drafts || []).filter((y) => textHits(whoText(y.recipient_email, y.recipient_handle, prosWho(d.prospectById?.[y.prospect_id])), words)).length,
+    payouts: (d?.payouts || []).filter((y) => textHits(affWho(d.affById?.[y.affiliate_id]), words)).length,
+  };
+  const label = { people: 'People', comms: 'Outreach', payouts: 'Money' };
+  const here = PANEL_OF[S.tab] || S.tab;
+  const panel = document.querySelector(`[data-panel="${here}"]`);
+  const hereN = panel ? panel.querySelectorAll(HIT_ROWS).length : 0;
+  const chip = (txt, act, data, on = false) => `<button type="button" class="af-seg-btn${on ? ' is-on' : ''}"${act ? ` data-act="${act}"${Object.entries(data).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('')}` : ' disabled'}>${esc(txt)}</button>`;
+  const chips = [chip(`This tab · ${num(hereN)}`, null, {}, true),
+    ...Object.keys(n).filter((k) => n[k] > 0 && k !== here).map((k) => chip(`${label[k]} · ${num(n[k])}`, 'go-tab', { t: k })),
+    ...S.programs.filter((y) => textHits(whoText(y.name, y.slug), words)).map((y) => chip(`Program: ${y.name}`, 'pick-program', { id: y.id, t: 'program' }))];
+  el.hidden = false;
+  el.innerHTML = `<span class="af-find-q">“${esc(S.find.trim())}”</span><div class="af-seg" role="group" aria-label="Search results">${chips.join('')}</div>`;
+}
+
+function renderProgramPick(company) {
+  const el = $('progPick'); if (!el) return;
+  const list = S.programs;
+  el.hidden = company || list.length < 2 || S.creating;
+  if (el.hidden) { el.innerHTML = ''; return; }
+  const opts = list;
+  const on = (id) => (id === ALL ? isAll() : S.programId === id);
+  el.innerHTML = `<span class="af-muted">Program</span><div class="af-seg" role="radiogroup" aria-label="Program">${opts.map((y) => `<button type="button" class="af-seg-btn${on(y.id) ? ' is-on' : ''}" role="radio" aria-checked="${on(y.id)}" data-act="pick-prog" data-id="${esc(y.id)}">${esc(y.name)}</button>`).join('')}</div>`;
+}
+
 function render() {
   const p = prog();
+  const company = companyScope();
   const main = document.querySelector('.silo-main.af-studio');
-  main?.classList.toggle('af-studio--ready', !!p || isAll());
-  main?.classList.toggle('af-studio--workflow', !!p && !['overview', 'program', 'records'].includes(S.tab));
+  main?.classList.toggle('af-studio--ready', !!p || isAll() || company);
+  main?.classList.toggle('af-studio--workflow', (!!p || company) && !['overview', 'program', 'records'].includes(S.tab));
+  // No program filter at the top of the page (Blake 2026-11-24: "remove
+  // that"). People is one company list. A tab that is about one program's
+  // settings, numbers or money picks it inside the tab, with buttons. The
+  // old dropdown stays in index.html, hidden there, so it never shows even
+  // while the page is still loading.
+  renderProgramPick(company);
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
   renderDialog();
@@ -902,8 +1188,8 @@ function render() {
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   renderKpis();
-  if (isAll()) { renderAll(); return; }
-  if (!p && S.tab !== 'program') {
+  if (!company && isAll()) { renderAll(); return; }
+  if (!p && !company && S.tab !== 'program') {
     const body = $(FIRST_BODY[S.tab] || 'overviewBody');
     if (body) body.innerHTML = card('Start here', `<p>No affiliate program exists for this company yet.</p>${MANAGE ? btn('Create a program', 'new-program', {}, 'primary') : '<p class="af-muted">Ask someone with Affiliate Studio access to create one.</p>'}`);
     return;
@@ -911,7 +1197,8 @@ function render() {
   for (const r of (PANEL_RENDERERS[S.tab] || PANEL_RENDERERS.overview)) r();
   const panel = document.querySelector(`[data-panel="${PANEL_OF[S.tab] || 'overview'}"]`);
   const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
-  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = empty('Nothing waiting here.');
+  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = findEmpty('Nothing waiting here.');
+  renderFindHits();
   renderWorkflowTabCounts();
 }
 
@@ -922,17 +1209,16 @@ function renderPeopleSubtabs() {
   const bar = $('peopleSubtabs');
   if (!bar) return;
   const sub = ['discovery', 'customers'].includes(S.peopleSub) ? S.peopleSub : 'affiliates';
-  // "All programs" reads across every programme and has no discovery list.
-  bar.hidden = isAll();
+  bar.hidden = false;
   for (const b of bar.querySelectorAll('[data-k]')) {
     const on = b.dataset.k === sub;
     b.classList.toggle('bcn-tab--active', on);
     b.setAttribute('aria-selected', on ? 'true' : 'false');
   }
   const aff = $('affiliatesBody'); const pros = $('prospectsBody'); const cust = $('customersBody');
-  if (aff) aff.hidden = !isAll() && sub !== 'affiliates';
-  if (pros) pros.hidden = isAll() || sub !== 'discovery';
-  if (cust) cust.hidden = isAll() || sub !== 'customers';
+  if (aff) aff.hidden = sub !== 'affiliates';
+  if (pros) pros.hidden = sub !== 'discovery';
+  if (cust) cust.hidden = sub !== 'customers';
 }
 
 
@@ -961,11 +1247,27 @@ const CUST_DEFAULTS = () => ({
   // the page (the same in every program -- Blake 2026-11-24, people come
   // before program), and the company's latest scan. scanReady is false until the tables exist
   // (a database before the migration), which hides the scan bar.
-  social: {}, scan: null, scanReady: false, scanCount: 500, socialOnly: false,
+  social: {}, scan: null, scanReady: false, scanCount: 25, scanTerms: null, socialOnly: false,
+  // Which view: 'hunt' (the scan and the finds it brought back, the landing
+  // view) or 'all' (every customer, tagged). huntTier picks which finds.
+  view: 'hunt', huntTier: 'top', hunt: null,
 });
+// Which of the Your Customers filters are not the ones the page opens with:
+// the count on the Filter button, so an untouched view says "Filter" rather
+// than "Filter · 3" for its own defaults.
+const custFiltersOn = (c, spec) => {
+  const dflt = { from: dayShift(today(), 365), to: today(), minOrders: 3, consent: 'any' };
+  return [
+    spec.from && spec.from !== dflt.from ? 'from' : '',
+    spec.to && spec.to !== dflt.to ? 'to' : '',
+    spec.minOrders !== dflt.minOrders ? 'minOrders' : '',
+    spec.consent !== dflt.consent ? 'consent' : '',
+    c.socialOnly ? 'social' : '',
+  ].filter(Boolean);
+};
 const custState = () => (S.cust ||= CUST_DEFAULTS());
-const SOCIAL_COLS = 'id, customer_key, status, match_basis, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
-const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, error_message, started_at, heartbeat_at, finished_at';
+const SOCIAL_COLS = 'id, customer_key, status, match_basis, match_score, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
+const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, filters, error_message, started_at, heartbeat_at, finished_at';
 // The scan row and the page's result rows, read together. Fail-soft: either
 // read failing leaves the list as it was and hides only the scan bar.
 let scanTimer = null;
@@ -979,9 +1281,113 @@ async function loadSocial(c, keys) {
   ]);
   if (scan.error || soc.error) { c.scanReady = false; c.scan = null; c.social = {}; return; }
   c.scanReady = true;
-  c.scan = scan.data?.[0] || null;
+  c.scan = liveScan(scan.data?.[0]);
   c.social = Object.fromEntries((soc.data || []).map((r) => [r.customer_key, r]));
 }
+// Hunt: the scan and the people it brought back, not the whole customer list
+// with tags (Blake 2026-11-24: "show more of a module ... visual loading and
+// hunting the queue ... then bring back the found opportunity rather than
+// show all customers and tag possible"). Every find of the company's, best
+// first: over the bar, or under it / no count stated. Everyone found is
+// listed whatever their consent (Blake 2026-11-24); the consent tag decides
+// how they are reached (customerContactPath). Only an erased customer drops
+// out, as they would from a scan.
+// Over the bar splits by the match score: Likely (LIKELY_SCORE and up, or an
+// unscored older row with a second signal) or Check (everything else over the
+// bar). Only Likely counts toward the finds asked for.
+const HUNT_TIERS = { top: ['found'], check: ['found'], more: ['below', 'no_count'] };
+function huntTier(q, tier) {
+  const t = HUNT_TIERS[tier] ? tier : 'top';
+  q = q.in('status', HUNT_TIERS[t]);
+  if (t === 'top') return q.gte('match_score', LIKELY_SCORE);
+  // Unscored (older) rows are Check too, as the scan counts them.
+  if (t === 'check') return q.or(`match_score.is.null,match_score.lt.${LIKELY_SCORE}`);
+  return q;
+}
+const HUNT_LIMIT = 200;
+const HUNT_NEVER = ['redacted'];
+const HUNT_SEEN = ['found', 'below', 'no_count', 'ambiguous', 'none', 'error'];
+// The over-the-bar answers whose customer the list hides (erased since
+// their search). Every page of them, as the tab counts count every row.
+async function huntHidden() {
+  // Keyset pages (id after the last one seen), so an answer a running scan
+  // writes between two reads never repeats one; de-duplicated all the same.
+  const byId = new Map();
+  for (let after = null; ;) {
+    let q = db.from('affiliate_customer_social').select('id, customer_key, status, match_score')
+      .eq('company_entity_id', CO).in('status', ['found', 'below', 'no_count']);
+    if (after !== null) q = q.gt('id', after);
+    const { data: page, error } = await q.order('id', { ascending: true }).limit(1000);
+    if (error) throw error;
+    for (const r of page || []) byId.set(r.id, r);
+    if (!page || page.length < 1000) break;
+    after = page[page.length - 1].id;
+  }
+  const rows = [...byId.values()];
+  const out = [];
+  for (let i = 0; i < rows.length; i += 150) {
+    const part = rows.slice(i, i + 150);
+    const { data: p, error: pErr } = await db.from('company_customer_profiles').select('customer_key')
+      .eq('company_entity_id', CO).in('customer_key', part.map((r) => r.customer_key)).in('email_consent_state', HUNT_NEVER);
+    if (pErr) throw pErr;
+    const gone = new Set((p || []).map((r) => r.customer_key));
+    for (const r of part) if (gone.has(r.customer_key)) out.push(r);
+  }
+  return out;
+}
+// Reads only; returns null when the scan tables are not there yet (a
+// database before the migration), so the caller falls back to the full list.
+async function readHunt(tier) {
+  const finds = (t) => huntTier(db.from('affiliate_customer_social').select('customer_key', { count: 'exact', head: true })
+    .eq('company_entity_id', CO), t);
+  const [scan, top, check, more, hits] = await Promise.all([
+    db.from('affiliate_customer_scans').select(SCAN_COLS).eq('company_entity_id', CO)
+      .order('started_at', { ascending: false }).limit(1),
+    finds('top'),
+    finds('check'),
+    finds('more'),
+    // Likely finds most-sure first; the rest biggest first.
+    huntTier(db.from('affiliate_customer_social').select(SOCIAL_COLS).eq('company_entity_id', CO), tier)
+      .order(tier === 'top' ? 'match_score' : 'followers', { ascending: false, nullsFirst: false })
+      .order('followers', { ascending: false, nullsFirst: false }).order('checked_at', { ascending: false }).limit(HUNT_LIMIT),
+  ]);
+  if (scan.error || hits.error) return null;
+  const sc = liveScan(scan.data?.[0]);
+  // The last few people checked, so a running hunt visibly moves.
+  let recent = [];
+  if (sc?.status === 'running') {
+    const r = await db.from('affiliate_customer_social').select('display_name, status, checked_at')
+      .eq('company_entity_id', CO).eq('scan_id', sc.id).in('status', HUNT_SEEN)
+      .order('checked_at', { ascending: false }).limit(5);
+    recent = r.error ? [] : (r.data || []);
+  }
+  const keys = (hits.data || []).map((r) => r.customer_key);
+  let rows = [];
+  if (keys.length) {
+    const p = await db.from('company_customer_profiles').select(CUST_COLS).eq('company_entity_id', CO)
+      .in('customer_key', keys)
+      .or(`email_consent_state.is.null,email_consent_state.not.in.(${HUNT_NEVER.join(',')})`);
+    if (p.error) throw p.error;
+    const at = new Map(keys.map((k, i) => [k, i]));
+    rows = (p.data || []).sort((a, b) => at.get(a.customer_key) - at.get(b.customer_key));
+  }
+  // The list never shows a customer erased since their search, so
+  // neither do the tab counts. A failed read leaves the stored counts.
+  let hidden = [];
+  try { hidden = await huntHidden(); } catch (_) { hidden = []; }
+  return {
+    scan: sc, rows, recent,
+    social: Object.fromEntries((hits.data || []).map((r) => [r.customer_key, r])),
+    // NULL means the count did not come back, never zero.
+    counts: huntCounts({ top: top.count ?? null, check: check.count ?? null, more: more.count ?? null }, hidden),
+  };
+}
+function applyHunt(c, h) {
+  c.scanReady = true; c.scan = h.scan; c.social = h.social; c.rows = h.rows; c.total = h.rows.length; c.hunt = h;
+  const inView = new Set(c.rows.map((x) => x.customer_key));
+  for (const k of [...c.sel]) if (!inView.has(k)) c.sel.delete(k);
+}
+
 // While a scan runs, its progress and the rows it answers refresh every few
 // seconds, so nobody presses again wondering whether it is working.
 function pollScan() {
@@ -990,7 +1396,14 @@ function pollScan() {
   if (c.scan?.status !== 'running' || S.peopleSub !== 'customers') return;
   scanTimer = setTimeout(async () => {
     const cc = custState();
-    try { await loadSocial(cc, cc.rows.map((x) => x.customer_key)); } catch (_) { /* next tick tries again */ }
+    try {
+      if (cc.view === 'hunt') {
+        // A filter or tier change while this read was out owns the view.
+        const seq = custSeq;
+        const h = await readHunt(cc.huntTier);
+        if (h && seq === custSeq && cc.view === 'hunt') applyHunt(cc, h);
+      } else await loadSocial(cc, cc.rows.map((x) => x.customer_key));
+    } catch (_) { /* next tick tries again */ }
     renderCustomers();
     pollScan();
   }, 4000);
@@ -1043,6 +1456,20 @@ async function loadCustomers(force = false) {
   c.loading = true; c.error = ''; renderCustomers();
   const spec = customerQuerySpec(c);
   try {
+    if (c.view === 'hunt') {
+      // The company's own niche words, once, for the box beside Find.
+      if (c.scanTerms === null && MANAGE) {
+        // A failed read stays null: the press then sends no words at all.
+        let got = null;
+        try { got = scanTermsFromRead(await db.from('entities').select('meta').eq('id', CO).maybeSingle()); } catch (_) { got = null; }
+        if (c.scanTerms === null) c.scanTerms = got;
+      }
+      const h = await readHunt(c.huntTier);
+      if (!mine()) return;
+      if (h) { applyHunt(c, h); c.loaded = true; return; }
+      // No scan tables yet: the plain list, with no Hunt to offer.
+      c.view = 'all';
+    }
     let q = db.from('company_customer_profiles').select(CUST_COLS, { count: 'exact' })
       .eq('company_entity_id', CO)
       .gte('order_count', spec.minOrders);
@@ -1092,13 +1519,103 @@ async function loadCustomers(force = false) {
   }
 }
 
+// Customers are the company's. Which programs one is already in, by their
+// address, and one Add button per program to push the ticked ones into.
+// The address map is built once per load of the prospects, not per row.
+let progsByEmail = { rows: null, map: new Map() };
+function customerProgramsPill(x) {
+  const e = String(x?.email_lc || '').toLowerCase();
+  const rows = S.d?.prospects;
+  if (!e || !rows) return '';
+  if (progsByEmail.rows !== rows) {
+    const map = new Map();
+    for (const y of rows) {
+      const k = String(y.contact_email || '').toLowerCase();
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, []);
+      if (!map.get(k).includes(y.program_id)) map.get(k).push(y.program_id);
+    }
+    progsByEmail = { rows, map };
+  }
+  const ids = progsByEmail.map.get(e) || [];
+  return ids.length ? ` ${pill(`In ${ids.map(progName).join(', ')}`, '')}` : '';
+}
+function custAddButtons() {
+  const list = openPrograms();
+  if (list.length <= 1) return list.length ? btn('Add to outreach', 'cust-add', { pg: list[0].id }, 'primary') : '';
+  return list.map((y, i) => btn(`Add to ${y.name}`, 'cust-add', { pg: y.id }, i === 0 ? 'primary' : 'surface')).join('');
+}
+// The Hunt view: the slice to hunt, a live module while it runs, then only
+// the people it brought back.
+function huntBody({ c, spec, filters, running, socialCell, consentCell, pickable, noPath }) {
+  const s = c.scan;
+  const n0 = (v) => Number(v || 0);
+  const { want, pct } = huntProgress(s);
+  const chk = n0(s?.checked);
+  const toCheck = n0(s?.filters?.to_check);
+  const matched = n0(s?.found) + toCheck + n0(s?.below) + n0(s?.no_count);
+  const bar = num(s?.min_followers || 750);
+  const tile = (label, v) => `<div class="bcn-kpi"><div class="bcn-kpi-label">${esc(label)}</div><div class="bcn-kpi-value bcn-num">${v}</div></div>`;
+  const press = MANAGE
+    ? `<div class="af-row af-cust-scan">
+        ${field(`Finds wanted (${bar}+ followers)`, input('custScanCount', `type="number" min="1" max="500" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
+        ${field('Niche words', input('custScanTerms', `type="text" maxlength="500" placeholder="baseball, softball" value="${esc(c.scanTerms || '')}" style="max-width:16rem"`))}
+        ${btn(running ? 'Finding…' : 'Find', 'cust-scan', {}, 'primary', { disabled: running })}
+        <span class="af-mono" id="custScanLine">${esc(running ? '' : huntLine(s))}</span>
+      </div>`
+    : `<div class="af-row af-cust-scan"><span class="af-mono" id="custScanLine">${esc(running ? '' : huntLine(s))}</span></div>`;
+  // While it runs: a bar that fills, counts that tick, the last names checked.
+  const live = running
+    ? `<div class="af-hunt-live" id="custHuntLive" role="status" aria-live="polite">
+        <div class="af-hunt-head"><strong>Searching your customers</strong><span class="af-mono">${s?.requested || chk ? huntLine(s) : 'Lining up customers…'}</span></div>
+        <div class="af-pay-meter af-hunt-meter"><i style="width:${pct}%"></i></div>
+        <div class="af-hunt-tiles">${tile(want ? `Found of ${num(want)}` : `${bar}+ followers`, num(s?.found))}${tile('Checked', num(chk))}${tile('Accounts matched', num(matched))}${tile('To check', num(toCheck))}</div>
+        ${c.hunt?.recent?.length ? `<div class="af-muted af-hunt-recent">Just checked: ${c.hunt.recent.map((r) => esc(r.display_name || 'a customer')).join(' · ')}</div>` : ''}
+      </div>`
+    : '';
+  const counts = c.hunt?.counts || {};
+  const tiers = subtabs('Finds', [['top', `Likely · ${bar}+`, counts.top], ['check', `Check · ${bar}+`, counts.check], ['more', 'Under the bar', counts.more]], 'cust-hunt-tier', c.huntTier);
+  const list = table([
+    ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
+      ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
+      : '')}] : []),
+    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${customerProgramsPill(x)}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
+    { left: true, h: 'Account', f: socialCell },
+    // Everyone found is listed; this tag decides email or DM.
+    { left: true, h: 'Status', f: consentCell },
+    { num: true, h: 'Orders', f: (x) => num(x.order_count) },
+    { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
+    { h: 'Last order', f: (x) => fmtDate(x.last_order_at) },
+  ], c.rows, c.loading ? 'Loading…' : (c.huntTier === 'top'
+    ? (running ? 'Nobody over the bar yet. Finds appear here as they come back.' : 'Nobody over the bar yet. Press Find to check more customers.')
+    : 'Nobody here yet.'));
+  const onPage = c.rows.filter((x) => pickable(x));
+  const bulk = MANAGE && onPage.length
+    ? `<div class="af-row af-bulk">
+        ${btn(`Select all ${onPage.length}`, 'cust-select-all')}
+        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${custAddButtons()}${btn('Clear', 'cust-select-none')}` : ''}
+      </div>`
+    : '';
+  const more = c.total != null && (counts[c.huntTier] ?? counts.top) > c.total
+    ? `<p class="af-muted">Showing the top ${num(c.total)}.</p>` : '';
+  return `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
+    <p class="af-muted">Checks your repeat buyers for social accounts, best customers first, and brings back the ones worth a look.</p>
+    ${filters}
+    ${press}
+    ${live}
+    ${tiers}
+    ${bulk}
+    ${list}
+    ${more}`;
+}
+
 function renderCustomers() {
   const body = $('customersBody');
   if (!body) return;
   const c = custState();
   // Opening the sub-tab is what triggers the first read -- from here rather
   // than from the sub-tab button, so arriving by any route loads it once.
-  if (S.peopleSub === 'customers' && !isAll() && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());
+  if (S.peopleSub === 'customers' && !c.loaded && !c.loading) queueMicrotask(() => loadCustomers());
   const spec = customerQuerySpec(c);
   const sorts = [['orders', 'Most orders'], ['spend', 'Highest spend'], ['recent', 'Ordered most recently'], ['oldest', 'Longest-standing'], ['name', 'Name']];
   const consentLabel = { any: 'Any', subscribed: 'Subscribed', not_subscribed: 'Not subscribed', unsubscribed: 'Unsubscribed', pending: 'Pending', unmeasured: 'Not checked yet' };
@@ -1109,24 +1626,20 @@ function renderCustomers() {
     ['3+ orders', num(k?.loyal)],
     ['Email subscribed', num(k?.subscribed)],
   ];
-  const filters = `<div class="af-filter-bar af-cust-filters">
+  const filters = `<div class="af-cust-filters">
+    <p class="af-muted">The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
     ${field('Last order from', input('custFrom', `type="date" value="${esc(c.from)}"`))}
     ${field('Through', input('custTo', `type="date" value="${esc(c.to)}"`))}
     ${field('Minimum orders', input('custMin', `type="number" min="1" max="50" value="${esc(String(spec.minOrders))}" style="max-width:5.5rem"`))}
     ${field('Email consent', `<select class="bcn-field" id="custConsent">${CUSTOMER_CONSENTS.map((x) => `<option value="${x}"${x === spec.consent ? ' selected' : ''}>${esc(consentLabel[x] || x)}</option>`).join('')}</select>`)}
-    ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
-    ${c.scanReady ? field('Social', `<select class="bcn-field" id="custSocial"><option value="any"${c.socialOnly ? '' : ' selected'}>Anyone</option><option value="found"${c.socialOnly ? ' selected' : ''}>Found accounts only</option></select>`) : ''}
+    ${c.scanReady && c.view !== 'hunt' ? field('Social', `<select class="bcn-field" id="custSocial"><option value="any"${c.socialOnly ? '' : ' selected'}>Anyone</option><option value="found"${c.socialOnly ? ' selected' : ''}>Found accounts only</option></select>`) : ''}
   </div>`;
   // Find their social accounts: one search per customer, top of this view
-  // first. A customer who unsubscribed is never looked up, so that view has
-  // nothing to scan. Progress is live counts, never a cost.
+  // first. Progress is live counts, never a cost.
   const running = c.scan?.status === 'running';
-  const optOutView = spec.consent === 'unsubscribed';
   const scanBar = c.scanReady && (MANAGE || c.scan)
     ? `<div class="af-row af-cust-scan">
-        ${MANAGE ? `${field('Customers to check', input('custScanCount', `type="number" min="1" max="1000" value="${esc(String(c.scanCount))}" style="max-width:6rem"`))}
-        ${btn(running ? 'Scanning…' : 'Find their social accounts', 'cust-scan', {}, 'primary', { disabled: running || optOutView })}` : ''}
-        <span class="af-mono" id="custScanLine">${esc(optOutView && MANAGE ? 'People who unsubscribed are never looked up.' : customerScanLine(c.scan))}</span>
+        <span class="af-mono" id="custScanLine">${esc(running ? customerScanLine(c.scan) : huntLine(c.scan))}</span>
       </div>`
     : '';
   const socialCell = (row) => {
@@ -1137,7 +1650,7 @@ function renderCustomers() {
     const r = c.social[row.customer_key];
     // The tier and why, on every find a profile was chosen for: "Likely" only
     // with a second signal, otherwise "Name match" to check by eye.
-    const tierPill = v.trust ? `${pill(SOCIAL_BASIS[r?.match_basis]?.pill || 'Name match', v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
+    const tierPill = v.trust ? `${pill(v.pill, v.trust === 'likely' ? 'pos' : 'warn')} ` : '';
     const title = [v.why, v.quote].filter(Boolean).join(' · ');
     const notThem = MANAGE && v.rejectable && r?.id ? ` ${btn('Not them', 'cust-social-reject', { id: r.id }, 'ghost')}` : '';
     return `${tierPill}<span class="af-mono"${title ? ` title="${esc(title)}"` : ''}>${text}</span>${v.note ? ` <span class="af-muted">${esc(v.note)}</span>` : ''}${notThem}`;
@@ -1145,18 +1658,22 @@ function renderCustomers() {
   const consentCell = (row) => {
     const v = customerConsentView(row.email_consent_state);
     const s = customerConsentView(row.sms_consent_state);
-    return `${pill(v.label, v.tone)}${s.measured ? ` <span class="af-muted">SMS ${esc(s.label)}</span>` : ''}`;
+    // The tag decides the contact path: an unsubscribed customer is reached
+    // by DM only, never email.
+    const dmOnly = row.email_consent_state === 'unsubscribed' ? ' <span class="af-muted">DM only</span>' : '';
+    return `${pill(v.label, v.tone)}${dmOnly}${s.measured ? ` <span class="af-muted">SMS ${esc(s.label)}</span>` : ''}`;
   };
-  // A customer with no email on file cannot be written to, so there is
-  // nothing to tick: the row still shows (they are a real customer and count
-  // towards the totals) and says why instead of offering an action that
-  // would fail.
-  const pickable = (x) => MANAGE && !!x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || []);
+  // A customer with no way to reach them (no email, unsubscribed with no
+  // account found, do-not-contact) has nothing to tick: the row still shows
+  // (they are a real customer and count towards the totals) and says why
+  // instead of offering an action that would fail.
+  const pickable = (x) => MANAGE && !!customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || []);
+  const noPath = (x) => customerNoPathReason(x, c.social[x.customer_key], S.d?.suppressions || []);
   const rows = table([
     ...(MANAGE ? [{ h: '', f: (x) => (pickable(x)
       ? `<input type="checkbox" class="af-pick" data-act="cust-pick" data-k="${esc(x.customer_key)}" aria-label="Select ${esc(customerDisplayName(x) || x.email_lc)}"${c.sel.has(x.customer_key) ? ' checked' : ''} />`
       : '')}] : []),
-    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${x.email_lc ? `<div class="af-muted">${esc(x.email_lc)}${customerSuppressed(x.email_lc, S.d?.suppressions || []) ? ' · on your do-not-contact list' : ''}</div>` : '<div class="af-muted">no email on file</div>'}` },
+    { left: true, h: 'Customer', f: (x) => `${esc(customerDisplayName(x) || '—')}${customerProgramsPill(x)}<div class="af-muted">${esc([x.email_lc, noPath(x)].filter(Boolean).join(' · ') || '—')}</div>` },
     { num: true, h: 'Orders', f: (x) => num(x.order_count) },
     { num: true, h: 'Lifetime spend', f: (x) => custMoney(x.lifetime_spend) },
     { h: 'First order', f: (x) => fmtDate(x.first_order_at) },
@@ -1172,7 +1689,7 @@ function renderCustomers() {
   const bulk = MANAGE && onPage.length
     ? `<div class="af-row af-bulk">
         ${btn(`Select all ${onPage.length} on this page`, 'cust-select-all')}
-        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${btn('Add to outreach', 'cust-add', {}, 'primary')}${btn('Clear', 'cust-select-none')}` : ''}
+        ${c.sel.size ? `<span class="af-mono">${num(c.sel.size)} selected</span>${custAddButtons()}${btn('Clear', 'cust-select-none')}` : ''}
       </div>`
     : '';
   const pages = c.total === null ? null : Math.max(1, Math.ceil(c.total / CUSTOMER_PAGE_SIZE));
@@ -1189,16 +1706,34 @@ function renderCustomers() {
   const notChecked = c.rows.length && c.rows.every((x) => x.email_consent_state === null)
     ? `<p class="af-muted">Email consent has not been checked for anyone in this view yet. It fills in from the Shopify customer sync, and a blank never means unsubscribed.</p>`
     : '';
+  // One control row (audit finding 1): how the list is ranked stays in sight,
+  // the rest of the filters open under a Filter button that carries how many
+  // are on, so nothing narrows this list invisibly.
+  const custFiltCount = custFiltersOn(c, spec).length;
+  const custFiltOpen = S.custFiltOpen === undefined ? custFiltCount > 0 : !!S.custFiltOpen;
+  const custCtlRow = `<div class="af-ctl">
+    ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
+    <span class="af-ctl-gap"></span>
+    ${btn(custFiltCount ? `Filter · ${custFiltCount}` : 'Filter', 'cust-filter-open', {}, custFiltOpen ? 'primary' : 'surface')}
+  </div>${custFiltOpen ? `<div class="af-panelette">${filters}</div>` : ''}`;
   // Re-rendering replaces the filter row, which would drop the caret out of
   // whichever box was just used. The focus (and the caret inside a text box)
   // is put back on the same control afterwards.
   const act = document.activeElement;
   const keepId = act && body.contains(act) ? act.id : '';
   const keepAt = keepId && typeof act.selectionStart === 'number' ? act.selectionStart : null;
-  body.innerHTML = surface('Your customers',
-    `${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
-     <p class="af-muted">Everyone who has bought from you, ranked so the people worth recruiting are at the top. The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
-     ${filters}
+  // Hunt or every customer. Only once the scan tables exist; before that the
+  // list is all there is.
+  const views = c.scanReady
+    ? subtabs('Your customers view', [['hunt', 'Find creators'], ['all', 'All customers']], 'cust-view', c.view)
+    : '';
+  const hunting = c.view === 'hunt' && c.scanReady;
+  if (hunting) body.innerHTML = surface('Your customers', `${views}${huntBody({ c, spec, filters, running, socialCell, consentCell, pickable, noPath })}`,
+    c.hunt?.counts?.top == null ? '' : `${num(c.hunt.counts.top)} over the bar`, 'afCustomers');
+  else body.innerHTML = surface('Your customers',
+    `${views}
+     ${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
+     ${custCtlRow}
      ${scanBar}
      <div class="af-kv-line af-cust-kpis">${kpis.map(([label, v]) => `<span><span class="bcn-num">${v}</span> ${esc(label)}</span>`).join(' · ')}</div>
      ${notChecked}
@@ -1286,6 +1821,17 @@ function affToolBody(a, k) {
 }
 // What is open, if anything. `key` is what tells a re-render that the SAME
 // form is still open, so typing is not wiped by a background refresh.
+// The programs they are not in yet, to push them into: one menu. Never
+// somebody on the do-not-contact list (company-wide, so no step towards
+// contacting them is offered at all). It lives in More now, not on the row.
+const addToSelect = (g) => {
+  const d = S.d;
+  if (!MANAGE || !g || g.suppressed || d?.supUnknown) return '';
+  const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
+  return missing.length
+    ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
+    : '';
+};
 function dialogSpec() {
   const d = S.d;
   if (!MANAGE || !d) return null;
@@ -1297,8 +1843,27 @@ function dialogSpec() {
   // Draft message change a draft, not the creator, and a key that did not move
   // left the pressed button sitting there to be pressed again.
   if (mp) {
-    const acts = prospectActions(mp).join('');
-    return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
+    // Every program this person is in, each with its own status and buttons
+    // (one row per person on the list, so the programs live here).
+    const group = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id));
+    const rows = group?.rows || [mp];
+    const add = addToSelect(group);
+    const blocks = rows.map((r) => {
+      const acts = prospectActions(r).join('');
+      return { acts, html: `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${prospectPill(r.status)}</div>` : ''}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>` };
+    });
+    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}:${add ? 'add' : ''}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${add ? `<div class="af-row" style="margin-top:10px;">${add}</div>` : ''}${dlgFoot(btn('Close', 'dialog-close'))}` };
+  }
+  // Every button an affiliate row used to carry, in one menu (audit findings
+  // 2 and 8). The row keeps the one that moves them along.
+  const ma = S.moreAffiliate ? d.affById[S.moreAffiliate] : null;
+  if (ma) {
+    const rows = (d.affiliates || []).filter((x) => sameAffiliatePerson(x, ma));
+    // "Add to program" once per person, on their first live membership, the
+    // same rule the card used.
+    const addOn = rows.find((r) => ['active', 'paused'].includes(r.status))?.id;
+    const blocks = rows.map((r) => `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${statusPill(r.status)}</div>` : ''}${affMoreBody(r, r.id === addOn)}`);
+    return { key: `affmore:${ma.id}:${blocks.join('').length}`, title: ma.display_name || ma.contact_email || 'Affiliate', body: `${blocks.join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
   // Who a share is for. Nobody ticked means the whole program, which is what
   // every share has meant until now, so the dialog opens on that honestly
@@ -1342,7 +1907,7 @@ function dialogSpec() {
   }
   return null;
 }
-function closeDialogState() { S.contentOpen = null; S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
+function closeDialogState() { S.contentOpen = null; S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.moreAffiliate = null; S.feedWho = null; S.personProg = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1386,38 +1951,9 @@ function renderAll() {
   for (const id of ['prospectsBody']) { const el = $(id); if (el) el.innerHTML = ''; }
   const tab = PANEL_OF[S.tab] || 'overview';
   if (tab === 'overview') return renderAllHome();
-  if (tab === 'people') return renderAllPeople();
   const body = $(FIRST_BODY[tab]);
   if (body) body.innerHTML = card('Pick a program', `<p>This tab works one program at a time.</p><div class="af-row">${
     S.programs.map((x) => btn(x.name, 'pick-program', { id: x.id }, 'surface')).join('')}</div>`);
-}
-function renderAllPeople() {
-  const d = S.d;
-  if (!d?.affiliates) { $('affiliatesBody').innerHTML = card('People', '<p>People did not load. Reload the page.</p>'); return; }
-  const people = allPeople(d);
-  const ended = people.filter((x) => x.rows.every((a) => a.status === 'terminated'));
-  const current = people.filter((x) => !ended.includes(x));
-  const shown = S.affFilter === 'ended' && ended.length ? ended : current;
-  const t = today();
-  const codeOf = (a) => (d.codes || []).find((c) => c.affiliate_id === a.id && c.status !== 'retired' && (!c.ends_on || c.ends_on >= t));
-  const chips = ended.length ? [['current', 'Current', current.length], ['ended', 'Ended', ended.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
-  const personCard = (x) => {
-    const rows = x.rows.map((a) => {
-      const c = codeOf(a);
-      return `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))}</div></div>${
-        c ? `<span class="af-code-pill">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : ''}</span>` : '<span class="af-muted">No code</span>'}${statusPill(a.status)}${btn('Open', 'pick-program', { id: a.program_id, t: 'people' }, 'surface')}</div>`;
-    }).join('');
-    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
-      <header class="af-catalog-head">
-        <div class="af-catalog-thumb">${photoAvatar({ name: x.name, email: x.email }, affiliatePhotoUrl(x.a))}</div>
-        <div class="af-catalog-title"><div class="af-catalog-name">${esc(x.name)}</div><div class="af-catalog-sub">${esc(x.email || '')}</div>
-          <div class="af-catalog-meta">${num(x.rows.length)} program${x.rows.length === 1 ? '' : 's'}</div></div>
-      </header>
-      <div class="af-allprog">${rows}</div>
-    </article>`;
-  };
-  $('affiliatesBody').innerHTML = surface('People', `${chips ? `<div class="af-filter-bar">${chips}</div>` : ''}${
-    itemList(shown, personCard, S.affFilter === 'ended' ? 'No one has ended.' : 'No affiliates yet.', 'grid')}`, `${num(current.length)} people across ${num(S.programs.length)} programs`);
 }
 function renderAllHome() {
   const d = S.d; const el = $('overviewBody');
@@ -1452,17 +1988,52 @@ function renderAllHome() {
       { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
       { h: 'Earned', num: true, f: (r) => esc(formatMoney(r.earned, r.p.currency)) },
       { h: 'Owed', num: true, f: (r) => esc(formatMoney(r.owed, r.p.currency)) },
-      { h: '', f: (r) => btn('Open', 'pick-program', { id: r.p.id, t: 'overview' }, 'surface') },
+      { h: '', f: (r) => btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface') },
     ], perProg, 'No programs yet.'), 'All time'),
   ].join('');
+}
+// The same table on the company view of Program, where it is the program
+// COLUMN rather than a page of its own (audit finding 9, 2026-11-25): more
+// programs shows more, not less.
+function byProgramCard() {
+  const d = S.d || {};
+  const rows = S.programs.map((x) => {
+    const perf = (d.performance || []).filter((r) => r.program_id === x.id);
+    const bal = (d.balances || []).filter((r) => r.program_id === x.id && r.currency === x.currency);
+    return {
+      p: x,
+      people: (d.affiliates || []).filter((a) => a.program_id === x.id && a.status === 'active').length,
+      orders: perf.reduce((n, r) => n + Number(r.attributed_orders || 0), 0),
+      sales: perf.reduce((n, r) => n + ((!r.order_currency || r.order_currency === x.currency)
+        ? Number(r.gross_subtotal_cents || 0) - Number(r.refunded_subtotal_cents || 0) : 0), 0),
+      owed: bal.reduce((n, r) => n + (Number(r.unclaimed_cents) > 0 ? Number(r.unclaimed_cents) : 0), 0),
+    };
+  });
+  // A total line, only where every program is in the same currency: money is
+  // summed per currency, never across.
+  const curs = [...new Set(S.programs.map((x) => (x.currency || 'USD').toUpperCase()))];
+  const sum = (k) => rows.reduce((n, r) => n + Number(r[k] || 0), 0);
+  const all = curs.length === 1 && rows.length > 1
+    ? [{ total: true, p: { name: 'All programs', currency: curs[0] }, people: sum('people'), orders: sum('orders'), sales: sum('sales'), owed: sum('owed') }]
+    : [];
+  return card('By program', table([
+    { left: true, h: 'Program', f: (r) => (r.total ? `<strong>${esc(r.p.name)}</strong>` : `${esc(r.p.name)}<div class="af-sub">${esc(rateShort(r.p))}</div>`) },
+    { left: true, h: 'Status', f: (r) => (r.total ? '' : statusPill(r.p.status)) },
+    { h: 'People', num: true, f: (r) => num(r.people) },
+    { h: 'Orders', num: true, f: (r) => num(r.orders) },
+    { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
+    { h: 'Owed', num: true, f: (r) => (SEES_MONEY ? esc(formatMoney(r.owed, r.p.currency)) : '—') },
+    { h: '', f: (r) => (r.total ? '' : btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface')) },
+  ], [...rows, ...all], 'No programs yet.'), 'All time');
 }
 
 function renderKpis() {
   const el = $('kpis');
   const h = S.d?.health;
   const p = prog();
-  // The workflow rail carries counts when a program is loaded; skip the extra KPI band.
-  if (h && p) {
+  // The workflow rail carries counts when a program is loaded; skip the extra
+  // KPI band. People is company-wide and has its own counts.
+  if ((h && p) || companyScope()) {
     el.innerHTML = '';
     el.classList.add('af-kpis-off');
     return;
@@ -1594,11 +2165,29 @@ const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.
 // The agreement PDF exists once 20261119010000 is applied.
 const hasTermsFile = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'terms_file_path'));
 const hasContentBonus = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'content_bonus_cents'));
+// Twenty store chips printed in full to set one answer was most of Setup's
+// weight (audit finding 11, 2026-11-25). The chosen stores are always on the
+// page; the rest come in on "+N more", so nothing is hidden from a choice --
+// only from the first glance.
+const STORE_CHIPS_SHOWN = 4;
 const storesCard = (p, dis) => {
   const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
   if (!hasStorePick() || st.length < 2) return '';
   const picked = Array.isArray(p.shop_domains) ? p.shop_domains : null;
-  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${st.map((x) => { const on = !picked || picked.includes(x); return `<button type="button" class="af-chip-tog pStore${on ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${on}" ${dis}>${esc(storeName(x))}</button>`; }).join('')}</div>`));
+  const isOn = (x) => !picked || picked.includes(x);
+  const chip = (x) => `<button type="button" class="af-chip-tog pStore${isOn(x) ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${isOn(x)}" ${dis}>${esc(storeName(x))}</button>`;
+  // Every chosen store, then enough of the rest to make the choice readable.
+  const lead = st.filter(isOn);
+  const rest = st.filter((x) => !isOn(x));
+  const shown = S.storesAll || st.length <= STORE_CHIPS_SHOWN + 1
+    ? st
+    : [...lead, ...rest].slice(0, Math.max(STORE_CHIPS_SHOWN, lead.length));
+  const hidden = st.filter((x) => !shown.includes(x));
+  // The hidden chips stay in the form, off-screen, so saving reads the same
+  // answer whether or not the list was opened.
+  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${shown.map(chip).join('')}${
+    hidden.length ? `<button type="button" class="af-chip-tog af-chip-more" data-act="stores-all">+${num(hidden.length)} more</button>` : ''}</div>${
+    hidden.length ? `<div class="af-chips-off">${hidden.map(chip).join('')}</div>` : ''}`));
 };
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 // Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
@@ -1609,6 +2198,9 @@ const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnP
 const applyLinkCtl = (p) => (p.intake_mode === 'open'
   ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: applyUrl(location.origin, CO, p.slug) }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(applyUrl(location.origin, CO, p.slug)) || '#')}" target="_blank" rel="noopener">Open</a></div>`
   : '<div class="af-row" id="applyClosed"><span class="af-muted">Choose Open applications above to get a link people can apply with.</span></div>');
+// A quiet heading inside a settings card: the rows under it are set once and
+// rarely revisited. It hides nothing (Blake 2026-11-13: "i don't want hiding").
+const setSub = (label) => `<div class="af-set-sub">${esc(label)}</div>`;
 const setRow = (label, control, id = '') => `<div class="af-set-row"${id ? ` id="${id}"` : ''}><div class="af-set-label">${esc(label)}</div><div class="af-set-ctl">${control}</div></div>`;
 // A row of chips standing in for a select: the hidden input keeps the id the
 // form reads, and a press sets it and announces the change.
@@ -1648,6 +2240,9 @@ function renderProgram(isNew = S.creating) {
     setRow('Currency', setInput('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}" style="max-width:6rem"`)),
     setRow('Pay affiliates', seg('pPayMethod', [['manual', 'By hand'], ['paypal_payouts', 'PayPal']], p.payout_method ?? 'manual', dis)),
     setRow('Payout minimum', `<div class="af-set-unit">${setInput('pMin', `${dis} inputmode="decimal" placeholder="0" value="${esc(major(p.payout_minimum_cents))}"`)}<span>${cur}</span></div>`),
+    // Set once and rarely touched again: same page, same type size, quieter
+    // heading (audit finding 11 -- weight differs, nothing hides).
+    setSub('Advanced'),
     setRow('Payable after', `<div class="af-set-unit">${setInput('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`)}<span>days</span></div>`),
     hasContentBonus() ? setRow('Content bonus', `<div class="af-set-unit">${setInput('pBonus', `${dis} inputmode="decimal" placeholder="—" value="${esc(major(p.content_bonus_cents))}"`)}<span>${cur} per piece you use</span></div>`) : '',
   ].join(''));
@@ -1674,6 +2269,7 @@ function renderProgram(isNew = S.creating) {
   const codes = card('Codes', [
     setRow('Codes start', setInput('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`)),
     setRow('Codes end', setInput('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`)),
+    setSub('Advanced'),
     setRow('Grace after a code ends', `<div class="af-set-unit">${setInput('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`)}<span>days</span></div>`),
     setRow('Two codes on one order', seg('pPrec', [['first_affiliate_code', 'Credit one'], ['single_code_only', 'Credit none']], p.code_precedence ?? 'first_affiliate_code', dis)),
   ].join(''));
@@ -1715,7 +2311,8 @@ let saveTimer = null; let saving = Promise.resolve(); let pendingSave = null;
 let custTimer = null;
 document.addEventListener('change', (ev) => {
   const id = ev.target?.id;
-  if (id === 'custScanCount') { custState().scanCount = Math.max(1, Math.min(1000, Math.floor(Number(ev.target.value)) || 500)); return; }
+  if (id === 'custScanCount') { custState().scanCount = Math.max(1, Math.min(500, Math.floor(Number(ev.target.value)) || 25)); return; }
+  if (id === 'custScanTerms') { custState().scanTerms = String(ev.target.value || ''); return; }
   if (!['custFrom', 'custTo', 'custMin', 'custConsent', 'custSort', 'custSocial'].includes(id)) return;
   const c = custState();
   if (id === 'custSocial') c.socialOnly = ev.target.value === 'found';
@@ -1815,52 +2412,119 @@ function readProgramForm() {
 }
 
 // ── Prospects ────────────────────────────────────────────────────────────
+// The Discovery filters. Applications wait on Outreach > Inbound (Blake,
+// 2026-11-17), not under To review.
+const PROSPECT_GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
+const prospectInGroup = (x, g) => (!PROSPECT_GROUPS[g] || PROSPECT_GROUPS[g].includes(x.status)) && !(g === 'new' && x.source === 'applied');
+// A bulk press on people becomes their program rows: each row in the filter
+// on screen, or every row for Do not contact (which is company-wide anyway).
+function pickedProspectRows(s) {
+  const ids = [];
+  for (const id of S.sel) {
+    const g = S.viewPeople?.[id];
+    if (!g) { ids.push(id); continue; }
+    for (const x of g.rows) if (s === 'suppressed' || prospectInGroup(x, S.prospectFilter || 'new')) ids.push(x.id);
+  }
+  return [...new Set(ids)];
+}
 // Every action a creator row offers, in the order they are used. The row
-// shows the first two; More shows them all.
+// shows the first; More shows them all.
 function prospectActions(x) {
   const d = S.d;
   if (!MANAGE || !d) return [];
   const live = new Set(d.drafts.filter((y) => ['draft', 'approved', 'exported'].includes(y.state)).map((y) => y.prospect_id));
   const contacted = new Set(d.drafts.filter((y) => y.state === 'sent').map((y) => y.prospect_id));
   const b = [];
+  // The step that moves this person along comes first, because the row shows
+  // the first button and More holds the rest: for somebody already
+  // shortlisted that is the message or the invite, never "Not a fit".
   if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Shortlist', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
+  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
+  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
+  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
   if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' }));
   if (x.status === 'rejected') b.push(prospectPill('rejected'));
-  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
-  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
-  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
   if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
   if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
   return b;
 }
 function renderProspects() {
-  const d = S.d; const p = prog();
+  const d = S.d;
+  // Where Find creators and Add creators save (see findProgram).
+  const fp = findProgram();
   const filter = S.prospectFilter || 'new';
-  const GROUPS = { new: ['new', 'qualified'], approved: ['approved', 'invited', 'signed_up'], all: null };
-  // Applications wait on Outreach > Inbound (Blake, 2026-11-17), not here.
-  const inGroup = (x, g) => (!GROUPS[g] || GROUPS[g].includes(x.status)) && !(g === 'new' && x.source === 'applied');
+  // Everybody found, in any program, once each (Blake 2026-11-24: "Discovery
+  // should show all discovered no matter the program"). A card is in a
+  // filter when any of their programs has them there.
+  // One filter row (Blake 2026-11-25: "better filtering and sorting"):
+  // platform, program, has an email, follower floor. The status chips below
+  // count what these leave.
+  const F = (S.dFilt ||= { plat: '', prog: '', email: false, minF: 0 });
+  const allPeople = groupPeople(d.prospects, d.suppressions);
+  const followersOf = (g) => Math.max(0, ...g.rows.map((x) => Number(followersFrom(x.evidence)?.count) || 0));
+  const engagementOf = (g) => { const r = g.rows.map((x) => creatorStats(x.evidence)?.rate).filter((v) => v != null); return r.length ? Math.max(...r) : null; };
+  const emailOf = (g) => g.rows.map((x) => x.contact_email).find(Boolean) || '';
+  const plats = [...new Set(allPeople.flatMap((g) => g.rows.map((x) => x.platform)).filter(Boolean))].sort();
+  if (F.plat && !plats.includes(F.plat)) F.plat = '';
+  if (F.prog && !S.programs.some((y) => y.id === F.prog)) F.prog = '';
+  const people = allPeople.filter((g) => (!F.plat || g.rows.some((x) => x.platform === F.plat))
+    && (!F.prog || g.programIds.includes(F.prog))
+    && (!F.email || !!emailOf(g))
+    && (!F.minF || followersOf(g) >= F.minF));
+  const inGroup = (g, f) => g.rows.some((x) => prospectInGroup(x, f));
   // The search a prospect came from, so one search's results can be picked out.
   const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();
-  const queries = [...new Set(d.prospects.filter((x) => inGroup(x, filter)).map(fromQuery).filter(Boolean))].slice(0, 30);
+  const queries = [...new Set(people.filter((g) => inGroup(g, filter)).flatMap((g) => g.rows.map(fromQuery)).filter(Boolean))].slice(0, 30);
   if (S.prospectQuery && !queries.includes(S.prospectQuery)) S.prospectQuery = '';
-  const list = d.prospects.filter((x) => inGroup(x, filter) && (!S.prospectQuery || fromQuery(x) === S.prospectQuery));
-  // Bulk selection: only prospects in this view stay selected.
-  const inView = new Set(list.map((x) => x.id));
+  const list = people.filter((g) => inGroup(g, filter) && (!S.prospectQuery || g.rows.some((x) => fromQuery(x) === S.prospectQuery)));
+  // Sort by a column header; numbers start biggest first, words A to Z.
+  const SORT = {
+    creator: (g) => String(g.x.display_name || g.x.handle || '').toLowerCase(),
+    followers: followersOf,
+    engagement: (g) => engagementOf(g) ?? -1,
+    email: (g) => emailOf(g).toLowerCase() || '\uffff',
+    status: (g) => String(g.suppressed ? 'suppressed' : g.x.status || ''),
+    program: (g) => g.rows.map((x) => progName(x.program_id)).join(', ').toLowerCase(),
+  };
+  const ds = S.dSort;
+  if (ds && SORT[ds.k]) {
+    const key = SORT[ds.k];
+    list.sort((a, b) => { const x = key(a); const y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * ds.dir; });
+  }
+  // Bulk selection is by person, held as the id of the row on their card.
+  const inView = new Set(list.map((g) => g.x.id));
   for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
-  S.viewIds = list.map((x) => x.id);
-  const live = new Set(d.drafts.filter((x) => ['draft', 'approved', 'exported'].includes(x.state)).map((x) => x.prospect_id));
-  const contacted = new Set(d.drafts.filter((x) => x.state === 'sent').map((x) => x.prospect_id));
+  S.viewIds = list.map((g) => g.x.id);
+  S.viewPeople = Object.fromEntries(list.map((g) => [g.x.id, g]));
+  // One row per person (Blake 2026-11-24, his sheet: Creator, Followers,
+  // Email, Status, Program, More): the programs they are in are a column, not
+  // a line each, and adding them to another program is one menu on the row.
   // Two buttons on the row, the rest behind More (Blake 2026-11-20: "there is
   // a lot there"). More opens the same buttons in the centre pop-up, so
   // nothing is lost and nothing folds out over the list.
-  const actions = (x) => {
+  // Somebody in several programs has a row in each, with its own status. The
+  // row shown is the one that puts them in this filter (Shortlisted shows
+  // their shortlisted program), and More lists every program's own buttons.
+  const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;
+  // One button on the row -- the next thing to do with this person -- and a
+  // menu holding every other one (Blake 2026-11-25: "all the functions, not
+  // all the noise"). Nothing is dropped: More opens the same buttons, plus
+  // the other programs they can be added to.
+  const rowActions = (x, g) => {
     if (!MANAGE) return '';
     const b = prospectActions(x);
-    if (!b.length) return '';
-    const shown = b.slice(0, 2);
-    if (b.length > 2) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
-    return `<div class="af-actions">${shown.join('')}</div>`;
+    const many = (g?.rows.length || 1) > 1;
+    if (!b.length && !many) return '';
+    const shown = b.slice(0, 1);
+    if (b.length > 1 || many || addTo(g)) shown.push(btn('···', 'prospect-more', { id: x.id }, 'ghost', { title: `More for ${x.display_name || x.handle || 'this creator'}`, cls: 'af-more-btn' }));
+    return `<div class="af-rowacts">${shown.join('')}</div>`;
   };
+  const addTo = addToSelect;
+  // "Add to program…" moved off the row and into More (Blake 2026-11-25): it
+  // is still one menu per person, just not one open on every row.
+  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));
+  const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
+  const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
     return `${link}<div class="af-muted">${esc(x.platform)}${x.handle ? ` · ${esc(x.handle)}` : ''}</div>${x.contact_email ? `<div class="af-muted">${esc(x.contact_email)}</div>` : ''}`;
@@ -1885,7 +2549,8 @@ function renderProspects() {
   // means they are lined up for outreach (Blake 2026-11-20).
   const filters = [['new', 'To review'], ['approved', 'Shortlisted'], ['all', 'All']];
   const runs = d.runs.slice(0, 10);
-  const prospectCard = (x) => {
+  const prospectCard = (g) => {
+    const x = g.x;
     const f = followersFrom(x.evidence);
     const followersVal = f ? num(f.count) : '—';
     const st = creatorStats(x.evidence);
@@ -1909,49 +2574,106 @@ function renderProspects() {
           <div class="af-catalog-sub">${esc(sub)}</div>
           <div class="af-catalog-meta">${meta}</div>
         </div>
-        ${prospectPill(x.status)}${customerPill(x)}
+        ${headPill(g)}${customerPill(x)}
       </header>
       <p class="af-catalog-summary-p">${esc(evidenceSummary(x, 120))}</p>
       <div class="af-kv-line"><span class="bcn-num">${followersVal}</span> followers · <span class="bcn-num">${pct}</span> engagement</div>
       ${facts.length ? `<div class="af-muted af-catalog-facts">${facts.join(' · ')}</div>` : ''}
       <div class="af-muted">${sourceLine(x)}</div>
-      <footer class="af-item-foot af-catalog-foot">${actions(x)}</footer>
+      ${S.programs.length > 1 ? `<div class="af-kv-line"><span class="af-muted">Program</span> ${esc(programsOf(g))}</div>` : ''}
+      <footer class="af-item-foot af-catalog-foot">${actions(g)}</footer>
     </article>`;
   };
   const capped = S.prospectShowAll ? list : list.slice(0, PROSPECT_LIST_CAP);
+  const seg = (label, key, opts) => `<div class="af-dfilter"><span class="af-muted">${esc(label)}</span><div class="af-seg" role="radiogroup" aria-label="${esc(label)}">${opts.map(([v, txt]) => `<button type="button" class="af-seg-btn${String(F[key]) === String(v) ? ' is-on' : ''}" role="radio" aria-checked="${String(F[key]) === String(v)}" data-act="d-filter" data-key="${key}" data-v="${esc(String(v))}">${esc(txt)}</button>`).join('')}</div></div>`;
+  const anyFilter = F.plat || F.prog || F.email || F.minF;
+  const dFilterRow = `<div class="af-dfilters">${[
+    plats.length > 1 ? seg('Platform', 'plat', [['', 'All'], ...plats.map((x) => [x, PLATFORM_NAMES[x] || x])]) : '',
+    S.programs.length > 1 ? seg('Program', 'prog', [['', 'All'], ...S.programs.map((y) => [y.id, y.name])]) : '',
+    seg('Email', 'email', [[false, 'Any'], [true, 'Has email']]),
+    seg('Followers', 'minF', [[0, 'Any'], [1000, '1k+'], [10000, '10k+'], [100000, '100k+']]),
+    anyFilter ? btn('Clear filters', 'd-filter-clear', {}, 'ghost') : '',
+  ].join('')}</div>`;
+  const dSortSpec = { act: 'd-sort', k: S.dSort?.k || '', dir: S.dSort?.dir || -1 };
   const listFoot = list.length > PROSPECT_LIST_CAP
     ? (S.prospectShowAll
       ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
       : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
     : '';
-  const findRow = MANAGE
-    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" placeholder="${esc(p.niche ? `e.g. ${p.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', 'type="number" min="5" max="50" value="25" style="max-width:5.5rem"'))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', {}, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators')}</div>`
+  // Find is a button on the control row; its two fields open under it. They
+  // open by themselves while a search is running and when there is nobody on
+  // the list yet, so the empty page still shows what to do.
+  const canFind = !!(MANAGE && fp);
+  const findOpen = canFind && (researching || !people.length || (S.dFindOpen === undefined ? false : !!S.dFindOpen));
+  const findRow = findOpen
+    ? `<div class="af-panelette af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}</div>`
     : '';
+  // One control row (Blake 2026-11-25): what you are looking at on the left,
+  // Filter and the view on the right. The four filter rows that used to sit
+  // above the table are the same controls, in a panel that opens under it --
+  // and it opens by itself whenever a filter is on, so nothing filters the
+  // list invisibly.
   // Editing a creator, adding creators and the code/link forms all open in
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
+  const allPicked = !!list.length && list.every((g) => S.sel.has(g.x.id));
+  const filtCount = [F.plat, F.prog, F.email, F.minF].filter(Boolean).length;
+  // Open by itself the first time a filter is on, so nothing narrows the list
+  // invisibly; after that the button decides, and the count on it says how
+  // many filters are set even when it is shut.
+  const filtOpen = S.dFiltOpen === undefined ? !!anyFilter : !!S.dFiltOpen;
+  const statusSeg = `<div class="af-seg" role="radiogroup" aria-label="Which creators">${filters.map(([f, label]) => `<button type="button" class="af-seg-btn${f === filter ? ' is-on' : ''}" role="radio" aria-checked="${f === filter}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}</div>`;
+  // Tiles have no header row to hold the select-all box, so it rides in the
+  // control row there.
+  const tileSelectAll = MANAGE && S.view !== 'list' && list.length
+    ? btn(allPicked ? 'Clear selection' : `Select all ${list.length}`, allPicked ? 'prospect-select-none' : 'prospect-select-all')
+    : '';
+  const ctlRow = `<div class="af-ctl">${statusSeg}<span class="af-ctl-gap"></span>${tileSelectAll}${
+    btn(filtCount ? `Filter · ${filtCount}` : 'Filter', 'd-filter-open', {}, filtOpen ? 'primary' : 'surface')}${viewToggle()}${
+    canFind ? `${btn('Add creators', 'add-creators', { pg: fp.id })}${btn(researching ? 'Finding…' : 'Find creators', 'd-find-open', {}, 'primary')}` : ''}</div>${
+    findRow}${filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
+  // The program a row is in is worth a column only when the rows differ; one
+  // program repeated down every row says nothing.
+  const showProgramCol = S.programs.length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
+  // Everything this row tells you about the person, in one cell: their state
+  // when it is not already the filter you are in, whether they have bought
+  // from you, how engaged their audience is, and their email if we have one.
+  const signalCell = (g) => {
+    const x = g.x;
+    const st = creatorStats(x.evidence);
+    const bits = [
+      g.suppressed || shownRow(g).status !== PROSPECT_GROUPS[filter]?.[0] ? headPill(g) : '',
+      customerPill(x),
+      st?.rate != null ? pill(`${(st.rate * 100).toFixed(1)}% eng`) : '',
+      x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email<span class="af-offscreen"> ${esc(x.contact_email)}</span></span>` : '',
+    ].filter(Boolean);
+    return bits.length ? `<div class="af-signal">${bits.join('')}</div>` : '<span class="af-muted">—</span>';
+  };
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${d.prospects.filter((x) => inGroup(x, f)).length}</span></button>`).join('')}${viewToggle()}</div>
-      ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
-        ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
-        ${btn(`Select all ${list.length}`, 'prospect-select-all')}
-        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
+    surface('Creators', `${ctlRow}
+      ${MANAGE && S.sel.size ? `<div class="af-row af-bulk">
+        <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
-          ...(MANAGE ? [{ h: '', f: (x) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
-          { left: true, h: 'Creator', f: (x) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
-          { h: 'Followers', num: true, f: (x) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
-          { h: 'Engagement', num: true, f: (x) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
-          { left: true, h: 'Email', f: (x) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', f: (x) => `${prospectPill(x.status)}${customerPill(x)}` },
-          { h: '', f: (x) => actions(x) },
-        ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
+          ...(MANAGE ? [{ hHtml: allPicked
+            ? `<input type="checkbox" class="af-pick" data-act="prospect-select-none" aria-label="Clear selection" checked />`
+            : `<input type="checkbox" class="af-pick" data-act="prospect-select-all" aria-label="Select all ${num(list.length)}" />`,
+          h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
+          { left: true, h: 'Creator', sort: 'creator', f: ({ x }) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
+          { h: 'Followers', num: true, sort: 'followers', f: ({ x }) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
+          // Engagement, the email and the status were a column each, two of
+          // them empty on most rows (Blake 2026-11-25). One cell now: what
+          // this row tells you, and nothing where there is nothing.
+          { left: true, h: 'Signal', sort: 'engagement', f: (g) => signalCell(g) },
+          ...(showProgramCol ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
+          { h: '', f: (g) => actions(g) },
+        ], capped, anyFilter ? 'Nobody matches these filters.' : filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', dSortSpec)
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
-      <div id="signupOut"></div>`, `${list.length} in this view · ${d.prospects.length} total`, 'afCreatorsList'),
+      <div id="signupOut"></div>`, `${list.length} in this view · ${people.length} people`, 'afCreatorsList'),
     more('Recruiting tools', [
-    card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run for this program yet.')),
+    card('Recent runs', itemList(runs, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${S.programs.length > 1 ? `${esc(progName(r.program_id))} · ` : ''}${esc(r.query || '—')} ${r.dry_run ? pill('dry run') : pill(runKindLabel(r), 'accent')}</div><div class="af-muted">${fmtTime(r.started_at)} · ${statusPill(r.status)}</div><div class="af-kv-line">${num(r.prospects_new)} new · ${num(r.results_returned)} results · ${num(r.emails_found)} emails${r.error ? ` · ${esc(friendlySearchError(r.error))}` : ''}</div></div></article>`, 'Discovery has not run yet.')),
     card('Do-not-contact list', `
       ${itemList(d.suppressions, (s) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(s.value_normalized)}</span> ${pill(s.kind)}</div><div class="af-muted">${esc(s.reason)} · ${fmtDate(s.created_at)}</div></div><div class="af-item-foot">${MANAGE ? btn('Remove', 'suppression-remove', { id: s.id }, 'surface', { confirm: true }) : ''}</div></article>`, 'Nobody is on the list.')}
       <div class="af-row" style="margin-top:8px;">${field('Type', '<select class="bcn-field" id="supKind"><option>email</option><option>domain</option><option>handle</option><option value="profile_url">profile URL</option></select>')}${field('Value', input('supVal'))}${field('Reason', '<select class="bcn-field" id="supReason"><option value="opted_out">asked not to be contacted</option><option value="bounced">bounced</option><option value="complained">complained</option><option value="competitor">competitor</option><option value="do_not_contact">do not contact</option><option value="manual">other</option></select>')}${btn('Add', 'suppression-add')}</div>`),
@@ -1967,8 +2689,7 @@ function renderOutreach() {
   // reads as noise, and every draft starts from one template, so the whole
   // body on every row is the same text over and over (Blake 2026-11-20).
   const named = (x) => d.prospectById[x.prospect_id]?.display_name || x.recipient_email || x.recipient_handle || '—';
-  const who = (x) => `${esc(named(x))}<div class="af-muted">${esc(x.recipient_email || x.recipient_handle || '')} · ${esc(x.channel)}</div>`;
-  const msg = (x) => `<div class="af-kv-line">${esc(x.subject || '')}</div>`;
+  const who = (x) => `${esc(named(x))}<div class="af-sub">${esc([x.recipient_email || x.recipient_handle, x.channel].filter(Boolean).join(' · ') || '—')}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
   // "Via <app>": a batch an AI connection claimed (outreach:send) to send from
   // the approver's own mailbox, and a send it recorded. Null for a person.
@@ -1977,17 +2698,36 @@ function renderOutreach() {
   // "I already sent this one myself" has to be here, on the draft, not three
   // states away: a message sent by hand outside SILO is the ordinary case,
   // and a draft nobody marks sits in this queue for weeks (Blake 2026-11-24).
-  const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot"><div class="af-actions">${MANAGE ? `${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}${btn('Edit', 'draft-edit', { id: x.id })}` : ''}</div></div></article>`;
-  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Mark as sent', 'dm-sent', { id: x.id }, 'primary')}</div></div>` : ''}</article>`;
-  const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark as sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
+  // One line per message, the way Discovery reads (audit finding 7).
+  const whoCol = { left: true, h: 'Person', f: who };
+  const subjCol = { left: true, h: 'Message', f: (x) => `<div class="af-sub">${esc(x.subject || '—')}</div>` };
+  const draftCols = [whoCol, subjCol,
+    { left: true, h: 'Drafted', f: (x) => `<span class="af-sub">${fmtDate(x.created_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}${btn('Edit', 'draft-edit', { id: x.id })}</div>` : '') }];
+  const approvedCols = [whoCol, subjCol,
+    { left: true, h: 'Approved', f: (x) => `<span class="af-sub">${fmtTime(x.approved_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'dm-sent', { id: x.id }, 'primary')}</div>` : '') }];
+  const exportedCols = [whoCol,
+    { left: true, h: 'Exported', f: (x) => `<div class="af-sub">${fmtTime(x.exported_at)}</div>${viaBatch(x)}` },
+    { left: true, h: 'Where you sent it', f: (x) => (MANAGE ? `<input class="bcn-field" id="ev-${x.id}" placeholder="Sent-folder link, DM screenshot ref" />` : '') },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') }];
   const drafts = byState('draft'); const readyAll = byState('approved'); const out = byState('exported');
   const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
-  const dmCard = (x) => {
+  const dmInfo = (x) => {
     const pr = d.prospectById[x.prospect_id] || {};
-    const where = pr.profile_url ? ext(pr.profile_url, `Open ${PLATFORM_NAMES[pr.platform] || pr.platform || 'profile'}`) : '';
-    return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[pr.platform] || pr.platform || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
-      <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
+    // A customer's account lives in their evidence (never the prospect's own
+    // profile_url, which feeds the identity index), so read it from there.
+    const soc = pr.evidence?.social || null;
+    const url = pr.profile_url || soc?.profile_url || '';
+    const plat = pr.profile_url ? pr.platform : (soc?.platform || pr.platform);
+    const where = url ? ext(url, `Open ${PLATFORM_NAMES[plat] || plat || 'profile'}`) : '';
+    return { pr, plat, where };
   };
+  const dmCols = [
+    { left: true, h: 'Person', f: (x) => { const { pr, plat } = dmInfo(x); return `${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-sub">${esc(PLATFORM_NAMES[plat] || plat || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div>`; } },
+    { left: true, h: 'Message', f: (x) => `<div class="af-evidence">${esc(dmText(x).slice(0, 160))}${dmText(x).length > 160 ? '…' : ''}</div>` },
+    { h: '', f: (x) => `<div class="af-rowacts">${dmInfo(x).where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div>` },
+  ];
   const canSend = (d.aiApps || []).some((a) => a.canSend);
   // What the program has saved, unless something is typed and unsaved: the
   // template form only exists on its own chip, so switching away would
@@ -2001,22 +2741,38 @@ function renderOutreach() {
   const CUST_TAGS = ['{name}', '{brand}', '{orders_line}', '{commission}', '{sender}', '{signup_link}'];
   // The emails SILO sent affiliates on its own (invites, codes, payouts).
   const NOTE_KIND = { signup_invite: 'Invite', signup_confirmation: 'Welcome', portal_link: 'Portal link', link_renewal: 'New portal link', codes_and_links: 'Codes and links', payout_status: 'Payout' };
-  const noteRow = (n) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' '))} · ${esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—')} ${statusPill(n.status)}</div><div class="af-muted">${fmtTime(n.created_at)}${n.status !== 'sent' && n.reason ? ` · ${esc(n.reason)}` : ''}</div></div></article>`;
+  const noteCols = [
+    { left: true, h: 'Email', f: (n) => esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' ')) },
+    { left: true, h: 'Person', f: (n) => esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—') },
+    { left: true, h: 'Status', f: (n) => `${statusPill(n.status)}${n.status !== 'sent' && n.reason ? `<div class="af-sub af-sub--bad">${esc(n.reason)}</div>` : ''}` },
+    { left: true, h: 'Sent', f: (n) => `<span class="af-sub">${fmtTime(n.created_at)}</span>` },
+  ];
   // Inbound: people who found the brand and applied (Blake, 2026-11-17).
   const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));
-  const appCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Applicant') : esc(x.display_name || x.handle || 'Applicant')}<div class="af-muted">${esc(PLATFORM_NAMES[x.platform] || x.platform || '')}${x.handle ? ` · ${esc(x.handle)}` : ''}${x.contact_email ? ` · ${esc(x.contact_email)}` : ''}</div></div>${x.evidence?.note || x.evidence?.pitch ? `<div class="af-item-detail">${esc(String(x.evidence.note || x.evidence.pitch).slice(0, 300))}</div>` : ''}<div class="af-muted">Applied ${fmtTime(x.collected_at || x.created_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' })}</div></div>` : ''}</article>`;
+  const appCols = [
+    { left: true, h: 'Applicant', f: (x) => `${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Applicant') : esc(x.display_name || x.handle || 'Applicant')}<div class="af-sub">${esc([PLATFORM_NAMES[x.platform] || x.platform || '', x.handle, x.contact_email].filter(Boolean).join(' · ') || '—')}</div>` },
+    { left: true, h: 'What they said', f: (x) => (x.evidence?.note || x.evidence?.pitch ? `<div class="af-evidence">${esc(String(x.evidence.note || x.evidence.pitch).slice(0, 220))}</div>` : '<span class="af-sub">—</span>') },
+    { left: true, h: 'Applied', f: (x) => `<span class="af-sub">${fmtTime(x.collected_at || x.created_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' })}</div>` : '') },
+  ];
   // One list at a time, picked from chips, as Records and Share already are
-  // (Blake 2026-11-20: the tab scrolled for pages). Nothing folds: a chip is
-  // a tab, and the list under it is open.
+  // (Blake 2026-11-20: the tab scrolled for pages; 2026-11-25: "let's keep em
+  // separate for now tab wise"). Nothing folds: a chip is a tab, and the list
+  // under it is open.
   const views = [
-    ['approve', 'To approve', drafts.length, () => surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
-      'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`)],
-    ['email', 'Send by email', ready.length, () => surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
-      ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`)],
-    ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', itemList(readyDm, dmCard, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
-    ['sent', 'Mark sent', out.length, () => surface('Mark sent', itemList(out, exportedCard, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
-    ['inbound', 'Inbound', applied.length, () => surface('Inbound', itemList(applied, appCard, 'No applications waiting.'), `${num(applied.length)} applied`)],
+    ['approve', 'To approve', drafts.length, () => surface('To approve', queueTable('msgs', drafts, draftCols, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+      { text: 'No drafts. Approving a creator drafts their message here.', go: btn('Find creators', 'go-tab', { t: 'people' }, 'primary') }), `${num(drafts.length)} draft(s)`)],
+    // How these get sent stays at the top, as one small line with the Copy
+    // agent prompt beside it -- not a block that pushes the queue down and
+    // not buried under it (Blake 2026-11-25: "keep small instruction and copy
+    // prompt up top").
+    ['email', 'Send by email', ready.length, () => surface('Send by email', `<div class="af-queue-head">${aiSendBlock(d.aiApps)}${
+      canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${
+      MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>
+      ${table(approvedCols, ready, { text: 'Nothing approved yet.', go: drafts.length ? btn(`Approve ${num(drafts.length)} waiting`, 'comms-tab', { k: 'approve' }, 'primary') : '' })}`, `${num(ready.length)} approved`)],
+    ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', table(dmCols, readyDm, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
+    ['sent', 'Mark sent', out.length, () => surface('Mark sent', table(exportedCols, out, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
+    ['inbound', 'Inbound', applied.length, () => surface('Inbound', table(appCols, applied, 'No applications waiting.'), `${num(applied.length)} applied`)],
     ['template', 'Template', 0, () => card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
       ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
       <div class="af-set-tags">${TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
@@ -2026,7 +2782,7 @@ function renderOutreach() {
       ${field('Message', `<textarea class="bcn-field" id="custTplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(custTpl.body)}</textarea>`)}
       <div class="af-set-tags">${CUST_TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save customer template', 'cust-tpl-save', {}, 'primary')}</div>` : ''}`, 'Your Customers drafts start from this'), !hasOutreachMessage()],
-    ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
+    ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', table(noteCols, (d.notifications || []).slice(0, 15), 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
   ].filter(([, , , , hide]) => !hide);
   // Open on what is waiting, so the first thing seen is the first thing to do.
   if (!views.some(([k]) => k === S.commsTab)) S.commsTab = (views.find(([, , n]) => n) || views[0] || [])[0] || 'approve';
@@ -2064,6 +2820,25 @@ async function publishAdImage(path) {
 
 // What the person pastes into their own AI (or sets as a daily task there).
 const SEND_PROMPT = 'Using SILO, send my approved affiliate outreach by email from my own mailbox, then mark each one sent with where I sent it from. Creators with no email stay in SILO for me to message on social.';
+// How a prospect may be reached. A creator: email if they have one, else a
+// DM. A customer: by their CURRENT email consent (re-read, not the snapshot
+// taken when they were added), so somebody who has since unsubscribed is
+// never given an email draft (customerContactPath). Null: no way to reach.
+async function prospectContact(x) {
+  if (!x) return null;
+  if (x.source !== 'customer') {
+    return x.contact_email ? { channel: 'email', email: x.contact_email, handle: null } : { channel: 'dm', email: null, handle: x.handle || x.profile_url };
+  }
+  let consent = x.evidence?.email_consent_state ?? null;
+  const key = x.evidence?.customer_key;
+  if (key) {
+    const r = await db.from('company_customer_profiles').select('email_consent_state')
+      .eq('company_entity_id', CO).eq('customer_key', key).maybeSingle();
+    if (r.error) throw r.error;
+    if (r.data) consent = r.data.email_consent_state;
+  }
+  return customerContactPath({ email_lc: x.contact_email, email_consent_state: consent }, x.evidence?.social || null, S.d?.suppressions || []);
+}
 // A creator with no public email is reached by a DM the person sends by hand
 // (Blake, 2026-11-17: "use social or email to connect"). SILO sends nothing.
 const isDm = (x) => x.channel !== 'email' || !x.recipient_email;
@@ -2133,13 +2908,16 @@ async function seedDecide(ids, approve) {
   return `${num(n)} approved${tail}.${made}`;
 }
 function seedsCard() {
-  const d = S.d; const p = prog();
-  if (!d.seeds || (!d.seeds.length && !p.seeding_enabled)) return '';
+  // On People the rows are every program's; the program-level switches then
+  // read as "any program has it on".
+  const d = S.d; const p = companyMulti() ? null : prog();
+  const on = p ? !!p.seeding_enabled : S.programs.some((x) => x.seeding_enabled);
+  if (!d.seeds || (!d.seeds.length && !on)) return '';
   const order = { requested: 0, approved: 1, code_ready: 2, purchased: 3, earned: 4 };
   const rows = [...d.seeds].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
   const row = (c) => {
     const v = seedView(c); const a = d.affById[c.affiliate_id];
-    const m = (x) => formatMoney(x, c.currency || p.currency);
+    const m = (x) => formatMoney(x, c.currency || (progOf(c) || p)?.currency);
     const bar = v.pct === null ? '' : `<div class="af-seed-prog"><span class="af-seed-bar"><i style="width:${Math.max(2, v.pct)}%"></i></span><span class="af-mono">${m(c.progress_cents ?? 0)} / ${m(c.goal_cents)}</span></div>`;
     const acts = !MANAGE ? '' : c.state === 'requested'
       ? btn('Approve', 'seed-decide', { id: c.id, ok: '1' }, 'primary') + btn('Decline', 'seed-decide', { id: c.id, ok: '0' }, 'surface')
@@ -2152,11 +2930,11 @@ function seedsCard() {
   const asks = rows.filter((x) => x.state === 'requested');
   const live = rows.filter((x) => ['approved', 'code_ready', 'purchased'].includes(x.state));
   const done = rows.filter((x) => !['requested', 'approved', 'code_ready', 'purchased'].includes(x.state));
-  const meta = p.seeding_enabled ? `${esc(Number(p.seed_discount_percent))}% off · sell ${esc(Number(p.seed_multiple))}×` : 'Off';
+  const meta = !p ? '' : p.seeding_enabled ? `${esc(Number(p.seed_discount_percent))}% off · sell ${esc(Number(p.seed_multiple))}×` : 'Off';
   // A product the company shared is approved as it is asked for
   // (20261120030000), so "To decide" only ever holds products an affiliate
   // named themselves.
-  const sharedNote = p.seeding_enabled
+  const sharedNote = on
     ? `<p class="af-muted">A product you shared on Share is sent as soon as it is asked for.${info('Sharing the product is the decision. Only a product an affiliate names themselves waits for you here.')}</p>`
     : '';
   const acts = MANAGE ? [['Approve selected', 'q-seed-ok', 'primary'], ['Decline selected', 'q-seed-no']] : [];
@@ -2349,14 +3127,64 @@ async function withProductImages(rows) {
   return out;
 }
 // ── Affiliates ───────────────────────────────────────────────────────────
-function renderAffiliates() {
-  const d = S.d; const p = prog();
-  const codesOf = (a) => d.codes.filter((c) => c.affiliate_id === a.id);
-  const linksOf = (a) => d.links.filter((l) => l.affiliate_id === a.id);
-  const actions = (a) => {
+// Every button an affiliate's row and menu can offer. Module scope so the
+// More dialog can draw the same set (audit finding 2).
+  // Finding 8 of the simplicity audit: the status cell was a status pill, a
+  // signup line, a code line and a code state stacked four deep. One chip and
+  // one mono sub-line now carry the same facts; the buttons that were mixed in
+  // there live on the row and in its menu.
+function affStuck(a) {
+  const d = S.d;
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
+  const from = d.prospectById[a.from_prospect_id];
+    const invite = (d.notifications || []).find((n) => n.affiliate_id === a.id && n.kind === 'signup_invite');
+    const canInvite = MANAGE && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source);
+    const waiting = codesOf(a).filter((c) => c.status === 'pending');
+    const code = liveCodeOf(a.id);
+    if (a.status === 'terminated') return { sub: a.terms_accepted_at ? 'ended' : 'ended before signing up' };
+    if (!a.terms_accepted_at) {
+      const sub = invite && invite.status !== 'sent' ? `invite not delivered · ${invite.reason || invite.to_email || ''}`
+        : invite ? `invite sent ${fmtDate(invite.created_at)} · not signed up yet`
+        : 'no invite email on record';
+      return { sub, bad: !!(invite && invite.status !== 'sent'), from, act: canInvite ? btn(invite || a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }, 'primary') : '' };
+    }
+    const signed = `joined ${fmtDate(a.terms_accepted_at)}`;
+    if (waiting.length) return { sub: `${signed} · code ${waiting[0].code} not in Shopify yet`, bad: true, act: MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }, 'primary') : '' };
+    if (!code) return { sub: `${signed} · no code`, act: MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }, 'primary') : '' };
+    const used = codesOf(a).find((c) => c.code === code)?.verified_at;
+    return { sub: `${signed} · ${code} live · ${used ? 'used on an order' : 'no orders yet'}` };
+}
+function affSignal(a) {
+  const st = affStuck(a);
+  return `<div class="af-signal">${statusPill(a.status)}</div><div class="af-sub${st.bad ? ' af-sub--bad' : ''}">${esc(st.sub)}</div>`;
+}
+// One button -- the thing that moves this person along -- and a menu with
+// everything else, the same shape Discovery uses.
+function affRowActions(a) {
+  if (!MANAGE) return '';
+  const st = affStuck(a);
+  const rest = affActions(a);
+  const first = st.act || (['active', 'paused'].includes(a.status) ? btn('Portal link', 'portal-link', { id: a.id }) : '');
+  const menu = btn('···', 'aff-more', { id: a.id }, 'ghost', { title: `More for ${a.display_name || 'this affiliate'}`, cls: 'af-more-btn' });
+  if (!first && !rest) return '';
+  return `<div class="af-rowacts">${first}${menu}</div>`;
+}
+// The one line under the chip: where this person is, in words.
+const affStuckLine = (a) => affStuck(a).sub;
+
+// Two affiliates rows are the same PERSON when they share an address; a row
+// per program is how a membership is stored (see allPeople).
+const sameAffiliatePerson = (x, y) => String(x.contact_email || x.id).trim().toLowerCase() === String(y.contact_email || y.id).trim().toLowerCase();
+// What the More menu shows for one membership: where they are stuck, then
+// every button, stacked so each is easy to hit.
+const affMoreBody = (a, addProgram = true) => `${affSteps(a)}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${affActions(a, addProgram).replace('<div class="af-actions">', '').replace(/<\/div>$/, '')}</div>`;
+function affActions(a, addProgram = true) {
+  const d = S.d;
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
     if (!MANAGE) return '';
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
+    if (['active', 'paused'].includes(a.status) && a.terms_accepted_at) b.push(btn('View as rep', 'view-as-rep', { id: a.id }));
     // Someone invited who never signed up (or was ended before signing up)
     // can be invited again from their own card (Blake 2026-11-18: "there is
     // no resend button"). The server re-opens an ended, never-signed-up
@@ -2369,13 +3197,16 @@ function renderAffiliates() {
     }
     if (a.status !== 'terminated') b.push(btn('Add code', 'aff-tool', { id: a.id, k: 'code' }), btn('Add link', 'aff-tool', { id: a.id, k: 'link' }));
     // One affiliate per company, in any program (Blake 2026-11-17).
-    if (['active', 'paused'].includes(a.status) && otherPrograms().length) b.push(btn('Add to program', 'aff-tool', { id: a.id, k: 'program' }));
+    if (addProgram && ['active', 'paused'].includes(a.status) && S.programs.some((x) => x.id !== a.program_id && x.status === 'active')) b.push(btn('Add to program', 'aff-tool', { id: a.id, k: 'program' }));
     if (a.status === 'active') b.push(btn('Pause', 'affiliate-status', { id: a.id, s: 'paused' }));
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
-  };
-  const stepsOf = (a) => {
+  }
+
+function affSteps(a) {
+  const d = S.d;
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
     // Where this person is stuck, and the one thing that unsticks them
     // (Blake 2026-11-18: "one place to see invite sent, accepted, code
     // active, or code failed", with the next action right there).
@@ -2396,18 +3227,33 @@ function renderAffiliates() {
       : waiting.length ? `${pill(`Code ${waiting[0].code} not in Shopify yet`, 'neg')}${MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }) : ''}`
       : a.terms_accepted_at ? `${pill('No code', 'accent')}${MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }) : ''}` : '';
     return `<div class="af-steps">${[step1, step2].filter(Boolean).map((x) => `<div class="af-row af-step">${x}</div>`).join('')}</div>`;
-  };
+  }
+
+function renderAffiliates() {
+  const d = S.d;
+  const multiProg = S.programs.length > 1;
+  const codesOf = (a) => d.codes.filter((c) => c.affiliate_id === a.id);
+  const linksOf = (a) => d.links.filter((l) => l.affiliate_id === a.id);
+  const actions = affActions;
+  const stepsOf = affSteps;
   const canCode = (d.aiApps || []).some((a) => a.canCode);
   // Codes, links and programme membership are asked for in the middle of
   // the screen now (Blake 2026-11-20); see affToolBody().
-  const affiliateRow = (a) => {
+  // Each membership is judged by its OWN program: its store for links, its
+  // terms version. The page holds every program at once here.
+  const linksBlockOf = (a) => {
     const code = liveCodeOf(a.id);
-    const store = storeOf(p);
+    const store = storeOf(progOf(a));
     const linkRows = [store && code ? affiliateLink(store, code, '/') : null, ...linksOf(a).map((l) => (store && code ? storeLinkFor(store, code, l.destination_url) : null) || linkUrl(l) || l.destination_url)].filter(Boolean);
-    const codesHtml = codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
-    const terms = a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < p.terms_version ? ' · update pending' : ''}` : 'Terms not accepted';
+    return linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
+  };
+  const codesHtmlOf = (a) => codesOf(a).map((c) => `<span class="af-code-pill" title="${esc(fmtDate(c.starts_on))} → ${c.ends_on ? esc(fmtDate(c.ends_on)) : 'open'}">${esc(c.code)}${c.status === 'pending' ? ' · waiting' : c.verified_at ? '' : ' · new'}</span>`).join('') || '<span class="af-muted">No codes</span>';
+  const termsOf = (a) => (a.terms_version_accepted ? `Terms v${a.terms_version_accepted}${a.terms_version_accepted < (progOf(a)?.terms_version ?? 0) ? ' · update pending' : ''}` : 'Terms not accepted');
+  const affiliateRow = (a) => {
+    const terms = termsOf(a);
     const steps = stepsOf(a);
-    const linksBlock = linkRows.length ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: linkRows[0] }, 'surface')}${linkRows.length > 1 ? `<span class="af-muted">+${num(linkRows.length - 1)} more in their portal</span>` : ''}</div>` : '';
+    const codesHtml = codesHtmlOf(a);
+    const linksBlock = linksBlockOf(a);
     return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
       <header class="af-catalog-head">
         <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}</div>
@@ -2421,38 +3267,74 @@ function renderAffiliates() {
       ${steps}
       <div class="af-codes">${codesHtml}</div>
       ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
-      <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
+      <footer class="af-item-foot af-catalog-foot">${affRowActions(a)}</footer>
     </article>`;
   };
   // Ended affiliates are archived out of the main list (Blake 2026-11-18:
   // "archive terminated or ended"). Nothing is deleted; Ended shows them.
+  //
+  // One card per PERSON (a membership is an affiliates row per program, the
+  // same address in each): a block per program they are in. A person has
+  // ended when every membership has.
+  const persons = allPeople(d);
+  const endedP = persons.filter((x) => x.rows.every((a) => a.status === 'terminated'));
+  const currentP = persons.filter((x) => !endedP.includes(x));
+  const showEnded = S.affFilter === 'ended' && endedP.length > 0;
+  const shownP = (showEnded ? endedP : currentP).map((x) => ({ ...x, all: x.rows, rows: showEnded ? x.rows : x.rows.filter((a) => a.status !== 'terminated') }));
   const ended = d.affiliates.filter((a) => a.status === 'terminated');
-  const affShown = S.affFilter === 'ended' && ended.length ? ended : d.affiliates.filter((a) => a.status !== 'terminated');
-  const affChips = ended.length ? [['current', 'Current', d.affiliates.length - ended.length], ['ended', 'Ended', ended.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
-  const affEmpty = S.affFilter === 'ended' ? 'No ended affiliates.' : ended.length ? 'No current affiliates. Ended ones are under Ended.' : 'No affiliates yet. They appear here when someone you invite opens their signup link.';
+  const affShown = shownP.flatMap((x) => x.rows);
+  const membership = (a, addProgram) => `<div class="af-allprog"><div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))} · ${esc(termsOf(a))}</div></div>${statusPill(a.status)}</div>
+      <div class="af-sub">${esc(affStuckLine(a))}</div><div class="af-codes">${codesHtmlOf(a)}</div>${linksBlockOf(a) ? `<div class="af-catalog-links">${linksBlockOf(a)}</div>` : ''}${affRowActions(a)}</div>`;
+  const personCard = (x) => {
+    const a = x.rows[0];
+    // "Add to program" once per person, on their first live membership, and
+    // only while there is an active program they are not in.
+    const missing = S.programs.some((y) => y.status === 'active' && !x.all.some((r) => r.program_id === y.id));
+    const addOn = missing ? x.rows.find((r) => ['active', 'paused'].includes(r.status))?.id : null;
+    return `<article class="af-item af-item--tile af-item--catalog" role="listitem">
+      <header class="af-catalog-head">
+        <div class="af-catalog-thumb">${photoAvatar({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}</div>
+        <div class="af-catalog-title">
+          <div class="af-catalog-name">${esc(a.display_name)}</div>
+          <div class="af-catalog-sub">${esc(a.contact_email)}</div>
+          <div class="af-catalog-meta">${num(x.rows.length)} program${x.rows.length === 1 ? '' : 's'}</div>
+        </div>
+      </header>
+      ${x.rows.map((r) => membership(r, r.id === addOn)).join('')}
+    </article>`;
+  };
+  const affChips = endedP.length ? [['current', 'Current', currentP.length], ['ended', 'Ended', endedP.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
+  const affEmpty = S.affFilter === 'ended' ? 'No ended affiliates.' : endedP.length ? 'No current affiliates. Ended ones are under Ended.' : 'No affiliates yet. They appear here when someone you invite opens their signup link.';
   $('affiliatesBody').innerHTML = [
-    surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${affChips}${viewToggle()}</div>` : ''}${S.view === 'list'
+    surface('Affiliates', `${d.affiliates.length ? `<div class="af-ctl">${affChips}<span class="af-ctl-gap"></span>${viewToggle()}</div>` : ''}${S.view === 'list'
       ? table([
         { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
-        { left: true, h: 'Status', f: (a) => `${statusPill(a.status)}${stepsOf(a)}` },
+        ...(multiProg ? [{ left: true, h: 'Program', f: (a) => esc(progName(a.program_id)) }] : []),
+        { left: true, h: 'Status', f: (a) => affSignal(a) },
         { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
         { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
-        { h: '', f: (a) => actions(a) },
+        { h: '', f: (a) => affRowActions(a) },
       ], affShown, affEmpty)
-      : itemList(affShown, affiliateRow, affEmpty, 'grid')}<div id="affOut"></div>`, `${num(d.affiliates.length - ended.length)} in this program`),
-    MANAGE && needsStore(p) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Share to turn on affiliate links.</div>` : '',
+      : (multiProg ? itemList(shownP, personCard, affEmpty, 'grid') : itemList(affShown, affiliateRow, affEmpty, 'grid'))}<div id="affOut"></div>`, multiProg ? `${num(currentP.length)} ${currentP.length === 1 ? 'person' : 'people'} across ${num(S.programs.length)} programs` : `${num(d.affiliates.length - ended.length)} in this program`),
+    MANAGE && S.programs.some((x) => x.status !== 'closed' && needsStore(x)) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Share to turn on affiliate links.</div>` : '',
     // Product requests live in Records → Products, not People (Blake
     // 2026-11-18: "shouldn't go in people and shouldn't just become giant list").
     more('Products', [seedsCard()]),
     more('Codes and links', [
-      MANAGE ? card('All codes', itemList(d.codes, (c) => {
-        const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
-        const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
-        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : c.shopify_ended_at ? pill('off in Shopify')
+      // A hundred codes as stacked cards is a scroll with nothing lined up
+      // (audit finding 7). Same facts, as a table you can scan and sort.
+      MANAGE ? card('All codes', table([
+        { left: true, h: 'Code', sort: 'code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` },
+        { left: true, h: 'Person', sort: 'who', f: (c) => `${esc(d.affById[c.affiliate_id]?.display_name || '—')}${multiProg ? `<div class="af-muted">${esc(progName(c.program_id))}</div>` : ''}` },
+        { left: true, h: 'Made by', f: (c) => (c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} <span class="af-sub">${esc(Number(c.discount_percent))}% off</span>` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it') },
+        { left: true, h: 'Window', f: (c) => `<span class="af-sub">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</span>` },
+        { left: true, h: 'Seen', f: (c) => (c.verified_at ? `<span class="af-sub">${fmtDate(c.verified_at)}</span>` : '<span class="af-muted">never</span>') },
+        { h: '', f: (c) => `<div class="af-rowacts">${c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true })
+          : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}`
+          : c.shopify_ended_at ? pill('off in Shopify')
           : c.shopify_discount_id && MANAGE ? `${pill('retired')}${btn('Turn off in Shopify', 'code-end', { id: c.id }, 'surface')}${c.shopify_end_error ? `<span class="af-muted">${esc(c.shopify_end_error)}</span>` : ''}`
-          : pill('retired');
-        return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(c.code)}</span> · ${esc(d.affById[c.affiliate_id]?.display_name)}</div><div class="af-muted">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</div><div class="af-kv-line">${shop} · ${seen}</div></div><div class="af-item-foot">${act}</div></article>`;
-      }, 'No codes yet.')) : '',
+          : pill('retired')}</div>` },
+      ], recSortRows(d.codes, { code: (c) => String(c.code || '').toLowerCase(), who: (c) => String(d.affById[c.affiliate_id]?.display_name || '').toLowerCase() }), 'No codes yet.', recSortSpec())) : '',
     ]),
   ].join('');
 }
@@ -2519,7 +3401,10 @@ function shareItem(kind, srcId, title, sub, img, payload) {
 function shareRow(img, title, sub, action, extra = '') {
   return `<div class="af-srow" role="listitem">${img ? `<img class="af-srow-img" src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-srow-img af-srow-noimg"></span>'}<div class="af-srow-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}${extra}</div>${action ? `<div class="af-srow-act">${action}</div>` : ''}</div>`;
 }
-const shareList = (rows, emptyText) => (rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : empty(emptyText));
+const shareList = (rows, emptyText) => {
+  if (findWords().length) rows = rows.filter((h) => textHits(plainText(h)));
+  return rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : findEmpty(emptyText);
+};
 // Share shows the 10 most recent of each list (Blake 2026-11-18: "max
 // pagination at 10 most recent as default"); Show all opens the rest in place.
 const SHARE_CAP = 10;
@@ -2660,8 +3545,9 @@ async function orderLookup(q) {
   S.lookup = { q, loading: true }; renderPayoutsTab({ quiet: true });
   const variants = [q, `#${q}`];
   try {
-    const { data: at, error } = await db.from('affiliate_attributions').select('*').eq('company_entity_id', CO).eq('program_id', p.id)
-      .in('order_number', variants).limit(1);
+    let aq = db.from('affiliate_attributions').select('*').eq('company_entity_id', CO);
+    if (!companyMulti()) aq = aq.eq('program_id', p.id);
+    const { data: at, error } = await aq.in('order_number', variants).limit(1);
     if (error) throw error;
     const attr = (at || [])[0] || null;
     if (!attr) {
@@ -2711,11 +3597,34 @@ function commissionsBodyHtml() {
     // not the whole history, so the dates narrow what is here and both the
     // subtitle and the empty line keep saying so -- an older date is "not in
     // the latest 300", which is not the same as "nothing happened".
-    more('Every order', [card('Orders', `<div class="af-row">${rangePicker('ovo')}</div>${itemList(recWindow(d.attributions, (x) => x.order_day), attrRow, recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.')}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
+    // A table, not stacked cards (audit finding 7): same rows, lined up and
+    // sortable, four to a screen instead of two.
+    more('Every order', [card('Orders', `<div class="af-ctl">${rangePicker('ovo')}</div>${table([
+      { left: true, h: 'Order', sort: 'order', f: (r) => `<span class="af-mono">${esc(r.order_number || r.order_id)}</span><div class="af-sub">${fmtDate(r.order_day)}</div>` },
+      { left: true, h: 'Person', sort: 'who', f: (r) => esc(d.affById[r.affiliate_id]?.display_name || '—') },
+      { left: true, h: 'Code', f: (r) => `<span class="af-mono">${esc(r.matched_code || '—')}</span>` },
+      { left: true, h: 'Basis', f: (r) => (BASIS_LABELS[r.basis]?.earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))) },
+      { num: true, h: 'Base', sort: 'base', f: (r) => `${formatMoney(r.commissionable_cents, r.order_currency)}${r.codes_on_order > 1 ? `<div class="af-sub">${r.codes_on_order} codes on order</div>` : ''}` },
+      { h: '', f: (r) => `<div class="af-rowacts">${r.order_number ? btn('Explain', 'order-explain', { q: r.order_number }) : ''}</div>` },
+    ], recSortRows(recWindow(d.attributions, (x) => x.order_day), {
+      order: (r) => String(r.order_number || r.order_id || ''),
+      who: (r) => String(d.affById[r.affiliate_id]?.display_name || '').toLowerCase(),
+      base: (r) => Number(r.commissionable_cents || 0),
+    }), recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.', recSortSpec())}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Start', input('perStart', 'type="date"'))}${field('End', input('perEnd', 'type="date"'))}${btn('Open period', 'period-add', {}, 'primary')}</div>` : ''}`),
-      card('Commission ledger', `${itemList(recWindow(d.ledger, (x) => x.order_day || x.created_at), ledgerRow, recWin().custom ? 'No commission lines on those dates, within the latest 300.' : 'No commission lines yet.')}
+      card('Commission ledger', `${table([
+        { left: true, h: 'Person', sort: 'who', f: (l) => esc(d.affById[l.affiliate_id]?.display_name || '—') },
+        { left: true, h: 'Kind', f: (l) => `${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? `<div class="af-sub">${esc(l.order_id)}</div>` : ''}` },
+        { left: true, h: 'When', sort: 'when', f: (l) => `<span class="af-sub">${fmtTime(l.created_at)}</span>` },
+        { left: true, h: 'Why', f: (l) => (l.memo ? esc(l.memo) : '<span class="af-muted">—</span>') },
+        { num: true, h: 'Amount', sort: 'amount', f: (l) => formatMoney(l.amount_cents, l.currency) },
+      ], recSortRows(recWindow(d.ledger, (x) => x.order_day || x.created_at), {
+        who: (l) => String(d.affById[l.affiliate_id]?.display_name || '').toLowerCase(),
+        when: (l) => String(l.created_at || ''),
+        amount: (l) => Number(l.amount_cents || 0),
+      }), recWin().custom ? 'No commission lines on those dates, within the latest 300.' : 'No commission lines yet.', recSortSpec())}
       ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)}`, input('adjAmt', 'inputmode="decimal"'))}${field('Why', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need journal-entry approval.</p>'}`),
     ]),
   ].join('');
@@ -2726,7 +3635,7 @@ function renderPayoutsTab({ quiet = false } = {}) {
   if (!SEES_MONEY) { $('payoutsBody').innerHTML = card('Money', '<p class="af-muted" id="moneyHidden">Earnings and payouts are shown to Affiliate Studio managers and finance.</p>'); return; }
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
-  if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
+  if (!quiet && payProgs().some(paysByPaypal)) checkOpenAttemptsOnce();
 }
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
@@ -2832,6 +3741,9 @@ async function checkOpenAttemptsOnce() {
 }
 
 // The payouts "Send all approved" would actually send, in the order shown.
+// The programs Money is about: every one on a company tab, else the one picked.
+const payProgs = () => (companyMulti() ? S.programs : [prog()].filter(Boolean));
+const paysByPaypal = (x) => x?.payout_method === 'paypal_payouts';
 function sendablePayouts() {
   return (S.d.payouts || [])
     .filter((x) => x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status))
@@ -2839,7 +3751,11 @@ function sendablePayouts() {
 }
 
 function payoutPayHtml() {
-  const d = S.d; const p = prog();
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  // Each row's own program decides its currency and how it is paid.
+  const progFor = (r) => progOf(r) || p;
+  const curOf = (r) => progFor(r)?.currency;
+  const progTag = (r) => (multi ? ` · ${esc(progName(r.program_id))}` : '');
   const bal = d.balances.map((b) => ({ ...b, a: d.affById[b.affiliate_id] }));
   const act = (x) => {
     const b = [];
@@ -2863,7 +3779,7 @@ function payoutPayHtml() {
         b.push(btn(st.test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
       }
     }
-    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
+    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id, pg: x.program_id }));
     // Void is one quiet button; the reason box opens only once it is pressed
     // (Blake 2026-11-18: no always-on input boxes on Money).
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) {
@@ -2875,7 +3791,9 @@ function payoutPayHtml() {
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
-  const paypalRail = p.payout_method === 'paypal_payouts';
+  const paypalRail = payProgs().some(paysByPaypal);
+  const byHand = payProgs().filter((x) => !paysByPaypal(x));
+  const railBtns = (kind) => byHand.map((x) => btn(multi ? `Pay ${x.name} with PayPal` : 'Pay with PayPal instead', 'pp-use-rail', { pg: x.id }, kind, { confirm: true })).join('');
   const sendable = paypalRail ? sendablePayouts() : [];
   const sendTest = S.d.payConn?.environment !== 'live';
   const conn = d.payConn;
@@ -2906,8 +3824,8 @@ function payoutPayHtml() {
     // invisible until then (Blake, first run: "very hidden and bad UI UX").
     if (!paypalRail) {
       return MANAGE
-        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">This program pays by hand.</p>
-          <div class="af-row" style="margin-top:8px;">${btn('Pay with PayPal instead', 'pp-use-rail', {}, 'primary', { confirm: true })}</div>`)
+        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">${multi ? 'Your programs pay by hand.' : 'This program pays by hand.'}</p>
+          <div class="af-row" style="margin-top:8px;">${railBtns('primary')}</div>`)
         : '';
     }
     if (live) {
@@ -2919,7 +3837,8 @@ function payoutPayHtml() {
         : '';
       const state = conn.payouts_enabled === false ? pill('Payouts not enabled', 'warn') : conn.environment === 'live' ? pill('Live', 'pos') : pill('Sandbox', 'warn');
       return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${state}${conn.account_email ? `<span class="af-mono af-muted">${esc(conn.account_email)}</span>` : ''}</div>${sandbox}${warn}
-        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
+        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>${
+          multi && byHand.length && MANAGE ? `<p class="af-muted">Paid by hand: ${esc(byHand.map((x) => x.name).join(', '))}</p><div class="af-row">${railBtns('surface')}</div>` : ''}`);
     }
     if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
     // Live only (Blake 2026-11-18): the sandbox choice is gone from setup. A
@@ -2937,7 +3856,8 @@ function payoutPayHtml() {
   };
   const ppChip = (affId) => {
     const em = d.payEmailByAff[affId];
-    if (!paypalRail) return '';
+    const a = d.affById[affId];
+    if (!paysByPaypal(a ? progFor(a) : p)) return '';
     return em ? `<span class="af-pp-chip" title="Paid to this PayPal">${paypalMark('af-pp-chip-logo')}<span class="af-mono">${esc(em)}</span></span>`
       : '<span class="af-pp-chip af-pp-chip--none">No PayPal email yet</span>';
   };
@@ -2947,27 +3867,60 @@ function payoutPayHtml() {
   const balanceRow = (r) => {
     const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
     const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
-    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>`
+    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}`
       + `<div class="af-pay-owed"><span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span><span class="af-muted">owed</span></div>`
       + `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div>`
       + `<div class="af-muted af-pay-meter-cap">${formatMoney(paidC, r.currency)} paid of ${formatMoney(earned, r.currency)} earned</div>${ppChip(r.affiliate_id)}</div>`
-      + `<div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+      + `<div class="af-item-foot">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   };
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)}${progTag(x)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  // Export is a control of the whole list, so it sits in the header and is
+  // always there: greyed with the reason when there is nothing approved
+  // (audit finding 5 -- Blake could not find the payout CSV because it only
+  // existed once a payout was approved, at the foot of a card).
+  const exportBtn = MANAGE
+    ? btn(approved.length ? `Export CSV · ${num(approved.length)}` : 'Export CSV', 'payout-export', {}, approved.length && !sendable.length ? 'primary' : 'surface',
+      { confirm: !!approved.length, disabled: !approved.length, title: approved.length ? `Download ${plural(approved.length, 'approved payout')} as a CSV` : 'Nothing approved to export yet. Build a payout, approve it, and this downloads it as a CSV.' })
+    : '';
+  // Money opens with money (audit finding 4): what is owed, who is waiting
+  // and the payouts themselves. Connecting PayPal is a one-time setup step,
+  // so it sits under them -- with a chip up here while it is missing.
+  const connChip = paypalRail && !live && MANAGE
+    ? `<div class="bcn-status bcn-status--warn" id="payConnWanted">PayPal is not connected yet, so payouts cannot be sent. Connect it under Payout account below.</div>`
+    : '';
   return [
   moneyTop(),
-  payConnCard(),
-  surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), plural(bal.length, 'affiliate')),
+  connChip,
+  surface('Ready to pay', table([
+    { left: true, h: 'Affiliate', f: (r) => `<div class="af-list-who">${face(r.a)}<div>${esc(r.a?.display_name || '—')}${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}${ppChip(r.affiliate_id)}</div></div>` },
+    { num: true, h: 'Owed', f: (r) => `<span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span>` },
+    { left: true, h: 'Paid of earned', f: (r) => {
+      const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
+      const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
+      return `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div><div class="af-sub">${formatMoney(paidC, r.currency)} of ${formatMoney(earned, r.currency)}</div>`;
+    } },
+    { h: '', f: (r) => `<div class="af-rowacts">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div>` },
+  ], bal.filter((r) => Number(r.unclaimed_cents) > 0),
+    { text: 'Nothing waiting in a payout yet.', go: btn('See credited orders', 'go-tab', { t: 'records', k: 'orders' }) }), plural(bal.length, 'affiliate')),
   d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
     MONEY ? [['Approve selected', 'q-payout-ok', 'primary', { confirm: true }]] : [], ''), `${num(d.payouts.filter((x) => x.status === 'draft').length)} draft(s)`) : '',
   surface('Payouts', `${itemList(d.payouts.filter((x) => x.status !== 'draft'), payoutRow, 'No payouts yet.')}
-    ${MANAGE && (approved.length || sendable.length) ? `<div class="af-pay-actions">${
+    ${MANAGE && MONEY && sendable.length ? `<div class="af-pay-actions">${
       // Pay day is one button, not one per affiliate. Each payout is still its
       // own attempt, its own idempotency key and its own row -- the loop is in
       // the page, not in the payment -- so nothing about sending twice changes.
-      MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
-    }${approved.length ? btn(`Export ${plural(approved.length, 'approved payout')}`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
-  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+      btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true })
+    }</div>` : ''}`, '', '', exportBtn),
+  payConnCard(),
+  // Build payout lives on Money (audit finding 10); this is the record, so it
+  // reads rather than repeating the button.
+  more('Balances', [card('All balances', table([
+    { left: true, h: 'Affiliate', f: (r) => `${esc(r.a?.display_name || '—')}${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}` },
+    { left: true, h: 'Currency', f: (r) => `<span class="af-sub">${esc(r.currency)}</span>` },
+    { num: true, h: 'Earned', f: (r) => formatMoney(r.earned_cents, r.currency) },
+    { num: true, h: 'Unpaid', f: (r) => formatMoney(r.unclaimed_cents, r.currency) },
+    { num: true, h: 'Paid', f: (r) => formatMoney(r.paid_cents, r.currency) },
+  ], bal, 'Nothing earned yet.'), 'Build a payout on Money')]),
   ].join('');
 }
 
@@ -2976,8 +3929,7 @@ function payoutPayHtml() {
 // with "a search", which is a lie to somebody who has been buying from the
 // brand for years, and has no {orders_line} at all. The order facts come off
 // the prospect's evidence, which is where cust-add put them.
-const customerVars = (x) => {
-  const p = prog();
+const customerVars = (x, p = progOf(x) || prog()) => {
   const owner = S.profiles.find((u) => u.id === p.owner_user_id);
   return {
     name: x.display_name || 'there', brand: S.brand || p.name, program: p.name,
@@ -2989,11 +3941,15 @@ const customerVars = (x) => {
 // Which template and which variables a prospect's draft is written from.
 // Source decides it, everywhere a draft is written or rewritten, so no caller
 // can pitch a customer as a stranger.
-const draftFor = (x) => (x?.source === 'customer'
-  ? { tpl: customerOutreachTemplate(prog()), vars: customerVars(x) }
-  : { tpl: outreachTemplate(prog()), vars: outreachVars(x) });
-const outreachVars = (x) => {
-  const p = prog();
+// The prospect's OWN program writes it: on People the page holds every
+// program at once, and a message must never carry another program's terms.
+const draftFor = (x) => {
+  const p = progOf(x) || prog();
+  return x?.source === 'customer'
+    ? { tpl: customerOutreachTemplate(p), vars: customerVars(x, p) }
+    : { tpl: outreachTemplate(p), vars: outreachVars(x, p) };
+};
+const outreachVars = (x, p = progOf(x) || prog()) => {
   const owner = S.profiles.find((u) => u.id === p.owner_user_id);
   return {
     name: x.display_name || x.handle || 'there', brand: S.brand || p.name, program: p.name,
@@ -3010,7 +3966,16 @@ const outreachVars = (x) => {
 // ovPerAffiliate, ovReachOut and friends); this half only draws it, and only
 // from rows the page has already read under RLS.
 const OV_WEEKS = 12;
-const ovCur = () => (prog()?.currency || 'USD').toUpperCase();
+const ovCur = () => (companyMulti() ? mainCurrency() : (prog()?.currency || 'USD').toUpperCase());
+// Every currency the company's programs are in, the most common first. Money
+// is shown per currency and never summed across them, so a program in another
+// currency is not silently left out of a company figure (review cycle 1).
+function ovCurrencies() {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  const list = Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b));
+  return list.length ? list : [ovCur()];
+}
 const ovDay = (back) => dayShift(today(), back);
 // 30 / 90 / any two dates. The same control heads Home, Money and Records, so
 // one choice follows you between them.
@@ -3064,8 +4029,8 @@ const ovWindowLabel = () => {
   return w.custom ? `${fmtDate(w.from)} – ${fmtDate(w.to)}` : `last ${num(w.days)} days`;
 };
 // Whole currency units, for the big figures. Exact amounts stay on Pay.
-function moneyRound(cents) {
-  const cur = ovCur();
+function moneyRound(cents, currency = null) {
+  const cur = (currency || ovCur() || 'USD').toUpperCase();
   if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return '—';
   const v = Number(cents) / minorUnits(cur);
   try {
@@ -3176,8 +4141,10 @@ function ovLeaderboard(list) {
       + `<div class="af-ov-who"><div class="af-ov-nm">${esc(a.display_name)}</div>`
       + `<div class="af-ov-hd">${esc(sub || '—')}</div>`
       + `<div class="af-ov-bar"><i style="width:${Math.round((x.sales / top) * 100)}%"></i></div></div>`
-      + `<div class="af-ov-money">${esc(moneyRound(x.sales))}<span>${esc(ovPlural(x.orders, 'order'))}</span></div>`
-      + `<div class="af-ov-money af-ov-money--comm">${esc(moneyRound(x.comm))}<span>commission</span></div>`
+      // Money in a list carries its cents; only the KPI tiles round (audit
+      // finding 12 -- the same screen showed $44.09, $44 and $4).
+      + `<div class="af-ov-money">${esc(formatMoney(x.sales, ovCur()))}<span>${esc(ovPlural(x.orders, 'order'))}</span></div>`
+      + `<div class="af-ov-money af-ov-money--comm">${esc(formatMoney(x.comm, ovCur()))}<span>commission</span></div>`
       + `<div class="af-ov-when">${esc(last)}</div></div>`;
   }).join('');
   const seg = [['sales', 'Sales'], ['orders', 'Orders'], ['growth', 'Growth']]
@@ -3214,28 +4181,31 @@ const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-co
 const shopifyMark = (cls = '') => `<svg class="af-flow-shopify ${cls}" viewBox="0 0 24 24" aria-hidden="true"><use href="../../assets/landing/integration-icons.svg#icon-shopify"></use></svg>`;
 const paypalMark = (cls = '') => `<img class="af-flow-paypal ${cls}" src="${PAYPAL_MARK}" alt="PayPal" width="74" height="20" loading="lazy" />`;
 function moneyTop() {
-  const d = S.d; const p = prog();
-  if (!d || !p || !Array.isArray(d.ovLedger)) return '';
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  if (!d || (!p && !multi) || !Array.isArray(d.ovLedger)) return '';
+  const cur = ovCur();
   const w = ovWindows();
   const sales = Array.isArray(d.ovAttributions) ? ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() }) : null;
   const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const owed = ovUnpaid(d.balances, p.currency);
-  const toPay = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const owed = ovUnpaid(d.balances, cur);
+  const toPay = (d.balances || []).filter((b) => b.currency === cur && Number(b.unclaimed_cents) > 0).length;
   // Paid is counted over the SAME window as sales and commission, custom
   // range included -- not over a rolling N days of its own.
-  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency
+  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === cur
     && x.marked_paid_at && String(x.marked_paid_at).slice(0, 10) >= w.from && String(x.marked_paid_at).slice(0, 10) <= w.to);
   const paid = paidRows.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === p.currency);
+  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === cur);
   const flightCents = inFlight.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const viaPaypal = p.payout_method === 'paypal_payouts';
+  const viaPaypal = multi ? S.programs.every(paysByPaypal) : paysByPaypal(p);
   const stage = (mark, label, value, sub, tone = '') => `<div class="af-flow-step${tone ? ` af-flow-step--${tone}` : ''}"><div class="af-flow-mark">${mark}</div><div class="af-flow-lab">${esc(label)}</div><div class="af-flow-val">${value}</div><div class="af-flow-sub">${sub}</div></div>`;
-  const arrow = '<div class="af-flow-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>';
+  // The arrows went with the pastel tiles (audit finding 6): a KPI band
+  // reads as one row without them.
+  const arrow = '';
   const icon = (path) => `<svg class="af-flow-ico" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   return `<section class="af-flow" aria-label="Where the money is, last ${num(w.days)} days">
     ${stage(shopifyMark(), 'Sales from codes', sales ? esc(moneyRound(sales.sales)) : '—', sales ? `${esc(ovPlural(sales.orders, 'order'))} in Shopify` : 'Shopify')}
     ${arrow}
-    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(rateShort(p)), 'pos')}
+    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(multi ? `${num(S.programs.length)} programs` : rateShort(p)), 'pos')}
     ${arrow}
     ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${esc(plural(inFlight.length, 'payout'))}` : ''}`, owed > 0 ? 'warn' : '')}
     ${arrow}
@@ -3293,51 +4263,78 @@ function firstInviteCard(d, p) {
   return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
 }
 function renderOverview() {
-  const el = $('overviewBody'); const d = S.d; const p = prog();
-  if (!el || !d || !p) return;
+  const el = $('overviewBody'); const d = S.d;
+  // One layout at any number of programs (audit finding 9, 2026-11-25). The
+  // company view reads every program already, so the numbers, the chart and
+  // the leaderboard are the same ones summed; `p` is null and anything that
+  // describes a single program leaves itself out.
+  const multi = companyMulti();
+  const p = multi ? null : prog();
+  if (!el || !d || (!p && !multi)) return;
+  if (d.all) { renderAllHome(); return; }
   if (d.ovAttributions === null || d.ovLedger === null) {
     el.innerHTML = card('Overview', `<p>The order and commission history did not load, so none of these numbers are shown. Reload, or open Affiliates and Pay for the same data.</p>${btn('Reload', 'ov-reload')}`);
     return;
   }
   const w = ovWindows();
-  const cur = ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
-  const prev = ovWindow(d.ovAttributions, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
-  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  // One currency for a program; every currency the company's programs use for
+  // the company view. Money is listed per currency, counts are the company's.
+  const curs = multi ? ovCurrencies() : [ovCur()];
+  const mixed = curs.length > 1;
+  const win = (c, back = false) => ovWindow(d.ovAttributions, { from: back ? w.prevFrom : w.from, to: back ? w.prevTo : w.to, currency: c });
+  const cur = curs.map((c) => win(c));
+  const prev = curs.map((c) => win(c, true));
+  const comm = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: c }));
+  const commPrev = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: c }));
+  const sumOf = (list, k) => list.reduce((n, x) => n + Number(x[k] || 0), 0);
+  const orders = sumOf(cur, 'orders'); const ordersPrev = sumOf(prev, 'orders');
+  const sellers = new Set(cur.flatMap((x) => x.sellers)).size;
+  const sellersPrev = new Set(prev.flatMap((x) => x.sellers)).size;
+  // One figure per currency, joined -- never one number standing for two.
+  const perCur = (vals) => curs.map((c, i) => moneyRound(vals[i], c)).join(' · ');
   const active = d.affiliates.filter((a) => a.status === 'active').length;
   const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  // A trend line can only be drawn in one currency; it says which.
+  const sparkNote = mixed ? `<span>${esc(`trend in ${ovCur()}`)}</span>` : '';
+  const avgOrder = orders && !mixed ? moneyRound(cur[0].sales / cur[0].orders, curs[0]) : '';
   const metrics = [
-    ovMetricCard('Sales from codes', moneyRound(cur.sales),
-      `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
+    ovMetricCard('Sales from codes', perCur(cur.map((x) => x.sales)),
+      `${mixed ? '' : ovDelta(cur[0].sales, prev[0].sales)}<span>vs previous ${num(w.days)} days</span>${sparkNote}`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
-    ovMetricCard('Commission earned', SEES_MONEY ? moneyRound(comm) : '—',
-      `${ovDelta(comm, commPrev)}<span>${esc(rateShort(p))}</span>`,
+    ovMetricCard('Commission earned', SEES_MONEY ? perCur(comm) : '—',
+      `${mixed ? '' : ovDelta(comm[0], commPrev[0])}<span>${esc(p ? rateShort(p) : ovPlural(S.programs.length, 'program'))}</span>`,
       ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
-    ovMetricCard('Orders', num(cur.orders),
-      `${ovDelta(cur.orders, prev.orders)}<span>${esc(moneyRound(cur.orders ? cur.sales / cur.orders : 0))} average order</span>`,
+    ovMetricCard('Orders', num(orders),
+      `${ovDelta(orders, ordersPrev)}<span>${esc(avgOrder ? `${avgOrder} average order` : `${num(curs.length)} currencies`)}</span>`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? 1 : 0) }), 'accent')),
-    ovMetricCard('Selling affiliates', num(cur.sellers.length),
-      `${ovDelta(cur.sellers.length, prev.sellers.length)}<span>of ${num(active)} active</span>`,
+    ovMetricCard('Selling affiliates', num(sellers),
+      `${ovDelta(sellers, sellersPrev)}<span>of ${num(active)} active</span>`,
       ovSpark(ovWeeklySellers(d.ovAttributions, opt), 'warn')),
   ].join('');
-  const owedCents = ovUnpaid(d.balances, p.currency);
+  const owedLine = curs.map((c) => money(ovUnpaid(d.balances, c), c)).join(' · ');
   const liveCodes = d.codes.filter((c) => c.status === 'active').length;
-  const otherCur = ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
+  // Orders in a currency NO program of this company is in: still not counted
+  // above, so the band says how many there are.
+  const inScope = new Set(curs);
+  const otherCur = mixed
+    ? new Set((d.ovAttributions || []).filter((r) => r?.order_day && r.order_day >= w.from && r.order_day <= w.to
+      && !inScope.has(String(r.order_currency || curs[0]).toUpperCase())).map((r) => r.order_id)).size
+    : ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: curs[0] });
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission unpaid', SEES_MONEY ? esc(money(owedCents)) : '—')
+    + bandItem('Commission unpaid', SEES_MONEY ? esc(owedLine) : '—')
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
     + bandItem('Commissions updated', esc(lastLedger ? fmtTime(lastLedger) : 'not yet'))
     + '</div>';
-  el.innerHTML = firstInviteCard(d, p)
+  el.innerHTML = (p ? firstInviteCard(d, p) : '')
     + `<div class="af-row"><span class="af-muted" style="flex:1;">${esc(w.custom ? `${fmtDate(w.from)} to ${fmtDate(w.to)}` : `Last ${num(w.days)} days, through today`)}</span>${rangePicker('ovh')}</div>`
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
-    + `<div>${ovTodoCard()}${ovAutoCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
+    + `<div>${p ? `${ovTodoCard()}${ovAutoCard()}` : byProgramCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
 }
 
 // The program row the Setup form describes, validated. Throws the reasons.
@@ -3354,7 +4351,7 @@ function programRowFromForm() {
 }
 
 const A = {
-  'new-program': () => { S.creating = true; S.tab = 'program'; render(); },
+  'new-program': async () => { S.creating = true; await goTab('program'); render(); },
   'cancel-new': () => { S.creating = false; render(); },
   'save-program': async () => {
     const row = programRowFromForm();
@@ -3393,6 +4390,8 @@ const A = {
   },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'share-all': () => { S.shareAll = true; renderShare(); return null; },
+  // The rest of the stores, on the page beside the ones already chosen.
+  'stores-all': () => { S.storesAll = true; keepFields('programBody', () => renderProgram()); return null; },
   'share-tab': ({ k }) => { S.shareTab = k; S.shareAll = false; renderShare(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
@@ -3436,7 +4435,23 @@ const A = {
   // Every prospect in the view, not only the cards on screen.
   'prospect-select-all': () => { for (const id of S.viewIds || []) S.sel.add(id); render(); return null; },
   'prospect-select-none': () => { S.sel.clear(); render(); return null; },
-  'prospect-bulk': async ({ s }) => bulkProspects([...S.sel], s),
+  'prospect-bulk': async ({ s }) => bulkProspects(pickedProspectRows(s), s),
+  // Push the people ticked into another program, shortlisted there.
+  'prospect-bulk-assign': async ({ to }) => {
+    const p = S.programs.find((x) => x.id === to);
+    if (!p) throw new Error('Pick a program first.');
+    if (S.d?.supUnknown) throw new Error('The do-not-contact list could not be read, so nobody was added. Reload and try again.');
+    let added = 0; let already = 0; let blocked = 0; let failed = 0;
+    for (const id of S.sel) {
+      const g = S.viewPeople?.[id];
+      if (!g) continue;
+      if (g.suppressed) { blocked += 1; continue; }
+      if (g.programIds.includes(to)) { already += 1; continue; }
+      try { await assignToProgram(g.x.id, to, 'approved'); added += 1; } catch { failed += 1; }
+    }
+    S.sel.clear();
+    return `Added ${num(added)} to ${p.name}, shortlisted.${already ? ` ${num(already)} already there.` : ''}${blocked ? ` ${num(blocked)} on do not contact.` : ''}${failed ? ` ${num(failed)} could not be added.` : ''}`;
+  },
   // Queues: tick one, tick all, then act on the ticked rows.
   'q-pick': ({ q, id }) => { const sel = qsel(q); if (sel.has(id)) sel.delete(id); else sel.add(id); render(); return null; },
   'q-all': ({ q }) => { const sel = qsel(q); const ids = QROWS[q] || []; if (ids.length && ids.every((id) => sel.has(id))) sel.clear(); else ids.forEach((id) => sel.add(id)); render(); return null; },
@@ -3599,18 +4614,45 @@ const A = {
     return on === '1' ? 'Payouts go out every Friday.' : 'Each payout waits for approval again.';
   },
   // From the all-programs view into one program, on the tab asked for.
+  'pick-prog': async ({ id }) => { await setProgram(id); return null; },
+  // Discovery's filter row and sortable headers. The first press on a number
+  // sorts biggest first, on a word A to Z; pressing it again flips it.
+  'd-filter': ({ key, v }) => {
+    const F = (S.dFilt ||= { plat: '', prog: '', email: false, minF: 0 });
+    F[key] = key === 'email' ? v === 'true' : key === 'minF' ? Number(v) || 0 : v;
+    S.sel.clear(); S.prospectShowAll = false; render(); return null;
+  },
+  'd-filter-clear': () => { S.dFilt = { plat: '', prog: '', email: false, minF: 0 }; S.sel.clear(); render(); return null; },
+  // The filter panel is a panel, not a fold-out menu: it stays open until it
+  // is closed, and it opens itself whenever a filter is on.
+  // Find creators opens its two fields; it never runs a search on its own.
+  'd-find-open': () => { S.dFindOpen = !(S.dFindOpen === undefined ? false : S.dFindOpen); keepFields('prospectsBody', render); return null; },
+  'd-filter-open': () => {
+    const F = S.dFilt || {};
+    const open = S.dFiltOpen === undefined ? !!(F.plat || F.prog || F.email || F.minF) : !!S.dFiltOpen;
+    S.dFiltOpen = !open;
+    keepFields('prospectsBody', render);
+    return null;
+  },
+  'rec-sort': ({ k }) => { S.recSort = S.recSort?.k === k ? { k, dir: -S.recSort.dir } : { k, dir: 1 }; render(); return null; },
+  'd-sort': ({ k }) => {
+    const first = ['followers', 'engagement'].includes(k) ? -1 : 1;
+    S.dSort = S.dSort?.k === k ? { k, dir: -S.dSort.dir } : { k, dir: first };
+    render(); return null;
+  },
   'pick-program': async ({ id, t }) => {
     await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
   },
-  'go-tab': ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); S.tab = PANEL_OF[t] || t; S.creating = false; render(); workflowFocusTab(t); },
+  'go-tab': async ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); await goTab(PANEL_OF[t] || t); S.creating = false; render(); workflowFocusTab(t); },
   'prospect-more': ({ id }) => { S.moreProspect = id; render(); return null; },
-  'people-sub': ({ k }) => { S.peopleSub = ['discovery', 'customers'].includes(k) ? k : 'affiliates'; S.tab = 'people'; render(); return null; },
+  'aff-more': ({ id }) => { S.moreAffiliate = id; S.affTool = null; render(); return null; },
+  'people-sub': async ({ k }) => { S.peopleSub = ['discovery', 'customers'].includes(k) ? k : 'affiliates'; await goTab('people'); render(); return null; },
   // Re-ranking and paging are reads, so they return null: no status line, no
   // reload() of the whole program.
   'cust-sort': ({ k }) => { const c = custState(); c.sort = k; c.page = 0; loadCustomers(true); return null; },
   'cust-pick': ({ k }) => { const c = custState(); if (c.sel.has(k)) c.sel.delete(k); else c.sel.add(k); renderCustomers(); return null; },
-  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (x.email_lc && !customerSuppressed(x.email_lc, S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
+  'cust-select-all': () => { const c = custState(); for (const x of c.rows) if (customerContactPath(x, c.social[x.customer_key], S.d?.suppressions || [])) c.sel.add(x.customer_key); renderCustomers(); return null; },
   'cust-select-none': () => { custState().sel.clear(); renderCustomers(); return null; },
   // Picked customers enter the SAME outreach flow a creator does: a prospect
   // row and a draft, and nothing else differs after this point. The draft is
@@ -3632,19 +4674,40 @@ const A = {
     // `affiliate_prospects_customer_identity`, and a row it refuses is
     // adopted below rather than reported as a failure.
     const pid = new Map();
+    // This program's rows only: the page holds every program's on People,
+    // and a customer in another program is somebody to add HERE, not reuse.
     for (const x of (S.d?.prospects || [])) {
       const e = String(x.contact_email || '').toLowerCase();
-      if (e && x.source === 'customer' && !pid.has(e)) pid.set(e, x.id);
+      if (e && x.source === 'customer' && x.program_id === p.id && !pid.has(e)) pid.set(e, x.id);
     }
     // A prospect whose draft is missing -- the second write of the pair
     // failed last time -- must be FINISHED on a retry, not reported as
     // already in the program. There is no transaction from the browser, so
     // resuming is what makes the pair safe to retry.
     const drafted = new Set((S.d?.drafts || []).map((x) => x.prospect_id));
-    const picked = c.rows.filter((x) => c.sel.has(x.customer_key) && x.email_lc);
-    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0;
+    // Consent as it is NOW, not as it was when the list loaded: a sync can
+    // turn somebody unsubscribed while the page is open, and they must never
+    // get an email draft. A failed read stops the press (fails closed).
+    const picked0 = c.rows.filter((x) => c.sel.has(x.customer_key));
+    const nowConsent = new Map();
+    for (let i = 0; i < picked0.length; i += 150) {
+      const part = picked0.slice(i, i + 150).map((x) => x.customer_key);
+      const r = await db.from('company_customer_profiles').select('customer_key, email_consent_state')
+        .eq('company_entity_id', CO).in('customer_key', part);
+      if (r.error) throw new Error('Could not re-check their email consent, so nothing was added. Try again.');
+      for (const row of r.data || []) nowConsent.set(row.customer_key, row.email_consent_state ?? null);
+    }
+    // Somebody no longer on file is not added.
+    const picked = picked0.filter((x) => nowConsent.has(x.customer_key))
+      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));
+    let added = 0; let resumed = 0; let skippedSup = 0; let skippedDupe = 0; let failed = 0; let noWay = picked0.length - picked.length; let dms = 0;
     for (const x of picked) {
-      if (customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
+      if (x.email_lc && customerSuppressed(x.email_lc, sup)) { skippedSup += 1; continue; }
+      // The consent tag decides the path: email where it allows, otherwise a
+      // DM to the matched account, which SILO never sends. Nobody
+      // unsubscribed ever gets an email draft.
+      const path = customerContactPath(x, c.social[x.customer_key] || null, sup);
+      if (!path) { noWay += 1; continue; }
       try {
         const row = customerProspectRow({ customer: x, social: c.social[x.customer_key] || null });
         let id = pid.get(x.email_lc) || null;
@@ -3682,11 +4745,11 @@ const A = {
             .eq('company_entity_id', CO).eq('prospect_id', id).limit(1)) || []).length > 0;
           if (has) { drafted.add(id); skippedDupe += 1; continue; }
         }
-        const { tpl, vars } = draftFor({ ...row, id });
+        const { tpl, vars } = draftFor({ ...row, id, program_id: p.id });
         try {
           must(await db.from('affiliate_outreach_drafts').insert({
-            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: 'email',
-            recipient_email: x.email_lc, recipient_handle: null,
+            company_entity_id: CO, program_id: p.id, prospect_id: id, channel: path.channel,
+            recipient_email: path.email, recipient_handle: path.handle,
             subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
           }));
         } catch (e) {
@@ -3697,15 +4760,18 @@ const A = {
           drafted.add(id); skippedDupe += 1; continue;
         }
         drafted.add(id);
+        if (path.channel === 'dm') dms += 1;
         if (fresh) added += 1; else resumed += 1;
       } catch (_) { failed += 1; }
     }
     c.sel.clear();
     loadCustomers(true);
-    const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created`];
+    const bits = [`${num(added)} draft${added === 1 ? '' : 's'} created in ${p.name}`];
     if (resumed) bits.push(`${num(resumed)} message${resumed === 1 ? '' : 's'} finished from an earlier attempt`);
     if (skippedDupe) bits.push(`${num(skippedDupe)} already in the program`);
+    if (dms) bits.push(`${num(dms)} unsubscribed, so a DM to send by hand`);
     if (skippedSup) bits.push(`${num(skippedSup)} on your do-not-contact list`);
+    if (noWay) bits.push(`${num(noWay)} with no way to reach them`);
     if (failed) bits.push(`${num(failed)} could not be added`);
     return `${bits.join(' · ')}. Approve them on Outreach.`;
   },
@@ -3726,15 +4792,29 @@ const A = {
     // ticked customer is added to outreach.
     const spec = customerQuerySpec(c);
     const out = await invoke('affiliate-research', {
-      action: 'customer_scan', count: c.scanCount,
+      action: 'customer_scan', finds: c.scanCount,
+      // Saved as the company's own niche words with the press (not sent
+      // until the box has been read, so an unread box never clears them).
+      ...(c.scanTerms === null ? {} : { terms: c.scanTerms }),
       filters: { sort: spec.sort, minOrders: spec.minOrders, consent: spec.consent, from: spec.from, to: c.to || null },
     });
-    await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => {});
+    if (c.view === 'hunt') {
+      const h = await readHunt(c.huntTier).catch(() => null);
+      if (h) applyHunt(c, h);
+    } else await loadSocial(c, c.rows.map((x) => x.customer_key)).catch(() => {});
     if (!c.scan || c.scan.status !== 'running') c.scan = { status: 'running', requested: 0, checked: 0, found: 0 };
     renderCustomers();
     pollScan();
+    if (c.view === 'hunt') return out?.joined ? 'A search is already running. Its progress is below.' : 'Searching. Finds appear below as they come back.';
     return out?.joined ? 'A scan is already running. Its progress is below.' : 'Scanning. Results fill in on this list as they come back.';
   },
+  'cust-filter-open': () => {
+    const c = custState(); const spec = customerQuerySpec(c);
+    const on = S.custFiltOpen === undefined ? custFiltersOn(c, spec).length > 0 : !!S.custFiltOpen;
+    S.custFiltOpen = !on; renderCustomers(); return null;
+  },
+  'cust-view': ({ k }) => { const c = custState(); c.view = k === 'all' ? 'all' : 'hunt'; c.sel.clear(); c.page = 0; loadCustomers(true); return null; },
+  'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = ['check', 'more'].includes(k) ? k : 'top'; c.sel.clear(); loadCustomers(true); return null; },
   'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
   'prospect-show-all': () => { S.prospectShowAll = true; render(); scrollWorkflowTo('afCreatorsList'); return null; },
   'prospect-show-fewer': () => { S.prospectShowAll = false; render(); scrollWorkflowTo('afCreatorsList'); return null; },
@@ -3764,6 +4844,8 @@ const A = {
   },
   'aff-tool': async ({ id, k }) => {
     S.affTool = { id, k };
+    // Opened from the More menu, this replaces it rather than hiding behind it.
+    S.moreAffiliate = null;
     // Their other memberships, for the add-to-program dialog only. Fail-soft:
     // null is "could not read", and the dialog then behaves as it did before.
     if (k === 'program') {
@@ -3798,6 +4880,12 @@ const A = {
   },
   'add-creators': () => { S.addCreators = !S.addCreators; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'add-creators-close': () => { S.addCreators = false; render(); return null; },
+  'prospect-assign': async ({ id, to }) => {
+    if (S.d?.supUnknown) throw new Error('The do-not-contact list could not be read, so nobody was added. Reload and try again.');
+    const p = S.programs.find((x) => x.id === to);
+    await assignToProgram(id, to, 'approved');
+    return `Added to ${p?.name || 'the program'} and shortlisted. Draft their message from Shortlisted.`;
+  },
   'prospect-edit': ({ id }) => { S.editProspect = id; render(); scrollWorkflowTo('prospectsBody'); return null; },
   'prospect-edit-close': () => { S.editProspect = null; render(); return null; },
   'prospect-save': async ({ id }) => {
@@ -3807,7 +4895,9 @@ const A = {
     // A creator who now has an email is reached by email: their waiting
     // message moves from DM to email. Sent ones keep their history.
     let moved = 0;
-    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()) {
+    if (row.contact_email && row.contact_email !== (x.contact_email || '').toLowerCase()
+      // ...unless they are a customer who unsubscribed: they stay on DM.
+      && (await prospectContact({ ...x, ...row }))?.channel === 'email') {
       const r = must(await db.from('affiliate_outreach_drafts').update({ channel: 'email', recipient_email: row.contact_email })
         .eq('company_entity_id', CO).eq('prospect_id', id).in('state', ['draft', 'approved']).select('id'));
       moved = r?.length || 0;
@@ -3847,6 +4937,7 @@ const A = {
   },
   'research-run': async () => {
     const out = await invoke('affiliate-research', { action: 'research', program_id: S.programId, focus: $('rsFocus')?.value || '', count: Number(val('rsCount')) || 25 });
+    S.findFocus = '';
     watchResearch(out.run_id);
     return 'Research started. It takes a few minutes; new creators appear in Prospects when it finishes.';
   },
@@ -3891,7 +4982,7 @@ const A = {
     const x = S.d.prospectById[id]; if (!x) return null;
     const at = new Date().toISOString();
     must(await db.from('affiliate_outreach_drafts').insert({
-      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
+      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
       recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
       subject: null, body: 'Contacted outside SILO.', created_by: me.id, state: 'sent',
       approved_by: me.id, approved_at: at, sent_marked_by: me.id, sent_marked_at: at, sent_evidence: 'Contacted by hand',
@@ -3900,11 +4991,14 @@ const A = {
   },
   'draft-create': async ({ id }) => {
     // A customer prospect appears on the creators list too, so this path
-    // picks its template by source as well.
+    // picks its template by source as well -- and its channel by their
+    // CURRENT consent: an unsubscribed customer gets a DM, never an email.
     const x = S.d.prospectById[id]; const { tpl, vars } = draftFor(x);
+    const path = await prospectContact(x);
+    if (!path) throw new Error('No way to reach them: no email they allow, and no account to message.');
     must(await db.from('affiliate_outreach_drafts').insert({
-      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: x.contact_email ? 'email' : 'dm',
-      recipient_email: x.contact_email || null, recipient_handle: x.contact_email ? null : (x.handle || x.profile_url),
+      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,
+      recipient_email: path.email, recipient_handle: path.handle,
       subject: fillTemplate(tpl.subject, vars), body: fillTemplate(tpl.body, vars), created_by: me.id,
     }));
     return 'Draft created. Approve it on Outreach.';
@@ -4008,6 +5102,27 @@ const A = {
     if (!rows.length) return 'Nothing is waiting in that batch.';
     const missing = await deliverBatch(id, rows, b?.exported_at || new Date().toISOString());
     return `Downloaded ${rows.length}.${missing ? ` ${missing} have no personal link; the file says why.` : ''} Send them, then mark each one sent.`;
+  },
+  // View as rep (Blake 2026-11-24): their own portal, read-only, in a new
+  // tab. A one-hour preview link made for this press: the raw link is made
+  // here and only its hash is stored, it never replaces or resets the rep's
+  // own links, and the server refuses every change it asks for. The tab is
+  // opened inside the click, before anything is awaited, so the browser does
+  // not block it as a pop-up.
+  'view-as-rep': async ({ id }) => {
+    const w = window.open('', '_blank');
+    try {
+      const raw = previewToken();
+      must(await db.rpc('affiliate_issue_preview_token', { p_affiliate_id: id, p_token_hash: await sha256Hex(raw) }));
+      const url = new URL('portal.html', location.href);
+      url.searchParams.set('view', 'rep');
+      url.searchParams.set('t', raw);
+      if (!w) { setStatus('Your browser blocked the new tab. Allow pop-ups for SILO and press View as rep again.', 'neg'); return null; }
+      w.opener = null;
+      w.location.replace(url.toString());
+      setStatus('Opened their portal in a new tab. Read-only, for one hour.', 'pos', 5000);
+      return null;
+    } catch (e) { w?.close(); throw e; }
   },
   'portal-link': async ({ id }) => {
     const out = await invoke('affiliate-invite', { action: 'portal_link', affiliate_id: id, email: true });
@@ -4284,18 +5399,28 @@ const A = {
   // Everything the file needs is captured BEFORE the first await: switching
   // program while the claim is in flight must not label program A's payouts
   // with program B's name and affiliates (review cycle 2).
+  // On a company tab every program's approved payouts go out at once: one
+  // claim and one file per program, since a claim, its batch and its
+  // checksum belong to one program.
   'payout-export': async () => {
-    const programId = S.programId; const slug = prog().slug; const affById = S.d.affById;
-    const ids = S.d.payouts.filter((x) => x.status === 'approved').map((x) => x.id);
-    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
-    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
-    download(`payouts-${slug}-${today()}.csv`, csv);
-    const skipped = (r.skipped || []).length;
-    const done = `Exported ${(r.payouts || []).length}${skipped ? ` (${skipped} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
-    // The payouts are already exported and the file is downloaded; a missing
-    // fingerprint only loses the file's checksum, so say so rather than fail.
-    try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { return `${done} The file's checksum was not saved (${e.message}).`; }
-    return done;
+    const approved = S.d.payouts.filter((x) => x.status === 'approved');
+    const jobs = companyMulti()
+      ? [...new Set(approved.map((x) => x.program_id))].map((id) => ({ programId: id, slug: S.programs.find((y) => y.id === id)?.slug || 'program', ids: approved.filter((x) => x.program_id === id).map((x) => x.id) }))
+      : [{ programId: S.programId, slug: prog().slug, ids: approved.map((x) => x.id) }];
+    const affById = S.d.affById;
+    let n = 0; let skippedN = 0; const notes = [];
+    for (const { programId, slug, ids } of jobs) {
+      const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
+      const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
+      download(`payouts-${slug}-${today()}.csv`, csv);
+      n += (r.payouts || []).length; skippedN += (r.skipped || []).length;
+      // The payouts are already exported and the file is downloaded; a missing
+      // fingerprint only loses the file's checksum, so say so rather than fail.
+      try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { notes.push(`The file's checksum was not saved (${e.message}).`); }
+    }
+    const files = jobs.length > 1 ? ` in ${num(jobs.length)} files, one per program` : '';
+    const done = `Exported ${n}${files}${skippedN ? ` (${skippedN} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
+    return notes.length ? `${done} ${notes[0]}` : done;
   },
   // Download a claimed export again (a lost or blocked download). Nothing is
   // re-marked; the payouts still waiting to be paid in that batch come back.
@@ -4351,7 +5476,7 @@ function voidToggle(id, open) {
 // click arms the button for four seconds.
 document.addEventListener('click', async (ev) => {
   const tab = ev.target.closest('#tabs [data-tab]');
-  if (tab) { S.tab = PANEL_OF[tab.dataset.tab] || tab.dataset.tab; S.creating = false; render(); workflowFocusTab(tab.dataset.tab); return; }
+  if (tab) { await goTab(PANEL_OF[tab.dataset.tab] || tab.dataset.tab); S.creating = false; render(); workflowFocusTab(tab.dataset.tab); return; }
   const b = ev.target.closest('[data-act]');
   if (!b || b.disabled) return;
   if (b.dataset.confirm && !b.dataset.armed) {
@@ -4360,6 +5485,12 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   const fn = A[b.dataset.act]; if (!fn) return;
+  // People lists every program at once, so a button there works in the
+  // program of the row it sits on. Later steps (a dialog's Save) keep it.
+  if (companyScope()) {
+    const pg = ctxProgram(b.dataset);
+    if (pg && pg !== S.programId) { S.programId = pg; if ($('programSel')) $('programSel').value = pg; }
+  }
   b.disabled = true;
   try {
     const msg = await fn({ ...b.dataset });
@@ -4386,12 +5517,42 @@ document.addEventListener('click', async (ev) => {
     renderDialog();
   }
 });
+// "Add to program…" on a person's row: picking a program adds them to it,
+// exactly as the Add to button did.
+document.addEventListener('change', async (ev) => {
+  const sel = ev.target.closest?.('select.af-addto');
+  if (!sel || !sel.value) return;
+  const to = sel.value;
+  // Like any People button, it works in the program of the row it sits on.
+  const pg = ctxProgram({ id: sel.dataset.id });
+  if (pg && pg !== S.programId) { S.programId = pg; if ($('programSel')) $('programSel').value = pg; }
+  sel.disabled = true;
+  try {
+    const msg = await A['prospect-assign']({ id: sel.dataset.id, to });
+    if (typeof msg === 'string') { setStatus(msg, 'pos', 5000); await reload(); }
+  } catch (e) {
+    setStatus(friendly(e), 'neg');
+  } finally {
+    sel.disabled = false; sel.value = '';
+  }
+});
 // Escape, the backdrop and the browser's own close all mean the same thing:
 // nothing is open any more, so the state that opened it is cleared too.
 $('afDialog')?.addEventListener('close', () => { if (S.dlgKey) { closeDialogState(); S.dlgKey = null; render(); } });
 $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog')) $('afDialog').close(); });
-$('programSel').addEventListener('change', async (e) => { await flushProgramSave(); S.programId = e.target.value; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); });
+async function setProgram(id) { await flushProgramSave(); S.programId = id; if ($('programSel')) $('programSel').value = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); }
+$('programSel').addEventListener('change', (e) => setProgram(e.target.value));
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
+// Typing redraws the tab a beat after the last key; Escape clears it.
+let findTimer = null;
+$('studioQ')?.addEventListener('input', (e) => {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(() => { S.find = e.target.value; render(); }, 150);
+});
+$('studioQx')?.addEventListener('click', () => { const q = $('studioQ'); if (q) { q.value = ''; q.focus(); } clearTimeout(findTimer); S.find = ''; render(); });
+$('studioQ')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.target.value) { e.target.value = ''; clearTimeout(findTimer); S.find = ''; render(); }
+});
 
 try {
   const { data: ent } = await db.from('entities').select('title').eq('id', CO).maybeSingle();

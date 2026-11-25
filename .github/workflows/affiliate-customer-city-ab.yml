@@ -1,0 +1,49 @@
+name: Find city A/B test
+
+# Your Customers -> Find: runs the name search with and without the
+# customer's city for the SAME customers and prints which finds more of the
+# right accounts (scripts/affiliate-customer-city-ab.mjs).
+#
+# READ ONLY against SILO: writes nothing. It spends at the search provider,
+# two standard-queue searches per customer (~$0.36 for 300). Manual only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_entity_id:
+        description: "Company (entities.id) whose customers to test"
+        required: true
+        type: string
+      sample:
+        description: "Customers to test (max 800)"
+        required: false
+        default: "300"
+        type: string
+      min_orders:
+        description: "Minimum orders"
+        required: false
+        default: "3"
+        type: string
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    environment: sync
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Name vs name + city
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          AB_COMPANY_ENTITY_ID: ${{ inputs.company_entity_id }}
+          AB_SAMPLE: ${{ inputs.sample }}
+          AB_MIN_ORDERS: ${{ inputs.min_orders }}
+        run: node scripts/affiliate-customer-city-ab.mjs

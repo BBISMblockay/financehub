@@ -743,6 +743,29 @@ select
     else 'MISSING — run 20261124020000_shopify_customer_marketing_consent.sql'
   end as shopify_customers_consent;
 
+-- 8b2. Consent rollup in batches (migration 20261125010000). The one-statement
+-- rollup is cancelled by the statement timeout for a large company, so the
+-- sync calls the step function; without it the Affiliate customer list shows
+-- "not checked yet" for almost everyone.
+select
+  case
+    when not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'refresh_company_customer_consent_step'
+    ) then 'MISSING — run 20261125010000_customer_consent_batched_rollup.sql'
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'company_customer_profile_state'
+        and column_name = 'consent_cursor'
+    ) and exists (
+      select 1 from pg_indexes
+      where schemaname = 'public' and indexname = 'shopify_customers_co_email_consent_cover_idx'
+    ) and not has_function_privilege('authenticated', 'public.refresh_company_customer_consent_step(uuid, integer)', 'execute')
+      and not has_function_privilege('anon', 'public.refresh_company_customer_consent_step(uuid, integer)', 'execute')
+    then 'ok'
+    else 'MISSING — run 20261125010000_customer_consent_batched_rollup.sql'
+  end as customer_consent_batched_rollup;
+
 -- 8c. Recruiting an existing customer (migration 20261124030000). The
 -- identifiable constraint is checked for the EMAIL branch specifically: a
 -- customer has no channel yet, so without it their prospect row cannot be
@@ -861,6 +884,32 @@ select
     ) then 'ok'
     else 'MISSING — run 20261124210000_affiliate_customer_social_company.sql'
   end as affiliate_customer_social_company;
+
+-- 8g. Hunt queue mode (migration 20261124230000): the queued search's task id
+-- lives on the customer's row, so a later run collects instead of re-posting.
+select
+  case
+    when (select count(*) from information_schema.columns
+          where table_schema = 'public' and table_name = 'affiliate_customer_social'
+            and column_name in ('serp_task_id', 'serp_task_kind', 'serp_posted_at')) = 3
+     and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'affiliate_customer_social_inflight_idx')
+    then 'ok'
+    else 'MISSING — run 20261124230000_affiliate_customer_social_queue.sql'
+  end as affiliate_customer_social_queue;
+
+-- 8h. Find match score (migration 20261124235000): a 0-100 score on every
+-- find, the 'niche' basis and the 'count' search kind.
+select
+  case
+    when exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'affiliate_customer_social' and column_name = 'match_score')
+     and exists (select 1 from pg_constraint where conname = 'affiliate_customer_social_match_basis_check'
+                 and pg_get_constraintdef(oid) ilike '%niche%')
+     and exists (select 1 from pg_constraint where conname = 'affiliate_customer_social_serp_task_kind'
+                 and pg_get_constraintdef(oid) ilike '%count%')
+    then 'ok'
+    else 'MISSING — run 20261124235000_affiliate_customer_social_score.sql'
+  end as affiliate_customer_social_score;
 
 -- 9. product_tracker <-> launch_product_readiness link (migration 20260723180000)
 select
@@ -6994,6 +7043,106 @@ select 'Posted transaction reclass' as check_name,
    then 'STALE — run 20261014020000_card_reclass_all_bank_treatments.sql: posted bank transfers, card payments and deposits cannot be reclassified'
   else 'ok' end as status;
 -- End posted transaction reclass checks.
+
+-- Card paydown match (20261125020000): the record exists with RLS on, its integrity trigger is
+-- attached (the record is what keeps a paydown out of the entry, so a pairing the transactions do
+-- not support must be impossible even for a direct write), and no browser-anon reach.
+select 'Card paydown match' as check_name,
+ case when to_regclass('public.card_payment_matches') is null
+        or to_regprocedure('public.link_card_payment_match(uuid,uuid)') is null
+        or to_regprocedure('public.unlink_card_payment_match(uuid)') is null
+   then 'MISSING — run 20261125020000_card_payment_match.sql'
+  when not exists (select 1 from pg_class where oid = to_regclass('public.card_payment_matches') and relrowsecurity)
+   then 'CRITICAL: card_payment_matches has RLS off'
+  when not exists (select 1 from pg_trigger where tgname = 'card_payment_match_integrity'
+                   and tgrelid = 'public.card_payment_matches'::regclass)
+   then 'CRITICAL: the match integrity trigger is not attached; a record could claim a pairing the transactions do not support'
+  when has_function_privilege('anon', 'public.link_card_payment_match(uuid,uuid)', 'execute')
+    or has_table_privilege('anon', 'public.card_payment_matches', 'SELECT')
+   then 'CRITICAL: anon can reach the card paydown match'
+  when position('status = ''excluded''' in coalesce(pg_get_functiondef(to_regprocedure('public.link_card_payment_match(uuid,uuid)')), '')) = 0
+   then 'STALE — re-run 20261125020000_card_payment_match.sql: matching no longer excludes the card row, so the paydown would post twice'
+  when to_regprocedure('public.card_payment_posting_treatment(text)') is null
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql'
+  when not exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'card_payment_matches' and column_name = 'payer_prior')
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql: without payer_prior an undo cannot put the paying row back'
+  when coalesce(public.card_payment_posting_treatment('Credit Card'), '') <> 'card_payment'
+    or public.card_payment_posting_treatment('Expense') is not null
+   then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
+  -- Each branch names something its migration LEAVES BEHIND. A branch that
+  -- requires a function a later file drops turns this check red for a function
+  -- nothing calls -- which is exactly what card_payment_match_proposals did
+  -- here, so 20261125080000 is represented by its index and by the file that
+  -- follows it. And the existence test comes FIRST in each pair, because
+  -- has_function_privilege() raises on a name that does not exist and would
+  -- error instead of reporting the migration as missing.
+  when not exists (select 1 from pg_class where relname = 'card_transactions_company_date_idx')
+   then 'MISSING — run 20261125080000_card_payment_match_either_side.sql: the date window has no index'
+  when to_regprocedure('public.card_payment_source_names(uuid)') is null
+    or to_regprocedure('public.card_payment_match_options(uuid,integer)') is null
+    or to_regprocedure('public.card_payment_settlement_options(uuid,integer)') is null
+    or to_regprocedure('public.card_payment_offers(uuid[],integer)') is null
+   then 'MISSING — run 20261125090000_card_payment_match_names.sql: a paydown would be offered against a payment to a different creditor'
+  when has_function_privilege('anon', 'public.card_payment_offers(uuid[],integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_match_options(uuid,integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_settlement_options(uuid,integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_source_names(uuid)', 'execute')
+   then 'CRITICAL: anon can reach the card paydown offers'
+  when position('<> ''other_source''' in coalesce(pg_get_functiondef(to_regprocedure('public.card_payment_offers(uuid[],integer)')), '')) = 0
+   then 'STALE — re-run 20261125090000_card_payment_match_names.sql: a payment naming a different account is offered again'
+  when position('payer_coded_at' in coalesce(pg_get_functiondef(to_regprocedure('public.unlink_card_payment_match(uuid)')), '')) = 0
+   then 'STALE — run 20261125070000_card_payment_match_relink.sql: without the stamp an undo can overwrite coding somebody did themselves'
+  else 'ok' end as status;
+-- End card paydown match checks.
+
+-- View as rep (20261125030000): a preview link is its own purpose, made only
+-- by staff of the company, and never writable.
+select 'Affiliate view as rep' as check_name,
+ case when to_regprocedure('public.affiliate_issue_preview_token(uuid,text)') is null
+        or not exists (select 1 from pg_constraint where conrelid = 'public.affiliate_access_tokens'::regclass
+                        and contype = 'c' and pg_get_constraintdef(oid) ilike '%preview%')
+   then 'MISSING — run 20261125030000_affiliate_view_as_rep.sql'
+  when has_function_privilege('anon', 'public.affiliate_issue_preview_token(uuid,text)', 'execute')
+   then 'CRITICAL: anon can mint a rep preview'
+  when exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+                and p.proname in ('affiliate_portal_claim', 'affiliate_portal_seed_request', 'affiliate_portal_content_start',
+                                  'affiliate_portal_content_finish', 'affiliate_portal_switch_token', 'affiliate_portal_renew_subject',
+                                  'affiliate_portal_brands')
+                and p.prosrc ilike '%preview%')
+   then 'CRITICAL: a portal write, switch, renewal or brand list accepts a read-only preview link'
+  when exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+                and p.proname in ('affiliate_portal_content', 'affiliate_portal_feed', 'affiliate_portal_orders', 'affiliate_portal_seeds')
+                and p.prosrc not ilike '%''preview''%')
+   then 'STALE — re-run 20261125030000_affiliate_view_as_rep.sql: a portal read refuses the preview'
+  else 'ok' end as status;
+-- End affiliate view as rep checks.
+
+-- Affiliate Studio spend (20261125040000): one Studio figure in customer
+-- dollars, limits only the company's owner/admin can change, the cap-check
+-- figure service-only, and nightly Find off unless a company turned it on.
+select 'Affiliate Studio spend' as check_name,
+ case when to_regclass('public.affiliate_studio_spend_settings') is null
+        or to_regprocedure('public.affiliate_studio_spend(uuid,uuid)') is null
+        or to_regprocedure('public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)') is null
+        or to_regprocedure('public.affiliate_studio_spend_summary()') is null
+   then 'MISSING — run 20261125040000_affiliate_studio_spend.sql'
+  when not exists (select 1 from pg_class where oid = 'public.affiliate_studio_spend_settings'::regclass and relrowsecurity)
+   then 'CRITICAL: affiliate_studio_spend_settings has RLS off'
+  when has_function_privilege('anon', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)', 'execute')
+    or has_function_privilege('anon', 'public.affiliate_studio_spend_summary()', 'execute')
+    or has_function_privilege('anon', 'public.affiliate_studio_spend(uuid,uuid)', 'execute')
+    or has_function_privilege('authenticated', 'public.affiliate_studio_spend(uuid,uuid)', 'execute')
+   then 'CRITICAL: anon or a signed-in user can reach an Affiliate Studio spend function they must not'
+  when has_table_privilege('authenticated', 'public.affiliate_studio_spend_settings', 'INSERT')
+    or has_table_privilege('authenticated', 'public.affiliate_studio_spend_settings', 'UPDATE')
+   then 'CRITICAL: a browser can write Affiliate Studio limits without the owner/admin check'
+  when position('is_owner_admin_of_active_company' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)')), '')) = 0
+   then 'STALE — re-run 20261125040000_affiliate_studio_spend.sql: changing the limits is not owner/admin only'
+  when position('provider' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_studio_spend(uuid,uuid)')), '')) > 0
+   then 'CRITICAL: the Studio spend figure reads provider cost'
+  else 'ok' end as status;
+-- End Affiliate Studio spend checks.
 
 -- SILO ledger mirrors journal adjustments (20261014040000): every posted
 -- adjustment is a ledger entry, recorded by trigger, internals not client-callable.

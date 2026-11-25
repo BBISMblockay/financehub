@@ -26,7 +26,7 @@ const originalLines = seeds.map((line, i) => ({
 }));
 
 async function composer({ accounts = chart, lines = seeds, error = null, resume = false,
-  referenceError = null, reviewOnly = false } = {}) {
+  referenceError = null, reviewOnly = false, status = 'draft', lineError = null } = {}) {
   const ids = new Map();
   class Element {
     constructor() { this.listeners = new Map(); this.children = []; this.value = ''; this.disabled = false; }
@@ -46,7 +46,7 @@ async function composer({ accounts = chart, lines = seeds, error = null, resume 
     createElement: () => new Element(), getElementById: (id) => ids.get(id),
     head: new Element(), body: new Element(), addEventListener() {}, removeEventListener() {},
   };
-  const headers = [copy(original)];
+  const headers = [{ ...copy(original), status }];
   const storedLines = copy(originalLines);
   const writes = [];
   const staged = [];
@@ -86,6 +86,9 @@ async function composer({ accounts = chart, lines = seeds, error = null, resume 
                 Object.assign(header, payload);
               }
               return { data: null, error: null };
+            }
+            if (table === 'journal_adjustment_lines' && lineError && operation === 'insert') {
+              return { data: null, error: lineError };
             }
             if (operation === 'delete') {
               for (let i = storedLines.length - 1; i >= 0; i--) {
@@ -245,6 +248,45 @@ await test('valid Review renders the saved rows before enabling approval', async
   assert.match(page.ids.get('jeReview').innerHTML, /New generated entry/);
   assert.match(page.ids.get('jeReview').innerHTML, /Expense/);
   assert.deepEqual(page.staged, ['new-draft']);
+});
+
+
+// An entry that is no longer a draft cannot have its lines rewritten: RLS
+// allows that only while the parent is 'draft'. Before this, Adjustments
+// opened such an entry in the FORM, and pressing Review entry reached the
+// database and came back with 'new row violates row-level security policy for
+// table "journal_adjustment_lines"' -- a message about a policy, for a reader
+// whose actual position is that the entry is approved and waiting to post.
+await test('an approved entry opens on its read-back, not in the form', async () => {
+  const page = await composer({ resume: true, status: 'approved' });
+  assert.equal(page.ids.get('jeEdit').hidden, true, 'no edit step for an entry RLS will not let us edit');
+  assert.equal(page.ids.get('jeReview').hidden, false);
+  assert.equal(page.ids.get('jePost').disabled, false, 'approved and unposted: posting is the way out');
+  assert.match(page.ids.get('jeReview').innerHTML, /Approved and waiting to post/);
+  assert.match(page.ids.get('jeReview').innerHTML, /reopen its approval under Adjustments/i);
+  assert.match(page.message(), /already approved/i);
+  assert.deepEqual(page.writes, [], 'opening it writes nothing');
+});
+
+await test('a posted entry cannot be posted again from the composer', async () => {
+  const page = await composer({ resume: true, status: 'posted' });
+  assert.equal(page.ids.get('jeEdit').hidden, true);
+  assert.equal(page.ids.get('jePost').disabled, true);
+  assert.match(page.ids.get('jeReview').innerHTML, /Already posted to QuickBooks/);
+  assert.match(page.message(), /already been posted/i);
+  assert.deepEqual(page.writes, []);
+});
+
+await test('a policy refusal on the lines is explained as the entry having left draft', async () => {
+  const page = await composer({ resume: true, lineError: {
+    code: '42501',
+    message: 'new row violates row-level security policy for table "journal_adjustment_lines"',
+  } });
+  await page.click('jeStage');
+  assert.match(page.message(), /no longer a draft/);
+  assert.match(page.message(), /Reopen the approval under Adjustments/);
+  assert.doesNotMatch(page.message(), /row-level security|42501/);
+  assert.equal(page.ids.get('jeEdit').hidden, false, 'and the form is still there to close or retry');
 });
 
 await test('reviewOnly opens a stored entry on its database read-back, with no way back to editing', async () => {

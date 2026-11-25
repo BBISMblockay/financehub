@@ -616,6 +616,39 @@ async function purgeBetterReportsOverlap(companyEntityId) {
   return deleted;
 }
 
+// Copy Shopify consent onto company_customer_profiles in resumable steps,
+// until the pass finishes or the time budget runs out. Before migration
+// 20261125010000 is applied the step function does not exist; then it falls
+// back to the one-statement refresh (fine for small companies).
+async function rollupCustomerConsent(companyId, budgetMs) {
+  const started = Date.now();
+  const totals = { steps: 0, emails: 0, profiles_updated: 0, profiles_cleared: 0, pass_done: false };
+  let limit = 2000;
+  while (Date.now() - started < budgetMs) {
+    const { data, error } = await supabase.rpc('refresh_company_customer_consent_step', { p_company: companyId, p_limit: limit });
+    if (error) {
+      if (/could not find the function|does not exist/i.test(error.message || '') && totals.steps === 0) {
+        const old = await supabase.rpc('refresh_company_customer_consent', { p_company: companyId });
+        return old.error ? { error: old.error.message } : { fallback: true, ...(old.data || {}) };
+      }
+      if (/statement timeout/i.test(error.message || '') && limit > 250) {
+        limit = Math.floor(limit / 2);
+        continue;
+      }
+      return { ...totals, error: error.message };
+    }
+    totals.steps += 1;
+    totals.emails += data?.emails || 0;
+    totals.profiles_updated += data?.profiles_updated || 0;
+    totals.profiles_cleared += data?.profiles_cleared || 0;
+    if (data?.pass_done) {
+      totals.pass_done = true;
+      break;
+    }
+  }
+  return totals;
+}
+
 async function main() {
   console.log(`[shopify-sync] mode=${SYNC_MODE} batch=${BATCH_ID} trigger=${PLAN.manual ? 'manual' : 'scheduled'}`);
   // Print the plan up front. A reader of the log should be able to see what
@@ -729,12 +762,16 @@ async function main() {
       .filter((o) => o.jobType === 'customers_sync' && o.state === 'success')
       .map((o) => connections.find((c) => c.shop_domain === o.shopDomain)?.company_entity_id)
       .filter(Boolean))];
+    // In batches: one statement over a large company's customers is cancelled
+    // by the statement timeout. Each step moves a cursor kept in the database,
+    // so a pass that runs out of budget resumes on the next run.
+    const budgetMs = Number(process.env.SHOPIFY_CONSENT_ROLLUP_BUDGET_MS) || 240000;
     for (const companyId of consentCompanyIds) {
-      const { data, error } = await supabase.rpc('refresh_company_customer_consent', { p_company: companyId });
-      if (error) {
-        console.log(`::warning title=Customer consent rollup lagging::${companyId}: ${error.message}`);
-      } else if (data) {
-        console.log(`[shopify-sync] customer consent rollup ${companyId}: ${JSON.stringify(data)}`);
+      const result = await rollupCustomerConsent(companyId, budgetMs);
+      if (result.error) {
+        console.log(`::warning title=Customer consent rollup lagging::${companyId}: ${result.error}`);
+      } else {
+        console.log(`[shopify-sync] customer consent rollup ${companyId}: ${JSON.stringify(result)}`);
       }
     }
   }

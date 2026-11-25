@@ -27,6 +27,15 @@
 //   AFFILIATE_CORE_MUTATION=socialzero   a social row with no stated count shows 0 followers
 //   AFFILIATE_CORE_MUTATION=socialhref   a social profile_url of any scheme becomes a link
 //   AFFILIATE_CORE_MUTATION=basispromote a find with no recorded basis is shown as likely
+//   AFFILIATE_CORE_MUTATION=deadlock     a run that died partway still reads as running, locking Find
+//   AFFILIATE_CORE_MUTATION=termsreaderr  a failed read of the company's words becomes an empty box (and a press clears them)
+//   AFFILIATE_CORE_MUTATION=unsubmail    an unsubscribed customer is given the email path
+//   AFFILIATE_CORE_MUTATION=poolsupp     somebody do-not-contact in one program is not marked do-not-contact everywhere
+//   AFFILIATE_CORE_MUTATION=aliasjoin    two rows of one person that share only an email are two people
+//   AFFILIATE_CORE_MUTATION=suplist      an email on the do-not-contact list does not mark the person
+//   AFFILIATE_CORE_MUTATION=noemaildm    a customer with no email can be given a DM path
+//   AFFILIATE_CORE_MUTATION=dmsupp       a do-not-contact handle can still be DMed
+//   AFFILIATE_CORE_MUTATION=counthidden  the Find tab counts include customers the list hides
 //   AFFILIATE_CORE_MUTATION=socialident  a found profile is written to the prospect's own profile_url
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
@@ -60,6 +69,16 @@ const MUTS = {
   socialzero: ["  const count = row.followers === null || row.followers === undefined ? '' : `${compactCount(row.followers)}${row.followers_approx ? '+' : ''}`;", "  const count = `${compactCount(row.followers || 0) || '0'}`;"],
   socialhref: ["  const url = /^https?:\\/\\//i.test(String(row.profile_url || '')) ? row.profile_url : null;", '  const url = row.profile_url || null;'],
   basispromote: ["  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.name_only;", '  const basis = SOCIAL_BASIS[row.match_basis] || SOCIAL_BASIS.city;'],
+  scorepromote: ['  return s !== null && s >= LIKELY_SCORE ? \'likely\' : \'name\';', "  return s !== null || row?.match_basis === 'city' ? 'likely' : 'name';"],
+  deadlock: ['  if (!beat || nowMs - beat < SCAN_STALE_MS) return scan;', '  return scan;'],
+  termsreaderr: ["  if (!res || res.error || !res.data) return null;", "  if (!res) return null;"],
+  unsubmail: ["  if (email && !NO_EMAIL_CONSENT.includes(c.email_consent_state)) return", "  if (email) return"],
+  poolsupp: ["    if (prospectSuppressed(x, suppressions)) g.suppressed = true;", ''],
+  aliasjoin: ['    for (const k of identityKeys(x)) {\n      if (!owner.has(k))', '    for (const k of identityKeys(x).slice(0, 1)) {\n      if (!owner.has(k))'],
+  suplist: ["  if (customerSuppressed(x?.contact_email, suppressions)) return true;", ''],
+  noemaildm: ["  if (!email) return null;\n", ''],
+  dmsupp: ["  if (h && (suppressions || []).some((s) => s?.kind === 'handle' && bareHandle(s.value_normalized) === h)) return null;", ""],
+  counthidden: ["    if (t && out[t] != null) out[t] = Math.max(0, out[t] - 1);", "    if (false) out[t] = 0;"],
   socialident: ["    profile_url: null,\n    collected_at: collectedAt,", "    profile_url: social?.profile_url || null,\n    collected_at: collectedAt,"],
   custpin: ["    customer_outreach_body: text === '' || text === DEFAULT_CUSTOMER_OUTREACH.body ? null : text,", "    customer_outreach_body: text === '' ? null : text,"],
 };
@@ -521,12 +540,21 @@ await t('Your Customers: the customer template is its own, and still has to be j
 
 await t('Your Customers social: a blank count stays blank, only http(s) links, never the prospect\'s identity, never a cost', () => {
   assert.equal(C.customerSocialView(undefined).label, '—', 'never scanned');
-  const found = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
-  assert.equal(found.trust, 'likely', 'a second signal makes it likely');
-  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
+  const found = C.customerSocialView({ status: 'found', match_basis: 'city', match_score: 80, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345, followers_quote: '12,345 Followers' });
+  assert.equal(found.trust, 'likely', 'a Likely score makes it likely');
+  assert.equal(found.pill, 'Likely 80', 'the score shows on the find');
+  assert.equal(found.why, 'Their city appears on the profile', 'and the basis says why');
+  const nameOnly = C.customerSocialView({ status: 'found', match_basis: 'name_only', match_score: 40, handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 12345 });
   assert.equal(nameOnly.trust, 'name'); assert.equal(nameOnly.tone, 'warn', 'a name alone is a match to check, never shown as found');
+  assert.equal(nameOnly.pill, 'Check 40');
+  assert.equal(C.customerSocialView({ status: 'found', match_score: 69, match_basis: 'city', handle: '@em', profile_url: 'https://x.test/em', followers: 900 }).trust, 'name', 'under 70 is Check, whatever the basis');
+  const old = C.customerSocialView({ status: 'found', match_basis: 'city', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 });
+  assert.deepEqual([old.trust, old.pill], ['name', 'Check'], 'a row scored before scores existed is Check, as the scan counts it');
   assert.equal(C.customerSocialView({ status: 'found', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'no basis recorded is never promoted');
-  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 }).trust, 'name', 'an unknown basis is never promoted');
+  const odd = C.customerSocialView({ status: 'found', match_basis: 'whatever', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 900 });
+  assert.equal(odd.trust, 'name', 'an unknown basis is never promoted');
+  assert.equal(odd.why, 'Only the name matches. Check it is them', 'and reads as a name match');
+  assert.equal(C.customerSocialView({ status: 'found', match_basis: 'niche', match_score: 75, handle: '@em', profile_url: 'https://x.test/em', followers: 900 }).why, 'Their profile mentions your niche');
   assert.equal(C.customerSocialView({ status: 'rejected', handle: '@em', profile_url: 'https://www.instagram.com/em' }).label, 'Not them');
   assert.equal(C.customerSocialView({ status: 'rejected', profile_url: 'https://www.instagram.com/em' }).url, null, 'a rejected find links nowhere');
   assert.equal(found.label, '@em · 12K'); assert.equal(found.tone, 'pos'); assert.equal(found.url, 'https://www.instagram.com/em');
@@ -544,8 +572,74 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.match(C.customerScanLine({ status: 'stopped', requested: 500, checked: 300, found: 9 }), /Stopped early, more to check\.$/);
   assert.equal(C.customerScanLine({ status: 'done', requested: 500, checked: 500, found: 12, cost_usd: 1.23 }), 'Last scan: 500 of 500 checked · 12 found.');
   assert.ok(!/\$|cost|spend|budget|credit/i.test(C.customerScanLine({ status: 'done', requested: 1, checked: 1, found: 0, cost_usd: 9 })), 'no cost in the UI');
+  // The Hunt: finds against what was asked, and why a finished hunt ended.
+  assert.equal(C.huntLine({ status: 'running', requested: 1000, checked: 240, found: 6, filters: { want: 25 } }), 'Found 6 of 25 · 240 checked');
+  assert.equal(C.huntProgress({ found: 6, checked: 240, filters: { want: 25 } }).pct, 24, 'the bar is finds over finds wanted');
+  assert.match(C.huntLine({ status: 'done', checked: 300, found: 3, filters: { want: 25, end: 'pool' } }), /checked everyone in this slice: 3 found of 25 asked for/);
+  assert.match(C.huntLine({ status: 'done', checked: 10000, found: 18, filters: { want: 25, end: 'cap' } }), /the most one search checks: 18 found\. Press Find to keep going\.$/);
+  assert.equal(C.huntLine({ status: 'done', checked: 2400, found: 25, filters: { want: 25, end: 'goal' } }), 'Last search: found 25 · 2,400 checked.');
+  assert.ok(!/\$|cost|spend|budget|credit/i.test(C.huntLine({ status: 'done', checked: 1, found: 0, cost_usd: 9, filters: { end: 'cap' } })), 'no cost in the UI');
+  // A run that died partway (no heartbeat for 3 minutes) never locks Find.
+  const t0 = Date.parse('2026-11-24T07:20:00Z');
+  assert.equal(C.liveScan({ status: 'running', heartbeat_at: '2026-11-24T07:16:00Z' }, t0).status, 'stopped', 'a dead run reads as stopped');
+  assert.equal(C.liveScan({ status: 'running', heartbeat_at: '2026-11-24T07:19:00Z' }, t0).status, 'running', 'a live run stays running');
+  assert.equal(C.liveScan({ status: 'running' }, t0).status, 'running', 'the page\'s own just-pressed run has no heartbeat yet');
+  assert.equal(C.liveScan({ status: 'done', heartbeat_at: '2026-11-24T07:00:00Z' }, t0).status, 'done');
+  assert.equal(C.liveScan(undefined), null);
+  assert.equal(C.scanTermsText({ affiliate_customer_scan_terms: ['baseball', 'mlb'] }), 'baseball, mlb', 'the Niche words box shows the company\'s own words');
+  assert.equal(C.scanTermsText({}), '');
+  assert.equal(C.scanTermsFromRead({ data: { meta: { affiliate_customer_scan_terms: ['mlb'] } }, error: null }), 'mlb');
+  assert.equal(C.scanTermsFromRead({ data: { meta: {} }, error: null }), '', 'read fine, no words: an empty box');
+  assert.equal(C.scanTermsFromRead({ data: null, error: { message: 'timeout' } }), null, 'a failed read is not an empty box, so a press never clears saved words');
+  assert.equal(C.scanTermsFromRead(null), null);
+  // The tab counts agree with the list: opted-out customers come off their tab.
+  const hid = [{ status: 'found', match_score: 35 }, { status: 'found', match_score: 82 }, { status: 'below' }, { status: 'none' }];
+  assert.deepEqual(C.huntCounts({ top: 10, check: 76, more: 5 }, hid), { top: 9, check: 75, more: 4 });
+  assert.deepEqual(C.huntCounts({ top: null, check: 2, more: 0 }, [{ status: 'below' }]), { top: null, check: 2, more: 0 }, 'a missing count stays missing, never below zero');
+  // Show every prospect; the consent tag decides the path (Blake 2026-11-24).
+  const okFind = { status: 'found', platform: 'instagram', handle: '@ola', profile_url: 'https://www.instagram.com/ola' };
+  const cu = (state, o = {}) => ({ email_lc: 'ola@buyer.invalid', email_consent_state: state, ...o });
+  for (const st of ['subscribed', 'not_subscribed', 'pending', null]) {
+    assert.equal(C.customerContactPath(cu(st), okFind)?.channel, 'email', `${st}: email`);
+  }
+  assert.deepEqual(C.customerContactPath(cu('unsubscribed'), okFind), { channel: 'dm', email: null, handle: 'https://www.instagram.com/ola', platform: 'instagram' }, 'unsubscribed: a DM to the matched account, never email');
+  assert.equal(C.customerContactPath(cu('unsubscribed'), null), null, 'unsubscribed with no account: no way to reach');
+  assert.equal(C.customerNoPathReason(cu('unsubscribed'), null), 'unsubscribed, no account to message');
+  assert.equal(C.customerContactPath(cu('unsubscribed'), { ...okFind, status: 'ambiguous' }), null, 'an unconfirmed result is not an account to DM');
+  assert.equal(C.customerContactPath(cu('redacted'), okFind), null, 'erased: never');
+  assert.equal(C.customerContactPath(cu('subscribed'), okFind, [{ kind: 'email', value_normalized: 'ola@buyer.invalid' }]), null, 'do-not-contact email: never');
+  assert.equal(C.customerContactPath(cu('unsubscribed'), okFind, [{ kind: 'handle', value_normalized: '@OLA' }]), null, 'do-not-contact handle: never DMed');
+  assert.equal(C.customerNoPathReason(cu('subscribed', { email_lc: '' }), null), 'no email on file');
+  // People at the company level: one entry per person, a row per program.
+  const A_ = 'pa'; const B_ = 'pb'; const C_ = 'pc';
+  const ppl = C.groupPeople([
+    { id: 1, program_id: A_, profile_url: 'https://x.com/One ' },
+    { id: 2, program_id: B_, profile_url: 'https://x.com/one' },
+    { id: 3, program_id: B_, platform: 'tiktok', handle: '@Two' },
+    { id: 4, program_id: C_, platform: 'tiktok', handle: '@two' },
+    { id: 5, program_id: B_, contact_email: 'nope@x.com', status: 'suppressed' },
+    { id: 6, program_id: C_, contact_email: 'NOPE@x.com', status: 'new' },
+  ]);
+  assert.deepEqual(ppl.map((g) => g.x.id), [1, 3, 5], 'one entry per person, the first row as its face');
+  assert.deepEqual(ppl.map((g) => g.rows.map((x) => x.id)), [[1, 2], [3, 4], [5, 6]], 'every program row they have');
+  assert.deepEqual(ppl[1].programIds, [B_, C_], 'naming every program they are in');
+  assert.deepEqual(ppl.map((g) => g.suppressed), [false, false, true], 'do not contact in one program marks the person everywhere');
+  // One row with a profile and an email, another with only the email: one person.
+  const alias = C.groupPeople([
+    { id: 7, program_id: A_, profile_url: 'https://x.com/ali', contact_email: 'ali@x.com' },
+    { id: 8, program_id: B_, contact_email: 'ALI@x.com' },
+  ]);
+  assert.deepEqual(alias.map((g) => g.rows.map((x) => x.id)), [[7, 8]], 'rows sharing any identity are one person');
+  // On the company list by address, whatever their rows' status.
+  const listed = C.groupPeople([{ id: 9, program_id: B_, contact_email: 'ali@x.com', status: 'new' }], [{ kind: 'email', value_normalized: 'ali@x.com' }]);
+  assert.equal(listed[0].suppressed, true, 'the do-not-contact list marks the person, not only a suppressed status');
+  const moved = C.assignedProspectRow({ id: 9, program_id: B_, status: 'signed_up', affiliate_id: 'a', source_id: 's', reviewed_by: 'r', platform: 'youtube', profile_url: 'u', source: 'serp', evidence: { q: 1 } }, A_);
+  assert.equal(moved.program_id, A_); assert.equal(moved.status, 'approved');
+  for (const k of ['id', 'affiliate_id', 'source_id', 'reviewed_by']) assert.ok(!(k in moved), `${k} stays with the other program`);
+  assert.deepEqual(moved.evidence, { q: 1 }, 'the evidence travels');
+  assert.equal(C.customerContactPath(cu('unsubscribed', { email_lc: '' }), okFind), null, 'no email, no path: their address is the prospect identity, so two email-less customers would collapse into one');
 
-  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers' };
+  const social = { status: 'found', platform: 'instagram', handle: '@em', profile_url: 'https://www.instagram.com/em', followers: 1204, followers_quote: '1,204 Followers', match_score: 45 };
   const row = C.customerProspectRow({ customer: { email_lc: 'em@buyer.invalid', customer_key: 'k' }, social });
   assert.equal(row.profile_url, null, 'the identity column stays empty: a Discovery prospect with the same profile would refuse the row');
   assert.equal(row.handle, null);
@@ -554,6 +648,7 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'ambiguous', candidates: [] } }).evidence.social, undefined, 'only a named profile is evidence');
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'rejected', profile_url: 'https://x.test/a' } }).evidence.social, undefined, 'a find marked "Not them" never travels');
   assert.equal(row.evidence.social.match_basis, 'name_only', 'the evidence says how far to trust it');
+  assert.equal(row.evidence.social.match_score, 45, 'and how sure');
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 
