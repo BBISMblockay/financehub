@@ -80,6 +80,9 @@
  *   AFFILIATE_UI_MUTATION=personprog a program they are already in is offered again
  *   AFFILIATE_UI_MUTATION=affpaged    the creator list is not read paged, so a big program is cut at one page
  *   AFFILIATE_UI_MUTATION=whoended    a creator who left the program is offered a share
+ *   AFFILIATE_UI_MUTATION=findbuttons a search matches a row's button labels
+ *   AFFILIATE_UI_MUTATION=findhits    the search says nothing about the other tabs
+ *   AFFILIATE_UI_MUTATION=findlist    a queue list ignores the search
  *   AFFILIATE_UI_MUTATION=moneyprog   Money works one program at a time again
  *   AFFILIATE_UI_MUTATION=exportoneprog  Export claims only the program last picked
  *   AFFILIATE_UI_MUTATION=peoplescope People reads only the program picked
@@ -198,6 +201,9 @@ const MUTATIONS = {
   consentsnap: ['/affiliates/studio.js', "      .map((x) => ({ ...x, email_consent_state: nowConsent.get(x.customer_key) }));", '      ;'],
   poolcopyall: ['/affiliates/studio.js', "  const row = assignedProspectRow(x, p.id, status);", "  const { id: _drop, ...rest } = x; const row = { ...rest, program_id: p.id, status };"],
   // People sit above programs (Blake 2026-11-24).
+  findbuttons: ['/affiliates/studio.js', "  .replace(/<(button|select)\\b[\\s\\S]*?<\\/\\1>/gi, ' ')\n", ''],
+  findhits: ['/affiliates/studio.js', '  renderProgramPick(company);\n  renderFindHits();\n', '  renderProgramPick(company);\n'],
+  findlist: ['/affiliates/studio.js', "  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));\n", ''],
   moneyprog: ['/affiliates/studio.js', "const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);", "const COMPANY_TABS = new Set(['people', 'records', 'overview']);"],
   exportoneprog: ['/affiliates/studio.js', '    const jobs = companyMulti()\n', '    const jobs = false\n'],
   peoplescope: ['/affiliates/studio.js', "  const company = companyScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
@@ -1381,6 +1387,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const twoPay = { ...tables, affiliate_programs: [...tables.affiliate_programs, { ...tables.affiliate_programs[0], id: PROG2, name: 'Beta', slug: 'beta' }], affiliate_payouts: [
         { id: P1, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'approved', amount_cents: 500, currency: 'USD', item_count: 1, created_at: now, approved_at: now },
         { id: P2, company_entity_id: CO, program_id: PROG2, affiliate_id: AFF, status: 'approved', amount_cents: 700, currency: 'USD', item_count: 1, created_at: now, approved_at: now },
+        { id: 'pd1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, status: 'draft', amount_cents: 111, currency: 'USD', item_count: 1, created_at: now },
+        { id: 'pd2', company_entity_id: CO, program_id: PROG2, affiliate_id: AFF, status: 'draft', amount_cents: 222, currency: 'USD', item_count: 1, created_at: now },
       ] };
       const tp = await suite.open('/v2/affiliates/index.html', twoPay, { ready, rpc: {
         can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true,
@@ -1398,6 +1406,16 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const claims = await tp.evaluate(() => (window.__claims || []).map((c) => [c.p_program, c.p_payouts]).sort());
       R.eq(claims, [[PROG2, [P2]], [PROG, [P1]]].sort(), 'one Export claims each program\'s own approved payouts');
       R.eq((await tp.evaluate(() => window.__names)).map((n) => n.split('-')[1]).sort(), ['beta', 'creators'], 'and downloads one file per program');
+      // The search narrows a tick list too, and Select all with it.
+      await tp.fill('#studioQ', 'beta'); await tp.waitForTimeout(400);
+      R.eq(await tp.evaluate(() => [...document.querySelectorAll('#payoutsBody .af-q-pick')].map((x) => x.dataset.id)), ['pd2'], 'a search narrows the To approve list to the matches');
+      await tp.fill('#studioQ', ''); await tp.waitForTimeout(400);
+      // A button on a company tab works in its row's program, and that is the
+      // program a one-program tab opens on next.
+      await tp.click(`#payoutsBody [data-act="payout-void-open"][data-id="${P2}"]`);
+      await tp.click('#tabs [data-tab="share"]');
+      await tp.waitForSelector('#progPick:not([hidden]) .af-seg-btn.is-on', { timeout: 5000 });
+      R.eq(await tp.evaluate(() => document.querySelector('#progPick .af-seg-btn.is-on')?.textContent), 'Beta', 'a row button works in the program of its row');
       await tp.close();
     }
     // ── "why didn't this order count?" answered on the page (Blake 2026-11-18) ──
@@ -2796,6 +2814,39 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await toProgram(one);
     R.ok('with one program there is nothing to pick', await one.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await one.close();
+
+    // ── One search box on every tab (Blake 2026-11-24) ─────────────────────
+    // It filters the tab in place, and says what matches on the other tabs.
+    {
+      const fq = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
+      fq.on('pageerror', (e) => errors.push(e.message));
+      await closeDialog(fq);
+      const typeFind = async (q) => { await fq.fill('#studioQ', q); await fq.waitForTimeout(400); };
+      R.ok('the search box is at the top of the page', await fq.evaluate(() => !!document.querySelector('.bcn-header #studioQ')?.offsetParent));
+      await toDiscovery(fq);
+      await typeFind('samruns');
+      const disc = await text(fq, '#prospectsBody');
+      R.ok('typing filters the list on the tab you are on', disc.includes('Sam Runs') && !disc.includes('Never Bought'));
+      await typeFind('shortlist');
+      R.ok('a button label is not a match', !(await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.click('#tabs [data-tab="share"]');
+      await typeFind('pat trails');
+      R.ok('other tabs with matches are offered as jump links', !!(await fq.$('#studioHits:not([hidden]) [data-act="go-tab"][data-t="people"]')));
+      await typeFind('creators');
+      R.ok('and a program whose name matches', !!(await fq.$('#studioHits [data-act="pick-program"]')));
+      await typeFind('pat trails');
+      await fq.click('#studioHits [data-act="go-tab"][data-t="people"]');
+      await fq.waitForFunction(() => document.querySelector('#tabs .bcn-tab--active')?.dataset.tab === 'people', null, { timeout: 5000 });
+      await fq.click('#peopleSubtabs [data-k="affiliates"]');
+      R.ok('the jump keeps the search and lands on the match', (await text(fq, '#affiliatesBody')).includes('Pat Trails') && (await fq.inputValue('#studioQ')) === 'pat trails');
+      await fq.click('#peopleSubtabs [data-k="discovery"]');
+      R.ok('and filters that tab too', !(await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.focus('#studioQ');
+      await fq.keyboard.press('Escape');
+      await fq.waitForFunction(() => /Sam Runs/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      R.ok('Escape clears it and the whole list is back', (await fq.inputValue('#studioQ')) === '' && (await text(fq, '#prospectsBody')).includes('Sam Runs'));
+      await fq.close();
+    }
 
     // ── Share: compact, list view, ten most recent ─────────────────────────
     const feed12 = Array.from({ length: 12 }, (_, i) => ({ id: 'fx' + i, company_entity_id: CO, program_id: PROG, kind: 'product', source_id: 'p' + i, title: 'Shared ' + i, image_url: null, product_path: '/products/p' + i, shared_at: new Date(Date.now() - i * 60000).toISOString() }));

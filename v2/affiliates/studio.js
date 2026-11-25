@@ -396,7 +396,7 @@ const PROSPECT_LIST_CAP = 20;
 // Declared before S, because S.view calls readView() as it is built: a const
 // read before its own initializer throws, and the choice silently reverted.
 const VIEW_KEY = 'silo.affiliates.view';
-const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', sel: new Set(), view: readView() };
+const S = { programs: [], programId: null, tab: 'people', peopleSub: 'discovery', cust: null, commsTab: 'approve', profiles: [], brand: '', ovDays: 30, ovFrom: '', ovTo: '', ovRank: 'sales', ovFilter: 'all', affFilter: 'current', prospectFilter: 'new', prospectShowAll: false, prospectQuery: '', find: '', sel: new Set(), view: readView() };
 const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 // "All programs" (Blake 2026-11-18: a company manages a group of people, not
 // program by program). People and Home read across every program; the other
@@ -815,15 +815,33 @@ function ctxProgram(ds) {
 const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
 const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
 const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
+// ── Search ───────────────────────────────────────────────────────────────
+// One box at the top of every tab (Blake 2026-11-24: "ALL tabs should and
+// need to be searchable"; he chose filter-in-place plus jump links). Every
+// list the page draws goes through table / itemList / queue / shareList, and
+// each keeps only the rows whose visible text holds every word typed.
+// Button and menu labels are not part of a row's text, so "short" never
+// matches a Shortlist button.
+const findWords = () => String(S.find || '').toLowerCase().split(/\s+/).filter(Boolean);
+const plainText = (html) => String(html || '')
+  .replace(/<(button|select)\b[\s\S]*?<\/\1>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .toLowerCase();
+const textHits = (text, words = findWords()) => words.every((w) => text.includes(w));
+const findEmpty = (emptyText) => (findWords().length ? empty(`No matches for "${S.find.trim()}" here.`) : empty(emptyText));
 function table(cols, rows, emptyText = 'Nothing here yet.') {
-  if (!rows.length) return empty(emptyText);
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
+  if (!rows.length) return findEmpty(emptyText);
   return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
-  if (!rows.length) return empty(emptyText);
+  let html = rows.map(renderRow);
+  if (findWords().length) html = html.filter((h) => textHits(plainText(h)));
+  if (!html.length) return findEmpty(emptyText);
   const cls = layout === 'grid' ? 'af-items af-items--grid' : 'af-items';
-  return `<div class="${cls}" role="list">${rows.map(renderRow).join('')}</div>`;
+  return `<div class="${cls}" role="list">${html.join('')}</div>`;
 }
 // ── Queues ───────────────────────────────────────────────────────────────
 // Blake, 2026-11-17: "selection boxes or approved queues". Tick rows, then
@@ -833,10 +851,12 @@ const QSEL = {}; const QROWS = {};
 const qsel = (k) => (QSEL[k] ||= new Set());
 const subtabs = (label, items, act, current) => `<nav class="bcn-tabs af-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([k, title, n]) => `<button type="button" class="bcn-tab${k === current ? ' bcn-tab--active' : ''}" role="tab" aria-selected="${k === current}" data-act="${act}" data-k="${esc(k)}">${esc(title)}${n ? ` <span class="af-tab-count">${num(n)}</span>` : ''}</button>`).join('')}</nav>`;
 function queue(k, rows, renderRow, actions, emptyText, opts = {}) {
+  // A search narrows what Select all can tick, too.
+  if (findWords().length) rows = rows.filter((r) => textHits(plainText(renderRow(r))));
   const sel = qsel(k);
   const ids = rows.map((r) => r.id); QROWS[k] = ids;
   for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
-  if (!rows.length) return empty(emptyText);
+  if (!rows.length) return findEmpty(emptyText);
   const can = actions.length > 0;
   const all = ids.every((id) => sel.has(id));
   const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
@@ -1045,6 +1065,32 @@ const PANEL_RENDERERS = {
   records: [renderRecords],
 };
 
+// What the search matches beyond this tab, read from what the page holds,
+// so a person is never left thinking a name is nowhere.
+const objText = (x) => Object.values(x || {}).filter((v) => typeof v === 'string' || typeof v === 'number').join(' ').toLowerCase();
+function renderFindHits() {
+  const el = $('studioHits'); if (!el) return;
+  const words = findWords(); const d = S.d;
+  if (!words.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const codesOf = {};
+  for (const c of d?.codes || []) (codesOf[c.affiliate_id] ||= []).push(c.code);
+  const affHit = (a) => a && textHits(`${objText(a)} ${(codesOf[a.id] || []).join(' ').toLowerCase()}`, words);
+  const n = {
+    people: (d?.affiliates || []).filter(affHit).length + (d?.prospects || []).filter((x) => textHits(objText(x), words)).length,
+    comms: (d?.drafts || []).filter((x) => textHits(objText(x), words)).length,
+    payouts: (d?.payouts || []).filter((x) => affHit(d.affById?.[x.affiliate_id])).length,
+  };
+  const label = { people: 'People', comms: 'Outreach', payouts: 'Money' };
+  const here = PANEL_OF[S.tab] || S.tab;
+  const tabs = Object.keys(n).filter((k) => n[k] > 0 && k !== here)
+    .map((k) => btn(`${label[k]} · ${num(n[k])}`, 'go-tab', { t: k }, 'ghost'));
+  const progs = S.programs.filter((x) => textHits(`${x.name} ${x.slug || ''}`.toLowerCase(), words))
+    .map((x) => btn(`Program: ${x.name}`, 'pick-program', { id: x.id, t: 'program' }, 'ghost'));
+  const all = [...tabs, ...progs];
+  el.hidden = !all.length;
+  el.innerHTML = all.length ? `<span class="af-muted">Also matches</span>${all.join('')}` : '';
+}
+
 function renderProgramPick(company) {
   const el = $('progPick'); if (!el) return;
   const list = S.programs;
@@ -1067,6 +1113,7 @@ function render() {
   // old dropdown stays in index.html, hidden there, so it never shows even
   // while the page is still loading.
   renderProgramPick(company);
+  renderFindHits();
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
   renderDialog();
@@ -1085,7 +1132,7 @@ function render() {
   for (const r of (PANEL_RENDERERS[S.tab] || PANEL_RENDERERS.overview)) r();
   const panel = document.querySelector(`[data-panel="${PANEL_OF[S.tab] || 'overview'}"]`);
   const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
-  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = empty('Nothing waiting here.');
+  if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = findEmpty('Nothing waiting here.');
   renderWorkflowTabCounts();
 }
 
@@ -3006,7 +3053,10 @@ function shareItem(kind, srcId, title, sub, img, payload) {
 function shareRow(img, title, sub, action, extra = '') {
   return `<div class="af-srow" role="listitem">${img ? `<img class="af-srow-img" src="${esc(img)}" alt="" loading="lazy">` : '<span class="af-srow-img af-srow-noimg"></span>'}<div class="af-srow-txt"><strong>${esc(title)}</strong>${sub ? `<div class="af-muted">${esc(sub)}</div>` : ''}${extra}</div>${action ? `<div class="af-srow-act">${action}</div>` : ''}</div>`;
 }
-const shareList = (rows, emptyText) => (rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : empty(emptyText));
+const shareList = (rows, emptyText) => {
+  if (findWords().length) rows = rows.filter((h) => textHits(plainText(h)));
+  return rows.length ? `<div class="af-slist" role="list">${rows.join('')}</div>` : findEmpty(emptyText);
+};
 // Share shows the 10 most recent of each list (Blake 2026-11-18: "max
 // pagination at 10 most recent as default"); Show all opens the rest in place.
 const SHARE_CAP = 10;
@@ -5015,6 +5065,15 @@ $('afDialog')?.addEventListener('click', (ev) => { if (ev.target === $('afDialog
 async function setProgram(id) { await flushProgramSave(); S.programId = id; if ($('programSel')) $('programSel').value = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; await loadProgramData(); render(); }
 $('programSel').addEventListener('change', (e) => setProgram(e.target.value));
 $('btnNewProgram').addEventListener('click', () => A['new-program']());
+// Typing redraws the tab a beat after the last key; Escape clears it.
+let findTimer = null;
+$('studioQ')?.addEventListener('input', (e) => {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(() => { S.find = e.target.value; render(); }, 150);
+});
+$('studioQ')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.target.value) { e.target.value = ''; clearTimeout(findTimer); S.find = ''; render(); }
+});
 
 try {
   const { data: ent } = await db.from('entities').select('title').eq('id', CO).maybeSingle();

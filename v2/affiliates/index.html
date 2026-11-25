@@ -44,6 +44,11 @@
     .af-set-tags span { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bcn-sunken); color: var(--bcn-ink-2); }
     .af-progpick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .af-progpick[hidden] { display: none; }
+    .af-find { flex: 1; display: flex; justify-content: center; min-width: 0; padding: 0 16px; }
+    .af-find #studioQ { width: 100%; max-width: 420px; }
+    .af-find-hits { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+    .af-find-hits[hidden] { display: none; }
+    @media (max-width: 720px) { .af-studio .bcn-header { flex-wrap: wrap; } .af-find { order: 3; flex-basis: 100%; padding: 8px 0 0; } .af-find #studioQ { max-width: none; } }
     /* .bcn-field sets display, which beats the hidden attribute. */
     #programSel[hidden] { display: none; }
     .af-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 10px; background: var(--bcn-sunken); border: 1px solid var(--bcn-border); }
@@ -870,6 +875,11 @@
         <div class="bcn-header-title"><h1>Affiliate Studio</h1></div>
         <div class="bcn-header-sub bcn-header-sub--trimmed">Find creators, invite them, track their codes and pay their commission.</div>
       </div>
+      <!-- One search for every tab (Blake 2026-11-24). It filters the tab in
+           place; #studioHits under the tabs says what matches elsewhere. -->
+      <div class="af-find">
+        <input type="search" class="bcn-field" id="studioQ" placeholder="Search people, codes, programs" aria-label="Search Affiliate Studio" autocomplete="off" />
+      </div>
       <div class="bcn-header-actions">
         <select class="bcn-field" id="programSel" aria-label="Program" style="min-width:200px;" hidden></select>
         <button class="bcn-btn bcn-btn--primary" id="btnNewProgram" hidden>+ New program</button>
@@ -894,6 +904,7 @@
     <!-- Which program a program tab shows. Never on People, never at the top
          of the page (Blake 2026-11-24). -->
     <div class="af-progpick" id="progPick" hidden></div>
+    <div class="af-find-hits" id="studioHits" hidden></div>
 
     <section class="af-panel" data-panel="overview"><div class="af-ov" id="overviewBody"></div></section>
     <!-- People: everyone in the programme on one page -- the affiliates, the
