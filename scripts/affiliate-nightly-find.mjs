@@ -17,7 +17,6 @@
 // workflow goes red. A company already running a Find (joined), switched off
 // since the list was read (skipped) or at its monthly cap (402) is not a
 // failure.
-import { createClient } from '@supabase/supabase-js';
 import { pathToFileURL } from 'node:url';
 
 const OK_REFUSALS = new Set([402]);
@@ -82,6 +81,8 @@ export async function run({ db, log = console.log }) {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const url = process.env.SUPABASE_URL; const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) { console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.'); process.exit(1); }
+  // Loaded here, not at the top, so the tests run without node_modules.
+  const { createClient } = await import('@supabase/supabase-js');
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   run({ db }).then((r) => process.exit(r.failed ? 1 : 0)).catch((err) => { console.error(err.message || err); process.exit(1); });
 }

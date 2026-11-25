@@ -28,8 +28,7 @@ switch (MUT) {
   case 'quietfail': mutate("return { started: 0, failed: 1 };", 'return { started: 0, failed: 0 };'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-// The module imports @supabase/supabase-js at the top; run it from a copy
-// next to the original so that import resolves the same way.
+// Run it from a copy next to the original, so any import resolves the same way.
 const dir = path.dirname(new URL(SRC).pathname);
 const copy = path.join(dir, `.nightly-find-under-test-${process.pid}.mjs`);
 await writeFile(copy, src);
