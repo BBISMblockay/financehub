@@ -198,7 +198,7 @@ const MUTATIONS = {
   // People sit above programs (Blake 2026-11-24).
   peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
   peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
-  pickershown: ['/affiliates/index.html', 'id="programSel" aria-label="Program" style="min-width:200px;" hidden>', 'id="programSel" aria-label="Program" style="min-width:200px;">'],
+  pickershown: ['/affiliates/index.html', '    #programSel[hidden] { display: none; }\n', ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
@@ -2726,7 +2726,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       affiliate_balances_v: [...tables.affiliate_balances_v, { ...tables.affiliate_balances_v[0], program_id: PROGB, affiliate_id: AFFB, earned_cents: 1500, unclaimed_cents: 1500 }] };
     const all = await suite.open('/v2/affiliates/index.html', allTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     all.on('pageerror', (e) => errors.push(e.message));
-    R.ok('there is no program filter at the top of the page', await all.evaluate(() => document.getElementById('programSel')?.hidden === true));
+    R.ok('there is no program filter at the top of the page', await all.evaluate(() => { const el = document.getElementById('programSel'); return el?.hidden === true && getComputedStyle(el).display === 'none'; }));
     R.ok('and none on People', await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await toProgram(all);
     R.ok('the Program tab offers All programs inside the tab', !!(await all.$('#progPick:not([hidden]) [data-act="pick-prog"][data-id="*"]')));
