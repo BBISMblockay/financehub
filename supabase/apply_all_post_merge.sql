@@ -19975,4 +19975,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125230000: a price offered for one affiliate post (accepted in their
 -- portal), and the views / engagement SILO reads for a YouTube post link.
 \i migrations/20261125230000_affiliate_content_offers_stats.sql
+-- 20261125233000: same-company twins and program-scope triggers on the
+-- customer-find tables; two trigger functions lose their client grants.
+\i migrations/20261125233000_affiliate_customer_tables_guards.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

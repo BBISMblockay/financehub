@@ -3020,6 +3020,19 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      - name: Affiliate customer-find guards database (real PostgreSQL)
+        run: node scripts/tests/affiliate-customer-guards-database.test.mjs
+      - name: The customer-find guards, removed, must break it
+        run: |
+          set -u
+          for m in notwins noscope anonmirror; do
+            if CUST_GUARDS_DB_MUTATION="$m" node scripts/tests/affiliate-customer-guards-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Affiliate view as rep database (real PostgreSQL)
         run: node scripts/tests/affiliate-view-as-rep-database.test.mjs
       - name: The view-as-rep guards, removed, must break it
