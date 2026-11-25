@@ -59,6 +59,12 @@
 //   AFFILIATE_RESEARCH_MUTATION=knownkept    a creator the company already has is stored again
 //   AFFILIATE_RESEARCH_MUTATION=knownbrief   the AI is not told who the company already has
 //   AFFILIATE_RESEARCH_MUTATION=knownallco   known creators are read across every company
+//   AFFILIATE_RESEARCH_MUTATION=discoff      nightly Discovery runs with its switch off
+//   AFFILIATE_RESEARCH_MUTATION=discnolimit  a nightly Discovery run does not stop at its dollar limit
+//   AFFILIATE_RESEARCH_MUTATION=discpress    a person's press is held to the nightly dollar limit
+//   AFFILIATE_RESEARCH_MUTATION=discrotate   the same program is picked every night
+//   AFFILIATE_RESEARCH_MUTATION=discpaused   a paused program is researched at night
+//   AFFILIATE_RESEARCH_MUTATION=discanyone   a person's token can start the nightly Discovery
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -70,6 +76,12 @@ const ROOT = new URL('../../', import.meta.url);
 const FN = new URL('supabase/functions/affiliate-research/', ROOT);
 const CORE = 'lib/affiliate-research-core.mjs';
 const MUTS = {
+  discoff: ['handler.mjs', "if (spend.discovery_nightly_enabled !== true) return reply({ skipped: 'off' });", ''],
+  discnolimit: ['handler.mjs', 'if (hit) { limitHit = hit; return false; }', ''],
+  discpress: ['handler.mjs', 'await studioSpend(company, nightly ? row.id : null), { nightly: !!nightly, nightMax: nightly?.max }', 'await studioSpend(company, row.id), { nightly: true, nightMax: nightly?.max ?? 1 }'],
+  discrotate: ['handler.mjs', 'const program = [...programs].sort((a, b) => (lastAt.get(a.id) ?? 0) - (lastAt.get(b.id) ?? 0))[0];', 'const program = programs[0];'],
+  discpaused: ['handler.mjs', ".eq('company_entity_id', company).eq('status', 'active').order('created_at', { ascending: true }).limit(200);", ".eq('company_entity_id', company).order('created_at', { ascending: true }).limit(200);"],
+  discanyone: ['handler.mjs', "    if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader });", "    if (body?.action === 'nightly_discovery') return nightlyDiscovery({ body: { company } });\n    if (body?.action === 'customer_scan') return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader });"],
   ytthumb: ['lib/affiliate-photo-core.mjs', 'knownImageUrl: p.evidence?.youtube?.thumbnail_url, fetchImpl });', 'fetchImpl });'],
   gateorder: ['handler.mjs', '    const caller = userClientFor(authHeader);\n', "    await service.from('affiliate_programs').select('id');\n    const caller = userClientFor(authHeader);\n"],
   bodycompany: ['handler.mjs', ".eq('id', programId).eq('company_entity_id', company).maybeSingle();", ".eq('id', programId).eq('company_entity_id', body?.company_entity_id || company).maybeSingle();"],
@@ -280,6 +292,7 @@ function setup({ company = CO_A, gateError = null, apiKey = 'k', script = SCRIPT
     photoFetch,
     youtubeKey,
     ...(youtubeFetch ? { youtubeFetch } : {}),
+    nightlyKey: 'svc-key',
   });
   const call = async (body, auth = 'Bearer t') => {
     const r = await handler(new Request('https://x/fn', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
@@ -852,6 +865,83 @@ await test('Discovery is the same Affiliate Studio usage: its Google searches ar
     assert.equal(res.status, 402);
     assert.equal((await res.json()).limit_reached, true);
     assert.equal(c.searches.length + c.calls.length, 0, 'nothing searched, no model call');
+  } finally { delete globalThis.__studioSpend; }
+});
+
+// ── Nightly Discovery (20261125100000) ───────────────────────────────────
+const SVC = 'Bearer svc-key';
+const nightRuns = (x) => x.service.tables.affiliate_discovery_runs.filter((r) => r.nightly === true);
+await test('nightly Discovery: only the schedule starts it, only where its own switch is on', async () => {
+  globalThis.__studioSpend = () => ({ discovery_nightly_enabled: true });
+  try {
+    const a = setup();
+    const res = await a.call({ action: 'nightly_discovery', company: CO_A, program_id: PA });
+    assert.notEqual(res.status, 202, 'a person cannot start the nightly run');
+    assert.equal(a.service.tables.affiliate_discovery_runs.length, 0);
+  } finally { delete globalThis.__studioSpend; }
+  const off = setup();
+  assert.deepEqual(await (await off.call({ action: 'nightly_discovery', company: CO_A }, SVC)).json(), { skipped: 'off' });
+  assert.equal(off.calls.length + off.service.tables.affiliate_discovery_runs.length, 0);
+});
+
+await test('nightly Discovery: modest by its own settings, one active program, no person', async () => {
+  globalThis.__studioSpend = () => ({ discovery_nightly_enabled: true, discovery_night_creators: 7, discovery_night_max_micros: 1_000_000 });
+  try {
+    const s = setup();
+    s.service.tables.affiliate_programs.unshift({ id: 'p-paused-old', company_entity_id: CO_A, name: 'Old', status: 'paused', niche: 'x', platforms: [], geographies: [], created_at: '2026-01-01' });
+    const res = await s.call({ action: 'nightly_discovery', company: CO_A }, SVC);
+    assert.equal(res.status, 202);
+    const [run] = nightRuns(s);
+    assert.equal(run.program_id, PA, 'an active program of this company, never a paused one');
+    const open = s.rpcs.find((x) => x.name === 'ai_credit_open' && x.args.p_model !== 'dataforseo-serp');
+    assert.equal(open.args.p_user, null);
+    assert.equal(open.args.p_feature, 'affiliate_research', 'the same one Studio line');
+    assert.match(JSON.stringify(s.calls[0]), /\b7\b/, 'asks for the nightly number of creators');
+  } finally { delete globalThis.__studioSpend; }
+});
+
+await test('nightly Discovery: each active program takes its turn', async () => {
+  globalThis.__studioSpend = () => ({ discovery_nightly_enabled: true });
+  try {
+    const s = setup({ runs: [{ id: 'old', company_entity_id: CO_A, program_id: PA, provider: 'anthropic', status: 'ok', nightly: true, started_at: '2026-11-09T13:20:00Z' }] });
+    s.service.tables.affiliate_programs.push({ id: 'p-second', company_entity_id: CO_A, name: 'Second', status: 'active', niche: 'softball', platforms: ['tiktok'], geographies: [] });
+    await s.call({ action: 'nightly_discovery', company: CO_A }, SVC);
+    assert.equal(nightRuns(s).at(-1).program_id, 'p-second', 'the program not yet researched at night goes first');
+  } finally { delete globalThis.__studioSpend; }
+});
+
+await test('nightly Discovery stops at its dollar limit while running; a press does not', async () => {
+  const three = () => [SCRIPT()[0], SCRIPT()[0], SCRIPT()[1]];
+  globalThis.__studioSpend = (a) => ({ discovery_nightly_enabled: true, discovery_night_max_micros: 1_000_000, scan_micros: a.p_scan ? 1_500_000 : null });
+  try {
+    const n = setup({ script: three() });
+    await n.call({ action: 'nightly_discovery', company: CO_A }, SVC);
+    const [run] = nightRuns(n);
+    assert.ok(n.rpcs.some((x) => x.name === 'affiliate_studio_spend' && x.args.p_scan === run.id), "checks this run's own spend");
+    assert.ok(n.calls.length < 3, 'stopped investigating at the limit');
+    assert.match(run.error || '', /Stopped at tonight's Affiliate Studio limit/);
+    const p = setup({ script: three() });
+    await p.call({ action: 'research', program_id: PA, count: 5 });
+    assert.ok(p.calls.length >= 3, 'a press is never held to the nightly limit');
+    assert.ok(!p.rpcs.some((x) => x.name === 'affiliate_studio_spend' && x.args.p_scan), 'a press checks only the month');
+    assert.doesNotMatch(p.service.tables.affiliate_discovery_runs[0].error || '', /limit/);
+  } finally { delete globalThis.__studioSpend; }
+});
+
+await test('the monthly cap stops any run partway, and refuses the nightly one up front', async () => {
+  let n = 0;
+  globalThis.__studioSpend = (a) => ({ discovery_nightly_enabled: true, month_cap_micros: 5_000_000, month_micros: a.p_scan === undefined || n++ < 1 ? 0 : 6_000_000 });
+  try {
+    const p = setup({ script: [SCRIPT()[0], SCRIPT()[0], SCRIPT()[1]] });
+    await p.call({ action: 'research', program_id: PA, count: 5 });
+    assert.ok(p.calls.length < 3);
+    assert.match(p.service.tables.affiliate_discovery_runs[0].error || '', /Stopped at this month's Affiliate Studio limit/);
+  } finally { delete globalThis.__studioSpend; }
+  globalThis.__studioSpend = () => ({ discovery_nightly_enabled: true, month_cap_micros: 5_000_000, month_micros: 5_000_000 });
+  try {
+    const c = setup();
+    assert.equal((await c.call({ action: 'nightly_discovery', company: CO_A }, SVC)).status, 402);
+    assert.equal(c.calls.length + c.service.tables.affiliate_discovery_runs.length, 0);
   } finally { delete globalThis.__studioSpend; }
 });
 
