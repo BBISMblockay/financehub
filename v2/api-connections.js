@@ -67,6 +67,7 @@
     'outreach:send': 'Take affiliate outreach a person already approved in Affiliate Studio, so it can send it from your own mailbox, and record each one as sent, marked as this application \u2014 SILO sends nothing, and it cannot approve or write outreach',
     'codes:create': 'See the affiliate codes someone asked for in Affiliate Studio, so it can create them in your own Shopify store, and record each one it created, marked as this application \u2014 SILO writes nothing to Shopify, and it cannot ask for codes',
     'receiving:write': 'Read a purchase order\u2019s lines and draft a delivery against them, marked as this application \u2014 the draft changes nothing in SILO until someone confirms it in PO Report, and it cannot record a shipment, change a PO or move a quantity by itself',
+    'po_status:write': 'Move a purchase order to one of the steps you allow an AI to set \u2014 for example that the order is now with the factory, in production or shipped \u2014 marked as this application. It applies straight away, with no second approval in SILO, so only approve this for an application you tell what to do. It can never mark units as arrived (that is a delivery someone confirms), approve, close or cancel a PO, or touch money or quantities',
   };
   function describeScopes(scopes) {
     const list = Array.isArray(scopes) ? scopes : [];
@@ -163,6 +164,16 @@
      shipment is the confirming person's. */
   const RECEIVING_SCOPE = 'receiving:write';
 
+  /* Its own box too (20261125234500), and the first write a connection APPLIES
+     rather than drafts: moving a PO to one of the steps the company marks
+     ai_settable. Blake, 2026-11-25 -- "if they approve in their llm to mark as
+     something, it shouldn't require them to then go into silo to approve
+     second time". So the box is where the decision is made, and the copy says
+     plainly that there is no second approval. Never implied by
+     RECEIVING_SCOPE: drafting a delivery and changing a PO are different
+     answers to "can it change my purchasing". */
+  const PO_STATUS_SCOPE = 'po_status:write';
+
   /* A name to show when the client has none. Not "Unknown application" as a
      label on its own -- the client_id is the only identifying thing left, so
      show it rather than nothing. */
@@ -174,7 +185,8 @@
   }
 
   const api = {
-    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, RECEIVING_SCOPE, STATUS_COPY, SCOPE_COPY,
+    IDLE_DAYS, SILO_SCOPES, WRITE_SCOPE, OUTREACH_SCOPE, CODES_SCOPE, RECEIVING_SCOPE, PO_STATUS_SCOPE,
+    STATUS_COPY, SCOPE_COPY,
     grantStatus, describeScopes, planFromAuthorizationDetails,
     scopeList, clientIdOf, clientNameOf, displayName,
   };

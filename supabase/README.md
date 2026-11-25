@@ -105,7 +105,7 @@
 
 **Customer find decisions:** `migrations/20261125210000_affiliate_customer_review.sql` adds `affiliate_customer_social.review` (`shortlisted` / `not_fit` / `suppressed`, NULL = to review) with `reviewed_at`/`reviewed_by`, and `affiliate_customer_social_review(p_keys text[], p_review text)` (SECURITY DEFINER, `can_manage_affiliate_programs()`, active company only; NULL restores Not a fit only). It backfills finds already added to a program (Shortlisted) and finds on the do-not-contact list by email (Archive). The scan never writes these columns. Your customers > Find creators shows the undecided on Likely / Check / Under the bar, and the rest on Shortlisted and Archive (with Not them, `status = 'rejected'`).
 
-**Content offers and post numbers:** `migrations/20261125230000_affiliate_content_offers_stats.sql` adds offer columns (`offer_cents`, `offer_currency`, `offer_state` open/accepted/declined/withdrawn, `offered_at`, `offered_by`, `offer_answered_at`) and post numbers (`view_count`, `like_count`, `comment_count`, `duration_seconds`, `thumbnail_url` on `i.ytimg.com` only, `stats_source`, `stats_at`; NULL = not measured) to `affiliate_content_submissions`. `affiliate_content_offer(p_id, p_cents)` (Studio manager AND `can_approve_affiliate_commissions()`, active company; NULL withdraws) names a price for one post; `affiliate_portal_content_answer(p_token_hash, p_id, p_accept, p_offer_cents)` (service role, the affiliate's own `portal` link; refused if the price shown is no longer the offer) accepts it, writing the price once to `affiliate_commission_ledger` as a `manual_adjustment` and marking the post `used`, or declines it. Any decision on the post after the offer voids it. Numbers are written only by `affiliate-research` (`content_stats`, YouTube Data API).
+**Content offers and post numbers:** `migrations/20261125234500_affiliate_content_offers_stats.sql` adds offer columns (`offer_cents`, `offer_currency`, `offer_state` open/accepted/declined/withdrawn, `offered_at`, `offered_by`, `offer_answered_at`) and post numbers (`view_count`, `like_count`, `comment_count`, `duration_seconds`, `thumbnail_url` on `i.ytimg.com` only, `stats_source`, `stats_at`; NULL = not measured) to `affiliate_content_submissions`. `affiliate_content_offer(p_id, p_cents)` (Studio manager AND `can_approve_affiliate_commissions()`, active company; NULL withdraws) names a price for one post; `affiliate_portal_content_answer(p_token_hash, p_id, p_accept, p_offer_cents)` (service role, the affiliate's own `portal` link; refused if the price shown is no longer the offer) accepts it, writing the price once to `affiliate_commission_ledger` as a `manual_adjustment` and marking the post `used`, or declines it. Any decision on the post after the offer voids it. Numbers are written only by `affiliate-research` (`content_stats`, YouTube Data API).
 
 **Customer-find guards:** `migrations/20261125233000_affiliate_customer_tables_guards.sql` runs `attach_affiliate_same_company_twins()` so `affiliate_customer_scans` and `affiliate_customer_social` get same-company twins, and revokes client EXECUTE on the trigger functions `affiliate_payout_account_mirror()` and `affiliate_person_email_follows()`. The two customer tables are company-level (program_id is history only), so `attach_affiliate_program_scope_triggers()` now skips them by name and they carry no program-scope trigger: one would refuse a scoped manager's company-wide "Not them". Verify #357 reads them as company-level and fails if a scope trigger is ever put on them. Clears drift-check rows #212, #352 and #357.
 
@@ -3961,6 +3961,35 @@ skipped. The AI matches the document to lines itself; SILO stores the text it
 read, flags a line whose text does not resemble the line chosen, and flags
 over-receipts and packing-list (vs counted) quantities. Apply before deploying
 `mcp`; the scope cannot be granted until it is applied.
+
+### A purchase order's step, set by a connected AI — 2026-11-25
+
+`20261125234500_po_status_write_scope.sql` adds the `po_status:write` scope,
+`po_status_options` and `po_status_changes`. Two things come with it. First, the
+steps are COMPANY DATA: the eleven-step list that lived in `v2/po-builder.html`
+is seeded per company into `po_status_options` (`is_open`, `ai_settable`,
+`needs_receipt`, `is_final`), the builder reads it with that list only as a fallback, and
+`po_status_default_options()` is SILO's default rather than any company's, and `po_status_options_ensure()` seeds a workspace that had no POs when this was applied (the company-taking form is the definer tools'; the browser's takes none, so nobody seeds another tenant).
+Second, `silo_api_set_po_status()` APPLIES the step — Blake, 2026-11-25: "if
+they approve in their llm to mark as something, it shouldn't require them to
+then go into silo to approve second time" — so the fence is the scope's own
+consent box, `ai_settable` (approving, closing and cancelling are not),
+`needs_receipt` (a step meaning units arrived is refused with a pointer to
+`record_shipment_receipt`), `silo_api_may_set_po_status()` (the approving
+person must be admin of the GRANT's company or the PO's creator, which is what
+`po_headers`' UPDATE policy allows), one write against the connection's daily
+cap, and a required idempotency key. Each change is recorded in
+`po_status_changes` with the reason and the document, and the PO's own
+`po_status_history` row is stamped with the approving person and "Via <app>" in
+place of the trigger's defaults. `silo_po_status_changes_recent()` is the card
+PO Report shows afterwards. The same migration corrects
+`log_po_status_change()` itself, which exists in no migration and had stamped
+`changed_by` with the PO's **creator** for every status change since it was
+written (566 rows on production, 2026-11-25): it now records whoever made the
+change, falling back to the creator only where there is no session at all (a
+sync script), and takes `company_entity_id` from the PO rather than the
+session's active company. Apply before deploying `mcp`; the scope cannot be
+granted until it is applied.
 
 ### Affiliate creator codes — 2026-11-17
 

@@ -61,7 +61,10 @@ const INSTRUCTIONS = [
   'YOU to create in the person\'s own Shopify (with a Shopify tool), and mark_affiliate_code_created records each one. Where',
   'they granted receiving:write, pos_awaiting_receipt and po_lines_for_receiving read a purchase order\'s lines and',
   'record_shipment_receipt DRAFTS a delivery against them for a person to confirm in SILO -- it creates no shipment and',
-  'changes no purchase order, so say it is waiting for them and send the link. Nothing',
+  'changes no purchase order, so say it is waiting for them and send the link. Where they granted po_status:write,',
+  'po_status_options and purchase_orders_for_status read the steps this company allows and the POs that can move, and',
+  'set_po_status moves one STRAIGHT AWAY -- there is no confirmation in SILO, so only call it for a step the person has',
+  'just asked for, and never a step that means units arrived (record that with record_shipment_receipt). Nothing',
   'else it can do changes anything: no edits, no completing or reassigning work, no money, no approvals,',
   'and SILO itself sends nothing. Asked for one of those, say what you would do and give the person the SILO link.',
   'Reading, in order of use:',
@@ -419,6 +422,60 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: 'po_status_options',
+    title: 'Read the purchase-order steps this company uses',
+    description: 'This company\'s own purchase-order steps in order -- its wording, not a fixed list -- with which of them '
+      + 'count as an open order, which you may set yourself (ai_settable) and which mean units arrived and so have to go '
+      + 'through a confirmed delivery instead (needs_receipt). Read this before set_po_status and use a name exactly as it '
+      + 'appears here. Needs the po_status:write permission, which the person grants separately. Reads only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'purchase_orders_for_status',
+    title: 'List purchase orders whose step can be moved',
+    description: 'The purchase orders whose step can still move -- a draft included, a closed or cancelled one not -- with '
+      + 'the factory, the current step, the line count and whether the person who connected this application may move that '
+      + 'PO in SILO. Use it to find the PO the person means, then call set_po_status. Needs the po_status:write permission. '
+      + 'Reads only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search: { type: 'string', description: 'Text in the PO name or the factory name.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 25 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'set_po_status',
+    title: 'Move a purchase order to a step',
+    description: 'Moves ONE purchase order to one of the steps po_status_options marks ai_settable -- for example that the '
+      + 'order is now with the factory, or in production, or has shipped. IT IS APPLIED IMMEDIATELY: the PO changes in SILO '
+      + 'as soon as this returns, nobody confirms it afterwards, and everyone in the company sees it. So call it only for a '
+      + 'step the person has just told you to set, and tell them it is done. A step that means units arrived is refused: '
+      + 'record that with record_shipment_receipt against the PO\'s lines, so a person confirms the delivery. A PO the '
+      + 'connecting person may not change in SILO is refused too -- give them the SILO link instead. Pass reason (why, in a '
+      + 'few words) and, where you read it from a document, source_label and source_url: SILO shows both beside the change. '
+      + 'Needs the po_status:write permission, which the person grants separately; one write against the connection\'s 50 a '
+      + 'day. Pass idempotency_key and REUSE THE SAME ONE if you retry.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        po_header_id: { type: 'string', description: 'The purchase order, from purchase_orders_for_status.' },
+        status: { type: 'string', description: 'The step to set, exactly as po_status_options names it.' },
+        idempotency_key: { type: 'string', description: 'Your own id for this change, up to 100 characters. Required; the same key returns the first change.' },
+        reason: { type: 'string', description: 'Why the step is being set, in a few words. Shown to the person in SILO.' },
+        source_label: { type: 'string', description: 'Where you read it, in a few words (a factory email, a chat message).' },
+        source_url: { type: 'string', description: 'An https link to that document. SILO never fetches it.' },
+      },
+      required: ['po_header_id', 'status', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 /* Tools that need a scope the connection may not have been given. Only
@@ -434,6 +491,9 @@ const TOOL_SCOPE = {
   pos_awaiting_receipt: 'receiving:write',
   po_lines_for_receiving: 'receiving:write',
   record_shipment_receipt: 'receiving:write',
+  po_status_options: 'po_status:write',
+  purchase_orders_for_status: 'po_status:write',
+  set_po_status: 'po_status:write',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -948,6 +1008,65 @@ export function createMcpHandler({ env, fetchImpl }) {
         body.p_source_url = url;
       }
       const r = await callRpc(authorization, 'silo_api_record_shipment_receipt', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'po_status_options') {
+      const r = await callRpc(authorization, 'silo_api_po_status_options', {});
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'purchase_orders_for_status') {
+      const body = {};
+      if (args.search != null) {
+        if (typeof args.search !== 'string' || args.search.trim().length < 2) {
+          return rpcResult(id, toolErr('search must be text of 2 or more characters.'));
+        }
+        body.p_search = args.search.trim();
+      }
+      if (args.limit != null) {
+        if (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) {
+          return rpcResult(id, toolErr('limit must be a whole number from 1 to 100.'));
+        }
+        body.p_limit = args.limit;
+      }
+      const r = await callRpc(authorization, 'silo_api_pos_for_status', body);
+      if (!r.ok) return refusalResponse(id, r, true);
+      return rpcResult(id, toolOk(r.data));
+    }
+
+    if (name === 'set_po_status') {
+      const po = String(args.po_header_id ?? '').trim();
+      if (!UUID.test(po)) return rpcResult(id, toolErr('po_header_id must be a purchase order id from purchase_orders_for_status.'));
+      // The step list is COMPANY DATA, so the allowed names are not knowable
+      // here: the database holds the list and names the one it refused. This
+      // only checks the shape.
+      const status = typeof args.status === 'string' ? args.status.trim() : '';
+      if (!status || status.length > 60) {
+        return rpcResult(id, toolErr('status must be a step from po_status_options, up to 60 characters, spelled as it appears there.'));
+      }
+      const key = typeof args.idempotency_key === 'string' ? args.idempotency_key.trim() : '';
+      if (!key || key.length > 100) {
+        return rpcResult(id, toolErr('idempotency_key must be your own id for this change, up to 100 characters. Reuse it if you retry.'));
+      }
+      const body = { p_po_header_id: po, p_status: status, p_idempotency_key: key };
+      for (const [arg, param] of [['reason', 'p_reason'], ['source_label', 'p_source_label']]) {
+        if (args[arg] == null) continue;
+        if (typeof args[arg] !== 'string' || args[arg].length > 2000) {
+          return rpcResult(id, toolErr(arg + ' must be text up to 2000 characters.'));
+        }
+        body[param] = args[arg];
+      }
+      if (args.source_url != null) {
+        const url = String(args.source_url).trim();
+        if (!/^https:\/\/[^\s<>"]{4,492}$/.test(url)) {
+          return rpcResult(id, toolErr('source_url must be an https link to the document, up to 500 characters.'));
+        }
+        body.p_source_url = url;
+      }
+      const r = await callRpc(authorization, 'silo_api_set_po_status', body);
       if (!r.ok) return refusalResponse(id, r, true);
       return rpcResult(id, toolOk(r.data));
     }
