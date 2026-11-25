@@ -830,10 +830,18 @@ const plainText = (html) => String(html || '')
   .toLowerCase();
 const textHits = (text, words = findWords()) => words.every((w) => text.includes(w));
 const findEmpty = (emptyText) => (findWords().length ? empty(`No matches for "${S.find.trim()}" here.`) : empty(emptyText));
-function table(cols, rows, emptyText = 'Nothing here yet.') {
+// A column with `sort` gets a header button; `sort` on the table says which
+// action it fires and which key and direction are on now.
+function table(cols, rows, emptyText = 'Nothing here yet.', sort = null) {
   if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
   if (!rows.length) return findEmpty(emptyText);
-  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
+  const head = (c) => {
+    if (!sort || !c.sort) return esc(c.h);
+    const on = sort.k === c.sort;
+    const arrow = on ? (sort.dir > 0 ? '↑' : '↓') : '↕';
+    return `<button type="button" class="af-th-sort${on ? ' is-on' : ''}" data-act="${sort.act}" data-k="${c.sort}" aria-label="Sort by ${esc(c.h)}">${esc(c.h)}<span aria-hidden="true">${arrow}</span></button>`;
+  };
+  return `<div class="af-scroll"><table class="bcn-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="af-num"' : c.left ? ' class="bcn-th-left"' : ''}${sort && c.sort === sort.k ? ` aria-sort="${sort.dir > 0 ? 'ascending' : 'descending'}"` : ''}>${head(c)}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="af-num"' : ''}>${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 function itemList(rows, renderRow, emptyText = 'Nothing here yet.', layout = 'stack') {
@@ -1066,29 +1074,35 @@ const PANEL_RENDERERS = {
 };
 
 // What the search matches beyond this tab, read from what the page holds,
-// so a person is never left thinking a name is nowhere.
-const objText = (x) => Object.values(x || {}).filter((v) => typeof v === 'string' || typeof v === 'number').join(' ').toLowerCase();
+// so a person is never left thinking a name is nowhere. Only who somebody is
+// counts here -- name, handle, email, code -- never a message body or a link.
+const whoText = (...xs) => xs.filter((v) => v !== null && v !== undefined && v !== '').join(' ').toLowerCase();
+// How many rows the open tab shows after the search.
+const HIT_ROWS = '.af-q-row, .af-items > *, table.bcn-table tbody tr, .af-slist > .af-srow';
 function renderFindHits() {
   const el = $('studioHits'); if (!el) return;
   const words = findWords(); const d = S.d;
+  const x = $('studioQx'); if (x) x.hidden = !words.length;
   if (!words.length) { el.hidden = true; el.innerHTML = ''; return; }
   const codesOf = {};
   for (const c of d?.codes || []) (codesOf[c.affiliate_id] ||= []).push(c.code);
-  const affHit = (a) => a && textHits(`${objText(a)} ${(codesOf[a.id] || []).join(' ').toLowerCase()}`, words);
+  const affWho = (a) => (a ? whoText(a.display_name, a.contact_email, a.handle, ...(codesOf[a.id] || [])) : '');
+  const prosWho = (y) => (y ? whoText(y.display_name, y.handle, y.contact_email) : '');
   const n = {
-    people: (d?.affiliates || []).filter(affHit).length + (d?.prospects || []).filter((x) => textHits(objText(x), words)).length,
-    comms: (d?.drafts || []).filter((x) => textHits(objText(x), words)).length,
-    payouts: (d?.payouts || []).filter((x) => affHit(d.affById?.[x.affiliate_id])).length,
+    people: (d?.affiliates || []).filter((a) => textHits(affWho(a), words)).length + (d?.prospects || []).filter((y) => textHits(prosWho(y), words)).length,
+    comms: (d?.drafts || []).filter((y) => textHits(whoText(y.recipient_email, y.recipient_handle, prosWho(d.prospectById?.[y.prospect_id])), words)).length,
+    payouts: (d?.payouts || []).filter((y) => textHits(affWho(d.affById?.[y.affiliate_id]), words)).length,
   };
   const label = { people: 'People', comms: 'Outreach', payouts: 'Money' };
   const here = PANEL_OF[S.tab] || S.tab;
-  const tabs = Object.keys(n).filter((k) => n[k] > 0 && k !== here)
-    .map((k) => btn(`${label[k]} · ${num(n[k])}`, 'go-tab', { t: k }, 'ghost'));
-  const progs = S.programs.filter((x) => textHits(`${x.name} ${x.slug || ''}`.toLowerCase(), words))
-    .map((x) => btn(`Program: ${x.name}`, 'pick-program', { id: x.id, t: 'program' }, 'ghost'));
-  const all = [...tabs, ...progs];
-  el.hidden = !all.length;
-  el.innerHTML = all.length ? `<span class="af-muted">Also matches</span>${all.join('')}` : '';
+  const panel = document.querySelector(`[data-panel="${here}"]`);
+  const hereN = panel ? panel.querySelectorAll(HIT_ROWS).length : 0;
+  const chip = (txt, act, data, on = false) => `<button type="button" class="af-seg-btn${on ? ' is-on' : ''}"${act ? ` data-act="${act}"${Object.entries(data).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('')}` : ' disabled'}>${esc(txt)}</button>`;
+  const chips = [chip(`This tab · ${num(hereN)}`, null, {}, true),
+    ...Object.keys(n).filter((k) => n[k] > 0 && k !== here).map((k) => chip(`${label[k]} · ${num(n[k])}`, 'go-tab', { t: k })),
+    ...S.programs.filter((y) => textHits(whoText(y.name, y.slug), words)).map((y) => chip(`Program: ${y.name}`, 'pick-program', { id: y.id, t: 'program' }))];
+  el.hidden = false;
+  el.innerHTML = `<span class="af-find-q">“${esc(S.find.trim())}”</span><div class="af-seg" role="group" aria-label="Search results">${chips.join('')}</div>`;
 }
 
 function renderProgramPick(company) {
@@ -1113,7 +1127,6 @@ function render() {
   // old dropdown stays in index.html, hidden there, so it never shows even
   // while the page is still loading.
   renderProgramPick(company);
-  renderFindHits();
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
   renderDialog();
@@ -1133,6 +1146,7 @@ function render() {
   const panel = document.querySelector(`[data-panel="${PANEL_OF[S.tab] || 'overview'}"]`);
   const first = $(FIRST_BODY[PANEL_OF[S.tab]] || '');
   if (panel && first && ![...panel.querySelectorAll('.af-stack, .af-ov')].some((el) => el.innerHTML.trim())) first.innerHTML = findEmpty('Nothing waiting here.');
+  renderFindHits();
   renderWorkflowTabCounts();
 }
 
@@ -2282,13 +2296,41 @@ function renderProspects() {
   // Everybody found, in any program, once each (Blake 2026-11-24: "Discovery
   // should show all discovered no matter the program"). A card is in a
   // filter when any of their programs has them there.
-  const people = groupPeople(d.prospects, d.suppressions);
+  // One filter row (Blake 2026-11-25: "better filtering and sorting"):
+  // platform, program, has an email, follower floor. The status chips below
+  // count what these leave.
+  const F = (S.dFilt ||= { plat: '', prog: '', email: false, minF: 0 });
+  const allPeople = groupPeople(d.prospects, d.suppressions);
+  const followersOf = (g) => Math.max(0, ...g.rows.map((x) => Number(followersFrom(x.evidence)?.count) || 0));
+  const engagementOf = (g) => { const r = g.rows.map((x) => creatorStats(x.evidence)?.rate).filter((v) => v != null); return r.length ? Math.max(...r) : null; };
+  const emailOf = (g) => g.rows.map((x) => x.contact_email).find(Boolean) || '';
+  const plats = [...new Set(allPeople.flatMap((g) => g.rows.map((x) => x.platform)).filter(Boolean))].sort();
+  if (F.plat && !plats.includes(F.plat)) F.plat = '';
+  if (F.prog && !S.programs.some((y) => y.id === F.prog)) F.prog = '';
+  const people = allPeople.filter((g) => (!F.plat || g.rows.some((x) => x.platform === F.plat))
+    && (!F.prog || g.programIds.includes(F.prog))
+    && (!F.email || !!emailOf(g))
+    && (!F.minF || followersOf(g) >= F.minF));
   const inGroup = (g, f) => g.rows.some((x) => prospectInGroup(x, f));
   // The search a prospect came from, so one search's results can be picked out.
   const fromQuery = (x) => String(x.evidence?.last_seen_query || x.evidence?.query || '').trim();
   const queries = [...new Set(people.filter((g) => inGroup(g, filter)).flatMap((g) => g.rows.map(fromQuery)).filter(Boolean))].slice(0, 30);
   if (S.prospectQuery && !queries.includes(S.prospectQuery)) S.prospectQuery = '';
   const list = people.filter((g) => inGroup(g, filter) && (!S.prospectQuery || g.rows.some((x) => fromQuery(x) === S.prospectQuery)));
+  // Sort by a column header; numbers start biggest first, words A to Z.
+  const SORT = {
+    creator: (g) => String(g.x.display_name || g.x.handle || '').toLowerCase(),
+    followers: followersOf,
+    engagement: (g) => engagementOf(g) ?? -1,
+    email: (g) => emailOf(g).toLowerCase() || '\uffff',
+    status: (g) => String(g.suppressed ? 'suppressed' : g.x.status || ''),
+    program: (g) => g.rows.map((x) => progName(x.program_id)).join(', ').toLowerCase(),
+  };
+  const ds = S.dSort;
+  if (ds && SORT[ds.k]) {
+    const key = SORT[ds.k];
+    list.sort((a, b) => { const x = key(a); const y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * ds.dir; });
+  }
   // Bulk selection is by person, held as the id of the row on their card.
   const inView = new Set(list.map((g) => g.x.id));
   for (const id of [...S.sel]) if (!inView.has(id)) S.sel.delete(id);
@@ -2386,6 +2428,16 @@ function renderProspects() {
     </article>`;
   };
   const capped = S.prospectShowAll ? list : list.slice(0, PROSPECT_LIST_CAP);
+  const seg = (label, key, opts) => `<div class="af-dfilter"><span class="af-muted">${esc(label)}</span><div class="af-seg" role="radiogroup" aria-label="${esc(label)}">${opts.map(([v, txt]) => `<button type="button" class="af-seg-btn${String(F[key]) === String(v) ? ' is-on' : ''}" role="radio" aria-checked="${String(F[key]) === String(v)}" data-act="d-filter" data-key="${key}" data-v="${esc(String(v))}">${esc(txt)}</button>`).join('')}</div></div>`;
+  const anyFilter = F.plat || F.prog || F.email || F.minF;
+  const dFilterRow = `<div class="af-dfilters">${[
+    plats.length > 1 ? seg('Platform', 'plat', [['', 'All'], ...plats.map((x) => [x, PLATFORM_NAMES[x] || x])]) : '',
+    S.programs.length > 1 ? seg('Program', 'prog', [['', 'All'], ...S.programs.map((y) => [y.id, y.name])]) : '',
+    seg('Email', 'email', [[false, 'Any'], [true, 'Has email']]),
+    seg('Followers', 'minF', [[0, 'Any'], [1000, '1k+'], [10000, '10k+'], [100000, '100k+']]),
+    anyFilter ? btn('Clear filters', 'd-filter-clear', {}, 'ghost') : '',
+  ].join('')}</div>`;
+  const dSortSpec = { act: 'd-sort', k: S.dSort?.k || '', dir: S.dSort?.dir || -1 };
   const listFoot = list.length > PROSPECT_LIST_CAP
     ? (S.prospectShowAll
       ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
@@ -2398,23 +2450,22 @@ function renderProspects() {
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}${viewToggle()}</div>
+    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}${viewToggle()}</div>${dFilterRow}
       ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
-        ${queries.length > 1 ? `<select class="bcn-field" id="pQuery" aria-label="From search"><option value="">All searches</option>${queries.map((q) => `<option value="${esc(q)}"${q === S.prospectQuery ? ' selected' : ''}>${esc(q)}</option>`).join('')}</select>` : ''}
         ${btn(`Select all ${list.length}`, 'prospect-select-all')}
         ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
           ...(MANAGE ? [{ h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
-          { left: true, h: 'Creator', f: ({ x }) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
-          { h: 'Followers', num: true, f: ({ x }) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
-          { h: 'Engagement', num: true, f: ({ x }) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
-          { left: true, h: 'Email', f: ({ x }) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', f: (g) => `${headPill(g)}${customerPill(g.x)}` },
-          ...(S.programs.length > 1 ? [{ left: true, h: 'Program', f: (g) => esc(programsOf(g)) }] : []),
+          { left: true, h: 'Creator', sort: 'creator', f: ({ x }) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
+          { h: 'Followers', num: true, sort: 'followers', f: ({ x }) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
+          { h: 'Engagement', num: true, sort: 'engagement', f: ({ x }) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
+          { left: true, h: 'Email', sort: 'email', f: ({ x }) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
+          { left: true, h: 'Status', sort: 'status', f: (g) => `${headPill(g)}${customerPill(g.x)}` },
+          ...(S.programs.length > 1 ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
           { h: '', f: (g) => actions(g) },
-        ], capped, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.')
+        ], capped, anyFilter ? 'Nobody matches these filters.' : filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', dSortSpec)
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
       ${listFoot}
       <div id="signupOut"></div>`, `${list.length} in this view · ${people.length} people`, 'afCreatorsList'),
@@ -4170,6 +4221,19 @@ const A = {
   },
   // From the all-programs view into one program, on the tab asked for.
   'pick-prog': async ({ id }) => { await setProgram(id); return null; },
+  // Discovery's filter row and sortable headers. The first press on a number
+  // sorts biggest first, on a word A to Z; pressing it again flips it.
+  'd-filter': ({ key, v }) => {
+    const F = (S.dFilt ||= { plat: '', prog: '', email: false, minF: 0 });
+    F[key] = key === 'email' ? v === 'true' : key === 'minF' ? Number(v) || 0 : v;
+    S.sel.clear(); S.prospectShowAll = false; render(); return null;
+  },
+  'd-filter-clear': () => { S.dFilt = { plat: '', prog: '', email: false, minF: 0 }; S.sel.clear(); render(); return null; },
+  'd-sort': ({ k }) => {
+    const first = ['followers', 'engagement'].includes(k) ? -1 : 1;
+    S.dSort = S.dSort?.k === k ? { k, dir: -S.dSort.dir } : { k, dir: first };
+    render(); return null;
+  },
   'pick-program': async ({ id, t }) => {
     await flushProgramSave(); S.programId = id; S.creating = false; S.shareAll = false; S.affTool = null; S.lookup = null; S.tplDraft = null; S.custTplDraft = null; if (t) S.tab = PANEL_OF[t] || t;
     $('programSel').value = id; await loadProgramData(); render(); return null;
@@ -5071,6 +5135,7 @@ $('studioQ')?.addEventListener('input', (e) => {
   clearTimeout(findTimer);
   findTimer = setTimeout(() => { S.find = e.target.value; render(); }, 150);
 });
+$('studioQx')?.addEventListener('click', () => { const q = $('studioQ'); if (q) { q.value = ''; q.focus(); } clearTimeout(findTimer); S.find = ''; render(); });
 $('studioQ')?.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && e.target.value) { e.target.value = ''; clearTimeout(findTimer); S.find = ''; render(); }
 });
