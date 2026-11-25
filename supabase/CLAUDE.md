@@ -23,9 +23,10 @@ most carry a decision that looks like a bug and is not.
 6. **A migration merged to `main` applies itself** -- `auto-apply-migrations.yml` applies the files
    that merge ADDED, in version order, each as one all-or-nothing request, skipping any version already in
    `supabase_migrations.schema_migrations`. It never scans the folder and never backfills, so a
-   migration not added by that push is never run. Two things still need Blake's explicit approval in
-   the session: an agent applying or writing to production BY HAND, and a migration this workflow
-   refuses (`CONCURRENTLY` / `VACUUM` cannot run in a transaction). If one was applied directly with
+   migration not added by that push is never run. **Write a new migration without explicit `BEGIN`/`COMMIT`** -- the applier's request is
+   already one transaction, and a file that commits itself is refused. Two things still need Blake's
+   explicit approval in the session: an agent applying or writing to production BY HAND, and a
+   migration this workflow refuses (`CONCURRENTLY`, `VACUUM`, or its own transaction control). If one was applied directly with
    that approval, open the PR in the same session -- the later merge skips it.
 7. `20260922170000` must stay the LAST include in `apply_all_post_merge.sql`.
 

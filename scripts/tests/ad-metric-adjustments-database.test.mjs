@@ -142,8 +142,11 @@ assert.ok(start >= 0, 'the ad metric adjustments verify block is missing');
 let block = verifySql.slice(start);
 const next = /\nselect '[^']+' as check_name,/.exec(block.slice(1));
 if (next) block = block.slice(0, next.index + 1);
-// The next check may carry a comment above its select; that comment is not part of this block.
-block = block.trim().replace(/(\n[ \t]*(--[^\n]*)?)+$/, '').trim();
+// Trailing comment lines belong to the NEXT check, not this one: 20261125130000
+// put a four-line header in front of its check, and this block then ended in a
+// comment rather than `;` and failed here. Same trim the Klaviyo and Windsor
+// verify-block tests already carry.
+block = block.split('\n').reduceRight((acc, l) => (acc.length || !/^\s*(--.*)?$/.test(l) ? [l, ...acc] : acc), []).join('\n').trim();
 assert.ok(block.endsWith(';'), 'could not extract the verify block');
 
 const A = '00000000-0000-0000-0000-00000000000a';
