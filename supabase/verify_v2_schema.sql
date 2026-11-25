@@ -7013,6 +7013,8 @@ select 'Card paydown match' as check_name,
    then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
   when has_function_privilege('anon', 'public.card_payment_match_proposals(uuid[],integer)', 'execute')
    then 'CRITICAL: anon can reach the card paydown proposals'
+  when position('payer_coded_at' in coalesce(pg_get_functiondef(to_regprocedure('public.unlink_card_payment_match(uuid)')), '')) = 0
+   then 'STALE — run 20261125070000_card_payment_match_relink.sql: without the stamp an undo can overwrite coding somebody did themselves'
   else 'ok' end as status;
 -- End card paydown match checks.
 

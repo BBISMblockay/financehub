@@ -19942,6 +19942,7 @@ $c$select (select count(*) from v_po_header_summary
 -- The bank row is read, never written, so one already posted still settles it.
 \i migrations/20261125020000_card_payment_match.sql
 \i migrations/20261125060000_card_payment_match_both_sides.sql
+\i migrations/20261125070000_card_payment_match_relink.sql
 -- 20261125030000: View as rep -- a one-hour, read-only 'preview' portal link
 -- staff mint for one affiliate; portal writes refuse it by construction.
 \i migrations/20261125030000_affiliate_view_as_rep.sql
