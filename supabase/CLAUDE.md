@@ -21,7 +21,7 @@ most carry a decision that looks like a bug and is not.
 4. Add it to `verify_v2_schema.sql`, `apply_all_post_merge.sql` and `README.md`.
 5. After any public table/view change, re-run `refresh_chat_schema_catalog()` (Ask SILO's map).
 6. **A migration merged to `main` applies itself** -- `auto-apply-migrations.yml` applies the files
-   that merge ADDED, in version order, each in one transaction, skipping any version already in
+   that merge ADDED, in version order, each as one all-or-nothing request, skipping any version already in
    `supabase_migrations.schema_migrations`. It never scans the folder and never backfills, so a
    migration not added by that push is never run. Two things still need Blake's explicit approval in
    the session: an agent applying or writing to production BY HAND, and a migration this workflow
