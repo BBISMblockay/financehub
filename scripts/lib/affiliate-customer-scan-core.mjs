@@ -98,10 +98,18 @@ export function personName(nameLc, firstLc = null, lastLc = null) {
   return { first, last, display: words.map(titleCase).join(' ') };
 }
 
-/** The words searched for one customer: their name in quotes, then the city. */
+/**
+ * The words searched for one customer: their name in quotes, then the city.
+ * A first name with nicknames is searched as up to NICK_QUERY spellings in ONE
+ * request ("Mike Sorensen" OR "Michael Sorensen" Phoenix), because a quoted
+ * phrase never returns the other spelling and the matcher can only judge what
+ * the search brought back. Their own spelling always comes first.
+ */
+export const NICK_QUERY = 3;
 export function scanQuery(person, city = null) {
   const c = String(city || '').replace(/["\s]+/g, ' ').replace(/\s+,/g, ',').trim().slice(0, 60);
-  return `"${titleCase(person.first)} ${titleCase(person.last)}"${c ? ` ${c}` : ''}`;
+  const names = firstNames(person.first).slice(0, NICK_QUERY).map((f) => `"${titleCase(f)} ${titleCase(person.last)}"`);
+  return `${names.join(' OR ')}${c ? ` ${c}` : ''}`;
 }
 
 /** The provider task: the shallowest page the provider sells, pinned to the program's platforms. */
