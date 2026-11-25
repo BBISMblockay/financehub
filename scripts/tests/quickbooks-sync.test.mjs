@@ -53,6 +53,26 @@ const MUTATIONS = {
   'mark-without-table': [`i.canMark = known(facts.byHand) && i.status === 'waiting' && i.sendable === true;`, `i.canMark = i.status === 'waiting' && i.sendable === true;`],
   // A missing feature is "not installed", not a failed read.
   'missing-table-is-error': [`if (r.error.code === 'PGRST202' || r.error.code === '42883') return null;`, ``],
+  // an unticked row is sent
+  'send-unticked': [`return (items || []).filter((i) => keys.has(i.key) && (action === 'mark'`, `return (items || []).filter((i) => (action === 'mark'`],
+  // a ticked row that can no longer be sent is sent anyway
+  'send-unsendable': [`action === 'mark' ? i.canMark === true : i.sendable === true));`, `action === 'mark' ? i.canMark === true : true));`],
+  // a ticked row that cannot hold a mark is marked anyway
+  'mark-unmarkable': [`action === 'mark' ? i.canMark === true : i.sendable === true));`, `action === 'mark' ? true : i.sendable === true));`],
+  // a row needing a fix is dropped from the to-do list
+  'todo-drops-fix': [`todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting'),`, `todo: list.filter((i) => i.status === 'waiting'),`],
+  // an open month is shown as a task
+  'todo-shows-open': [`todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting'),`, `todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting' || i.status === 'open'),`],
+  // a month nobody read back is called agreed
+  'agree-unread-month': [`      if (!m) continue;
+      const entries = num(r.entries);`, `      if (!m) { out[r.month] = { state: 'agree' }; continue; }
+      const entries = num(r.entries);`],
+  // a changed entry is called agreed
+  'agree-despite-change': [`state: changed > 0 || amount !== 0 ? 'differs' : 'agree' });`, `state: 'agree' });`],
+  // an unreadable comparison is called agreed
+  'agree-when-unread': [`if (!known(periods) || !known(rows)) return out;`, `if (!known(periods)) return out; rows = rows || [];`],
+  // a malformed row is read as no difference
+  'agree-on-garbage': [`if (entries === null || changed === null || amount === null) { delete out[r.month]; continue; }`, `if (entries === null || changed === null || amount === null) continue;`],
   'score-open-months': [`const total = synced + waiting + fix;`, `const total = synced + waiting + fix + count('open');`],
 };
 
@@ -285,15 +305,17 @@ test('precheck turns a waiting month into a fix before anyone presses Sync', asy
 
 test('the page wires the module and leaves no write path of its own', () => {
   const page = fs.readFileSync(new URL('../../v2/quickbooks-sync.html', import.meta.url), 'utf8');
-  for (const id of ['status', 'qsSummary', 'btnSync', 'qsSyncNote', 'qsProgress', 'qsProgressBar', 'qsProgressText', 'qsRows', 'qsEmpty', 'qsConfirm', 'qsConfirmList', 'qsAck', 'qsConfirmGo', 'qsConfirmCancel', 'btnRefresh', 'qsToday']) {
+  for (const id of ['status', 'qsSummary', 'btnSync', 'qsSyncNote', 'qsProgress', 'qsProgressBar', 'qsProgressText', 'qsRows', 'qsEmpty', 'qsConfirm', 'qsConfirmList', 'qsAck', 'qsConfirmGo', 'qsConfirmCancel', 'btnRefresh', 'qsToday',
+    'qsAll', 'qsTodoTable', 'qsMore', 'btnMarkSelected', 'qsLater', 'qsLaterSum', 'qsLaterRows', 'qsDone', 'qsMonths']) {
     assert.ok(page.includes(`id="${id}"`), id);
   }
   assert.ok(page.indexOf('nav-config.js') < page.indexOf('silo-chrome.js'));
   const raw = fs.readFileSync(new URL('../../v2/quickbooks-sync.js', import.meta.url), 'utf8');
   assert.doesNotMatch(raw + page, /\balert\(/);
-  assert.doesNotMatch(raw, /\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
+  assert.doesNotMatch(raw, /\.from\([^;]*?\.(insert|update|upsert|delete)\(/, 'no table writes from the page');
+  assert.equal((raw.match(/\.from\(/g) || []).length, 3, 'three table reads: settings, the paged lists, the read-back months');
   const rpcs = [...raw.matchAll(/rpc\('([a-z_]+)'/g)].map((m) => m[1]).sort();
-  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'is_exec_or_owner', 'quickbooks_entered_by_hand_list', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
+  assert.deepEqual([...new Set(rpcs)], ['can_manage_journal_entries', 'card_import_batch_preview', 'approve_reviewed_card_import_batch', 'chat_run_readonly_query', 'is_exec_or_owner', 'quickbooks_entered_by_hand_list', 'set_entry_entered_in_quickbooks', 'silo_business_today', 'silo_ledger_batch_status'].sort());
   assert.doesNotMatch(raw, /innerHTML/);
 });
 
@@ -305,7 +327,7 @@ function fakeDb(tables, failing = []) {
   const chain = (table) => {
     const answer = failing.includes(table) ? { data: null, error: { message: 'timeout' } }
       : tables[table] === 'missing' ? { data: null, error: { code: 'PGRST205', message: 'no such table' } } : { data: tables[table], error: null };
-    const q = { select: () => q, eq: () => q, in: () => q, order: () => q, range: () => q, limit: () => q, maybeSingle: () => q, then: (ok, no) => Promise.resolve(answer).then(ok, no) };
+    const q = { select: () => q, eq: () => q, in: () => q, not: () => q, order: () => q, range: () => q, limit: () => q, maybeSingle: () => q, then: (ok, no) => Promise.resolve(answer).then(ok, no) };
     return q;
   };
   return { from: chain, rpc: async (name) => (failing.includes(name) ? { data: null, error: { message: 'timeout' } }
@@ -423,4 +445,77 @@ test('load: marks are read; a database without the feature has no button and no 
   const unread = await S.load(fakeDb(tables('silo'), ['quickbooks_entered_by_hand_list']), company);
   assert.match(unread.errors.join(), /entered by hand/); assert.equal(unread.items.some((i) => i.canMark), false);
   assert.equal(S.summarize(unread.items).sendable, 0, 'a marked entry may be among them');
+});
+
+// ── the screen: to do first, ticks decide, one line a month for the rest ──
+const screenItems = () => S.classify(facts({ byHand: [], batches: [
+  batch({ id: 'w1' }), batch({ id: 'w2', source_name: 'Amex' }),
+  batch({ id: 'f1', period_start: '2026-09-01', period_end: '2026-09-30', entry_date: '2026-09-30', uncoded_count: 2 }),
+  batch({ id: 'o1', period_start: '2026-11-01', period_end: '2026-11-30', entry_date: '2026-11-30' }),
+  batch({ id: 'x1', source_posting_enabled: false }),
+  batch({ id: 'p1', status: 'posted', qbo_doc_number: 'SILO-1', period_start: '2026-09-01', period_end: '2026-09-30', entry_date: '2026-09-30' }),
+  batch({ id: 'p2', status: 'posted', qbo_doc_number: 'SILO-2', period_start: '2026-08-01', period_end: '2026-08-31', entry_date: '2026-08-31' }),
+  batch({ id: 'p3', status: 'posted', qbo_doc_number: 'SILO-3', source_name: 'Amex', period_start: '2026-08-01', period_end: '2026-08-31', entry_date: '2026-08-31' }),
+] }));
+
+test('the screen opens on what is left to do; open months and finished months are not tasks', () => {
+  const parts = S.sections(screenItems());
+  same(parts.todo.map((i) => `${i.id}:${i.status}`).sort(), ['f1:fix', 'w1:waiting', 'w2:waiting']);
+  same(parts.later.map((i) => `${i.id}:${i.status}`).sort(), ['o1:open', 'x1:outside']);
+  same(parts.months.map((m) => `${m.month}:${m.items.map((i) => i.id).sort().join('+')}`), ['2026-09:p1', '2026-08:p2+p3']);
+  same(S.sections(null), { todo: [], later: [], months: [] });
+});
+
+test('only a ticked row is sent or marked, and only while it still may be', () => {
+  const items = screenItems();
+  const ids = (rows) => rows.map((i) => i.id).sort();
+  same(ids(S.chosen(items, new Set(), 'send')), []);
+  same(ids(S.chosen(items, new Set(), 'mark')), []);
+  same(ids(S.chosen(items, new Set(['batch:w1']), 'send')), ['w1']);
+  same(ids(S.chosen(items, ['batch:w1', 'batch:w2'], 'mark')), ['w1', 'w2']);
+  // Ticks on rows that cannot be sent (a fix, an open month, a posted month) do nothing.
+  same(ids(S.chosen(items, new Set(['batch:f1', 'batch:o1', 'batch:p1', 'batch:x1', 'batch:w2']), 'send')), ['w2']);
+  same(ids(S.chosen(items, new Set(['batch:f1', 'batch:o1', 'batch:p1', 'batch:x1', 'batch:w2']), 'mark')), ['w2']);
+  // A row that can be sent but cannot hold a mark (no table for marks) is not marked.
+  const noMarks = S.classify(facts({ byHand: null, batches: [batch({ id: 'w1' })] }));
+  same(ids(S.chosen(noMarks, new Set(['batch:w1']), 'send')), ['w1']);
+  same(ids(S.chosen(noMarks, new Set(['batch:w1']), 'mark')), []);
+});
+
+test('a month is judged only where QuickBooks was read back, and only from a clean comparison', () => {
+  const periods = [{ period_start: '2026-09-01', read_through: '2026-09-30' }, { period_start: '2026-08-01', read_through: '2026-08-31' }, { period_start: '2026-07-01', read_through: '2026-07-31' }];
+  const got = S.agreement(periods, [
+    { month: '2026-09', entries: 3, changed: 0, amount: 0 },
+    { month: '2026-08', entries: 2, changed: 1, amount: '120.5' },
+    { month: '2026-10', entries: 1, changed: 0, amount: 0 },       // never read back
+  ]);
+  same(Object.keys(got).sort(), ['2026-07', '2026-08', '2026-09']);
+  assert.equal(got['2026-09'].state, 'agree');
+  assert.equal(got['2026-08'].state, 'differs');
+  assert.equal(got['2026-07'].state, 'agree', 'read back, and SILO sent nothing that month');
+  same(S.agreementLabel(got['2026-09']), { text: 'QuickBooks and SILO agree', tone: 'pos' });
+  same(S.agreementLabel(got['2026-08']), { text: 'Differs by 120.50', tone: 'neg' });
+  same(S.agreementLabel({ state: 'differs', changed: 1, amount: 0 }), { text: '1 entry changed in QuickBooks', tone: 'neg' });
+  same(S.agreementLabel({ state: 'differs', changed: 2, amount: 0 }), { text: '2 entries changed in QuickBooks', tone: 'neg' });
+  assert.equal(S.agreementLabel(undefined), null);
+  // The comparison could not be read: no month is called agreed.
+  same(S.agreement(periods, null), {});
+  same(S.agreement(null, []), {});
+  // A row that is not numbers takes its month's verdict away.
+  same(Object.keys(S.agreement(periods, [{ month: '2026-09', entries: 'x', changed: 0, amount: 0 }])).sort(), ['2026-07', '2026-08']);
+});
+
+test('load: the read-back is read when it is there and its absence changes nothing else', async () => {
+  const withMirror = { ...tables('silo'), quickbooks_ledger_mirror_periods: [{ period_start: '2026-10-01', read_through: '2026-10-31' }],
+    chat_run_readonly_query: [{ month: '2026-10', entries: 1, changed: 0, amount: 0 }] };
+  const company = { ensureActiveCompany: async () => ({ id: '11111111-1111-4111-8111-111111111111', name: 'Co' }) };
+  const a = await S.load(fakeDb(withMirror), { ...company });
+  same(a.agreement, { '2026-10': { state: 'agree', entries: 1, changed: 0, amount: 0, through: '2026-10-31' } });
+  same(a.errors, []);
+  for (const broken of [fakeDb({ ...withMirror, quickbooks_ledger_mirror_periods: 'missing' }), fakeDb(withMirror, ['chat_run_readonly_query']), fakeDb(tables('silo'))]) {
+    const b = await S.load(broken, { ...company });
+    same(b.agreement, {});
+    same(b.errors, []);
+    assert.equal(b.items.filter((i) => i.sendable).length, a.items.filter((i) => i.sendable).length);
+  }
 });

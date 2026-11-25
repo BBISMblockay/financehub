@@ -23,14 +23,33 @@
     .qs-seg--synced { background: var(--bcn-pos); }
     .qs-seg--waiting { background: var(--bcn-accent); }
     .qs-seg--fix { background: var(--bcn-neg); }
-    .qs-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--bcn-ink-2); }
-    .qs-legend > span { display: inline-flex; align-items: center; gap: 5px; }
-    .qs-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
     .qs-muted { color: var(--bcn-ink-3); }
     .qs-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
     .qs-actions small { color: var(--bcn-ink-3); font-size: 12px; max-width: 36ch; text-align: right; }
     .qs-progress { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; font-size: 13px; }
     .qs-progress progress { width: 100%; height: 8px; accent-color: var(--bcn-accent); }
+    .qs-buttons { display: flex; gap: 8px; align-items: center; }
+    .qs-more { position: relative; }
+    .qs-more > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; }
+    .qs-more > summary::-webkit-details-marker { display: none; }
+    .qs-more-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; width: 260px; padding: 8px; display: flex; flex-direction: column; gap: 4px; background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 4px; }
+    .qs-more-list button { text-align: left; padding: 6px 8px; border: 0; border-radius: 3px; background: none; font: inherit; font-size: 13px; color: var(--bcn-ink); cursor: pointer; }
+    .qs-more-list button:hover:not(:disabled) { background: var(--bcn-sunken); }
+    .qs-more-list button:disabled { color: var(--bcn-ink-3); cursor: default; }
+    .qs-more-list small { padding: 0 8px 4px; text-align: left; max-width: none; }
+    .qs-h { margin: 18px 0 8px; }
+    table.bcn-table.qs-table th.qs-c-tick, table.bcn-table.qs-table td.qs-tick { width: 34px; padding-right: 0; }
+    .qs-later, .qs-done-month { border-top: 1px solid var(--bcn-border); }
+    .qs-later { margin-top: 14px; }
+    .qs-later > summary, .qs-done-month > summary { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 9px 4px; font-size: 13px; cursor: pointer; }
+    .qs-later > summary { color: var(--bcn-ink-3); }
+    .qs-later > summary, .qs-done-month > summary { list-style: none; }
+    .qs-later > summary::-webkit-details-marker, .qs-done-month > summary::-webkit-details-marker { display: none; }
+    .qs-later > summary::before, .qs-done-month > summary::before { content: '▸'; color: var(--bcn-ink-3); width: 10px; }
+    .qs-later[open] > summary::before, .qs-done-month[open] > summary::before { content: '▾'; }
+    .qs-done-month > summary strong { min-width: 150px; }
+    .qs-done-month > summary .qs-muted { font-size: 12px; }
+    .qs-done-month > table { margin-bottom: 10px; }
     .qs-list { overflow-x: auto; }
     table.bcn-table.qs-table td, table.bcn-table.qs-table th { text-align: left; white-space: normal; vertical-align: top; }
     table.bcn-table.qs-table td.bcn-num { text-align: right; white-space: nowrap; }
@@ -82,7 +101,16 @@
       <div class="qs-top">
         <div class="qs-summary" id="qsSummary"></div>
         <div class="qs-actions">
-          <button type="button" id="btnSync" class="bcn-btn bcn-btn--primary" disabled>Sync with QuickBooks</button>
+          <div class="qs-buttons">
+            <button type="button" id="btnSync" class="bcn-btn bcn-btn--primary" disabled>Sync selected</button>
+            <details class="qs-more" id="qsMore">
+              <summary class="bcn-btn" aria-label="More actions for the selected rows">⋯</summary>
+              <div class="qs-more-list">
+                <button type="button" id="btnMarkSelected" disabled>Already in QuickBooks</button>
+                <small>Marks the selected rows as entered in QuickBooks by hand. SILO will not send them.</small>
+              </div>
+            </details>
+          </div>
           <small id="qsSyncNote"></small>
         </div>
       </div>
@@ -92,20 +120,24 @@
         <progress id="qsProgressBar" value="0" max="1"></progress>
       </div>
 
-      <div class="bcn-tabs" role="tablist" aria-label="Filter by status">
-        <button type="button" class="bcn-tab bcn-tab--active" role="tab" data-qs-filter="all" data-label="All">All</button>
-        <button type="button" class="bcn-tab" role="tab" data-qs-filter="fix" data-label="Needs a fix">Needs a fix</button>
-        <button type="button" class="bcn-tab" role="tab" data-qs-filter="waiting" data-label="Waiting">Waiting</button>
-        <button type="button" class="bcn-tab" role="tab" data-qs-filter="synced" data-label="Synced">Synced</button>
-      </div>
-
+      <h2 class="qs-h">To do</h2>
       <div class="qs-list">
-        <table class="bcn-table qs-table">
-          <thead><tr><th scope="col" class="qs-c-what">What</th><th scope="col" class="qs-r">Amount</th><th scope="col">QuickBooks</th><th scope="col" class="qs-c-go"><span class="aw-sr">Open</span></th></tr></thead>
+        <table class="bcn-table qs-table" id="qsTodoTable" hidden>
+          <thead><tr><th scope="col" class="qs-c-tick"><input type="checkbox" id="qsAll" aria-label="Select every row that can be sent" disabled /></th><th scope="col" class="qs-c-what">What</th><th scope="col" class="qs-r">Amount</th><th scope="col">QuickBooks</th><th scope="col" class="qs-c-go"><span class="aw-sr">Open</span></th></tr></thead>
           <tbody id="qsRows"></tbody>
         </table>
         <div class="bcn-empty" id="qsEmpty" hidden></div>
       </div>
+
+      <details class="qs-later" id="qsLater" hidden>
+        <summary id="qsLaterSum"></summary>
+        <div class="qs-list"><table class="bcn-table qs-table"><tbody id="qsLaterRows"></tbody></table></div>
+      </details>
+
+      <section id="qsDone" hidden>
+        <h2 class="qs-h">In QuickBooks</h2>
+        <div id="qsMonths"></div>
+      </section>
     </div>
   </main>
 </div>

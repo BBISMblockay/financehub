@@ -2,7 +2,9 @@
 
    One list of everything SILO sends to QuickBooks -- every card and bank month
    and every journal entry -- each in exactly one state a person can act on:
-   Synced, Waiting, or Needs a fix. One button sends everything that is waiting.
+   Synced, Waiting, or Needs a fix. The screen opens on what is left to do;
+   a person ticks rows and one button sends the ticked ones. Nothing unticked
+   is ever sent or marked.
 
    This file adds NO accounting logic and NO new write path:
      - a month's entry is built by card_import_batch_preview(), which runs the
@@ -37,6 +39,7 @@
   const known = (v) => Array.isArray(v);
   const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const howMany = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   function money(value) {
     const n = num(value);
     return n === null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -296,7 +299,100 @@
     }
   }
 
-  const API = { classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
+  /* The screen's three parts. To do is what a person can act on now. An open
+     month or one SILO does not send is not a task, so it leaves the list. What
+     is in QuickBooks is one line per month, newest first. */
+  function sections(items) {
+    const list = items || [];
+    const months = [];
+    for (const i of list.filter((x) => x.status === 'synced')) {
+      let m = months[months.length - 1];
+      if (!m || m.month !== i.month) { m = { month: i.month, items: [] }; months.push(m); }
+      m.items.push(i);
+    }
+    return {
+      todo: list.filter((i) => i.status === 'fix' || i.status === 'waiting'),
+      later: list.filter((i) => i.status === 'open' || i.status === 'outside'),
+      months,
+    };
+  }
+
+  /* The rows an action applies to: ticked by a person AND still allowed. A
+     tick outlives a refresh only by its key, so a row that stopped being
+     sendable in the meantime drops out here. */
+  function chosen(items, ticked, action) {
+    const keys = ticked instanceof Set ? ticked : new Set(ticked || []);
+    return (items || []).filter((i) => keys.has(i.key) && (action === 'mark' ? i.canMark === true : i.sendable === true));
+  }
+
+  /* Does QuickBooks still hold what SILO sent? Judged per entry SILO posted,
+     against the nightly read-back of QuickBooks' own ledger
+     (quickbooks_ledger_mirror_*), for the days that read covers: the same day,
+     and the same net amount on every account. An entry changed, moved or
+     deleted in QuickBooks differs. What was entered in QuickBooks by hand is
+     not SILO's entry and is not a difference. An entry is matched by its
+     QuickBooks transaction id, never by document number. */
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function agreementSql(companyId) {
+    if (!UUID.test(String(companyId || ''))) throw new Error('Select a company first');
+    const co = `'${String(companyId).toLowerCase()}'::uuid`;
+    return [
+      'with covered as (select id, qbo_connection_id, period_start, read_through from public.quickbooks_ledger_mirror_periods',
+      `  where company_entity_id = ${co} and read_at is not null),`,
+      'sent as (select p.id, p.connection_id, p.qbo_journal_entry_id as txn, (p.payload ->> \'TxnDate\')::date as day,',
+      '    l.value #>> \'{JournalEntryLineDetail,AccountRef,value}\' as acct,',
+      '    sum(case when l.value #>> \'{JournalEntryLineDetail,PostingType}\' = \'Debit\' then 1 else -1 end * (l.value ->> \'Amount\')::numeric) as amt',
+      '  from public.quickbooks_journal_postings p',
+      '  cross join lateral jsonb_array_elements(coalesce(p.payload -> \'Line\', \'[]\'::jsonb)) l',
+      `  where p.company_entity_id = ${co} and p.status = 'posted' and p.qbo_journal_entry_id is not null`,
+      '  group by 1, 2, 3, 4, 5),',
+      'judged as (select s.* from sent s where exists (select 1 from covered c',
+      '  where c.qbo_connection_id = s.connection_id and s.day between c.period_start and c.read_through)),',
+      'entry as (select distinct id, connection_id, txn, day from judged),',
+      'held as (select e.id, m.qbo_account_id as acct, sum(m.signed_amount) as amt, bool_and(m.transaction_date = e.day) as same_day',
+      '  from entry e join covered c on c.qbo_connection_id = e.connection_id',
+      '  join public.quickbooks_ledger_mirror_lines m on m.period_id = c.id',
+      `   and m.company_entity_id = ${co} and m.qbo_transaction_id = e.txn and m.transaction_type = 'Journal Entry'`,
+      '  group by 1, 2),',
+      'pair as (select coalesce(s.id, h.id) as id, abs(round(coalesce(s.amt, 0), 2) - round(coalesce(h.amt, 0), 2)) as off, h.same_day',
+      '  from judged s full join held h on h.id = s.id and h.acct = s.acct),',
+      'verdict as (select id, sum(off) as off, coalesce(bool_or(same_day is false), false) as moved from pair group by 1)',
+      'select to_char(e.day, \'YYYY-MM\') as month, count(*) as entries,',
+      '  count(*) filter (where v.off <> 0 or v.moved) as changed, sum(v.off) / 2 as amount',
+      'from entry e join verdict v on v.id = e.id group by 1 order by 1',
+    ].join(' ');
+  }
+
+  /* month -> { state, entries, changed, amount, through }. A month is judged
+     only where QuickBooks has been read back for it; any other month has no
+     entry here and the screen says nothing about it. Anything unread or
+     malformed is no verdict, never "agree". */
+  function agreement(periods, rows) {
+    const out = {};
+    if (!known(periods) || !known(rows)) return out;
+    for (const p of periods) {
+      const month = String(p.period_start || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(month) || !p.read_through) continue;
+      if (!out[month] || String(p.read_through) < out[month].through) {
+        out[month] = { state: 'agree', entries: 0, changed: 0, amount: 0, through: String(p.read_through) };
+      }
+    }
+    for (const r of rows) {
+      const m = out[r.month];
+      if (!m) continue;
+      const entries = num(r.entries); const changed = num(r.changed); const amount = num(r.amount);
+      if (entries === null || changed === null || amount === null) { delete out[r.month]; continue; }
+      Object.assign(m, { entries, changed, amount, state: changed > 0 || amount !== 0 ? 'differs' : 'agree' });
+    }
+    return out;
+  }
+  function agreementLabel(a) {
+    if (!a) return null;
+    if (a.state === 'agree') return { text: 'QuickBooks and SILO agree', tone: 'pos' };
+    return { text: a.amount ? `Differs by ${money(a.amount)}` : `${howMany(a.changed, 'entry', 'entries')} changed in QuickBooks`, tone: 'neg' };
+  }
+
+  const API = { sections, chosen, agreementSql, agreement, agreementLabel, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
 
   // ─────────────────────────────────────────────────────────── data ──
   async function result(query) {
@@ -325,7 +421,10 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(today || '')) throw new Error('Could not read the company’s business date. Refresh to retry.');
     const errors = [];
     const attempt = async (name, read) => { try { return await read(); } catch (e) { errors.push(`${name}: ${e.message}`); return undefined; } };
-    const [settings, batches, base, view, claims, byHand, ledger] = await Promise.all([
+    // The read-back is extra: a database without it, or a read that fails,
+    // leaves the months without a verdict and changes nothing else.
+    const optional = async (read) => { try { const r = await read(); if (r.error) return null; return Array.isArray(r.data) ? r.data : null; } catch (_) { return null; } };
+    const [settings, batches, base, view, claims, byHand, ledger, periods, differences] = await Promise.all([
       attempt('settings', async () => (await result(db.from('accounting_settings').select('bookkeeping_mode').eq('company_entity_id', company.id).maybeSingle())).data),
       attempt('months', () => allRows(db, company.id, 'card_import_batches_v',
         'id,source_name,label,status,entry_date,period_start,period_end,txn_count,uncoded_count,excluded_count,coded_amount,qbo_doc_number,qbo_journal_entry_id,source_posting_enabled,source_posting_start_on,approval_hash')),
@@ -341,13 +440,15 @@
         return r.data || [];
       }),
       attempt('ledger', async () => { const r = await db.rpc('silo_ledger_batch_status'); if (r.error) { if (r.error.code === 'PGRST202' || r.error.code === '42883') return []; throw new Error(r.error.message); } return r.data || []; }),
+      optional(() => db.from('quickbooks_ledger_mirror_periods').select('period_start,read_through').eq('company_entity_id', company.id).not('read_at', 'is', null).limit(1000)),
+      optional(() => db.rpc('chat_run_readonly_query', { query: agreementSql(company.id), p_offset: 0 })),
     ]);
     const after = await config.ensureActiveCompany(db);
     if (after?.id !== company.id) throw new Error('Company changed while loading. Refresh to retry.');
     const totals = new Map((view || []).map((v) => [v.id, v]));
     const adjustments = known(base) && known(view) ? base.map((a) => ({ ...a, ...(totals.get(a.id) || {}) })) : undefined;
     const facts = { companyId: company.id, today, mode: settings === undefined ? undefined : (settings?.bookkeeping_mode || 'silo'), batches, adjustments, claims, byHand, ledger };
-    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts) };
+    return { company, today, canSend: finance.data === true, mode: facts.mode, errors, facts, items: classify(facts), agreement: agreement(periods, differences) };
   }
 
   // ───────────────────────────────────────────────────────────── UI ──
@@ -361,7 +462,7 @@
 
   function mount({ db, config = window.__SILO_CONFIG__, root = document } = {}) {
     const $ = (id) => root.getElementById(id);
-    const st = { model: null, filter: 'all', busy: false, token: 0 };
+    const st = { model: null, ticked: new Set(), busy: false, token: 0 };
 
     function setStatus(msg, type, ms) {
       const s = $('status');
@@ -370,10 +471,18 @@
       if (ms) setTimeout(() => { if (s.textContent === msg) s.hidden = true; }, ms);
     }
 
+    // Ticks are kept by key and dropped as soon as their row cannot be sent.
+    function prune() {
+      const ok = new Set((st.model?.items || []).filter((i) => i.sendable).map((i) => i.key));
+      for (const k of [...st.ticked]) if (!ok.has(k)) st.ticked.delete(k);
+    }
+    const acting = () => Boolean(st.model?.canSend && st.model.mode === 'silo' && !st.busy);
+
     function drawSummary() {
       const items = st.model?.items;
       const band = $('qsSummary'); band.replaceChildren();
-      if (!items) return;
+      const btn = $('btnSync'); const more = $('btnMarkSelected');
+      if (!items) { btn.disabled = true; more.disabled = true; $('qsSyncNote').textContent = ''; return; }
       const s = summarize(items);
       const head = el('div', null, 'qs-summary-head');
       head.append(el('strong', s.total === 0 ? 'Nothing to sync yet' : s.allGreen ? 'Everything is in QuickBooks' : `${s.synced} of ${s.total} in QuickBooks`),
@@ -384,58 +493,105 @@
         if (!n || !s.total) continue;
         const seg = el('span', null, `qs-seg qs-seg--${key}`); seg.style.width = `${(n / s.total) * 100}%`; bar.append(seg);
       }
-      const legend = el('div', null, 'qs-legend');
-      for (const [key, label, n] of [['synced', 'Synced', s.synced], ['waiting', 'Waiting', s.waiting], ['fix', 'Need a fix', s.fix]]) {
-        const span = el('span'); span.append(el('i', null, `qs-dot qs-seg--${key}`), el('span', `${label} `), el('b', String(n), 'bcn-mono')); legend.append(span);
-      }
-      if (s.open) legend.append(el('span', `${plural(s.open, 'open month')} not counted`, 'qs-muted'));
-      band.append(head, bar, legend);
-      const btn = $('btnSync');
-      btn.disabled = st.busy || !st.model.canSend || st.model.mode !== 'silo' || s.sendable === 0;
-      btn.textContent = s.sendable ? `Sync with QuickBooks · ${s.sendable}` : 'Sync with QuickBooks';
+      band.append(head, bar);
+      const send = chosen(items, st.ticked, 'send').length;
+      const markable = chosen(items, st.ticked, 'mark').length;
+      btn.disabled = !acting() || send === 0;
+      btn.textContent = send ? `Sync selected · ${send}` : 'Sync selected';
+      more.disabled = !acting() || markable === 0;
       $('qsSyncNote').textContent = st.model.mode === 'qbo' ? QBO_KEEPS
         : st.model.mode !== 'silo' ? MODE_UNREAD
         : !st.model.canSend ? 'Sending to QuickBooks needs finance access.'
-        : s.sendable === 0 ? (s.fix ? 'Nothing can be sent until the rows marked Needs a fix are fixed.' : 'Nothing is waiting.') : '';
-      for (const tab of root.querySelectorAll('[data-qs-filter]')) {
-        const f = tab.dataset.qsFilter;
-        const n = f === 'all' ? items.length : items.filter((i) => i.status === f).length;
-        tab.textContent = `${tab.dataset.label} · ${n}`;
-        tab.classList.toggle('bcn-tab--active', st.filter === f); tab.setAttribute('aria-selected', String(st.filter === f));
+        : s.sendable === 0 ? (s.fix ? 'Nothing can be sent until the rows marked Needs a fix are fixed.' : 'Nothing is waiting.')
+        : send === 0 ? 'Tick what to send.' : '';
+    }
+
+    function row(i, withTick) {
+      const tr = el('tr'); tr.dataset.key = i.key;
+      if (withTick) {
+        const td = el('td', null, 'qs-tick');
+        if (i.sendable) {
+          const box = el('input'); box.type = 'checkbox'; box.checked = st.ticked.has(i.key); box.disabled = !acting();
+          box.setAttribute('aria-label', `Select ${i.title}${i.detail ? `, ${i.detail}` : ''}`);
+          box.addEventListener('change', () => { if (box.checked) st.ticked.add(i.key); else st.ticked.delete(i.key); drawSummary(); syncAll(); });
+          td.append(box);
+        }
+        tr.append(td);
       }
+      const what = el('td', null, 'qs-what'); what.append(el('strong', i.title)); if (i.detail) what.append(el('small', i.detail));
+      const amount = el('td', money(i.amount), 'bcn-num');
+      const state = el('td', null, 'qs-state'); state.append(el('span', STATUS_LABEL[i.status] || i.status, PILL[i.status] || 'bcn-pill'));
+      if (i.reason) state.append(el('small', i.reason));
+      const go = el('td', null, 'qs-go');
+      if (i.status !== 'synced' || i.kind === 'batch') { const a = el('a', i.status === 'fix' ? 'Fix' : 'Open'); a.href = i.href; a.setAttribute('aria-label', `${i.hrefLabel}: ${i.title}`); go.append(a); }
+      if (acting() && i.byHand) {
+        const b = el('button', 'Undo', 'qs-mark'); b.type = 'button';
+        b.setAttribute('aria-label', `Undo entered by hand: ${i.title}${i.detail ? `, ${i.detail}` : ''}`);
+        b.addEventListener('click', () => unmark(i, b));
+        go.append(b);
+      }
+      tr.append(what, amount, state, go);
+      return tr;
+    }
+    function monthRow(month, span) {
+      const hr = el('tr', null, 'qs-month'); const th = el('th', monthName(month)); th.colSpan = span; th.scope = 'colgroup'; hr.append(th); return hr;
+    }
+    function syncAll() {
+      const all = $('qsAll');
+      const can = (st.model?.items || []).filter((i) => i.sendable);
+      const on = can.filter((i) => st.ticked.has(i.key)).length;
+      all.disabled = !acting() || can.length === 0;
+      all.checked = can.length > 0 && on === can.length;
+      all.indeterminate = on > 0 && on < can.length;
     }
 
     function drawList() {
       const body = $('qsRows'); body.replaceChildren();
+      const laterBody = $('qsLaterRows'); laterBody.replaceChildren();
+      const months = $('qsMonths'); const wasOpen = new Set([...months.querySelectorAll('details[open]')].map((d) => d.dataset.month));
+      months.replaceChildren();
       const items = st.model?.items;
-      if (!items) { $('qsEmpty').hidden = false; $('qsEmpty').textContent = 'The list could not be read. Refresh to try again.'; return; }
-      const shown = items.filter((i) => st.filter === 'all' || i.status === st.filter);
-      $('qsEmpty').hidden = shown.length > 0;
-      $('qsEmpty').textContent = items.length ? 'Nothing in this view.' : 'Nothing has been categorized yet, so there is nothing to sync.';
+      $('qsLater').hidden = true; $('qsDone').hidden = true;
+      if (!items) { $('qsTodoTable').hidden = true; $('qsEmpty').hidden = false; $('qsEmpty').textContent = 'The list could not be read. Refresh to try again.'; syncAll(); return; }
+      const parts = sections(items);
+
+      $('qsEmpty').hidden = parts.todo.length > 0;
+      $('qsEmpty').textContent = items.length ? 'Nothing to do. Everything SILO sends is in QuickBooks.' : 'Nothing has been categorized yet, so there is nothing to sync.';
+      $('qsTodoTable').hidden = parts.todo.length === 0;
       let month = null;
-      for (const i of shown) {
-        if (i.month !== month) {
-          month = i.month;
-          const hr = el('tr', null, 'qs-month'); const th = el('th', monthName(month)); th.colSpan = 4; th.scope = 'colgroup'; hr.append(th); body.append(hr);
-        }
-        const tr = el('tr'); tr.dataset.key = i.key;
-        const what = el('td', null, 'qs-what'); what.append(el('strong', i.title)); if (i.detail) what.append(el('small', i.detail));
-        const amount = el('td', money(i.amount), 'bcn-num');
-        const state = el('td', null, 'qs-state'); state.append(el('span', STATUS_LABEL[i.status] || i.status, PILL[i.status] || 'bcn-pill'));
-        if (i.reason) state.append(el('small', i.reason));
-        const go = el('td', null, 'qs-go');
-        if (i.status !== 'synced' || i.kind === 'batch') { const a = el('a', i.status === 'fix' ? 'Fix' : 'Open'); a.href = i.href; a.setAttribute('aria-label', `${i.hrefLabel}: ${i.title}`); go.append(a); }
-        const mayMark = st.model.canSend && st.model.mode === 'silo' && !st.busy;
-        if (mayMark && (i.canMark || i.byHand)) {
-          const b = el('button', i.byHand ? 'Undo' : 'Already in QuickBooks', 'qs-mark'); b.type = 'button';
-          b.setAttribute('aria-label', `${i.byHand ? 'Undo entered by hand' : 'Mark as already in QuickBooks'}: ${i.title}${i.detail ? `, ${i.detail}` : ''}`);
-          b.addEventListener('click', () => mark(i, !i.byHand, b));
-          go.append(b);
-        }
-        tr.append(what, amount, state, go); body.append(tr);
+      for (const i of parts.todo) {
+        if (i.month !== month) { month = i.month; body.append(monthRow(month, 5)); }
+        body.append(row(i, true));
+      }
+      syncAll();
+
+      // Not a task: one quiet line, the rows behind it.
+      if (parts.later.length) {
+        const open = parts.later.filter((i) => i.status === 'open').length; const outside = parts.later.length - open;
+        const bits = [];
+        if (open) bits.push(`${plural(open, 'open month')} will be ready after ${open === 1 ? 'it ends' : 'they end'}`);
+        if (outside) bits.push(`${outside} not sent by SILO`);
+        $('qsLaterSum').textContent = bits.join(' · ');
+        for (const i of parts.later) laterBody.append(row(i, false));
+        $('qsLater').hidden = false;
+      }
+
+      // In QuickBooks: one line a month. The entries, and their QuickBooks
+      // numbers, are behind it.
+      $('qsDone').hidden = parts.months.length === 0;
+      for (const m of parts.months) {
+        const d = el('details', null, 'qs-done-month'); d.dataset.month = m.month || ''; d.open = wasOpen.has(d.dataset.month);
+        const sum = el('summary');
+        sum.append(el('strong', monthName(m.month)), el('span', howMany(m.items.length, 'entry', 'entries'), 'qs-muted'));
+        const verdict = agreementLabel(st.model.agreement?.[m.month]);
+        if (verdict) sum.append(el('span', verdict.text, `bcn-pill bcn-pill--${verdict.tone}`));
+        else sum.append(el('span', 'Not compared with QuickBooks yet', 'qs-muted'));
+        const table = el('table', null, 'bcn-table qs-table'); const tb = el('tbody');
+        for (const i of m.items) tb.append(row(i, false));
+        table.append(tb); d.append(sum, table); months.append(d);
       }
     }
-    const draw = () => { drawSummary(); drawList(); };
+    const draw = () => { prune(); drawSummary(); drawList(); };
 
     async function refresh(quiet) {
       const token = ++st.token;
@@ -456,21 +612,42 @@
       }
     }
 
-    // One entry, marked as already in QuickBooks or unmarked again. Nothing is
-    // sent either way, and it is undone with one click, so it asks nothing.
-    async function mark(item, on, button) {
+    // Take back one "already in QuickBooks" mark. Nothing is sent, and it is
+    // redone with one tick, so it asks nothing.
+    async function unmark(item, button) {
       if (st.busy || !st.model) return;
       button.disabled = true;
       try {
         const a = api();
         await a.stillActive();
-        await a.mark(item.kind, item.id, on);
+        await a.mark(item.kind, item.id, false);
         await refresh(true);
-        setStatus(on ? `${item.title} is marked as already in QuickBooks. SILO will not send it.` : `${item.title} is back in the list to send.`, 'pos', 6000);
+        setStatus(`${item.title} is back in the list to send.`, 'pos', 6000);
       } catch (e) {
         button.disabled = false;
         setStatus(e.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(e.message), 'neg');
       }
+    }
+
+    // The ticked rows, marked as already in QuickBooks: SILO will not send
+    // them. One at a time, the company checked before each, stopping at the
+    // first refusal so the rest stay exactly as they were.
+    async function markSelected() {
+      if (!acting() || !st.model?.items) return;
+      const rows = chosen(st.model.items, st.ticked, 'mark');
+      if (!rows.length) return;
+      $('qsMore').open = false;
+      st.busy = true; st.token += 1; draw();
+      let done = 0; let problem = null;
+      const a = api();
+      for (const item of rows) {
+        try { await a.stillActive(); await a.mark(item.kind, item.id, true); st.ticked.delete(item.key); done += 1; }
+        catch (e) { problem = e.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(e.message); break; }
+      }
+      st.busy = false;
+      await refresh(true);
+      const said = `${howMany(done, 'entry', 'entries')} marked as already in QuickBooks. SILO will not send ${done === 1 ? 'it' : 'them'}.`;
+      setStatus(problem ? `${said} Stopped: ${problem}` : said, problem ? 'neg' : 'pos', problem ? 0 : 6000);
     }
 
     function api() {
@@ -498,49 +675,43 @@
     }
 
     function openConfirm() {
-      if (st.busy || !st.model?.items || st.model.mode !== 'silo') return;
-      const sendable = st.model.items.filter((i) => i.sendable);
-      if (!sendable.length) return;
+      if (!acting() || !st.model?.items) return;
+      const rows = chosen(st.model.items, st.ticked, 'send');
+      if (!rows.length) return;
       const list = $('qsConfirmList'); list.replaceChildren();
-      for (const i of sendable) {
-        const label = el('label', null, 'qs-choice');
-        const box = el('input'); box.type = 'checkbox'; box.checked = i.defaultSelected !== false; box.value = i.key; box.id = `qs-pick-${i.key.replace(/[^a-z0-9]/gi, '-')}`;
+      for (const i of rows) {
+        const line = el('div', null, 'qs-choice');
         const text = el('span'); text.append(el('strong', `${i.title} · ${monthName(i.month)}`), el('small', `${money(i.amount)}${i.defaultSelected === false ? ` · ${i.reason}` : ''}`));
-        label.append(box, text); list.append(label);
+        line.append(text); list.append(line);
       }
       const ack = $('qsAck'); ack.checked = false;
       const go = $('qsConfirmGo');
-      const sync = () => {
-        const n = list.querySelectorAll('input:checked').length;
-        go.disabled = !ack.checked || n === 0; go.textContent = n ? `Send to QuickBooks \u00b7 ${n}` : 'Send to QuickBooks';
-      };
-      list.onchange = sync; ack.onchange = sync; sync();
-      go.onclick = () => {
-        const keys = new Set([...list.querySelectorAll('input:checked')].map((b) => b.value));
-        $('qsConfirm').close();
-        start(sendable.filter((i) => keys.has(i.key)));
-      };
+      go.textContent = `Send to QuickBooks · ${rows.length}`;
+      const sync = () => { go.disabled = !ack.checked; };
+      ack.onchange = sync; sync();
+      go.onclick = () => { $('qsConfirm').close(); start(rows); };
       $('qsConfirm').showModal();
     }
 
-    async function start(chosen) {
-      if (st.busy || !chosen.length) return;
+    async function start(picked) {
+      if (st.busy || !picked.length) return;
       st.busy = true; st.token += 1; draw();
       const prog = $('qsProgress'); prog.hidden = false;
       const meter = $('qsProgressBar'); const text = $('qsProgressText');
       const phases = { checking: 'Checking', approving: 'Building the entry for', sending: 'Sending', done: 'Finished' };
-      const out = await run(chosen, api(), ({ index, total, item, phase, outcomes }) => {
+      const out = await run(picked, api(), ({ index, total, item, phase, outcomes }) => {
         meter.max = total; meter.value = index;
         text.textContent = `${phases[phase] || phase} ${item.title} · ${monthName(item.month)} (${Math.min(index + (phase === 'done' ? 0 : 1), total)} of ${total})`;
         const last = outcomes[outcomes.length - 1];
         if (phase === 'done' && last) {
           const live = st.model.items.find((x) => x.key === last.key);
           if (live) Object.assign(live, { status: last.status, reason: last.warning ? `${last.reason} ${last.warning}` : last.reason, sendable: false });
+          st.ticked.delete(last.key);
           draw();
         }
       });
       st.busy = false; prog.hidden = true;
-      const left = chosen.length - out.outcomes.length;
+      const left = picked.length - out.outcomes.length;
       const parts = [`${out.sent} sent to QuickBooks`];
       if (out.failed) parts.push(`${out.failed} need a fix`);
       if (left) parts.push(`${left} not attempted`);
@@ -552,9 +723,12 @@
     $('btnSync').addEventListener('click', openConfirm);
     $('btnRefresh').addEventListener('click', () => { if (!st.busy) refresh(); });
     $('qsConfirmCancel').addEventListener('click', () => $('qsConfirm').close());
-    for (const tab of root.querySelectorAll('[data-qs-filter]')) {
-      tab.addEventListener('click', () => { st.filter = tab.dataset.qsFilter; draw(); });
-    }
+    $('btnMarkSelected').addEventListener('click', markSelected);
+    $('qsAll').addEventListener('change', () => {
+      if (!st.model?.items) return;
+      for (const i of st.model.items) { if (!i.sendable) continue; if ($('qsAll').checked) st.ticked.add(i.key); else st.ticked.delete(i.key); }
+      draw();
+    });
     return { refresh, state: st };
   }
 

@@ -19,7 +19,7 @@ Each row is in one state:
 | Open month | The month has not ended. Listed, not scored, never sent |
 | Not sent by SILO | Sending is off for the account, or the month predates SILO's posting start |
 
-**Sync with QuickBooks** sends every Waiting row, one after another, with a progress line.
+**Sync selected** sends the rows a person ticked, one after another, with a progress line. See "The screen" below.
 
 ## It adds no write path
 
@@ -75,9 +75,31 @@ send. The row moves to Synced ("Entered in QuickBooks by hand") and **Undo** tak
   without the migration shows no button and no error. If the marks cannot be read, nothing is
   offered for sending ("Needs a fix", refresh), exactly as when sends cannot be read.
 
+## The screen (2026-11-25 redesign)
+
+Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick boxes".
+
+- **To do** is the default and only list: Waiting and Needs a fix. Each sendable row has a tick box, with
+  select-all in the header. Nothing is ticked on load. **Sync selected** sends only ticked rows (`chosen()`),
+  and the confirm dialog lists exactly those. A tick is kept by key and dropped as soon as its row stops
+  being sendable.
+- **Already in QuickBooks** is in the ⋯ menu and applies to the ticked rows, one at a time, the company
+  checked before each, stopping at the first refusal. **Undo** stays on a marked row.
+- Open months and rows SILO does not send are not tasks: one quiet line, the rows behind it.
+- **In QuickBooks** is one line per month; the entries and their QuickBooks numbers are behind it.
+- **QuickBooks and SILO agree / Differs by X** on each of those months comes from the nightly read-back
+  (`quickbooks_ledger_mirror_*`, 20261125150000). `agreementSql()` runs through `chat_run_readonly_query`
+  as the signed-in finance user. It judges each entry SILO posted (`quickbooks_journal_postings.status =
+  'posted'`), only for days a read covers: same day, same net amount per account, matched by QuickBooks
+  transaction id and type Journal Entry. Changed, moved or deleted in QuickBooks = differs; X is half the
+  sum of per-account differences (a deleted entry differs by its whole amount). Entries made by hand in
+  QuickBooks are not SILO's and are not a difference. A month with no read says "Not compared with
+  QuickBooks yet". If the read-back or the comparison cannot be read, no month gets a verdict and nothing
+  else on the page changes. This is display only: it gates nothing.
+
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (33). `QBSYNC_MUTATION=<name>` breaks one protection;
+`node --test scripts/tests/quickbooks-sync.test.mjs` (37); the agreement SQL runs on real PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs`. `QBSYNC_MUTATION=<name>` breaks one protection;
 all 26 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
 (13 checks, 17 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

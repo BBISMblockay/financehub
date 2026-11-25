@@ -800,7 +800,7 @@ jobs:
       - name: QuickBooks sync page
         run: |
           node --test scripts/tests/quickbooks-sync.test.mjs
-          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable stale-mark-still-synced stale-mark-preticked unread-marks-sendable unread-marks-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months; do
+          for m in claim-not-first unread-claims-ok open-month-sendable by-hand-sendable by-hand-entry-sendable stale-mark-still-synced stale-mark-preticked unread-marks-sendable unread-marks-entry-sendable mark-without-table missing-table-is-error ignore-posting-start ignore-mode qbo-approved-sendable unread-mode-ok unread-mode-sendable uncoded-sendable voided-default-on retry-validation send-despite-blocker no-expected-hash approve-any continue-after-unknown no-company-check unread-list-empty score-open-months send-unticked send-unsendable mark-unmarkable todo-drops-fix todo-shows-open agree-unread-month agree-despite-change agree-when-unread agree-on-garbage; do
             if QBSYNC_MUTATION=$m node --test scripts/tests/quickbooks-sync.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
@@ -1909,6 +1909,12 @@ jobs:
           node scripts/tests/quickbooks-ledger-mirror-database.test.mjs
           for m in accept-untied-section accept-unbalanced accept-unknown-type append-not-replace no-sign-flip stale-chart-first accept-wrong-start accept-wrong-end refusal-forgets-error any-connection view-double-count view-match-by-number view-ignore-edits due-no-backoff failure-clears-read browser-can-fail browser-can-store; do
             if LEDGER_MIRROR_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+          done
+          # The sync page's "QuickBooks and SILO agree" query, on the same books.
+          for m in agree-ignores-amount agree-ignores-day agree-judges-unread agree-counts-unposted agree-by-any-type agree-unchecked-company; do
+            if QBSYNC_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
           done
