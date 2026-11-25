@@ -28,6 +28,7 @@
 //   CARD_RULES_AUTO_MUTATION=unknown-content-sends  a claim that cannot be compared is let through
 //   CARD_RULES_AUTO_MUTATION=mark-keeps-old         marking again keeps the old content's mark
 //   CARD_RULES_AUTO_MUTATION=fingerprint-no-coding  a recoded month still matches its mark
+//   CARD_RULES_AUTO_MUTATION=fingerprint-no-text    a changed description or memo still matches its mark
 //   CARD_RULES_AUTO_MUTATION=fingerprint-no-uncoded a late uncategorized row still matches its mark
 //   CARD_RULES_AUTO_MUTATION=list-any-role          a non-finance user can read the marks list
 //   CARD_RULES_AUTO_MUTATION=mark-after-send  an entry SILO sent can be marked by hand
@@ -55,6 +56,7 @@ const MUTATIONS = {
   'unknown-content-sends': ['  if v_now is null or v_now = v_snapshot then\n    raise', '  if v_now = v_snapshot then\n    raise'],
   'mark-keeps-old': ["    on conflict (company_entity_id, source, source_ref) do update\n      set snapshot = excluded.snapshot, created_by = excluded.created_by, created_at = now()\n      where quickbooks_entered_by_hand.snapshot is distinct from excluded.snapshot;", '    on conflict (company_entity_id, source, source_ref) do nothing;'],
   'fingerprint-no-coding': ["e.txn_date::text, coalesce(e.qbo_account_id, ''),", "e.txn_date::text, '',"],
+  'fingerprint-no-text': ["md5(coalesce(e.description, '')), md5(coalesce(e.memo, '')), e.is_split::text)", "e.is_split::text)"],
   'fingerprint-no-uncoded': ["and t.status = 'uncoded')::text)", "and t.status = 'none')::text)"],
   'list-any-role': ["     or not coalesce(public.can_manage_journal_entries() or public.is_exec_or_owner(), false) then\n    raise exception 'Finance access required' using errcode = '42501';\n  end if;\n  return query", '  then raise exception \'x\'; end if;\n  return query'],
   'mark-after-send': ["        and p.status in ('submitting', 'unknown', 'posted')) then\n    raise exception 'SILO has a send on record", "        and p.status in ('none')) then\n    raise exception 'SILO has a send on record"],
@@ -377,6 +379,15 @@ try {
     assert.notEqual(recoded.current, recoded.snapshot);
     await quietly("update card_transactions set qbo_account_id='supplies' where id=$1", [first]);
     assert.equal((await markOf('card_import', b)).current, made.snapshot, 'put back, it is the marked content again');
+
+    // The words on the QuickBooks line are part of what was marked: a memo or
+    // description corrected on its own is a change too.
+    for (const column of ['memo', 'description']) {
+      await quietly(`update card_transactions set ${column}='corrected wording' where id=$1`, [first]);
+      assert.notEqual((await markOf('card_import', b)).current, made.snapshot, `${column} alone`);
+      await quietly(`update card_transactions set ${column}=$2 where id=$1`, [first, column === 'memo' ? null : 'PAPER CO']);
+      assert.equal((await markOf('card_import', b)).current, made.snapshot);
+    }
 
     // A late bank row lands uncategorized: the month is no longer what was marked.
     const late = await newTxn(b, 12.5, 'LATE ROW');

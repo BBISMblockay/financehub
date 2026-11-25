@@ -199,15 +199,19 @@ $$;
 revoke all on function public.quickbooks_entry_lock(uuid, text, text) from public, anon, authenticated;
 
 -- What a card or bank month would send, as one value: every coded line (the
--- same card_coding_effective_lines approval builds the entry from) plus how
--- many rows are still uncategorized. It does not depend on the month's status,
+-- same card_coding_effective_lines approval builds the entry from, with every
+-- field approval puts in a QuickBooks line -- amount, date, account, location,
+-- entity, and the description and memo that make up the line's Description)
+-- plus how many rows are still uncategorized. Fields are hashed one by one so
+-- a separator typed into a memo cannot make two different months look alike. It does not depend on the month's status,
 -- so approving an unchanged month does not disturb a mark.
 create or replace function public.card_import_content_fingerprint(p_company uuid, p_batch uuid)
 returns text language sql stable security definer set search_path = public, pg_temp as $$
   select md5(
     coalesce((select string_agg(concat_ws('|', e.transaction_id::text, e.line_no::text, round(e.amount, 2)::text,
         e.txn_date::text, coalesce(e.qbo_account_id, ''), coalesce(e.qbo_location_id, ''),
-        coalesce(e.entity_type, ''), coalesce(e.entity_qbo_id, '')), E'\n'
+        coalesce(e.entity_type, ''), coalesce(e.entity_qbo_id, ''),
+        md5(coalesce(e.description, '')), md5(coalesce(e.memo, '')), e.is_split::text), E'\n'
         order by e.transaction_id, e.line_no)
       from public.card_coding_effective_lines e
       where e.batch_id = p_batch and e.company_entity_id = p_company), '')

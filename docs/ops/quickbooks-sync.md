@@ -64,7 +64,7 @@ send. The row moves to Synced ("Entered in QuickBooks by hand") and **Undo** tak
 - While it stands, the trigger `qbo_entered_by_hand_claim` refuses any claim to send that entry
   (`P0PS3`), from this page or any other. That is the protection; the page's reading is only display.
 - **A mark speaks only for the content it was made on** (`snapshot`): a journal entry's approval
-  hash, or a month's `card_import_content_fingerprint` (every coded line plus the count of rows still
+  hash, or a month's `card_import_content_fingerprint` (every coded line, with its description and memo, plus the count of rows still
   uncategorized; independent of the month's status). If a late bank row lands, a row is recoded, or
   an entry is approved again, the mark no longer counts: the row goes back to Waiting, unticked,
   "Changed since it was marked as entered by hand", and the guard lets the new content through.
@@ -79,5 +79,5 @@ send. The row moves to Synced ("Entered in QuickBooks by hand") and **Undo** tak
 
 `node --test scripts/tests/quickbooks-sync.test.mjs` (33). `QBSYNC_MUTATION=<name>` breaks one protection;
 all 26 must fail the suite and CI runs each. The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
-(13 checks, 16 mutations). Verified in Chromium against the shipped page with stubbed
+(13 checks, 17 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

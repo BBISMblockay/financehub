@@ -1872,7 +1872,7 @@ jobs:
       - name: Execute saved-rule auto-apply and entered-by-hand regressions
         run: |
           node scripts/tests/card-rules-auto-apply-database.test.mjs
-          for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off stale-mark-blocks unknown-content-sends mark-keeps-old fingerprint-no-coding fingerprint-no-uncoded list-any-role mark-after-send mark-any-role infer-drift; do
+          for m in touched-rows auto-off unknown-type any-chart limit-on-seen browser-callable guard-off stale-mark-blocks unknown-content-sends mark-keeps-old fingerprint-no-coding fingerprint-no-text fingerprint-no-uncoded list-any-role mark-after-send mark-any-role infer-drift; do
             if CARD_RULES_AUTO_MUTATION=$m node scripts/tests/card-rules-auto-apply-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
