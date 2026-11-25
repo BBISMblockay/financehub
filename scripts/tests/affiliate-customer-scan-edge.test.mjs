@@ -32,7 +32,7 @@
 //   AFFILIATE_SCAN_MUTATION=optoutscan   erased (redacted) customers are scanned
 //   AFFILIATE_SCAN_MUTATION=aicount      the model's chosen profile keeps a count its text does not state
 //   AFFILIATE_SCAN_MUTATION=aianyurl     the model may choose a profile the row was never shown
-//   AFFILIATE_SCAN_MUTATION=nickquery    the search asks for their own spelling only, so a nickname is never returned
+//   AFFILIATE_SCAN_MUTATION=nickquery    the search asks for only the first few spellings, so a later nickname is never returned
 //   AFFILIATE_SCAN_MUTATION=nonick       a nickname on the profile (Michael for Mike) does not count
 //   AFFILIATE_SCAN_MUTATION=nickword     a nickname inside another word (tom in tomato) counts
 //   AFFILIATE_SCAN_MUTATION=firstonly    a profile with only the first name counts as theirs
@@ -91,7 +91,7 @@ const MUTS = {
   optoutscan: ['handler.mjs', ".or(`email_consent_state.is.null,email_consent_state.not.in.(${NEVER_SCAN_CONSENT.join(',')})`);", ';'],
   aicount: [LIB, "    const f = parseFollowers(`${c.title} ${c.snippet}`);\n    const pick", "    const f = parseFollowers(`${c.title} ${c.snippet}`) || { count: 5000, approx: false, quote: 'model said' };\n    const pick"],
   aianyurl: [LIB, "    if (!c) return { key: r.key, status: 'ambiguous', pick: null };\n", "    if (!c) return { key: r.key, status: 'found', pick: { profile_url: url, followers: 5000, followers_quote: 'x' } };\n"],
-  nickquery: [LIB, '  const names = firstNames(person.first).slice(0, NICK_QUERY)', '  const names = firstNames(person.first).slice(0, 1)'],
+  nickquery: [LIB, '  const names = firstNames(person.first).map(', '  const names = firstNames(person.first).slice(0, 3).map('],
   nonick: [LIB, '  return (has(person.first) || firstNames(person.first).slice(1).some(nick)) && has(person.last);', '  return has(person.first) && has(person.last);'],
   nickword: [LIB, "  const nick = (w) => words.includes(` ${w} `) || (w.length >= 4 && handle.includes(w));", '  const nick = (w) => title.includes(w) || handle.includes(w);'],
   firstonly: [LIB, '  return (has(person.first) || firstNames(person.first).slice(1).some(nick)) && has(person.last);', '  return has(person.first);'],
@@ -230,7 +230,11 @@ await test('a nickname counts as the same first name (Mike = Michael), never a d
   assert.ok(tom && L.firstNames('thomas').includes('tom'));
   // The search itself asks for the other spellings, in one request, or the
   // matcher would never be shown "Michael Sorensen" at all.
-  assert.equal(L.scanQuery(mike, 'Phoenix'), '"Mike Sorensen" OR "Michael Sorensen" OR "Mikey Sorensen" Phoenix');
+  assert.equal(L.scanQuery(mike, 'Phoenix'), '"Mike Sorensen" OR "Michael Sorensen" OR "Mikey Sorensen" OR "Mick Sorensen" OR "Mickey Sorensen" Phoenix');
+  // Every spelling the matcher accepts is asked for, not just the first few.
+  const william = L.personName('william smith');
+  for (const f of L.firstNames('william')) assert.ok(L.scanQuery(william).includes(`"${f[0].toUpperCase()}${f.slice(1)} Smith"`), `${f} is searched`);
+  assert.equal(L.judgeResults({ items: [ig('billysmith', 'Billy Smith (@billysmith)', '2,400 Followers')], person: william, program: PROGRAM, collectedAt: 'now' }).status, 'found', 'and matched');
   assert.equal(L.buildScanTask(mike, 'Phoenix', PROGRAM).keyword.startsWith('"Mike Sorensen" OR "Michael Sorensen"'), true, 'one provider request carries every spelling');
   assert.equal(L.scanQuery(L.personName('emily durrance')), '"Emily Durrance"', 'a name with no nickname is searched as before');
   const s = L.scorePick({ pick: formal.pick, person: mike });
