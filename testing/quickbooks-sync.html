@@ -1,0 +1,137 @@
+<!doctype html>
+<!-- QuickBooks sync: work-in-progress, in testing/ on purpose (new UI lives
+     here until it goes live, then moves to v2/ and into the Accounting tabs).
+     Signed-in and finance-gated like every Accounting page. The logic is
+     ../v2/quickbooks-sync.js, which adds no write path of its own: it runs the
+     same preview, approval and send calls On Deck and Transactions already
+     make, one entry after another. -->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>SILO · QuickBooks sync</title>
+  <link rel="stylesheet" href="../v2/beacon.css" />
+  <link rel="stylesheet" href="../v2/silo-brand.css" />
+  <link rel="stylesheet" href="../v2/accounting-suite.css" />
+  <link rel="stylesheet" href="../v2/accounting-workspace.css" />
+  <style>
+    .qs-top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+    .qs-summary { flex: 1 1 320px; min-width: 0; max-width: 620px; display: flex; flex-direction: column; gap: 8px; }
+    .qs-summary-head { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+    .qs-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--bcn-sunken); }
+    .qs-seg { display: block; height: 100%; }
+    .qs-seg--synced { background: var(--bcn-pos); }
+    .qs-seg--waiting { background: var(--bcn-accent); }
+    .qs-seg--fix { background: var(--bcn-neg); }
+    .qs-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--bcn-ink-2); }
+    .qs-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+    .qs-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+    .qs-muted { color: var(--bcn-ink-3); }
+    .qs-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .qs-actions small { color: var(--bcn-ink-3); font-size: 12px; max-width: 36ch; text-align: right; }
+    .qs-progress { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; font-size: 13px; }
+    .qs-progress progress { width: 100%; height: 8px; accent-color: var(--bcn-accent); }
+    .qs-list { overflow-x: auto; }
+    table.bcn-table.qs-table td, table.bcn-table.qs-table th { text-align: left; white-space: normal; vertical-align: top; }
+    table.bcn-table.qs-table td.bcn-num { text-align: right; white-space: nowrap; }
+    table.bcn-table.qs-table th.qs-r { text-align: right; }
+    table.bcn-table.qs-table tr.qs-month th { background: var(--bcn-sunken); font-family: var(--bcn-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--bcn-ink-2); }
+    table.bcn-table.qs-table th.qs-c-what { width: 28%; }
+    table.bcn-table.qs-table th.qs-r { width: 130px; }
+    table.bcn-table.qs-table th.qs-c-go { width: 64px; }
+    @media (max-width: 600px) { table.bcn-table.qs-table th.qs-r { width: 92px; } table.bcn-table.qs-table th.qs-c-go { width: 44px; } table.bcn-table.qs-table td, table.bcn-table.qs-table th { padding-left: 8px; padding-right: 8px; } }
+    .qs-what small, .qs-state small { display: block; color: var(--bcn-ink-3); font-size: 12px; line-height: 1.45; margin-top: 2px; max-width: 62ch; }
+    .qs-go { white-space: nowrap; }
+    .qs-dialog { border: 1px solid var(--bcn-border); border-radius: 6px; padding: 20px; max-width: 520px; width: calc(100% - 32px); background: var(--bcn-surface); color: var(--bcn-ink); }
+    .qs-dialog h2 { margin: 0 0 6px; font-size: 16px; }
+    .qs-dialog p { margin: 0 0 12px; font-size: 13px; color: var(--bcn-ink-2); line-height: 1.5; }
+    .qs-choices { display: flex; flex-direction: column; gap: 2px; max-height: 44vh; overflow: auto; margin-bottom: 12px; border: 1px solid var(--bcn-border); border-radius: 4px; padding: 6px 10px; }
+    .qs-choice { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; font-size: 13px; }
+    .qs-choice small { display: block; color: var(--bcn-ink-3); font-size: 12px; }
+    .qs-ack { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin-bottom: 14px; }
+    .qs-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
+  <link rel="stylesheet" href="../v2/beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="../v2/v2-mobile.css" />
+  <script src="../v2/v2-shell.js" defer></script>
+  <script src="../v2/nav-config.js"></script>
+  <script src="../v2/avatar.js"></script>
+  <script src="../v2/accounting-suite.js"></script>
+  <script src="../v2/silo-chrome.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <script src="../v2/quickbooks-sync.js"></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main accounting-workspace">
+    <header class="bcn-header">
+      <div>
+        <h1 class="bcn-header-title">QuickBooks sync</h1>
+        <p class="bcn-header-sub" id="qsToday">Reading your company’s books…</p>
+      </div>
+      <div class="bcn-header-actions"><button type="button" id="btnRefresh" class="bcn-btn">Refresh</button></div>
+    </header>
+    <div class="aw-page">
+      <div class="bcn-status" id="status" role="status" aria-live="polite" hidden></div>
+
+      <div class="qs-top">
+        <div class="qs-summary" id="qsSummary"></div>
+        <div class="qs-actions">
+          <button type="button" id="btnSync" class="bcn-btn bcn-btn--primary" disabled>Sync with QuickBooks</button>
+          <small id="qsSyncNote"></small>
+        </div>
+      </div>
+
+      <div class="qs-progress" id="qsProgress" hidden>
+        <span id="qsProgressText" aria-live="polite"></span>
+        <progress id="qsProgressBar" value="0" max="1"></progress>
+      </div>
+
+      <div class="bcn-tabs" role="tablist" aria-label="Filter by status">
+        <button type="button" class="bcn-tab bcn-tab--active" role="tab" data-qs-filter="all" data-label="All">All</button>
+        <button type="button" class="bcn-tab" role="tab" data-qs-filter="fix" data-label="Needs a fix">Needs a fix</button>
+        <button type="button" class="bcn-tab" role="tab" data-qs-filter="waiting" data-label="Waiting">Waiting</button>
+        <button type="button" class="bcn-tab" role="tab" data-qs-filter="synced" data-label="Synced">Synced</button>
+      </div>
+
+      <div class="qs-list">
+        <table class="bcn-table qs-table">
+          <thead><tr><th scope="col" class="qs-c-what">What</th><th scope="col" class="qs-r">Amount</th><th scope="col">QuickBooks</th><th scope="col" class="qs-c-go"><span class="aw-sr">Open</span></th></tr></thead>
+          <tbody id="qsRows"></tbody>
+        </table>
+        <div class="bcn-empty" id="qsEmpty" hidden></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<dialog id="qsConfirm" class="qs-dialog" aria-labelledby="qsConfirmTitle">
+  <h2 id="qsConfirmTitle">Sync with QuickBooks</h2>
+  <p>SILO checks each of these and sends it to the connected QuickBooks company. Anything it cannot send is left as Needs a fix, with the reason. Once a month is sent, its transactions are locked.</p>
+  <div class="qs-choices" id="qsConfirmList"></div>
+  <label class="qs-ack" for="qsAck"><input type="checkbox" id="qsAck" /> <span>I have reviewed these and want them in QuickBooks.</span></label>
+  <div class="qs-dialog-foot">
+    <button type="button" class="bcn-btn bcn-btn--ghost" id="qsConfirmCancel">Cancel</button>
+    <button type="button" class="bcn-btn bcn-btn--primary" id="qsConfirmGo" disabled>Send to QuickBooks</button>
+  </div>
+</dialog>
+
+<script>
+(async function () {
+  const cfg = window.__SILO_CONFIG__ || {};
+  const status = document.getElementById('status');
+  function fail(msg) { status.hidden = false; status.className = 'bcn-status bcn-status--neg'; status.textContent = msg; }
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { fail('Missing Supabase config'); return; }
+  const db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { window.location.href = '/pages/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search); return; }
+  const page = window.SiloQuickBooksSync.mount({ db, config: cfg });
+  await page.refresh();
+  window.SiloChrome?.mount({ appEl: '#silo-app', active: 'finance/month-end', user: { email: session.user.email },
+    crumbs: ['Finance', 'Accounting', 'QuickBooks sync'], supabaseClient: db });
+})();
+</script>
+</body>
+</html>
