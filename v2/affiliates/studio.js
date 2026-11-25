@@ -1039,8 +1039,9 @@ function render() {
   main?.classList.toggle('af-studio--workflow', (!!p || company) && !['overview', 'program', 'records'].includes(S.tab));
   // No program filter at the top of the page (Blake 2026-11-24: "remove
   // that"). People is one company list. A tab that is about one program's
-  // settings, numbers or money picks it inside the tab, with buttons.
-  const sel = $('programSel'); if (sel) sel.hidden = true;
+  // settings, numbers or money picks it inside the tab, with buttons. The
+  // old dropdown stays in index.html, hidden there, so it never shows even
+  // while the page is still loading.
   renderProgramPick(company);
   for (const s of document.querySelectorAll('[data-panel]')) s.hidden = s.dataset.panel !== S.tab;
   renderPeopleSubtabs();
