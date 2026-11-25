@@ -53,6 +53,10 @@ const MUTATIONS = {
   'date-unchecked': [`if (!d || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error('Pick a valid date');`, ``],
   // anything is accepted as an account id
   'account-unchecked': [`if (!s || s.length > 64 || /[^A-Za-z0-9_.:-]/.test(s)) throw new Error('Not an account id');`, ``],
+  // a period statement counts unplaced lines from outside its period
+  'unplaced-ignores-from': [`const since = from ? \` and entry_date >= \${date(from)}\` : '';`, `const since = '';`],
+  // another company's unplaced lines are counted
+  'unplaced-any-company': [`      + \` where company_entity_id = \${uuid(companyId)} and entry_date <= \${date(to)}\${since}\``, `      + \` where entry_date <= \${date(to)}\${since}\``],
   // gross profit forgets cost of goods
   'gross-ignores-cogs': [`const gross = add(income, cogs, -1);`, `const gross = income;`],
   // the fiscal year always starts in January
@@ -138,6 +142,8 @@ insert into silo_books_ledger_v(company_entity_id, source, entry_date, qbo_accou
   ('${CO}', 'silo', '2026-02-02', '20', 'Sales', 'Income', -9000, 'Deposit', 'D3', 't9'),
   -- an account type with no known side
   ('${CO}', 'history', '2026-01-10', '99', 'Mystery', 'Unattributed', null, 'Journal Entry', 'J9', 't10'),
+  ('${CO}', 'history', '2025-06-10', '99', 'Mystery', 'Unattributed', null, 'Journal Entry', 'J8', 't11'),
+  ('${CO2}', 'history', '2026-01-10', '99', 'Mystery', 'Unattributed', null, 'Journal Entry', 'X9', 'x2'),
   -- another company
   ('${CO2}', 'silo', '2026-01-08', '10', 'Checking', 'Bank', 8888, 'Deposit', 'X1', 'x1'),
   ('${CO2}', 'silo', '2026-01-08', '20', 'Sales', 'Income', -8888, 'Deposit', 'X1', 'x1');
@@ -238,8 +244,15 @@ await test('General Ledger: activity by account for the period, and the lines be
 });
 
 await test('lines with no known side are counted so a statement can say it left them out', async () => {
+  // A position counts every such line through the date...
   const rows = await engine(Books.unplacedSql({ companyId: CO, to: '2026-01-31' }));
-  assert.equal(Number(rows[0].line_count), 1);
+  assert.equal(Number(rows[0].line_count), 2);
+  // ...a period statement only the ones inside the period.
+  const count = async (from, to) => Number((await engine(Books.unplacedSql({ companyId: CO, from, to })))[0].line_count);
+  assert.equal(await count('2026-01-01', '2026-01-31'), 1);
+  assert.equal(await count('2025-01-01', '2025-12-31'), 1);
+  assert.equal(await count('2026-02-01', '2026-02-28'), 0);
+  assert.throws(() => Books.unplacedSql({ companyId: CO, from: 'x', to: '2026-01-31' }), /valid date/);
 });
 
 await test('how far QuickBooks has been read back, for this company only', async () => {

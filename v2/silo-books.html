@@ -268,59 +268,78 @@
     } catch { return ''; }
   }
 
+  // Nothing on screen may outlive the request that replaced it: a failed or
+  // pending run leaves no statement behind for CSV to export under a new name.
+  function clearStatement(message) {
+    last = null;
+    el('tbl').innerHTML = `<tbody><tr><td class="sb-empty">${esc(message)}</td></tr></tbody>`;
+    el('rowCount').textContent = '';
+  }
+
   async function run() {
     if (!_co?.id) { setStatus('No active company. Sign in again.', 'neg', 8000); return; }
     const from = el('from').value;
     const to = el('to').value;
-    const byMonth = report === 'pl' && el('byMonth').checked;
+    const which = report;
+    const byMonth = which === 'pl' && el('byMonth').checked;
+    const position = which === 'bs' || which === 'tb';
     const mine = ++runToken;
     el('btnRun').disabled = true;
+    clearStatement('Reading the books…');
+    el('cardTitle').textContent = NAMES[which];
+    el('cardSub').textContent = '';
     setStatus('Reading the books…', 'info');
     try {
       let statement;
       let period;
-      if (report === 'pl' || report === 'gl') {
+      let range;
+      if (position) {
+        if (!to) throw new Error('Pick a date.');
+        const fiscalStart = Books.fiscalYearStart(to, fiscalStartMonth);
+        const rows = await all(Books.positionsSql({ companyId: _co.id, to, fiscalStart }));
+        statement = which === 'bs' ? Books.balanceSheet(rows) : Books.trialBalance(rows);
+        period = `As of ${to}`;
+        // Clicking an account on a position shows this fiscal year's lines.
+        range = { from: fiscalStart, to };
+      } else {
         if (!from || !to || from > to) throw new Error('Pick a From date on or before the To date.');
         const rows = await all(Books.activitySql({
-          companyId: _co.id, from, to, byMonth, types: report === 'pl' ? Books.PL_TYPES : null,
+          companyId: _co.id, from, to, byMonth, types: which === 'pl' ? Books.PL_TYPES : null,
         }));
-        statement = report === 'pl'
+        statement = which === 'pl'
           ? Books.profitAndLoss(rows, byMonth ? Books.monthsBetween(from, to) : null)
           : Books.accountActivity(rows);
         period = `${from} → ${to}`;
-        drill.from = from; drill.to = to;
-      } else {
-        if (!to) throw new Error('Pick a date.');
-        const fiscalStart = Books.fiscalYearStart(to, fiscalStartMonth);
-        const [rows, unplaced] = await Promise.all([
-          all(Books.positionsSql({ companyId: _co.id, to, fiscalStart })),
-          page(Books.unplacedSql({ companyId: _co.id, to }), 0),
-        ]);
-        statement = report === 'bs' ? Books.balanceSheet(rows) : Books.trialBalance(rows);
-        period = `As of ${to}`;
-        // Clicking an account on a position shows this fiscal year's lines.
-        drill.from = fiscalStart; drill.to = to;
-        const skipped = Number(unplaced[0]?.line_count || 0);
-        if (mine !== runToken) return;
-        if (Math.abs(statement.outOfBalance) >= 0.005 || skipped > 0) {
-          render(statement);
-          setStatus(
-            (Math.abs(statement.outOfBalance) >= 0.005
-              ? `This does not balance: it is off by ${fmtNum(statement.outOfBalance)}. ` : '')
-            + (skipped > 0 ? `${skipped} line(s) have an account type SILO cannot place and are left out.` : ''),
-            'neg');
-          el('cardTitle').textContent = NAMES[report];
-          el('cardSub').textContent = period + await freshness();
-          return;
-        }
+        range = { from, to };
       }
+      // Lines SILO cannot put on a side are in no total above. Every statement
+      // asks, over exactly the days it covers, and says so when there are any.
+      const unplaced = await page(Books.unplacedSql({
+        companyId: _co.id, from: position ? undefined : from, to }), 0);
+      const skipped = Number(unplaced[0]?.line_count || 0);
+      const fresh = await freshness();
       if (mine !== runToken) return;
+      drill.from = range.from; drill.to = range.to;
       render(statement);
-      el('cardTitle').textContent = NAMES[report];
-      el('cardSub').textContent = period + await freshness();
-      el('status').hidden = true;
+      // What CSV exports is this statement, under this statement's own name.
+      last.report = which;
+      last.to = to;
+      el('cardTitle').textContent = NAMES[which];
+      el('cardSub').textContent = period + fresh;
+      const off = position && Math.abs(statement.outOfBalance) >= 0.005;
+      if (off || skipped > 0) {
+        setStatus(
+          (off ? `This does not balance: it is off by ${fmtNum(statement.outOfBalance)}. ` : '')
+          + (skipped > 0 ? `Incomplete: ${skipped} line(s) have an account type SILO cannot place and are left out of every total here.` : ''),
+          'neg');
+      } else {
+        el('status').hidden = true;
+      }
     } catch (e) {
-      if (mine === runToken) setStatus(e?.message || String(e), 'neg', 12000);
+      if (mine === runToken) {
+        clearStatement('The report could not be loaded.');
+        setStatus(e?.message || String(e), 'neg', 12000);
+      }
     } finally {
       if (mine === runToken) el('btnRun').disabled = false;
     }
@@ -393,12 +412,22 @@
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
-    a.download = `silo-books-${report}-${el('to').value || 'all'}.csv`;
+    a.download = `silo-books-${last.report}-${last.to || 'all'}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
 
   function pick(next) {
+    // The statement on screen belongs to the report that was run, not the one
+    // just picked: clear it so nothing stale can be read or exported.
+    if (next !== report && last) {
+      runToken++;
+      el('btnRun').disabled = false;
+      clearStatement('Press Run to load this report.');
+      el('cardTitle').textContent = NAMES[next];
+      el('cardSub').textContent = '';
+      el('status').hidden = true;
+    }
     report = next;
     const position = report === 'bs' || report === 'tb';
     el('fromField').hidden = position;

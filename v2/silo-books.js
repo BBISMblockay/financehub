@@ -146,9 +146,12 @@
 
   /** Lines the ledger cannot place on a side (an account type QuickBooks' map
    *  does not know). A statement that silently left them out would be wrong. */
-  function unplacedSql({ companyId, to }) {
+  function unplacedSql({ companyId, from, to }) {
+    // A position counts every line through the date; a period statement only
+    // the lines inside it.
+    const since = from ? ` and entry_date >= ${date(from)}` : '';
     return 'select count(*) as line_count from public.silo_books_ledger_v'
-      + ` where company_entity_id = ${uuid(companyId)} and entry_date <= ${date(to)}`
+      + ` where company_entity_id = ${uuid(companyId)} and entry_date <= ${date(to)}${since}`
       + ' and signed_amount is null';
   }
 
