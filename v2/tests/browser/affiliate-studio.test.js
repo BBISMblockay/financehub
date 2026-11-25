@@ -2898,6 +2898,13 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(await names(), ['Bo Big', 'Cy Mid', 'Ava Small'], 'a header sorts: Followers, biggest first');
       await st.click('#prospectsBody [data-act="d-sort"][data-k="followers"]');
       R.eq(await names(), ['Ava Small', 'Cy Mid', 'Bo Big'], 'and a second press flips it');
+      // The Signal cell shows an "email" chip, not the address, so the
+      // address has to stay in the row's text for the search box.
+      await st.fill('#studioQ', 'bo@x.invalid');
+      await st.waitForTimeout(400);
+      R.eq(await names(), ['Bo Big'], 'searching an address still finds the row in list view');
+      await st.fill('#studioQ', '');
+      await st.waitForTimeout(400);
       // Filters live in a panel the Filter button opens (2026-11-25).
       await st.click('#prospectsBody [data-act="d-filter-open"]');
       await st.waitForSelector('#prospectsBody [data-act="d-filter"][data-key="email"]', { timeout: 5000 });

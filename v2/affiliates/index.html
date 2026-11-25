@@ -366,6 +366,10 @@
        title column refuses to shrink and pushes the status pill past the
        card's edge (the card clips it). */
     .af-catalog-name, .af-catalog-sub, .af-catalog-meta { overflow-wrap: break-word; }
+    /* Text that is there for the search box and for a screen reader, not for
+       the eye: the chip reads "email" while the address itself stays part of
+       the row's text, so searching an address still finds the row. */
+    .af-offscreen { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
     .af-catalog-summary { padding-top: 4px; }
     .af-catalog-summary-h {
       margin: 0 0 6px; font-size: 13px; font-weight: 700; color: var(--bcn-ink);

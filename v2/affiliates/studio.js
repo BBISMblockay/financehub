@@ -2506,7 +2506,7 @@ function renderProspects() {
       g.suppressed || shownRow(g).status !== PROSPECT_GROUPS[filter]?.[0] ? headPill(g) : '',
       customerPill(x),
       st?.rate != null ? pill(`${(st.rate * 100).toFixed(1)}% eng`) : '',
-      x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email</span>` : '',
+      x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email<span class="af-offscreen"> ${esc(x.contact_email)}</span></span>` : '',
     ].filter(Boolean);
     return bits.length ? `<div class="af-signal">${bits.join('')}</div>` : '<span class="af-muted">—</span>';
   };
