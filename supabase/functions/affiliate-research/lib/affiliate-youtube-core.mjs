@@ -369,13 +369,16 @@ export function videoStatsRow(item) {
  *  not know (deleted, private) is stamped with no numbers, so it is not asked
  *  about again for VIDEO_STALE_HOURS.
  *  @returns {Promise<{ checked: number, updated: number, error?: string }>} */
-export async function refreshContentStats({ service, company, apiKey, fetchImpl = fetch, now = () => new Date(), limit = VIDEO_BATCH }) {
+//  `ids` (optional, at most VIDEO_BATCH): only these posts -- the ones on the
+//  asker's screen -- still inside `company`.
+export async function refreshContentStats({ service, company, apiKey, fetchImpl = fetch, now = () => new Date(), limit = VIDEO_BATCH, ids = null }) {
   if (!apiKey) return { checked: 0, updated: 0, error: 'not_configured' };
   const stale = new Date(now().getTime() - VIDEO_STALE_HOURS * 3600e3).toISOString();
-  const { data, error } = await service.from('affiliate_content_submissions')
+  let q = service.from('affiliate_content_submissions')
     .select('id, link_url, stats_at').eq('company_entity_id', company).eq('kind', 'link')
-    .neq('state', 'declined').or(`stats_at.is.null,stats_at.lt.${stale}`)
-    .order('submitted_at', { ascending: false }).limit(500);
+    .neq('state', 'declined').or(`stats_at.is.null,stats_at.lt.${stale}`);
+  if (Array.isArray(ids)) q = q.in('id', ids.slice(0, VIDEO_BATCH));
+  const { data, error } = await q.order('submitted_at', { ascending: false }).limit(500);
   if (error) return { checked: 0, updated: 0, error: 'read_failed' };
   const want = [];
   for (const r of data || []) {

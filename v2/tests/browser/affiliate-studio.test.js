@@ -183,7 +183,8 @@ const MUTATIONS = {
   // The content view (20261125230000).
   offermoney: ['/affiliates/studio.js', 'canOffer: MANAGE && MONEY && live,', 'canOffer: MANAGE && live,'],
   postzero: ['/affiliates/studio.js', "  const parts = [st.views !== null ? `${compactCount(st.views)} views` : '',", "  const parts = [`${compactCount(st.views || 0)} views`,"],
-  statsevery: ['/affiliates/studio.js', '  if (S.contentStatsAsked || !S.d?.content?.some((x) => postNeedsStats(x))) return;', '  if (!S.d?.content?.some((x) => postNeedsStats(x))) return;'],
+  statsevery: ['/affiliates/studio.js', '  if (!want.length || S.contentStatsAsked.has(key)) return;', '  if (!want.length) return;'],
+  statsall: ['/affiliates/studio.js', "invoke('affiliate-research', { action: 'content_stats', ids: want });", "invoke('affiliate-research', { action: 'content_stats' });"],
   askworkflow: ['/affiliates/studio.js', "body: JSON.stringify({ history, workflow: 'affiliate_studio',", 'body: JSON.stringify({ history,'],
   askanyid: ['/affiliates/studio.js', "    const p = d.prospectById?.[x.id]; if (!p) return null;", "    const p = d.prospectById?.[x.id] || { id: x.id, status: 'new', display_name: 'Unknown' };"],
   // A file the browser cannot play must say so, not sit there as a blank box.
@@ -1966,7 +1967,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(await text(ctPage, '#contentCard'), 'offers $350.00 to use this post', 'the portal shows the brand\'s offer for that post');
     await ctPage.click('#contentCard button[data-offer="c-offer"][data-yes="1"]');
     await ctPage.waitForFunction(() => /Accepted/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
-    R.eq(calls.filter((c) => c.action === 'content_answer').map((c) => [c.id, c.accept]), [['c-offer', true]], 'Accept answers that one offer, yes');
+    R.eq(calls.filter((c) => c.action === 'content_answer').map((c) => [c.id, c.accept, c.offer_cents]), [['c-offer', true, 35000]], 'Accept answers that one offer, yes, at the price shown');
     R.ok('an accepted offer is no longer offered', !(await ctPage.$('#contentCard button[data-offer]')));
     await ctPage.setInputFiles('#ctFile', { name: 'notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('x') });
     R.has(await text(ctPage, '#status'), 'Upload a photo or a video', 'other files are refused before anything is sent');
@@ -2765,6 +2766,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('a bought post says what it cost', tiles.some((t) => /✓ Purchased \$350\.00/.test(t)));
       R.ok('a bought post offers no Buy or Offer', !(await vp.$('#shareBody .af-q-row:has(.bcn-pill--pos) [data-act="content-offer-open"]')));
       R.eq(statsAsked.filter((b) => b.action === 'content_stats').length, 1, 'the YouTube post without numbers is asked about once');
+      R.eq((statsAsked.find((b) => b.action === 'content_stats')?.ids || []).slice().sort(), ['y3', 'y4'], 'for the posts on this screen only, so another program cannot use up its turn');
       await vp.selectOption('#contentSort', 'views');
       await vp.waitForFunction(() => /12K views/.test(document.querySelector('#shareBody .af-q-row')?.textContent || ''), null, { timeout: 5000 });
       R.ok('Most viewed puts the measured post first and the unmeasured ones after it', true);

@@ -21,6 +21,7 @@
 //   CONTENT_OFFER_DB_MUTATION=overtaken   a decision after the offer no longer voids it
 //   CONTENT_OFFER_DB_MUTATION=paytwice    a replayed accept writes a second ledger line
 //   CONTENT_OFFER_DB_MUTATION=preview     a view-as (preview) link can accept
+//   CONTENT_OFFER_DB_MUTATION=stalecents  Accept takes whatever the offer is now, not the price shown
 //   CONTENT_OFFER_DB_MUTATION=anyhost     the thumbnail host check is dropped
 
 import assert from 'node:assert/strict';
@@ -104,6 +105,7 @@ switch (MUT) {
   case 'paytwice': mutate("  if v_c.offer_state in ('accepted', 'declined') then\n    return", "  if v_c.offer_state = 'declined' then\n    return");
     mutate("  if v_c.offer_state is distinct from 'open' or v_c.state not in ('submitted', 'approved')", "  if v_c.offer_state not in ('open', 'accepted')"); break;
   case 'preview': mutate("   where t.token_hash = p_token_hash and t.purpose = 'portal'\n     and t.revoked_at is null and t.expires_at > now() and t.affiliate_id is not null\n     and a.status = 'active';", "   where t.token_hash = p_token_hash and t.purpose in ('portal', 'preview')\n     and t.revoked_at is null and t.expires_at > now() and t.affiliate_id is not null\n     and a.status = 'active';"); break;
+  case 'stalecents': mutate("  if p_offer_cents is distinct from v_c.offer_cents then", "  if false then"); break;
   case 'anyhost': mutate("(thumbnail_url is null or thumbnail_url ~ '^https://i[0-9]?\\.ytimg\\.com/[A-Za-z0-9_./-]{1,200}$')", '(true)'); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
@@ -121,7 +123,7 @@ async function as(role, { company = CO_A, mgr = true, money = true } = {}, fn) {
 }
 const refused = async (fn) => { try { await fn(); return false; } catch { return true; } };
 const offer = (id, cents) => db.query('select public.affiliate_content_offer($1::uuid, $2::bigint) as r', [id, cents]);
-const answer = (tok, id, yes) => as('service_role', {}, () => db.query('select public.affiliate_portal_content_answer($1, $2::uuid, $3) as r', [tok, id, yes]));
+const answer = (tok, id, yes, cents) => as('service_role', {}, () => db.query('select public.affiliate_portal_content_answer($1, $2::uuid, $3, $4::bigint) as r', [tok, id, yes, cents]));
 const row = async (id) => (await db.query(`select * from affiliate_content_submissions where id = '${id}'`)).rows[0];
 const ledger = async () => (await db.query(`select * from affiliate_commission_ledger order by amount_cents`)).rows;
 await db.exec('grant execute on all functions in schema public to service_role; grant select on all tables in schema public to service_role;');
@@ -141,14 +143,20 @@ await test('A: only a payout approver in the active company makes or withdraws a
 });
 
 await test('B: accepting writes one ledger line and uses the post; a replay pays nothing more', async () => {
-  const r = (await answer('tok', P1, true)).rows[0].r;
+  // The brand lowers the offer after the affiliate's page showed $500.
+  await as('authenticated', {}, () => offer(P1, 50000));
+  await as('authenticated', {}, () => offer(P1, 35000));
+  assert.ok(await refused(() => answer('tok', P1, true, 50000)), 'Accept at a price no longer offered is refused');
+  assert.equal((await row(P1)).state, 'submitted'); assert.equal((await ledger()).length, 0);
+  assert.ok(await refused(() => answer('tok', P1, true, null)), 'no price shown, no answer');
+  const r = (await answer('tok', P1, true, 35000)).rows[0].r;
   assert.equal(r.offer_state, 'accepted');
   const p = await row(P1);
   assert.equal(p.state, 'used'); assert.equal(Number(p.bonus_cents), 35000); assert.ok(p.bonus_ledger_id);
   assert.equal(p.decided_by, MGR, 'the person who made the offer decided it');
   const l = await ledger();
   assert.equal(l.length, 1); assert.equal(Number(l[0].amount_cents), 35000); assert.equal(l[0].kind, 'manual_adjustment'); assert.equal(l[0].created_by, MGR);
-  const again = (await answer('tok', P1, true)).rows[0].r;
+  const again = (await answer('tok', P1, true, 35000)).rows[0].r;
   assert.equal(again.offer_state, 'accepted', 'a replay answers the same');
   assert.equal((await ledger()).length, 1, 'and pays nothing more');
   assert.ok(await as('authenticated', {}, () => refused(() => offer(P1, 100))), 'a bought post takes no new offer');
@@ -156,26 +164,26 @@ await test('B: accepting writes one ledger line and uses the post; a replay pays
 
 await test('C: declined, withdrawn and overtaken offers leave nothing payable', async () => {
   await as('authenticated', {}, () => offer(P2, 1000));
-  assert.equal((await answer('tok', P2, false)).rows[0].r.offer_state, 'declined');
-  assert.ok(await refused(() => answer('tok', P2, true)) || (await row(P2)).state !== 'used', 'a declined offer cannot be accepted after');
+  assert.equal((await answer('tok', P2, false, 1000)).rows[0].r.offer_state, 'declined');
+  assert.ok(await refused(() => answer('tok', P2, true, 1000)) || (await row(P2)).state !== 'used', 'a declined offer cannot be accepted after');
   assert.equal((await row(P2)).state, 'submitted');
 
   await as('authenticated', {}, () => offer(P3, 1000));
   assert.equal((await as('authenticated', {}, () => offer(P3, null))).rows[0].r.offer_state, 'withdrawn');
-  assert.ok(await refused(() => answer('tok', P3, true)), 'a withdrawn offer');
+  assert.ok(await refused(() => answer('tok', P3, true, 1000)), 'a withdrawn offer');
 
   await as('authenticated', {}, () => offer(P4, 1000));
   // The brand judges the post again after offering (here: Not used, then Keep after all).
   await db.exec(`update affiliate_content_submissions set state = 'approved', decided_at = now() + interval '1 minute' where id = '${P4}'`);
-  assert.ok(await refused(() => answer('tok', P4, true)), 'a decision after the offer voids it');
+  assert.ok(await refused(() => answer('tok', P4, true, 1000)), 'a decision after the offer voids it');
   assert.equal((await ledger()).length, 1, 'still only the one accepted offer');
 });
 
 await test('D: the token decides whose post it is; the portal read hides a dead offer', async () => {
   await db.exec(`update affiliate_content_submissions set decided_at = null where id = '${P4}'`);
-  assert.ok(await refused(() => answer('tok2', P4, true)), "another affiliate's link");
-  assert.ok(await refused(() => answer('view', P4, true)), 'a view-as link is read-only');
-  assert.ok(await refused(() => answer('old', P4, true)), 'an expired link');
+  assert.ok(await refused(() => answer('tok2', P4, true, 1000)), "another affiliate's link");
+  assert.ok(await refused(() => answer('view', P4, true, 1000)), 'a view-as link is read-only');
+  assert.ok(await refused(() => answer('old', P4, true, 1000)), 'an expired link');
   const read = (await as('service_role', {}, () => db.query("select public.affiliate_portal_content('tok') as r"))).rows[0].r;
   const by = Object.fromEntries(read.items.map((x) => [x.id, x]));
   assert.equal(by[P1].offer_state, 'accepted'); assert.equal(by[P2].offer_state, 'declined');
@@ -188,8 +196,8 @@ await test('D: the token decides whose post it is; the portal read hides a dead 
 
 await test('E: grants and the stats shape', async () => {
   const r = await db.query(`select has_function_privilege('anon', 'public.affiliate_content_offer(uuid,bigint)', 'execute') a,
-    has_function_privilege('authenticated', 'public.affiliate_portal_content_answer(text,uuid,boolean)', 'execute') b,
-    has_function_privilege('anon', 'public.affiliate_portal_content_answer(text,uuid,boolean)', 'execute') c,
+    has_function_privilege('authenticated', 'public.affiliate_portal_content_answer(text,uuid,boolean,bigint)', 'execute') b,
+    has_function_privilege('anon', 'public.affiliate_portal_content_answer(text,uuid,boolean,bigint)', 'execute') c,
     has_function_privilege('authenticated', 'public.affiliate_portal_content(text)', 'execute') d`);
   assert.equal(r.rows[0].a, false, 'anon cannot offer');
   assert.equal(r.rows[0].b, false, 'a signed-in client cannot answer for an affiliate');

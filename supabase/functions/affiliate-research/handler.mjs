@@ -1105,7 +1105,10 @@ export function createResearchHandler({
     // posts only. Nothing here costs money (API quota only).
     if (body?.action === 'content_stats') {
       if (!youtubeKey) return reply({ checked: 0, updated: 0, unavailable: true });
-      return reply(await refreshContentStats({ service, company, apiKey: youtubeKey, fetchImpl: youtubeFetch, now }));
+      // The posts on the asker's screen, when it names them; the company
+      // filter still applies to every one.
+      const ids = Array.isArray(body?.ids) ? body.ids.map(String).filter((x) => UUID_RE.test(x)).slice(0, 50) : null;
+      return reply(await refreshContentStats({ service, company, apiKey: youtubeKey, fetchImpl: youtubeFetch, now, ids }));
     }
     const programId = String(body?.program_id || '');
     if (!UUID_RE.test(programId)) return reply({ error: 'Choose a program.' }, 400);

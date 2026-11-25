@@ -250,7 +250,7 @@ await test('portal: a View-as-rep preview reads the rep\'s portal and changes no
   const before = svc.log.length;
   for (const body of [{ action: 'photo', remove: true }, { action: 'payout_email', email: 'x@y.invalid' }, { action: 'claim', item_id: AFF2 },
     { action: 'seed_request', item_id: AFF2 }, { action: 'content_start', kind: 'link', link_url: 'https://x.invalid/p' }, { action: 'content_finish', id: AFF2 },
-    { action: 'content_answer', id: AFF2, accept: true },
+    { action: 'content_answer', id: AFF2, accept: true, offer_cents: 100 },
     { action: 'switch', affiliate_id: AFF2 }, { action: 'accept', signed_name: 'Pat', terms_version: 2 }]) {
     const res = await h(post({ ...body, token: TOKEN }));
     assert.equal(res.status, 403, `${body.action} is refused for a preview`);
@@ -1356,15 +1356,17 @@ await test('portal content: a link needs no upload; finish and list go to the da
 
 await test('portal content: an offer is answered by token, with a real yes or no only', async () => {
   const svc = contentSvc();
-  const yes = await portalCall(svc, { action: 'content_answer', id: CID, accept: true, affiliate_id: AFF2 });
+  const yes = await portalCall(svc, { action: 'content_answer', id: CID, accept: true, offer_cents: 35000, affiliate_id: AFF2 });
   assert.equal(yes.status, 200); assert.equal(yes.body.offer_state, 'accepted');
   const call = svc.log.find((x) => x.name === 'affiliate_portal_content_answer');
-  assert.deepEqual(Object.keys(call.args).sort(), ['p_accept', 'p_id', 'p_token_hash'], 'nothing in the request names whose post it is');
+  assert.deepEqual(Object.keys(call.args).sort(), ['p_accept', 'p_id', 'p_offer_cents', 'p_token_hash'], 'nothing in the request names whose post it is');
+  assert.equal(call.args.p_offer_cents, 35000, 'the price the affiliate saw goes to the database to compare');
+  assert.equal((await portalCall(svc, { action: 'content_answer', id: CID, accept: true })).status, 400, 'no price shown, no answer');
   assert.equal(call.args.p_accept, true);
-  assert.equal((await portalCall(svc, { action: 'content_answer', id: CID, accept: 'yes' })).status, 400, 'a non-boolean answer is refused');
+  assert.equal((await portalCall(svc, { action: 'content_answer', id: CID, accept: 'yes', offer_cents: 1 })).status, 400, 'a non-boolean answer is refused');
   assert.equal((await portalCall(svc, { action: 'content_answer', id: 'x', accept: false })).status, 400);
   const signup = contentSvc({ purpose: 'signup' });
-  assert.equal((await portalCall(signup, { action: 'content_answer', id: CID, accept: true })).status, 400, 'a signup link cannot answer');
+  assert.equal((await portalCall(signup, { action: 'content_answer', id: CID, accept: true, offer_cents: 1 })).status, 400, 'a signup link cannot answer');
   assert.ok(!signup.log.some((x) => x.name === 'affiliate_portal_content_answer'));
 });
 

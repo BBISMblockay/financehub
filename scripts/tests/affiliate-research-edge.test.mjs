@@ -128,6 +128,7 @@ const MUTS = {
   nocache: [CORE, "    cache_control: { type: 'ephemeral' },\n", ''],
   postco: ['lib/affiliate-youtube-core.mjs', ".select('id, link_url, stats_at').eq('company_entity_id', company).eq('kind', 'link')", ".select('id, link_url, stats_at').eq('kind', 'link')"],
   postthumb: ['lib/affiliate-youtube-core.mjs', "thumbnail_url: thumb && YT_THUMB_RE.test(thumb) ? thumb : null,", "thumbnail_url: thumb || null,"],
+  postids: ['lib/affiliate-youtube-core.mjs', "  if (Array.isArray(ids)) q = q.in('id', ids.slice(0, VIDEO_BATCH));", ''],
   postzero: ['lib/affiliate-youtube-core.mjs', "    like_count: intOrNull(st.likeCount),", "    like_count: intOrNull(st.likeCount) ?? 0,"],
 };
 if (MUT && !MUTS[MUT]) throw new Error(`unknown mutation ${MUT}`);
@@ -752,17 +753,18 @@ await test('Post numbers: a YouTube link gets its own video numbers, other links
   const s = setup({ youtubeKey: 'yt-key', youtubeFetch: api });
   const t = (s.service.tables.affiliate_content_submissions = []);
   const base = { company_entity_id: CO_A, kind: 'link', state: 'submitted', submitted_at: '2026-11-09', stats_at: null };
-  t.push({ id: 'c1', ...base, link_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
-    { id: 'c2', ...base, link_url: 'https://youtube.com/shorts/hiddenLikes' },
-    { id: 'c3', ...base, link_url: 'https://www.tiktok.com/@a/video/123' },
-    { id: 'c4', ...base, link_url: 'https://youtu.be/goneVideo00' },
-    { id: 'c5', ...base, link_url: 'https://www.youtube.com/watch?v=freshVideo0', stats_at: '2026-11-10T11:00:00Z', view_count: 5 },
-    { id: 'cb', ...base, company_entity_id: CO_B, link_url: 'https://www.youtube.com/watch?v=otherCoVid0' });
+  t.push({ id: '0c000000-0000-4000-8000-000000000001', ...base, link_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+    { id: '0c000000-0000-4000-8000-000000000002', ...base, link_url: 'https://youtube.com/shorts/hiddenLikes' },
+    { id: '0c000000-0000-4000-8000-000000000003', ...base, link_url: 'https://www.tiktok.com/@a/video/123' },
+    { id: '0c000000-0000-4000-8000-000000000004', ...base, link_url: 'https://youtu.be/goneVideo00' },
+    { id: '0c000000-0000-4000-8000-000000000005', ...base, link_url: 'https://www.youtube.com/watch?v=freshVideo0', stats_at: '2026-11-10T11:00:00Z', view_count: 5 },
+    { id: '0c000000-0000-4000-8000-00000000000b', ...base, company_entity_id: CO_B, link_url: 'https://www.youtube.com/watch?v=otherCoVid0' });
   const out = await (await s.call({ action: 'content_stats' })).json();
   assert.equal(out.checked, 3, 'three stale YouTube links of this company');
   assert.equal(asked.length, 1, 'one videos.list call for all of them');
   assert.equal(asked[0].searchParams.get('id').split(',').sort().join(','), 'dQw4w9WgXcQ,goneVideo00,hiddenLikes');
-  const by = Object.fromEntries(t.map((r) => [r.id, r]));
+  const name = { '0c000000-0000-4000-8000-000000000001': 'c1', '0c000000-0000-4000-8000-000000000002': 'c2', '0c000000-0000-4000-8000-000000000003': 'c3', '0c000000-0000-4000-8000-000000000004': 'c4', '0c000000-0000-4000-8000-000000000005': 'c5', '0c000000-0000-4000-8000-00000000000b': 'cb' };
+  const by = Object.fromEntries(t.map((r) => [name[r.id], r]));
   assert.deepEqual([by.c1.view_count, by.c1.like_count, by.c1.comment_count, by.c1.duration_seconds], [12400, 600, 45, 72]);
   assert.equal(by.c1.thumbnail_url, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg');
   assert.equal(by.c1.stats_source, 'youtube_api');
@@ -772,6 +774,12 @@ await test('Post numbers: a YouTube link gets its own video numbers, other links
   assert.ok(by.c4.stats_at && by.c4.view_count == null, 'a video the API does not know is stamped with no numbers');
   assert.equal(by.c5.view_count, 5, 'a fresh one is left alone');
   assert.equal(by.cb.stats_at, null, 'another company is untouched');
+  // Scoped to the posts on screen: another program's newer links cannot use up this one's turn.
+  for (const r of t) r.stats_at = null;
+  asked.length = 0;
+  const scoped = await (await s.call({ action: 'content_stats', ids: ['0c000000-0000-4000-8000-000000000002', '0c000000-0000-4000-8000-00000000000b', 'not-a-uuid'] })).json();
+  assert.equal(scoped.checked, 1, 'only the post named, and only inside this company');
+  assert.equal(asked[0].searchParams.get('id'), 'hiddenLikes');
   const off = setup({});
   assert.equal((await (await off.call({ action: 'content_stats' })).json()).unavailable, true, 'no key: says so, changes nothing');
 });

@@ -122,8 +122,10 @@ revoke all on function public.affiliate_content_offer(uuid, bigint) from public,
 grant execute on function public.affiliate_content_offer(uuid, bigint) to authenticated;
 
 -- ── 3. The affiliate answers, from their own portal link (service role) ─
--- The token decides whose post this is. A replay answers the same.
-create or replace function public.affiliate_portal_content_answer(p_token_hash text, p_id uuid, p_accept boolean)
+-- The token decides whose post this is. p_offer_cents is the price the
+-- affiliate was SHOWN: if the brand changed the offer since, nothing is
+-- accepted and they are asked again at the new price. A replay answers the same.
+create or replace function public.affiliate_portal_content_answer(p_token_hash text, p_id uuid, p_accept boolean, p_offer_cents bigint)
 returns jsonb
 language plpgsql
 volatile
@@ -159,6 +161,9 @@ begin
      or (v_c.decided_at is not null and v_c.decided_at > v_c.offered_at) then
     raise exception 'affiliate_portal_content_answer: this offer is no longer open' using errcode = '22023';
   end if;
+  if p_offer_cents is distinct from v_c.offer_cents then
+    raise exception 'affiliate_portal_content_answer: the offer changed; reload to see the new price' using errcode = '22023';
+  end if;
 
   if not coalesce(p_accept, false) then
     update public.affiliate_content_submissions
@@ -183,8 +188,8 @@ begin
 end;
 $$;
 
-revoke all on function public.affiliate_portal_content_answer(text, uuid, boolean) from public, anon, authenticated;
-grant execute on function public.affiliate_portal_content_answer(text, uuid, boolean) to service_role;
+revoke all on function public.affiliate_portal_content_answer(text, uuid, boolean, bigint) from public, anon, authenticated;
+grant execute on function public.affiliate_portal_content_answer(text, uuid, boolean, bigint) to service_role;
 
 -- ── 4. The portal's read carries an open offer ──────────────────────────
 -- Same body as live (20261117050000 with 20261125030000's purposes), plus

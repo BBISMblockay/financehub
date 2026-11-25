@@ -3133,11 +3133,16 @@ function postButtons(x) {
 // Numbers for the YouTube posts on screen, once per page load: the video's
 // own public counts, read by SILO with the official API. Fail-soft: no key,
 // no quota, no numbers.
+// Asked once per program per page load, for that program's own posts, so a
+// busy program cannot use up another's turn.
 async function ensureContentStats() {
-  if (S.contentStatsAsked || !S.d?.content?.some((x) => postNeedsStats(x))) return;
-  S.contentStatsAsked = true;
+  const want = (S.d?.content || []).filter((x) => postNeedsStats(x)).map((x) => x.id).slice(0, 50);
+  S.contentStatsAsked ||= new Set();
+  const key = S.programId || 'all';
+  if (!want.length || S.contentStatsAsked.has(key)) return;
+  S.contentStatsAsked.add(key);
   try {
-    const out = await invoke('affiliate-research', { action: 'content_stats' });
+    const out = await invoke('affiliate-research', { action: 'content_stats', ids: want });
     if (!Number(out?.updated)) return;
     const ids = S.d.content.map((x) => x.id);
     const { data } = await db.from('affiliate_content_submissions').select('id, view_count, like_count, comment_count, duration_seconds, thumbnail_url, stats_at')

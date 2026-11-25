@@ -758,8 +758,8 @@ function contentCard() {
     // say yes, and then it pays with their next payout like any earning.
     const offer = c.offer_state === 'open' && c.offer_cents
       ? `<div class="af-row af-offer"><span>${esc(BRAND)} offers <strong class="af-num">${esc(formatMoney(c.offer_cents, c.offer_currency))}</strong> to use this post.</span>
-          <button class="bcn-btn bcn-btn--primary" type="button" data-offer="${esc(c.id)}" data-yes="1">Accept</button>
-          <button class="bcn-btn bcn-btn--ghost" type="button" data-offer="${esc(c.id)}" data-yes="0">No thanks</button></div>`
+          <button class="bcn-btn bcn-btn--primary" type="button" data-offer="${esc(c.id)}" data-cents="${esc(String(c.offer_cents))}" data-yes="1">Accept</button>
+          <button class="bcn-btn bcn-btn--ghost" type="button" data-offer="${esc(c.id)}" data-cents="${esc(String(c.offer_cents))}" data-yes="0">No thanks</button></div>`
       : c.offer_state === 'declined' ? '<span class="af-muted">You said no to the offer for this post.</span>' : '';
     return `<div class="af-seed"><div class="af-row"><strong>${what}</strong><span class="bcn-pill${tone ? ` bcn-pill--${tone}` : ''}">${esc(label)}</span>${bonus}</div>${c.caption ? `<span class="af-muted">${esc(c.caption)}</span>` : ''}${offer}</div>`;
   };
@@ -788,9 +788,11 @@ function wireContent() {
     const yes = b.dataset.yes === '1';
     for (const x of $('contentCard').querySelectorAll('button[data-offer]')) x.disabled = true;
     try {
-      await call('content_answer', { token, id: b.dataset.offer, accept: yes });
+      await call('content_answer', { token, id: b.dataset.offer, accept: yes, offer_cents: Number(b.dataset.cents) });
       await contentRefresh(yes ? `Accepted. It is added to your next payout from ${BRAND}.` : 'Declined. Nothing changes.');
     } catch (e) {
+      // The brand may have changed the price: show the one that stands now.
+      try { await contentRefresh(''); } catch { /* the message below still says why */ }
       setStatus(e.message, 'neg');
       for (const x of $('contentCard').querySelectorAll('button[data-offer]')) x.disabled = false;
     }
