@@ -7002,8 +7002,7 @@ select 'Card paydown match' as check_name,
    then 'CRITICAL: anon can reach the card paydown match'
   when position('status = ''excluded''' in coalesce(pg_get_functiondef(to_regprocedure('public.link_card_payment_match(uuid,uuid)')), '')) = 0
    then 'STALE — re-run 20261125020000_card_payment_match.sql: matching no longer excludes the card row, so the paydown would post twice'
-  when to_regprocedure('public.card_payment_match_proposals(uuid[],integer)') is null
-    or to_regprocedure('public.card_payment_posting_treatment(text)') is null
+  when to_regprocedure('public.card_payment_posting_treatment(text)') is null
    then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql'
   when not exists (select 1 from information_schema.columns
                    where table_schema = 'public' and table_name = 'card_payment_matches' and column_name = 'payer_prior')
@@ -7011,12 +7010,18 @@ select 'Card paydown match' as check_name,
   when coalesce(public.card_payment_posting_treatment('Credit Card'), '') <> 'card_payment'
     or public.card_payment_posting_treatment('Expense') is not null
    then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
-  when has_function_privilege('anon', 'public.card_payment_match_proposals(uuid[],integer)', 'execute')
-    or has_function_privilege('anon', 'public.card_payment_match_offers(uuid[],integer)', 'execute')
-   then 'CRITICAL: anon can reach the card paydown proposals'
+  -- The existence test comes FIRST: has_function_privilege() raises on a name
+  -- that does not exist, so asking about anon's reach before the function is
+  -- there would error instead of reporting the migration as missing. And
+  -- card_payment_match_proposals is deliberately NOT named here any more --
+  -- 20261125080000 drops it, so requiring it would turn this check red for a
+  -- function nothing calls.
   when to_regprocedure('public.card_payment_match_offers(uuid[],integer)') is null
     or to_regprocedure('public.card_payment_settlement_candidates(uuid,integer)') is null
    then 'MISSING — run 20261125080000_card_payment_match_either_side.sql: a match could not be confirmed from the bank side'
+  when has_function_privilege('anon', 'public.card_payment_match_offers(uuid[],integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_settlement_candidates(uuid,integer)', 'execute')
+   then 'CRITICAL: anon can reach the card paydown offers'
   when position('payer_coded_at' in coalesce(pg_get_functiondef(to_regprocedure('public.unlink_card_payment_match(uuid)')), '')) = 0
    then 'STALE — run 20261125070000_card_payment_match_relink.sql: without the stamp an undo can overwrite coding somebody did themselves'
   else 'ok' end as status;

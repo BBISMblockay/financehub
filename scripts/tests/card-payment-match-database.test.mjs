@@ -137,6 +137,20 @@ try {
 
   const pairSql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
   await db.exec(pairSql);
+  // The drift check's own text is part of the feature: it runs on production
+  // daily, and a condition naming something a later migration DROPS turns it
+  // red for a function nothing calls. So the block is run here as the
+  // migrations land. It is run from 060000 onward only: the block CALLS
+  // card_payment_posting_treatment(), and a call to a function that does not
+  // exist yet fails to parse, which is the file's existing convention.
+  const verifyBlock = async () => {
+    const full = await readFile(new URL('supabase/verify_v2_schema.sql', root), 'utf8');
+    const block = full.slice(full.indexOf("select 'Card paydown match' as check_name"),
+      full.indexOf('-- End card paydown match checks.'));
+    const parts = block.split(/;\s*\n/).filter((x) => x.replace(/--.*$/gm, '').trim());
+    assert.equal(parts.length, 1);
+    return (await q(parts[0]))[0].status;
+  };
   const files = ['20261125060000_card_payment_match_both_sides.sql', '20261125070000_card_payment_match_relink.sql',
     '20261125080000_card_payment_match_either_side.sql'];
   const sources = [];
@@ -152,10 +166,18 @@ try {
     }
     sources.push(text);
     await db.exec(text);
+    if (name.includes('relink') && !mutation) {
+      assert.match(await verifyBlock(), /^MISSING — run 20261125080000/,
+        'with only 060000 and 070000 the check must name the either-side file');
+    }
   }
   // Applied twice: apply_all_post_merge.sql re-runs every migration.
   await db.exec(pairSql);
   for (const text of sources) await db.exec(text);
+  if (!mutation) {
+    assert.equal(await verifyBlock(), 'ok',
+      'with every migration applied the drift check must be green');
+  }
 
   await q("insert into entities(id,title) values($1,'A')", [co]);
   await q('insert into auth.users(id) values($1),($2)', [finance, reader]);
