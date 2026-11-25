@@ -1672,8 +1672,14 @@ function dialogSpec() {
   // Draft message change a draft, not the creator, and a key that did not move
   // left the pressed button sitting there to be pressed again.
   if (mp) {
-    const acts = prospectActions(mp).join('');
-    return { key: `more:${mp.id}:${acts}`, title: mp.display_name || mp.handle || 'Creator', body: `<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>${dlgFoot(btn('Close', 'dialog-close'))}` };
+    // Every program this person is in, each with its own status and buttons
+    // (one row per person on the list, so the programs live here).
+    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];
+    const blocks = rows.map((r) => {
+      const acts = prospectActions(r).join('');
+      return { acts, html: `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${prospectPill(r.status)}</div>` : ''}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>` };
+    });
+    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
   // Who a share is for. Nobody ticked means the whole program, which is what
   // every share has meant until now, so the dialog opens on that honestly
@@ -2222,12 +2228,17 @@ function renderProspects() {
   // Two buttons on the row, the rest behind More (Blake 2026-11-20: "there is
   // a lot there"). More opens the same buttons in the centre pop-up, so
   // nothing is lost and nothing folds out over the list.
-  const rowActions = (x) => {
+  // Somebody in several programs has a row in each, with its own status. The
+  // row shown is the one that puts them in this filter (Shortlisted shows
+  // their shortlisted program), and More lists every program's own buttons.
+  const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;
+  const rowActions = (x, g) => {
     if (!MANAGE) return '';
     const b = prospectActions(x);
-    if (!b.length) return '';
+    const many = (g?.rows.length || 1) > 1;
+    if (!b.length && !many) return '';
     const shown = b.slice(0, 2);
-    if (b.length > 2) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
+    if (b.length > 2 || many) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
     return `<div class="af-actions">${shown.join('')}</div>`;
   };
   // The programs they are not in yet, to push them into: one menu. Never
@@ -2240,8 +2251,8 @@ function renderProspects() {
       ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
       : '';
   };
-  const actions = (g) => `<div class="af-actions">${g.suppressed ? '' : rowActions(g.x)}${addTo(g)}</div>`;
-  const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : g.x.status);
+  const actions = (g) => `<div class="af-actions">${g.suppressed ? '' : rowActions(shownRow(g), g)}${addTo(g)}</div>`;
+  const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
   const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
     const link = x.profile_url ? ext(x.profile_url, x.display_name || x.handle || x.profile_url) : esc(x.display_name || x.handle);
