@@ -344,6 +344,10 @@ on:
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'v2/quickbooks-sync.js'
       - 'v2/quickbooks-sync.html'
+      - 'v2/silo-books.js'
+      - 'v2/silo-books.html'
+      - 'scripts/tests/silo-books.test.mjs'
+      - 'supabase/migrations/*history_read_policy_once_per_query.sql'
       - 'supabase/migrations/*rules_auto_apply_and_entered_by_hand.sql'
       - 'supabase/migrations/*quickbooks_ledger_mirror.sql'
       - 'supabase/functions/quickbooks-ledger-mirror-scheduled/**'
@@ -1907,6 +1911,21 @@ jobs:
             if LEDGER_MIRROR_MUTATION=$m node scripts/tests/quickbooks-ledger-mirror-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m survived"; exit 1
             fi
+          done
+
+      # SILO books (v2/silo-books.html): the page's own SQL run the way the
+      # report engine wraps it, and the statements built from the rows, against
+      # books whose answers are known; and the imported-history read policy the
+      # page runs under (20261125160000). Every mutation breaks one rule and must
+      # fail the suite.
+      - name: SILO books statements (real PostgreSQL)
+        run: |
+          node scripts/tests/silo-books.test.mjs
+          for m in opening-any-import opening-oldest-copy opening-before-start opening-ignored activity-any-company positions-any-company income-sign prior-earnings-dropped fiscal-all-time positions-ignore-date date-unchecked account-unchecked gross-ignores-cogs fiscal-january unplaced-ignores-from unplaced-any-company policy-drops-finance-gate policy-drops-company policy-not-hoisted; do
+            if SILO_BOOKS_MUTATION=$m node scripts/tests/silo-books.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m survived"; exit 1
+            fi
+            echo "$m rejected"
           done
 
       # The SILO daily ledger: a categorized, settled transaction is recorded at
