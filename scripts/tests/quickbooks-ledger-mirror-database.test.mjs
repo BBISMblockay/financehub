@@ -509,9 +509,11 @@ const SETTLE_MUTATIONS = {
   // an entry that was never changed gets an acceptance
   'accept-unchanged': [`v_row.status is distinct from 'changed' or`, `false or`],
   // an acceptance covers whatever QuickBooks does next
+  // a click on an old screen accepts whatever QuickBooks holds now
+  'accept-unseen-version': [`  if p_expected_state is null or v_row.held_state is distinct from p_expected_state then`, `  if false then`],
   'stale-acceptance-stands': [`s.accepted_state = j.held_state then 'settled'`, `true then 'settled'`],
   'browser-writes-settlements': [`revoke all on public.quickbooks_entry_settlements from public, anon, authenticated;`, `grant all on public.quickbooks_entry_settlements to authenticated;`],
-  'anon-can-accept': [`revoke all on function public.quickbooks_accept_quickbooks_version(uuid) from public, anon, authenticated;`, ``],
+  'anon-can-accept': [`revoke all on function public.quickbooks_accept_quickbooks_version(uuid, text) from public, anon, authenticated;`, ``],
   'anon-can-start-a-read': [`revoke all on function public.quickbooks_ledger_mirror_my_due(timestamptz, integer) from public, anon, authenticated;`, ``],
 };
 const SETTLE_MUTATION = process.env.SETTLE_MUTATION || '';
@@ -570,7 +572,10 @@ await test('the statement production refused is patched, and the months it faile
 const checked = async () => (await q(`select * from quickbooks_sent_entries_check_v where company_entity_id = $1 order by qbo_doc_number`, [CO]))
   .map((r) => `${r.qbo_doc_number} ${r.status}${r.status === 'unread' ? '' : ` off=${Number(r.differs_by).toFixed(2)}${r.missing ? ' missing' : ''}${r.moved ? ' moved' : ''}`}`);
 const postingId = async (doc) => (await q(`select id from quickbooks_journal_postings where qbo_doc_number = $1`, [doc]))[0].id;
-const accept = async (id) => (await q(`select public.quickbooks_accept_quickbooks_version($1::uuid) r`, [id]))[0].r;
+const shown = async (id) => (await q(`select held_state from quickbooks_sent_entries_check_v where posting_id = $1`, [id]))[0]?.held_state ?? null;
+// As the page does it: accept the state that is on the screen (or one passed in).
+const accept = async (id, state) => (await q(`select public.quickbooks_accept_quickbooks_version($1::uuid, $2) r`,
+  [id, state === undefined ? await shown(id) : state]))[0].r;
 const moved = (rows) => rows.map((r) => (r[2] === 'J7' ? ['2026-09-12', ...r.slice(1)] : r));
 const without = (rows) => rows.filter((r) => r[2] !== 'J7');
 const CHANGED = september({ ...SEPT_ROWS, rent: [['2026-09-10', 'Journal Entry', 'J7', 'SILO-AAA', '', 'Rent', '-Split-', 500]], rentWh: [] });
@@ -632,8 +637,15 @@ await test('accepting QuickBooks\' version settles exactly the version accepted'
   // Accepting again is refused: there is nothing new to accept.
   assert.deepEqual(await accept(j7), { ok: false, status: 'settled' });
   // QuickBooks changes it again: the earlier acceptance does not cover that.
+  const sawChanged = await shown(j7);
   await store(MOVED);
   assert.equal(await status(), 'SILO-AAA changed off=0.00 moved');
+  // A click made on the OLD screen (a read-back landed in between) accepts
+  // nothing: the person never saw this version. Nor does a click naming no state.
+  assert.deepEqual(await accept(j7, sawChanged), { ok: false, status: 'moved_on' });
+  assert.deepEqual(await accept(j7, null), { ok: false, status: 'moved_on' });
+  assert.equal(await status(), 'SILO-AAA changed off=0.00 moved');
+  assert.equal((await q(`select accepted_state s from quickbooks_entry_settlements`))[0].s, sawChanged);
   assert.deepEqual(await accept(j7), { ok: true, status: 'settled' });
   await store(DELETED);
   assert.equal(await status(), 'SILO-AAA changed off=500.00 missing');
@@ -685,9 +697,9 @@ await test('only the settle function writes acceptances, and nothing here is ope
     has_table_privilege('anon', 'public.quickbooks_entry_settlements', 'SELECT') t_anon,
     has_table_privilege('anon', 'public.quickbooks_sent_entries_check_v', 'SELECT') v_anon,
     has_table_privilege('authenticated', 'public.quickbooks_sent_entries_check_v', 'INSERT,UPDATE,DELETE') v_write,
-    has_function_privilege('anon', 'public.quickbooks_accept_quickbooks_version(uuid)', 'execute') f_anon,
+    has_function_privilege('anon', 'public.quickbooks_accept_quickbooks_version(uuid, text)', 'execute') f_anon,
     has_function_privilege('anon', 'public.quickbooks_ledger_mirror_my_due(timestamptz,integer)', 'execute') d_anon,
-    has_function_privilege('authenticated', 'public.quickbooks_accept_quickbooks_version(uuid)', 'execute') f_user,
+    has_function_privilege('authenticated', 'public.quickbooks_accept_quickbooks_version(uuid, text)', 'execute') f_user,
     has_function_privilege('authenticated', 'public.quickbooks_ledger_mirror_my_due(timestamptz,integer)', 'execute') d_user,
     (select relrowsecurity from pg_class where oid = 'public.quickbooks_entry_settlements'::regclass) rls,
     (select count(*)::int from pg_policy where polrelid = 'public.quickbooks_entry_settlements'::regclass and polcmd <> 'r') write_policies`);
@@ -751,9 +763,9 @@ await test('the verify check for settle and Mirror now reads ok, and notices wha
   const status = async () => (await q(check))[0].status;
   if (!MUTATION && !SETTLE_MUTATION) assert.equal(await status(), 'ok');
   if (SETTLE_MUTATION === 'patch-skipped') assert.match(await status(), /^BROKEN/);
-  await db.exec(`grant execute on function public.quickbooks_accept_quickbooks_version(uuid) to anon`);
+  await db.exec(`grant execute on function public.quickbooks_accept_quickbooks_version(uuid, text) to anon`);
   assert.match(await status(), /^(CRITICAL: a signed-out caller|BROKEN)/);
-  await db.exec(`revoke execute on function public.quickbooks_accept_quickbooks_version(uuid) from anon;
+  await db.exec(`revoke execute on function public.quickbooks_accept_quickbooks_version(uuid, text) from anon;
                  grant insert on public.quickbooks_entry_settlements to authenticated`);
   assert.match(await status(), /^(CRITICAL: quickbooks_entry_settlements is open|CRITICAL: a signed-out|BROKEN)/);
   await db.exec(`revoke insert on public.quickbooks_entry_settlements from authenticated`);

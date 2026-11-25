@@ -99,9 +99,11 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
 - **QuickBooks is the master copy** (Blake, 2026-11-25: "qbo is current master", "with action to get
   settled and mirrored, not just flag"). SILO's statements already use QuickBooks' lines for a month that
   was read back. A month that differs lists each changed entry and one button, **Use QuickBooks' version**:
-  it calls `quickbooks_accept_quickbooks_version(posting_id)` for each, which records the exact QuickBooks
+  it calls `quickbooks_accept_quickbooks_version(posting_id, expected_state)` for each, which records the exact QuickBooks
   state accepted (`quickbooks_entry_settlements`). The entry reads `settled` and the month agrees. If
-  QuickBooks changes that entry again, the acceptance no longer matches and it is flagged again. Nothing
+  QuickBooks changes that entry again, the acceptance no longer matches and it is flagged again. The page
+  sends the state it displayed; if a read-back changed the entry between the look and the click, the
+  database refuses (`moved_on`) and the entry is listed again, so nobody accepts a version they never saw. Nothing
   is written to QuickBooks, and no posting or journal entry changes.
 - **Mirror now** (header) reads QuickBooks again on demand: the page calls
   `quickbooks-ledger-mirror-scheduled` with the person's own session and `{since}` until it answers
@@ -113,8 +115,8 @@ Blake: "seems like its all inclusive kinda wierd. and just one big list? no tick
 
 ## Tests
 
-`node --test scripts/tests/quickbooks-sync.test.mjs` (40). `QBSYNC_MUTATION=<name>` breaks one protection; every one
+`node --test scripts/tests/quickbooks-sync.test.mjs` (41). `QBSYNC_MUTATION=<name>` breaks one protection; every one
 must fail the suite and CI runs each. The entry check, the settle function and Mirror now's work list run on real
-PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs` (26 checks; `SETTLE_MUTATION`, 19). The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
+PostgreSQL in `scripts/tests/quickbooks-ledger-mirror-database.test.mjs` (26 checks; `SETTLE_MUTATION`, 20). The database side is `scripts/tests/card-rules-auto-apply-database.test.mjs`
 (13 checks, 17 mutations). Verified in Chromium against the shipped page with stubbed
 data (light, dark, phone, a full send run); not yet exercised against production.

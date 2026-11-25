@@ -23,7 +23,8 @@
 --    posted, whether QuickBooks still holds it as sent. QuickBooks is the
 --    master copy: when an entry was changed, moved or deleted there, a finance
 --    user accepts QuickBooks' version (quickbooks_accept_quickbooks_version),
---    which records the exact state accepted. If QuickBooks changes the entry
+--    naming the state they were shown; it records exactly that state and
+--    refuses if QuickBooks has moved on since. If QuickBooks changes the entry
 --    again, the acceptance no longer matches and the entry is flagged again.
 --    Nothing here writes to QuickBooks.
 --
@@ -226,7 +227,12 @@ grant select on public.quickbooks_sent_entries_check_v to authenticated;
 
 -- Accept QuickBooks' version of one entry SILO posted. Records the state that
 -- was accepted, nothing else: no entry, posting or QuickBooks record changes.
-create or replace function public.quickbooks_accept_quickbooks_version(p_posting_id uuid)
+-- p_expected_state is the held_state the person was SHOWN. A read-back can land
+-- between their look and their click; an acceptance must never cover a version
+-- nobody reviewed, so a state that has moved on is refused ('moved_on') and the
+-- page shows the entry again.
+drop function if exists public.quickbooks_accept_quickbooks_version(uuid);
+create or replace function public.quickbooks_accept_quickbooks_version(p_posting_id uuid, p_expected_state text)
 returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -249,6 +255,9 @@ begin
   if not found or v_row.status is distinct from 'changed' or v_row.held_state is null then
     return jsonb_build_object('ok', false, 'status', coalesce(v_row.status, 'unknown'));
   end if;
+  if p_expected_state is null or v_row.held_state is distinct from p_expected_state then
+    return jsonb_build_object('ok', false, 'status', 'moved_on');
+  end if;
   insert into public.quickbooks_entry_settlements (posting_id, company_entity_id, accepted_state, accepted_by)
   values (p_posting_id, v_company, v_row.held_state, auth.uid())
   on conflict (posting_id) do update
@@ -256,8 +265,8 @@ begin
   return jsonb_build_object('ok', true, 'status', 'settled');
 end $$;
 
-revoke all on function public.quickbooks_accept_quickbooks_version(uuid) from public, anon, authenticated;
-grant execute on function public.quickbooks_accept_quickbooks_version(uuid) to authenticated;
+revoke all on function public.quickbooks_accept_quickbooks_version(uuid, text) from public, anon, authenticated;
+grant execute on function public.quickbooks_accept_quickbooks_version(uuid, text) to authenticated;
 
 select public.attach_stamp_company_entity_id_triggers();
 select public.refresh_chat_schema_catalog();

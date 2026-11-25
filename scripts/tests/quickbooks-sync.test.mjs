@@ -77,6 +77,10 @@ const MUTATIONS = {
   'agree-despite-unread': [`: m.unread > 0 ? 'partial' : 'agree';`, `: 'agree';`],
   // an accepted change is still shown as open
   'settled-still-open': [`if (e.status === 'changed') { m.changed += 1;`, `if (e.status === 'changed' || e.status === 'settled') { m.changed += 1;`],
+  // the click accepts whatever QuickBooks holds now, not what was shown
+  'settle-without-shown-state': [`const r = await api.accept(e.posting_id, e.held_state);`, `const r = await api.accept(e.posting_id);`],
+  // an entry QuickBooks changed again is counted as settled
+  'settle-counts-moved-on': [`if (r && r.ok === true) out.done += 1;`, `if (r) out.done += 1;`],
   // Mirror now keeps reading after the company changed
   'mirror-ignores-company': [`try { await api.stillActive(); res = await api.mirror(since); }`, `try { res = await api.mirror(since); }`],
   // Mirror now keeps asking after an answer it does not understand
@@ -494,7 +498,7 @@ test('only a ticked row is sent or marked, and only while it still may be', () =
   same(ids(S.chosen(noMarks, new Set(['batch:w1']), 'mark')), []);
 });
 
-const entry = (id, date, status, extra = {}) => ({ posting_id: id, qbo_doc_number: `SILO-${id}`, memo: '', entry_date: date, status,
+const entry = (id, date, status, extra = {}) => ({ held_state: status === 'unread' ? null : `h-${id}`, posting_id: id, qbo_doc_number: `SILO-${id}`, memo: '', entry_date: date, status,
   differs_by: status === 'unread' ? null : 0, missing: status === 'unread' ? null : false, moved: status === 'unread' ? null : false, ...extra });
 const PERIODS = [{ period_start: '2026-09-01', read_through: '2026-09-30' }, { period_start: '2026-08-01', read_through: '2026-08-31' }, { period_start: '2026-07-01', read_through: '2026-07-31' }];
 
@@ -526,7 +530,7 @@ test('a month is judged only where QuickBooks was read back, and only from a cle
   same(S.agreement(PERIODS, null), {});
   same(S.agreement(null, []), {});
   // A row that is not understood takes its month's verdict away.
-  for (const odd of [entry('a', '2026-09-03', 'weird'), entry('a', '2026-09-03', 'changed', { differs_by: 'lots' }), { ...entry('a', '2026-09-03', 'as_sent'), posting_id: null }]) {
+  for (const odd of [entry('a', '2026-09-03', 'weird'), entry('a', '2026-09-03', 'changed', { differs_by: 'lots' }), { ...entry('a', '2026-09-03', 'as_sent'), posting_id: null }, entry('a', '2026-09-03', 'changed', { held_state: null })]) {
     same(Object.keys(S.agreement(PERIODS, [odd])).sort(), ['2026-07', '2026-08']);
   }
 });
@@ -536,6 +540,20 @@ test('what happened to an entry in QuickBooks is said plainly', () => {
   assert.equal(S.changeText({ missing: false, moved: false, differs_by: '100' }), 'Changed in QuickBooks, differs by 100.00');
   assert.equal(S.changeText({ missing: false, moved: true, differs_by: 0 }), 'Moved to another day in QuickBooks');
   assert.equal(S.changeText({ missing: false, moved: true, differs_by: 25 }), 'Changed in QuickBooks, differs by 25.00');
+});
+
+test('settling sends the version that was on the screen, and says when QuickBooks has moved on', async () => {
+  const calls = [];
+  const answers = { a: { ok: true, status: 'settled' }, b: { ok: false, status: 'moved_on' }, c: { ok: false, status: 'as_sent' } };
+  const api = { stillActive: async () => {}, accept: async (id, state) => { calls.push([id, state]); return answers[id]; } };
+  const open = ['a', 'b', 'c'].map((id) => entry(id, '2026-08-31', 'changed'));
+  same(await S.settleAll(api, open), { done: 1, again: 1, error: null });
+  same(calls, [['a', 'h-a'], ['b', 'h-b'], ['c', 'h-c']]);
+  // The company changed, or the call failed: stop there.
+  let n = 0;
+  const moved = { stillActive: async () => { n += 1; if (n === 2) { const e = new Error('x'); e.code = 'COMPANY_CHANGED'; throw e; } }, accept: async () => ({ ok: true }) };
+  const out = await S.settleAll(moved, open);
+  assert.equal(out.done, 1); assert.equal(out.error.code, 'COMPANY_CHANGED');
 });
 
 const mirrorApi = (answers, { active = () => {} } = {}) => {

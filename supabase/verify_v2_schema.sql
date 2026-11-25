@@ -11090,18 +11090,21 @@ select 'QuickBooks settle and Mirror now' as check_name,
     when to_regclass('public.quickbooks_entry_settlements') is null
       or to_regclass('public.quickbooks_sent_entries_check_v') is null
       or to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)') is null
-      or to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)') is null
+      or to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)') is null
       then 'MISSING — run 20261125235000_quickbooks_settle_and_mirror_now.sql'
     when position('::numeric, 0) where true;' in coalesce(pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_store(uuid,uuid,date,date,jsonb,jsonb)')), '')) = 0
       then 'BROKEN — the QuickBooks read-back cannot store a month (UPDATE without WHERE); re-run 20261125235000'
     when has_function_privilege('anon', to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'), 'execute')
-      or has_function_privilege('anon', to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'), 'execute')
+      or has_function_privilege('anon', to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)'), 'execute')
       then 'CRITICAL: a signed-out caller can start a QuickBooks read or settle an entry'
     when position('can_manage_journal_entries()' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'))) = 0
-      or position('can_manage_journal_entries()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'))) = 0
+      or position('can_manage_journal_entries()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)'))) = 0
       or position('active_company_id()' in pg_get_functiondef(to_regprocedure('public.quickbooks_ledger_mirror_my_due(timestamptz,integer)'))) = 0
-      or position('active_company_id()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid)'))) = 0
+      or position('active_company_id()' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)'))) = 0
       then 'CRITICAL: starting a QuickBooks read or settling an entry is not limited to the company''s finance users'
+    when position('p_expected_state' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)'))) = 0
+      or position('moved_on' in pg_get_functiondef(to_regprocedure('public.quickbooks_accept_quickbooks_version(uuid,text)'))) = 0
+      then 'BROKEN — an acceptance could cover a QuickBooks version the person never saw'
     when exists (select 1 from pg_class c where c.oid = to_regclass('public.quickbooks_entry_settlements')
                     and (not c.relrowsecurity
                       or has_table_privilege('anon', c.oid, 'SELECT')

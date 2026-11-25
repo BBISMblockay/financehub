@@ -355,7 +355,8 @@
       const m = out[month];
       if (!m) continue;
       const off = e.status === 'changed' ? num(e.differs_by) : 0;
-      if (!ENTRY_STATUS.includes(e.status) || !e.posting_id || off === null) { spoiled.add(month); continue; }
+      // A changed entry with no state to name could not be accepted as shown.
+      if (!ENTRY_STATUS.includes(e.status) || !e.posting_id || off === null || (e.status === 'changed' && !e.held_state)) { spoiled.add(month); continue; }
       if (e.status === 'unread') { m.unread += 1; continue; }
       m.entries += 1;
       if (e.status === 'settled') m.settled += 1;
@@ -377,6 +378,23 @@
     const off = num(e.differs_by);
     if (off) return `Changed in QuickBooks, differs by ${money(off)}`;
     return e.moved ? 'Moved to another day in QuickBooks' : 'Changed in QuickBooks';
+  }
+
+  /* Accept QuickBooks' version of each open entry AS IT WAS SHOWN: the state
+     on the screen goes with the request, and the server refuses an entry
+     QuickBooks has changed since ('moved_on'). The company is re-checked
+     before each; the first error stops the run. -> { done, again, error } */
+  async function settleAll(api, open) {
+    const out = { done: 0, again: 0, error: null };
+    for (const e of open) {
+      try {
+        await api.stillActive();
+        const r = await api.accept(e.posting_id, e.held_state);
+        if (r && r.ok === true) out.done += 1;
+        else if (r && r.status === 'moved_on') out.again += 1;
+      } catch (err) { out.error = err; break; }
+    }
+    return out;
   }
 
   /* Mirror now: ask the server to read QuickBooks one month at a time until
@@ -412,7 +430,7 @@
     return out;
   }
 
-  const API = { sections, chosen, agreement, agreementLabel, changeText, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
+  const API = { sections, chosen, agreement, agreementLabel, changeText, settleAll, mirror, classify, classifyBatch, classifyAdjustment, summarize, friendly, isValidationFailure, postOutcome, run, precheck, monthName, money, STATUS_LABEL, KIND_LABEL };
 
   // ─────────────────────────────────────────────────────────── data ──
   async function result(query) {
@@ -464,7 +482,7 @@
       // Fewer rows than the cap, or it is not the whole list and says nothing.
       optional(async () => {
         const r = await db.from('quickbooks_sent_entries_check_v')
-          .select('posting_id,qbo_doc_number,memo,entry_date,status,differs_by,missing,moved')
+          .select('posting_id,qbo_doc_number,memo,entry_date,status,differs_by,missing,moved,held_state')
           .eq('company_entity_id', company.id).order('posting_id').limit(5000);
         return !r.error && Array.isArray(r.data) && r.data.length >= 5000 ? { error: { message: 'too many' } } : r;
       }),
@@ -698,19 +716,16 @@
       const open = st.model?.agreement?.[month]?.open || [];
       if (st.busy || !st.model?.canSend || !open.length) return;
       st.busy = true; st.token += 1; button.disabled = true;
-      let done = 0; let problem = null;
-      const a = api();
-      for (const e of open) {
-        try {
-          await a.stillActive();
-          const r = await a.accept(e.posting_id);
-          if (r && r.ok === true) done += 1;
-        } catch (err) { problem = err.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(err.message); break; }
-      }
+      // Each entry is accepted AS SHOWN: the server refuses one QuickBooks has
+      // changed since this page read it, and it is listed again after the refresh.
+      const out = await settleAll(api(), open);
+      let problem = null;
+      if (out.error) problem = `Stopped: ${out.error.code === 'COMPANY_CHANGED' ? 'The active company changed. Refresh before changing anything.' : friendly(out.error.message)}`;
+      else if (out.again) problem = `${howMany(out.again, 'entry', 'entries')} changed again in QuickBooks since this page loaded. Look again before accepting.`;
       st.busy = false;
       await refresh(true);
-      const said = `${howMany(done, 'entry', 'entries')} settled to QuickBooks’ version.`;
-      setStatus(problem ? `${said} Stopped: ${problem}` : said, problem ? 'neg' : 'pos', problem ? 0 : 6000);
+      const said = `${howMany(out.done, 'entry', 'entries')} settled to QuickBooks’ version.`;
+      setStatus(problem ? `${said} ${problem}` : said, problem ? 'neg' : 'pos', problem ? 0 : 6000);
     }
 
     async function mirrorNow() {
@@ -743,7 +758,7 @@
         preview: (id) => rpc('card_import_batch_preview', { p_batch_id: id }),
         approve: (id, hash) => rpc('approve_reviewed_card_import_batch', { p_batch_id: id, p_expected_hash: hash }),
         mark: (kind, id, on) => rpc('set_entry_entered_in_quickbooks', { p_kind: kind, p_id: id, p_marked: on }),
-        accept: (id) => rpc('quickbooks_accept_quickbooks_version', { p_posting_id: id }),
+        accept: (id, state) => rpc('quickbooks_accept_quickbooks_version', { p_posting_id: id, p_expected_state: state }),
         async mirror(since) {
           const { data: { session } } = await db.auth.getSession();
           const res = await fetch(`${config.SUPABASE_URL}/functions/v1/quickbooks-ledger-mirror-scheduled`, {
