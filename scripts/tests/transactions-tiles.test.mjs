@@ -1,6 +1,7 @@
-/* The tile strip is presentation over the two <select>s bank-workspace.js owns.
-   These tests run the ACTUAL file against a DOM and assert the contract that
-   matters: picking a tile must drive the select the existing listeners read. */
+/* The account dropdown and period bar are presentation over the two <select>s
+   bank-workspace.js owns. These tests run the ACTUAL file against a DOM and
+   assert the contract that matters: picking an account must drive the select
+   the existing listeners read. */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -9,6 +10,8 @@ import vm from 'node:vm';
 
 const root = new URL('../../', import.meta.url);
 const source = await readFile(new URL('v2/transactions-tiles.js', root), 'utf8');
+const stylesheet = await readFile(new URL('v2/transactions-workspace.css', root), 'utf8');
+function cssText() { return stylesheet; }
 
 test('workspace asset URLs change with their contents so cached pre-tile assets cannot mix with the new page', async () => {
   const html = await readFile(new URL('v2/transactions.html', root), 'utf8');
@@ -54,7 +57,7 @@ function setup() {
   const account = node('workspaceAccount');
   const period = node('workspacePeriod');
   node('workspaceTiles'); node('workspacePeriodBar');
-  node('workspaceAccountMeta'); node('workspaceAccountExpand');
+  node('workspaceAccountMeta');
   account.options = [
     mkOption({ value: 'src-1', text: 'Key Bank · 3126', selected: true,
       data: { name: 'Key Bank · Checking', mask: '3126', balance: '$58,425.87', balanceLabel: 'Available',
@@ -74,18 +77,27 @@ function setup() {
   return { ui, doc, account, period, listeners, api: ctx.window.SiloTransactionTiles };
 }
 
-test('tiles render one per account and mark the selected one', () => {
+test('the account control is one closed dropdown listing every account', () => {
   const { doc, account } = setup();
   const html = doc.getElementById('workspaceTiles').innerHTML;
-  // Count the tile buttons themselves — `class="wtile` also matches wtile-top,
-  // wtile-mark and friends, which is how this assertion first read 22.
-  assert.equal((html.match(/role="radio"/g) || []).length, 2);
+  assert.equal((html.match(/class="wacct-label"/g) || []).length, 1, 'one control, not a tile per account');
+  assert.equal((html.match(/role="option"/g) || []).length, 2, 'every account is in the list');
   assert.ok(html.includes('data-value="src-1"') && html.includes('data-value="src-2"'));
-  assert.equal((html.match(/aria-checked="true"/g) || []).length, 1);
-  assert.ok(html.includes('$58,425.87'), 'balance is shown on the tile');
+  assert.equal((html.match(/aria-selected="true"/g) || []).length, 1);
+  assert.ok(/<div class="wacct-pop"[^>]*\shidden/.test(html), 'the list starts closed');
+  assert.ok(html.includes('$58,425.87'), 'balance is on the closed control');
   assert.ok(html.includes('14 to categorize'), 'pending count uses the categorize vocabulary');
   assert.ok(html.includes('All done'), 'an account with nothing pending says so');
   assert.equal(account.value, undefined, 'rendering must not mutate the select');
+});
+
+test('nothing in the account control scrolls sideways', () => {
+  // The rail this replaced hid accounts past the right edge. A horizontal
+  // scroller here would bring that back.
+  const style = cssText();
+  const rail = style.match(/\.wacct[^{]*\{[^}]*overflow-x[^}]*\}/g);
+  assert.equal(rail, null, 'no account element may scroll horizontally');
+  assert.ok(!/\.wacct-pop\s*\{[^}]*scroll-snap-type/.test(style), 'no x snapping');
 });
 
 test('the account meta line totals what is actually pending', () => {
@@ -93,23 +105,25 @@ test('the account meta line totals what is actually pending', () => {
   assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '2 accounts · 14 to categorize across imports');
 });
 
-test('clicking a tile drives the select and fires change, so existing listeners run', () => {
+test('choosing an account drives the select and fires change, so existing listeners run', () => {
   const { doc, account, listeners } = setup();
   let changed = null;
   listeners.set('workspaceAccount:change', (e) => { changed = e.target.value; });
   listeners.get('workspaceTiles:click')({
+    stopPropagation() {},
     target: { closest: s => s==='[data-value]' ? ({ dataset: { value: 'src-2' }, disabled: false }) : null },
   });
   assert.equal(account.value, 'src-2', 'select is the state');
   assert.equal(changed, 'src-2', 'a change event reached the existing handler');
 });
 
-test('a disabled select is never driven by a tile click', () => {
+test('a disabled select is never driven by the account control', () => {
   const { account, listeners } = setup();
   account.disabled = true;
   let fired = false;
   listeners.set('workspaceAccount:change', () => { fired = true; });
   listeners.get('workspaceTiles:click')({
+    stopPropagation() {},
     target: { closest: s => s==='[data-value]' ? ({ dataset: { value: 'src-2' }, disabled: false }) : null },
   });
   assert.equal(fired, false, 'navigation in flight must not be interrupted');
@@ -150,16 +164,42 @@ test('institution marks never borrow a status colour', () => {
   }
 });
 
-test('expand toggle only appears once a row cannot hold the accounts', () => {
+test('the control keeps its height however many accounts there are', () => {
   const { ui, doc, account } = setup();
-  assert.equal(doc.getElementById('workspaceAccountExpand').hidden, true, 'two accounts need no toggle');
-  account.options = Array.from({ length: 9 }, (_, i) => ({
+  const before = doc.getElementById('workspaceTiles').innerHTML.match(/class="wacct-label"/g).length;
+  account.options = Array.from({ length: 23 }, (_, i) => ({
     value: 's' + i, text: 'Account ' + i, selected: i === 0,
     dataset: { name: 'Account ' + i, pending: '1', health: 'synced-recently' },
   }));
   ui.render();
-  assert.equal(doc.getElementById('workspaceAccountExpand').hidden, false);
-  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '9 accounts · 9 to categorize across imports');
+  const html = doc.getElementById('workspaceTiles').innerHTML;
+  assert.equal(html.match(/class="wacct-label"/g).length, before, 'still one control');
+  assert.equal((html.match(/role="option"/g) || []).length, 23, 'all 23 are reachable in the list');
+  assert.equal(doc.getElementById('workspaceAccountMeta').textContent, '23 accounts · 23 to categorize across imports');
+});
+
+test('opening the account list does not immediately close it', () => {
+  // Same regression the period popover had: renderTiles() replaces the clicked
+  // node, so the document-level closer sees a detached element.
+  const { doc, listeners } = setup();
+  let propagationStopped = false;
+  listeners.get('workspaceTiles:click')({
+    stopPropagation() { propagationStopped = true; },
+    target: { closest: (s) => (s === '[data-account-open]' ? { disabled: false } : null) },
+  });
+  assert.equal(propagationStopped, true, 'the control must stop the click reaching the document closer');
+  assert.ok(!/<div class="wacct-pop"[^>]*\shidden/.test(doc.getElementById('workspaceTiles').innerHTML),
+    'the list is open after clicking the control');
+});
+
+test('Escape closes the account list', () => {
+  const { doc, listeners } = setup();
+  listeners.get('workspaceTiles:click')({
+    stopPropagation() {},
+    target: { closest: (s) => (s === '[data-account-open]' ? { disabled: false } : null) },
+  });
+  listeners.get('doc:keydown')({ key: 'Escape' });
+  assert.ok(/<div class="wacct-pop"[^>]*\shidden/.test(doc.getElementById('workspaceTiles').innerHTML));
 });
 
 test('sync tone: green only when the account is genuinely current', () => {
@@ -182,7 +222,7 @@ test('initials and hue are derived, stable, and never blank', () => {
   assert.ok(api.hue('Key Bank') >= 0 && api.hue('Key Bank') < 360);
 });
 
-test('escaping: an account name cannot inject markup into a tile', () => {
+test('escaping: an account name cannot inject markup into the account control', () => {
   const { ui, doc, account } = setup();
   account.options = [{ value: 'x', text: 'x', selected: true,
     dataset: { name: '<img src=x onerror=alert(1)>', pending: '0', health: 'csv' } }];

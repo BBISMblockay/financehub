@@ -1,4 +1,4 @@
-/* Account tiles + period bar for the Transactions workspace.
+/* Account control + period bar for the Transactions workspace.
 
    PRESENTATION ONLY. The two <select> elements bank-workspace.js renders stay
    the source of truth: this module reads their <option>s, draws the tiles and
@@ -66,54 +66,91 @@
     const bar = el('workspacePeriodBar');
     if (!account || !period || !tiles || !bar) return null;
 
-    let expanded = false;
+    let acctOpen = false;
     let popoverOpen = false;
 
     function options(select) {
       return Array.from(select.options || []).filter(o => o.value !== '');
     }
 
+    // ONE dropdown, at every width. The rail of tiles that used to live here
+    // side-scrolled, so an account off the right edge was invisible and the
+    // register below had to give up a band of height to accounts nobody was
+    // looking at. The selected account keeps every fact the tile carried —
+    // balance, sync state, count — on a single line.
     function renderTiles() {
       const opts = options(account);
       const stamp = now();
       if (!opts.length) {
         tiles.innerHTML = '';
         el('workspaceAccountMeta').textContent = '';
-        el('workspaceAccountExpand').hidden = true;
         return;
       }
       const pending = opts.reduce((n, o) => n + (Number(o.dataset.pending) || 0), 0);
       el('workspaceAccountMeta').textContent =
         opts.length + (opts.length === 1 ? ' account' : ' accounts')
         + ' · ' + pending + ' to categorize across imports';
-      // The toggle only earns its place once one row cannot hold them all.
-      el('workspaceAccountExpand').hidden = opts.length <= 4;
-      el('workspaceAccountExpand').textContent = expanded ? 'Show less' : 'Show all';
-      el('workspaceAccountExpand').setAttribute('aria-expanded', String(expanded));
 
-      tiles.classList.toggle('is-expanded', expanded);
-      tiles.innerHTML = opts.map(o => {
+      const current = opts.find(o => o.selected) || opts[0];
+
+      function facts(o) {
         const d = o.dataset;
         const n = Number(d.pending) || 0;
         const rel = relative(d.synced, stamp);
-        return `<div class="wtile-wrap"><button type="button" class="wtile${o.selected ? ' is-on' : ''}"
-          role="radio" aria-checked="${o.selected ? 'true' : 'false'}" data-value="${esc(o.value)}"
-          ${account.disabled ? 'disabled' : ''}>
-          <span class="wtile-top">
-            <span class="wtile-mark" aria-hidden="true" style="--wtile-hue:${hue(d.name || o.text)}">${esc(initials(d.name || o.text))}</span>
-            <span class="wtile-id">
-              <span class="wtile-name">${esc(d.name || o.text)}</span>
-              <span class="wtile-mask">${d.mask ? '••••' + esc(d.mask) : esc(d.institution || '')}</span>
+        const t = tone(d.health);
+        return {
+          name: d.name || o.text,
+          mask: d.mask ? '••••' + d.mask : (d.institution || ''),
+          bal: d.balance || d.balanceFallback || '',
+          balLabel: d.balanceLabel || 'Balance',
+          tone: t,
+          sync: t === 'ok' ? (rel || d.healthLabel || '') : (d.healthLabel || rel),
+          health: d.healthLabel || '',
+          pending: n,
+        };
+      }
+
+      const c = facts(current);
+      tiles.innerHTML = `<div class="wacct">
+        <button type="button" class="wacct-label" data-account-open aria-haspopup="listbox"
+          aria-expanded="${acctOpen}" ${account.disabled ? 'disabled' : ''}>
+          <span class="wtile-mark" aria-hidden="true" style="--wtile-hue:${hue(c.name)}">${esc(initials(c.name))}</span>
+          <span class="wacct-id">
+            <span class="wtile-name">${esc(c.name)}</span>
+            <span class="wacct-line">
+              ${c.mask ? `<span class="wtile-mask">${esc(c.mask)}</span>` : ''}
+              <span class="wtile-sync" title="${esc(c.health)}"><i class="wtile-dot" data-tone="${c.tone}"></i>${esc(c.sync)}</span>
             </span>
           </span>
-          <span class="wtile-bal"><small>${esc(d.balanceLabel || 'Balance')}</small>${esc(d.balance || d.balanceFallback || '')}</span>
-          <span class="wtile-ft">
-            <span class="wtile-sync" title="${esc(d.healthLabel || '')}">
-              <i class="wtile-dot" data-tone="${tone(d.health)}"></i>${esc(tone(d.health)==='ok' ? (rel || d.healthLabel || '') : (d.healthLabel || rel))}</span>
-            <span title="Uncategorized across all imports for this account" class="wtile-pending${n ? '' : ' is-clear'}">${n ? n + ' to categorize' : 'All done'}</span>
+          <span class="wacct-right">
+            <span class="wacct-bal"><small>${esc(c.balLabel)}</small>${esc(c.bal)}</span>
+            <span title="Uncategorized across all imports for this account" class="wtile-pending${c.pending ? '' : ' is-clear'}">${c.pending ? c.pending + ' to categorize' : 'All done'}</span>
           </span>
-        </button><button type="button" class="wtile-info" data-account-info="${esc(o.value)}" aria-label="Account details for ${esc(d.name || o.text)}" ${account.disabled ? 'disabled' : ''}>i</button></div>`;
-      }).join('');
+          <span class="wper-caret" aria-hidden="true">▾</span>
+        </button>
+        <button type="button" class="wtile-info" data-account-info="${esc(current.value)}"
+          aria-label="Account details for ${esc(c.name)}" ${account.disabled ? 'disabled' : ''}>i</button>
+        <div class="wacct-pop" role="listbox" aria-label="Account" ${acctOpen ? '' : 'hidden'}>
+          ${opts.map(o => {
+            const f = facts(o);
+            return `<button type="button" class="wacct-opt${o.selected ? ' is-on' : ''}" role="option"
+              aria-selected="${o.selected ? 'true' : 'false'}" data-value="${esc(o.value)}">
+              <span class="wtile-mark" aria-hidden="true" style="--wtile-hue:${hue(f.name)}">${esc(initials(f.name))}</span>
+              <span class="wacct-id">
+                <span class="wtile-name">${esc(f.name)}</span>
+                <span class="wacct-line">
+                  ${f.mask ? `<span class="wtile-mask">${esc(f.mask)}</span>` : ''}
+                  <span class="wtile-sync" title="${esc(f.health)}"><i class="wtile-dot" data-tone="${f.tone}"></i>${esc(f.sync)}</span>
+                </span>
+              </span>
+              <span class="wacct-right">
+                <span class="wacct-bal">${esc(f.bal)}</span>
+                <span class="wtile-pending${f.pending ? '' : ' is-clear'}">${f.pending ? f.pending + ' to categorize' : 'All done'}</span>
+              </span>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>`;
     }
 
     function renderPeriod() {
@@ -165,13 +202,17 @@
     }
 
     tiles.addEventListener('click', (e) => {
+      // Same reason as the period bar below: renderTiles() replaces the clicked
+      // node, so the document-level closer would see a detached element and
+      // shut the list on the click that opened it.
+      e.stopPropagation();
       const details = e.target.closest('[data-account-info]');
       if(details) { if(!account.disabled) info(details.dataset.accountInfo); return; }
-      const t = e.target.closest('[data-value]');
-      if (t && !t.disabled) pick(account, t.dataset.value);
+      const opt = e.target.closest('[data-value]');
+      if (opt && !opt.disabled) { acctOpen = false; renderTiles(); pick(account, opt.dataset.value); return; }
+      const label = e.target.closest('[data-account-open]');
+      if (label && !label.disabled) { acctOpen = !acctOpen; renderTiles(); }
     });
-
-    el('workspaceAccountExpand').addEventListener('click', () => { expanded = !expanded; renderTiles(); });
 
     bar.addEventListener('click', (e) => {
       // renderPeriod() replaces the node that was clicked, so by the time the
@@ -193,9 +234,12 @@
 
     doc.addEventListener('click', (e) => {
       if (popoverOpen && !e.target.closest('#workspacePeriodBar')) { popoverOpen = false; renderPeriod(); }
+      if (acctOpen && !e.target.closest('#workspaceTiles')) { acctOpen = false; renderTiles(); }
     });
     doc.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && popoverOpen) { popoverOpen = false; renderPeriod(); }
+      if (e.key !== 'Escape') return;
+      if (popoverOpen) { popoverOpen = false; renderPeriod(); }
+      if (acctOpen) { acctOpen = false; renderTiles(); }
     });
 
     const observer = new MutationObserver(render);
@@ -203,7 +247,7 @@
     observer.observe(period, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
 
     render();
-    return { render, expand(v) { expanded = !!v; renderTiles(); } };
+    return { render };
   }
 
   window.SiloTransactionTiles = { create, initials, hue, relative, tone };

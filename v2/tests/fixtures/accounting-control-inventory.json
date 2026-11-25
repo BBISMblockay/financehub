@@ -49,10 +49,6 @@
       "tag": "select"
     },
     {
-      "id": "workspaceAccountExpand",
-      "tag": "button"
-    },
-    {
       "id": "dateStart",
       "tag": "input"
     },
