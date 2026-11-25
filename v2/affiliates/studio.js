@@ -836,6 +836,9 @@ function table(cols, rows, emptyText = 'Nothing here yet.', sort = null) {
   if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
   if (!rows.length) return findEmpty(emptyText);
   const head = (c) => {
+    // A column may draw its own heading (the select-all box); everything else
+    // is text, escaped.
+    if (c.hHtml) return c.hHtml;
     if (!sort || !c.sort) return esc(c.h);
     const on = sort.k === c.sort;
     const arrow = on ? (sort.dir > 0 ? '↑' : '↓') : '↕';
@@ -920,7 +923,10 @@ function catalogStatBar(pct) {
 }
 const btn = (label, act, data = {}, kind = 'surface', opts = {}) => {
   const mod = kind === 'surface' ? '' : ` bcn-btn--${kind}`;
-  return `<button class="bcn-btn${mod}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+  // `title` is for a button whose label is a glyph: the sentence a screen
+  // reader and a hover both get.
+  const extra = `${opts.cls ? ` ${opts.cls}` : ''}`;
+  return `<button class="bcn-btn${mod}${extra}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}${opts.title ? ` title="${esc(opts.title)}" aria-label="${esc(opts.title)}"` : ''}>${esc(label)}</button>`;
 };
 const field = (label, inner) => `<div class="bcn-field-group"><label class="bcn-label">${esc(label)}</label>${inner}</div>`;
 // The same, with the sentence that used to sit under the field on hover
@@ -1747,6 +1753,17 @@ function affToolBody(a, k) {
 }
 // What is open, if anything. `key` is what tells a re-render that the SAME
 // form is still open, so typing is not wiped by a background refresh.
+// The programs they are not in yet, to push them into: one menu. Never
+// somebody on the do-not-contact list (company-wide, so no step towards
+// contacting them is offered at all). It lives in More now, not on the row.
+const addToSelect = (g) => {
+  const d = S.d;
+  if (!MANAGE || !g || g.suppressed || d?.supUnknown) return '';
+  const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
+  return missing.length
+    ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
+    : '';
+};
 function dialogSpec() {
   const d = S.d;
   if (!MANAGE || !d) return null;
@@ -1760,12 +1777,14 @@ function dialogSpec() {
   if (mp) {
     // Every program this person is in, each with its own status and buttons
     // (one row per person on the list, so the programs live here).
-    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];
+    const group = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id));
+    const rows = group?.rows || [mp];
+    const add = addToSelect(group);
     const blocks = rows.map((r) => {
       const acts = prospectActions(r).join('');
       return { acts, html: `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${prospectPill(r.status)}</div>` : ''}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>` };
     });
-    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
+    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}:${add ? 'add' : ''}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${add ? `<div class="af-row" style="margin-top:10px;">${add}</div>` : ''}${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
   // Who a share is for. Nobody ticked means the whole program, which is what
   // every share has meant until now, so the dialog opens on that honestly
@@ -2346,26 +2365,23 @@ function renderProspects() {
   // row shown is the one that puts them in this filter (Shortlisted shows
   // their shortlisted program), and More lists every program's own buttons.
   const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;
+  // One button on the row -- the next thing to do with this person -- and a
+  // menu holding every other one (Blake 2026-11-25: "all the functions, not
+  // all the noise"). Nothing is dropped: More opens the same buttons, plus
+  // the other programs they can be added to.
   const rowActions = (x, g) => {
     if (!MANAGE) return '';
     const b = prospectActions(x);
     const many = (g?.rows.length || 1) > 1;
     if (!b.length && !many) return '';
-    const shown = b.slice(0, 2);
-    if (b.length > 2 || many) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
-    return `<div class="af-actions">${shown.join('')}</div>`;
+    const shown = b.slice(0, 1);
+    if (b.length > 1 || many || addTo(g)) shown.push(btn('···', 'prospect-more', { id: x.id }, 'ghost', { title: `More for ${x.display_name || x.handle || 'this creator'}`, cls: 'af-more-btn' }));
+    return `<div class="af-rowacts">${shown.join('')}</div>`;
   };
-  // The programs they are not in yet, to push them into: one menu. Never
-  // somebody on the do-not-contact list (company-wide, so no step towards
-  // contacting them is offered at all).
-  const addTo = (g) => {
-    if (!MANAGE || g.suppressed || d.supUnknown) return '';
-    const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
-    return missing.length
-      ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
-      : '';
-  };
-  const actions = (g) => `<div class="af-actions">${g.suppressed ? '' : rowActions(shownRow(g), g)}${addTo(g)}</div>`;
+  const addTo = addToSelect;
+  // "Add to program…" moved off the row and into More (Blake 2026-11-25): it
+  // is still one menu per person, just not one open on every row.
+  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));
   const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
   const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
@@ -2446,24 +2462,64 @@ function renderProspects() {
   const findRow = MANAGE && fp
     ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators', { pg: fp.id })}</div>`
     : '';
+  // One control row (Blake 2026-11-25): what you are looking at on the left,
+  // Filter and the view on the right. The four filter rows that used to sit
+  // above the table are the same controls, in a panel that opens under it --
+  // and it opens by itself whenever a filter is on, so nothing filters the
+  // list invisibly.
   // Editing a creator, adding creators and the code/link forms all open in
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
+  const allPicked = !!list.length && list.every((g) => S.sel.has(g.x.id));
+  const filtCount = [F.plat, F.prog, F.email, F.minF].filter(Boolean).length;
+  // Open by itself the first time a filter is on, so nothing narrows the list
+  // invisibly; after that the button decides, and the count on it says how
+  // many filters are set even when it is shut.
+  const filtOpen = S.dFiltOpen === undefined ? !!anyFilter : !!S.dFiltOpen;
+  const statusSeg = `<div class="af-seg" role="radiogroup" aria-label="Which creators">${filters.map(([f, label]) => `<button type="button" class="af-seg-btn${f === filter ? ' is-on' : ''}" role="radio" aria-checked="${f === filter}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}</div>`;
+  // Tiles have no header row to hold the select-all box, so it rides in the
+  // control row there.
+  const tileSelectAll = MANAGE && S.view !== 'list' && list.length
+    ? btn(allPicked ? 'Clear selection' : `Select all ${list.length}`, allPicked ? 'prospect-select-none' : 'prospect-select-all')
+    : '';
+  const ctlRow = `<div class="af-ctl">${statusSeg}<span class="af-ctl-gap"></span>${tileSelectAll}${
+    btn(filtCount ? `Filter · ${filtCount}` : 'Filter', 'd-filter-open', {}, filtOpen ? 'primary' : 'surface')}${viewToggle()}</div>${
+    filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
+  // The program a row is in is worth a column only when the rows differ; one
+  // program repeated down every row says nothing.
+  const showProgramCol = S.programs.length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
+  // Everything this row tells you about the person, in one cell: their state
+  // when it is not already the filter you are in, whether they have bought
+  // from you, how engaged their audience is, and their email if we have one.
+  const signalCell = (g) => {
+    const x = g.x;
+    const st = creatorStats(x.evidence);
+    const bits = [
+      filter === 'all' || g.suppressed ? headPill(g) : '',
+      customerPill(x),
+      st?.rate != null ? `<span class="af-mono" title="Engagement">${(st.rate * 100).toFixed(1)}%</span>` : '',
+      x.contact_email ? `<span class="af-sub">${esc(x.contact_email)}</span>` : '',
+    ].filter(Boolean);
+    return bits.length ? `<div class="af-signal">${bits.join('')}</div>` : '<span class="af-muted">—</span>';
+  };
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}${viewToggle()}</div>${dFilterRow}
-      ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
-        ${btn(`Select all ${list.length}`, 'prospect-select-all')}
-        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
+    surface('Creators', `${findRow}${ctlRow}
+      ${MANAGE && S.sel.size ? `<div class="af-row af-bulk">
+        <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
-          ...(MANAGE ? [{ h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
+          ...(MANAGE ? [{ hHtml: allPicked
+            ? `<input type="checkbox" class="af-pick" data-act="prospect-select-none" aria-label="Clear selection" checked />`
+            : `<input type="checkbox" class="af-pick" data-act="prospect-select-all" aria-label="Select all ${num(list.length)}" />`,
+          h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
           { left: true, h: 'Creator', sort: 'creator', f: ({ x }) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
           { h: 'Followers', num: true, sort: 'followers', f: ({ x }) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
-          { h: 'Engagement', num: true, sort: 'engagement', f: ({ x }) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
-          { left: true, h: 'Email', sort: 'email', f: ({ x }) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', sort: 'status', f: (g) => `${headPill(g)}${customerPill(g.x)}` },
-          ...(S.programs.length > 1 ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
+          // Engagement, the email and the status were a column each, two of
+          // them empty on most rows (Blake 2026-11-25). One cell now: what
+          // this row tells you, and nothing where there is nothing.
+          { left: true, h: 'Signal', sort: 'engagement', f: (g) => signalCell(g) },
+          ...(showProgramCol ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
           { h: '', f: (g) => actions(g) },
         ], capped, anyFilter ? 'Nobody matches these filters.' : filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', dSortSpec)
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
@@ -4229,6 +4285,15 @@ const A = {
     S.sel.clear(); S.prospectShowAll = false; render(); return null;
   },
   'd-filter-clear': () => { S.dFilt = { plat: '', prog: '', email: false, minF: 0 }; S.sel.clear(); render(); return null; },
+  // The filter panel is a panel, not a fold-out menu: it stays open until it
+  // is closed, and it opens itself whenever a filter is on.
+  'd-filter-open': () => {
+    const F = S.dFilt || {};
+    const open = S.dFiltOpen === undefined ? !!(F.plat || F.prog || F.email || F.minF) : !!S.dFiltOpen;
+    S.dFiltOpen = !open;
+    keepFields('prospectsBody', render);
+    return null;
+  },
   'd-sort': ({ k }) => {
     const first = ['followers', 'engagement'].includes(k) ? -1 : 1;
     S.dSort = S.dSort?.k === k ? { k, dir: -S.dSort.dir } : { k, dir: first };

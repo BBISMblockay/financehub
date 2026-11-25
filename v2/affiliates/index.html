@@ -59,6 +59,21 @@
     .af-find-hits .af-seg-btn:disabled { cursor: default; }
     .af-progpick { padding: 10px 18px 0; }
     .af-dfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 10px 0 4px; }
+    /* One control row per list (2026-11-25): what you are looking at on the
+       left, what you can do on the right. Filters open underneath instead of
+       stacking four more rows above the table. */
+    .af-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .af-ctl-gap { flex: 1 1 auto; min-width: 0; }
+    .af-panelette { border: 1px solid var(--bcn-border); border-radius: var(--bcn-radius); background: var(--bcn-bg); padding: 10px 12px; margin-bottom: 10px; }
+    .af-panelette[hidden] { display: none; }
+    .af-panelette .af-dfilters { margin: 0; }
+    /* One cell for everything that is a signal about a person, so the table
+       carries three columns instead of six. */
+    .af-signal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .af-sub { font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink-3); }
+    /* One button that does the next thing, and a menu holding the rest. */
+    .af-rowacts { display: flex; gap: 4px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; }
+    .af-rowacts .af-more-btn { padding: 6px 9px; font-family: var(--bcn-mono); }
     .af-dfilter { display: flex; align-items: center; gap: 6px; }
     .af-dfilter > .af-muted { font-size: 12px; }
     .af-th-sort { font: inherit; display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
