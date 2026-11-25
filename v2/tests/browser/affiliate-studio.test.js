@@ -358,6 +358,9 @@ const MUTATIONS = {
   exportstale: ['/affiliates/studio.js', "    const m = done.length ? await A['outreach-export']({ only: done }) : 'Nothing was exported.';", "    for (const x of S.d.drafts) if (email.includes(x.id)) x.state = 'approved';\n    const m = await A['outreach-export']({ only: email });"],
   applystale: ['/affiliates/studio.js', "    if (ctl) ctl.innerHTML = applyLinkCtl({ ...fresh, ...row });", ''],
   setupnext: ['/affiliates/studio.js', "${!x.done && i === next ? x.go : ''}", "${!x.done ? x.go : ''}"],
+  rowresend: ['/affiliates/studio.js', "if (invite) return { sub: `${affPath(a)} · waiting on ${repName(a)} · sent ${fmtDate(invite.created_at)}`, from };", "if (invite) return { sub: `${affPath(a)} · waiting on ${repName(a)} · sent ${fmtDate(invite.created_at)}`, from, act: canInvite ? btn('Resend', 'invite-send', { id: from.id }, 'primary') : '' };"],
+  tileresend: ['/affiliates/studio.js', "${inMenu ? `${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}` : ''}`", "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`"],
+  appliedinvited: ['/affiliates/studio.js', "const affApplied = (a) => S.d.prospectById[a.from_prospect_id]?.source === 'applied';", "const affApplied = (a) => S.d.prospectById[a.from_prospect_id]?.source === 'nobody';"],
   stepnoresend: ['/affiliates/studio.js', "${fixEmail}${canInvite ? btn('Resend', 'invite-send', { id: from.id }) : ''}`\n      : invite ?", "${fixEmail}`\n      : invite ?"],
   fixemailaff: ['/affiliates/studio.js', "      if (aff) fixed = (await updateRows('affiliates', { contact_email: row.contact_email, changed_by: me.id }, { id: aff.id })).length > 0;", ''],
   endnoshopify: ['/affiliates/studio.js', "    if (s === 'terminated') {", '    if (false) {'],
@@ -2171,6 +2174,46 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       const upd = await st.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliates' && q._op === 'update').pop());
       R.eq(upd?.patch?.contact_email, 'sam@fixed.invalid', 'Fix email updates the invited affiliate too, so the resend reaches the new address');
       await st.close();
+    }
+
+    // Approved, link sent, not signed up: the rep is next, not us (Blake
+    // 2026-11-25). Someone who APPLIED reads "approved"; someone we reached
+    // out to reads "invited". No button on the row; Resend is in the menu.
+    {
+      const QA = 'aaaaaaaa-0000-4000-8000-00000000e0d2';
+      const QO = 'aaaaaaaa-0000-4000-8000-00000000e0d3';
+      const apTables = { ...tables,
+        affiliate_prospects: [...tables.affiliate_prospects, { id: 'p-app', company_entity_id: CO, program_id: PROG, display_name: 'Bo Applied', platform: 'instagram', handle: '@boapplied', contact_email: 'bo@x.invalid', source: 'applied', collected_at: now, evidence: {}, status: 'invited', affiliate_id: QA }],
+        affiliates: [...tables.affiliates, { id: QA, company_entity_id: CO, program_id: PROG, display_name: 'Bo Applied', contact_email: 'bo@x.invalid', status: 'invited', terms_accepted_at: null, created_at: now, from_prospect_id: 'p-app' }],
+        affiliate_notifications: [{ id: 'n-app', company_entity_id: CO, program_id: PROG, affiliate_id: QA, kind: 'signup_invite', to_email: 'bo@x.invalid', status: 'sent', created_at: '2026-11-25T21:40:00Z' },
+          { id: 'n-out', company_entity_id: CO, program_id: PROG, affiliate_id: QO, kind: 'signup_invite', to_email: 'oz@x.invalid', status: 'sent', created_at: '2026-11-24T10:00:00Z' }] };
+      apTables.affiliate_prospects.push({ id: 'p-out', company_entity_id: CO, program_id: PROG, display_name: 'Oz Reached', platform: 'youtube', handle: '@ozreached', contact_email: 'oz@x.invalid', source: 'serp', collected_at: now, evidence: {}, status: 'invited', affiliate_id: QO });
+      apTables.affiliates.push({ id: QO, company_entity_id: CO, program_id: PROG, display_name: 'Oz Reached', contact_email: 'oz@x.invalid', status: 'invited', terms_accepted_at: null, created_at: now, from_prospect_id: 'p-out' });
+      const ap = await suite.open('/v2/affiliates/index.html', apTables, { ready, rpc: { can_manage_affiliate_programs: true } });
+      ap.on('pageerror', (e) => errors.push(e.message));
+      await toAffiliates(ap);
+      await ap.waitForFunction(() => (document.getElementById('affiliatesBody')?.textContent || '').includes('Bo Applied'), null, { timeout: 5000 });
+      const row = await ap.$eval(`#affiliatesBody [data-act="aff-more"][data-id="${QA}"]`, (b) => b.closest('tr, article, .af-allprog, li')?.textContent.replace(/\s+/g, ' ') || '');
+      R.has(row, 'approved', 'someone who applied and was approved reads approved, not invited');
+      R.not(row, 'invited', 'and not invited');
+      R.has(row, 'waiting on Bo to sign up', 'the card says whose turn it is');
+      R.ok('there is no Resend on the card to press', !(await ap.$(`#affiliatesBody [data-act="invite-send"][data-id="p-app"]`)));
+      await ap.click('#affiliatesBody [data-act="view-set"][data-v="list"]');
+      await ap.waitForSelector('#affiliatesBody table.bcn-table', { timeout: 5000 });
+      const lrow = await ap.$eval(`#affiliatesBody [data-act="aff-more"][data-id="${QA}"]`, (b) => b.closest('tr')?.textContent.replace(/\s+/g, ' ') || '');
+      R.has(lrow, 'approved', 'the list reads approved too');
+      R.has(lrow, 'via Sign-up · waiting on Bo · sent 2026-11-25', 'and how they came in and whose turn it is, in one short line');
+      R.ok('with no button on the list row either', !(await ap.$(`#affiliatesBody [data-act="invite-send"][data-id="p-app"]`)));
+      const orow = await ap.$eval(`#affiliatesBody [data-act="aff-more"][data-id="${QO}"]`, (b) => b.closest('tr')?.textContent.replace(/\s+/g, ' ') || '');
+      R.has(orow, 'invited', 'someone we reached out to reads invited');
+      R.has(orow, 'via Outreach · waiting on Oz · sent 2026-11-24', 'with how they came in');
+      // The view is remembered for the next page; put tiles back.
+      await ap.click('#affiliatesBody [data-act="view-set"][data-v="tiles"]');
+      await ap.click(`#affiliatesBody [data-act="aff-more"][data-id="${QA}"]`);
+      await ap.waitForSelector('#afDialogBody [data-act="invite-send"][data-id="p-app"]', { timeout: 5000 });
+      R.has(await text(ap, '#afDialogBody'), 'Approved, link sent', 'and Resend is in the menu, under what happened');
+      await closeDialog(ap);
+      await ap.close();
     }
 
     const connected = [{ company_entity_id: CO, provider: 'paypal', environment: 'sandbox', is_active: true, account_email: 'brand@pay.invalid', payouts_enabled: true, credentials_set: true, last_tested_at: now, last_test_success: true, last_test_error: null, last_send_at: null }];
