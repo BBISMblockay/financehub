@@ -19945,4 +19945,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125030000: View as rep -- a one-hour, read-only 'preview' portal link
 -- staff mint for one affiliate; portal writes refuse it by construction.
 \i migrations/20261125030000_affiliate_view_as_rep.sql
+-- 20261125040000: Affiliate Studio spend -- one bill line (Find + Discovery),
+-- each company's own nightly Find switch and limits, owner/admin-only edits.
+\i migrations/20261125040000_affiliate_studio_spend.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

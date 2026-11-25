@@ -174,6 +174,54 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
     });
     await page.close();
 
+    // Affiliate Studio (20261125040000): one usage line, the company's own
+    // limits, the last nightly run -- customer dollars only.
+    const studio = { month_micros: 4250000, month_cap_micros: 20000000, nightly_enabled: true, night_max_customers: 300, night_max_micros: 3000000,
+      can_edit: true, month_start: '2026-10-01T07:00:00Z',
+      last_night: { started_at: '2026-10-05T14:30:00Z', status: 'done', checked: 300, likely: 4, to_check: 6, note: null } };
+    const withStudio = { ...active, usage_by_feature: [...active.usage_by_feature, { feature: 'affiliate_research', charged_micros: 4250000, succeeded: 40, free_failures: 0, pending: 0, unpriced: 0 }] };
+    const studioRpc = (sum) => ({ ...rpcFor(withStudio),
+      affiliate_studio_spend_summary: Function('return () => (' + JSON.stringify(sum) + ')')(),
+      affiliate_studio_set_spend: Function('return (args) => { window.__studioSaved = args; return (' + JSON.stringify({ ...sum, nightly_enabled: false, month_cap_micros: null }) + '); }')() });
+    page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc(studio), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
+    await check('Affiliate Studio: one usage line for Find and Discovery, in customer dollars', async () => {
+      const usage = (await page.locator('#usage').textContent()).replace(/\s+/g, ' ');
+      assert.match(usage, /Affiliate Studio\s*Find creators and Discovery \$4\.25/);
+      assert.equal((usage.match(/Affiliate Studio/g) || []).length, 1, 'never split into Find and Discovery');
+      const card = (await page.locator('#studio').textContent()).replace(/\s+/g, ' ');
+      assert.match(card, /Used this month\s*\$4\.25 of a \$20\.00 cap/);
+      assert.match(card, /300 checked · 4 Likely · 6 to check/);
+      assert.doesNotMatch(card, /provider|multiplier|markup|rate/i, 'nothing about what SILO pays');
+      assert.equal(await page.locator('#stNightly').isChecked(), true);
+      assert.equal(await page.locator('#stCust').inputValue(), '300');
+      assert.equal(await page.locator('#stNight').inputValue(), '3');
+      assert.equal(await page.locator('#stMonth').inputValue(), '20');
+    });
+    await page.locator('#studioCard').screenshot({ path: path.join(dir, 'billing-affiliate-studio.png') });
+    await check('Affiliate Studio: an owner saves the limits in dollars; a blank cap is no cap', async () => {
+      await page.locator('#stNightly').uncheck();
+      await page.locator('#stCust').fill('150');
+      await page.locator('#stNight').fill('1.5');
+      await page.locator('#stMonth').fill('');
+      await page.locator('#stSave').click();
+      await page.waitForFunction(() => /limits saved/.test(document.getElementById('status').textContent));
+      assert.deepEqual(await page.evaluate(() => window.__studioSaved), { p_nightly: false, p_night_customers: 150, p_night_usd: 1.5, p_month_usd: null });
+      assert.match(await page.locator('#studio').textContent(), /No monthly cap/);
+    });
+    await page.close();
+    page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc({ ...studio, can_edit: false }), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
+    await check('Affiliate Studio: anyone else reads the limits, cannot change them', async () => {
+      assert.equal(await page.locator('#stSave').count(), 0);
+      assert.equal(await page.locator('#stCust').isDisabled(), true);
+      assert.match(await page.locator('#studio').textContent(), /owner or admin can change these/);
+    });
+    await page.close();
+    page = await open(active);
+    await check('Affiliate Studio: a database without it leaves the card out', async () => {
+      assert.equal(await page.locator('#studioCard').isHidden(), true);
+    });
+    await page.close();
+
     page = await open(active, [{ ...packs[0], title: '<img src=x onerror="window.__XSS__=true">' }]);
     await check('untrusted pack titles render as text', async () => {
       assert.equal(await page.evaluate(() => !!window.__XSS__), false);

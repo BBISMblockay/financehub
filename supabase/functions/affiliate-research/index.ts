@@ -33,6 +33,13 @@ Deno.serve(createResearchHandler({
   // YouTube channel numbers from the official API (lib/affiliate-youtube-core.mjs); unset = off.
   youtubeKey: Deno.env.get('YOUTUBE_API_KEY') ?? '',
   background: (p: Promise<unknown>) => { if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(p); },
+  // The nightly Find job calls with the service-role key (handler nightly()).
+  nightlyKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+  verifyServiceToken: async (token: string) => {
+    const r = await fetch(`${url}/auth/v1/admin/users?per_page=1`, { headers: { apikey: token, authorization: `Bearer ${token}` } });
+    await r.body?.cancel();
+    return r.ok;
+  },
   // "Find their social accounts" continues a scan in a fresh run of this
   // function, as the same person (their own token), when one run's time is up.
   selfInvoke: (authHeader: string, body: unknown) => fetch(`${url}/functions/v1/affiliate-research`, {
