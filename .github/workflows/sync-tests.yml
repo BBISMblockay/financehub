@@ -339,6 +339,7 @@ on:
       - 'scripts/tests/card-payment-match-ui.test.mjs'
       - 'supabase/migrations/*card_payment_match.sql'
       - 'supabase/migrations/*card_payment_match_both_sides.sql'
+      - 'supabase/migrations/*card_payment_match_relink.sql'
       - 'scripts/tests/accounting-mode.test.mjs'
       - 'supabase/migrations/*bookkeeping_mode.sql'
       - 'supabase/migrations/*bookkeeping_transition_safety.sql'
@@ -1923,7 +1924,7 @@ jobs:
         run: |
           node scripts/tests/card-payment-match-database.test.mjs
           node scripts/tests/card-payment-match-ui.test.mjs
-          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount payer-any-treatment restore-changed; do
+          for mutation in no-exclude ignore-rowcount insert-any-source insert-skip-amount payer-any-treatment restore-changed relink-resnapshots restore-unstamped; do
             if CARD_MATCH_MUTATION="$mutation" node scripts/tests/card-payment-match-database.test.mjs > /tmp/card-match-mutation.log 2>&1; then
               cat /tmp/card-match-mutation.log; echo "Survived card payment match mutation: $mutation"; exit 1
             fi

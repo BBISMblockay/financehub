@@ -31,16 +31,19 @@
 //   CARD_MATCH_MUTATION=insert-skip-amount  the record accepts two sides that do not offset
 //   CARD_MATCH_MUTATION=payer-any-treatment the paying row is coded whatever the account type is
 //   CARD_MATCH_MUTATION=restore-changed     undoing restores a paying row somebody has since recoded
+//   CARD_MATCH_MUTATION=relink-resnapshots  linking the same pair twice snapshots the match's own coding
+//   CARD_MATCH_MUTATION=restore-unstamped   the undo trusts the values alone, not that it wrote them
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 import { pgcrypto } from './finance-db/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js';
 
-// Every mutation targets the CURRENT definitions, which live in the
-// both-sides migration: it redefines the link, the undo and the record's
-// trigger, so mutating the first migration alone would be overwritten and
-// prove nothing.
+// Every mutation targets the CURRENT definition of what it breaks: the record's
+// trigger and the treatment rule in the both-sides migration, the link and the
+// undo in the relink one that redefines them. Mutating a definition something
+// later overwrites would prove nothing, so each mutation names its file.
+const RELINK = new Set(['no-exclude', 'ignore-rowcount', 'relink-resnapshots', 'restore-unstamped', 'restore-changed']);
 const MUTATIONS = {
   'no-exclude': ["     set status = 'excluded', exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()",
     '     set exclude_reason = v_reason, updated_at = now(), updated_by = auth.uid()'],
@@ -55,7 +58,9 @@ const MUTATIONS = {
   // of it have to hold: the treatment comes from the account type approval
   // will judge, and an undo never overwrites coding somebody did themselves.
   'payer-any-treatment': ['    else null end;', "    else 'card_payment' end;"],
-  'restore-changed': ["    if v_bank.id is not null and v_bank.status = 'coded'\n       and v_bank.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n       and v_bank.accounting_treatment is not distinct from v_treatment then",
+  'relink-resnapshots': ["  select * into v_match from public.card_payment_matches where card_transaction_id = v_card.id;\n  if v_match.card_transaction_id is not null then", '  if false then'],
+  'restore-unstamped': ['       and v_bank.updated_at is not distinct from v_match.payer_coded_at\n', ''],
+  'restore-changed': ["    if v_bank.id is not null and v_bank.status = 'coded'\n       and v_bank.updated_at is not distinct from v_match.payer_coded_at\n       and v_bank.qbo_account_id is not distinct from v_card_src.credit_qbo_account_id\n       and v_bank.accounting_treatment is not distinct from v_treatment then",
     '    if v_bank.id is not null then'],
 };
 const mutation = process.env.CARD_MATCH_MUTATION || '';
@@ -126,16 +131,22 @@ try {
 
   const pairSql = await readFile(new URL('supabase/migrations/20261125020000_card_payment_match.sql', root), 'utf8');
   await db.exec(pairSql);
-  let sql = await readFile(new URL('supabase/migrations/20261125060000_card_payment_match_both_sides.sql', root), 'utf8');
-  if (mutation) {
-    const [from, to] = MUTATIONS[mutation];
-    assert.ok(sql.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
-    sql = sql.replace(from, to);
+  const files = ['20261125060000_card_payment_match_both_sides.sql', '20261125070000_card_payment_match_relink.sql'];
+  const sources = [];
+  for (const name of files) {
+    let text = await readFile(new URL('supabase/migrations/' + name, root), 'utf8');
+    const mine = mutation && (RELINK.has(mutation) === name.includes('relink'));
+    if (mine) {
+      const [from, to] = MUTATIONS[mutation];
+      assert.ok(text.includes(from), `Mutation ${mutation} is stale: its target text is gone`);
+      text = text.replace(from, to);
+    }
+    sources.push(text);
+    await db.exec(text);
   }
-  await db.exec(sql);
   // Applied twice: apply_all_post_merge.sql re-runs every migration.
   await db.exec(pairSql);
-  await db.exec(sql);
+  for (const text of sources) await db.exec(text);
 
   await q("insert into entities(id,title) values($1,'A')", [co]);
   await q('insert into auth.users(id) values($1),($2)', [finance, reader]);
@@ -317,6 +328,37 @@ try {
     const second = await unlink(owed);
     assert.equal(second.r.bank_restored, false);
     assert.equal((await coding(pays)).qbo_account_id, 'supplies', 'their coding is the newer decision and stands');
+  });
+
+
+  await test('linking the same pair twice answers, and never re-snapshots the match’s own coding', async () => {
+    const owed = await newTxn(cardBatch, -410, { date: '2026-10-21', account: 'clearing', description: 'AUTOPAY 410' });
+    const pays = await newTxn(bankBatch, 410, { date: '2026-10-21', status: 'uncoded', description: 'PAYS 410' });
+    await link(owed, pays);
+    const again = await link(owed, pays);
+    assert.equal(again.r.already_matched, true, 'a lost response and a second press is the same match, not a second one');
+    assert.equal(Number((await one('select count(*) n from card_payment_matches where card_transaction_id=$1', [owed])).n), 1);
+    const undone = await unlink(owed);
+    assert.equal(undone.r.bank_restored, true);
+    assert.equal((await coding(pays)).status, 'uncoded',
+      'the undo puts back what the person had, not what the first link wrote');
+
+    const other = await newTxn(bankBatch, 410, { date: '2026-10-22', status: 'uncoded', description: 'A SECOND 410' });
+    await link(owed, pays);
+    await refused(() => link(owed, other), /already matched/, 're-pointing a match hides the first undo');
+    await unlink(owed);
+  });
+
+  await test('an edit back to the same account still counts as somebody else’s decision', async () => {
+    const owed = await newTxn(cardBatch, -515, { date: '2026-10-23', account: 'clearing', description: 'AUTOPAY 515' });
+    const pays = await newTxn(bankBatch, 515, { date: '2026-10-23', status: 'uncoded', description: 'PAYS 515' });
+    await link(owed, pays);
+    // Same account, same treatment, somebody's own save: the values alone
+    // cannot tell this from the match's work, so the stamp has to.
+    await q("update card_transactions set memo='checked by hand', updated_at=now()+interval '1 minute' where id=$1", [pays]);
+    const undone = await unlink(owed);
+    assert.equal(undone.r.bank_restored, false);
+    assert.equal((await coding(pays)).status, 'coded', 'their save stands');
   });
 
   await test('proposals answer a whole screen, and name no payment when there are two', async () => {
