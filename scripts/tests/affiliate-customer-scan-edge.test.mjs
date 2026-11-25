@@ -32,6 +32,15 @@
 //   AFFILIATE_SCAN_MUTATION=optoutscan   erased (redacted) customers are scanned
 //   AFFILIATE_SCAN_MUTATION=aicount      the model's chosen profile keeps a count its text does not state
 //   AFFILIATE_SCAN_MUTATION=aianyurl     the model may choose a profile the row was never shown
+//   AFFILIATE_SCAN_MUTATION=searchnometersearches are metered under the AI model, not as searches
+//   AFFILIATE_SCAN_MUTATION=nolimitcheck no limit is checked before a batch of searches
+//   AFFILIATE_SCAN_MUTATION=creditignoreda refused hold is not reported as out of credit
+//   AFFILIATE_SCAN_MUTATION=nomonthcap   the monthly cap is never reached
+//   AFFILIATE_SCAN_MUTATION=nonightcap   tonight's dollar limit is never reached
+//   AFFILIATE_SCAN_MUTATION=nightlyanyoneany token reaches the nightly path
+//   AFFILIATE_SCAN_MUTATION=nightlyoff   the nightly run ignores the company switch
+//   AFFILIATE_SCAN_MUTATION=nightcust    the night's customer limit is not applied
+//   AFFILIATE_SCAN_MUTATION=pressnightly a person's press can make itself nightly
 //   AFFILIATE_SCAN_MUTATION=nickquery    the search asks for only the first few spellings, so a later nickname is never returned
 //   AFFILIATE_SCAN_MUTATION=nonick       a nickname on the profile (Michael for Mike) does not count
 //   AFFILIATE_SCAN_MUTATION=nickword     a nickname inside another word (tom in tomato) counts
@@ -121,7 +130,16 @@ const MUTS = {
   noresults: [LIB, "      if (code === 40102) return { state: 'ready', items: [] };\n", ''],
   handlealways: ['handler.mjs', "const eh = (j.status === 'none' || j.status === 'ambiguous') ? emailHandle(r.email_lc, person) : null;", "const eh = basis === 'email_handle' ? null : emailHandle(r.email_lc, person);"],
   noaileg: ['handler.mjs', "|| (status === 'done' && aiOwed)) && !error", ') && !error'],
-  nogoal: ['handler.mjs', '      const goalMet = () => t.found >= want;', '      const goalMet = () => false;'],
+  searchnometer: ['handler.mjs', "      feature: 'affiliate_research', model: SEARCH_RATE_MODEL, sourceRef });", "      feature: 'affiliate_research', model, sourceRef });"],
+  nolimitcheck: ['handler.mjs', "        if (await checkLimit()) return;\n", ""],
+  creditignored: ['handler.mjs', "        if (!metered) { limitHit = 'credit'; return; }", "        if (!metered) return;"],
+  nomonthcap: ['handler.mjs', "  if (Number.isFinite(cap) && cap > 0 && Number(spend.month_micros) >= cap) return 'month';\n", ""],
+  nonightcap: ['handler.mjs', "  if (nightly && Number.isFinite(night) && night > 0 && Number(spend.scan_micros) >= night) return 'night';\n", ""],
+  nightlyanyone: ['handler.mjs', "    if (await isService(authHeader)) {", "    if (authHeader) {"],
+  nightlyoff: ['handler.mjs', "    if (spend.nightly_enabled !== true) return reply({ skipped: 'off' });\n", ""],
+  nightcust: ['handler.mjs', "    const maxChecks = nightly ? Math.max(1, Math.min(5000, Math.floor(Number(spend0?.night_max_customers)) || 300)) : companyMaxChecks(ent?.meta);", "    const maxChecks = companyMaxChecks(ent?.meta);"],
+  pressnightly: ['handler.mjs', "return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader });", "return customerScan({ company, body, callerId: who?.user?.id ?? null, authHeader, nightly: body?.nightly === true });"],
+  nogoal: ['handler.mjs', '      const goalMet = () => t.found >= want || !!limitHit;', '      const goalMet = () => false;'],
   nocap: ['handler.mjs', '      const capLeft = () => Math.max(0, maxChecks - requested);', '      const capLeft = () => 1e9;'],
   namefind: [LIB, "  return status === 'found' && !(Number(score) >= LIKELY_SCORE) ? 'check' : status;", '  return status;'],
   bigname: [LIB, '    if (off) s += off[1];', '    if (off) s += 0;'],
@@ -393,6 +411,10 @@ function fakeService(seed) {
   }
   const rpc = async (name, args) => {
     rpcs.push({ name, args });
+    // Affiliate Studio spend (20261125040000): what the database says this month
+    // and this scan cost, and the company's limits. Tests set spend.* to drive it.
+    if (name === 'affiliate_studio_spend') return { data: { month_micros: 0, scan_micros: args.p_scan ? 0 : null, nightly_enabled: false, night_max_customers: 300, night_max_micros: 3000000, month_cap_micros: null, ...(globalThis.__studioSpend?.(args) || {}) }, error: null };
+    if (name === 'ai_credit_open' && globalThis.__creditRefuse?.(args)) return { data: { ok: false, mode: 'enforce', reason: 'insufficient_credit' }, error: null };
     if (name === 'ai_credit_open') return { data: { ok: true, mode: 'enforce', held_micros: 1000 }, error: null };
     if (name === 'ai_credit_step') return { data: { ok: true, held_micros: 2000 }, error: null };
     if (name === 'ai_credit_settle') return { data: { ok: true, outcome: args.p_outcome, enforced: true, charged_micros: 0 }, error: null };
@@ -493,14 +515,20 @@ function setup({ data = seed(), apiKey = 'k', clock = null, budgetHit = false, c
       }) };
     },
     background: (p) => { bg.push(p); },
+    nightlyKey: 'svc-key',
   });
+  // The nightly job: the service-role key, never a person's token.
+  const callAs = async (auth, body) => {
+    const res = await handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
+    return { status: res.status, body: await res.json() };
+  };
   const call = async (body) => {
     const res = await handler(new Request('https://fn.test', { method: 'POST', headers: { Authorization: 'Bearer user', 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'customer_scan', ...body }) }));
     return { status: res.status, body: await res.json() };
   };
   // Legs add background work while earlier legs finish: wait for all of it.
   const settle = async () => { for (let i = 0; i < bg.length; i += 1) await bg[i]; };
-  return { service, searches, gets, modelCalls, bg, legs, call, settle, tick: (ms) => { t += ms; } };
+  return { service, searches, gets, modelCalls, bg, legs, call, callAs, settle, tick: (ms) => { t += ms; } };
 }
 const row = (s, key) => s.service.tables.affiliate_customer_social.find((r) => r.customer_key === key);
 
@@ -961,6 +989,122 @@ await test('a leg reads at most SCAN_LEG_GETS results, then the same scan carrie
   assert.equal(scan.status, 'done', 'and the scan still finishes');
   assert.equal(scan.filters.end, 'pool');
   assert.ok(H.SCAN_LEG_GETS <= 200, 'well under the ~370 that hit the CPU limit');
+});
+
+// ── Affiliate Studio spend (20261125040000) ──────────────────────────────
+const withSpend = async (spendFn, refuseFn, fn) => {
+  globalThis.__studioSpend = spendFn; globalThis.__creditRefuse = refuseFn;
+  try { await fn(); } finally { delete globalThis.__studioSpend; delete globalThis.__creditRefuse; }
+};
+
+await test('every batch of searches is metered as Affiliate Studio usage: one hold, settled with what the provider accepted', async () => {
+  const s = setup();
+  await s.call({ filters: { minOrders: 2 } });
+  await s.settle();
+  const opens = s.service.rpcs.filter((x) => x.name === 'ai_credit_open' && x.args.p_model === H.SEARCH_RATE_MODEL);
+  assert.ok(opens.length >= 1, 'searches open their own hold');
+  for (const o of opens) {
+    assert.equal(o.args.p_feature, 'affiliate_research', 'the same feature as the AI: one Affiliate Studio line');
+    assert.equal(o.args.p_company, CO);
+    assert.ok(o.args.p_max_web >= 1, 'the hold covers the batch');
+  }
+  const ids = new Set(opens.map((o) => o.args.p_request));
+  const settles = s.service.rpcs.filter((x) => x.name === 'ai_credit_settle' && ids.has(x.args.p_request));
+  assert.equal(settles.length, opens.length, 'every hold is settled');
+  const billed = settles.reduce((a, x) => a + (x.args.p_usage.web_search || 0), 0);
+  assert.equal(billed, s.searches.length, 'exactly the searches the provider accepted');
+  assert.ok(opens.every((o) => o.args.p_source_ref === s.service.tables.affiliate_customer_scans[0].id), 'tied to the scan');
+});
+
+await test('the monthly Affiliate Studio cap refuses a new press, and stops a running one before its next batch', async () => {
+  await withSpend(() => ({ month_micros: 5_000_000, month_cap_micros: 5_000_000 }), null, async () => {
+    const s = setup();
+    const r = await s.call({ filters: { minOrders: 2 } });
+    assert.equal(r.status, 402);
+    assert.equal(r.body.limit_reached, true);
+    assert.equal(s.searches.length, 0, 'nothing is searched');
+    assert.equal(s.service.tables.affiliate_customer_scans.length, 0);
+  });
+  // Under the cap at the press, over it after the first batch.
+  let calls = 0;
+  await withSpend(() => { calls += 1; return calls > 2 ? { month_micros: 6_000_000, month_cap_micros: 5_000_000 } : { month_cap_micros: 5_000_000 }; }, null, async () => {
+    const s = setup({ data: bigSlice(400, { hitEvery: 0, prefix: 'm' }) });
+    await s.call({ finds: 50, filters: { minOrders: 2 } });
+    await s.settle();
+    const scan = s.service.tables.affiliate_customer_scans[0];
+    assert.equal(scan.filters.limit, 'month');
+    assert.equal(scan.filters.end, 'limit');
+    assert.equal(scan.error_message, "Stopped at this month's Affiliate Studio limit.");
+    assert.equal(s.searches.length, 100, 'one batch went out before the cap, none after');
+    assert.equal(s.service.tables.affiliate_customer_social.filter((x) => x.status === 'pending').length, 0, 'customers lined up but never searched go back to the pool, unpaid');
+  });
+});
+
+await test('a refused hold (out of credit) searches nothing and says why', async () => {
+  await withSpend(null, (a) => a.p_model === H.SEARCH_RATE_MODEL, async () => {
+    const s = setup();
+    await s.call({ filters: { minOrders: 2 } });
+    await s.settle();
+    assert.equal(s.searches.length, 0);
+    const scan = s.service.tables.affiliate_customer_scans[0];
+    assert.equal(scan.filters.limit, 'credit');
+    assert.equal(scan.error_message, 'Stopped: the workspace is out of credit for Affiliate Studio.');
+  });
+});
+
+await test('the nightly Find: the service key only, only where the company turned it on, capped at its customers and dollars', async () => {
+  // A person's token never reaches the nightly path.
+  await withSpend(() => ({ nightly_enabled: true }), null, async () => {
+    const s = setup();
+    const r = await s.callAs('Bearer user', { action: 'nightly_scan', company: CO });
+    assert.notEqual(r.status, 202);
+    assert.equal(s.service.tables.affiliate_customer_scans.length, 0, 'no scan from a person\'s token');
+    const fake = await s.callAs('Bearer not-the-key', { action: 'nightly_scan', company: CO });
+    assert.equal(s.service.tables.affiliate_customer_scans.length, 0, 'nor from a wrong key');
+    assert.notEqual(fake.status, 202);
+    // A person's own press cannot make itself nightly.
+    await s.call({ nightly: true, filters: { minOrders: 2 } });
+    assert.equal(s.service.tables.affiliate_customer_scans[0].filters.nightly, undefined);
+  });
+  // Off by default: nothing runs.
+  await withSpend(() => ({ nightly_enabled: false }), null, async () => {
+    const s = setup();
+    const r = await s.callAs('Bearer svc-key', { action: 'nightly_scan', company: CO });
+    assert.equal(r.body.skipped, 'off');
+    assert.equal(s.service.tables.affiliate_customer_scans.length, 0);
+  });
+  // On: the top unchecked customers, at most the night's customer limit.
+  await withSpend(() => ({ nightly_enabled: true, night_max_customers: 2, night_max_micros: 3_000_000 }), null, async () => {
+    const s = setup({ chain: true });
+    const r = await s.callAs('Bearer svc-key', { action: 'nightly_scan', company: CO });
+    assert.equal(r.status, 202);
+    await s.settle();
+    const scan = s.service.tables.affiliate_customer_scans[0];
+    assert.equal(scan.filters.nightly, true);
+    assert.equal(scan.created_by, null, 'nobody pressed it');
+    assert.equal(scan.requested, 2, 'stops at the night\'s customer limit');
+    assert.deepEqual(s.service.tables.affiliate_customer_social.map((x) => x.customer_key).sort(), ['emily', 'nobody'], 'the most orders first');
+  });
+  // Tonight's dollar limit stops it, like the month's.
+  let n = 0;
+  await withSpend((a) => { n += 1; return { nightly_enabled: true, night_max_customers: 300, night_max_micros: 1_000_000, scan_micros: n > 3 ? 1_500_000 : 0 }; }, null, async () => {
+    const s = setup({ data: bigSlice(400, { hitEvery: 0, prefix: 'n' }), chain: true });
+    await s.callAs('Bearer svc-key', { action: 'nightly_scan', company: CO });
+    await s.settle();
+    const scan = s.service.tables.affiliate_customer_scans[0];
+    assert.equal(scan.filters.limit, 'night');
+    assert.equal(scan.error_message, "Stopped at tonight's Affiliate Studio limit.");
+    assert.equal(s.searches.length, 100);
+  });
+});
+
+await test('studioLimitHit: the month cap over all Studio usage; the night limit only for the nightly run', () => {
+  assert.equal(H.studioLimitHit(null), null, 'no figures (migration not applied): no limit, as before');
+  assert.equal(H.studioLimitHit({ month_micros: 10, month_cap_micros: null }), null, 'no cap set');
+  assert.equal(H.studioLimitHit({ month_micros: 10, month_cap_micros: 10 }), 'month');
+  assert.equal(H.studioLimitHit({ month_micros: 9, month_cap_micros: 10 }), null);
+  assert.equal(H.studioLimitHit({ month_micros: 0, scan_micros: 5 }, { nightly: false, nightMax: 5 }), null, 'a person\'s press has no night limit');
+  assert.equal(H.studioLimitHit({ month_micros: 0, scan_micros: 5 }, { nightly: true, nightMax: 5 }), 'night');
 });
 
 console.log(`\naffiliate-customer-scan-edge: ${passed} passed`);

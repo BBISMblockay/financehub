@@ -34,6 +34,7 @@
 // AI credit (docs/ops/ai-credits.md): one hold per run, opened before the
 // first model call, grown before each later call; charged only when at least
 // one creator survived the checks, free otherwise.
+import { timingSafeEqual } from 'node:crypto';
 import { upsertCandidates, fetchSerpLive, buildSerpTask, candidatesFromResults, RETRYABLE_SERP_CODES } from './lib/affiliate-discovery-core.mjs';
 import { storeProspectPhotos } from './lib/affiliate-photo-core.mjs';
 import { enrichYouTubeProspects, needsYouTubeRefresh, buildCreatorProfile, channelRef, searchYouTubeChannels } from './lib/affiliate-youtube-core.mjs';
@@ -47,7 +48,7 @@ import {
   personName, buildScanTask, scanQuery, judgeResults, buildAiRequest, applyAiAnswer, clampScanCount, minFollowersFor,
   socialRowPatch, scanFilters, SCAN_SORTS, SCAN_CONCURRENCY, AI_BATCH, AI_MAX_OUTPUT_TOKENS, NEVER_SCAN_CONSENT,
   matchBasis, teamFilter, emailHandle, buildHandleTask, judgeHandle, COMPANY_SCAN_SCOPE, companyMinFollowers,
-  clampFinds, companyMaxChecks, createSerpQueue, QUEUE_POST_BATCH,
+  clampFinds, FINDS_MAX, companyMaxChecks, createSerpQueue, QUEUE_POST_BATCH,
   scorePick, tallyBucket, companyTerms, termsInput, buildCountTask, judgeCount,
 } from './lib/affiliate-customer-scan-core.mjs';
 
@@ -121,6 +122,27 @@ export const SCAN_GET_CONCURRENCY = 20;
 export const SCAN_FIRST_LOOK_MS = 45_000;
 export const SCAN_POLL_MS = 15_000;
 export const SCAN_TASK_EXPIRY_MS = 45 * 60_000;
+// ── Affiliate Studio spend (20261125040000) ────────────────────────────
+// Every Google search Find and Discovery make is metered through the same
+// credit RPCs as the AI, under the same feature ('affiliate_research'), so
+// the company sees ONE Affiliate Studio line at its own price (Blake
+// 2026-11-25: "one 'studio' bill"). The price of a search is the
+// ai_provider_rates row for this model, set at rollout; none = unpriced.
+export const SEARCH_RATE_MODEL = 'dataforseo-serp';
+const STUDIO_LIMIT_NOTE = {
+  month: "Stopped at this month's Affiliate Studio limit.",
+  night: "Stopped at tonight's Affiliate Studio limit.",
+  credit: 'Stopped: the workspace is out of credit for Affiliate Studio.',
+};
+/** Which limit this spend has reached, or null. Pure. */
+export function studioLimitHit(spend, { nightly = false, nightMax = null } = {}) {
+  if (!spend) return null;
+  const cap = Number(spend.month_cap_micros);
+  if (Number.isFinite(cap) && cap > 0 && Number(spend.month_micros) >= cap) return 'month';
+  const night = Number(nightMax);
+  if (nightly && Number.isFinite(night) && night > 0 && Number(spend.scan_micros) >= night) return 'night';
+  return null;
+}
 const CHUNK = 200;
 const chunks = (list, n = CHUNK) => { const out = []; for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -136,7 +158,32 @@ export function createResearchHandler({
   // The hunt's searches: DataForSEO's standard queue (lib createSerpQueue),
   // and how a run waits between looks at it. Tests pass fakes.
   serpQueue: queueIn = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  // The service-role key: the nightly job's Authorization (compared in
+  // constant time). Unset = no nightly entry at all.
+  nightlyKey = '', verifyServiceToken = async () => false,
 }) {
+  // This month's Studio spend for a company (and one scan's own), in
+  // customer dollars, from the database. null when the migration is not
+  // applied yet: then no limit applies, exactly as before it.
+  async function studioSpend(company, scanId = null) {
+    const { data, error } = await service.rpc('affiliate_studio_spend', { p_company: company, p_scan: scanId });
+    if (error) return null;
+    return data || null;
+  }
+  // Meter one batch of Google searches: open a hold for n, run them, settle
+  // what was accepted. false = the hold was refused (out of credit, or a
+  // search has no price where billing is enforced): nothing is searched.
+  async function meteredSearches({ company, callerId, sourceRef, n, run }) {
+    const m = createCreditMeter({ db: service, requestId: newId(), companyId: company, userId: callerId,
+      feature: 'affiliate_research', model: SEARCH_RATE_MODEL, sourceRef });
+    const opened = await m.open({ estInput: 0, maxOutput: 0, maxWeb: n, calls: 1 }).catch(() => ({ ok: false }));
+    if (!opened?.ok) return false;
+    let used = 0;
+    try { used = await run(); } finally {
+      await m.settle({ usage: { web_search: used }, outcome: used > 0 ? 'succeeded' : 'failed', error: used > 0 ? null : 'no_searches' }).catch(() => {});
+    }
+    return true;
+  }
   const serpQueue = queueIn || (serpCredentials?.login && serpCredentials?.password ? createSerpQueue({ credentials: serpCredentials, fetchImpl }) : null);
   const search = fetchSerp || (serpCredentials?.login && serpCredentials?.password ? (task) => fetchSerpLive({ credentials: serpCredentials, task }) : null);
 
@@ -156,13 +203,13 @@ export function createResearchHandler({
     return searchYouTubeChannels({ query: q, apiKey: youtubeKey, fetchImpl: youtubeFetch, regionCode: geo.length === 1 ? geo[0] : null, collectedAt: now().toISOString() });
   }
 
-  async function gatherLeads(program, focus) {
+  async function gatherLeads(program, focus, { google = true } = {}) {
     let searched = 0; let failed = 0; let youtube = 0;
     const yt = (async () => {
       try { const l = await youtubeLeads(program, focus); youtube = l.length; return l; }
       catch { failed += 1; return []; }
     })();
-    const lists = await Promise.all([yt, ...(search ? leadSearches(program, focus) : []).map(async (src) => {
+    const lists = await Promise.all([yt, ...(search && google ? leadSearches(program, focus) : []).map(async (src) => {
       try {
         const { items } = await search(buildSerpTask(src, program));
         searched += 1;
@@ -241,6 +288,10 @@ export function createResearchHandler({
       return reply({ error: 'Research is already running for this program. Results appear on this tab when it finishes.' }, 429);
     }
 
+    // The company's own monthly Affiliate Studio cap, over Find and Discovery.
+    if (studioLimitHit(await studioSpend(company)) === 'month') {
+      return reply({ error: "This month's Affiliate Studio limit is reached. A workspace owner can change it in Workspace Settings → Billing.", limit_reached: true }, 402);
+    }
     const focus = String(body?.focus || '').trim().slice(0, 500);
     const runId = newId();
     const { data: row, error: rErr } = await service.from('affiliate_discovery_runs').insert({
@@ -266,7 +317,15 @@ export function createResearchHandler({
       let usages = []; let outcome = 'failed';
       try {
         const known = await knownFor(company).catch(() => null);
-        const g = await gatherLeads(program, focus).catch(() => ({ leads: [], searched: 0, failed: 1 }));
+        // The Google leads are Studio usage too: metered, and skipped (fewer
+        // leads, never an error) when the hold is refused.
+        let g = { leads: [], searched: 0, failed: 0, youtube: 0 };
+        const n = search ? leadSearches(program, focus).length : 0;
+        const ranMetered = n ? await meteredSearches({ company, callerId, sourceRef: row.id, n, run: async () => {
+          g = await gatherLeads(program, focus).catch(() => ({ leads: [], searched: 0, failed: 1 }));
+          return g.searched;
+        } }) : false;
+        if (!ranMetered) g = await gatherLeads(program, focus, { google: false }).catch(() => ({ leads: [], searched: 0, failed: 1 }));
         // A lead the company already has is not worth the AI's time.
         g.leads = g.leads.filter((l) => !isKnown(known, l));
         const lean = leanRun(g.leads, body?.count);
@@ -357,7 +416,7 @@ export function createResearchHandler({
   // search runs, so a run that hits its time limit leaves a queue the next
   // press finishes -- "stopped early, more to check" -- rather than losing its
   // place. A press while a scan is running joins it.
-  async function customerScan({ company, body, callerId, authHeader }) {
+  async function customerScan({ company, body, callerId, authHeader, nightly = false }) {
     if (!serpQueue) return reply({ error: 'Social lookups are not set up yet.' }, 503);
     // The next leg of a running scan, started by the previous leg. It must
     // carry the one-time handoff the previous leg wrote, so a stray or
@@ -382,6 +441,13 @@ export function createResearchHandler({
     // Every platform SILO reads profiles from, not one program's ticks: the
     // answer is about the customer, and it is the same in every program.
     const program = COMPANY_SCAN_SCOPE;
+    // The company's own monthly Affiliate Studio cap, over Find and Discovery.
+    const spend0 = await studioSpend(company);
+    if (studioLimitHit(spend0) === 'month') {
+      return reply({ error: "This month's Affiliate Studio limit is reached. A workspace owner can change it in Workspace Settings → Billing.", limit_reached: true }, 402);
+    }
+    // The nightly job's own press: its limits ride on the scan row, so every
+    // leg stops at the same place.
     const { data: live, error: lErr } = await service.from('affiliate_customer_scans')
       .select('id, heartbeat_at, started_at').eq('company_entity_id', company)
       .eq('status', 'running').order('started_at', { ascending: false }).limit(1);
@@ -398,15 +464,15 @@ export function createResearchHandler({
     const minFollowers = companyMinFollowers(ent?.meta);
     // How many FINDS the person asked for, and the company's cap on how many
     // customers one press may check to get them.
-    const want = clampFinds(body?.finds);
-    const maxChecks = companyMaxChecks(ent?.meta);
+    const want = nightly ? FINDS_MAX : clampFinds(body?.finds);
+    const maxChecks = nightly ? Math.max(1, Math.min(5000, Math.floor(Number(spend0?.night_max_customers)) || 300)) : companyMaxChecks(ent?.meta);
     // The company's niche words, for the niche signal in the match score:
     // company data, else its active programs' own niche text. Kept on the
     // scan row so every leg of the press scores the same way.
     // The page's "Niche words" box rides on the press: what was typed is
     // saved as the company's own words before this press uses them.
     let meta = ent?.meta && typeof ent.meta === 'object' ? ent.meta : {};
-    if (typeof body?.terms === 'string') {
+    if (typeof body?.terms === 'string' && !nightly) {
       const words = termsInput(body.terms);
       const had = Array.isArray(meta.affiliate_customer_scan_terms) ? meta.affiliate_customer_scan_terms : null;
       if (JSON.stringify(had || []) !== JSON.stringify(words)) {
@@ -419,7 +485,8 @@ export function createResearchHandler({
     }
     const { data: progs } = await service.from('affiliate_programs').select('niche, audience_notes')
       .eq('company_entity_id', company).eq('status', 'active').limit(50);
-    const filters = { ...scanFilters(body?.filters), terms: companyTerms(meta, progs || []) };
+    const filters = { ...scanFilters(body?.filters), terms: companyTerms(meta, progs || []),
+      ...(nightly ? { nightly: true, night_max_micros: Number(spend0?.night_max_micros) || 3_000_000 } : {}) };
     const startedAt = now();
     const { data: scan, error: sErr } = await service.from('affiliate_customer_scans').insert({
       company_entity_id: company, program_id: null, created_by: callerId, status: 'running',
@@ -677,18 +744,36 @@ export function createResearchHandler({
         : null;
     };
 
+    // The company's limits, checked before every batch of searches: this
+    // month's cap over all Studio usage and, for the nightly run, tonight's
+    // dollar limit for this scan. What is already in flight is collected (it
+    // is paid for); nothing new is searched.
+    let limitHit = null;
+    const checkLimit = async () => {
+      if (limitHit) return limitHit;
+      limitHit = studioLimitHit(await studioSpend(company, scanId), { nightly: filters.nightly === true, nightMax: filters.night_max_micros });
+      return limitHit;
+    };
+
     // Post searches for rows, 100 per request. Each accepted task's id is on
     // its row before this returns.
     let postFailures = 0;
     async function post(list) {
       for (const part of chunks(list, QUEUE_POST_BATCH)) {
         if (left() < SCAN_TAIL_MS) return;
+        if (await checkLimit()) return;
         let acks;
-        try { acks = await serpQueue.post(part.map((x) => ({ task: x.task }))); postFailures = 0; } catch (err) {
-          postFailures += 1;
-          console.warn(`customer_scan: posting searches failed ${String(err?.message || err).slice(0, 200)}`);
-          return;
-        }
+        // Metered as Affiliate Studio usage: a hold for this batch first.
+        const metered = await meteredSearches({ company, callerId, sourceRef: scanId, n: part.length, run: async () => {
+          try { acks = await serpQueue.post(part.map((x) => ({ task: x.task }))); postFailures = 0; } catch (err) {
+            postFailures += 1;
+            console.warn(`customer_scan: posting searches failed ${String(err?.message || err).slice(0, 200)}`);
+            return 0;
+          }
+          return (acks || []).filter((a) => a?.id).length;
+        } });
+        if (!metered) { limitHit = 'credit'; return; }
+        if (!acks) return;
         const at = now().toISOString();
         await each(part.map((x, i) => ({ x, a: acks[i] })), 10, async ({ x, a }) => {
           cost += Number(a?.cost) || 0;
@@ -789,7 +874,7 @@ export function createResearchHandler({
     let gets = 0;
     try {
       const guards = await scanGuards(company);
-      const goalMet = () => t.found >= want;
+      const goalMet = () => t.found >= want || !!limitHit;
       const capLeft = () => Math.max(0, maxChecks - requested);
       // How many more customers to line up: enough, at the hit rate so far
       // (1 in 100 until there is a measured rate), to reach the goal.
@@ -884,7 +969,7 @@ export function createResearchHandler({
       // Spend is recorded for SILO, never shown on the page (Blake, 2026-11-24:
       // a rep should not do arithmetic before pressing a button).
       const spent = Math.round((costBefore + cost) * 10000) / 10000;
-      const end = complete ? (t.found >= want ? 'goal' : st.poolDone ? 'pool' : 'cap') : null;
+      const end = complete ? (limitHit ? 'limit' : t.found >= want ? 'goal' : st.poolDone ? 'pool' : 'cap') : null;
       // Not finished: the same scan carries on in a fresh run, and the page
       // keeps showing it as running. Anything that stops the handoff (no
       // caller token, the run cap, the next run refusing) ends the scan as
@@ -900,9 +985,51 @@ export function createResearchHandler({
         } catch (err) { console.warn(`customer_scan: continuing failed ${String(err?.message || err).slice(0, 200)}`); }
       }
       if (!handedOff) {
-        await beat({ status, filters: { ...state(), end }, error_message: error ?? (status === 'stopped' ? 'Stopped early. More to check.' : null), finished_at: now().toISOString(), cost_usd: spent }).catch(() => {});
+        await beat({ status, filters: { ...state(), end, ...(limitHit ? { limit: limitHit } : {}) },
+          error_message: error ?? (limitHit ? STUDIO_LIMIT_NOTE[limitHit] : status === 'stopped' ? 'Stopped early. More to check.' : null), finished_at: now().toISOString(), cost_usd: spent }).catch(() => {});
       }
     }
+  }
+
+  // The nightly Find (scripts/affiliate-nightly-find.mjs): the scheduled job
+  // calls with the service-role key, ONE company per call, and only a company
+  // whose own setting is on. Its scan continues in fresh runs with the same
+  // key. A person's token never reaches this path, and this path never takes
+  // a person's press.
+  async function nightly({ body, authHeader }) {
+    if (body?.continue_scan !== undefined) {
+      const id = String(body.continue_scan || '');
+      if (!UUID_RE.test(id)) return reply({ error: 'Unknown scan.' }, 400);
+      const { data: row } = await service.from('affiliate_customer_scans').select('company_entity_id, filters').eq('id', id).maybeSingle();
+      if (!row || row.filters?.nightly !== true) return reply({ error: 'This scan is not waiting to continue.' }, 409);
+      return customerScan({ company: row.company_entity_id, body, callerId: null, authHeader, nightly: true });
+    }
+    const company = String(body?.company || '');
+    if (!UUID_RE.test(company)) return reply({ error: 'Name the company.' }, 400);
+    const spend = await studioSpend(company);
+    if (!spend) return reply({ error: 'Affiliate Studio limits need a database update first.' }, 503);
+    if (spend.nightly_enabled !== true) return reply({ skipped: 'off' });
+    // The top unchecked customers: repeat buyers, most orders first, then
+    // spend and the newest order (SCAN_SORTS.orders). Nobody is searched
+    // twice; the usual never-scan rules apply.
+    return customerScan({ company, body: { filters: { sort: 'orders', minOrders: 2, consent: 'any' } }, callerId: null, authHeader, nightly: true });
+  }
+  const claimedRole = (token) => {
+    try {
+      const part = token.split('.')[1]; if (!part) return null;
+      return JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))).role ?? null;
+    } catch { return null; }
+  };
+  // Exactly the service key, or (the platform's injected key is not always
+  // byte-identical to the one the job holds -- on-deck-prepare, 2026-09-29) a
+  // token claiming service_role that the auth server's admin API accepts.
+  async function isService(authHeader) {
+    if (!nightlyKey) return false;
+    const enc = new TextEncoder();
+    const a = enc.encode(authHeader); const b = enc.encode(`Bearer ${nightlyKey}`);
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    return claimedRole(token) === 'service_role' && await verifyServiceToken(token).catch(() => false) === true;
   }
 
   return async function handle(req) {
@@ -910,6 +1037,12 @@ export function createResearchHandler({
     if (req.method !== 'POST') return reply({ error: 'POST only' }, 405);
     const authHeader = req.headers.get('Authorization') || '';
     if (!/^Bearer\s+\S+/.test(authHeader)) return reply({ error: 'Unauthorized' }, 401);
+    if (await isService(authHeader)) {
+      let nb;
+      try { nb = await req.json(); } catch { return reply({ error: 'Invalid JSON' }, 400); }
+      if (nb?.action === 'nightly_scan' || (nb?.action === 'customer_scan' && nb?.continue_scan !== undefined)) return nightly({ body: nb, authHeader });
+      return reply({ error: 'Unknown action.' }, 400);
+    }
 
     // 1. Authority and company, from the database, as the caller, in one call.
     const caller = userClientFor(authHeader);
