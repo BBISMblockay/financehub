@@ -7109,7 +7109,7 @@ select 'Affiliate customer review' as check_name,
   else 'ok' end as status;
 -- End affiliate customer review checks.
 
--- Content offers and post numbers (20261125234500): an offer is a payment
+-- Content offers and post numbers (20261125230000): an offer is a payment
 -- once accepted, so only a payout approver makes one; only the affiliate's own
 -- portal link answers it.
 select 'Affiliate content offers' as check_name,
