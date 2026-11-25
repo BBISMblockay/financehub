@@ -167,6 +167,14 @@ await page.evaluate(() => { const b = document.querySelector('#customersBody .af
 await page.waitForTimeout(1200);
 out.dncRpc2 = await page.evaluate(() => globalThis.__fx.rpcs.filter((r) => r.name === 'affiliate_customer_social_review'));
 out.status2 = await page.textContent('#status');
+// All customers: the same bar (Blake 2026-11-25)
+await page.evaluate(() => document.querySelector('[data-act="cust-view"][data-k="all"]')?.click());
+await page.waitForTimeout(1200);
+await page.evaluate(() => document.querySelector('#customersBody [data-act="cust-select-all"]')?.click());
+await page.waitForTimeout(300);
+out.allBulk = await page.$$eval('#customersBody .af-bulk button', (b) => b.map((x) => x.textContent.trim()));
+out.allTicked = await page.$$eval('#customersBody tbody input[data-act="cust-pick"]:checked', (b) => b.length);
+out.allRows = await page.$$eval('#customersBody tbody tr', (r) => r.length);
 // Setup
 await page.evaluate(() => document.querySelector('#tab-program')?.click());
 await page.waitForTimeout(800);
@@ -185,5 +193,7 @@ assert.deepEqual(out.bulk, ['Shortlist', 'Not a fit', 'Not them', 'Do not contac
 assert.deepEqual(out.dncRpc, [], 'a refused do-not-contact insert archives nothing');
 assert.match(out.status, /^0 added .* 1 could not be added\./);
 assert.deepEqual(out.dncRpc2.map((r) => [r.args.p_keys, r.args.p_review]), [[['c1'], 'suppressed']], 'only the find that was listed is archived');
+assert.deepEqual(out.allBulk, ['Shortlist', 'Not a fit', 'Not them', 'Do not contact', 'Clear'], 'All customers has the same bulk bar');
+assert.ok(out.allRows > 0 && out.allTicked === out.allRows, 'Select all ticks every customer on the page');
 assert.match(out.setupAuto, /^\.\.\/billing\.html#studioCard \| Automatic searches/);
 console.log('affiliate-studio.browser: all checks passed');
