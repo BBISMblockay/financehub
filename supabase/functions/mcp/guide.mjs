@@ -524,6 +524,12 @@ const TOOL_NOTES = {
     + 'Nothing is recorded in SILO: the answer is a draft waiting for a person, so tell them it is waiting, '
     + 'give them the link, and name the over-receipts and whether the quantities were a packing list or a '
     + 'warehouse count. Never report the delivery as received, and never retry with a new idempotency_key.',
+  set_po_status: 'The one tool here that changes something the moment it returns: the purchase order moves in '
+    + 'SILO and nobody confirms it afterwards. So it follows a person asking for that step in this '
+    + 'conversation, never your own reading of a document -- summarise what you read, name the step you would '
+    + 'set, and wait. A step that means units arrived belongs to record_shipment_receipt instead, and '
+    + 'approving, closing or cancelling a PO is not yours at all. Afterwards say plainly that SILO is updated, '
+    + 'and pass the reason and the document so the person can see why in PO Report.',
   run_report: 'Prefer one report\'s own answer over combining reports. A blank measure means that source '
     + 'had no rows for that day, never zero, and revenue a platform or Redo "claims", "credits" or '
     + '"attributes" overlaps other sources and net sales, so it is never summed.',

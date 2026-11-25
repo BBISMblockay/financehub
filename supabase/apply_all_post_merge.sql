@@ -19980,4 +19980,12 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125230000: a price offered for one affiliate post (accepted in their
 -- portal), and the views / engagement SILO reads for a YouTube post link.
 \i migrations/20261125230000_affiliate_content_offers_stats.sql
+-- 20261125233000: same-company twins and program-scope triggers on the
+-- customer-find tables; two trigger functions lose their client grants.
+\i migrations/20261125233000_affiliate_customer_tables_guards.sql
+-- 20261125234500: po_status:write -- a connected AI moves a purchase order to
+-- one of the steps the company allows (po_status_options), applied straight
+-- away with no second confirmation, recorded in po_status_changes. Apply
+-- BEFORE deploying mcp, and the scope cannot be granted until it is applied.
+\i migrations/20261125234500_po_status_write_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

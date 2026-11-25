@@ -288,6 +288,9 @@ on:
       - 'supabase/migrations/*receiving_write_scope.sql'
       - 'scripts/tests/receiving-mcp-database.test.mjs'
       - 'supabase/functions/mcp/**'
+      # A PO's step set by a connected AI (po-status-mcp-database.test.mjs).
+      - 'supabase/migrations/*po_status_write_scope.sql'
+      - 'scripts/tests/po-status-mcp-database.test.mjs'
       # Freight bookings and the one arrival date
       # (shipment-booking-arrival-database.test.mjs; also its own workflow).
       - 'supabase/migrations/*shipment_bookings*.sql'
@@ -3027,6 +3030,19 @@ jobs:
             echo "$m failed the suite, as it must"
           done
 
+      - name: Affiliate customer-find guards database (real PostgreSQL)
+        run: node scripts/tests/affiliate-customer-guards-database.test.mjs
+      - name: The customer-find guards, removed, must break it
+        run: |
+          set -u
+          for m in notwins scoped nodrop anonmirror; do
+            if CUST_GUARDS_DB_MUTATION="$m" node scripts/tests/affiliate-customer-guards-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
       - name: Affiliate view as rep database (real PostgreSQL)
         run: node scripts/tests/affiliate-view-as-rep-database.test.mjs
       - name: The view-as-rep guards, removed, must break it
@@ -3098,6 +3114,24 @@ jobs:
           set -u
           for m in not-offered no-path no-scope session-company any-po-line no-cap no-idem ignore-pause confirm-definer po-status-silent confirm-twice any-po-status no-match-flag no-grants po-shrinks; do
             if RECEIVING_MUTATION="$m" node scripts/tests/receiving-mcp-database.test.mjs >/dev/null 2>&1; then
+              echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
+              exit 1
+            fi
+            echo "$m failed the suite, as it must"
+          done
+
+      # The opt-in po_status:write scope (20261125234500): the person approves
+      # a step in their own AI client and SILO applies it immediately, so every
+      # fence is in the database. Proves the steps are company data, that
+      # arrival still needs a confirmed delivery, and that the authority is the
+      # approving person's against the GRANT's company.
+      - name: PO step via MCP database (real PostgreSQL)
+        run: node scripts/tests/po-status-mcp-database.test.mjs
+      - name: The po_status:write guards, removed, must break it
+        run: |
+          set -u
+          for m in not-offered no-path no-scope ignore-pause session-company any-step receipt-step unknown-step no-authority no-cap no-idem no-history-stamp trigger-keeps-creator no-odd-seed no-lazy-seed person-reads-all; do
+            if PO_STATUS_MUTATION="$m" node scripts/tests/po-status-mcp-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
             fi
