@@ -2459,8 +2459,13 @@ function renderProspects() {
       ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
       : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
     : '';
-  const findRow = MANAGE && fp
-    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators', { pg: fp.id })}</div>`
+  // Find is a button on the control row; its two fields open under it. They
+  // open by themselves while a search is running and when there is nobody on
+  // the list yet, so the empty page still shows what to do.
+  const canFind = !!(MANAGE && fp);
+  const findOpen = canFind && (researching || !people.length || (S.dFindOpen === undefined ? false : !!S.dFindOpen));
+  const findRow = findOpen
+    ? `<div class="af-panelette af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}</div>`
     : '';
   // One control row (Blake 2026-11-25): what you are looking at on the left,
   // Filter and the view on the right. The four filter rows that used to sit
@@ -2482,8 +2487,9 @@ function renderProspects() {
     ? btn(allPicked ? 'Clear selection' : `Select all ${list.length}`, allPicked ? 'prospect-select-none' : 'prospect-select-all')
     : '';
   const ctlRow = `<div class="af-ctl">${statusSeg}<span class="af-ctl-gap"></span>${tileSelectAll}${
-    btn(filtCount ? `Filter · ${filtCount}` : 'Filter', 'd-filter-open', {}, filtOpen ? 'primary' : 'surface')}${viewToggle()}</div>${
-    filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
+    btn(filtCount ? `Filter · ${filtCount}` : 'Filter', 'd-filter-open', {}, filtOpen ? 'primary' : 'surface')}${viewToggle()}${
+    canFind ? `${btn('Add creators', 'add-creators', { pg: fp.id })}${btn(researching ? 'Finding…' : 'Find creators', 'd-find-open', {}, 'primary')}` : ''}</div>${
+    findRow}${filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
   // The program a row is in is worth a column only when the rows differ; one
   // program repeated down every row says nothing.
   const showProgramCol = S.programs.length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
@@ -2496,14 +2502,14 @@ function renderProspects() {
     const bits = [
       filter === 'all' || g.suppressed ? headPill(g) : '',
       customerPill(x),
-      st?.rate != null ? `<span class="af-mono" title="Engagement">${(st.rate * 100).toFixed(1)}%</span>` : '',
-      x.contact_email ? `<span class="af-sub">${esc(x.contact_email)}</span>` : '',
+      st?.rate != null ? pill(`${(st.rate * 100).toFixed(1)}% eng`) : '',
+      x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email</span>` : '',
     ].filter(Boolean);
     return bits.length ? `<div class="af-signal">${bits.join('')}</div>` : '<span class="af-muted">—</span>';
   };
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}${ctlRow}
+    surface('Creators', `${ctlRow}
       ${MANAGE && S.sel.size ? `<div class="af-row af-bulk">
         <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
       </div>` : ''}
@@ -4287,6 +4293,8 @@ const A = {
   'd-filter-clear': () => { S.dFilt = { plat: '', prog: '', email: false, minF: 0 }; S.sel.clear(); render(); return null; },
   // The filter panel is a panel, not a fold-out menu: it stays open until it
   // is closed, and it opens itself whenever a filter is on.
+  // Find creators opens its two fields; it never runs a search on its own.
+  'd-find-open': () => { S.dFindOpen = !(S.dFindOpen === undefined ? false : S.dFindOpen); keepFields('prospectsBody', render); return null; },
   'd-filter-open': () => {
     const F = S.dFilt || {};
     const open = S.dFiltOpen === undefined ? !!(F.plat || F.prog || F.email || F.minF) : !!S.dFiltOpen;

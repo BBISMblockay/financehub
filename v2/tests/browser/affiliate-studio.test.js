@@ -486,7 +486,14 @@ const peopleSubVisible = (page) => page.evaluate(() => ({
   aff: !!document.getElementById('affiliatesBody')?.offsetParent,
   pros: !!document.getElementById('prospectsBody')?.offsetParent,
 }));
-// A creator row shows two buttons; the rest are behind More, in the pop-up.
+// Find creators opens its fields under the control row (2026-11-25).
+const openFind = async (page) => {
+  await toDiscovery(page);
+  if (await page.$('#prospectsBody #rsFocus')) return;
+  await page.click('#prospectsBody [data-act="d-find-open"]');
+  await page.waitForSelector('#prospectsBody #rsFocus', { timeout: 5000 });
+};
+// A creator row shows one button; the rest are behind More, in the pop-up.
 const openProspectMore = async (page, id) => {
   await toDiscovery(page);
   if (await page.$(`#prospectsBody [data-act="prospect-more"][data-id="${id}"]`)) {
@@ -743,6 +750,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.not(pr, 'GitHub Actions', 'discovery copy names no internal tooling');
     R.not(pr, 'Saved Google searches', 'there are no saved searches to manage: a run searches what was typed');
     R.ok('no saved-search form', !(await page.$('#srcQuery')) && !(await page.$('[data-act="source-add"]')));
+    await openFind(page);
     R.ok('there is one search button, not two', !(await page.$('#prospectsBody [data-act="discovery-run"]')) && !!(await page.$('#prospectsBody [data-act="research-run"]')));
     R.ok('a manager can approve a prospect', await page.$('#prospectsBody [data-act="prospect-status"][data-s="approved"]'))
     R.has(await text(page, '#prospectsBody'), '12,400', 'a follower count a page stated is shown');
@@ -755,6 +763,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.ok('other profiles the channel links are links', !!(await page.$('#prospectsBody a[href="https://www.instagram.com/samruns"]')));
     // Find creators with AI: starts a background run and says so; the company is never sent.
     await toDiscovery(page);
+    await openFind(page);
     await page.fill('#rsFocus', 'trail running moms');
     await page.click('#prospectsBody [data-act="research-run"]');
     await page.waitForFunction(() => /Research started/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 5000 });
@@ -1326,6 +1335,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // An inline field, not the dialog: a dialog keeps what is in it across a
     // redraw, so only a field in the page itself can show the recheck working.
     await toDiscovery(typing2);
+    await openFind(typing2);
     // Hold the redraw's reads, let the photos land on a clean form, then type.
     await typing2.evaluate(() => { let open; window.__FIXTURE_TABLE_GATES__ = { affiliate_programs: new Promise((r) => { open = r; }) }; window.__openGate = open; });
     release2();
@@ -1569,7 +1579,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await closeDialog(member);
     await member.click('#tabs [data-tab="people"]');
     R.ok('a member is not offered approve/reject', !(await member.$('#prospectsBody [data-act="prospect-status"]')))
-    R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
+    R.ok('a member is not offered AI research or import', !(await member.$('#prospectsBody [data-act="d-find-open"]')) && !(await member.$('#prospectsBody [data-act="research-run"]')) && !(await member.$('#prospectsBody [data-act="import-run"]')));
     await closeDialog(member);
     await member.click('#tabs [data-tab="payouts"]');
     R.ok('a member is not offered payouts', !(await member.$('#payoutsBody [data-act="payout-build"]')))
@@ -3768,7 +3778,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.ok('and written from Beta\'s own message', /^Beta pitch for Nia New/.test(dr?.subject || ''));
       R.eq(drA?.program_id, PROG, 'and the other program\'s creator under theirs, in the same press');
       // Find creators has no program picker: one list (Blake 2026-11-24).
-      await pg.waitForSelector('#prospectsBody [data-act="research-run"]', { timeout: 5000 }).catch(() => {});
+      await openFind(pg).catch(() => {});
       R.ok('Find creators shows no program picker', !(await pg.$('#prospectsBody [aria-label="Find for"]')) && !(await pg.$('#prospectsBody [data-act="find-pg"]')));
       const nBefore = researchCalls.filter((c) => c.action === 'research').length;
       await pg.click('#prospectsBody [data-act="research-run"]').catch(() => {});
