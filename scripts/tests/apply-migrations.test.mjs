@@ -11,9 +11,11 @@
  * No network, no database, no install. Run:
  *   node scripts/tests/apply-migrations.test.mjs
  */
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   parseMigrationFile, refusalReason, migrationRequestSql,
-  probeAtomicity, applyMigrations, PROBE_SCHEMA,
+  probeAtomicity, applyMigrations, chooseBase, PROBE_SCHEMA,
 } from '../lib/apply-migrations-core.mjs';
 
 let failures = 0;
@@ -104,6 +106,57 @@ await test('the same word in a comment is not a refusal', () => {
 
 await test('a word merely containing the keyword is not a refusal', () => {
   eq(refusalReason('create table concurrently_queued(x int);'), null, 'reason');
+});
+
+await test('a file with its own BEGIN/COMMIT is refused', () => {
+  ok(refusalReason('begin;\ncreate table a();\ncommit;'), 'should be refused');
+});
+
+await test('BEGIN/END inside a plpgsql body is not transaction control', () => {
+  const fn = `create function f() returns void language plpgsql as $$
+begin
+  update t set x = 1;
+end;
+$$;`;
+  eq(refusalReason(fn), null, 'reason');
+});
+
+await test('the refusals match the real migrations directory and nothing more', () => {
+  const dir = fileURLToPath(new URL('../../supabase/migrations/', import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith('.sql'));
+  const refused = files.filter((f) => refusalReason(readFileSync(`${dir}${f}`, 'utf8')));
+  // Most of the directory must still be auto-appliable: a matcher that reads
+  // every plpgsql body as a transaction would refuse hundreds and nobody
+  // would notice until merges stopped applying.
+  ok(refused.length < files.length * 0.2, `refused ${refused.length} of ${files.length}, which is too many to be right`);
+  ok(refused.length > 0, 'the known CONCURRENTLY and BEGIN/COMMIT files are refused');
+});
+
+console.log('\n-- which commits a run is responsible for --');
+
+await test("the base is the last successful run's commit, so a dropped run is caught up", () => {
+  // Merge A applied (run succeeded at A). B queued, C arrived and cancelled
+  // B's run. C's run must still see B's migration.
+  const picked = chooseBase({ lastSuccessSha: 'A', pushBefore: 'B', isAncestor: () => true });
+  eq(picked.base, 'A', 'base');
+  eq(picked.source, 'last-success', 'source');
+});
+
+await test('with no successful run yet, the push is the base', () => {
+  const picked = chooseBase({ lastSuccessSha: null, pushBefore: 'B', isAncestor: () => true });
+  eq(picked.base, 'B', 'base');
+  ok(picked.note, 'says why');
+});
+
+await test('a last-success commit that is not an ancestor is not used', () => {
+  const picked = chooseBase({ lastSuccessSha: 'X', pushBefore: 'B', isAncestor: (sha) => sha === 'B' });
+  eq(picked.base, 'B', 'base');
+});
+
+await test('an all-zero push base is never used', () => {
+  const picked = chooseBase({ lastSuccessSha: null, pushBefore: '0'.repeat(40), isAncestor: () => true });
+  eq(picked.base, null, 'base');
+  eq(picked.source, 'none', 'source');
 });
 
 console.log('\n-- the request --');
@@ -199,12 +252,13 @@ await test('a comment mentioning the keyword still applies', async () => {
   eq(out.results[0].status, 'applied', 'comment file');
 });
 
-await test('a file carrying its own BEGIN/COMMIT is sent as it is, with its record appended', async () => {
+await test('a file carrying its own BEGIN/COMMIT is refused, never half-recorded', async () => {
   const ep = fakeEndpoint();
-  await applyMigrations({ files: ['supabase/migrations/20261201060000_owntxn.sql'], readFile, runSql: ep.runSql });
-  const sent = ep.applied[0];
-  ok(sent.startsWith('begin;'), 'no wrapper was added in front');
-  ok(sent.indexOf('commit;') < sent.indexOf('insert into supabase_migrations'), 'the record follows the file');
+  const out = await applyMigrations({
+    files: ['supabase/migrations/20261201060000_owntxn.sql'], readFile, runSql: ep.runSql,
+  });
+  eq(out.results[0].status, 'refused', 'own-transaction file');
+  eq(ep.applied.length, 0, 'nothing was sent');
 });
 
 await test('a non-transactional endpoint means NOTHING is applied', async () => {

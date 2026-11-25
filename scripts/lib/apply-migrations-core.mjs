@@ -49,6 +49,18 @@ export function stripSqlComments(sql) {
     .replace(/--[^\n]*/g, ' ');
 }
 
+/**
+ * Comments, quoted literals and dollar-quoted bodies removed, so only SQL the
+ * server would execute at the top level is left to match against. Without the
+ * dollar-quoted part every plpgsql function body (`as $$ begin ... end; $$`)
+ * would read as transaction control.
+ */
+export function stripSqlBodies(sql) {
+  return stripSqlComments(sql)
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1?\$/g, ' $BODY$ ')
+    .replace(/'(?:[^']|'')*'/g, " '' ");
+}
+
 /** Why this file must not be applied by this workflow, or null. */
 export function refusalReason(sql) {
   const bare = stripSqlComments(sql);
@@ -58,7 +70,45 @@ export function refusalReason(sql) {
   if (/(^|[^a-z0-9_])vacuum([^a-z0-9_]|$)/i.test(bare)) {
     return 'uses VACUUM, which cannot run inside a transaction';
   }
+  // A file that commits its own transaction has already committed by the time
+  // the schema_migrations insert runs, so a lost connection at that moment
+  // would leave the migration APPLIED BUT UNRECORDED -- and a later run,
+  // seeing no record, would apply it a second time. The implicit transaction
+  // around the request already gives a file all-or-nothing behaviour, so an
+  // explicit BEGIN/COMMIT buys nothing and costs that. Refused, reported, and
+  // applied by hand (review cycle 1, PR #1405).
+  // Only at the top level: `begin ... end` inside a plpgsql body is not a
+  // transaction, which is why this reads the file with bodies and literals
+  // stripped and anchors each keyword to the start of a statement.
+  if (/(^|;)\s*(begin|start\s+transaction|commit|rollback)\b/i.test(stripSqlBodies(sql))) {
+    return 'carries its own transaction control (BEGIN / COMMIT), which would commit before its schema_migrations row is written';
+  }
   return null;
+}
+
+/**
+ * Which commit to diff against, so no push's migrations can be lost.
+ *
+ * A `concurrency` group with `cancel-in-progress: false` still drops a QUEUED
+ * run when a third arrives (scripts/CLAUDE.md). If that queued run was merge
+ * B's, nothing else would ever look at B's migrations, because merge C diffs
+ * only C's own push. So the base is the head of the last SUCCESSFUL run of
+ * this workflow -- everything merged since then is considered, however many
+ * runs were cancelled in between -- and the push's own `before` is only the
+ * fallback. Still "only on new": nothing before the last successful apply is
+ * ever looked at, and a version already recorded is skipped anyway.
+ *
+ * @param {{ lastSuccessSha?: string|null, pushBefore?: string|null, isAncestor: (sha:string)=>boolean }} opts
+ * @returns {{ base: string|null, source: 'last-success'|'push-before'|'none', note?: string }}
+ */
+export function chooseBase({ lastSuccessSha, pushBefore, isAncestor }) {
+  const usable = (sha) => Boolean(sha) && !/^0{40}$/.test(String(sha)) && isAncestor(String(sha));
+  if (usable(lastSuccessSha)) return { base: String(lastSuccessSha), source: 'last-success' };
+  const note = lastSuccessSha
+    ? 'the last successful run\'s commit is not an ancestor of this one; falling back to this push'
+    : 'no successful run of this workflow to catch up from; using this push alone';
+  if (usable(pushBefore)) return { base: String(pushBefore), source: 'push-before', note };
+  return { base: null, source: 'none', note };
 }
 
 /** The file plus its schema_migrations row, as one request's worth of SQL. */
