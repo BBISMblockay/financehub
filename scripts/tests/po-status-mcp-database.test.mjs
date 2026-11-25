@@ -44,6 +44,7 @@
 //   PO_STATUS_MUTATION=no-cap            the daily write cap is not checked
 //   PO_STATUS_MUTATION=no-idem           a retry moves the PO a second time
 //   PO_STATUS_MUTATION=no-history-stamp  the history row keeps the trigger's defaults
+//   PO_STATUS_MUTATION=trigger-keeps-creator  a person's own change is still logged as the PO's creator
 //   PO_STATUS_MUTATION=no-odd-seed       a status already in use gets no step row
 //   PO_STATUS_MUTATION=no-lazy-seed      a workspace with no steps yet gets none
 //   PO_STATUS_MUTATION=person-reads-all  the person's card reads other companies
@@ -295,6 +296,9 @@ switch (MUT) {
     mut('  if v_used >= public.silo_api_write_cap() then', '  if false then'); break;
   case 'no-idem':
     mut('  if v_prior.id is not null then', '  if false then'); break;
+  case 'trigger-keeps-creator':
+    mut("      new.id, old.status, new.status, coalesce(auth.uid(), new.created_by), null,\n      new.company_entity_id",
+        "      new.id, old.status, new.status, new.created_by, null,\n      new.company_entity_id"); break;
   case 'no-history-stamp':
     mut('  if v_hist is not null then', '  if false then'); break;
   case 'no-lazy-seed':
@@ -545,6 +549,33 @@ await check('the change is on the record: the reason, the document, the app and 
   assert.equal(c.requested_by, U.adminA, 'the person whose connection it is');
   assert.equal(c.company_entity_id, A, 'the grant\'s company, not a session\'s');
   assert.equal(c.grant_id, G.step);
+});
+
+await check('a person\'s own status change in SILO records THEM, not the PO\'s creator', async () => {
+  // The trigger stamped new.created_by for every change, so history named
+  // whoever opened the PO. Corrected in this migration, for every writer --
+  // the builder, a script and this scope alike.
+  // PO-4 was created by the member; the ADMIN moves it, so "the creator" and
+  // "whoever changed it" are different people and the bug is visible.
+  const before = await statusOf(PO_ODD);
+  await asPerson(U.adminA);
+  await db.query(`update po_headers set status = 'Shipped' where id = $1`, [PO_ODD]);
+  const h = await peek(async () => await one(`select * from po_status_history
+    where po_header_id = $1 order by changed_at desc, id desc limit 1`, [PO_ODD]));
+  assert.equal(h.new_status, 'Shipped', 'the change was recorded');
+  assert.equal(h.changed_by, U.adminA, 'the person who made the change, not the PO\'s creator');
+  assert.notEqual(h.changed_by, U.memberA, 'which is a different person here');
+  assert.equal(h.company_entity_id, A, 'and the PO\'s own company');
+
+  // A writer with no session at all (a sync script, the service role) keeps
+  // today's behaviour rather than writing a null.
+  await asService();
+  await db.query(`update po_headers set status = 'In Transit' where id = $1`, [PO_ODD]);
+  const h2 = await one(`select changed_by, company_entity_id from po_status_history
+    where po_header_id = $1 order by changed_at desc, id desc limit 1`, [PO_ODD]);
+  assert.equal(h2.changed_by, U.memberA, 'falls back to the PO\'s creator, never null');
+  assert.equal(h2.company_entity_id, A, 'and the company is still the PO\'s');
+  await db.query(`update po_headers set status = $2 where id = $1`, [PO_ODD, before]);
 });
 
 await check('the PO\'s own history row names the approving person and the app, not the trigger\'s defaults', async () => {

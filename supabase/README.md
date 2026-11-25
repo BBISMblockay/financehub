@@ -3976,7 +3976,13 @@ cap, and a required idempotency key. Each change is recorded in
 `po_status_changes` with the reason and the document, and the PO's own
 `po_status_history` row is stamped with the approving person and "Via <app>" in
 place of the trigger's defaults. `silo_po_status_changes_recent()` is the card
-PO Report shows afterwards. Apply before deploying `mcp`; the scope cannot be
+PO Report shows afterwards. The same migration corrects
+`log_po_status_change()` itself, which exists in no migration and had stamped
+`changed_by` with the PO's **creator** for every status change since it was
+written (566 rows on production, 2026-11-25): it now records whoever made the
+change, falling back to the creator only where there is no session at all (a
+sync script), and takes `company_entity_id` from the PO rather than the
+session's active company. Apply before deploying `mcp`; the scope cannot be
 granted until it is applied.
 
 ### Affiliate creator codes — 2026-11-17

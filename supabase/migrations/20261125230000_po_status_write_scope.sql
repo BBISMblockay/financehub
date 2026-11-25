@@ -801,10 +801,12 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- The PO's own history row exists already (log_po_status_change). Its
-  -- defaults are wrong for a connection: the trigger stamps changed_by with
-  -- the PO's CREATOR, and the company stamp reads the approver's session,
-  -- which is not necessarily the grant's company. Say who and why instead.
+  -- The PO's own history row exists already (log_po_status_change, corrected
+  -- in this migration to record whoever made the change). auth.uid() inside a
+  -- connection's call IS the approving person, so this mostly confirms what
+  -- the trigger wrote -- but it is written explicitly anyway, because the
+  -- authority here is the GRANT's and must not depend on a session claim, and
+  -- because the note is where the app and the reason go.
   select h.id into v_hist
     from public.po_status_history h
    where h.po_header_id = v_po.id
@@ -854,6 +856,56 @@ comment on function public.silo_api_set_po_status(uuid, text, text, text, text, 
 revoke all on function public.silo_api_set_po_status(uuid, text, text, text, text, text)
   from public, anon, authenticated, silo_revoked;
 grant execute on function public.silo_api_set_po_status(uuid, text, text, text, text, text) to silo_integration;
+
+-- -- 8b. Who changed a PO's step, for everyone -------------------------------
+-- log_po_status_change() exists in no migration (it was applied by hand) and
+-- has recorded the WRONG person since it was written: `new.created_by` is the
+-- PO's CREATOR, so every status change in po_status_history -- a person's own
+-- edit in PO Builder included -- was attributed to whoever opened the PO.
+-- Measured on production 2026-11-25: 566 history rows, all of them stamped
+-- that way. Since this feature's whole claim is that a step says who moved it,
+-- the trigger is corrected here rather than only in the function above.
+--
+-- Restated whole (production's body otherwise matches this), with two changes:
+--   * changed_by is whoever is making the change, falling back to the PO's
+--     creator when there is no session at all (a sync script or the service
+--     role) -- which is exactly today's behaviour for those writers, so no
+--     caller starts writing NULL.
+--   * company_entity_id comes from the PO, not from the session's active
+--     company. The stamp trigger on po_status_history reads
+--     active_company_id(), which is null for a script and can be another
+--     company for a connection acting for someone looking elsewhere.
+create or replace function public.log_po_status_change()
+returns trigger
+language plpgsql
+set search_path = 'public'
+as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.po_status_history (
+      po_header_id, old_status, new_status, changed_by, note, company_entity_id
+    ) values (
+      new.id, null, new.status, coalesce(auth.uid(), new.created_by), 'Initial status',
+      new.company_entity_id
+    );
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' and new.status is distinct from old.status then
+    insert into public.po_status_history (
+      po_header_id, old_status, new_status, changed_by, note, company_entity_id
+    ) values (
+      new.id, old.status, new.status, coalesce(auth.uid(), new.created_by), null,
+      new.company_entity_id
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+comment on function public.log_po_status_change() is
+  'Records every purchase-order status change in po_status_history: who MADE the change (auth.uid(), falling back to the PO''s creator where there is no session, as a sync script has none) and the PO''s own company, not the session''s active one. Until 20261125230000 it stamped the PO''s creator for every change, so history named the wrong person.';
 
 -- -- 9. What PO Report shows ---------------------------------------------------
 -- The steps connected apps set lately, for the card in PO Report. The

@@ -11087,5 +11087,9 @@ select 'PO step set by AI' as check_name,
     when exists (select 1 from public.po_status_options o
                   where o.ai_settable and o.needs_receipt)
       then 'CRITICAL: a step that means units arrived is also settable by a connection'
+    when position('coalesce(auth.uid(), new.created_by)' in pg_get_functiondef('public.log_po_status_change()'::regprocedure)) = 0
+      then 'BROKEN — a PO status change is logged against the PO''s creator instead of whoever made it'
+    when position('new.company_entity_id' in pg_get_functiondef('public.log_po_status_change()'::regprocedure)) = 0
+      then 'BROKEN — a PO status history row takes its company from the session, not from the PO'
     else 'ok'
   end as status;
