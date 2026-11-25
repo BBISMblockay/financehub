@@ -3025,7 +3025,7 @@ jobs:
       - name: The customer-find guards, removed, must break it
         run: |
           set -u
-          for m in notwins noscope anonmirror; do
+          for m in notwins scoped nodrop anonmirror; do
             if CUST_GUARDS_DB_MUTATION="$m" node scripts/tests/affiliate-customer-guards-database.test.mjs >/dev/null 2>&1; then
               echo "::error::mutation $m did not fail the suite -- the guard it removes is untested"
               exit 1
