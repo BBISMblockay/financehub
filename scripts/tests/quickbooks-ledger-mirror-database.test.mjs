@@ -23,6 +23,7 @@ process.on('unhandledRejection', (e) => { console.error('\nFAILED:', e?.message 
 process.on('uncaughtException', (e) => { console.error('\nFAILED:', e?.message || e); process.exit(1); });
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { PGlite } from './finance-db/node_modules/@electric-sql/pglite/dist/index.js';
 
 const db = new PGlite();
@@ -475,6 +476,64 @@ await test('an entry SILO sent and someone changed is marked edited', async () =
   // Put back as sent.
   await store(september());
   assert.deepEqual(await sources(), ['silo']);
+});
+
+// ── the sync page's "QuickBooks and SILO agree" (v2/quickbooks-sync.js) ─────
+// The page's own SQL, run the way the report engine wraps it.
+// QBSYNC_MUTATION=<name> breaks one rule of it; the suite must then fail.
+const AGREE_MUTATIONS = {
+  'agree-ignores-amount': [`abs(round(coalesce(s.amt, 0), 2) - round(coalesce(h.amt, 0), 2)) as off`, `0::numeric as off`],
+  'agree-ignores-day': [`coalesce(bool_or(same_day is false), false) as moved`, `false as moved`],
+  'agree-judges-unread': [`judged as (select s.* from sent s where exists (select 1 from covered c`, `judged as (select s.* from sent s where true or exists (select 1 from covered c`],
+  'agree-counts-unposted': [` and p.status = 'posted' and p.qbo_journal_entry_id is not null`, ` and p.qbo_journal_entry_id is not null`],
+  'agree-by-any-type': [` and m.qbo_transaction_id = e.txn and m.transaction_type = 'Journal Entry'`, ` and m.qbo_transaction_id = e.txn`],
+  'agree-unchecked-company': [`if (!UUID.test(String(companyId || ''))) throw new Error('Select a company first');`, ``],
+};
+let syncSource = readFileSync(new URL('../../v2/quickbooks-sync.js', import.meta.url), 'utf8');
+if (process.env.QBSYNC_MUTATION) {
+  const m = AGREE_MUTATIONS[process.env.QBSYNC_MUTATION];
+  if (!m) throw new Error(`unknown QBSYNC_MUTATION ${process.env.QBSYNC_MUTATION}`);
+  if (syncSource.split(m[0]).length !== 2) throw new Error(`mutation ${process.env.QBSYNC_MUTATION} no longer matches the page`);
+  syncSource = syncSource.replace(m[0], m[1]);
+}
+const syncWindow = {};
+vm.runInNewContext(syncSource, { window: syncWindow, Date, Map, Set, Number, Array, Object, Promise, Error, String, Math, Boolean });
+const Sync = syncWindow.SiloQuickBooksSync;
+const agree = async (co = CO) => (await q(`select * from (${Sync.agreementSql(co)}) user_query limit 1000 offset 0`))
+  .map((r) => `${r.month} entries=${r.entries} changed=${r.changed} off=${Number(r.amount).toFixed(2)}`);
+
+await test('the sync page: an entry QuickBooks still holds as sent agrees; a change, a move or a delete differs', async () => {
+  // A posted entry in a month nobody has read back, one that failed, and a
+  // different kind of QuickBooks transaction that happens to share J7's id.
+  await posting('J200', 'SILO-DEC', '2026-12-05', [['30', 'Debit', 9], ['40', 'Credit', 9]]);
+  await posting('J201', 'SILO-BAD', '2026-09-20', [['30', 'Debit', 77], ['40', 'Credit', 77]], 'failed');
+  await store(september());
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=0 off=0.00']);
+  // 100 moved from the warehouse account to its parent.
+  await store(september({ ...SEPT_ROWS,
+    rent: [['2026-09-10', 'Journal Entry', 'J7', 'SILO-AAA', '', 'Rent', '-Split-', 500]], rentWh: [] }));
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=100.00']);
+  // Same amounts, two days later.
+  const moved = (rows) => rows.map((r) => (r[2] === 'J7' ? ['2026-09-12', ...r.slice(1)] : r));
+  await store(september({ ...SEPT_ROWS, rent: moved(SEPT_ROWS.rent), rentWh: moved(SEPT_ROWS.rentWh), visa: moved(SEPT_ROWS.visa) }));
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=0.00']);
+  // Deleted in QuickBooks: the whole entry is the difference.
+  const without = (rows) => rows.filter((r) => r[2] !== 'J7');
+  await store(september({ ...SEPT_ROWS, rent: without(SEPT_ROWS.rent), rentWh: without(SEPT_ROWS.rentWh), visa: without(SEPT_ROWS.visa) }));
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=500.00']);
+  // A deposit that carries the same id is not SILO's journal entry.
+  await store(september({ ...SEPT_ROWS,
+    rent: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 400]],
+    rentWh: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 100]],
+    visa: [['2026-09-10', 'Deposit', 'J7', '', '', 'Rent', '-Split-', 500]] }));
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=1 off=500.00']);
+  await store(september());
+  assert.deepEqual(await agree(), ['2026-09 entries=1 changed=0 off=0.00']);
+  // Another company is never judged from this one's entries, and a value that
+  // is not a company id never reaches the SQL.
+  assert.deepEqual(await agree('00000000-0000-4000-a000-0000000000ff'), []);
+  assert.throws(() => Sync.agreementSql(`${CO}' or true --`), /Select a company/);
+  assert.throws(() => Sync.agreementSql(null), /Select a company/);
 });
 
 await test('a SILO-looking number on someone else\'s entry is not SILO\'s', async () => {
