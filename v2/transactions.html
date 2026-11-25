@@ -2417,7 +2417,7 @@
       .map((t) => t.id).slice(0, 150);
     if (!want.length) return;
     for (const id of want) proposalAsked.add(id);
-    sb.rpc('card_payment_match_offers', { p_transaction_ids: want, p_days: 7 })
+    sb.rpc('card_payment_offers', { p_transaction_ids: want, p_days: 7 })
       .then(({ data, error }) => {
         // A failed read offers nothing rather than claiming there is nothing.
         if (error) { for (const id of want) proposalAsked.delete(id); return; }
@@ -2494,7 +2494,12 @@
     }
     let body = '';
     if (offer && !offer.other_transaction_id && !search) {
-      body = `<p class="cc-note">${offer.candidate_count} ${otherWord}s of this amount are within 7 days, so pick the one that belongs to this.</p>`;
+      /* Two reasons there is no one-click: several candidates, or one
+         candidate that another row is equally entitled to. The second used to
+         show a Confirm on both rows and refuse the second press. */
+      body = offer.contested
+        ? `<p class="cc-note">The same ${otherWord} is the only candidate for another row as well, so pick the one that belongs to this.</p>`
+        : `<p class="cc-note">${offer.candidate_count} ${otherWord}s of this amount are within 7 days, so pick the one that belongs to this.</p>`;
     }
     /* Searching by hand stays a card-side tool. From the bank side the row
        that would change is somebody else's screen, and the proposal already
@@ -2510,7 +2515,8 @@
         + search.rows.map((r) => `<tr><td class="bcn-mono">${esc(r.txn_date || '')}</td>`
           + `<td>${esc(r.source_name || '')}<div class="cc-note">${esc(r.description || '')}</div></td>`
           + `<td class="bcn-num">${esc(money(Math.abs(Number(r.amount))))}</td>`
-          + `<td>${esc(matchStateLine(r))}${r.day_gap ? `<div class="cc-note">${r.day_gap} day${r.day_gap === 1 ? '' : 's'} apart</div>` : ''}</td>`
+          + `<td>${esc(matchStateLine(r))}${r.day_gap ? `<div class="cc-note">${r.day_gap} day${r.day_gap === 1 ? '' : 's'} apart</div>` : ''}`
+          + `${r.name_signal === 'other_source' ? '<div class="cc-note">Names a different account</div>' : ''}</td>`
           + `<td><button class="bcn-btn bcn-btn--primary" type="button" data-link-match="${esc(r.transaction_id)}">Match</button></td></tr>`).join('')
         + '</tbody></table>';
     }
@@ -2530,7 +2536,8 @@
     const offer = proposalFor(t);
     if (!offer) return '';
     if (!offer.other_transaction_id) {
-      return `<div class="cc-note"><b>${offer.candidate_count} possible matches</b><br>Open the row to pick one.</div>`;
+      return `<div class="cc-note"><b>${offer.contested ? 'Shared with another row' : `${offer.candidate_count} possible matches`}</b>`
+        + '<br>Open the row to pick one.</div>';
     }
     const locked = !rowEditable(t) || state.dirty.has(t.id) ? 'disabled' : '';
     return `<div class="cc-note"><b>Matches ${esc(offer.other_source_name || 'another account')}</b><br>`
@@ -2552,7 +2559,7 @@
       const days = Number(find.dataset.findMatch) || 7;
       matchSearch = { id: t.id, days, rows: [], busy: true, error: '' };
       renderTxnDetailDrawer();
-      const { data, error } = await sb.rpc('card_payment_match_candidates', { p_transaction_id: t.id, p_days: days });
+      const { data, error } = await sb.rpc('card_payment_match_options', { p_transaction_id: t.id, p_days: days });
       if (!matchSearch || matchSearch.id !== t.id) return;   // the reader moved on
       matchSearch = { id: t.id, days, rows: data || [], busy: false,
         error: error ? `Could not look for a match — ${error.message}` : '' };

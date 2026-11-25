@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MUT = process.env.NIGHTLY_FIND_MUTATION || '';
 const SRC = new URL('../affiliate-nightly-find.mjs', import.meta.url);
@@ -24,13 +25,19 @@ switch (MUT) {
   case 'quietfail': mutate('      failed += 1;\n', ''); break;
   default: throw new Error(`unknown mutation ${MUT}`);
 }
-// The module imports @supabase/supabase-js at the top; run it from a copy
-// next to the original so that import resolves the same way.
-const dir = path.dirname(new URL(SRC).pathname);
-const copy = path.join(dir, `.nightly-find-under-test-${process.pid}.mjs`);
-await writeFile(copy, src);
-let mod;
-try { mod = await import(copy); } finally { await import('node:fs/promises').then((f) => f.rm(copy, { force: true })); }
+// The module imports @supabase/supabase-js at the top, and the Unit job runs
+// without node_modules -- so running a copy next to the original died on
+// ERR_MODULE_NOT_FOUND there while passing anywhere npm install had been run.
+// Point that import at a stub instead, which is the pattern the creative
+// backfill driver tests already use. Nothing here needs the real client:
+// every test injects its own `db`, and createClient is only reached by the
+// command-line path.
+const dir = await mkdtemp(path.join(tmpdir(), 'nightly-find-'));
+const stub = path.join(dir, 'supabase-stub.mjs');
+await writeFile(stub, 'export const createClient = () => { throw new Error("not used under test"); };\n');
+const copy = path.join(dir, 'nightly-find-under-test.mjs');
+await writeFile(copy, src.replace("from '@supabase/supabase-js'", `from '${pathToFileURL(stub).href}'`));
+const mod = await import(pathToFileURL(copy).href);
 
 let passed = 0;
 async function test(name, fn) {
