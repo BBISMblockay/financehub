@@ -868,7 +868,7 @@ await test('Discovery is the same Affiliate Studio usage: its Google searches ar
   } finally { delete globalThis.__studioSpend; }
 });
 
-// ── Nightly Discovery (20261125070000) ───────────────────────────────────
+// ── Nightly Discovery (20261125100000) ───────────────────────────────────
 const SVC = 'Bearer svc-key';
 const nightRuns = (x) => x.service.tables.affiliate_discovery_runs.filter((r) => r.nightly === true);
 await test('nightly Discovery: only the schedule starts it, only where its own switch is on', async () => {

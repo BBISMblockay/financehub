@@ -45,7 +45,7 @@ end $$;
 -- 2 ── Which Discovery runs the schedule started ─────────────────────────
 alter table public.affiliate_discovery_runs add column if not exists nightly boolean not null default false;
 comment on column public.affiliate_discovery_runs.nightly is
-  'true = started by the nightly Discovery (affiliate-research nightly_discovery), not a person. 20261125070000.';
+  'true = started by the nightly Discovery (affiliate-research nightly_discovery), not a person. 20261125100000.';
 
 -- 3 ── The figure the page and the function share ────────────────────────
 create or replace function public.affiliate_studio_spend(p_company uuid, p_scan uuid default null)

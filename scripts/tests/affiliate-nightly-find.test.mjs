@@ -49,7 +49,7 @@ const SETTINGS = [
   { company_entity_id: 'd', nightly_enabled: true, discovery_nightly_enabled: false },
 ];
 // tableError: every read fails. noDiscoveryColumn: only a read naming the
-// Discovery column fails (the database before 20261125070000).
+// Discovery column fails (the database before 20261125100000).
 function fakeDb({ answers = {}, tableError = null, noDiscoveryColumn = false, settings = SETTINGS } = {}) {
   const calls = [];
   const db = {

@@ -27,7 +27,7 @@
 //   STUDIO_SPEND_DB_MUTATION=heldall     another run's spend so far counts toward this run
 //   STUDIO_SPEND_DB_MUTATION=discclobber saving the Find limits resets the Discovery ones
 //
-// 20261125070000 (nightly Discovery) is applied after it, both twice, in order.
+// 20261125100000 (nightly Discovery) is applied after it, both twice, in order.
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -81,7 +81,7 @@ insert into entity_memberships values ('${CO_A}', '${OWNER}'), ('${CO_A}', '${ME
 `);
 
 let sql = await readFile(new URL('../../supabase/migrations/20261125040000_affiliate_studio_spend.sql', import.meta.url), 'utf8')
-  + '\n' + await readFile(new URL('../../supabase/migrations/20261125070000_affiliate_studio_nightly_discovery.sql', import.meta.url), 'utf8');
+  + '\n' + await readFile(new URL('../../supabase/migrations/20261125100000_affiliate_studio_nightly_discovery.sql', import.meta.url), 'utf8');
 function mutate(from, to) {
   assert.ok(sql.includes(from), `mutation ${MUT}: pattern not found`);
   sql = sql.split(from).join(to);
@@ -193,7 +193,7 @@ await test('F: a member reads only their own company\'s settings row', async () 
   assert.deepEqual(rows.map((x) => x.company_entity_id), [CO_A]);
 });
 
-// ── Nightly Discovery (20261125070000) ─────────────────────────────────
+// ── Nightly Discovery (20261125100000) ─────────────────────────────────
 const RUN = '44444444-4444-4444-4444-444444444444';
 const RATE = '55555555-5555-5555-5555-555555555555';
 await test('G: Discovery has its own nightly switch and limits; saving Find alone keeps them', async () => {

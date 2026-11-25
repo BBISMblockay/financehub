@@ -213,7 +213,7 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
       assert.doesNotMatch(await page.locator('#studio').textContent(), /nightly Discovery/);
     });
     await page.close();
-    // Nightly Discovery (20261125070000): its own switch and limits, modest
+    // Nightly Discovery (20261125100000): its own switch and limits, modest
     // by default; the last run shows counts only.
     const disc = { ...studio, discovery_nightly_enabled: false, discovery_night_creators: 10, discovery_night_max_micros: 1000000,
       last_discovery: { started_at: '2026-10-06T13:20:00Z', status: 'ok', new: 7, program: 'Coaches' } };

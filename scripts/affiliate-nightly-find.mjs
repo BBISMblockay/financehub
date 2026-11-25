@@ -1,5 +1,5 @@
 // Affiliate Studio's nightly Find (20261125040000) and nightly Discovery
-// (20261125070000), each switched on separately in Billing.
+// (20261125100000), each switched on separately in Billing.
 //
 // For every company that turned it on in Workspace Settings → Billing
 // (affiliate_studio_spend_settings.nightly_enabled), start ONE Find over its
@@ -30,7 +30,7 @@ async function readSettings(db) {
     .select('company_entity_id, nightly_enabled, discovery_nightly_enabled')
     .or('nightly_enabled.eq.true,discovery_nightly_enabled.eq.true').order('company_entity_id').limit(5000);
   if (!r.error) return r;
-  // Before 20261125070000 there is no Discovery column: keep running Find.
+  // Before 20261125100000 there is no Discovery column: keep running Find.
   if (/discovery_nightly_enabled/.test(`${r.error.message}`)) {
     return db.from('affiliate_studio_spend_settings').select('company_entity_id, nightly_enabled')
       .eq('nightly_enabled', true).order('company_entity_id').limit(5000);

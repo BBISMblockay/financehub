@@ -580,7 +580,7 @@
       ? `${esc(dateText(n.started_at))} · ${Number(n.checked || 0)} checked · ${Number(n.likely || 0)} Likely${Number(n.to_check) ? ` · ${Number(n.to_check)} to check` : ''}${n.status === 'running' ? ' · running' : ''}`
       : 'No nightly run yet';
     const dis = s.can_edit ? '' : ' disabled';
-    // Discovery fields only once the database carries them (20261125070000).
+    // Discovery fields only once the database carries them (20261125100000).
     const hasDisc = 'discovery_nightly_enabled' in s;
     const d = s.last_discovery;
     const disc = d
