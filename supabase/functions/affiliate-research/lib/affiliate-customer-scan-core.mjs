@@ -129,12 +129,51 @@ export function parseFollowers(text) {
   return { count: Math.round(n), approx: !!unit || !!m[3], quote: m[0].trim() };
 }
 
-/** Does this profile carry the customer's own name? First AND last, in the title or the handle. */
+// ── Nicknames ────────────────────────────────────────────────────────────
+// A customer stored as "Mike Smith" may call themselves "Michael Smith" on
+// their profile, and the other way round (audit fix 6, 2026-11-24). Each group
+// is one first name; any spelling in it stands for the others. Only the FIRST
+// name widens -- the surname must still be theirs -- and a nickname alone adds
+// no score: it lets a profile be considered, never makes it Likely.
+// Shorter than 3 letters is left out ("al", "ed" sit inside other words).
+export const NICKNAMES = [
+  ['michael', 'mike', 'mikey', 'mick', 'mickey'], ['william', 'will', 'bill', 'billy', 'liam'], ['robert', 'rob', 'bob', 'bobby', 'robbie'],
+  ['richard', 'rich', 'rick', 'ricky', 'dick'], ['james', 'jim', 'jimmy', 'jamie'], ['john', 'jack', 'johnny'], ['jonathan', 'jon', 'jonny'],
+  ['joseph', 'joe', 'joey'], ['thomas', 'tom', 'tommy'], ['christopher', 'chris', 'topher'], ['daniel', 'dan', 'danny'],
+  ['matthew', 'matt', 'matty'], ['anthony', 'tony'], ['andrew', 'andy', 'drew'], ['joshua', 'josh'], ['nicholas', 'nick', 'nicky'],
+  ['benjamin', 'ben', 'benny'], ['samuel', 'sam', 'sammy'], ['alexander', 'alex', 'xander'], ['zachary', 'zach', 'zack'],
+  ['nathaniel', 'nathan', 'nate'], ['timothy', 'tim', 'timmy'], ['steven', 'steve', 'stevie'], ['stephen', 'steve', 'stevie'],
+  ['edward', 'eddie', 'ted', 'ned'], ['charles', 'charlie', 'chuck'], ['gregory', 'greg'], ['jeffrey', 'jeff'], ['kenneth', 'ken', 'kenny'],
+  ['patrick', 'pat', 'paddy'], ['peter', 'pete'], ['ronald', 'ron', 'ronnie'], ['donald', 'don', 'donnie'], ['douglas', 'doug'],
+  ['raymond', 'ray'], ['gerald', 'gerry', 'jerry'], ['lawrence', 'larry'], ['frederick', 'fred', 'freddie'], ['jacob', 'jake'],
+  ['elizabeth', 'liz', 'lizzie', 'beth', 'betsy', 'eliza'], ['katherine', 'kate', 'katie', 'kathy', 'kat'], ['catherine', 'cathy', 'cat', 'kate', 'katie'],
+  ['margaret', 'maggie', 'meg', 'peggy'], ['jennifer', 'jen', 'jenn', 'jenny'], ['jessica', 'jess', 'jessie'], ['rebecca', 'becca', 'becky'],
+  ['samantha', 'sam', 'sammy'], ['alexandra', 'alex', 'lexi', 'sasha'], ['victoria', 'vicky', 'tori'], ['patricia', 'pat', 'patty', 'trish'],
+  ['deborah', 'deb', 'debbie'], ['susan', 'sue', 'suzy'], ['kimberly', 'kim'], ['christina', 'chris', 'tina'], ['christine', 'chris', 'tina'],
+  ['abigail', 'abby'], ['madeline', 'maddie'], ['madison', 'maddie'], ['stephanie', 'steph'], ['nicole', 'nikki'], ['amanda', 'mandy'],
+  ['natalie', 'nat'], ['gabriella', 'gabby', 'ella'], ['gabrielle', 'gabby'], ['olivia', 'liv', 'livvy'], ['isabella', 'bella', 'izzy'],
+].map((g) => g.filter((w) => w.length >= 3));
+const NICK_OF = new Map();
+for (const g of NICKNAMES) for (const w of g) NICK_OF.set(w, [...new Set([...(NICK_OF.get(w) || []), ...g])]);
+/** Every first name that stands for this one (itself first). Pure. */
+export function firstNames(first) {
+  const f = fold(first).replace(/[^a-z'-]/g, '');
+  return [f, ...(NICK_OF.get(f) || []).filter((w) => w !== f)];
+}
+
+/**
+ * Does this profile carry the customer's own name? First AND last, in the
+ * title or the handle. The first name may be any of its nicknames; a nickname
+ * has to be a whole word of the title, or 4+ letters of the handle, so "tom"
+ * never matches "tomato".
+ */
 export function nameOnProfile(candidate, person) {
   const title = fold(`${candidate.display_name || ''} ${candidate.evidence?.title || ''}`);
   const handle = fold(candidate.handle || '').replace(/[^a-z]/g, '');
   const has = (w) => title.includes(w) || handle.includes(w.replace(/[^a-z]/g, ''));
-  return has(person.first) && has(person.last);
+  const words = ` ${title.replace(/[^a-z]+/g, ' ')} `;
+  const nick = (w) => words.includes(` ${w} `) || (w.length >= 4 && handle.includes(w));
+  return (has(person.first) || firstNames(person.first).slice(1).some(nick)) && has(person.last);
 }
 
 const textOf = (c) => `${c.evidence?.title || ''} ${c.evidence?.snippet || ''}`;
