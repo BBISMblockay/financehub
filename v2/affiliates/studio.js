@@ -814,7 +814,10 @@ function ctxProgram(ds) {
 // to look at"). A tab left with nothing says so once (see render()).
 const EMPTY_ONLY = /^\s*<div class="bcn-empty">[^<]*<\/div>\s*$/;
 const card = (title, body, meta = '', extraClass = '') => (EMPTY_ONLY.test(body) ? '' : `<div class="bcn-card${extraClass ? ` ${extraClass}` : ''}"><div class="bcn-card-header"><h2>${esc(title)}</h2>${meta ? `<span class="bcn-card-meta">${meta}</span>` : ''}</div><div class="bcn-card-body">${body}</div></div>`);
-const empty = (t) => `<div class="bcn-empty">${esc(t)}</div>`;
+// An empty box can carry the one button that fills it (audit finding 12,
+// 2026-11-25). `go` is that button; a box with one is never dropped as empty,
+// which is the point of it.
+const empty = (t, go = '') => `<div class="bcn-empty">${esc(t)}${go ? `<div class="af-empty-go">${go}</div>` : ''}</div>`;
 // ── Search ───────────────────────────────────────────────────────────────
 // One box at the top of every tab (Blake 2026-11-24: "ALL tabs should and
 // need to be searchable"; he chose filter-in-place plus jump links). Every
@@ -829,13 +832,19 @@ const plainText = (html) => String(html || '')
   .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
   .toLowerCase();
 const textHits = (text, words = findWords()) => words.every((w) => text.includes(w));
-const findEmpty = (emptyText) => (findWords().length ? empty(`No matches for "${S.find.trim()}" here.`) : empty(emptyText));
+// `emptyText` is the line, or { text, go } when there is a button that fills it.
+const findEmpty = (e) => (findWords().length
+  ? empty(`No matches for "${S.find.trim()}" here.`)
+  : empty(typeof e === 'string' ? e : (e?.text || ''), typeof e === 'string' ? '' : (e?.go || '')));
 // A column with `sort` gets a header button; `sort` on the table says which
 // action it fires and which key and direction are on now.
 function table(cols, rows, emptyText = 'Nothing here yet.', sort = null) {
   if (findWords().length) rows = rows.filter((r) => textHits(plainText(cols.map((c) => c.f(r)).join(' '))));
   if (!rows.length) return findEmpty(emptyText);
   const head = (c) => {
+    // A column may draw its own heading (the select-all box); everything else
+    // is text, escaped.
+    if (c.hHtml) return c.hHtml;
     if (!sort || !c.sort) return esc(c.h);
     const on = sort.k === c.sort;
     const arrow = on ? (sort.dir > 0 ? '↑' : '↓') : '↕';
@@ -870,6 +879,28 @@ function queue(k, rows, renderRow, actions, emptyText, opts = {}) {
   const bar = can ? `<div class="af-row af-bulk af-q-bar"><label class="af-q-all"><input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} /> Select all ${num(rows.length)}</label>${sel.size ? `<span class="af-mono">${num(sel.size)} selected</span>${actions.map(([label, act, kind = 'surface', opts = {}]) => btn(label, act, { q: k }, kind, opts)).join('')}` : ''}</div>` : '';
   const pick = (r) => (can ? `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />` : '');
   return `${bar}<div class="af-q${opts.grid ? ' af-q--grid' : ''}" role="list">${rows.map((r) => `<div class="af-q-row${sel.has(r.id) ? ' is-selected' : ''}" role="listitem">${pick(r)}<div class="af-q-body">${renderRow(r)}</div></div>`).join('')}</div>`;
+}
+// The same queue as a dense table: one row per line, the ticks in the first
+// column and Select all in its header (audit finding 7, 2026-11-25). The
+// selection bookkeeping is `queue`'s, so the bulk actions are unchanged.
+function queueTable(k, rows, cols, actions, emptyText) {
+  const sel = qsel(k);
+  const txt = (r) => plainText(cols.map((c) => c.f(r)).join(' '));
+  if (findWords().length) rows = rows.filter((r) => textHits(txt(r)));
+  const ids = rows.map((r) => r.id); QROWS[k] = ids;
+  for (const id of [...sel]) if (!ids.includes(id)) sel.delete(id);
+  if (!rows.length) return findEmpty(emptyText);
+  const can = actions.length > 0;
+  const all = ids.length > 0 && ids.every((id) => sel.has(id));
+  const bar = can && sel.size
+    ? `<div class="af-row af-bulk af-q-bar"><span class="af-mono">${num(sel.size)} selected</span>${
+      actions.map(([label, act, kind = 'surface', o = {}]) => btn(label, act, { q: k }, kind, o)).join('')}</div>`
+    : '';
+  const pickCol = can ? [{
+    hHtml: `<input type="checkbox" class="af-pick" data-act="q-all" data-q="${k}"${all ? ' checked' : ''} aria-label="Select all ${num(rows.length)}" />`,
+    f: (r) => `<input type="checkbox" class="af-pick af-q-pick" data-act="q-pick" data-q="${k}" data-id="${esc(r.id)}" aria-label="Select"${sel.has(r.id) ? ' checked' : ''} />`,
+  }] : [];
+  return `${bar}${table([...pickCol, ...cols], rows, emptyText)}`;
 }
 const picked = (k) => [...qsel(k)];
 
@@ -920,7 +951,10 @@ function catalogStatBar(pct) {
 }
 const btn = (label, act, data = {}, kind = 'surface', opts = {}) => {
   const mod = kind === 'surface' ? '' : ` bcn-btn--${kind}`;
-  return `<button class="bcn-btn${mod}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+  // `title` is for a button whose label is a glyph: the sentence a screen
+  // reader and a hover both get.
+  const extra = `${opts.cls ? ` ${opts.cls}` : ''}`;
+  return `<button class="bcn-btn${mod}${extra}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}${opts.confirm ? ' data-confirm="1"' : ''}${opts.disabled ? ' disabled' : ''}${opts.title ? ` title="${esc(opts.title)}" aria-label="${esc(opts.title)}"` : ''}>${esc(label)}</button>`;
 };
 const field = (label, inner) => `<div class="bcn-field-group"><label class="bcn-label">${esc(label)}</label>${inner}</div>`;
 // The same, with the sentence that used to sit under the field on hover
@@ -987,14 +1021,32 @@ function renderRecords() {
   }
   renderManagers();
 }
-const surface = (title, body, meta = '', id = '') => {
-  if (EMPTY_ONLY.test(body)) return '';
+// Records tables sort in place: the header says which column and which way,
+// and the rows are ordered here (table() only draws the header).
+const recSortSpec = () => ({ act: 'rec-sort', k: S.recSort?.k || '', dir: S.recSort?.dir || -1 });
+const recSortRows = (rows, getters) => {
+  const sp = S.recSort;
+  if (!sp?.k || !getters[sp.k]) return rows;
+  const g = getters[sp.k];
+  return [...rows].sort((a, b) => {
+    const x = g(a); const y = g(b);
+    if (x === y) return 0;
+    if (x === null || x === undefined || x === '') return 1;
+    if (y === null || y === undefined || y === '') return -1;
+    return (x > y ? 1 : -1) * sp.dir;
+  });
+};
+// `actions` are buttons that belong to the whole list and stay in its header,
+// so a control like Export never hides at the bottom of a card (audit
+// finding 5).
+const surface = (title, body, meta = '', id = '', actions = '') => {
+  if (EMPTY_ONLY.test(body) && !actions) return '';
   const idAttr = id ? ` id="${esc(id)}"` : '';
-  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
+  return `<section class="af-surface"${idAttr}><header class="af-surface-head"><h2>${esc(title)}</h2>${meta ? `<span class="af-muted">${esc(meta)}</span>` : ''}${actions ? `<div class="af-surface-acts">${actions}</div>` : ''}</header><div class="af-surface-body">${body}</div></section>`;
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
-const money = (c) => formatMoney(c, ovCur());
+const money = (c, currency = null) => formatMoney(c, currency || ovCur());
 
 function scrollWorkflowTo(id) {
   requestAnimationFrame(() => {
@@ -1200,6 +1252,19 @@ const CUST_DEFAULTS = () => ({
   // view) or 'all' (every customer, tagged). huntTier picks which finds.
   view: 'hunt', huntTier: 'top', hunt: null,
 });
+// Which of the Your Customers filters are not the ones the page opens with:
+// the count on the Filter button, so an untouched view says "Filter" rather
+// than "Filter · 3" for its own defaults.
+const custFiltersOn = (c, spec) => {
+  const dflt = { from: dayShift(today(), 365), to: today(), minOrders: 3, consent: 'any' };
+  return [
+    spec.from && spec.from !== dflt.from ? 'from' : '',
+    spec.to && spec.to !== dflt.to ? 'to' : '',
+    spec.minOrders !== dflt.minOrders ? 'minOrders' : '',
+    spec.consent !== dflt.consent ? 'consent' : '',
+    c.socialOnly ? 'social' : '',
+  ].filter(Boolean);
+};
 const custState = () => (S.cust ||= CUST_DEFAULTS());
 const SOCIAL_COLS = 'id, customer_key, status, match_basis, match_score, platform, handle, profile_url, followers, followers_approx, followers_quote, source_url, checked_at';
 const SCAN_COLS = 'id, status, requested, checked, found, below, no_count, ambiguous, not_found, failed, min_followers, filters, error_message, started_at, heartbeat_at, finished_at';
@@ -1561,12 +1626,12 @@ function renderCustomers() {
     ['3+ orders', num(k?.loyal)],
     ['Email subscribed', num(k?.subscribed)],
   ];
-  const filters = `<div class="af-filter-bar af-cust-filters">
+  const filters = `<div class="af-cust-filters">
+    <p class="af-muted">The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
     ${field('Last order from', input('custFrom', `type="date" value="${esc(c.from)}"`))}
     ${field('Through', input('custTo', `type="date" value="${esc(c.to)}"`))}
     ${field('Minimum orders', input('custMin', `type="number" min="1" max="50" value="${esc(String(spec.minOrders))}" style="max-width:5.5rem"`))}
     ${field('Email consent', `<select class="bcn-field" id="custConsent">${CUSTOMER_CONSENTS.map((x) => `<option value="${x}"${x === spec.consent ? ' selected' : ''}>${esc(consentLabel[x] || x)}</option>`).join('')}</select>`)}
-    ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
     ${c.scanReady && c.view !== 'hunt' ? field('Social', `<select class="bcn-field" id="custSocial"><option value="any"${c.socialOnly ? '' : ' selected'}>Anyone</option><option value="found"${c.socialOnly ? ' selected' : ''}>Found accounts only</option></select>`) : ''}
   </div>`;
   // Find their social accounts: one search per customer, top of this view
@@ -1641,6 +1706,16 @@ function renderCustomers() {
   const notChecked = c.rows.length && c.rows.every((x) => x.email_consent_state === null)
     ? `<p class="af-muted">Email consent has not been checked for anyone in this view yet. It fills in from the Shopify customer sync, and a blank never means unsubscribed.</p>`
     : '';
+  // One control row (audit finding 1): how the list is ranked stays in sight,
+  // the rest of the filters open under a Filter button that carries how many
+  // are on, so nothing narrows this list invisibly.
+  const custFiltCount = custFiltersOn(c, spec).length;
+  const custFiltOpen = S.custFiltOpen === undefined ? custFiltCount > 0 : !!S.custFiltOpen;
+  const custCtlRow = `<div class="af-ctl">
+    ${field('Rank by', `<select class="bcn-field" id="custSort">${sorts.map(([v, label]) => `<option value="${v}"${v === spec.sort ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`)}
+    <span class="af-ctl-gap"></span>
+    ${btn(custFiltCount ? `Filter · ${custFiltCount}` : 'Filter', 'cust-filter-open', {}, custFiltOpen ? 'primary' : 'surface')}
+  </div>${custFiltOpen ? `<div class="af-panelette">${filters}</div>` : ''}`;
   // Re-rendering replaces the filter row, which would drop the caret out of
   // whichever box was just used. The focus (and the caret inside a text box)
   // is put back on the same control afterwards.
@@ -1658,8 +1733,7 @@ function renderCustomers() {
   else body.innerHTML = surface('Your customers',
     `${views}
      ${c.error ? `<div class="bcn-status bcn-status--neg">${esc(c.error)}</div>` : ''}
-     <p class="af-muted">Everyone who has bought from you, ranked so the people worth recruiting are at the top. The dates pick customers by their most recent order; lifetime spend is their whole history, not just the window.</p>
-     ${filters}
+     ${custCtlRow}
      ${scanBar}
      <div class="af-kv-line af-cust-kpis">${kpis.map(([label, v]) => `<span><span class="bcn-num">${v}</span> ${esc(label)}</span>`).join(' · ')}</div>
      ${notChecked}
@@ -1747,6 +1821,17 @@ function affToolBody(a, k) {
 }
 // What is open, if anything. `key` is what tells a re-render that the SAME
 // form is still open, so typing is not wiped by a background refresh.
+// The programs they are not in yet, to push them into: one menu. Never
+// somebody on the do-not-contact list (company-wide, so no step towards
+// contacting them is offered at all). It lives in More now, not on the row.
+const addToSelect = (g) => {
+  const d = S.d;
+  if (!MANAGE || !g || g.suppressed || d?.supUnknown) return '';
+  const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
+  return missing.length
+    ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
+    : '';
+};
 function dialogSpec() {
   const d = S.d;
   if (!MANAGE || !d) return null;
@@ -1760,12 +1845,25 @@ function dialogSpec() {
   if (mp) {
     // Every program this person is in, each with its own status and buttons
     // (one row per person on the list, so the programs live here).
-    const rows = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id))?.rows || [mp];
+    const group = Object.values(S.viewPeople || {}).find((g) => g.rows.some((r) => r.id === mp.id));
+    const rows = group?.rows || [mp];
+    const add = addToSelect(group);
     const blocks = rows.map((r) => {
       const acts = prospectActions(r).join('');
       return { acts, html: `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${prospectPill(r.status)}</div>` : ''}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${acts}</div>` };
     });
-    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
+    return { key: `more:${mp.id}:${blocks.map((x) => x.acts).join('|')}:${add ? 'add' : ''}`, title: mp.display_name || mp.handle || 'Creator', body: `${blocks.map((x) => x.html).join('')}${add ? `<div class="af-row" style="margin-top:10px;">${add}</div>` : ''}${dlgFoot(btn('Close', 'dialog-close'))}` };
+  }
+  // Every button an affiliate row used to carry, in one menu (audit findings
+  // 2 and 8). The row keeps the one that moves them along.
+  const ma = S.moreAffiliate ? d.affById[S.moreAffiliate] : null;
+  if (ma) {
+    const rows = (d.affiliates || []).filter((x) => sameAffiliatePerson(x, ma));
+    // "Add to program" once per person, on their first live membership, the
+    // same rule the card used.
+    const addOn = rows.find((r) => ['active', 'paused'].includes(r.status))?.id;
+    const blocks = rows.map((r) => `${rows.length > 1 ? `<div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(r.program_id))}</div>${statusPill(r.status)}</div>` : ''}${affMoreBody(r, r.id === addOn)}`);
+    return { key: `affmore:${ma.id}:${blocks.join('').length}`, title: ma.display_name || ma.contact_email || 'Affiliate', body: `${blocks.join('')}${dlgFoot(btn('Close', 'dialog-close'))}` };
   }
   // Who a share is for. Nobody ticked means the whole program, which is what
   // every share has meant until now, so the dialog opens on that honestly
@@ -1809,7 +1907,7 @@ function dialogSpec() {
   }
   return null;
 }
-function closeDialogState() { S.contentOpen = null; S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.feedWho = null; S.personProg = null; }
+function closeDialogState() { S.contentOpen = null; S.editProspect = null; S.addCreators = false; S.affTool = null; S.moreProspect = null; S.moreAffiliate = null; S.feedWho = null; S.personProg = null; }
 function renderDialog() {
   const dlg = $('afDialog');
   if (!dlg) return;
@@ -1893,6 +1991,40 @@ function renderAllHome() {
       { h: '', f: (r) => btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface') },
     ], perProg, 'No programs yet.'), 'All time'),
   ].join('');
+}
+// The same table on the company view of Program, where it is the program
+// COLUMN rather than a page of its own (audit finding 9, 2026-11-25): more
+// programs shows more, not less.
+function byProgramCard() {
+  const d = S.d || {};
+  const rows = S.programs.map((x) => {
+    const perf = (d.performance || []).filter((r) => r.program_id === x.id);
+    const bal = (d.balances || []).filter((r) => r.program_id === x.id && r.currency === x.currency);
+    return {
+      p: x,
+      people: (d.affiliates || []).filter((a) => a.program_id === x.id && a.status === 'active').length,
+      orders: perf.reduce((n, r) => n + Number(r.attributed_orders || 0), 0),
+      sales: perf.reduce((n, r) => n + ((!r.order_currency || r.order_currency === x.currency)
+        ? Number(r.gross_subtotal_cents || 0) - Number(r.refunded_subtotal_cents || 0) : 0), 0),
+      owed: bal.reduce((n, r) => n + (Number(r.unclaimed_cents) > 0 ? Number(r.unclaimed_cents) : 0), 0),
+    };
+  });
+  // A total line, only where every program is in the same currency: money is
+  // summed per currency, never across.
+  const curs = [...new Set(S.programs.map((x) => (x.currency || 'USD').toUpperCase()))];
+  const sum = (k) => rows.reduce((n, r) => n + Number(r[k] || 0), 0);
+  const all = curs.length === 1 && rows.length > 1
+    ? [{ total: true, p: { name: 'All programs', currency: curs[0] }, people: sum('people'), orders: sum('orders'), sales: sum('sales'), owed: sum('owed') }]
+    : [];
+  return card('By program', table([
+    { left: true, h: 'Program', f: (r) => (r.total ? `<strong>${esc(r.p.name)}</strong>` : `${esc(r.p.name)}<div class="af-sub">${esc(rateShort(r.p))}</div>`) },
+    { left: true, h: 'Status', f: (r) => (r.total ? '' : statusPill(r.p.status)) },
+    { h: 'People', num: true, f: (r) => num(r.people) },
+    { h: 'Orders', num: true, f: (r) => num(r.orders) },
+    { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
+    { h: 'Owed', num: true, f: (r) => (SEES_MONEY ? esc(formatMoney(r.owed, r.p.currency)) : '—') },
+    { h: '', f: (r) => (r.total ? '' : btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface')) },
+  ], [...rows, ...all], 'No programs yet.'), 'All time');
 }
 
 function renderKpis() {
@@ -2033,11 +2165,29 @@ const hasSeeding = () => S.programs.some((x) => Object.prototype.hasOwnProperty.
 // The agreement PDF exists once 20261119010000 is applied.
 const hasTermsFile = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'terms_file_path'));
 const hasContentBonus = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'content_bonus_cents'));
+// Twenty store chips printed in full to set one answer was most of Setup's
+// weight (audit finding 11, 2026-11-25). The chosen stores are always on the
+// page; the rest come in on "+N more", so nothing is hidden from a choice --
+// only from the first glance.
+const STORE_CHIPS_SHOWN = 4;
 const storesCard = (p, dis) => {
   const st = Array.isArray(S.d?.stores) ? S.d.stores : [];
   if (!hasStorePick() || st.length < 2) return '';
   const picked = Array.isArray(p.shop_domains) ? p.shop_domains : null;
-  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${st.map((x) => { const on = !picked || picked.includes(x); return `<button type="button" class="af-chip-tog pStore${on ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${on}" ${dis}>${esc(storeName(x))}</button>`; }).join('')}</div>`));
+  const isOn = (x) => !picked || picked.includes(x);
+  const chip = (x) => `<button type="button" class="af-chip-tog pStore${isOn(x) ? ' is-on' : ''}" data-store="${esc(x)}" aria-pressed="${isOn(x)}" ${dis}>${esc(storeName(x))}</button>`;
+  // Every chosen store, then enough of the rest to make the choice readable.
+  const lead = st.filter(isOn);
+  const rest = st.filter((x) => !isOn(x));
+  const shown = S.storesAll || st.length <= STORE_CHIPS_SHOWN + 1
+    ? st
+    : [...lead, ...rest].slice(0, Math.max(STORE_CHIPS_SHOWN, lead.length));
+  const hidden = st.filter((x) => !shown.includes(x));
+  // The hidden chips stay in the form, off-screen, so saving reads the same
+  // answer whether or not the list was opened.
+  return card('Stores', setRow('Counts orders from', `<div class="af-chips-tog">${shown.map(chip).join('')}${
+    hidden.length ? `<button type="button" class="af-chip-tog af-chip-more" data-act="stores-all">+${num(hidden.length)} more</button>` : ''}</div>${
+    hidden.length ? `<div class="af-chips-off">${hidden.map(chip).join('')}</div>` : ''}`));
 };
 const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnProperty.call(x, 'outreach_body'));
 // Setup is a settings page, not a form (Blake, 2026-11-13: "looks like 98
@@ -2048,6 +2198,9 @@ const hasOutreachMessage = () => S.programs.some((x) => Object.prototype.hasOwnP
 const applyLinkCtl = (p) => (p.intake_mode === 'open'
   ? `<div class="af-row">${btn('Copy link', 'copy-text', { t: applyUrl(location.origin, CO, p.slug) }, 'primary')}<a class="bcn-btn" href="${esc(safeHref(applyUrl(location.origin, CO, p.slug)) || '#')}" target="_blank" rel="noopener">Open</a></div>`
   : '<div class="af-row" id="applyClosed"><span class="af-muted">Choose Open applications above to get a link people can apply with.</span></div>');
+// A quiet heading inside a settings card: the rows under it are set once and
+// rarely revisited. It hides nothing (Blake 2026-11-13: "i don't want hiding").
+const setSub = (label) => `<div class="af-set-sub">${esc(label)}</div>`;
 const setRow = (label, control, id = '') => `<div class="af-set-row"${id ? ` id="${id}"` : ''}><div class="af-set-label">${esc(label)}</div><div class="af-set-ctl">${control}</div></div>`;
 // A row of chips standing in for a select: the hidden input keeps the id the
 // form reads, and a press sets it and announces the change.
@@ -2087,6 +2240,9 @@ function renderProgram(isNew = S.creating) {
     setRow('Currency', setInput('pCur', `${dis} maxlength="3" value="${esc(p.currency || 'USD')}" style="max-width:6rem"`)),
     setRow('Pay affiliates', seg('pPayMethod', [['manual', 'By hand'], ['paypal_payouts', 'PayPal']], p.payout_method ?? 'manual', dis)),
     setRow('Payout minimum', `<div class="af-set-unit">${setInput('pMin', `${dis} inputmode="decimal" placeholder="0" value="${esc(major(p.payout_minimum_cents))}"`)}<span>${cur}</span></div>`),
+    // Set once and rarely touched again: same page, same type size, quieter
+    // heading (audit finding 11 -- weight differs, nothing hides).
+    setSub('Advanced'),
     setRow('Payable after', `<div class="af-set-unit">${setInput('pHold', `${dis} type="number" min="0" max="365" value="${esc(p.refund_hold_days ?? 30)}"`)}<span>days</span></div>`),
     hasContentBonus() ? setRow('Content bonus', `<div class="af-set-unit">${setInput('pBonus', `${dis} inputmode="decimal" placeholder="—" value="${esc(major(p.content_bonus_cents))}"`)}<span>${cur} per piece you use</span></div>`) : '',
   ].join(''));
@@ -2113,6 +2269,7 @@ function renderProgram(isNew = S.creating) {
   const codes = card('Codes', [
     setRow('Codes start', setInput('pStart', `${dis} type="date" value="${esc(p.default_code_starts_on || '')}"`)),
     setRow('Codes end', setInput('pEnd', `${dis} type="date" value="${esc(p.default_code_ends_on || '')}"`)),
+    setSub('Advanced'),
     setRow('Grace after a code ends', `<div class="af-set-unit">${setInput('pGrace', `${dis} type="number" min="0" max="365" value="${esc(p.attribution_window_days ?? 0)}"`)}<span>days</span></div>`),
     setRow('Two codes on one order', seg('pPrec', [['first_affiliate_code', 'Credit one'], ['single_code_only', 'Credit none']], p.code_precedence ?? 'first_affiliate_code', dis)),
   ].join(''));
@@ -2271,19 +2428,22 @@ function pickedProspectRows(s) {
   return [...new Set(ids)];
 }
 // Every action a creator row offers, in the order they are used. The row
-// shows the first two; More shows them all.
+// shows the first; More shows them all.
 function prospectActions(x) {
   const d = S.d;
   if (!MANAGE || !d) return [];
   const live = new Set(d.drafts.filter((y) => ['draft', 'approved', 'exported'].includes(y.state)).map((y) => y.prospect_id));
   const contacted = new Set(d.drafts.filter((y) => y.state === 'sent').map((y) => y.prospect_id));
   const b = [];
+  // The step that moves this person along comes first, because the row shows
+  // the first button and More holds the rest: for somebody already
+  // shortlisted that is the message or the invite, never "Not a fit".
   if (['new', 'qualified', 'rejected'].includes(x.status)) b.push(btn('Shortlist', 'prospect-status', { id: x.id, s: 'approved' }, 'primary'));
+  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
+  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
+  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
   if (['new', 'qualified', 'approved'].includes(x.status)) b.push(btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' }));
   if (x.status === 'rejected') b.push(prospectPill('rejected'));
-  if (x.status === 'approved' && !live.has(x.id)) b.push(btn('Draft message', 'draft-create', { id: x.id }));
-  if (['new', 'qualified', 'approved'].includes(x.status) && !live.has(x.id) && !contacted.has(x.id)) b.push(btn('Mark contacted', 'prospect-contacted', { id: x.id }));
-  if (['approved', 'invited'].includes(x.status) && x.contact_email) b.push(INVITE_SOURCES.has(x.source) ? btn(x.status === 'invited' ? 'Resend invite' : 'Send invite', 'invite-send', { id: x.id }) : btn('Signup link', 'signup-link', { id: x.id }));
   if (!['suppressed', 'signed_up', 'rejected'].includes(x.status)) b.push(btn('Do not contact', 'prospect-suppress', { id: x.id }, 'surface', { confirm: true }));
   if (x.status !== 'suppressed') b.push(btn('Edit', 'prospect-edit', { id: x.id }, 'ghost'));
   return b;
@@ -2346,26 +2506,23 @@ function renderProspects() {
   // row shown is the one that puts them in this filter (Shortlisted shows
   // their shortlisted program), and More lists every program's own buttons.
   const shownRow = (g) => g.rows.find((x) => prospectInGroup(x, filter)) || g.x;
+  // One button on the row -- the next thing to do with this person -- and a
+  // menu holding every other one (Blake 2026-11-25: "all the functions, not
+  // all the noise"). Nothing is dropped: More opens the same buttons, plus
+  // the other programs they can be added to.
   const rowActions = (x, g) => {
     if (!MANAGE) return '';
     const b = prospectActions(x);
     const many = (g?.rows.length || 1) > 1;
     if (!b.length && !many) return '';
-    const shown = b.slice(0, 2);
-    if (b.length > 2 || many) shown.push(btn('More', 'prospect-more', { id: x.id }, 'ghost'));
-    return `<div class="af-actions">${shown.join('')}</div>`;
+    const shown = b.slice(0, 1);
+    if (b.length > 1 || many || addTo(g)) shown.push(btn('···', 'prospect-more', { id: x.id }, 'ghost', { title: `More for ${x.display_name || x.handle || 'this creator'}`, cls: 'af-more-btn' }));
+    return `<div class="af-rowacts">${shown.join('')}</div>`;
   };
-  // The programs they are not in yet, to push them into: one menu. Never
-  // somebody on the do-not-contact list (company-wide, so no step towards
-  // contacting them is offered at all).
-  const addTo = (g) => {
-    if (!MANAGE || g.suppressed || d.supUnknown) return '';
-    const missing = openPrograms().filter((y) => !g.programIds.includes(y.id));
-    return missing.length
-      ? `<select class="bcn-field af-addto" data-id="${esc(g.x.id)}" aria-label="Add to another program"><option value="">Add to program…</option>${missing.map((y) => `<option value="${esc(y.id)}">${esc(y.name)}</option>`).join('')}</select>`
-      : '';
-  };
-  const actions = (g) => `<div class="af-actions">${g.suppressed ? '' : rowActions(shownRow(g), g)}${addTo(g)}</div>`;
+  const addTo = addToSelect;
+  // "Add to program…" moved off the row and into More (Blake 2026-11-25): it
+  // is still one menu per person, just not one open on every row.
+  const actions = (g) => (g.suppressed ? '' : rowActions(shownRow(g), g));
   const headPill = (g) => prospectPill(g.suppressed ? 'suppressed' : shownRow(g).status);
   const programsOf = (g) => [...new Set(g.rows.map((x) => progName(x.program_id)))].filter(Boolean).join(', ');
   const who = (x) => {
@@ -2443,27 +2600,73 @@ function renderProspects() {
       ? `<div class="af-list-foot">${btn(`Show first ${PROSPECT_LIST_CAP}`, 'prospect-show-fewer')}</div>`
       : `<div class="af-list-foot">${btn(`Show all ${list.length}`, 'prospect-show-all')}</div>`)
     : '';
-  const findRow = MANAGE && fp
-    ? `<div class="af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find creators', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}${btn('Add creators', 'add-creators', { pg: fp.id })}</div>`
+  // Find is a button on the control row; its two fields open under it. They
+  // open by themselves while a search is running and when there is nobody on
+  // the list yet, so the empty page still shows what to do.
+  const canFind = !!(MANAGE && fp);
+  const findOpen = canFind && (researching || !people.length || (S.dFindOpen === undefined ? false : !!S.dFindOpen));
+  const findRow = findOpen
+    ? `<div class="af-panelette af-find-inline">${field('Find more like…', input('rsFocus', `maxlength="500" value="${esc(S.findFocus || '')}" placeholder="${esc(fp.niche ? `e.g. ${fp.niche} creators on TikTok` : 'e.g. youth baseball coaches with drill videos')}"`))}${field('How many', input('rsCount', `type="number" min="5" max="50" value="${esc(String(S.findCount || 25))}" style="max-width:5.5rem"`))}${btn(researching ? 'Finding…' : 'Find', 'research-run', { pg: fp.id }, 'primary', { disabled: researching })}</div>`
     : '';
+  // One control row (Blake 2026-11-25): what you are looking at on the left,
+  // Filter and the view on the right. The four filter rows that used to sit
+  // above the table are the same controls, in a panel that opens under it --
+  // and it opens by itself whenever a filter is on, so nothing filters the
+  // list invisibly.
   // Editing a creator, adding creators and the code/link forms all open in
   // the middle of the screen now (Blake 2026-11-20); see dialogSpec().
+  const allPicked = !!list.length && list.every((g) => S.sel.has(g.x.id));
+  const filtCount = [F.plat, F.prog, F.email, F.minF].filter(Boolean).length;
+  // Open by itself the first time a filter is on, so nothing narrows the list
+  // invisibly; after that the button decides, and the count on it says how
+  // many filters are set even when it is shut.
+  const filtOpen = S.dFiltOpen === undefined ? !!anyFilter : !!S.dFiltOpen;
+  const statusSeg = `<div class="af-seg" role="radiogroup" aria-label="Which creators">${filters.map(([f, label]) => `<button type="button" class="af-seg-btn${f === filter ? ' is-on' : ''}" role="radio" aria-checked="${f === filter}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}</div>`;
+  // Tiles have no header row to hold the select-all box, so it rides in the
+  // control row there.
+  const tileSelectAll = MANAGE && S.view !== 'list' && list.length
+    ? btn(allPicked ? 'Clear selection' : `Select all ${list.length}`, allPicked ? 'prospect-select-none' : 'prospect-select-all')
+    : '';
+  const ctlRow = `<div class="af-ctl">${statusSeg}<span class="af-ctl-gap"></span>${tileSelectAll}${
+    btn(filtCount ? `Filter · ${filtCount}` : 'Filter', 'd-filter-open', {}, filtOpen ? 'primary' : 'surface')}${viewToggle()}${
+    canFind ? `${btn('Add creators', 'add-creators', { pg: fp.id })}${btn(researching ? 'Finding…' : 'Find creators', 'd-find-open', {}, 'primary')}` : ''}</div>${
+    findRow}${filtOpen ? `<div class="af-panelette">${dFilterRow}</div>` : ''}`;
+  // The program a row is in is worth a column only when the rows differ; one
+  // program repeated down every row says nothing.
+  const showProgramCol = S.programs.length > 1 && new Set(list.map((g) => programsOf(g))).size > 1;
+  // Everything this row tells you about the person, in one cell: their state
+  // when it is not already the filter you are in, whether they have bought
+  // from you, how engaged their audience is, and their email if we have one.
+  const signalCell = (g) => {
+    const x = g.x;
+    const st = creatorStats(x.evidence);
+    const bits = [
+      g.suppressed || shownRow(g).status !== PROSPECT_GROUPS[filter]?.[0] ? headPill(g) : '',
+      customerPill(x),
+      st?.rate != null ? pill(`${(st.rate * 100).toFixed(1)}% eng`) : '',
+      x.contact_email ? `<span class="bcn-pill" title="${esc(x.contact_email)}">email<span class="af-offscreen"> ${esc(x.contact_email)}</span></span>` : '',
+    ].filter(Boolean);
+    return bits.length ? `<div class="af-signal">${bits.join('')}</div>` : '<span class="af-muted">—</span>';
+  };
 
   $('prospectsBody').innerHTML = [
-    surface('Creators', `${findRow}<div class="af-filter-bar">${filters.map(([f, label]) => `<button type="button" class="bcn-btn af-filter-chip${f === filter ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="prospect-filter" data-f="${f}">${esc(label)} <span class="af-mono">${people.filter((g) => inGroup(g, f)).length}</span></button>`).join('')}${viewToggle()}</div>${dFilterRow}
-      ${MANAGE && (list.length || S.prospectQuery) ? `<div class="af-row af-bulk">
-        ${btn(`Select all ${list.length}`, 'prospect-select-all')}
-        ${S.sel.size ? `<span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}` : ''}
+    surface('Creators', `${ctlRow}
+      ${MANAGE && S.sel.size ? `<div class="af-row af-bulk">
+        <span class="af-mono">${num(S.sel.size)} selected</span>${btn('Shortlist', 'prospect-bulk', { s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-bulk', { s: 'rejected' })}${S.programs.length > 1 && !d.supUnknown ? openPrograms().map((y) => btn(`Add to ${y.name}`, 'prospect-bulk-assign', { to: y.id })).join('') : ''}${btn('Do not contact', 'prospect-bulk', { s: 'suppressed' }, 'surface', { confirm: true })}${btn('Clear', 'prospect-select-none')}
       </div>` : ''}
       ${S.view === 'list'
         ? table([
-          ...(MANAGE ? [{ h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
+          ...(MANAGE ? [{ hHtml: allPicked
+            ? `<input type="checkbox" class="af-pick" data-act="prospect-select-none" aria-label="Clear selection" checked />`
+            : `<input type="checkbox" class="af-pick" data-act="prospect-select-all" aria-label="Select all ${num(list.length)}" />`,
+          h: '', f: ({ x }) => `<input type="checkbox" class="af-pick" data-act="prospect-pick" data-id="${esc(x.id)}" aria-label="Select ${esc(x.display_name || x.handle || 'creator')}"${S.sel.has(x.id) ? ' checked' : ''} />` }] : []),
           { left: true, h: 'Creator', sort: 'creator', f: ({ x }) => `<div class="af-list-who">${listThumb({ name: x.display_name, email: x.contact_email }, prospectPhotoUrl(x.evidence))}<div>${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Creator') : esc(x.display_name || x.handle || 'Creator')}<div class="af-muted">${esc(x.platform || 'creator')}${x.handle ? ` · ${esc(x.handle)}` : ''}</div></div></div>` },
           { h: 'Followers', num: true, sort: 'followers', f: ({ x }) => { const f = followersFrom(x.evidence); return f ? num(f.count) : '—'; } },
-          { h: 'Engagement', num: true, sort: 'engagement', f: ({ x }) => { const st = creatorStats(x.evidence); return st?.rate != null ? `${(st.rate * 100).toFixed(1)}%` : '—'; } },
-          { left: true, h: 'Email', sort: 'email', f: ({ x }) => (x.contact_email ? esc(x.contact_email) : '<span class="af-muted">—</span>') },
-          { left: true, h: 'Status', sort: 'status', f: (g) => `${headPill(g)}${customerPill(g.x)}` },
-          ...(S.programs.length > 1 ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
+          // Engagement, the email and the status were a column each, two of
+          // them empty on most rows (Blake 2026-11-25). One cell now: what
+          // this row tells you, and nothing where there is nothing.
+          { left: true, h: 'Signal', sort: 'engagement', f: (g) => signalCell(g) },
+          ...(showProgramCol ? [{ left: true, h: 'Program', sort: 'program', f: (g) => esc(programsOf(g)) }] : []),
           { h: '', f: (g) => actions(g) },
         ], capped, anyFilter ? 'Nobody matches these filters.' : filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', dSortSpec)
         : itemList(capped, prospectCard, filter === 'new' ? 'Nobody to review. Press Find creators.' : 'Nobody here yet.', 'grid')}
@@ -2486,8 +2689,7 @@ function renderOutreach() {
   // reads as noise, and every draft starts from one template, so the whole
   // body on every row is the same text over and over (Blake 2026-11-20).
   const named = (x) => d.prospectById[x.prospect_id]?.display_name || x.recipient_email || x.recipient_handle || '—';
-  const who = (x) => `${esc(named(x))}<div class="af-muted">${esc(x.recipient_email || x.recipient_handle || '')} · ${esc(x.channel)}</div>`;
-  const msg = (x) => `<div class="af-kv-line">${esc(x.subject || '')}</div>`;
+  const who = (x) => `${esc(named(x))}<div class="af-sub">${esc([x.recipient_email || x.recipient_handle, x.channel].filter(Boolean).join(' · ') || '—')}</div>`;
   const editing = S.editDraft ? d.drafts.find((x) => x.id === S.editDraft) : null;
   // "Via <app>": a batch an AI connection claimed (outreach:send) to send from
   // the approver's own mailbox, and a send it recorded. Null for a person.
@@ -2496,12 +2698,22 @@ function renderOutreach() {
   // "I already sent this one myself" has to be here, on the draft, not three
   // states away: a message sent by hand outside SILO is the ordinary case,
   // and a draft nobody marks sits in this queue for weeks (Blake 2026-11-24).
-  const draftCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">${fmtDate(x.created_at)}</div></div><div class="af-item-foot"><div class="af-actions">${MANAGE ? `${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}${btn('Edit', 'draft-edit', { id: x.id })}` : ''}</div></div></article>`;
-  const approvedCard = (x) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-item-detail">${msg(x)}</div><div class="af-muted">Approved ${fmtTime(x.approved_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Mark as sent', 'dm-sent', { id: x.id }, 'primary')}</div></div>` : ''}</article>`;
-  const exportedCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${who(x)}</div><div class="af-muted">Exported ${fmtTime(x.exported_at)}${viaBatch(x)}</div>${MANAGE ? `<div class="af-row" style="margin-top:8px;"><input class="bcn-field" id="ev-${x.id}" placeholder="Where: sent-folder link, DM screenshot ref" />${btn('Mark as sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : ''}</div></article>`;
+  // One line per message, the way Discovery reads (audit finding 7).
+  const whoCol = { left: true, h: 'Person', f: who };
+  const subjCol = { left: true, h: 'Message', f: (x) => `<div class="af-sub">${esc(x.subject || '—')}</div>` };
+  const draftCols = [whoCol, subjCol,
+    { left: true, h: 'Drafted', f: (x) => `<span class="af-sub">${fmtDate(x.created_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'draft-sent-now', { id: x.id }, 'primary')}${btn('Edit', 'draft-edit', { id: x.id })}</div>` : '') }];
+  const approvedCols = [whoCol, subjCol,
+    { left: true, h: 'Approved', f: (x) => `<span class="af-sub">${fmtTime(x.approved_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'dm-sent', { id: x.id }, 'primary')}</div>` : '') }];
+  const exportedCols = [whoCol,
+    { left: true, h: 'Exported', f: (x) => `<div class="af-sub">${fmtTime(x.exported_at)}</div>${viaBatch(x)}` },
+    { left: true, h: 'Where you sent it', f: (x) => (MANAGE ? `<input class="bcn-field" id="ev-${x.id}" placeholder="Sent-folder link, DM screenshot ref" />` : '') },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Mark as sent', 'draft-sent', { id: x.id }, 'primary')}</div>` : '') }];
   const drafts = byState('draft'); const readyAll = byState('approved'); const out = byState('exported');
   const ready = readyAll.filter((x) => !isDm(x)); const readyDm = readyAll.filter(isDm);
-  const dmCard = (x) => {
+  const dmInfo = (x) => {
     const pr = d.prospectById[x.prospect_id] || {};
     // A customer's account lives in their evidence (never the prospect's own
     // profile_url, which feeds the identity index), so read it from there.
@@ -2509,9 +2721,13 @@ function renderOutreach() {
     const url = pr.profile_url || soc?.profile_url || '';
     const plat = pr.profile_url ? pr.platform : (soc?.platform || pr.platform);
     const where = url ? ext(url, `Open ${PLATFORM_NAMES[plat] || plat || 'profile'}`) : '';
-    return `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-muted">${esc(PLATFORM_NAMES[plat] || plat || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div></div><div class="af-item-detail"><div class="af-evidence">${esc(dmText(x).slice(0, 220))}${dmText(x).length > 220 ? '…' : ''}</div></div></div>
-      <div class="af-item-foot"><div class="af-actions">${where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div></div></article>`;
+    return { pr, plat, where };
   };
+  const dmCols = [
+    { left: true, h: 'Person', f: (x) => { const { pr, plat } = dmInfo(x); return `${esc(pr.display_name || x.recipient_handle || '—')}<div class="af-sub">${esc(PLATFORM_NAMES[plat] || plat || 'social')}${x.recipient_handle ? ` · ${esc(x.recipient_handle)}` : ''}</div>`; } },
+    { left: true, h: 'Message', f: (x) => `<div class="af-evidence">${esc(dmText(x).slice(0, 160))}${dmText(x).length > 160 ? '…' : ''}</div>` },
+    { h: '', f: (x) => `<div class="af-rowacts">${dmInfo(x).where}${MANAGE ? btn('Copy message', 'dm-copy', { id: x.id }, 'primary') + btn('Mark as sent', 'dm-sent', { id: x.id }) : ''}</div>` },
+  ];
   const canSend = (d.aiApps || []).some((a) => a.canSend);
   // What the program has saved, unless something is typed and unsaved: the
   // template form only exists on its own chip, so switching away would
@@ -2525,22 +2741,38 @@ function renderOutreach() {
   const CUST_TAGS = ['{name}', '{brand}', '{orders_line}', '{commission}', '{sender}', '{signup_link}'];
   // The emails SILO sent affiliates on its own (invites, codes, payouts).
   const NOTE_KIND = { signup_invite: 'Invite', signup_confirmation: 'Welcome', portal_link: 'Portal link', link_renewal: 'New portal link', codes_and_links: 'Codes and links', payout_status: 'Payout' };
-  const noteRow = (n) => `<article class="af-item af-item--compact"><div class="af-item-body"><div class="af-item-head">${esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' '))} · ${esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—')} ${statusPill(n.status)}</div><div class="af-muted">${fmtTime(n.created_at)}${n.status !== 'sent' && n.reason ? ` · ${esc(n.reason)}` : ''}</div></div></article>`;
+  const noteCols = [
+    { left: true, h: 'Email', f: (n) => esc(NOTE_KIND[n.kind] || String(n.kind || '').replaceAll('_', ' ')) },
+    { left: true, h: 'Person', f: (n) => esc(d.affById[n.affiliate_id]?.display_name || n.to_email || '—') },
+    { left: true, h: 'Status', f: (n) => `${statusPill(n.status)}${n.status !== 'sent' && n.reason ? `<div class="af-sub af-sub--bad">${esc(n.reason)}</div>` : ''}` },
+    { left: true, h: 'Sent', f: (n) => `<span class="af-sub">${fmtTime(n.created_at)}</span>` },
+  ];
   // Inbound: people who found the brand and applied (Blake, 2026-11-17).
   const applied = d.prospects.filter((x) => x.source === 'applied' && ['new', 'qualified'].includes(x.status));
-  const appCard = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Applicant') : esc(x.display_name || x.handle || 'Applicant')}<div class="af-muted">${esc(PLATFORM_NAMES[x.platform] || x.platform || '')}${x.handle ? ` · ${esc(x.handle)}` : ''}${x.contact_email ? ` · ${esc(x.contact_email)}` : ''}</div></div>${x.evidence?.note || x.evidence?.pitch ? `<div class="af-item-detail">${esc(String(x.evidence.note || x.evidence.pitch).slice(0, 300))}</div>` : ''}<div class="af-muted">Applied ${fmtTime(x.collected_at || x.created_at)}</div></div>${MANAGE ? `<div class="af-item-foot"><div class="af-actions">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Reject', 'prospect-status', { id: x.id, s: 'rejected' })}</div></div>` : ''}</article>`;
+  const appCols = [
+    { left: true, h: 'Applicant', f: (x) => `${x.profile_url ? ext(x.profile_url, x.display_name || x.handle || 'Applicant') : esc(x.display_name || x.handle || 'Applicant')}<div class="af-sub">${esc([PLATFORM_NAMES[x.platform] || x.platform || '', x.handle, x.contact_email].filter(Boolean).join(' · ') || '—')}</div>` },
+    { left: true, h: 'What they said', f: (x) => (x.evidence?.note || x.evidence?.pitch ? `<div class="af-evidence">${esc(String(x.evidence.note || x.evidence.pitch).slice(0, 220))}</div>` : '<span class="af-sub">—</span>') },
+    { left: true, h: 'Applied', f: (x) => `<span class="af-sub">${fmtTime(x.collected_at || x.created_at)}</span>` },
+    { h: '', f: (x) => (MANAGE ? `<div class="af-rowacts">${btn('Approve', 'prospect-status', { id: x.id, s: 'approved' }, 'primary')}${btn('Not a fit', 'prospect-status', { id: x.id, s: 'rejected' })}</div>` : '') },
+  ];
   // One list at a time, picked from chips, as Records and Share already are
-  // (Blake 2026-11-20: the tab scrolled for pages). Nothing folds: a chip is
-  // a tab, and the list under it is open.
+  // (Blake 2026-11-20: the tab scrolled for pages; 2026-11-25: "let's keep em
+  // separate for now tab wise"). Nothing folds: a chip is a tab, and the list
+  // under it is open.
   const views = [
-    ['approve', 'To approve', drafts.length, () => surface('To approve', queue('msgs', drafts, draftCard, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
-      'No drafts. Approving a creator drafts their message here.'), `${num(drafts.length)} draft(s)`)],
-    ['email', 'Send by email', ready.length, () => surface('Send by email', `${itemList(ready, approvedCard, 'Nothing approved yet.')}
-      ${aiSendBlock(d.aiApps)}
-      <div class="af-row" style="margin-top:12px;">${canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, canSend ? 'surface' : 'primary', { confirm: true }) : ''}</div>`, `${num(ready.length)} approved`)],
-    ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', itemList(readyDm, dmCard, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
-    ['sent', 'Mark sent', out.length, () => surface('Mark sent', itemList(out, exportedCard, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
-    ['inbound', 'Inbound', applied.length, () => surface('Inbound', itemList(applied, appCard, 'No applications waiting.'), `${num(applied.length)} applied`)],
+    ['approve', 'To approve', drafts.length, () => surface('To approve', queueTable('msgs', drafts, draftCols, MANAGE ? [['Approve selected', 'q-msg-ok', 'primary'], ['Approve and export CSV', 'q-msg-export', 'surface', { confirm: true }], ['Mark as sent', 'q-msg-sent', 'surface', { confirm: true }], ['Delete selected', 'q-msg-del', 'ghost', { confirm: true }]] : [],
+      { text: 'No drafts. Approving a creator drafts their message here.', go: btn('Find creators', 'go-tab', { t: 'people' }, 'primary') }), `${num(drafts.length)} draft(s)`)],
+    // How these get sent stays at the top, as one small line with the Copy
+    // agent prompt beside it -- not a block that pushes the queue down and
+    // not buried under it (Blake 2026-11-25: "keep small instruction and copy
+    // prompt up top").
+    ['email', 'Send by email', ready.length, () => surface('Send by email', `<div class="af-queue-head">${aiSendBlock(d.aiApps)}${
+      canSend ? '<a class="bcn-btn" href="../settings-connect-ai.html">Manage AI connections</a>' : '<a class="bcn-btn bcn-btn--primary" href="../settings-connect-ai.html">Connect your AI</a>'}${
+      MANAGE && ready.length ? btn(`Export ${ready.length} as CSV`, 'outreach-export', {}, 'surface', { confirm: true }) : ''}</div>
+      ${table(approvedCols, ready, { text: 'Nothing approved yet.', go: drafts.length ? btn(`Approve ${num(drafts.length)} waiting`, 'comms-tab', { k: 'approve' }, 'primary') : '' })}`, `${num(ready.length)} approved`)],
+    ['dm', 'Send by DM', readyDm.length, () => surface('Send by DM', table(dmCols, readyDm, 'Nobody is waiting on a DM.'), `${num(readyDm.length)} with no email`), !readyDm.length],
+    ['sent', 'Mark sent', out.length, () => surface('Mark sent', table(exportedCols, out, 'Nothing exported.'), `${num(out.length)} exported`), !out.length],
+    ['inbound', 'Inbound', applied.length, () => surface('Inbound', table(appCols, applied, 'No applications waiting.'), `${num(applied.length)} applied`)],
     ['template', 'Template', 0, () => card('Message template', `${field('Subject', input('tplSubject', `${MANAGE ? '' : 'disabled'} maxlength="200" value="${esc(tpl.subject)}"`))}
       ${field('Message', `<textarea class="bcn-field" id="tplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(tpl.body)}</textarea>`)}
       <div class="af-set-tags">${TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
@@ -2550,7 +2782,7 @@ function renderOutreach() {
       ${field('Message', `<textarea class="bcn-field" id="custTplBody" rows="8" ${MANAGE ? '' : 'disabled'}>${esc(custTpl.body)}</textarea>`)}
       <div class="af-set-tags">${CUST_TAGS.map((t) => `<span class="af-mono">${t}</span>`).join('')}</div>
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${btn('Save customer template', 'cust-tpl-save', {}, 'primary')}</div>` : ''}`, 'Your Customers drafts start from this'), !hasOutreachMessage()],
-    ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', itemList((d.notifications || []).slice(0, 15), noteRow, 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
+    ['notices', 'Emails SILO sent', (d.notifications || []).length, () => card('Emails to affiliates', table(noteCols, (d.notifications || []).slice(0, 15), 'Nothing sent yet.'), 'Sent by SILO'), !(d.notifications || []).length],
   ].filter(([, , , , hide]) => !hide);
   // Open on what is waiting, so the first thing seen is the first thing to do.
   if (!views.some(([k]) => k === S.commsTab)) S.commsTab = (views.find(([, , n]) => n) || views[0] || [])[0] || 'approve';
@@ -2895,12 +3127,60 @@ async function withProductImages(rows) {
   return out;
 }
 // ── Affiliates ───────────────────────────────────────────────────────────
-function renderAffiliates() {
+// Every button an affiliate's row and menu can offer. Module scope so the
+// More dialog can draw the same set (audit finding 2).
+  // Finding 8 of the simplicity audit: the status cell was a status pill, a
+  // signup line, a code line and a code state stacked four deep. One chip and
+  // one mono sub-line now carry the same facts; the buttons that were mixed in
+  // there live on the row and in its menu.
+function affStuck(a) {
   const d = S.d;
-  const multiProg = S.programs.length > 1;
-  const codesOf = (a) => d.codes.filter((c) => c.affiliate_id === a.id);
-  const linksOf = (a) => d.links.filter((l) => l.affiliate_id === a.id);
-  const actions = (a, addProgram = true) => {
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
+  const from = d.prospectById[a.from_prospect_id];
+    const invite = (d.notifications || []).find((n) => n.affiliate_id === a.id && n.kind === 'signup_invite');
+    const canInvite = MANAGE && from?.contact_email && ['approved', 'invited'].includes(from.status) && INVITE_SOURCES.has(from.source);
+    const waiting = codesOf(a).filter((c) => c.status === 'pending');
+    const code = liveCodeOf(a.id);
+    if (a.status === 'terminated') return { sub: a.terms_accepted_at ? 'ended' : 'ended before signing up' };
+    if (!a.terms_accepted_at) {
+      const sub = invite && invite.status !== 'sent' ? `invite not delivered · ${invite.reason || invite.to_email || ''}`
+        : invite ? `invite sent ${fmtDate(invite.created_at)} · not signed up yet`
+        : 'no invite email on record';
+      return { sub, bad: !!(invite && invite.status !== 'sent'), from, act: canInvite ? btn(invite || a.status === 'invited' ? 'Resend' : 'Send invite', 'invite-send', { id: from.id }, 'primary') : '' };
+    }
+    const signed = `joined ${fmtDate(a.terms_accepted_at)}`;
+    if (waiting.length) return { sub: `${signed} · code ${waiting[0].code} not in Shopify yet`, bad: true, act: MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }, 'primary') : '' };
+    if (!code) return { sub: `${signed} · no code`, act: MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }, 'primary') : '' };
+    const used = codesOf(a).find((c) => c.code === code)?.verified_at;
+    return { sub: `${signed} · ${code} live · ${used ? 'used on an order' : 'no orders yet'}` };
+}
+function affSignal(a) {
+  const st = affStuck(a);
+  return `<div class="af-signal">${statusPill(a.status)}</div><div class="af-sub${st.bad ? ' af-sub--bad' : ''}">${esc(st.sub)}</div>`;
+}
+// One button -- the thing that moves this person along -- and a menu with
+// everything else, the same shape Discovery uses.
+function affRowActions(a) {
+  if (!MANAGE) return '';
+  const st = affStuck(a);
+  const rest = affActions(a);
+  const first = st.act || (['active', 'paused'].includes(a.status) ? btn('Portal link', 'portal-link', { id: a.id }) : '');
+  const menu = btn('···', 'aff-more', { id: a.id }, 'ghost', { title: `More for ${a.display_name || 'this affiliate'}`, cls: 'af-more-btn' });
+  if (!first && !rest) return '';
+  return `<div class="af-rowacts">${first}${menu}</div>`;
+}
+// The one line under the chip: where this person is, in words.
+const affStuckLine = (a) => affStuck(a).sub;
+
+// Two affiliates rows are the same PERSON when they share an address; a row
+// per program is how a membership is stored (see allPeople).
+const sameAffiliatePerson = (x, y) => String(x.contact_email || x.id).trim().toLowerCase() === String(y.contact_email || y.id).trim().toLowerCase();
+// What the More menu shows for one membership: where they are stuck, then
+// every button, stacked so each is easy to hit.
+const affMoreBody = (a, addProgram = true) => `${affSteps(a)}<div class="af-actions" style="flex-direction:column;align-items:stretch;">${affActions(a, addProgram).replace('<div class="af-actions">', '').replace(/<\/div>$/, '')}</div>`;
+function affActions(a, addProgram = true) {
+  const d = S.d;
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
     if (!MANAGE) return '';
     const b = [];
     if (['active', 'paused'].includes(a.status)) b.push(btn('Portal link', 'portal-link', { id: a.id }));
@@ -2922,8 +3202,11 @@ function renderAffiliates() {
     if (a.status === 'paused') b.push(btn('Resume', 'affiliate-status', { id: a.id, s: 'active' }));
     if (a.status !== 'terminated') b.push(btn('End', 'affiliate-status', { id: a.id, s: 'terminated' }, 'danger', { confirm: true }));
     return `<div class="af-actions">${b.join('')}</div>`;
-  };
-  const stepsOf = (a) => {
+  }
+
+function affSteps(a) {
+  const d = S.d;
+  const codesOf = (x) => d.codes.filter((c) => c.affiliate_id === x.id);
     // Where this person is stuck, and the one thing that unsticks them
     // (Blake 2026-11-18: "one place to see invite sent, accepted, code
     // active, or code failed", with the next action right there).
@@ -2944,7 +3227,15 @@ function renderAffiliates() {
       : waiting.length ? `${pill(`Code ${waiting[0].code} not in Shopify yet`, 'neg')}${MANAGE ? btn('Retry code', 'code-make', { id: waiting[0].id }) : ''}`
       : a.terms_accepted_at ? `${pill('No code', 'accent')}${MANAGE ? btn('Add code', 'aff-tool', { id: a.id, k: 'code' }) : ''}` : '';
     return `<div class="af-steps">${[step1, step2].filter(Boolean).map((x) => `<div class="af-row af-step">${x}</div>`).join('')}</div>`;
-  };
+  }
+
+function renderAffiliates() {
+  const d = S.d;
+  const multiProg = S.programs.length > 1;
+  const codesOf = (a) => d.codes.filter((c) => c.affiliate_id === a.id);
+  const linksOf = (a) => d.links.filter((l) => l.affiliate_id === a.id);
+  const actions = affActions;
+  const stepsOf = affSteps;
   const canCode = (d.aiApps || []).some((a) => a.canCode);
   // Codes, links and programme membership are asked for in the middle of
   // the screen now (Blake 2026-11-20); see affToolBody().
@@ -2976,7 +3267,7 @@ function renderAffiliates() {
       ${steps}
       <div class="af-codes">${codesHtml}</div>
       ${linksBlock ? `<div class="af-catalog-links">${linksBlock}</div>` : ''}
-      <footer class="af-item-foot af-catalog-foot">${actions(a)}</footer>
+      <footer class="af-item-foot af-catalog-foot">${affRowActions(a)}</footer>
     </article>`;
   };
   // Ended affiliates are archived out of the main list (Blake 2026-11-18:
@@ -2993,7 +3284,7 @@ function renderAffiliates() {
   const ended = d.affiliates.filter((a) => a.status === 'terminated');
   const affShown = shownP.flatMap((x) => x.rows);
   const membership = (a, addProgram) => `<div class="af-allprog"><div class="af-allprog-row"><div class="af-allprog-name">${esc(progName(a.program_id))}<div class="af-muted">${esc(effRate(a))} · ${esc(termsOf(a))}</div></div>${statusPill(a.status)}</div>
-      ${stepsOf(a)}<div class="af-codes">${codesHtmlOf(a)}</div>${linksBlockOf(a) ? `<div class="af-catalog-links">${linksBlockOf(a)}</div>` : ''}${actions(a, addProgram)}</div>`;
+      <div class="af-sub">${esc(affStuckLine(a))}</div><div class="af-codes">${codesHtmlOf(a)}</div>${linksBlockOf(a) ? `<div class="af-catalog-links">${linksBlockOf(a)}</div>` : ''}${affRowActions(a)}</div>`;
   const personCard = (x) => {
     const a = x.rows[0];
     // "Add to program" once per person, on their first live membership, and
@@ -3015,14 +3306,14 @@ function renderAffiliates() {
   const affChips = endedP.length ? [['current', 'Current', currentP.length], ['ended', 'Ended', endedP.length]].map(([f, label, n]) => `<button type="button" class="bcn-btn af-filter-chip${f === (S.affFilter === 'ended' ? 'ended' : 'current') ? ' af-filter-chip--on bcn-btn--primary' : ''}" data-act="aff-filter" data-f="${f}">${label} <span class="af-mono">${num(n)}</span></button>`).join('') : '';
   const affEmpty = S.affFilter === 'ended' ? 'No ended affiliates.' : endedP.length ? 'No current affiliates. Ended ones are under Ended.' : 'No affiliates yet. They appear here when someone you invite opens their signup link.';
   $('affiliatesBody').innerHTML = [
-    surface('Affiliates', `${d.affiliates.length ? `<div class="af-filter-bar">${affChips}${viewToggle()}</div>` : ''}${S.view === 'list'
+    surface('Affiliates', `${d.affiliates.length ? `<div class="af-ctl">${affChips}<span class="af-ctl-gap"></span>${viewToggle()}</div>` : ''}${S.view === 'list'
       ? table([
         { left: true, h: 'Affiliate', f: (a) => `<div class="af-list-who">${listThumb({ name: a.display_name, email: a.contact_email }, affiliatePhotoUrl(a, d.prospectById[a.from_prospect_id]?.evidence))}<div>${esc(a.display_name)}<div class="af-muted">${esc(a.contact_email)}</div></div></div>` },
         ...(multiProg ? [{ left: true, h: 'Program', f: (a) => esc(progName(a.program_id)) }] : []),
-        { left: true, h: 'Status', f: (a) => `${statusPill(a.status)}${stepsOf(a)}` },
+        { left: true, h: 'Status', f: (a) => affSignal(a) },
         { left: true, h: 'Codes', f: (a) => codesOf(a).filter((c) => c.status !== 'retired').map((c) => `<span class="af-code-pill">${esc(c.code)}</span>`).join('') || '<span class="af-muted">None</span>' },
         { h: 'Links', num: true, f: (a) => num(linksOf(a).length) },
-        { h: '', f: (a) => actions(a) },
+        { h: '', f: (a) => affRowActions(a) },
       ], affShown, affEmpty)
       : (multiProg ? itemList(shownP, personCard, affEmpty, 'grid') : itemList(affShown, affiliateRow, affEmpty, 'grid'))}<div id="affOut"></div>`, multiProg ? `${num(currentP.length)} ${currentP.length === 1 ? 'person' : 'people'} across ${num(S.programs.length)} programs` : `${num(d.affiliates.length - ended.length)} in this program`),
     MANAGE && S.programs.some((x) => x.status !== 'closed' && needsStore(x)) ? `<div class="bcn-status bcn-status--warn" id="storeNeeded">Add your website on Share to turn on affiliate links.</div>` : '',
@@ -3030,14 +3321,20 @@ function renderAffiliates() {
     // 2026-11-18: "shouldn't go in people and shouldn't just become giant list").
     more('Products', [seedsCard()]),
     more('Codes and links', [
-      MANAGE ? card('All codes', itemList(d.codes, (c) => {
-        const shop = c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} · ${esc(Number(c.discount_percent))}% off` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it';
-        const seen = c.verified_at ? `First seen ${fmtDate(c.verified_at)}` : 'Not seen on an order yet';
-        const act = c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true }) : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}` : c.shopify_ended_at ? pill('off in Shopify')
+      // A hundred codes as stacked cards is a scroll with nothing lined up
+      // (audit finding 7). Same facts, as a table you can scan and sort.
+      MANAGE ? card('All codes', table([
+        { left: true, h: 'Code', sort: 'code', f: (c) => `<span class="af-mono">${esc(c.code)}</span>` },
+        { left: true, h: 'Person', sort: 'who', f: (c) => `${esc(d.affById[c.affiliate_id]?.display_name || '—')}${multiProg ? `<div class="af-muted">${esc(progName(c.program_id))}</div>` : ''}` },
+        { left: true, h: 'Made by', f: (c) => (c.status === 'pending' ? `${pill('waiting for Shopify', 'warn')} <span class="af-sub">${esc(Number(c.discount_percent))}% off</span>` : c.shopify_created_via_app ? `Shopify via ${esc(c.shopify_created_via_app)}` : 'You made it') },
+        { left: true, h: 'Window', f: (c) => `<span class="af-sub">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</span>` },
+        { left: true, h: 'Seen', f: (c) => (c.verified_at ? `<span class="af-sub">${fmtDate(c.verified_at)}</span>` : '<span class="af-muted">never</span>') },
+        { h: '', f: (c) => `<div class="af-rowacts">${c.status === 'active' ? btn('Retire', 'code-retire', { id: c.id }, 'surface', { confirm: true })
+          : c.status === 'pending' ? `${btn('Make in Shopify', 'code-make', { id: c.id }, 'primary')}${btn('Cancel', 'code-retire', { id: c.id }, 'surface', { confirm: true })}`
+          : c.shopify_ended_at ? pill('off in Shopify')
           : c.shopify_discount_id && MANAGE ? `${pill('retired')}${btn('Turn off in Shopify', 'code-end', { id: c.id }, 'surface')}${c.shopify_end_error ? `<span class="af-muted">${esc(c.shopify_end_error)}</span>` : ''}`
-          : pill('retired');
-        return `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head"><span class="af-mono">${esc(c.code)}</span> · ${esc(d.affById[c.affiliate_id]?.display_name)}${multiProg ? ` · ${esc(progName(c.program_id))}` : ''}</div><div class="af-muted">${fmtDate(c.starts_on)} → ${c.ends_on ? fmtDate(c.ends_on) : 'open'}</div><div class="af-kv-line">${shop} · ${seen}</div></div><div class="af-item-foot">${act}</div></article>`;
-      }, 'No codes yet.')) : '',
+          : pill('retired')}</div>` },
+      ], recSortRows(d.codes, { code: (c) => String(c.code || '').toLowerCase(), who: (c) => String(d.affById[c.affiliate_id]?.display_name || '').toLowerCase() }), 'No codes yet.', recSortSpec())) : '',
     ]),
   ].join('');
 }
@@ -3300,11 +3597,34 @@ function commissionsBodyHtml() {
     // not the whole history, so the dates narrow what is here and both the
     // subtitle and the empty line keep saying so -- an older date is "not in
     // the latest 300", which is not the same as "nothing happened".
-    more('Every order', [card('Orders', `<div class="af-row">${rangePicker('ovo')}</div>${itemList(recWindow(d.attributions, (x) => x.order_day), attrRow, recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.')}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
+    // A table, not stacked cards (audit finding 7): same rows, lined up and
+    // sortable, four to a screen instead of two.
+    more('Every order', [card('Orders', `<div class="af-ctl">${rangePicker('ovo')}</div>${table([
+      { left: true, h: 'Order', sort: 'order', f: (r) => `<span class="af-mono">${esc(r.order_number || r.order_id)}</span><div class="af-sub">${fmtDate(r.order_day)}</div>` },
+      { left: true, h: 'Person', sort: 'who', f: (r) => esc(d.affById[r.affiliate_id]?.display_name || '—') },
+      { left: true, h: 'Code', f: (r) => `<span class="af-mono">${esc(r.matched_code || '—')}</span>` },
+      { left: true, h: 'Basis', f: (r) => (BASIS_LABELS[r.basis]?.earns ? pill(basisLabel(r.basis), 'pos') : pill(basisLabel(r.basis))) },
+      { num: true, h: 'Base', sort: 'base', f: (r) => `${formatMoney(r.commissionable_cents, r.order_currency)}${r.codes_on_order > 1 ? `<div class="af-sub">${r.codes_on_order} codes on order</div>` : ''}` },
+      { h: '', f: (r) => `<div class="af-rowacts">${r.order_number ? btn('Explain', 'order-explain', { q: r.order_number }) : ''}</div>` },
+    ], recSortRows(recWindow(d.attributions, (x) => x.order_day), {
+      order: (r) => String(r.order_number || r.order_id || ''),
+      who: (r) => String(d.affById[r.affiliate_id]?.display_name || '').toLowerCase(),
+      base: (r) => Number(r.commissionable_cents || 0),
+    }), recWin().custom ? 'No orders on those dates, within the latest 300.' : 'No orders matched yet.', recSortSpec())}`, recWin().custom ? `${fmtDate(recWin().from)} – ${fmtDate(recWin().to)} · of the latest 300` : 'latest 300')]),
     more('Periods and ledger', [
       card('Review periods', `${itemList(d.periods, periodRow, 'No periods yet.')}
       ${MANAGE ? `<div class="af-row" style="margin-top:8px;">${field('Start', input('perStart', 'type="date"'))}${field('End', input('perEnd', 'type="date"'))}${btn('Open period', 'period-add', {}, 'primary')}</div>` : ''}`),
-      card('Commission ledger', `${itemList(recWindow(d.ledger, (x) => x.order_day || x.created_at), ledgerRow, recWin().custom ? 'No commission lines on those dates, within the latest 300.' : 'No commission lines yet.')}
+      card('Commission ledger', `${table([
+        { left: true, h: 'Person', sort: 'who', f: (l) => esc(d.affById[l.affiliate_id]?.display_name || '—') },
+        { left: true, h: 'Kind', f: (l) => `${esc(l.kind.replaceAll('_', ' '))}${l.order_id ? `<div class="af-sub">${esc(l.order_id)}</div>` : ''}` },
+        { left: true, h: 'When', sort: 'when', f: (l) => `<span class="af-sub">${fmtTime(l.created_at)}</span>` },
+        { left: true, h: 'Why', f: (l) => (l.memo ? esc(l.memo) : '<span class="af-muted">—</span>') },
+        { num: true, h: 'Amount', sort: 'amount', f: (l) => formatMoney(l.amount_cents, l.currency) },
+      ], recSortRows(recWindow(d.ledger, (x) => x.order_day || x.created_at), {
+        who: (l) => String(d.affById[l.affiliate_id]?.display_name || '').toLowerCase(),
+        when: (l) => String(l.created_at || ''),
+        amount: (l) => Number(l.amount_cents || 0),
+      }), recWin().custom ? 'No commission lines on those dates, within the latest 300.' : 'No commission lines yet.', recSortSpec())}
       ${MONEY ? `<div class="af-row" style="margin-top:8px;">${field('Adjust affiliate', `<select class="bcn-field" id="adjAff">${d.affiliates.map((a) => `<option value="${a.id}">${esc(a.display_name)}</option>`).join('')}</select>`)}${field(`Amount in ${esc(p.currency)}`, input('adjAmt', 'inputmode="decimal"'))}${field('Why', input('adjMemo'))}${btn('Add adjustment', 'adjust', {}, 'primary', { confirm: true })}</div>` : '<p class="af-muted">Manual adjustments need journal-entry approval.</p>'}`),
     ]),
   ].join('');
@@ -3554,20 +3874,53 @@ function payoutPayHtml() {
       + `<div class="af-item-foot">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   };
   const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)}${progTag(x)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  // Export is a control of the whole list, so it sits in the header and is
+  // always there: greyed with the reason when there is nothing approved
+  // (audit finding 5 -- Blake could not find the payout CSV because it only
+  // existed once a payout was approved, at the foot of a card).
+  const exportBtn = MANAGE
+    ? btn(approved.length ? `Export CSV · ${num(approved.length)}` : 'Export CSV', 'payout-export', {}, approved.length && !sendable.length ? 'primary' : 'surface',
+      { confirm: !!approved.length, disabled: !approved.length, title: approved.length ? `Download ${plural(approved.length, 'approved payout')} as a CSV` : 'Nothing approved to export yet. Build a payout, approve it, and this downloads it as a CSV.' })
+    : '';
+  // Money opens with money (audit finding 4): what is owed, who is waiting
+  // and the payouts themselves. Connecting PayPal is a one-time setup step,
+  // so it sits under them -- with a chip up here while it is missing.
+  const connChip = paypalRail && !live && MANAGE
+    ? `<div class="bcn-status bcn-status--warn" id="payConnWanted">PayPal is not connected yet, so payouts cannot be sent. Connect it under Payout account below.</div>`
+    : '';
   return [
   moneyTop(),
-  payConnCard(),
-  surface('Ready to pay', itemList(bal.filter((r) => Number(r.unclaimed_cents) > 0), balanceRow, 'Nothing waiting in a payout yet.', 'grid'), plural(bal.length, 'affiliate')),
+  connChip,
+  surface('Ready to pay', table([
+    { left: true, h: 'Affiliate', f: (r) => `<div class="af-list-who">${face(r.a)}<div>${esc(r.a?.display_name || '—')}${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}${ppChip(r.affiliate_id)}</div></div>` },
+    { num: true, h: 'Owed', f: (r) => `<span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span>` },
+    { left: true, h: 'Paid of earned', f: (r) => {
+      const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
+      const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
+      return `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div><div class="af-sub">${formatMoney(paidC, r.currency)} of ${formatMoney(earned, r.currency)}</div>`;
+    } },
+    { h: '', f: (r) => `<div class="af-rowacts">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div>` },
+  ], bal.filter((r) => Number(r.unclaimed_cents) > 0),
+    { text: 'Nothing waiting in a payout yet.', go: btn('See credited orders', 'go-tab', { t: 'records', k: 'orders' }) }), plural(bal.length, 'affiliate')),
   d.payouts.some((x) => x.status === 'draft') ? surface('To approve', queue('payouts', d.payouts.filter((x) => x.status === 'draft'), payoutRow,
     MONEY ? [['Approve selected', 'q-payout-ok', 'primary', { confirm: true }]] : [], ''), `${num(d.payouts.filter((x) => x.status === 'draft').length)} draft(s)`) : '',
   surface('Payouts', `${itemList(d.payouts.filter((x) => x.status !== 'draft'), payoutRow, 'No payouts yet.')}
-    ${MANAGE && (approved.length || sendable.length) ? `<div class="af-pay-actions">${
+    ${MANAGE && MONEY && sendable.length ? `<div class="af-pay-actions">${
       // Pay day is one button, not one per affiliate. Each payout is still its
       // own attempt, its own idempotency key and its own row -- the loop is in
       // the page, not in the payment -- so nothing about sending twice changes.
-      MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
-    }${approved.length ? btn(`Export ${plural(approved.length, 'approved payout')}`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
-  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}${progTag(r)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === curOf(r) ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+      btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true })
+    }</div>` : ''}`, '', '', exportBtn),
+  payConnCard(),
+  // Build payout lives on Money (audit finding 10); this is the record, so it
+  // reads rather than repeating the button.
+  more('Balances', [card('All balances', table([
+    { left: true, h: 'Affiliate', f: (r) => `${esc(r.a?.display_name || '—')}${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}` },
+    { left: true, h: 'Currency', f: (r) => `<span class="af-sub">${esc(r.currency)}</span>` },
+    { num: true, h: 'Earned', f: (r) => formatMoney(r.earned_cents, r.currency) },
+    { num: true, h: 'Unpaid', f: (r) => formatMoney(r.unclaimed_cents, r.currency) },
+    { num: true, h: 'Paid', f: (r) => formatMoney(r.paid_cents, r.currency) },
+  ], bal, 'Nothing earned yet.'), 'Build a payout on Money')]),
   ].join('');
 }
 
@@ -3614,6 +3967,15 @@ const outreachVars = (x, p = progOf(x) || prog()) => {
 // from rows the page has already read under RLS.
 const OV_WEEKS = 12;
 const ovCur = () => (companyMulti() ? mainCurrency() : (prog()?.currency || 'USD').toUpperCase());
+// Every currency the company's programs are in, the most common first. Money
+// is shown per currency and never summed across them, so a program in another
+// currency is not silently left out of a company figure (review cycle 1).
+function ovCurrencies() {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  const list = Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b));
+  return list.length ? list : [ovCur()];
+}
 const ovDay = (back) => dayShift(today(), back);
 // 30 / 90 / any two dates. The same control heads Home, Money and Records, so
 // one choice follows you between them.
@@ -3667,8 +4029,8 @@ const ovWindowLabel = () => {
   return w.custom ? `${fmtDate(w.from)} – ${fmtDate(w.to)}` : `last ${num(w.days)} days`;
 };
 // Whole currency units, for the big figures. Exact amounts stay on Pay.
-function moneyRound(cents) {
-  const cur = ovCur();
+function moneyRound(cents, currency = null) {
+  const cur = (currency || ovCur() || 'USD').toUpperCase();
   if (cents === null || cents === undefined || !Number.isFinite(Number(cents))) return '—';
   const v = Number(cents) / minorUnits(cur);
   try {
@@ -3779,8 +4141,10 @@ function ovLeaderboard(list) {
       + `<div class="af-ov-who"><div class="af-ov-nm">${esc(a.display_name)}</div>`
       + `<div class="af-ov-hd">${esc(sub || '—')}</div>`
       + `<div class="af-ov-bar"><i style="width:${Math.round((x.sales / top) * 100)}%"></i></div></div>`
-      + `<div class="af-ov-money">${esc(moneyRound(x.sales))}<span>${esc(ovPlural(x.orders, 'order'))}</span></div>`
-      + `<div class="af-ov-money af-ov-money--comm">${esc(moneyRound(x.comm))}<span>commission</span></div>`
+      // Money in a list carries its cents; only the KPI tiles round (audit
+      // finding 12 -- the same screen showed $44.09, $44 and $4).
+      + `<div class="af-ov-money">${esc(formatMoney(x.sales, ovCur()))}<span>${esc(ovPlural(x.orders, 'order'))}</span></div>`
+      + `<div class="af-ov-money af-ov-money--comm">${esc(formatMoney(x.comm, ovCur()))}<span>commission</span></div>`
       + `<div class="af-ov-when">${esc(last)}</div></div>`;
   }).join('');
   const seg = [['sales', 'Sales'], ['orders', 'Orders'], ['growth', 'Growth']]
@@ -3834,7 +4198,9 @@ function moneyTop() {
   const flightCents = inFlight.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
   const viaPaypal = multi ? S.programs.every(paysByPaypal) : paysByPaypal(p);
   const stage = (mark, label, value, sub, tone = '') => `<div class="af-flow-step${tone ? ` af-flow-step--${tone}` : ''}"><div class="af-flow-mark">${mark}</div><div class="af-flow-lab">${esc(label)}</div><div class="af-flow-val">${value}</div><div class="af-flow-sub">${sub}</div></div>`;
-  const arrow = '<div class="af-flow-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>';
+  // The arrows went with the pastel tiles (audit finding 6): a KPI band
+  // reads as one row without them.
+  const arrow = '';
   const icon = (path) => `<svg class="af-flow-ico" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   return `<section class="af-flow" aria-label="Where the money is, last ${num(w.days)} days">
     ${stage(shopifyMark(), 'Sales from codes', sales ? esc(moneyRound(sales.sales)) : '—', sales ? `${esc(ovPlural(sales.orders, 'order'))} in Shopify` : 'Shopify')}
@@ -3897,52 +4263,78 @@ function firstInviteCard(d, p) {
   return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
 }
 function renderOverview() {
-  if (companyMulti()) { renderAllHome(); return; }
-  const el = $('overviewBody'); const d = S.d; const p = prog();
-  if (!el || !d || !p) return;
+  const el = $('overviewBody'); const d = S.d;
+  // One layout at any number of programs (audit finding 9, 2026-11-25). The
+  // company view reads every program already, so the numbers, the chart and
+  // the leaderboard are the same ones summed; `p` is null and anything that
+  // describes a single program leaves itself out.
+  const multi = companyMulti();
+  const p = multi ? null : prog();
+  if (!el || !d || (!p && !multi)) return;
+  if (d.all) { renderAllHome(); return; }
   if (d.ovAttributions === null || d.ovLedger === null) {
     el.innerHTML = card('Overview', `<p>The order and commission history did not load, so none of these numbers are shown. Reload, or open Affiliates and Pay for the same data.</p>${btn('Reload', 'ov-reload')}`);
     return;
   }
   const w = ovWindows();
-  const cur = ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
-  const prev = ovWindow(d.ovAttributions, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
-  const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const commPrev = ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: ovCur() });
+  // One currency for a program; every currency the company's programs use for
+  // the company view. Money is listed per currency, counts are the company's.
+  const curs = multi ? ovCurrencies() : [ovCur()];
+  const mixed = curs.length > 1;
+  const win = (c, back = false) => ovWindow(d.ovAttributions, { from: back ? w.prevFrom : w.from, to: back ? w.prevTo : w.to, currency: c });
+  const cur = curs.map((c) => win(c));
+  const prev = curs.map((c) => win(c, true));
+  const comm = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: c }));
+  const commPrev = curs.map((c) => ovLedgerTotal(d.ovLedger, { from: w.prevFrom, to: w.prevTo, currency: c }));
+  const sumOf = (list, k) => list.reduce((n, x) => n + Number(x[k] || 0), 0);
+  const orders = sumOf(cur, 'orders'); const ordersPrev = sumOf(prev, 'orders');
+  const sellers = new Set(cur.flatMap((x) => x.sellers)).size;
+  const sellersPrev = new Set(prev.flatMap((x) => x.sellers)).size;
+  // One figure per currency, joined -- never one number standing for two.
+  const perCur = (vals) => curs.map((c, i) => moneyRound(vals[i], c)).join(' · ');
   const active = d.affiliates.filter((a) => a.status === 'active').length;
   const opt = { today: today(), weeks: OV_WEEKS, currency: ovCur() };
+  // A trend line can only be drawn in one currency; it says which.
+  const sparkNote = mixed ? `<span>${esc(`trend in ${ovCur()}`)}</span>` : '';
+  const avgOrder = orders && !mixed ? moneyRound(cur[0].sales / cur[0].orders, curs[0]) : '';
   const metrics = [
-    ovMetricCard('Sales from codes', moneyRound(cur.sales),
-      `${ovDelta(cur.sales, prev.sales)}<span>vs previous ${num(w.days)} days</span>`,
+    ovMetricCard('Sales from codes', perCur(cur.map((x) => x.sales)),
+      `${mixed ? '' : ovDelta(cur[0].sales, prev[0].sales)}<span>vs previous ${num(w.days)} days</span>${sparkNote}`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? Number(r.gross_subtotal_cents || 0) : 0) }), 'accent')),
-    ovMetricCard('Commission earned', SEES_MONEY ? moneyRound(comm) : '—',
-      `${ovDelta(comm, commPrev)}<span>${esc(rateShort(p))}</span>`,
+    ovMetricCard('Commission earned', SEES_MONEY ? perCur(comm) : '—',
+      `${mixed ? '' : ovDelta(comm[0], commPrev[0])}<span>${esc(p ? rateShort(p) : ovPlural(S.programs.length, 'program'))}</span>`,
       ovSpark(ovWeekly(d.ovLedger, { ...opt, pick: (r) => Number(r.amount_cents || 0) }), 'pos')),
-    ovMetricCard('Orders', num(cur.orders),
-      `${ovDelta(cur.orders, prev.orders)}<span>${esc(moneyRound(cur.orders ? cur.sales / cur.orders : 0))} average order</span>`,
+    ovMetricCard('Orders', num(orders),
+      `${ovDelta(orders, ordersPrev)}<span>${esc(avgOrder ? `${avgOrder} average order` : `${num(curs.length)} currencies`)}</span>`,
       ovSpark(ovWeekly(d.ovAttributions, { ...opt, pick: (r) => (OV_EARNING_BASES.includes(r.basis) ? 1 : 0) }), 'accent')),
-    ovMetricCard('Selling affiliates', num(cur.sellers.length),
-      `${ovDelta(cur.sellers.length, prev.sellers.length)}<span>of ${num(active)} active</span>`,
+    ovMetricCard('Selling affiliates', num(sellers),
+      `${ovDelta(sellers, sellersPrev)}<span>of ${num(active)} active</span>`,
       ovSpark(ovWeeklySellers(d.ovAttributions, opt), 'warn')),
   ].join('');
-  const owedCents = ovUnpaid(d.balances, p.currency);
+  const owedLine = curs.map((c) => money(ovUnpaid(d.balances, c), c)).join(' · ');
   const liveCodes = d.codes.filter((c) => c.status === 'active').length;
-  const otherCur = ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() });
+  // Orders in a currency NO program of this company is in: still not counted
+  // above, so the band says how many there are.
+  const inScope = new Set(curs);
+  const otherCur = mixed
+    ? new Set((d.ovAttributions || []).filter((r) => r?.order_day && r.order_day >= w.from && r.order_day <= w.to
+      && !inScope.has(String(r.order_currency || curs[0]).toUpperCase())).map((r) => r.order_id)).size
+    : ovOtherCurrencyOrders(d.ovAttributions, { from: w.from, to: w.to, currency: curs[0] });
   const lastLedger = (d.ledger || [])[0]?.created_at;
   const bandItem = (lab, v) => `<div class="af-ov-bi"><div class="af-ov-bl">${esc(lab)}</div><div class="af-ov-bv">${v}</div></div>`;
   const band = '<div class="af-ov-band">'
-    + bandItem('Commission unpaid', SEES_MONEY ? esc(money(owedCents)) : '—')
+    + bandItem('Commission unpaid', SEES_MONEY ? esc(owedLine) : '—')
     + bandItem('Codes live', `${num(liveCodes)}${d.health?.codes_never_seen ? ` · ${num(d.health.codes_never_seen)} never used` : ''}`)
     + (otherCur ? bandItem('Other currency', esc(ovPlural(otherCur, 'order'))) : '')
     + '<div class="af-ov-bsep"></div>'
     + bandItem('Commissions updated', esc(lastLedger ? fmtTime(lastLedger) : 'not yet'))
     + '</div>';
-  el.innerHTML = firstInviteCard(d, p)
+  el.innerHTML = (p ? firstInviteCard(d, p) : '')
     + `<div class="af-row"><span class="af-muted" style="flex:1;">${esc(w.custom ? `${fmtDate(w.from)} to ${fmtDate(w.to)}` : `Last ${num(w.days)} days, through today`)}</span>${rangePicker('ovh')}</div>`
     + `<div class="af-ov-metrics">${metrics}</div>`
     + band
     + `<div class="af-ov-cols"><div>${ovLeaderboard(ovList())}${ovChartCard()}</div>`
-    + `<div>${ovTodoCard()}${ovAutoCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
+    + `<div>${p ? `${ovTodoCard()}${ovAutoCard()}` : byProgramCard()}${ovReachOutCard(ovReachList())}${aiHubOverviewSection()}</div></div>`;
 }
 
 // The program row the Setup form describes, validated. Throws the reasons.
@@ -3998,6 +4390,8 @@ const A = {
   },
   'rec-tab': ({ k }) => { S.recTab = k; S.recAll = false; renderRecords(); return null; },
   'share-all': () => { S.shareAll = true; renderShare(); return null; },
+  // The rest of the stores, on the page beside the ones already chosen.
+  'stores-all': () => { S.storesAll = true; keepFields('programBody', () => renderProgram()); return null; },
   'share-tab': ({ k }) => { S.shareTab = k; S.shareAll = false; renderShare(); return null; },
   'rec-all': () => { S.recAll = true; renderRecords(); return null; },
   'view-set': ({ v }) => { S.view = v === 'list' ? 'list' : 'tiles'; try { localStorage.setItem(VIEW_KEY, S.view); } catch { /* per-viewer convenience only */ } render(); return null; },
@@ -4229,6 +4623,18 @@ const A = {
     S.sel.clear(); S.prospectShowAll = false; render(); return null;
   },
   'd-filter-clear': () => { S.dFilt = { plat: '', prog: '', email: false, minF: 0 }; S.sel.clear(); render(); return null; },
+  // The filter panel is a panel, not a fold-out menu: it stays open until it
+  // is closed, and it opens itself whenever a filter is on.
+  // Find creators opens its two fields; it never runs a search on its own.
+  'd-find-open': () => { S.dFindOpen = !(S.dFindOpen === undefined ? false : S.dFindOpen); keepFields('prospectsBody', render); return null; },
+  'd-filter-open': () => {
+    const F = S.dFilt || {};
+    const open = S.dFiltOpen === undefined ? !!(F.plat || F.prog || F.email || F.minF) : !!S.dFiltOpen;
+    S.dFiltOpen = !open;
+    keepFields('prospectsBody', render);
+    return null;
+  },
+  'rec-sort': ({ k }) => { S.recSort = S.recSort?.k === k ? { k, dir: -S.recSort.dir } : { k, dir: 1 }; render(); return null; },
   'd-sort': ({ k }) => {
     const first = ['followers', 'engagement'].includes(k) ? -1 : 1;
     S.dSort = S.dSort?.k === k ? { k, dir: -S.dSort.dir } : { k, dir: first };
@@ -4240,6 +4646,7 @@ const A = {
   },
   'go-tab': async ({ t, k }) => { if (k) { S.recTab = k; S.recAll = false; } peopleSubFor(t); await goTab(PANEL_OF[t] || t); S.creating = false; render(); workflowFocusTab(t); },
   'prospect-more': ({ id }) => { S.moreProspect = id; render(); return null; },
+  'aff-more': ({ id }) => { S.moreAffiliate = id; S.affTool = null; render(); return null; },
   'people-sub': async ({ k }) => { S.peopleSub = ['discovery', 'customers'].includes(k) ? k : 'affiliates'; await goTab('people'); render(); return null; },
   // Re-ranking and paging are reads, so they return null: no status line, no
   // reload() of the whole program.
@@ -4401,6 +4808,11 @@ const A = {
     if (c.view === 'hunt') return out?.joined ? 'A search is already running. Its progress is below.' : 'Searching. Finds appear below as they come back.';
     return out?.joined ? 'A scan is already running. Its progress is below.' : 'Scanning. Results fill in on this list as they come back.';
   },
+  'cust-filter-open': () => {
+    const c = custState(); const spec = customerQuerySpec(c);
+    const on = S.custFiltOpen === undefined ? custFiltersOn(c, spec).length > 0 : !!S.custFiltOpen;
+    S.custFiltOpen = !on; renderCustomers(); return null;
+  },
   'cust-view': ({ k }) => { const c = custState(); c.view = k === 'all' ? 'all' : 'hunt'; c.sel.clear(); c.page = 0; loadCustomers(true); return null; },
   'cust-hunt-tier': ({ k }) => { const c = custState(); c.huntTier = ['check', 'more'].includes(k) ? k : 'top'; c.sel.clear(); loadCustomers(true); return null; },
   'cust-page': ({ p }) => { const c = custState(); c.page = Math.max(0, Number(p) || 0); loadCustomers(true); return null; },
@@ -4432,6 +4844,8 @@ const A = {
   },
   'aff-tool': async ({ id, k }) => {
     S.affTool = { id, k };
+    // Opened from the More menu, this replaces it rather than hiding behind it.
+    S.moreAffiliate = null;
     // Their other memberships, for the add-to-program dialog only. Fail-soft:
     // null is "could not read", and the dialog then behaves as it did before.
     if (k === 'program') {
