@@ -190,11 +190,11 @@ const MUTATIONS = {
   // People sit above programs (Blake 2026-11-24).
   peoplescope: ['/affiliates/studio.js', "  const company = peopleScope();\n  if (!company && isAll()) return loadAllData(gen);", "  const company = false;\n  if (isAll()) return loadAllData(gen);"],
   peopletwice: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = d.prospects.map((x) => ({ key: x.id, x, rows: [x], programIds: [x.program_id], suppressed: x.status === \'suppressed\' }));'],
-  pickershown: ['/affiliates/studio.js', "  const sel = $('programSel'); if (sel) sel.hidden = company;", ''],
+  pickershown: ['/affiliates/studio.js', "  const sel = $('programSel'); if (sel) sel.hidden = true;", ''],
   ctxprog: ['/affiliates/studio.js', '    if (pg && pg !== S.programId) { S.programId = pg;', '    if (false) { S.programId = pg;'],
   draftownprog: ['/affiliates/studio.js', "      company_entity_id: CO, program_id: x.program_id, prospect_id: id, channel: path.channel,", "      company_entity_id: CO, program_id: S.programId, prospect_id: id, channel: path.channel,"],
   drafttemplate: ['/affiliates/studio.js', '  const p = progOf(x) || prog();\n  return x?.source', '  const p = prog();\n  return x?.source'],
-  supoffer: ['/affiliates/studio.js', '  const addTo = (g) => (MANAGE && !g.suppressed', '  const addTo = (g) => (MANAGE'],
+  supoffer: ['/affiliates/studio.js', '    if (!MANAGE || g.suppressed || d.supUnknown) return \'\';', '    if (!MANAGE || d.supUnknown) return \'\';'],
   loadgen: ['/affiliates/studio.js', '  if (gen !== loadGen) return;\n  S.d = d;\n  // A research run', '  S.d = d;\n  // A research run'],
   supignored: ['/affiliates/studio.js', '  const people = groupPeople(d.prospects, d.suppressions);', '  const people = groupPeople(d.prospects);'],
   supfailopen: ['/affiliates/studio.js', '  d.supUnknown = !supRead;', '  d.supUnknown = false;'],
@@ -1315,7 +1315,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.has(file, PA, 'the claimed payout is in the file');
     R.not(file, PB, 'a payout the database did not claim is not in the file');
     R.ok('the fingerprint is recorded against the claimed batch', rpcCalls.some((c) => c[0] === 'fp' && c[1].p_batch === 'batch-1'));
-    await pay.selectOption('#programSel', PROG);
+    await pay.click(`#progPick [data-act="pick-prog"][data-id="${PROG}"]`);
     await pay.waitForFunction(() => /Pat Trails/.test(document.querySelector('#payoutsBody')?.textContent || ''), null, { timeout: 5000 });
     await openRecords(pay);
     await recTab(pay, 'money');
@@ -1414,7 +1414,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await two.waitForSelector('#pName', { timeout: 5000 });
     await two.fill('#pName', 'Edited A');
     await two.press('#pName', 'Tab');
-    await two.selectOption('#programSel', PROG2);
+    await two.click(`#progPick [data-act="pick-prog"][data-id="${PROG2}"]`);
     await two.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'affiliate_programs' && q._op === 'update'), null, { timeout: 5000 }).catch(() => {});
     await two.waitForTimeout(500);
     const twoUps = await two.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_programs' && q._op === 'update')
@@ -2653,9 +2653,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       affiliate_balances_v: [...tables.affiliate_balances_v, { ...tables.affiliate_balances_v[0], program_id: PROGB, affiliate_id: AFFB, earned_cents: 1500, unclaimed_cents: 1500 }] };
     const all = await suite.open('/v2/affiliates/index.html', allTables, { ready, rpc: { can_manage_affiliate_programs: true, can_approve_affiliate_commissions: true } });
     all.on('pageerror', (e) => errors.push(e.message));
-    R.ok('with two programs the picker offers All programs', await all.evaluate(() => [...document.querySelectorAll('#programSel option')].some((o) => o.value === '*' && /All programs/.test(o.textContent))));
-    await all.selectOption('#programSel', '*');
+    R.ok('there is no program filter at the top of the page', await all.evaluate(() => document.getElementById('programSel')?.hidden === true));
+    R.ok('and none on People', await all.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await toProgram(all);
+    R.ok('the Program tab offers All programs inside the tab', !!(await all.$('#progPick:not([hidden]) [data-act="pick-prog"][data-id="*"]')));
+    await all.click('#progPick [data-act="pick-prog"][data-id="*"]');
     await all.waitForFunction(() => /By program/.test(document.getElementById('overviewBody')?.textContent || ''), null, { timeout: 5000 });
     const allHome = await text(all, '#overviewBody');
     R.has(allHome, 'Wholesale', 'Home lists every program');
@@ -2680,7 +2682,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await all.close();
     // One program only: no All programs option.
     const one = await suite.open('/v2/affiliates/index.html', tables, { ready, rpc: { can_manage_affiliate_programs: true } });
-    R.ok('with one program there is no All programs option', !(await one.evaluate(() => [...document.querySelectorAll('#programSel option')].some((o) => o.value === '*'))));
+    await toProgram(one);
+    R.ok('with one program there is nothing to pick', await one.evaluate(() => document.getElementById('progPick')?.hidden === true));
     await one.close();
 
     // ── Share: compact, list view, ten most recent ─────────────────────────
@@ -3510,8 +3513,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq(samCards.length, 1, 'somebody in two programs is one card');
       const samCard = await pg.$$eval('#prospectsBody .af-item--catalog', (els) => (els.find((e) => /Sam Runs/.test(e.querySelector('.af-catalog-name')?.textContent || ''))?.textContent || ''));
       R.ok('with a line for each program they are in', samCard.includes(tables.affiliate_programs[0].name) && samCard.includes('Beta'));
-      R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await pg.$('#prospectsBody [data-act="prospect-assign"][data-id="pb3"]')));
-      R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await pg.$('#prospectsBody [data-act="prospect-assign"][data-id="pb5"]')));
+      R.ok('do not contact is listed but never offered to another program', /Dee Nope/.test(shown) && !(await pg.$('#prospectsBody select.af-addto[data-id="pb3"]')));
+      R.ok('somebody on the list by address alone is not offered to another program', /Sue Listed/.test(shown) && !(await pg.$('#prospectsBody select.af-addto[data-id="pb5"]')));
       R.ok('People reads the do-not-contact list in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_suppressions' && q.range)));
       if (process.env.PEOPLE_SHOT) { await pg.setViewportSize({ width: 1280, height: 1100 }); await (await pg.$('#prospectsBody')).screenshot({ path: process.env.PEOPLE_SHOT }); }
       // Affiliates: one card per person, a block for each program.
@@ -3548,17 +3551,17 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       // Add to: their own row in the other program, shortlisted, without that
       // program's decisions or search.
       await pg.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]');
-      await pg.waitForSelector('#prospectsBody [data-act="prospect-assign"][data-id="pb1"]', { timeout: 5000 }).catch(() => {});
+      await pg.waitForSelector('#prospectsBody select.af-addto[data-id="pb1"]', { timeout: 5000 }).catch(() => {});
       const nIns = await pg.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length);
-      await pg.click('#prospectsBody [data-act="prospect-assign"][data-id="pb1"]').catch(() => {});
+      await pg.selectOption('#prospectsBody select.af-addto[data-id="pb1"]', PROG).catch(() => {});
       await pg.waitForFunction((n) => window.__QUERIES__.filter((q) => q.table === 'affiliate_prospects' && q._op === 'insert').length > n, nIns, { timeout: 5000 }).catch(() => {});
       const ins = await pg.evaluate(() => { const q = window.__QUERIES__.filter((x) => x.table === 'affiliate_prospects' && x._op === 'insert').pop(); return Array.isArray(q?.rows) ? q.rows[0] : q?.rows; });
       R.ok('Add makes their own row in that program, shortlisted', ins?.program_id === PROG && ins?.status === 'approved' && ins?.profile_url === 'https://www.youtube.com/@patpool');
       R.ok('without the other program\'s decisions or search', ins && !('affiliate_id' in ins) && !('source_id' in ins) && ins.reviewed_by !== 'someone');
       // Off People, the picker is back and the tab is one program again.
       await pg.click('#tabs [data-tab="comms"]').catch(() => {});
-      await pg.waitForFunction(() => document.getElementById('programSel')?.hidden === false, null, { timeout: 5000 }).catch(() => {});
-      R.ok('the picker is back on a program tab', await pg.evaluate(() => document.getElementById('programSel')?.hidden === false));
+      await pg.waitForFunction(() => document.getElementById('progPick')?.hidden === false, null, { timeout: 5000 }).catch(() => {});
+      R.ok('a program tab picks its program inside the tab', await pg.evaluate(() => document.getElementById('progPick')?.hidden === false && document.getElementById('programSel')?.hidden === true));
       // People read every page of prospects, not one capped read.
       R.ok('People reads the prospects in pages', await pg.evaluate(() => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q.range && !q.filters.some((f) => f.col === 'program_id'))));
       // Two tab changes in a row: the slow company-wide People read must not
@@ -3585,7 +3588,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       await toDiscovery(nosup);
       await nosup.click('#prospectsBody [data-act="prospect-filter"][data-f="all"]').catch(() => {});
       await nosup.waitForFunction(() => /Pat Pool/.test(document.getElementById('prospectsBody')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
-      R.ok('an unread do-not-contact list offers nobody to another program', !(await nosup.$('#prospectsBody [data-act="prospect-assign"]')));
+      R.ok('an unread do-not-contact list offers nobody to another program', !(await nosup.$('#prospectsBody select.af-addto')));
       await nosup.close();
     }
 
