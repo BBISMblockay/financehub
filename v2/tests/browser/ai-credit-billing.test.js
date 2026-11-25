@@ -210,7 +210,7 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
     });
     await check('Affiliate Studio: before the Discovery update, no Discovery fields and none sent', async () => {
       assert.equal(await page.locator('#stDisc').count(), 0);
-      assert.doesNotMatch(await page.locator('#studio').textContent(), /nightly Discovery/);
+      assert.doesNotMatch(await page.locator('#studio').textContent(), /new creators/);
     });
     await page.close();
     // Nightly Discovery (20261125100000): its own switch and limits, modest
@@ -220,7 +220,10 @@ const rpcFor = (summary, exec = true) => ({ ai_credit_summary: summary === 'erro
     page = await suite.open('/v2/billing.html', withCredit(withStudio), { rpc: studioRpc(disc), ready: () => !document.querySelector('#credit .bil-empty') && !document.getElementById('studioCard').hidden });
     await check('Affiliate Studio: nightly Discovery has its own switch and limits, saved with the rest', async () => {
       const card = (await page.locator('#studio').textContent()).replace(/\s+/g, ' ');
-      assert.match(card, /Last nightly Discovery\s*Oct 6, 2026 · 7 new · Coaches/);
+      assert.match(card, /Last night · new creators\s*Oct 6, 2026 · 7 new · Coaches/);
+      // Each switch sits under its own heading: customers (Find), then new creators (Discovery).
+      const form = (await page.locator('#studioForm').textContent()).replace(/\s+/g, ' ');
+      assert.match(form, /Your customers · Find\s*Check my customers for creators every night.*New creators · Discovery\s*Discover new creators every night.*All Affiliate Studio use/);
       assert.doesNotMatch(card, /provider|multiplier|markup|rate/i);
       assert.equal(await page.locator('#stDisc').isChecked(), false);
       assert.equal(await page.locator('#stDiscN').inputValue(), '10');
