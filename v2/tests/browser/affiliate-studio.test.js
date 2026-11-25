@@ -165,8 +165,8 @@ const MUTATIONS = {
   // Marking it sent without recording the approval leaves the row half-told.
   draftsentappr: ['/affiliates/studio.js', "        approved_by: x.approved_by || me.id,\n        approved_at: x.approved_at || stamp,", ''],
   // A hundred posts to review means a wall of tiles, not a column of rows.
-  qgrid: ['/affiliates/studio.js', "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.', { grid: true }",
-    "want === 'new' ? 'Nothing new. Affiliates post from their portal.' : 'Nothing here.'"],
+  qgrid: ['/affiliates/studio.js', "    : queue('content', shareCap(list), row, acts, emptyText, { grid: true });",
+    "    : queue('content', shareCap(list), row, acts, emptyText);"],
   // The creator's photo in no wrapper draws at whatever size they uploaded,
   // which is how it became the big image on the tile.
   ctilephoto: ['/affiliates/studio.js', '<div class="af-ctile-who">${listThumb({ name: a?.display_name, email: a?.contact_email }, affiliatePhotoUrl(a || {}))}<span class="af-ctile-name">',
@@ -180,6 +180,14 @@ const MUTATIONS = {
   postbulk: ['/affiliates/studio.js', "    ...(canUse && !['paid', 'no'].includes(want) ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),", "    ...(canUse && want !== 'paid' ? [[payLabel, 'q-content-use', 'primary', { confirm: bonus > 0 }]] : []),"],
   ctileone: ['/affiliates/studio.js', 'const act = (lbl, k, kind, opts) => btn(lbl, \'content-decide\', { id: x.id, k }, kind, opts);',
     "const act = (lbl, k, kind, opts) => btn(lbl, 'content-decide', { id: (S.d.content || []).map((y) => y.id).join(','), k }, kind, opts);"],
+  // The content view (20261125230000).
+  offermoney: ['/affiliates/studio.js', 'canOffer: MANAGE && MONEY && live,', 'canOffer: MANAGE && live,'],
+  postzero: ['/affiliates/studio.js', "  const parts = [st.views !== null ? `${compactCount(st.views)} views` : '',", "  const parts = [`${compactCount(st.views || 0)} views`,"],
+  statsevery: ['/affiliates/studio.js', 'postNeedsStats(x) && !S.contentStatsAsked.has(x.id)', 'postNeedsStats(x)'],
+  statsall: ['/affiliates/studio.js', "{ action: 'content_stats', ids: want.slice(i, i + STATS_BATCH) }", "{ action: 'content_stats' }"],
+  stats50: ['/affiliates/studio.js', 'for (let i = 0; i < want.length; i += STATS_BATCH)', 'for (let i = 0; i < 1; i += STATS_BATCH)'],
+  askworkflow: ['/affiliates/studio.js', "body: JSON.stringify({ history, workflow: 'affiliate_studio',", 'body: JSON.stringify({ history,'],
+  askanyid: ['/affiliates/studio.js', "    const p = d.prospectById?.[x.id]; if (!p) return null;", "    const p = d.prospectById?.[x.id] || { id: x.id, status: 'new', display_name: 'Unknown' };"],
   // A file the browser cannot play must say so, not sit there as a blank box.
   vidblank: ['/affiliates/studio.js', "  if (!t?.classList?.contains('af-content-media')) return;", '  return;'],
   // The picture has to survive the two lists disagreeing about the handle.
@@ -1656,7 +1664,8 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     // ── join page ─────────────────────────────────────────────────────────
     const calls = [];
     const claimed = new Set();
-    const contentItems = [{ id: 'c-old', kind: 'link', link_url: 'https://www.instagram.com/p/old/', caption: 'Old reel', state: 'used', bonus_cents: 2500, currency: 'USD' }];
+    const contentItems = [{ id: 'c-old', kind: 'link', link_url: 'https://www.instagram.com/p/old/', caption: 'Old reel', state: 'used', bonus_cents: 2500, currency: 'USD' },
+      { id: 'c-offer', kind: 'link', link_url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa', caption: 'Glove review', state: 'approved', offer_state: 'open', offer_cents: 35000, offer_currency: 'USD' }];
     const uploads = [];
     await suite.context.route('https://storage.invalid/**', (route) => { uploads.push({ method: route.request().method(), type: route.request().headers()['content-type'] }); return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); });
     // Product seeding: what the rep has asked for so far.
@@ -1723,6 +1732,11 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       if (body.action === 'content_start') {
         if (body.kind === 'link') { contentItems.unshift({ id: 'cl' + contentItems.length, kind: 'link', link_url: body.link_url, caption: body.caption || null, state: 'submitted' }); return reply(200, { id: 'cl', state: 'submitted' }); }
         return reply(200, { id: 'cf1', state: 'uploading', upload_url: 'https://storage.invalid/upload/sign/affiliate-content/cf1/content.mp4?token=t' });
+      }
+      if (body.action === 'content_answer') {
+        const it = contentItems.find((x) => x.id === body.id);
+        if (it) { it.offer_state = body.accept ? 'accepted' : 'declined'; if (body.accept) { it.state = 'used'; it.bonus_cents = it.offer_cents; it.currency = 'USD'; } }
+        return reply(200, { id: body.id, offer_state: it?.offer_state || null });
       }
       if (body.action === 'content_finish') { contentItems.unshift({ id: body.id, kind: 'file', file_type: 'video/mp4', caption: null, state: 'submitted' }); return reply(200, { id: body.id, state: 'submitted' }); }
       return reply(400, { error: 'unexpected' });
@@ -1950,6 +1964,12 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     R.eq([sf.kind, sf.file_type, sf.file_bytes], ['file', 'video/mp4', 16], 'the file is announced by type and size, never sent through the function');
     R.eq(uploads.map((u) => [u.method, u.type]), [['PUT', 'video/mp4']], 'the file goes straight to the signed upload address');
     R.eq(calls.filter((c) => c.action === 'content_finish').pop()?.id, 'cf1', 'and the upload is finished only after it landed');
+    // An offer for one post (20261125230000): named, and answered by a press.
+    R.has(await text(ctPage, '#contentCard'), 'offers $350.00 to use this post', 'the portal shows the brand\'s offer for that post');
+    await ctPage.click('#contentCard button[data-offer="c-offer"][data-yes="1"]');
+    await ctPage.waitForFunction(() => /Accepted/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+    R.eq(calls.filter((c) => c.action === 'content_answer').map((c) => [c.id, c.accept, c.offer_cents]), [['c-offer', true, 35000]], 'Accept answers that one offer, yes, at the price shown');
+    R.ok('an accepted offer is no longer offered', !(await ctPage.$('#contentCard button[data-offer]')));
     await ctPage.setInputFiles('#ctFile', { name: 'notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('x') });
     R.has(await text(ctPage, '#status'), 'Upload a photo or a video', 'other files are refused before anything is sent');
     await ctPage.close();
@@ -2596,7 +2616,7 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
     await ct.click('#tabs [data-tab="share"]');
     await ct.waitForFunction(() => !!document.querySelector('#shareBody .af-ctile-media'), null, { timeout: 5000 });
     const cb = await text(ct, '#shareBody');
-    R.has(cb, 'A post you pay for earns $25.00', 'the bonus is named once');
+    R.has(cb, 'A post you buy earns $25.00', 'the bonus is named once');
     R.has(cb, 'New', 'the posts are filtered by what has happened to them');
     // A tile each for the two that landed; the caption is in the opened post.
     R.eq(await ct.$$eval('#shareBody .af-ctile', (n) => n.length), 2,
@@ -2703,6 +2723,124 @@ const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.text
       R.eq([one.p_ids, one.p_decision], [['ct1'], 'approve'], 'a decision taken on the opened post is about that post alone');
       await lp.close();
       await suite.context.unroute('https://fixture.local/signed/**');
+    }
+    // ── The content view: numbers, sort, Buy, Offer, list (20261125230000) ──
+    {
+      const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+      await suite.context.route('https://i.ytimg.com/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG1 }));
+      const PU = '44444444-4444-4444-8444-444444444444';
+      const vTables = { ...ctTables,
+        affiliates: ctTables.affiliates.map((x) => (x.id === AFF ? { ...x, handle: '@patruns' } : x)),
+        affiliate_prospects: [...ctTables.affiliate_prospects,
+          { id: PU, company_entity_id: CO, program_id: PROG, display_name: 'Uma Pitches', platform: 'youtube', handle: '@umapitches', status: 'new', source: 'serp', collected_at: now, evidence: {} }],
+        affiliate_content_submissions: [
+          { id: 'y1', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link', link_url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa', state: 'submitted', submitted_at: '2026-11-20T00:00:00Z',
+            view_count: 12400, like_count: 600, comment_count: 45, duration_seconds: 72, thumbnail_url: 'https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg', stats_source: 'youtube_api', stats_at: now },
+          { id: 'y2', company_entity_id: CO, program_id: PROG, affiliate_id: AFF_Q, kind: 'link', link_url: 'https://www.tiktok.com/@pat/video/1', state: 'approved', submitted_at: '2026-11-24T00:00:00Z' },
+          { id: 'y3', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link', link_url: 'https://youtu.be/bbbbbbbbbbb', state: 'used', bonus_cents: 35000, currency: 'USD', submitted_at: '2026-11-10T00:00:00Z' },
+          { id: 'y4', company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link', link_url: 'https://www.youtube.com/shorts/ccccccccccc', state: 'submitted', submitted_at: '2026-11-22T00:00:00Z' }] };
+      const vRpc = { ...ctRpc, affiliate_content_offer: (args) => ({ id: args.p_id, offer_state: args.p_cents ? 'open' : 'withdrawn' }) };
+      const vp = await suite.open('/v2/affiliates/index.html', vTables, { ready, rpc: vRpc });
+      vp.on('pageerror', (e) => errors.push(e.message));
+      const statsAsked = [];
+      const chatAsked = [];
+      await vp.route('**/functions/v1/affiliate-research', (route) => { statsAsked.push(JSON.parse(route.request().postData() || '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 1, updated: 0 }) }); });
+      await vp.route('**/functions/v1/silo-chat', (route) => {
+        chatAsked.push(JSON.parse(route.request().postData() || '{}'));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+          answer: `Uma fits the launch, and **Pat** already sells.\n\n\`\`\`silo-people\nprospect ${PU} | pitching videos, 40K subscribers\naffiliate ${AFF} | top seller last month\nprospect 99999999-9999-4999-8999-999999999999 | made up\n\`\`\``,
+          queries_run: ['select * from public.affiliate_prospects where status = \'new\'', 'select sum(x) from sales_by_day'] }) });
+      });
+      await closeDialog(vp);
+      await vp.click('#tabs [data-tab="share"]');
+      await vp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+      await vp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+      await vp.click('#shareBody [data-act="content-filter"][data-f="all"]');
+      await vp.waitForFunction(() => document.querySelectorAll('#shareBody .af-ctile').length === 4, null, { timeout: 5000 });
+      const tiles = await vp.$$eval('#shareBody .af-q-row', (rows) => rows.map((r) => r.textContent.replace(/\s+/g, ' ').trim()));
+      R.ok('newest first by default', /TikTok/.test(tiles[0]));
+      const y1 = tiles.find((t) => /12K views/.test(t)) || '';
+      R.has(y1, '12K views · 5.2% eng.', 'a YouTube post shows the views and the pooled engagement SILO read');
+      R.has(y1, '1:12', 'and its length on the picture');
+      R.has(y1, '@patruns', 'the creator by their handle');
+      R.not(tiles[0], 'views', 'a TikTok post has no numbers SILO can read, so none are shown, not 0');
+      R.ok('a bought post says what it cost', tiles.some((t) => /✓ Purchased \$350\.00/.test(t)));
+      R.ok('a bought post offers no Buy or Offer', !(await vp.$('#shareBody .af-q-row:has(.bcn-pill--pos) [data-act="content-offer-open"]')));
+      R.eq(statsAsked.filter((b) => b.action === 'content_stats').length, 1, 'the YouTube post without numbers is asked about once');
+      R.eq((statsAsked.find((b) => b.action === 'content_stats')?.ids || []).slice().sort(), ['y3', 'y4'], 'for the posts on this screen only, so another program cannot use up its turn');
+      // A program with more unmeasured posts than one request holds: every one gets a turn.
+      {
+        const many = Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, company_entity_id: CO, program_id: PROG, affiliate_id: AFF, kind: 'link',
+          link_url: `https://youtu.be/m${String(i).padStart(10, '0')}`, state: 'submitted', submitted_at: `2026-11-${String(1 + (i % 28)).padStart(2, '0')}T00:00:00Z` }));
+        const mp = await suite.open('/v2/affiliates/index.html', { ...vTables, affiliate_content_submissions: many }, { ready, rpc: vRpc });
+        mp.on('pageerror', (e) => errors.push(e.message));
+        const mAsked = [];
+        await mp.route('**/functions/v1/affiliate-research', (route) => { mAsked.push(JSON.parse(route.request().postData() || '{}')); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ checked: 50, updated: 0 }) }); });
+        await closeDialog(mp);
+        await mp.click('#tabs [data-tab="share"]');
+        await mp.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+        await mp.click('#shareBody [data-act="share-tab"][data-k="content"]');
+        await mp.click('#shareBody [data-act="content-filter"][data-f="all"]');
+        await mp.waitForFunction(() => document.querySelectorAll('#shareBody .af-ctile').length > 0, null, { timeout: 5000 });
+        await mp.waitForTimeout(400);
+        const calls = mAsked.filter((b) => b.action === 'content_stats').map((b) => b.ids || []);
+        R.eq(calls.map((c) => c.length), [50, 10], 'sixty unmeasured posts are asked about in two batches, at most 50 each');
+        R.eq(new Set(calls.flat()).size, 60, 'and every one of them gets a turn, once');
+        await mp.close();
+      }
+      await vp.selectOption('#contentSort', 'views');
+      await vp.waitForFunction(() => /12K views/.test(document.querySelector('#shareBody .af-q-row')?.textContent || ''), null, { timeout: 5000 });
+      R.ok('Most viewed puts the measured post first and the unmeasured ones after it', true);
+      if (process.env.CONTENT_SHOT) { await vp.setViewportSize({ width: 1280, height: 900 }); await vp.waitForTimeout(300); await (await vp.$('#shareBody')).screenshot({ path: process.env.CONTENT_SHOT }); }
+      // Offer a price for the TikTok post.
+      await vp.click('#shareBody [data-act="content-offer-open"][data-id="y2"]');
+      await vp.waitForFunction(() => !!document.getElementById('offerAmt'), null, { timeout: 5000 });
+      await vp.fill('#offerAmt', '350');
+      await vp.click('#afDialogBody [data-act="content-offer"]');
+      await vp.waitForFunction(() => window.__QUERIES__.some((q) => q.table === 'rpc:affiliate_content_offer'), null, { timeout: 5000 });
+      const off = await vp.evaluate(() => window.__QUERIES__.filter((q) => q.table === 'rpc:affiliate_content_offer').pop().args);
+      R.eq([off.p_id, off.p_cents], ['y2', 35000], 'an offer sends that one post and the price in cents');
+      await vp.waitForFunction(() => /Offer of \$350\.00 sent/.test(document.getElementById('status')?.textContent || ''), null, { timeout: 5000 });
+      await closeDialog(vp);
+      // The list.
+      await vp.click('#shareBody [data-act="content-view"][data-v="list"]');
+      await vp.waitForSelector('#shareBody table.bcn-table', { timeout: 5000 });
+      const head = await vp.$$eval('#shareBody table.bcn-table thead th', (n) => n.map((x) => x.textContent.trim()));
+      R.ok('the list has views, engagement and length columns', ['Views', 'Eng.', 'Length'].every((h) => head.includes(h)));
+      await vp.click('#shareBody [data-act="content-view"][data-v="tiles"]');
+
+      // Ask SILO from the Studio: rows of real people with this page's buttons.
+      await vp.fill('#askQ', 'who should push the next launch?');
+      await vp.click('#askGo');
+      await vp.waitForFunction(() => !!document.querySelector('#askBody .af-ask-row'), null, { timeout: 8000 });
+      const sent = chatAsked.pop();
+      R.eq([sent.workflow, sent.company_entity_id], ['affiliate_studio', CO], 'asked as Affiliate Studio, for this company');
+      const ask = await text(vp, '#askBody');
+      R.has(ask, 'Uma fits the launch', 'the answer is shown');
+      R.not(ask, 'silo-people', 'without the block it carried');
+      R.eq(await vp.$$eval('#askBody .af-ask-row', (n) => n.length), 2, 'one row per person the page holds');
+      R.has(ask, '1 named person is not on this page', 'an id the page does not hold is dropped, and says so');
+      R.has(ask, 'Affiliate Studio', 'it says what it read');
+      if (process.env.ASK_SHOT) { await vp.evaluate(() => window.scrollTo(0, 0)); await (await vp.$('#askBar')).screenshot({ path: process.env.ASK_SHOT }); }
+      R.ok('a found creator gets Shortlist, a press away', !!(await vp.$(`#askBody [data-act="prospect-status"][data-id="${PU}"][data-s="approved"]`)));
+      await vp.click(`#askBody [data-act="prospect-status"][data-id="${PU}"][data-s="rejected"]`);
+      await vp.waitForFunction((id) => window.__QUERIES__.some((q) => q.table === 'affiliate_prospects' && q._op === 'update' && q.patch?.status === 'rejected'), PU, { timeout: 5000 });
+      R.ok('Not a fit from an answer is the same write as from Discovery', true);
+      await vp.close();
+
+      // Without payout approval: no Buy at a price and no Offer.
+      const np = await suite.open('/v2/affiliates/index.html', vTables, { ready, rpc: { ...vRpc, can_approve_affiliate_commissions: false } });
+      np.on('pageerror', (e) => errors.push(e.message));
+      await np.route('**/functions/v1/affiliate-research', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"checked":0,"updated":0}' }));
+      await closeDialog(np);
+      await np.click('#tabs [data-tab="share"]');
+      await np.waitForSelector('#shareBody [data-act="share-tab"][data-k="content"]', { timeout: 5000 });
+      await np.click('#shareBody [data-act="share-tab"][data-k="content"]');
+      await np.waitForSelector('#shareBody .af-ctile', { timeout: 5000 });
+      R.ok('a manager without payout approval is offered neither Buy nor Offer',
+        !(await np.$('#shareBody [data-act="content-offer-open"]')) && !(await np.$('#shareBody [data-act="content-decide"][data-k="use"]')));
+      await np.close();
+      await suite.context.unroute('https://i.ytimg.com/**');
     }
     R.ok('nothing moves until something is ticked', !(await ct.$('#shareBody [data-act="q-content-use"]')));
     await ct.click('#shareBody [data-act="q-all"][data-q="content"]');

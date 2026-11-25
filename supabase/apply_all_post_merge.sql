@@ -19964,12 +19964,20 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125150000: SILO's books read QuickBooks back each night -- a replaceable
 -- mirror of QuickBooks' ledger per month, and silo_books_ledger_v on top of it.
 \i migrations/20261125150000_quickbooks_ledger_mirror.sql
+
+-- 20261125160000: the imported-history read policy asks who the reader is once
+-- per query instead of once per row (same predicate, hoisted).
+\i migrations/20261125160000_history_read_policy_once_per_query.sql
+
 -- 20261125210000: a decision per customer find (Shortlisted / Not a fit / Do
 -- not contact), so worked finds leave Affiliate Studio's working lists.
 \i migrations/20261125210000_affiliate_customer_review.sql
--- 20261125230000: po_status:write -- a connected AI moves a purchase order to
+-- 20261125230000: a price offered for one affiliate post (accepted in their
+-- portal), and the views / engagement SILO reads for a YouTube post link.
+\i migrations/20261125230000_affiliate_content_offers_stats.sql
+-- 20261125234500: po_status:write -- a connected AI moves a purchase order to
 -- one of the steps the company allows (po_status_options), applied straight
 -- away with no second confirmation, recorded in po_status_changes. Apply
 -- BEFORE deploying mcp, and the scope cannot be granted until it is applied.
-\i migrations/20261125230000_po_status_write_scope.sql
+\i migrations/20261125234500_po_status_write_scope.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql

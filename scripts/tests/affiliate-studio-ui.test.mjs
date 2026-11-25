@@ -674,4 +674,35 @@ await t('Your Customers social: a blank count stays blank, only http(s) links, n
   assert.equal(C.customerProspectRow({ customer: { email_lc: 'a@b.c' }, social: { status: 'no_count', profile_url: 'https://x.test/a', followers: null } }).evidence.social.followers, null);
 });
 
+await t('posts from affiliates: numbers only where measured, sorted unmeasured-last, offers open by the database rule', () => {
+  assert.equal(C.postPlatform('https://www.youtube.com/watch?v=a'), 'YouTube');
+  assert.equal(C.postPlatform('https://youtu.be/a'), 'YouTube');
+  assert.equal(C.postPlatform('https://www.tiktok.com/@a/video/1'), 'TikTok');
+  assert.equal(C.postPlatform('https://evil.youtube.com.test/x'), null, 'a look-alike host is not YouTube');
+  assert.deepEqual(C.postStats({ view_count: 1000, like_count: 50, comment_count: 2, duration_seconds: 72 }), { views: 1000, eng: 0.052, seconds: 72 });
+  assert.equal(C.postStats({ view_count: 1000, comment_count: 2 }).eng, null, 'hidden likes: no engagement, never a guess');
+  assert.equal(C.postStats({ view_count: 0, like_count: 0, comment_count: 0 }).eng, null, 'no views: no rate');
+  assert.equal(C.postStats({}).views, null, 'an upload has no views, not 0');
+  assert.equal(C.clockDuration(72), '1:12'); assert.equal(C.clockDuration(3725), '1:02:05'); assert.equal(C.clockDuration(null), '');
+  const rows = [
+    { id: 'old', submitted_at: '2026-11-01', view_count: 10, like_count: 9, comment_count: 1 },
+    { id: 'big', submitted_at: '2026-11-02', view_count: 5000, like_count: 10, comment_count: 0 },
+    { id: 'none', submitted_at: '2026-11-05' },
+  ];
+  assert.deepEqual(C.sortPosts(rows, 'new').map((x) => x.id), ['none', 'big', 'old']);
+  assert.deepEqual(C.sortPosts(rows, 'views').map((x) => x.id), ['big', 'old', 'none'], 'unmeasured last, never as 0 at the top or bottom by accident');
+  assert.deepEqual(C.sortPosts(rows, 'eng').map((x) => x.id), ['old', 'big', 'none']);
+  assert.deepEqual(rows.map((x) => x.id), ['old', 'big', 'none'], 'a copy: the loaded list is not reordered');
+  const o = { offer_state: 'open', state: 'approved', offered_at: '2026-11-10T00:00:00Z', decided_at: '2026-11-09T00:00:00Z' };
+  assert.equal(C.offerOpen(o), true, 'kept, then offered');
+  assert.equal(C.offerOpen({ ...o, decided_at: '2026-11-11T00:00:00Z' }), false, 'judged again after the offer');
+  assert.equal(C.offerOpen({ ...o, state: 'used' }), false);
+  assert.equal(C.offerOpen({ ...o, offer_state: 'withdrawn' }), false);
+  const now = Date.parse('2026-11-25T12:00:00Z');
+  assert.equal(C.postNeedsStats({ kind: 'link', link_url: 'https://youtu.be/a', state: 'submitted' }, now), true);
+  assert.equal(C.postNeedsStats({ kind: 'link', link_url: 'https://youtu.be/a', state: 'submitted', stats_at: '2026-11-25T06:00:00Z' }, now), false, 'fresh');
+  assert.equal(C.postNeedsStats({ kind: 'link', link_url: 'https://www.tiktok.com/@a/video/1', state: 'submitted' }, now), false, 'nothing SILO can read');
+  assert.equal(C.postNeedsStats({ kind: 'file', state: 'submitted' }, now), false);
+});
+
 console.log(`\naffiliate-studio-ui: ${n} passed`);
