@@ -198,7 +198,7 @@ async function autoRefreshCreators(id) {
     // Never under someone's typing: a half-filled form (a payment reference,
     // a prospect by hand) would be redrawn empty. The new photos then show on
     // the next redraw instead.
-    const quiet = () => (company ? peopleScope() : S.programId === id) && !S.creating && S.tab !== 'program' && !formDirty();
+    const quiet = () => (company ? companyScope() : S.programId === id) && !S.creating && S.tab !== 'program' && !formDirty();
     if (((ph?.stored || 0) + (st?.updated || 0)) > 0 && quiet()) {
       await loadPrograms(); await loadProgramData();
       // Checked again AFTER the reads: someone may have started typing while
@@ -404,11 +404,25 @@ const prog = () => S.programs.find((p) => p.id === S.programId) || null;
 const ALL = '*';
 const isAll = () => S.programId === ALL && S.programs.length > 1;
 const otherPrograms = () => S.programs.filter((x) => x.id !== S.programId && x.status === 'active');
-// People sit above programs (Blake 2026-11-24: "people is above programs").
-// The People tab always reads every program the person may see, whatever the
-// picker says, and the picker is hidden there. A button on that tab works in
-// the program of the row it sits on (see ctxProgram).
-const peopleScope = () => S.tab === 'people' && S.programs.length > 0;
+// People sit above programs (Blake 2026-11-24: "people is above programs"),
+// and so do Money, Records and the Program numbers (Blake 2026-11-25: "money
+// - should not be tabbed at program level...all entity level. same with
+// records"). Those tabs always read every program the person may see and
+// show no program picker; only Outreach, Share and Setup work one program at
+// a time. A button on a company tab works in the program of the row it sits
+// on (see ctxProgram).
+const COMPANY_TABS = new Set(['people', 'payouts', 'records', 'overview']);
+const companyScope = () => COMPANY_TABS.has(S.tab) && S.programs.length > 0;
+// A company tab holding more than one program: no single program describes
+// the page, so its money, rail and currency come from each row's own program.
+const companyMulti = () => !!S.d?.company && S.programs.length > 1;
+// The currency most programs use, for company-wide totals (summed per
+// currency, never across).
+const mainCurrency = () => {
+  const n = {};
+  for (const x of S.programs) { const c = (x.currency || 'USD').toUpperCase(); n[c] = (n[c] || 0) + 1; }
+  return Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || 'USD';
+};
 const progOf = (x) => S.programs.find((p) => p.id === x?.program_id) || null;
 // Programs a person can be added to or searched for: anything not closed.
 const openPrograms = () => S.programs.filter((x) => x.status !== 'closed');
@@ -437,7 +451,7 @@ let loadGen = 0;
 async function loadProgramData() {
   const gen = ++loadGen;
   // People first: it is company-wide in every mode, "All programs" included.
-  const company = peopleScope();
+  const company = companyScope();
   if (!company && isAll()) return loadAllData(gen);
   const p = company ? null : prog();
   if (!p && !company) { S.d = null; return; }
@@ -716,8 +730,11 @@ const OV_DAYS_BACK = 180;
 function loadPaged(table, cols, since, programId) {
   return pagedCollect(async (i) => {
     try {
-      const { data, error } = await db.from(table).select(cols)
-        .eq('company_entity_id', CO).eq('program_id', programId)
+      // No program: the company's rows (a company tab), RLS still deciding
+      // which programs this person may read.
+      let q = db.from(table).select(cols).eq('company_entity_id', CO);
+      if (programId) q = q.eq('program_id', programId);
+      const { data, error } = await q
         .gte('order_day', since)
         .order('order_day', { ascending: false }).order('id', { ascending: true })
         .range(i * OV_PAGE_SIZE, i * OV_PAGE_SIZE + OV_PAGE_SIZE - 1);
@@ -737,16 +754,16 @@ function ovFloor() {
   const from = w.custom ? String(w.prevFrom || '') : '';
   return ISO_DAY.test(from) && from < base ? from : base;
 }
-const loadOvAttributions = (p) => (p ? loadPaged('affiliate_attributions',
+const loadOvAttributions = (p) => loadPaged('affiliate_attributions',
   'id, affiliate_id, order_id, order_day, basis, gross_subtotal_cents, commissionable_cents, order_currency',
-  ovFloor(), p.id) : null);
-const loadOvLedger = (p) => (p ? loadPaged('affiliate_commission_ledger',
-  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p.id) : null);
+  ovFloor(), p?.id || null);
+const loadOvLedger = (p) => loadPaged('affiliate_commission_ledger',
+  'id, affiliate_id, order_day, amount_cents, currency', ovFloor(), p?.id || null);
 // A custom range that reaches past what is loaded re-reads those two, and
 // only those two.
 async function reloadOvWindow() {
-  const p = prog();
-  if (!p || !S.d) return;
+  const p = S.d?.company ? null : prog();
+  if ((!p && !S.d?.company) || !S.d) return;
   const [a, l] = await Promise.all([loadOvAttributions(p), loadOvLedger(p)]);
   S.d.ovAttributions = a; S.d.ovLedger = l; S.ovLoadedFrom = ovFloor();
 }
@@ -777,9 +794,9 @@ async function reload() {
 // Moving onto or off People changes what the page reads (every program, or
 // the one picked), so crossing that line reads again.
 async function goTab(t) {
-  const was = peopleScope();
+  const was = companyScope();
   S.tab = t;
-  if (was !== peopleScope()) { S.sel.clear(); await loadProgramData(); }
+  if (was !== companyScope()) { S.sel.clear(); await loadProgramData(); }
 }
 // The program a People button acts in: the one it names, else the one of the
 // row its id belongs to. Ids are unique across tables.
@@ -788,7 +805,7 @@ function ctxProgram(ds) {
   const id = ds.id; const d = S.d;
   if (!id || !d) return null;
   const hit = d.prospectById?.[id] || d.affById?.[id]
-    || [d.codes, d.links, d.drafts, d.seeds].map((list) => (list || []).find((x) => x.id === id)).find(Boolean);
+    || [d.codes, d.links, d.drafts, d.seeds, d.payouts].map((list) => (list || []).find((x) => x.id === id)).find(Boolean);
   return hit?.program_id || null;
 }
 
@@ -927,7 +944,9 @@ function renderRecords() {
   // The screens these come from draw into their own (hidden) panels, which
   // fills RECORDS; the records themselves are drawn only here.
   renderAffiliates(); renderProspects(); renderOutreach(); renderPayoutsTab({ quiet: true });
-  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d ? stageCard() : '']);
+  // Who runs Studio is the company's; a program's status belongs to one
+  // program, so it shows only when one program is on the page.
+  if (MANAGE && prog()) more('Team and status', ['<div id="managersCard"></div>', S.d && !companyMulti() ? stageCard() : '']);
   const groups = RECORD_GROUPS.map(([key, title, keys]) => ({ key, title, parts: keys.flatMap((k) => RECORDS.get(k) || []) })).filter((g) => g.parts.length);
   if (!groups.some((g) => g.key === S.recTab)) S.recTab = groups[0]?.key || null;
   const g = groups.find((x) => x.key === S.recTab);
@@ -947,7 +966,7 @@ const surface = (title, body, meta = '', id = '') => {
 };
 const val = (id) => ($(id)?.value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
-const money = (c) => formatMoney(c, prog()?.currency);
+const money = (c) => formatMoney(c, ovCur());
 
 function scrollWorkflowTo(id) {
   requestAnimationFrame(() => {
@@ -1031,14 +1050,14 @@ function renderProgramPick(company) {
   const list = S.programs;
   el.hidden = company || list.length < 2 || S.creating;
   if (el.hidden) { el.innerHTML = ''; return; }
-  const opts = [...(S.tab === 'overview' ? [{ id: ALL, name: 'All programs' }] : []), ...list];
+  const opts = list;
   const on = (id) => (id === ALL ? isAll() : S.programId === id);
   el.innerHTML = `<span class="af-muted">Program</span><div class="af-seg" role="radiogroup" aria-label="Program">${opts.map((y) => `<button type="button" class="af-seg-btn${on(y.id) ? ' is-on' : ''}" role="radio" aria-checked="${on(y.id)}" data-act="pick-prog" data-id="${esc(y.id)}">${esc(y.name)}</button>`).join('')}</div>`;
 }
 
 function render() {
   const p = prog();
-  const company = peopleScope();
+  const company = companyScope();
   const main = document.querySelector('.silo-main.af-studio');
   main?.classList.toggle('af-studio--ready', !!p || isAll() || company);
   main?.classList.toggle('af-studio--workflow', (!!p || company) && !['overview', 'program', 'records'].includes(S.tab));
@@ -1810,7 +1829,7 @@ function renderAllHome() {
       { h: 'Sales', num: true, f: (r) => esc(formatMoney(r.sales, r.p.currency)) },
       { h: 'Earned', num: true, f: (r) => esc(formatMoney(r.earned, r.p.currency)) },
       { h: 'Owed', num: true, f: (r) => esc(formatMoney(r.owed, r.p.currency)) },
-      { h: '', f: (r) => btn('Open', 'pick-program', { id: r.p.id, t: 'overview' }, 'surface') },
+      { h: '', f: (r) => btn('Setup', 'pick-program', { id: r.p.id, t: 'program' }, 'surface') },
     ], perProg, 'No programs yet.'), 'All time'),
   ].join('');
 }
@@ -1821,7 +1840,7 @@ function renderKpis() {
   const p = prog();
   // The workflow rail carries counts when a program is loaded; skip the extra
   // KPI band. People is company-wide and has its own counts.
-  if ((h && p) || peopleScope()) {
+  if ((h && p) || companyScope()) {
     el.innerHTML = '';
     el.classList.add('af-kpis-off');
     return;
@@ -2561,7 +2580,7 @@ async function seedDecide(ids, approve) {
 function seedsCard() {
   // On People the rows are every program's; the program-level switches then
   // read as "any program has it on".
-  const d = S.d; const p = d.company ? null : prog();
+  const d = S.d; const p = companyMulti() ? null : prog();
   const on = p ? !!p.seeding_enabled : S.programs.some((x) => x.seeding_enabled);
   if (!d.seeds || (!d.seeds.length && !on)) return '';
   const order = { requested: 0, approved: 1, code_ready: 2, purchased: 3, earned: 4 };
@@ -3128,8 +3147,9 @@ async function orderLookup(q) {
   S.lookup = { q, loading: true }; renderPayoutsTab({ quiet: true });
   const variants = [q, `#${q}`];
   try {
-    const { data: at, error } = await db.from('affiliate_attributions').select('*').eq('company_entity_id', CO).eq('program_id', p.id)
-      .in('order_number', variants).limit(1);
+    let aq = db.from('affiliate_attributions').select('*').eq('company_entity_id', CO);
+    if (!companyMulti()) aq = aq.eq('program_id', p.id);
+    const { data: at, error } = await aq.in('order_number', variants).limit(1);
     if (error) throw error;
     const attr = (at || [])[0] || null;
     if (!attr) {
@@ -3194,7 +3214,7 @@ function renderPayoutsTab({ quiet = false } = {}) {
   if (!SEES_MONEY) { $('payoutsBody').innerHTML = card('Money', '<p class="af-muted" id="moneyHidden">Earnings and payouts are shown to Affiliate Studio managers and finance.</p>'); return; }
   $('payoutsBody').innerHTML = `${payoutPayHtml()}<section id="commissionsBody" class="af-stack" aria-label="Commissions">${commissionsBodyHtml()}</section>`;
   // After the rows are on the page, so a settled attempt redraws over them.
-  if (!quiet && prog()?.payout_method === 'paypal_payouts') checkOpenAttemptsOnce();
+  if (!quiet && payProgs().some(paysByPaypal)) checkOpenAttemptsOnce();
 }
 // The status view exposes `credentials_set` and `is_active` -- never the
 // credential itself and no `connected` flag. Read those two, or the Send
@@ -3300,6 +3320,9 @@ async function checkOpenAttemptsOnce() {
 }
 
 // The payouts "Send all approved" would actually send, in the order shown.
+// The programs Money is about: every one on a company tab, else the one picked.
+const payProgs = () => (companyMulti() ? S.programs : [prog()].filter(Boolean));
+const paysByPaypal = (x) => x?.payout_method === 'paypal_payouts';
 function sendablePayouts() {
   return (S.d.payouts || [])
     .filter((x) => x.method === 'paypal_payouts' && ['approved', 'exported'].includes(x.status))
@@ -3307,7 +3330,11 @@ function sendablePayouts() {
 }
 
 function payoutPayHtml() {
-  const d = S.d; const p = prog();
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  // Each row's own program decides its currency and how it is paid.
+  const progFor = (r) => progOf(r) || p;
+  const curOf = (r) => progFor(r)?.currency;
+  const progTag = (r) => (multi ? ` · ${esc(progName(r.program_id))}` : '');
   const bal = d.balances.map((b) => ({ ...b, a: d.affById[b.affiliate_id] }));
   const act = (x) => {
     const b = [];
@@ -3331,7 +3358,7 @@ function payoutPayHtml() {
         b.push(btn(st.test ? 'Test send (sandbox)' : 'Send with PayPal', 'pp-send', { id: x.id }, 'primary', { confirm: true }));
       }
     }
-    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id }));
+    if (MANAGE && x.status === 'exported' && x.export_batch_id) b.push(btn('Download again', 'payout-redownload', { batch: x.export_batch_id, pg: x.program_id }));
     // Void is one quiet button; the reason box opens only once it is pressed
     // (Blake 2026-11-18: no always-on input boxes on Money).
     if (MONEY && ['draft', 'approved', 'exported'].includes(x.status)) {
@@ -3343,7 +3370,9 @@ function payoutPayHtml() {
     return `<div class="af-actions">${b.join('')}</div>`;
   };
   const approved = d.payouts.filter((x) => x.status === 'approved');
-  const paypalRail = p.payout_method === 'paypal_payouts';
+  const paypalRail = payProgs().some(paysByPaypal);
+  const byHand = payProgs().filter((x) => !paysByPaypal(x));
+  const railBtns = (kind) => byHand.map((x) => btn(multi ? `Pay ${x.name} with PayPal` : 'Pay with PayPal instead', 'pp-use-rail', { pg: x.id }, kind, { confirm: true })).join('');
   const sendable = paypalRail ? sendablePayouts() : [];
   const sendTest = S.d.payConn?.environment !== 'live';
   const conn = d.payConn;
@@ -3374,8 +3403,8 @@ function payoutPayHtml() {
     // invisible until then (Blake, first run: "very hidden and bad UI UX").
     if (!paypalRail) {
       return MANAGE
-        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">This program pays by hand.</p>
-          <div class="af-row" style="margin-top:8px;">${btn('Pay with PayPal instead', 'pp-use-rail', {}, 'primary', { confirm: true })}</div>`)
+        ? card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not used', '')}</div><p class="af-muted">${multi ? 'Your programs pay by hand.' : 'This program pays by hand.'}</p>
+          <div class="af-row" style="margin-top:8px;">${railBtns('primary')}</div>`)
         : '';
     }
     if (live) {
@@ -3387,7 +3416,8 @@ function payoutPayHtml() {
         : '';
       const state = conn.payouts_enabled === false ? pill('Payouts not enabled', 'warn') : conn.environment === 'live' ? pill('Live', 'pos') : pill('Sandbox', 'warn');
       return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${state}${conn.account_email ? `<span class="af-mono af-muted">${esc(conn.account_email)}</span>` : ''}</div>${sandbox}${warn}
-        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>`);
+        <div class="af-row" style="margin-top:8px;">${btn('Check connection', 'pp-test')}${btn('Check payment status', 'pp-refresh')}${MONEY ? btn('Disconnect', 'pp-disconnect', {}, 'surface', { confirm: true }) : ''}</div>${
+          multi && byHand.length && MANAGE ? `<p class="af-muted">Paid by hand: ${esc(byHand.map((x) => x.name).join(', '))}</p><div class="af-row">${railBtns('surface')}</div>` : ''}`);
     }
     if (!MONEY) return card('Payout account', `<div class="af-pp-head">${paypalMark('af-pp-logo')}${pill('Not connected', 'warn')}</div><p class="af-muted">Someone who can approve payouts connects it.</p>`);
     // Live only (Blake 2026-11-18): the sandbox choice is gone from setup. A
@@ -3405,7 +3435,8 @@ function payoutPayHtml() {
   };
   const ppChip = (affId) => {
     const em = d.payEmailByAff[affId];
-    if (!paypalRail) return '';
+    const a = d.affById[affId];
+    if (!paysByPaypal(a ? progFor(a) : p)) return '';
     return em ? `<span class="af-pp-chip" title="Paid to this PayPal">${paypalMark('af-pp-chip-logo')}<span class="af-mono">${esc(em)}</span></span>`
       : '<span class="af-pp-chip af-pp-chip--none">No PayPal email yet</span>';
   };
@@ -3415,13 +3446,13 @@ function payoutPayHtml() {
   const balanceRow = (r) => {
     const earned = Number(r.earned_cents) || 0; const paidC = Number(r.paid_cents) || 0;
     const pct = earned > 0 ? Math.min(100, Math.round(paidC / earned * 100)) : 0;
-    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>`
+    return `<article class="af-item af-item--pay" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(r.a)}<span>${esc(r.a?.display_name || '—')}</span></div>${multi ? `<div class="af-muted">${esc(progName(r.program_id))}</div>` : ''}`
       + `<div class="af-pay-owed"><span class="af-pay-owed-num">${formatMoney(r.unclaimed_cents, r.currency)}</span><span class="af-muted">owed</span></div>`
       + `<div class="af-pay-meter" role="img" aria-label="${pct}% of earnings paid"><i style="width:${pct}%"></i></div>`
       + `<div class="af-muted af-pay-meter-cap">${formatMoney(paidC, r.currency)} paid of ${formatMoney(earned, r.currency)} earned</div>${ppChip(r.affiliate_id)}</div>`
-      + `<div class="af-item-foot">${MANAGE && r.currency === p.currency && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
+      + `<div class="af-item-foot">${MANAGE && r.currency === curOf(r) && Number(r.unclaimed_cents) > 0 ? btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'primary') : ''}</div></article>`;
   };
-  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
+  const payoutRow = (x) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head af-list-who">${face(d.affById[x.affiliate_id])}<span>${esc(d.affById[x.affiliate_id]?.display_name || '—')}</span> ${statusPill(x.status)}</div><div class="af-item-stats">${formatMoney(x.amount_cents, x.currency)}${x.method === 'paypal_payouts' ? paypalMark('af-pp-inline') : ''}</div><div class="af-muted">${fmtDate(x.created_at)}${progTag(x)} · ${plural(x.item_count, 'line')}${x.external_reference ? ` · ref ${esc(x.external_reference)}` : ''}${x.void_reason ? ` · ${esc(x.void_reason)}` : ''}</div>${sendLine(x)}</div><div class="af-item-foot">${act(x)}</div></article>`;
   return [
   moneyTop(),
   payConnCard(),
@@ -3435,7 +3466,7 @@ function payoutPayHtml() {
       // the page, not in the payment -- so nothing about sending twice changes.
       MONEY && sendable.length ? btn(`${sendTest ? 'Test send' : 'Send'} ${plural(sendable.length, 'approved payout')}`, 'pp-send-all', {}, 'primary', { confirm: true }) : ''
     }${approved.length ? btn(`Export ${plural(approved.length, 'approved payout')}`, 'payout-export', {}, sendable.length ? 'surface' : 'primary', { confirm: true }) : ''}</div>` : ''}`),
-  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === p.currency ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
+  more('Balances', [card('All balances', itemList(bal, (r) => `<article class="af-item af-item--compact" role="listitem"><div class="af-item-body"><div class="af-item-head">${esc(r.a?.display_name || '—')} · ${esc(r.currency)}${progTag(r)}</div><div class="af-kv-line">Earned ${formatMoney(r.earned_cents, r.currency)} · unpaid ${formatMoney(r.unclaimed_cents, r.currency)} · paid ${formatMoney(r.paid_cents, r.currency)}</div></div>${MANAGE && r.currency === curOf(r) ? `<div class="af-item-foot">${btn('Build payout', 'payout-build', { aff: r.affiliate_id }, 'surface')}</div>` : ''}</article>`, 'Nothing earned yet.'))]),
   ].join('');
 }
 
@@ -3481,7 +3512,7 @@ const outreachVars = (x, p = progOf(x) || prog()) => {
 // ovPerAffiliate, ovReachOut and friends); this half only draws it, and only
 // from rows the page has already read under RLS.
 const OV_WEEKS = 12;
-const ovCur = () => (prog()?.currency || 'USD').toUpperCase();
+const ovCur = () => (companyMulti() ? mainCurrency() : (prog()?.currency || 'USD').toUpperCase());
 const ovDay = (back) => dayShift(today(), back);
 // 30 / 90 / any two dates. The same control heads Home, Money and Records, so
 // one choice follows you between them.
@@ -3685,28 +3716,29 @@ const PAYPAL_MARK = 'https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-co
 const shopifyMark = (cls = '') => `<svg class="af-flow-shopify ${cls}" viewBox="0 0 24 24" aria-hidden="true"><use href="../../assets/landing/integration-icons.svg#icon-shopify"></use></svg>`;
 const paypalMark = (cls = '') => `<img class="af-flow-paypal ${cls}" src="${PAYPAL_MARK}" alt="PayPal" width="74" height="20" loading="lazy" />`;
 function moneyTop() {
-  const d = S.d; const p = prog();
-  if (!d || !p || !Array.isArray(d.ovLedger)) return '';
+  const d = S.d; const multi = companyMulti(); const p = multi ? null : prog();
+  if (!d || (!p && !multi) || !Array.isArray(d.ovLedger)) return '';
+  const cur = ovCur();
   const w = ovWindows();
   const sales = Array.isArray(d.ovAttributions) ? ovWindow(d.ovAttributions, { from: w.from, to: w.to, currency: ovCur() }) : null;
   const comm = ovLedgerTotal(d.ovLedger, { from: w.from, to: w.to, currency: ovCur() });
-  const owed = ovUnpaid(d.balances, p.currency);
-  const toPay = (d.balances || []).filter((b) => b.currency === p.currency && Number(b.unclaimed_cents) > 0).length;
+  const owed = ovUnpaid(d.balances, cur);
+  const toPay = (d.balances || []).filter((b) => b.currency === cur && Number(b.unclaimed_cents) > 0).length;
   // Paid is counted over the SAME window as sales and commission, custom
   // range included -- not over a rolling N days of its own.
-  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === p.currency
+  const paidRows = (d.payouts || []).filter((x) => x.status === 'marked_paid' && x.currency === cur
     && x.marked_paid_at && String(x.marked_paid_at).slice(0, 10) >= w.from && String(x.marked_paid_at).slice(0, 10) <= w.to);
   const paid = paidRows.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === p.currency);
+  const inFlight = (d.payouts || []).filter((x) => ['draft', 'approved', 'exported'].includes(x.status) && x.currency === cur);
   const flightCents = inFlight.reduce((t, x) => t + Number(x.amount_cents || 0), 0);
-  const viaPaypal = p.payout_method === 'paypal_payouts';
+  const viaPaypal = multi ? S.programs.every(paysByPaypal) : paysByPaypal(p);
   const stage = (mark, label, value, sub, tone = '') => `<div class="af-flow-step${tone ? ` af-flow-step--${tone}` : ''}"><div class="af-flow-mark">${mark}</div><div class="af-flow-lab">${esc(label)}</div><div class="af-flow-val">${value}</div><div class="af-flow-sub">${sub}</div></div>`;
   const arrow = '<div class="af-flow-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></div>';
   const icon = (path) => `<svg class="af-flow-ico" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   return `<section class="af-flow" aria-label="Where the money is, last ${num(w.days)} days">
     ${stage(shopifyMark(), 'Sales from codes', sales ? esc(moneyRound(sales.sales)) : '—', sales ? `${esc(ovPlural(sales.orders, 'order'))} in Shopify` : 'Shopify')}
     ${arrow}
-    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(rateShort(p)), 'pos')}
+    ${stage(icon('<path d="M12 3v18M17 7.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 11 12 11.5s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/>'), 'Commission earned', esc(moneyRound(comm)), esc(multi ? `${num(S.programs.length)} programs` : rateShort(p)), 'pos')}
     ${arrow}
     ${stage(icon('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'), 'Owed now', esc(money(owed + 0)), `${esc(ovPlural(toPay, 'affiliate'))}${inFlight.length ? ` · ${esc(money(flightCents))} in ${esc(plural(inFlight.length, 'payout'))}` : ''}`, owed > 0 ? 'warn' : '')}
     ${arrow}
@@ -3764,6 +3796,7 @@ function firstInviteCard(d, p) {
   return `<div id="firstInvite">${card('Get to your first invite', `<div class="af-steps">${steps.map(row).join('')}</div>`, `${num(steps.filter((x) => x.done).length)} of ${num(steps.length)} done`)}</div>`;
 }
 function renderOverview() {
+  if (companyMulti()) { renderAllHome(); return; }
   const el = $('overviewBody'); const d = S.d; const p = prog();
   if (!el || !d || !p) return;
   if (d.ovAttributions === null || d.ovLedger === null) {
@@ -4838,18 +4871,28 @@ const A = {
   // Everything the file needs is captured BEFORE the first await: switching
   // program while the claim is in flight must not label program A's payouts
   // with program B's name and affiliates (review cycle 2).
+  // On a company tab every program's approved payouts go out at once: one
+  // claim and one file per program, since a claim, its batch and its
+  // checksum belong to one program.
   'payout-export': async () => {
-    const programId = S.programId; const slug = prog().slug; const affById = S.d.affById;
-    const ids = S.d.payouts.filter((x) => x.status === 'approved').map((x) => x.id);
-    const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
-    const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
-    download(`payouts-${slug}-${today()}.csv`, csv);
-    const skipped = (r.skipped || []).length;
-    const done = `Exported ${(r.payouts || []).length}${skipped ? ` (${skipped} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
-    // The payouts are already exported and the file is downloaded; a missing
-    // fingerprint only loses the file's checksum, so say so rather than fail.
-    try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { return `${done} The file's checksum was not saved (${e.message}).`; }
-    return done;
+    const approved = S.d.payouts.filter((x) => x.status === 'approved');
+    const jobs = companyMulti()
+      ? [...new Set(approved.map((x) => x.program_id))].map((id) => ({ programId: id, slug: S.programs.find((y) => y.id === id)?.slug || 'program', ids: approved.filter((x) => x.program_id === id).map((x) => x.id) }))
+      : [{ programId: S.programId, slug: prog().slug, ids: approved.map((x) => x.id) }];
+    const affById = S.d.affById;
+    let n = 0; let skippedN = 0; const notes = [];
+    for (const { programId, slug, ids } of jobs) {
+      const r = must(await db.rpc('affiliate_claim_payout_export', { p_program: programId, p_payouts: ids, p_batch: null }));
+      const csv = toCsv(PAYOUT_HEADER, payoutRows(r.payouts || [], affById));
+      download(`payouts-${slug}-${today()}.csv`, csv);
+      n += (r.payouts || []).length; skippedN += (r.skipped || []).length;
+      // The payouts are already exported and the file is downloaded; a missing
+      // fingerprint only loses the file's checksum, so say so rather than fail.
+      try { must(await db.rpc('affiliate_set_payout_export_fingerprint', { p_batch: r.batch_id, p_fingerprint: await sha256Hex(csv) })); } catch (e) { notes.push(`The file's checksum was not saved (${e.message}).`); }
+    }
+    const files = jobs.length > 1 ? ` in ${num(jobs.length)} files, one per program` : '';
+    const done = `Exported ${n}${files}${skippedN ? ` (${skippedN} changed since the page loaded and were left out)` : ''}. Pay them in your own system, then record each reference.`;
+    return notes.length ? `${done} ${notes[0]}` : done;
   },
   // Download a claimed export again (a lost or blocked download). Nothing is
   // re-marked; the payouts still waiting to be paid in that batch come back.
@@ -4916,7 +4959,7 @@ document.addEventListener('click', async (ev) => {
   const fn = A[b.dataset.act]; if (!fn) return;
   // People lists every program at once, so a button there works in the
   // program of the row it sits on. Later steps (a dialog's Save) keep it.
-  if (peopleScope()) {
+  if (companyScope()) {
     const pg = ctxProgram(b.dataset);
     if (pg && pg !== S.programId) { S.programId = pg; if ($('programSel')) $('programSel').value = pg; }
   }
