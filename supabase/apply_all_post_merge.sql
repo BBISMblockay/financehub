@@ -19958,4 +19958,7 @@ $c$select (select count(*) from v_po_header_summary
 -- no person has saved, only switched-on accounts), and an entry made by hand in
 -- QuickBooks can be marked so no page can send it a second time.
 \i migrations/20261125130000_rules_auto_apply_and_entered_by_hand.sql
+-- 20261125140000: the continuous ledger counts a day of imported history once
+-- (the newest import covering it), instead of once per overlapping import.
+\i migrations/20261125140000_ledger_history_one_import_per_day.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
