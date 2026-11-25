@@ -74,7 +74,7 @@ SILO is an internal operations platform for Baseballism (a baseball-themed brand
 │   ├── verify_v2_schema.sql   ← Run this to health-check the DB after any SQL changes
 │   ├── apply_all_post_merge.sql ← One-shot apply for all migrations (safe to re-run)
 │   ├── migrations/            ← Individual migration files (timestamped, 128 as of 2026-08)
-│   ├── functions/             ← Edge function sources (manual deploy — merging a PR does NOT deploy)
+│   ├── functions/             ← Edge function sources (a merge deploys the ones it changed; see auto-apply-migrations.yml)
 │   └── seeds/                 ← Seed data SQL
 ├── scripts/                   ← Node.js / Python sync + backfill scripts (lib/ holds the sync cores)
 ├── server/                    ← Express service (ar-sync.mjs, index.mjs) — NOT used by the browser app

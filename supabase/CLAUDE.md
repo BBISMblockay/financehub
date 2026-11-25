@@ -20,8 +20,13 @@ most carry a decision that looks like a bug and is not.
    (the insert backstop; not automatic — verify check 6 fails without it).
 4. Add it to `verify_v2_schema.sql`, `apply_all_post_merge.sql` and `README.md`.
 5. After any public table/view change, re-run `refresh_chat_schema_catalog()` (Ask SILO's map).
-6. Production changes (applying a migration, running SQL that writes) need Blake's explicit approval
-   in the session. If one was applied directly with that approval, open the PR in the same session.
+6. **A migration merged to `main` applies itself** -- `auto-apply-migrations.yml` applies the files
+   that merge ADDED, in version order, each as one all-or-nothing request, skipping any version already in
+   `supabase_migrations.schema_migrations`. It never scans the folder and never backfills, so a
+   migration not added by that push is never run. Two things still need Blake's explicit approval in
+   the session: an agent applying or writing to production BY HAND, and a migration this workflow
+   refuses (`CONCURRENTLY` / `VACUUM` cannot run in a transaction). If one was applied directly with
+   that approval, open the PR in the same session -- the later merge skips it.
 7. `20260922170000` must stay the LAST include in `apply_all_post_merge.sql`.
 
 ## Rules that have each caused a real incident

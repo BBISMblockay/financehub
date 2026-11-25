@@ -20,6 +20,19 @@ name: Deploy Edge Function
 # CLAUDE.md that merging a PR does NOT deploy a function.
 
 on:
+  # Called by auto-apply-migrations.yml after a merge applies its migrations,
+  # so the --no-verify-jwt list below has exactly one home.
+  workflow_call:
+    inputs:
+      function_name:
+        description: Function slug to deploy, or "all" for every function in supabase/functions
+        required: true
+        type: string
+      project_ref:
+        description: Supabase project ref (defaults to the Silo production project)
+        required: false
+        type: string
+        default: mkquclffrvlzyecnabyf
   workflow_dispatch:
     inputs:
       function_name:

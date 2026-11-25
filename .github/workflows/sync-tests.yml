@@ -1403,6 +1403,13 @@ jobs:
       - name: Remote schema verify splits the real file correctly
         run: node scripts/tests/verify-schema-remote.test.mjs
 
+      # The one path that writes to production unwatched: a merge applying its
+      # own new migrations. Pins every refusal and every stop, including that
+      # a query endpoint which turns out not to be transactional applies
+      # NOTHING. See .github/workflows/auto-apply-migrations.yml.
+      - name: Auto-apply migrations stops before it can half-apply
+        run: node scripts/tests/apply-migrations.test.mjs
+
       # The Management API rate-limits; run #2 lost 28 of 148 statements to a
       # 429 and reported them as "could not run". Pins the retry shape.
       - name: Remote schema verify survives the API rate limit
