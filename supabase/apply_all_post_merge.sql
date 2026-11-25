@@ -19961,4 +19961,7 @@ $c$select (select count(*) from v_po_header_summary
 -- 20261125140000: the continuous ledger counts a day of imported history once
 -- (the newest import covering it), instead of once per overlapping import.
 \i migrations/20261125140000_ledger_history_one_import_per_day.sql
+-- 20261125150000: SILO's books read QuickBooks back each night -- a replaceable
+-- mirror of QuickBooks' ledger per month, and silo_books_ledger_v on top of it.
+\i migrations/20261125150000_quickbooks_ledger_mirror.sql
 \i migrations/20260922170000_record_report_catalog_cleanup.sql
