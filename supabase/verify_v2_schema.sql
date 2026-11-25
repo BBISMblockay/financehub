@@ -7002,6 +7002,23 @@ select 'Card paydown match' as check_name,
    then 'CRITICAL: anon can reach the card paydown match'
   when position('status = ''excluded''' in coalesce(pg_get_functiondef(to_regprocedure('public.link_card_payment_match(uuid,uuid)')), '')) = 0
    then 'STALE — re-run 20261125020000_card_payment_match.sql: matching no longer excludes the card row, so the paydown would post twice'
+  when to_regprocedure('public.card_payment_match_proposals(uuid[],integer)') is null
+    or to_regprocedure('public.card_payment_posting_treatment(text)') is null
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql'
+  when not exists (select 1 from information_schema.columns
+                   where table_schema = 'public' and table_name = 'card_payment_matches' and column_name = 'payer_prior')
+   then 'MISSING — run 20261125060000_card_payment_match_both_sides.sql: without payer_prior an undo cannot put the paying row back'
+  when coalesce(public.card_payment_posting_treatment('Credit Card'), '') <> 'card_payment'
+    or public.card_payment_posting_treatment('Expense') is not null
+   then 'CRITICAL: the paying row''s treatment no longer follows the account type, so a match could code what approval refuses'
+  when has_function_privilege('anon', 'public.card_payment_match_proposals(uuid[],integer)', 'execute')
+    or has_function_privilege('anon', 'public.card_payment_match_offers(uuid[],integer)', 'execute')
+   then 'CRITICAL: anon can reach the card paydown proposals'
+  when to_regprocedure('public.card_payment_match_offers(uuid[],integer)') is null
+    or to_regprocedure('public.card_payment_settlement_candidates(uuid,integer)') is null
+   then 'MISSING — run 20261125080000_card_payment_match_either_side.sql: a match could not be confirmed from the bank side'
+  when position('payer_coded_at' in coalesce(pg_get_functiondef(to_regprocedure('public.unlink_card_payment_match(uuid)')), '')) = 0
+   then 'STALE — run 20261125070000_card_payment_match_relink.sql: without the stamp an undo can overwrite coding somebody did themselves'
   else 'ok' end as status;
 -- End card paydown match checks.
 
@@ -7026,6 +7043,32 @@ select 'Affiliate view as rep' as check_name,
    then 'STALE — re-run 20261125030000_affiliate_view_as_rep.sql: a portal read refuses the preview'
   else 'ok' end as status;
 -- End affiliate view as rep checks.
+
+-- Affiliate Studio spend (20261125040000): one Studio figure in customer
+-- dollars, limits only the company's owner/admin can change, the cap-check
+-- figure service-only, and nightly Find off unless a company turned it on.
+select 'Affiliate Studio spend' as check_name,
+ case when to_regclass('public.affiliate_studio_spend_settings') is null
+        or to_regprocedure('public.affiliate_studio_spend(uuid,uuid)') is null
+        or to_regprocedure('public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)') is null
+        or to_regprocedure('public.affiliate_studio_spend_summary()') is null
+   then 'MISSING — run 20261125040000_affiliate_studio_spend.sql'
+  when not exists (select 1 from pg_class where oid = 'public.affiliate_studio_spend_settings'::regclass and relrowsecurity)
+   then 'CRITICAL: affiliate_studio_spend_settings has RLS off'
+  when has_function_privilege('anon', 'public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)', 'execute')
+    or has_function_privilege('anon', 'public.affiliate_studio_spend_summary()', 'execute')
+    or has_function_privilege('anon', 'public.affiliate_studio_spend(uuid,uuid)', 'execute')
+    or has_function_privilege('authenticated', 'public.affiliate_studio_spend(uuid,uuid)', 'execute')
+   then 'CRITICAL: anon or a signed-in user can reach an Affiliate Studio spend function they must not'
+  when has_table_privilege('authenticated', 'public.affiliate_studio_spend_settings', 'INSERT')
+    or has_table_privilege('authenticated', 'public.affiliate_studio_spend_settings', 'UPDATE')
+   then 'CRITICAL: a browser can write Affiliate Studio limits without the owner/admin check'
+  when position('is_owner_admin_of_active_company' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_studio_set_spend(boolean,integer,numeric,numeric)')), '')) = 0
+   then 'STALE — re-run 20261125040000_affiliate_studio_spend.sql: changing the limits is not owner/admin only'
+  when position('provider' in coalesce(pg_get_functiondef(to_regprocedure('public.affiliate_studio_spend(uuid,uuid)')), '')) > 0
+   then 'CRITICAL: the Studio spend figure reads provider cost'
+  else 'ok' end as status;
+-- End Affiliate Studio spend checks.
 
 -- SILO ledger mirrors journal adjustments (20261014040000): every posted
 -- adjustment is a ledger entry, recorded by trigger, internals not client-callable.

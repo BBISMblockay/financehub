@@ -70,7 +70,9 @@ function query(data, writes, table, reads = null) {
     // and the list of pending rows an abandoned feed left behind. Only the
     // second filters on provider_status, so that is what tells them apart.
     eq(column, value) { seen.eq[column] = value; if (column === 'provider_status' && value === 'pending') pendingFilter = true; return q; },
-    in(column, values) { seen.in[column] = values; return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
+    in(column, values) { seen.in[column] = values; return q; },
+    // A match is read from either side, so the page asks with one `or`.
+    or(expression) { seen.or = expression; return q; }, gte() { return q; }, lte() { return q; }, not() { return q; }, order() { return q; }, range(start, end) { window = [start, end]; return q; }, limit() { return q; }, single() { return q; },
     upsert(value) { writes.push({ table, value: clone(value) }); return q; },
     maybeSingle() { const rows = data[table]; return Promise.resolve({ data: Array.isArray(rows) ? rows[0] ?? null : rows ?? null, error: null }); },
     then(resolve, reject) {
@@ -1332,8 +1334,11 @@ await test('category selection saves across imports, derives treatment, and excl
  assert.equal(rows[0].status,'coded');assert.equal(rows[2].status,'uncoded');
  assert.equal(h.page.state.selected.has('locked'),false);
  await h.page.saveCoding();
- assert.deepEqual(h.calls[0].args.p_rows.map(r=>r.id),['txn-one','txn-two']);
- assert.equal(h.calls[0].args.p_rows[0].memo,'Keep this memo');assert.equal(h.calls[0].args.p_rows[0].qbo_location_id,'office');
+ // By name, not by position: the page also asks about card paydown matches
+ // while it draws, and that call has no bearing on what the save sends.
+ const saved=h.calls.find(c=>c.args?.p_rows);
+ assert.deepEqual(saved.args.p_rows.map(r=>r.id),['txn-one','txn-two']);
+ assert.equal(saved.args.p_rows[0].memo,'Keep this memo');assert.equal(saved.args.p_rows[0].qbo_location_id,'office');
  assert.equal(h.page.state.dirty.size,0);assert.equal(h.page.state.selected.size,2);
  assert.equal(h.page.dateState().dateBrowse,true);
 });
