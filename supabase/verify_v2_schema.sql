@@ -9967,11 +9967,20 @@ select 'Affiliate program scope' as check_name,
     when exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
                   where n.nspname = 'public' and c.relkind = 'r'
                     and (c.relname = 'affiliates' or c.relname like 'affiliate\_%')
+                    -- Company-level customer tables: program_id is history
+                    -- only (20261124210000, 20261125233000).
+                    and c.relname not in ('affiliate_customer_scans', 'affiliate_customer_social')
                     and exists (select 1 from pg_attribute a where a.attrelid = c.oid
                                  and a.attname = 'program_id' and not a.attisdropped)
                     and (select count(*) from pg_trigger t where t.tgrelid = c.oid
                           and t.tgname like '%\_program\_scope\_%' and t.tgenabled <> 'D') <> 3)
       then 'BROKEN — an affiliate table with a program has no scope guard, so a definer RPC can write across programs'
+    -- And the reverse: a scope guard on a company-level customer table refuses
+    -- a scoped manager's company-wide "Not them" (review of #1412).
+    when exists (select 1 from pg_trigger t
+                  where t.tgrelid in (to_regclass('public.affiliate_customer_scans'), to_regclass('public.affiliate_customer_social'))
+                    and t.tgname like '%\_program\_scope\_%')
+      then 'BROKEN — a company-level customer table carries a program-scope guard, so a scoped manager cannot decide a customer find'
     when has_function_privilege('anon', 'public.affiliate_feed_set_audience(uuid,uuid[],uuid[])', 'execute')
       then 'BROKEN — anon can change who a share is for'
     else 'ok'
