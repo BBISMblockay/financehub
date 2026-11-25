@@ -87,7 +87,12 @@ jobs:
           # (a queued run is dropped when a third push arrives, even with
           # cancel-in-progress: false) is caught up by the next one instead of
           # being lost. Falls back to this push's own base.
-          base="$(node scripts/pick-migration-base.mjs || true)"
+          # NOT `|| true`: a run history that cannot be read is a stop, not a
+          # reason to guess. Falling back to this push there would apply only
+          # this push, succeed, and move the base permanently past a dropped
+          # run's migration. A red run leaves the last success where it is, so
+          # the next push catches everything up.
+          base="$(node scripts/pick-migration-base.mjs)"
           if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             base="${BEFORE:-}"
           fi

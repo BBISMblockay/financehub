@@ -98,13 +98,31 @@ export function refusalReason(sql) {
  * fallback. Still "only on new": nothing before the last successful apply is
  * ever looked at, and a version already recorded is skipped anyway.
  *
- * @param {{ lastSuccessSha?: string|null, pushBefore?: string|null, isAncestor: (sha:string)=>boolean }} opts
- * @returns {{ base: string|null, source: 'last-success'|'push-before'|'none', note?: string }}
+ * `lookup` is the ANSWER about the run history, not just a sha: `{ ok: true,
+ * sha }` when the history was read (sha null means there genuinely is no
+ * successful run yet), `{ ok: false, reason }` when it could not be read. The
+ * difference decides everything, and conflating the two is how the loss this
+ * guards against comes back: with A succeeded, B's run cancelled and the
+ * Actions API answering 403 for C, falling back to this push would make C
+ * apply only C, succeed, and leave B's migration behind a base that has moved
+ * past it forever. So an unreadable history FAILS THE RUN instead -- the last
+ * successful run stays where it is, and the next push catches everything up
+ * (automated review, PR #1406).
+ *
+ * @param {{ lookup: { ok: boolean, sha?: string|null, reason?: string }, pushBefore?: string|null, isAncestor: (sha:string)=>boolean }} opts
+ * @returns {{ base: string|null, source: 'last-success'|'push-before'|'none'|'unreadable', note?: string }}
  */
-export function chooseBase({ lastSuccessSha, pushBefore, isAncestor }) {
+export function chooseBase({ lookup, pushBefore, isAncestor }) {
   const usable = (sha) => Boolean(sha) && !/^0{40}$/.test(String(sha)) && isAncestor(String(sha));
-  if (usable(lastSuccessSha)) return { base: String(lastSuccessSha), source: 'last-success' };
-  const note = lastSuccessSha
+  if (!lookup || lookup.ok !== true) {
+    return {
+      base: null,
+      source: 'unreadable',
+      note: `could not read this workflow's run history (${lookup?.reason || 'unknown'}); refusing to guess a base, because a dropped run's migrations would be skipped for good`,
+    };
+  }
+  if (usable(lookup.sha)) return { base: String(lookup.sha), source: 'last-success' };
+  const note = lookup.sha
     ? 'the last successful run\'s commit is not an ancestor of this one; falling back to this push'
     : 'no successful run of this workflow to catch up from; using this push alone';
   if (usable(pushBefore)) return { base: String(pushBefore), source: 'push-before', note };

@@ -137,24 +137,34 @@ console.log('\n-- which commits a run is responsible for --');
 await test("the base is the last successful run's commit, so a dropped run is caught up", () => {
   // Merge A applied (run succeeded at A). B queued, C arrived and cancelled
   // B's run. C's run must still see B's migration.
-  const picked = chooseBase({ lastSuccessSha: 'A', pushBefore: 'B', isAncestor: () => true });
+  const picked = chooseBase({ lookup: { ok: true, sha: 'A' }, pushBefore: 'B', isAncestor: () => true });
   eq(picked.base, 'A', 'base');
   eq(picked.source, 'last-success', 'source');
 });
 
 await test('with no successful run yet, the push is the base', () => {
-  const picked = chooseBase({ lastSuccessSha: null, pushBefore: 'B', isAncestor: () => true });
+  const picked = chooseBase({ lookup: { ok: true, sha: null }, pushBefore: 'B', isAncestor: () => true });
   eq(picked.base, 'B', 'base');
   ok(picked.note, 'says why');
 });
 
+await test('an unreadable run history stops the run instead of falling back', () => {
+  // The loss this guards against: A succeeded, B's run was cancelled, and the
+  // Actions API answers 403 for C. Using this push would apply only C and
+  // SUCCEED, moving the base past B's migration for good.
+  const picked = chooseBase({ lookup: { ok: false, reason: 'HTTP 403' }, pushBefore: 'B', isAncestor: () => true });
+  eq(picked.source, 'unreadable', 'source');
+  eq(picked.base, null, 'no base is guessed');
+  ok(/403/.test(picked.note || ''), 'says what went wrong');
+});
+
 await test('a last-success commit that is not an ancestor is not used', () => {
-  const picked = chooseBase({ lastSuccessSha: 'X', pushBefore: 'B', isAncestor: (sha) => sha === 'B' });
+  const picked = chooseBase({ lookup: { ok: true, sha: 'X' }, pushBefore: 'B', isAncestor: (sha) => sha === 'B' });
   eq(picked.base, 'B', 'base');
 });
 
 await test('an all-zero push base is never used', () => {
-  const picked = chooseBase({ lastSuccessSha: null, pushBefore: '0'.repeat(40), isAncestor: () => true });
+  const picked = chooseBase({ lookup: { ok: true, sha: null }, pushBefore: '0'.repeat(40), isAncestor: () => true });
   eq(picked.base, null, 'base');
   eq(picked.source, 'none', 'source');
 });
